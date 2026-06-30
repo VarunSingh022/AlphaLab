@@ -9,6 +9,7 @@ SHARE_QUANT = Decimal("0.000001")
 PRICE_QUANT = Decimal("0.0001")
 CURRENCY_QUANT = Decimal("0.01")
 
+
 @dataclass(frozen=True, slots=True)
 class Position:
     """
