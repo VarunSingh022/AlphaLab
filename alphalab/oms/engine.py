@@ -146,7 +146,7 @@ class OMSEngine:
 
         if state.orders.contains(order.order_id):
             raise DuplicateOrderError(f"Order already exists: {order.order_id}")
-        
+
         validate_order(
             order,
             current_timestamp,
