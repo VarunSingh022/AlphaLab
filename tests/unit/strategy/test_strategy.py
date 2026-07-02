@@ -42,6 +42,7 @@ class DummyLogger:
     def error(self, msg: str) -> None:
         pass
 
+
 class DummyContextBuilder:
     def __init__(self) -> None:
         pass
