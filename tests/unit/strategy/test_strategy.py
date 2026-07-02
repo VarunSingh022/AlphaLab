@@ -23,6 +23,7 @@ from alphalab.strategy import (
     register_strategy,
 )
 
+
 class DummyClock:
     def now(self) -> float:
         return 0.0
