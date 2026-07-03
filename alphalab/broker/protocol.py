@@ -13,35 +13,29 @@ class BrokerProtocol(Protocol):
 
     def submit_order(
         self, state: BrokerState, order: BrokerOrder, timestamp: float
-    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
-        ...
+    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]: ...
 
     def cancel_order(
         self, state: BrokerState, broker_order_id: str, timestamp: float
-    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
-        ...
+    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]: ...
 
     def replace_order(
-        self, 
-        state: BrokerState, 
-        broker_order_id: str, 
-        new_quantity: Decimal, 
-        new_price: Decimal, 
+        self,
+        state: BrokerState,
+        broker_order_id: str,
+        new_quantity: Decimal,
+        new_price: Decimal,
         timestamp: float,
-    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
-        ...
+    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]: ...
 
     def heartbeat(
         self, state: BrokerState, timestamp: float
-    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
-        ...
+    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]: ...
 
     def connect(
         self, state: BrokerState, timestamp: float
-    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
-        ...
+    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]: ...
 
     def disconnect(
         self, state: BrokerState, reason: str, timestamp: float
-    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
-        ...
+    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]: ...

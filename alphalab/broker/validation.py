@@ -11,7 +11,7 @@ def validate_order_submission(state: BrokerState, order: BrokerOrder) -> None:
     """Validates structural and logical integrity of an outbound order."""
     if order.quantity <= Decimal("0.00"):
         raise BrokerValidationError(f"Order quantity must be positive, got {order.quantity}")
-        
+
     if order.price < Decimal("0.00"):
         raise BrokerValidationError(f"Order price cannot be negative, got {order.price}")
 
@@ -23,9 +23,9 @@ def validate_cancel_request(state: BrokerState, broker_order_id: str) -> None:
     """Validates whether an order can be cancelled."""
     if broker_order_id not in state.orders:
         raise BrokerValidationError(f"Order {broker_order_id} not found.")
-        
+
     order = state.orders[broker_order_id]
-    
+
     if order.status in {
         BrokerOrderStatus.FILLED,
         BrokerOrderStatus.CANCELLED,

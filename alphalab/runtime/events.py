@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class RuntimeEvent:
     """Base class for all Runtime system events."""
+
     event_id: str
     timestamp: float
 

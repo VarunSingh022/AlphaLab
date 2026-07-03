@@ -7,6 +7,7 @@ from decimal import Decimal
 @dataclass(frozen=True, slots=True)
 class BrokerAccount:
     """Immutable representation of a broker account's financial state."""
+
     account_id: str
     cash: Decimal
     equity: Decimal

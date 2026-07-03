@@ -30,9 +30,7 @@ class RuntimeSupervisor:
             runtime_id=state.runtime_id,
         )
 
-        new_supervisor = replace(
-            state.supervisor, last_heartbeat=timestamp, is_healthy=True
-        )
+        new_supervisor = replace(state.supervisor, last_heartbeat=timestamp, is_healthy=True)
 
         new_uptime = max(
             state.metrics.uptime_seconds,

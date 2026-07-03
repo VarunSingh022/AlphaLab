@@ -33,7 +33,7 @@ class PaperBroker:
     ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
         if state.connection_status == ConnectionStatus.CONNECTED:
             return state, ()
-            
+
         evt = BrokerConnected(self._generate_id(), timestamp, state.broker_name)
         new_state = replace(
             state, connection_status=ConnectionStatus.CONNECTED, events=(*state.events, evt)
@@ -65,13 +65,13 @@ class PaperBroker:
             self._generate_id(), timestamp, order.broker_order_id, order.oms_order_id
         )
         acc_evt = OrderAccepted(self._generate_id(), timestamp, order.broker_order_id)
-        
+
         events: list[BrokerEvent] = [sub_evt, acc_evt]
         new_orders = dict(state.orders)
-        
+
         updated_order = replace(order, status=BrokerOrderStatus.ACCEPTED, updated_at=timestamp)
         new_orders[order.broker_order_id] = updated_order
-        
+
         temp_state = replace(state, orders=new_orders)
 
         # Paper Broker simulates instant perfect fills for Market Orders
@@ -87,53 +87,51 @@ class PaperBroker:
         self, state: BrokerState, broker_order_id: str, timestamp: float
     ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
         validate_cancel_request(state, broker_order_id)
-        
+
         order = state.orders[broker_order_id]
         updated_order = replace(order, status=BrokerOrderStatus.CANCELLED, updated_at=timestamp)
-        
+
         new_orders = dict(state.orders)
         new_orders[broker_order_id] = updated_order
-        
+
         evt = OrderCancelled(self._generate_id(), timestamp, broker_order_id)
         new_state = replace(state, orders=new_orders, events=(*state.events, evt))
-        
+
         return new_state, (evt,)
 
     def replace_order(
-        self, 
-        state: BrokerState, 
-        broker_order_id: str, 
-        new_quantity: Decimal, 
-        new_price: Decimal, 
+        self,
+        state: BrokerState,
+        broker_order_id: str,
+        new_quantity: Decimal,
+        new_price: Decimal,
         timestamp: float,
     ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
         validate_cancel_request(state, broker_order_id)  # Same validation logic applies
-        
+
         order = state.orders[broker_order_id]
-        updated_order = replace(
-            order, quantity=new_quantity, price=new_price, updated_at=timestamp
-        )
-        
+        updated_order = replace(order, quantity=new_quantity, price=new_price, updated_at=timestamp)
+
         new_orders = dict(state.orders)
         new_orders[broker_order_id] = updated_order
-        
+
         # Simulated standard replacing behavior
         new_state = replace(state, orders=new_orders)
         return new_state, ()
 
     def _simulate_fill(
-        self, 
-        state: BrokerState, 
-        order: BrokerOrder, 
-        fill_qty: Decimal, 
-        fill_price: Decimal, 
-        timestamp: float, 
+        self,
+        state: BrokerState,
+        order: BrokerOrder,
+        fill_qty: Decimal,
+        fill_price: Decimal,
+        timestamp: float,
         existing_events: tuple[BrokerEvent, ...],
     ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
         """Internal pure function simulating fill accounting and execution generation."""
         exec_id = f"EXEC-{self._generate_id()}"
         commission = Decimal("0.00")  # Simplification for paper broker
-        
+
         execution = BrokerExecution(
             execution_id=exec_id,
             broker_order_id=order.broker_order_id,
@@ -151,14 +149,14 @@ class PaperBroker:
         # 1. Update Order
         new_filled = order.filled_quantity + fill_qty
         new_status = (
-            BrokerOrderStatus.FILLED 
-            if new_filled >= order.quantity 
+            BrokerOrderStatus.FILLED
+            if new_filled >= order.quantity
             else BrokerOrderStatus.PARTIALLY_FILLED
         )
-        
+
         total_cost = (order.filled_quantity * order.average_fill_price) + (fill_qty * fill_price)
         new_avg_price = total_cost / new_filled if new_filled > Decimal("0") else Decimal("0.00")
-        
+
         updated_order = replace(
             order,
             filled_quantity=new_filled,

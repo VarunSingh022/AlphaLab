@@ -7,6 +7,7 @@ from enum import Enum, auto
 
 class BrokerOrderStatus(Enum):
     """Lifecycle statuses for an order residing at the broker."""
+
     PENDING_SUBMIT = auto()
     ACCEPTED = auto()
     PARTIALLY_FILLED = auto()
@@ -18,6 +19,7 @@ class BrokerOrderStatus(Enum):
 
 class BrokerOrderType(Enum):
     """Standard broker order types."""
+
     MARKET = auto()
     LIMIT = auto()
     STOP = auto()
@@ -25,6 +27,7 @@ class BrokerOrderType(Enum):
 
 class BrokerOrderSide(Enum):
     """Execution side for broker orders."""
+
     BUY = auto()
     SELL = auto()
 
@@ -32,6 +35,7 @@ class BrokerOrderSide(Enum):
 @dataclass(frozen=True, slots=True)
 class BrokerOrder:
     """Immutable representation of an order residing at an external broker."""
+
     broker_order_id: str
     oms_order_id: str
     symbol: str

@@ -12,7 +12,7 @@ from alphalab.feed import (
 def run_benchmark() -> None:
     state = FeedEngine.initialize("MOCK-BENCH", "MockProvider")
     feed = MockFeed()
-    
+
     N = 100_000
     print(f"Starting Feed Layer Benchmark: Processing {N} Raw Events...")
 
@@ -30,7 +30,7 @@ def run_benchmark() -> None:
                 "price": "150.00",
                 "size": "100",
                 "id": f"TRD-{i}",
-            }
+            },
         )
         for i in range(N)
     )

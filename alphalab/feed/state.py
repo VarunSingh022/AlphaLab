@@ -11,6 +11,7 @@ from alphalab.feed.subscription import Subscription
 @dataclass(frozen=True, slots=True)
 class FeedStatistics:
     """Immutable tracking metrics for the provider."""
+
     messages_received: int = 0
     bytes_received: int = 0
     errors: int = 0
@@ -19,6 +20,7 @@ class FeedStatistics:
 @dataclass(frozen=True, slots=True)
 class FeedState:
     """Deterministic snapshot of feed connection and subscription states."""
+
     provider_id: str
     connection: ConnectionSnapshot
     subscriptions: Mapping[str, Subscription] = field(default_factory=dict)

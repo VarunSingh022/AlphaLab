@@ -11,6 +11,7 @@ from alphalab.market import Bar, OrderBookLevel, OrderBookSnapshot, Quote, Tick,
 @dataclass(frozen=True, slots=True)
 class RawPayload:
     """Generic carrier for external provider-specific data dictionaries."""
+
     payload_type: str
     data: Mapping[str, Any]
 
@@ -47,7 +48,7 @@ def normalize_quote(payload: RawPayload, provider: str) -> Quote:
 def normalize_bar(payload: RawPayload) -> Bar:
     """Maps raw OHLCV to an immutable AlphaLab Bar."""
     d = payload.data
-    
+
     tf_str = str(d.get("timeframe", "1m"))
     tf = TimeFrame.M1
     for enum_val in TimeFrame:
@@ -72,17 +73,17 @@ def normalize_bar(payload: RawPayload) -> Bar:
 def normalize_book(payload: RawPayload) -> OrderBookSnapshot:
     """Maps a raw depth representation to an immutable OrderBookSnapshot."""
     d = payload.data
-    
+
     bids = tuple(
         OrderBookLevel(price=Decimal(str(p)), size=Decimal(str(s)), orders=int(o))
         for p, s, o in d.get("bids", [])
     )
-    
+
     asks = tuple(
         OrderBookLevel(price=Decimal(str(p)), size=Decimal(str(s)), orders=int(o))
         for p, s, o in d.get("asks", [])
     )
-    
+
     return OrderBookSnapshot(
         asset_id=str(d["symbol"]),
         timestamp=float(d["ts"]),

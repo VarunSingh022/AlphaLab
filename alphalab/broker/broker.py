@@ -10,9 +10,7 @@ class BrokerEngine:
     """Facade orchestrating safe interaction with configured BrokerProtocols."""
 
     @staticmethod
-    def initialize(
-        broker_name: str, initial_cash: Decimal, currency: str = "USD"
-    ) -> BrokerState:
+    def initialize(broker_name: str, initial_cash: Decimal, currency: str = "USD") -> BrokerState:
         """Constructs an empty base state for the broker layer."""
         account = BrokerAccount(
             account_id=f"{broker_name}-ACC",

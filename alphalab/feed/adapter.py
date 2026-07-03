@@ -18,7 +18,7 @@ class FeedAdapter:
     def process_payload(payload: RawPayload, provider_name: str) -> Any:
         """Routes payloads to correct normalizers based on type tag."""
         ptype = payload.payload_type.upper()
-        
+
         if ptype == "TICK":
             return normalize_tick(payload, provider_name)
         elif ptype == "QUOTE":
@@ -27,5 +27,5 @@ class FeedAdapter:
             return normalize_bar(payload)
         elif ptype == "BOOK":
             return normalize_book(payload)
-            
+
         raise ValueError(f"Unknown payload type: {ptype}")

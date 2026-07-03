@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class RuntimeMetrics:
     """Immutable representation of runtime performance and health."""
+
     events_processed: int = 0
     total_dispatch_latency: float = 0.0
     error_count: int = 0

@@ -7,6 +7,7 @@ from decimal import Decimal
 @dataclass(frozen=True, slots=True)
 class BrokerPosition:
     """Immutable representation of an open asset position held at the broker."""
+
     symbol: str
     quantity: Decimal
     average_price: Decimal

@@ -12,18 +12,19 @@ from alphalab.broker.order import (
 
 class OMSOrderProtocol(Protocol):
     """Generic interface for incoming OMS orders to decouple from strict file imports."""
+
     @property
     def order_id(self) -> str: ...
-    
+
     @property
     def asset_id(self) -> str: ...
-    
+
     @property
     def side(self) -> str: ...
-    
+
     @property
     def quantity(self) -> Any: ...
-    
+
     @property
     def price(self) -> Any: ...
 
@@ -40,9 +41,9 @@ class BrokerAdapter:
     ) -> BrokerOrder:
         """Converts an OMS order request into an immutable BrokerOrder."""
         from decimal import Decimal
-        
+
         side = BrokerOrderSide.BUY if str(oms_order.side).upper() == "BUY" else BrokerOrderSide.SELL
-        
+
         return BrokerOrder(
             broker_order_id=broker_order_id,
             oms_order_id=oms_order.order_id,

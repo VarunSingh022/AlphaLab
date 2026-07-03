@@ -13,6 +13,7 @@ from alphalab.broker.position import BrokerPosition
 
 class ConnectionStatus(Enum):
     """Connection states for the external broker."""
+
     DISCONNECTED = auto()
     CONNECTING = auto()
     CONNECTED = auto()
@@ -21,6 +22,7 @@ class ConnectionStatus(Enum):
 @dataclass(frozen=True, slots=True)
 class BrokerState:
     """Deterministic snapshot of broker account, connection, and order state."""
+
     broker_name: str
     connection_status: ConnectionStatus
     account: BrokerAccount

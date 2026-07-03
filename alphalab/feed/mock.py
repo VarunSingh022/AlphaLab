@@ -39,14 +39,14 @@ class MockFeed:
         validate_connect(state)
 
         event = FeedConnected(self._create_id(), timestamp, state.provider_id)
-        
+
         new_conn = replace(
             state.connection,
             connected=True,
             last_heartbeat=timestamp,
             latency_ms=0.0,
         )
-        
+
         new_state = replace(
             state,
             connection=new_conn,
@@ -60,12 +60,12 @@ class MockFeed:
         validate_disconnect(state)
 
         event = FeedDisconnected(self._create_id(), timestamp, state.provider_id, reason)
-        
+
         new_conn = replace(
             state.connection,
             connected=False,
         )
-        
+
         new_state = replace(
             state,
             connection=new_conn,
@@ -78,14 +78,12 @@ class MockFeed:
     ) -> tuple[FeedState, tuple[FeedEvent, ...]]:
         validate_subscription(state, symbol)
 
-        event = FeedSubscribed(
-            self._create_id(), timestamp, state.provider_id, symbol, feed_type
-        )
-        
+        event = FeedSubscribed(self._create_id(), timestamp, state.provider_id, symbol, feed_type)
+
         sub = Subscription(symbol, feed_type, True, timestamp)
         new_subs = dict(state.subscriptions)
         new_subs[symbol] = sub
-        
+
         new_state = replace(
             state,
             subscriptions=new_subs,
@@ -98,14 +96,12 @@ class MockFeed:
     ) -> tuple[FeedState, tuple[FeedEvent, ...]]:
         validate_unsubscription(state, symbol)
 
-        event = FeedUnsubscribed(
-            self._create_id(), timestamp, state.provider_id, symbol
-        )
-        
+        event = FeedUnsubscribed(self._create_id(), timestamp, state.provider_id, symbol)
+
         sub = state.subscriptions[symbol]
         new_subs = dict(state.subscriptions)
         new_subs[symbol] = replace(sub, active=False, timestamp=timestamp)
-        
+
         new_state = replace(
             state,
             subscriptions=new_subs,
@@ -118,15 +114,11 @@ class MockFeed:
     ) -> tuple[FeedState, tuple[FeedEvent, ...]]:
         if not state.connection.connected:
             return state, ()
-            
-        event = HeartbeatReceived(
-            self._create_id(), timestamp, state.provider_id, latency_ms
-        )
-        
-        new_conn = replace(
-            state.connection, last_heartbeat=timestamp, latency_ms=latency_ms
-        )
-        
+
+        event = HeartbeatReceived(self._create_id(), timestamp, state.provider_id, latency_ms)
+
+        new_conn = replace(state.connection, last_heartbeat=timestamp, latency_ms=latency_ms)
+
         new_state = replace(
             state,
             connection=new_conn,
@@ -139,7 +131,7 @@ class MockFeed:
     ) -> tuple[FeedState, tuple[FeedEvent, ...]]:
         """Consumes a raw payload, adapts it to AlphaLab formats, and emits."""
         validate_publish(state)
-        
+
         # In a real feed, filtering by subscription happens here
         if isinstance(payload, RawPayload):
             sym = str(payload.data.get("symbol", ""))
@@ -147,13 +139,9 @@ class MockFeed:
                 return state, ()
 
         # Normalize via Adapter
-        normalized_data = FeedAdapter.process_payload(
-            payload, state.connection.provider_name
-        )
+        normalized_data = FeedAdapter.process_payload(payload, state.connection.provider_name)
 
-        event = MarketDataReceived(
-            self._create_id(), timestamp, state.provider_id, normalized_data
-        )
+        event = MarketDataReceived(self._create_id(), timestamp, state.provider_id, normalized_data)
 
         new_stats = replace(
             state.statistics,

@@ -24,14 +24,12 @@ class MockOMSOrder:
 def run_benchmark() -> None:
     state = BrokerEngine.initialize("PAPER-BENCH", Decimal("100000000.00"))
     broker = PaperBroker()
-    
+
     N = 100_000
     print(f"Starting Broker Benchmark: Submitting {N} Market Orders...")
 
     # 1. Prepare 100,000 OMS mock orders
-    oms_orders = tuple(
-        MockOMSOrder(f"OMS-{i}", "AAPL", "BUY", "10", "150.00") for i in range(N)
-    )
+    oms_orders = tuple(MockOMSOrder(f"OMS-{i}", "AAPL", "BUY", "10", "150.00") for i in range(N))
 
     start = time.perf_counter()
 

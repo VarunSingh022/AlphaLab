@@ -16,7 +16,7 @@ class FeedEngine:
             provider_name=provider_name,
             last_heartbeat=0.0,
         )
-        
+
         return FeedState(
             provider_id=provider_id,
             connection=conn,

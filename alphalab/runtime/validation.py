@@ -15,7 +15,7 @@ def validate_transition(current: RuntimeStatus, target: RuntimeStatus) -> None:
         RuntimeStatus.PAUSED: {RuntimeStatus.RUNNING, RuntimeStatus.STOPPING, RuntimeStatus.FAILED},
         RuntimeStatus.STOPPING: {RuntimeStatus.STOPPED, RuntimeStatus.FAILED},
         RuntimeStatus.STOPPED: {RuntimeStatus.INITIALIZED},  # Can be re-initialized
-        RuntimeStatus.FAILED: {RuntimeStatus.INITIALIZED},   # Can recover via re-initialization
+        RuntimeStatus.FAILED: {RuntimeStatus.INITIALIZED},  # Can recover via re-initialization
     }
 
     allowed = valid_transitions.get(current, set())

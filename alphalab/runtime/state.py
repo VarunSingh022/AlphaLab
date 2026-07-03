@@ -11,6 +11,7 @@ from alphalab.runtime.metrics import RuntimeMetrics
 @dataclass(frozen=True, slots=True)
 class SupervisorState:
     """Immutable tracking of health and failure policies."""
+
     last_heartbeat: float = 0.0
     heartbeat_interval: float = 1.0
     max_missed_heartbeats: int = 3
@@ -20,6 +21,7 @@ class SupervisorState:
 @dataclass(frozen=True, slots=True)
 class RuntimeState:
     """Deterministic snapshot of the orchestration layer."""
+
     runtime_id: str
     status: RuntimeStatus
     supervisor: SupervisorState
