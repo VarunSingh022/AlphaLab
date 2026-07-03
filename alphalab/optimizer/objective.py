@@ -7,6 +7,7 @@ from enum import Enum, auto
 
 class OptimizationDirection(Enum):
     """Defines whether the objective function should be maximized or minimized."""
+
     MAXIMIZE = auto()
     MINIMIZE = auto()
 
@@ -14,12 +15,14 @@ class OptimizationDirection(Enum):
 @dataclass(frozen=True, slots=True)
 class ObjectiveFunction:
     """Immutable configuration for evaluating the success of a trial."""
+
     name: str
     direction: OptimizationDirection
     evaluator: Callable[[dict[str, float]], float]
 
 
 # Standard Objective Evaluators extracting metrics from an expected dictionary map
+
 
 def evaluate_sharpe(metrics: dict[str, float]) -> float:
     return metrics.get("sharpe_ratio", 0.0)

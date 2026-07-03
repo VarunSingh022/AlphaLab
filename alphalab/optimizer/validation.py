@@ -25,7 +25,7 @@ def validate_parameter(param: Parameter) -> None:
                 f"exceeds maximum ({param.maximum})."
             )
             raise OptimizerValidationError(err_msg)
-            
+
         if param.step is not None and param.step <= 0:
             raise OptimizerValidationError(
                 f"Parameter '{param.name}' step must be positive, got {param.step}."

@@ -35,7 +35,7 @@ class OptimizationEngine:
         """Constructs an empty base state for the optimization layer."""
         if not trials:
             raise ValueError("Cannot initialize optimizer with zero trials.")
-            
+
         return OptimizerState(
             engine_id=engine_id,
             status=OptimizerStatus.CREATED,
@@ -67,9 +67,7 @@ class OptimizationEngine:
 
     @staticmethod
     def step(
-        state: OptimizerState, 
-        evaluator: TrialEvaluatorProtocol, 
-        timestamp: float
+        state: OptimizerState, evaluator: TrialEvaluatorProtocol, timestamp: float
     ) -> tuple[OptimizerState, TrialResult | None]:
         """
         Pops one pending trial, delegates execution to the evaluator, computes the
@@ -97,12 +95,12 @@ class OptimizationEngine:
         except Exception as e:
             metrics = {}
             score = (
-                float("-inf") 
-                if state.objective.direction == OptimizationDirection.MAXIMIZE 
+                float("-inf")
+                if state.objective.direction == OptimizationDirection.MAXIMIZE
                 else float("inf")
             )
             error = str(e)
-            
+
         eval_time = time.perf_counter() - eval_start
 
         result = TrialResult(
@@ -151,14 +149,14 @@ class OptimizationEngine:
         """Transitions the optimizer to COMPLETED."""
         if state.status not in {OptimizerStatus.RUNNING, OptimizerStatus.CREATED}:
             raise InvalidOptimizerStateError("Cannot complete from current state.")
-            
+
         best_score = state.best_trial.score if state.best_trial else 0.0
         total_time = timestamp - state.start_time
-        
+
         comp_evt = OptimizationCompleted(
             OptimizationEngine._create_id(), timestamp, best_score, total_time
         )
-        
+
         return replace(
             state,
             status=OptimizerStatus.COMPLETED,
@@ -169,9 +167,7 @@ class OptimizationEngine:
     @staticmethod
     def fail(state: OptimizerState, reason: str, timestamp: float) -> OptimizerState:
         """Transitions the optimizer to FAILED."""
-        fail_evt = OptimizationFailed(
-            OptimizationEngine._create_id(), timestamp, reason
-        )
+        fail_evt = OptimizationFailed(OptimizationEngine._create_id(), timestamp, reason)
         return replace(
             state,
             status=OptimizerStatus.FAILED,

@@ -30,6 +30,7 @@ from alphalab.optimizer import (
 
 class MockEvaluator(TrialEvaluatorProtocol):
     """A deterministic mock evaluator for testing."""
+
     def evaluate(self, parameters: dict[str, Any]) -> dict[str, float]:
         if parameters.get("crash"):
             raise ValueError("Simulated crash")
@@ -56,6 +57,7 @@ def base_parameters() -> tuple[Parameter, ...]:
 
 
 # --- VALIDATION TESTS (12 tests) ---
+
 
 def test_validation_empty_name() -> None:
     p = Parameter("", ParameterType.INT, default=0)
@@ -101,6 +103,7 @@ def test_validation_duplicate_params() -> None:
 
 # --- SEARCH SPACE GENERATION TESTS (10 tests) ---
 
+
 def test_grid_search_generation(base_parameters: tuple[Parameter, ...]) -> None:
     # x: 0, 5, 10 (3) * y: 0, 5, 10 (3) = 9 combinations
     combos = generate_grid_search(base_parameters)
@@ -127,7 +130,7 @@ def test_grid_search_no_step() -> None:
 def test_random_search_generation(base_parameters: tuple[Parameter, ...]) -> None:
     combos1 = generate_random_search(base_parameters, num_trials=5, seed=42)
     combos2 = generate_random_search(base_parameters, num_trials=5, seed=42)
-    
+
     assert len(combos1) == 5
     # Determinism check
     assert combos1 == combos2
@@ -136,7 +139,7 @@ def test_random_search_generation(base_parameters: tuple[Parameter, ...]) -> Non
 def test_random_search_exhaustive_cap() -> None:
     # Extremely small space (2 possible outcomes)
     p = Parameter("x", ParameterType.INT, default=0, minimum=0, maximum=1, step=1)
-    
+
     # Requesting 100 trials, but only 2 unique exist. Should safely cap at 2.
     combos = generate_random_search((p,), num_trials=100, seed=1)
     assert len(combos) == 2
@@ -149,6 +152,7 @@ def test_single_run_generation(base_parameters: tuple[Parameter, ...]) -> None:
 
 
 # --- ENGINE & LIFECYCLE TESTS (15 tests) ---
+
 
 def test_engine_initialization(base_objective: ObjectiveFunction) -> None:
     trials = ({"x": 1}, {"x": 2})
@@ -178,16 +182,16 @@ def test_engine_step_and_complete(base_objective: ObjectiveFunction) -> None:
     s1 = OptimizationEngine.start(
         OptimizationEngine.initialize("OPT1", base_objective, trials), 1000.0
     )
-    
+
     evaluator = MockEvaluator()
-    
+
     # Step 1
     s2, res1 = OptimizationEngine.step(s1, evaluator, 1001.0)
     assert res1 is not None
     assert res1.score == 0.0  # 10 - 5 - 5
     assert len(s2.pending_trials) == 1
     assert s2.status == OptimizerStatus.RUNNING
-    
+
     # Step 2
     s3, res2 = OptimizationEngine.step(s2, evaluator, 1002.0)
     assert res2 is not None
@@ -201,10 +205,10 @@ def test_engine_fail_on_crash(base_objective: ObjectiveFunction) -> None:
     s1 = OptimizationEngine.start(
         OptimizationEngine.initialize("OPT1", base_objective, trials), 1000.0
     )
-    
+
     evaluator = MockEvaluator()
     s2, res1 = OptimizationEngine.step(s1, evaluator, 1001.0)
-    
+
     # Crashes shouldn't fail the WHOLE optimization, just the trial
     assert res1 is not None
     assert res1.error == "Simulated crash"
@@ -221,17 +225,18 @@ def test_engine_fail_transition(base_objective: ObjectiveFunction) -> None:
 
 # --- RANKING & OBJECTIVE TESTS (10 tests) ---
 
+
 def test_objective_maximize() -> None:
     obj = ObjectiveFunction("Sharpe", OptimizationDirection.MAXIMIZE, evaluate_sharpe)
     evaluator = MockEvaluator()
-    
+
     trials = ({"x": 0, "y": 0}, {"x": 5, "y": 5}, {"x": 2, "y": 2})
     state = OptimizationEngine.start(OptimizationEngine.initialize("OPT", obj, trials), 1000.0)
-    
+
     state, _ = OptimizationEngine.step(state, evaluator, 1001.0)
     state, _ = OptimizationEngine.step(state, evaluator, 1002.0)
     state, _ = OptimizationEngine.step(state, evaluator, 1003.0)
-    
+
     # Maximize Sharpe: {"x": 5, "y": 5} should be best (Score 10.0)
     best = best_result(state)
     assert best is not None
@@ -242,15 +247,15 @@ def test_objective_maximize() -> None:
 def test_objective_minimize() -> None:
     obj = ObjectiveFunction("Drawdown", OptimizationDirection.MINIMIZE, evaluate_max_drawdown)
     evaluator = MockEvaluator()
-    
+
     # Drawdown logic in Mock: abs(x) * 0.01. We want lowest x.
     trials = ({"x": 10}, {"x": 0}, {"x": 5})
     state = OptimizationEngine.start(OptimizationEngine.initialize("OPT", obj, trials), 1000.0)
-    
+
     state, _ = OptimizationEngine.step(state, evaluator, 1001.0)
     state, _ = OptimizationEngine.step(state, evaluator, 1002.0)
     state, _ = OptimizationEngine.step(state, evaluator, 1003.0)
-    
+
     # Minimize Drawdown: {"x": 0} should be best (Score 0.0)
     best = best_result(state)
     assert best is not None
@@ -261,14 +266,14 @@ def test_objective_minimize() -> None:
 def test_top_results() -> None:
     obj = ObjectiveFunction("Sharpe", OptimizationDirection.MAXIMIZE, evaluate_sharpe)
     evaluator = MockEvaluator()
-    
+
     # Scores will be: x=0 -> 0.0, x=5 -> 5.0, x=10 -> 0.0, x=3 -> 3.0 (assuming y=5)
     trials = ({"x": 0, "y": 5}, {"x": 5, "y": 5}, {"x": 10, "y": 5}, {"x": 3, "y": 5})
     state = OptimizationEngine.start(OptimizationEngine.initialize("OPT", obj, trials), 1000.0)
-    
+
     for _ in range(4):
         state, _ = OptimizationEngine.step(state, evaluator, 1001.0)
-        
+
     top = top_results(state, count=2)
     assert len(top) == 2
     assert top[0].parameters["x"] == 5
@@ -277,18 +282,19 @@ def test_top_results() -> None:
 
 # --- VIEWS & PROGRESS TESTS (8 tests) ---
 
+
 def test_progress_view(base_objective: ObjectiveFunction) -> None:
     trials = ({"x": 1}, {"x": 2}, {"x": 3}, {"x": 4})
     state = OptimizationEngine.start(
         OptimizationEngine.initialize("OPT1", base_objective, trials), 1000.0
     )
-    
+
     assert progress(state) == 0.0
     assert trial_count(state) == 0
-    
+
     evaluator = MockEvaluator()
     state, _ = OptimizationEngine.step(state, evaluator, 1001.0)
-    
+
     assert progress(state) == 0.25
     assert trial_count(state) == 1
 
@@ -297,7 +303,7 @@ def test_immutability(base_objective: ObjectiveFunction) -> None:
     trials = ({"x": 1},)
     state1 = OptimizationEngine.initialize("OPT1", base_objective, trials)
     state2 = OptimizationEngine.start(state1, 1000.0)
-    
+
     assert state1 is not state2
     assert state1.status == OptimizerStatus.CREATED
     assert state2.status == OptimizerStatus.RUNNING

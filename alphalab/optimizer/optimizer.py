@@ -68,8 +68,8 @@ class Optimizer:
         """Internal pure loop advancing the engine step-by-step until completion."""
         state = OptimizationEngine.initialize(engine_id, objective, trials)
         state = OptimizationEngine.start(state, time.time(), search_method=search_method)
-        
+
         while state.pending_trials:
             state, _ = OptimizationEngine.step(state, evaluator, time.time())
-            
+
         return state

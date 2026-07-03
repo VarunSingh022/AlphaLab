@@ -22,10 +22,10 @@ def _generate_numeric_range(param: Parameter) -> tuple[Any, ...]:
 
     values: list[Any] = []
     current = param.minimum
-    
+
     # Epsilon applied to avoid precision-based infinite loops or missing bounds
     epsilon = step * 0.0001 if param.param_type == ParameterType.FLOAT else 0
-    
+
     while current <= (param.maximum + epsilon):
         # Format explicitly to standard primitive types
         if param.param_type == ParameterType.INT:
@@ -50,16 +50,16 @@ def generate_grid_search(parameters: tuple[Parameter, ...]) -> tuple[dict[str, A
     """Generates an exhaustive Cartesian product of all parameter values."""
     keys = [p.name for p in parameters]
     value_lists = [_get_parameter_values(p) for p in parameters]
-    
+
     combinations = list(itertools.product(*value_lists))
     if not combinations:
         raise OptimizerValidationError("Grid search generated zero combinations.")
-        
+
     # Generate dictionaries
     results: list[dict[str, Any]] = []
     for combo in combinations:
         results.append(dict(zip(keys, combo, strict=True)))
-        
+
     return tuple(results)
 
 
@@ -69,12 +69,12 @@ def generate_random_search(
     """Deterministically generates random parameter sets using a seeded PRNG."""
     if num_trials <= 0:
         raise OptimizerValidationError("Random search requires num_trials > 0.")
-        
+
     prng = random.Random(seed)
     keys = [p.name for p in parameters]
     results: list[dict[str, Any]] = []
     seen = set()
-    
+
     # Cap attempts to prevent infinite loops if the space is smaller than num_trials
     max_attempts = num_trials * 10
     attempts = 0
@@ -86,29 +86,29 @@ def generate_random_search(
             if p.choices is not None:
                 combo.append(prng.choice(p.choices))
             elif (
-                p.param_type == ParameterType.INT 
-                and p.minimum is not None 
+                p.param_type == ParameterType.INT
+                and p.minimum is not None
                 and p.maximum is not None
             ):
                 combo.append(prng.randint(int(p.minimum), int(p.maximum)))
             elif (
-                p.param_type == ParameterType.FLOAT 
-                and p.minimum is not None 
+                p.param_type == ParameterType.FLOAT
+                and p.minimum is not None
                 and p.maximum is not None
             ):
                 val = prng.uniform(float(p.minimum), float(p.maximum))
                 combo.append(float(round(val, 6)))
             else:
                 combo.append(p.default)
-                
+
         combo_tuple = tuple(combo)
         if combo_tuple not in seen:
             seen.add(combo_tuple)
             results.append(dict(zip(keys, combo_tuple, strict=True)))
-            
+
     if not results:
         raise OptimizerValidationError("Random search generated zero valid combinations.")
-        
+
     return tuple(results)
 
 

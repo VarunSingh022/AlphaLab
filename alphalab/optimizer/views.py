@@ -16,12 +16,12 @@ def top_results(state: OptimizerState, count: int = 5) -> Sequence[TrialResult]:
     """Returns the top N performing trials ordered by objective score."""
     if not state.completed_trials:
         return ()
-        
+
     valid_trials = [t for t in state.completed_trials if t.error is None]
-    
+
     is_reverse = state.objective.direction == OptimizationDirection.MAXIMIZE
     sorted_trials = sorted(valid_trials, key=lambda t: t.score, reverse=is_reverse)
-    
+
     return tuple(sorted_trials[:count])
 
 

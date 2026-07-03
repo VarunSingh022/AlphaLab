@@ -8,5 +8,5 @@ class TrialEvaluatorProtocol(Protocol):
     Protocol for external components orchestrating Replay and Analytics.
     Returns a dictionary of standard float metrics (sharpe, drawdown, etc.).
     """
-    def evaluate(self, parameters: dict[str, Any]) -> dict[str, float]:
-        ...
+
+    def evaluate(self, parameters: dict[str, Any]) -> dict[str, float]: ...

@@ -11,6 +11,7 @@ from alphalab.optimizer.results import TrialResult
 
 class OptimizerStatus(Enum):
     """Explicit pure state machine stages for the Optimization Engine."""
+
     CREATED = auto()
     RUNNING = auto()
     COMPLETED = auto()
@@ -20,6 +21,7 @@ class OptimizerStatus(Enum):
 @dataclass(frozen=True, slots=True)
 class OptimizerState:
     """Deterministic snapshot of an active optimization run."""
+
     engine_id: str
     status: OptimizerStatus
     objective: ObjectiveFunction
