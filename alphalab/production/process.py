@@ -11,9 +11,11 @@ class ProcessState(Enum):
     STOPPED = auto()
     FAILED = auto()
 
+
 @dataclass(frozen=True, slots=True)
 class ManagedProcess:
     """Immutable representation of a tracked subsystem module."""
+
     module_id: str
     state: ProcessState
     restart_count: int = 0

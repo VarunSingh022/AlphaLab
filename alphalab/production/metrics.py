@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class RuntimeMetrics:
     """Operational counters for the production cluster."""
+
     processed_events: int = 0
     orders_routed: int = 0
     trades_executed: int = 0

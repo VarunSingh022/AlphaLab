@@ -16,6 +16,7 @@ from alphalab.production.process import ManagedProcess
 @dataclass(frozen=True, slots=True)
 class ProductionState:
     """Deterministic snapshot of the Production Runtime environment."""
+
     runtime_id: str
     is_running: bool = False
     start_time: float = 0.0

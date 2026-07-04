@@ -46,6 +46,7 @@ def paper_provider() -> PaperAdapter:
 
 # --- REGISTRATION TESTS ---
 
+
 def test_engine_initialization() -> None:
     state = IntegrationEngine.initialize("E1")
     assert state.engine_id == "E1"
@@ -62,6 +63,7 @@ def test_register_broker(base_state: IntegrationState, paper_config: BrokerConfi
     assert auth is not None
     assert auth.status == AuthStatus.UNAUTHENTICATED
 
+
 def test_register_duplicate(base_state: IntegrationState, paper_config: BrokerConfig) -> None:
     s1 = IntegrationEngine.register(base_state, paper_config)
     with pytest.raises(IntegrationValidationError, match="already registered"):
@@ -75,6 +77,7 @@ def test_register_empty_id(base_state: IntegrationState) -> None:
 
 
 # --- AUTHENTICATION & CONNECTION TESTS ---
+
 
 def test_authentication_success(
     base_state: IntegrationState, paper_config: BrokerConfig, paper_provider: PaperAdapter
@@ -138,6 +141,7 @@ def test_disconnect(
 
 # --- ORDER ROUTING & EXECUTION TRANSLATION TESTS ---
 
+
 @pytest.fixture
 def connected_state(
     base_state: IntegrationState, paper_config: BrokerConfig, paper_provider: PaperAdapter
@@ -148,9 +152,8 @@ def connected_state(
 
 
 def test_submit_order_market_fill(
-        connected_state: IntegrationState, 
-        paper_provider: PaperAdapter
-    ) -> None:
+    connected_state: IntegrationState, paper_provider: PaperAdapter
+) -> None:
     order = {"order_id": "O-1", "symbol": "AAPL", "side": "BUY", "type": "MARKET", "quantity": 10}
     s1 = IntegrationEngine.submit_order(connected_state, "PAPER-1", paper_provider, order, 1002.0)
 
@@ -160,16 +163,15 @@ def test_submit_order_market_fill(
 
 
 def test_submit_order_limit_accept(
-        connected_state: IntegrationState, 
-        paper_provider: PaperAdapter
-    ) -> None:
+    connected_state: IntegrationState, paper_provider: PaperAdapter
+) -> None:
     order = {
-        "order_id": "O-1", 
-        "symbol": "AAPL", 
-        "side": "BUY", 
-        "type": "LIMIT", 
-        "quantity": 10, 
-        "price": 150.0
+        "order_id": "O-1",
+        "symbol": "AAPL",
+        "side": "BUY",
+        "type": "LIMIT",
+        "quantity": 10,
+        "price": 150.0,
     }
     s1 = IntegrationEngine.submit_order(connected_state, "PAPER-1", paper_provider, order, 1002.0)
 
@@ -204,6 +206,7 @@ def test_disconnected_order_submission(
 
 # --- PORTFOLIO SYNC TESTS ---
 
+
 def test_sync_portfolio_no_drift(
     connected_state: IntegrationState, paper_provider: PaperAdapter
 ) -> None:
@@ -232,6 +235,7 @@ def test_sync_portfolio_with_drift() -> None:
 
 # --- ADAPTER TESTS ---
 
+
 def test_adapter_translation() -> None:
     alpha_order = {
         "order_id": "O-123",
@@ -250,6 +254,7 @@ def test_adapter_translation() -> None:
 
 
 # --- METAMORPHIC SCALING TESTS ---
+
 
 @pytest.mark.parametrize(
     "broker_id, adapter_cls, config_cls",

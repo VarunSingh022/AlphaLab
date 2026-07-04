@@ -15,5 +15,5 @@ class IntegrationAdapter:
             "side": alpha_order["side"].upper(),
             "type": alpha_order["order_type"].upper(),
             "quantity": float(alpha_order["quantity"]),
-            "price": float(alpha_order.get("price", 0.0))
+            "price": float(alpha_order.get("price", 0.0)),
         }

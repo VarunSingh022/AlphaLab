@@ -12,7 +12,9 @@ class CacheRecord:
     provider_id: str
     history: tuple[Bar, ...]
 
+
 @dataclass(frozen=True, slots=True)
 class MarketDataCache:
     """Immutable cache of historical lookups."""
+
     records: Mapping[str, CacheRecord] = field(default_factory=dict)

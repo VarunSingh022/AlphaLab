@@ -27,12 +27,10 @@ class Supervisor:
         return replace(state, processes=new_procs)
 
     @staticmethod
-    def start_module(
-        state: ProductionState, module_id: str, timestamp: float
-    ) -> ProductionState:
+    def start_module(state: ProductionState, module_id: str, timestamp: float) -> ProductionState:
         if module_id not in state.processes:
             raise InvalidRuntimeStateError(f"Module '{module_id}' not found.")
-            
+
         proc = state.processes[module_id]
         if proc.state == ProcessState.RUNNING:
             return state
@@ -42,13 +40,11 @@ class Supervisor:
             proc, state=ProcessState.RUNNING, last_state_change=timestamp
         )
         evt = ModuleStarted(Supervisor._create_id(), timestamp, module_id)
-        
+
         return replace(state, processes=new_procs, events=(*state.events, evt))
 
     @staticmethod
-    def stop_module(
-        state: ProductionState, module_id: str, timestamp: float
-    ) -> ProductionState:
+    def stop_module(state: ProductionState, module_id: str, timestamp: float) -> ProductionState:
         if module_id not in state.processes:
             raise InvalidRuntimeStateError(f"Module '{module_id}' not found.")
 
@@ -58,39 +54,30 @@ class Supervisor:
             proc, state=ProcessState.STOPPED, last_state_change=timestamp
         )
         evt = ModuleStopped(Supervisor._create_id(), timestamp, module_id)
-        
+
         return replace(state, processes=new_procs, events=(*state.events, evt))
 
     @staticmethod
-    def restart_module(
-        state: ProductionState, module_id: str, timestamp: float
-    ) -> ProductionState:
+    def restart_module(state: ProductionState, module_id: str, timestamp: float) -> ProductionState:
         if module_id not in state.processes:
             raise InvalidRuntimeStateError(f"Module '{module_id}' not found.")
 
         proc = state.processes[module_id]
         new_attempt = proc.restart_count + 1
-        
+
         new_procs = dict(state.processes)
         new_procs[module_id] = replace(
-            proc, 
-            state=ProcessState.RUNNING, 
-            restart_count=new_attempt, 
-            last_state_change=timestamp
+            proc, state=ProcessState.RUNNING, restart_count=new_attempt, last_state_change=timestamp
         )
         evt = ModuleRestarted(Supervisor._create_id(), timestamp, module_id, new_attempt)
-        
+
         return replace(state, processes=new_procs, events=(*state.events, evt))
-        
+
     @staticmethod
-    def fail_module(
-        state: ProductionState, module_id: str, timestamp: float
-    ) -> ProductionState:
+    def fail_module(state: ProductionState, module_id: str, timestamp: float) -> ProductionState:
         if module_id not in state.processes:
             return state
         proc = state.processes[module_id]
         new_procs = dict(state.processes)
-        new_procs[module_id] = replace(
-            proc, state=ProcessState.FAILED, last_state_change=timestamp
-        )
+        new_procs[module_id] = replace(proc, state=ProcessState.FAILED, last_state_change=timestamp)
         return replace(state, processes=new_procs)

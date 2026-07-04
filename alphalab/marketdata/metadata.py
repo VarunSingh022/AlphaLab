@@ -10,6 +10,7 @@ class MarketMetadata:
     currency: str
     trading_hours: str
 
+
 @dataclass(frozen=True, slots=True)
 class MarketStatus:
     symbol: str

@@ -21,21 +21,22 @@ def run_benchmark() -> None:
         # Simulate active heartbeat every 10 ticks
         if i % 10 == 0:
             state = ProductionEngine.heartbeat(state, "CORE", 1.5, ts)
-            
+
         # Simulate logging every tick
         log = ProductionAdapter.to_log(ts, LogLevel.INFO, "CORE", f"Tick {i}")
         state = ProductionEngine.log(state, log)
-        
+
         # Advance scheduler
         state = ProductionEngine.tick(state, ts)
 
     duration = time.perf_counter() - start
     ops_sec = N / duration
-    
+
     print(f"Total Ticks Evaluated: {N}")
     print(f"Total Heartbeats Logged: {state.metrics.heartbeats_received}")
     print(f"Evaluation Time: {duration:.4f}s")
     print(f"Throughput: {ops_sec:.2f} engine ticks/sec")
+
 
 if __name__ == "__main__":
     run_benchmark()

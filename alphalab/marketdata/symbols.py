@@ -12,6 +12,7 @@ class AssetClass(Enum):
     FOREX = auto()
     CRYPTO = auto()
 
+
 @dataclass(frozen=True, slots=True)
 class SymbolMetadata:
     symbol: str

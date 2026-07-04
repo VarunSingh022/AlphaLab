@@ -11,6 +11,7 @@ class SubscriptionStatus(Enum):
     PAUSED = auto()
     REMOVED = auto()
 
+
 @dataclass(frozen=True, slots=True)
 class Subscription:
     subscription_id: str

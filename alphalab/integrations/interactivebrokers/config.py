@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class InteractiveBrokersConfig:
     """Immutable environment configuration."""
+
     api_key: str
     api_secret: str
     base_url: str = "http://127.0.0.1:4000"

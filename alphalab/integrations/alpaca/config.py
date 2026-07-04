@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class AlpacaConfig:
     """Immutable environment configuration."""
+
     api_key: str
     api_secret: str
     base_url: str = "https://paper-api.alpaca.markets"

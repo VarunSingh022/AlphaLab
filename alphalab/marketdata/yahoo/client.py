@@ -9,12 +9,20 @@ from alphalab.marketdata.timeframe import Timeframe
 class YahooClient:
     """Isolated deterministic wrapper simulating Yahoo APIs."""
 
-    def connect(self) -> bool: return True
-    def disconnect(self) -> bool: return True
-    def subscribe(self, symbol: str, timeframe: Timeframe) -> bool: return True
-    def unsubscribe(self, symbol: str, timeframe: Timeframe) -> bool: return True
+    def connect(self) -> bool:
+        return True
 
-    def request_history(self, symbol: str, timeframe: Timeframe, start: float, end: float
+    def disconnect(self) -> bool:
+        return True
+
+    def subscribe(self, symbol: str, timeframe: Timeframe) -> bool:
+        return True
+
+    def unsubscribe(self, symbol: str, timeframe: Timeframe) -> bool:
+        return True
+
+    def request_history(
+        self, symbol: str, timeframe: Timeframe, start: float, end: float
     ) -> tuple[Bar, ...]:
         return (Bar(symbol, start, 100.0, 105.0, 95.0, 102.0, 1000.0),)
 
@@ -29,6 +37,6 @@ class YahooClient:
 
     def order_book(self, symbol: str) -> OrderBook | None:
         return OrderBook(symbol, 1000.0, (), ())
-        
+
     def health(self) -> dict[str, Any]:
         return {"status": "healthy"}

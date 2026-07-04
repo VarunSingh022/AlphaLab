@@ -13,6 +13,7 @@ from alphalab.integrations.events import IntegrationEvent
 @dataclass(frozen=True, slots=True)
 class IntegrationMetrics:
     """Immutable tracking metrics for remote interactions."""
+
     orders_submitted: int = 0
     orders_rejected: int = 0
     executions_processed: int = 0
@@ -20,9 +21,11 @@ class IntegrationMetrics:
     total_reconnects: int = 0
     api_errors: int = 0
 
+
 @dataclass(frozen=True, slots=True)
 class IntegrationState:
     """Deterministic snapshot of all active broker integrations."""
+
     engine_id: str
     configs: Mapping[str, BrokerConfig] = field(default_factory=dict)
     auth_states: Mapping[str, AuthState] = field(default_factory=dict)

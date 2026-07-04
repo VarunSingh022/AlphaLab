@@ -20,11 +20,13 @@ class ProviderMetrics:
     failures: int = 0
     bytes_received: int = 0
 
+
 @dataclass(frozen=True, slots=True)
 class MarketDataHealth:
     is_healthy: bool
     active_providers: int
     failed_providers: int
+
 
 @dataclass(frozen=True, slots=True)
 class MarketDataState:

@@ -19,10 +19,7 @@ def run_benchmark() -> None:
     state = MarketDataEngine.connect(state, "BENCH-YAHOO", provider, 1001.0)
 
     # Pre-generate generic AlphaLab dict payloads
-    trades = tuple(
-        Trade("AAPL", float(1002 + i), 150.0 + (i % 10), 100.0)
-        for i in range(N)
-    )
+    trades = tuple(Trade("AAPL", float(1002 + i), 150.0 + (i % 10), 100.0) for i in range(N))
 
     start = time.perf_counter()
 
@@ -31,10 +28,11 @@ def run_benchmark() -> None:
 
     duration = time.perf_counter() - start
     ops_sec = N / duration
-    
-    print(f"Total Ticks Processed: {len(state.trades)}") # Tracks latest per symbol.
+
+    print(f"Total Ticks Processed: {len(state.trades)}")  # Tracks latest per symbol.
     print(f"Evaluation Time: {duration:.4f}s")
     print(f"Throughput: {ops_sec:.2f} trades normalized/sec")
+
 
 if __name__ == "__main__":
     run_benchmark()

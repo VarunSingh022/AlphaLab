@@ -12,12 +12,14 @@ class Quote:
     bid_size: float
     ask_size: float
 
+
 @dataclass(frozen=True, slots=True)
 class Trade:
     symbol: str
     timestamp: float
     price: float
     size: float
+
 
 @dataclass(frozen=True, slots=True)
 class Bar:
@@ -29,10 +31,12 @@ class Bar:
     close: float
     volume: float
 
+
 @dataclass(frozen=True, slots=True)
 class OrderBookLevel:
     price: float
     size: float
+
 
 @dataclass(frozen=True, slots=True)
 class OrderBook:

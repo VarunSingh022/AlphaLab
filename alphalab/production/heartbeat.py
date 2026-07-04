@@ -10,9 +10,11 @@ class HeartbeatStatus(Enum):
     DISCONNECTED = auto()
     TIMEOUT = auto()
 
+
 @dataclass(frozen=True, slots=True)
 class HeartbeatRecord:
     """Immutable heartbeat history for a managed module."""
+
     module_id: str
     status: HeartbeatStatus
     last_ping_time: float

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class ZerodhaConfig:
     """Immutable environment configuration."""
+
     api_key: str
     api_secret: str
     base_url: str = "https://api.kite.trade"

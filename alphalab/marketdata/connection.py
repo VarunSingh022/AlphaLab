@@ -9,6 +9,7 @@ class ConnectionStatus(Enum):
     CONNECTED = auto()
     RECOVERING = auto()
 
+
 @dataclass(frozen=True, slots=True)
 class ConnectionState:
     provider_id: str

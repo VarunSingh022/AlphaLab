@@ -24,11 +24,11 @@ class IntegrationEngine:
 
     @staticmethod
     def authenticate(
-        state: IntegrationState, 
-        broker_id: str, 
-        provider: IntegrationProviderProtocol, 
-        creds: dict[str, str], 
-        ts: float
+        state: IntegrationState,
+        broker_id: str,
+        provider: IntegrationProviderProtocol,
+        creds: dict[str, str],
+        ts: float,
     ) -> IntegrationState:
         return IntegrationManager.authenticate(state, broker_id, provider, creds, ts)
 
@@ -46,11 +46,11 @@ class IntegrationEngine:
 
     @staticmethod
     def submit_order(
-        state: IntegrationState, 
-        broker_id: str, 
-        provider: IntegrationProviderProtocol, 
-        order: dict[str, Any], 
-        ts: float
+        state: IntegrationState,
+        broker_id: str,
+        provider: IntegrationProviderProtocol,
+        order: dict[str, Any],
+        ts: float,
     ) -> IntegrationState:
         return IntegrationManager.submit_order(state, broker_id, provider, order, ts)
 

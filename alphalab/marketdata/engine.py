@@ -18,7 +18,8 @@ class MarketDataEngine:
     """Facade for managing deterministic multi-vendor market data."""
 
     @staticmethod
-    def _create_id() -> str: return str(uuid.uuid4())
+    def _create_id() -> str:
+        return str(uuid.uuid4())
 
     @staticmethod
     def initialize(engine_id: str) -> MarketDataState:
@@ -27,75 +28,65 @@ class MarketDataEngine:
         return MarketDataState(engine_id=engine_id)
 
     @staticmethod
-    def register(state: MarketDataState, config: ProviderConfig, ts: float
-    ) -> MarketDataState:
+    def register(state: MarketDataState, config: ProviderConfig, ts: float) -> MarketDataState:
         return ProviderRegistry.register(state, config, ts)
 
     @staticmethod
     def connect(
-        state: MarketDataState, 
-        provider_id: str, 
-        provider: MarketDataProtocol, 
-        ts: float
+        state: MarketDataState, provider_id: str, provider: MarketDataProtocol, ts: float
     ) -> MarketDataState:
         return ConnectionManager.connect(state, provider_id, provider, ts)
 
     @staticmethod
     def disconnect(
-        state: MarketDataState, 
-        provider_id: str, 
-        provider: MarketDataProtocol, 
-        ts: float
+        state: MarketDataState, provider_id: str, provider: MarketDataProtocol, ts: float
     ) -> MarketDataState:
         return ConnectionManager.disconnect(state, provider_id, provider, ts)
 
     @staticmethod
     def subscribe(
-        state: MarketDataState, 
-        provider_id: str, 
-        provider: MarketDataProtocol, 
-        symbol: str, 
-        tf: Timeframe, 
-        ts: float
+        state: MarketDataState,
+        provider_id: str,
+        provider: MarketDataProtocol,
+        symbol: str,
+        tf: Timeframe,
+        ts: float,
     ) -> MarketDataState:
         return ConnectionManager.subscribe(state, provider_id, provider, symbol, tf, ts)
 
     @staticmethod
     def unsubscribe(
-        state: MarketDataState, 
-        provider_id: str, 
-        provider: MarketDataProtocol, 
-        symbol: str, 
-        tf: Timeframe, 
-        ts: float
+        state: MarketDataState,
+        provider_id: str,
+        provider: MarketDataProtocol,
+        symbol: str,
+        tf: Timeframe,
+        ts: float,
     ) -> MarketDataState:
         return ConnectionManager.unsubscribe(state, provider_id, provider, symbol, tf, ts)
 
     @staticmethod
     def request_history(
-        state: MarketDataState, 
-        provider_id: str, 
-        provider: MarketDataProtocol, 
-        symbol: str, 
-        tf: Timeframe, 
-        start: float, 
-        end: float
+        state: MarketDataState,
+        provider_id: str,
+        provider: MarketDataProtocol,
+        symbol: str,
+        tf: Timeframe,
+        start: float,
+        end: float,
     ) -> MarketDataState:
         history = provider.request_history(symbol, tf, start, end)
         cache_key = f"{provider_id}:{symbol}:{tf.name}"
-        
+
         new_records = dict(state.cache.records)
         new_records[cache_key] = CacheRecord(symbol, provider_id, history)
         new_cache = replace(state.cache, records=new_records)
-        
+
         return replace(state, cache=new_cache)
 
     @staticmethod
     def process_quote(
-        state: MarketDataState, 
-        provider_id: str, 
-        quote: Quote, 
-        ts: float
+        state: MarketDataState, provider_id: str, quote: Quote, ts: float
     ) -> MarketDataState:
         new_quotes = dict(state.quotes)
         new_quotes[quote.symbol] = quote
@@ -104,10 +95,7 @@ class MarketDataEngine:
 
     @staticmethod
     def process_trade(
-        state: MarketDataState, 
-        provider_id: str, 
-        trade: Trade, 
-        ts: float
+        state: MarketDataState, provider_id: str, trade: Trade, ts: float
     ) -> MarketDataState:
         new_trades = dict(state.trades)
         new_trades[trade.symbol] = trade
@@ -116,10 +104,7 @@ class MarketDataEngine:
 
     @staticmethod
     def process_bar(
-        state: MarketDataState, 
-        provider_id: str, 
-        bar: Bar, 
-        ts: float
+        state: MarketDataState, provider_id: str, bar: Bar, ts: float
     ) -> MarketDataState:
         new_bars = dict(state.bars)
         new_bars[bar.symbol] = bar
@@ -128,10 +113,7 @@ class MarketDataEngine:
 
     @staticmethod
     def process_order_book(
-        state: MarketDataState, 
-        provider_id: str, 
-        ob: OrderBook, 
-        ts: float
+        state: MarketDataState, provider_id: str, ob: OrderBook, ts: float
     ) -> MarketDataState:
         new_obs = dict(state.order_books)
         new_obs[ob.symbol] = ob

@@ -11,6 +11,7 @@ def validate_registration(state: IntegrationState, config: BrokerConfig) -> None
     if config.broker_id in state.configs:
         raise IntegrationValidationError(f"Broker {config.broker_id} is already registered.")
 
+
 def validate_connection_attempt(state: IntegrationState, broker_id: str) -> None:
     if broker_id not in state.configs:
         raise IntegrationValidationError(f"Broker {broker_id} not registered.")

@@ -37,21 +37,15 @@ class ProductionEngine:
         return RuntimeOperations.heartbeat(state, module_id, latency, timestamp)
 
     @staticmethod
-    def checkpoint(
-        state: ProductionState, cp: Checkpoint, timestamp: float
-    ) -> ProductionState:
+    def checkpoint(state: ProductionState, cp: Checkpoint, timestamp: float) -> ProductionState:
         return RuntimeOperations.checkpoint(state, cp, timestamp)
 
     @staticmethod
-    def restore(
-        state: ProductionState, checkpoint_id: str, timestamp: float
-    ) -> ProductionState:
+    def restore(state: ProductionState, checkpoint_id: str, timestamp: float) -> ProductionState:
         return RuntimeOperations.restore(state, checkpoint_id, timestamp)
 
     @staticmethod
-    def recover(
-        state: ProductionState, reason: str, timestamp: float
-    ) -> ProductionState:
+    def recover(state: ProductionState, reason: str, timestamp: float) -> ProductionState:
         return RecoveryEngine.recover(state, reason, timestamp)
 
     @staticmethod
@@ -66,9 +60,7 @@ class ProductionEngine:
 
     @staticmethod
     def register_module(
-        state: ProductionState, 
-        module_id: str, 
-        timestamp: float
+        state: ProductionState, module_id: str, timestamp: float
     ) -> ProductionState:
         return Supervisor.register_module(state, module_id, timestamp)
 

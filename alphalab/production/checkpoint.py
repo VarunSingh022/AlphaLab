@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True, slots=True)
 class Checkpoint:
     """Immutable system-wide backup of all mission-critical data."""
+
     checkpoint_id: str
     timestamp: float
     runtime_state: str

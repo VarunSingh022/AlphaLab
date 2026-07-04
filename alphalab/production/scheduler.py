@@ -28,41 +28,40 @@ class RuntimeScheduler:
         new_hbs = dict(state.heartbeats)
         new_events = list(state.events)
         new_alerts = list(state.alerts)
-        
+
         new_state = state
 
         # Evaluate heartbeats
         for mod_id, hb in state.heartbeats.items():
             if (
-                 timestamp - hb.last_ping_time > hb.expected_interval * 3
-                 and hb.status != HeartbeatStatus.TIMEOUT
-                ):
-                    # Mark timeout
-                    updated_hb = replace(
-                        hb, 
-                        status=HeartbeatStatus.TIMEOUT, 
-                        missed_count=hb.missed_count + 1
-                    )
-                    new_hbs[mod_id] = updated_hb
-                    
-                    # Raise Events & Alerts
-                    to_evt = HeartbeatTimeout(
-                        RuntimeScheduler._create_id(), timestamp, mod_id, updated_hb.missed_count
-                    )
-                    new_events.append(to_evt)
-                    
-                    alert = create_alert(
-                        "CRITICAL", f"Module {mod_id} heartbeat timeout.", timestamp
-                    )
-                    new_alerts.append(alert)
-                    alert_evt = AlertRaised(
-                        RuntimeScheduler._create_id(), timestamp, alert.alert_id, 
-                        alert.severity, alert.message
-                    )
-                    new_events.append(alert_evt)
-                    
-                    # Force module to FAILED
-                    new_state = Supervisor.fail_module(new_state, mod_id, timestamp)
+                timestamp - hb.last_ping_time > hb.expected_interval * 3
+                and hb.status != HeartbeatStatus.TIMEOUT
+            ):
+                # Mark timeout
+                updated_hb = replace(
+                    hb, status=HeartbeatStatus.TIMEOUT, missed_count=hb.missed_count + 1
+                )
+                new_hbs[mod_id] = updated_hb
+
+                # Raise Events & Alerts
+                to_evt = HeartbeatTimeout(
+                    RuntimeScheduler._create_id(), timestamp, mod_id, updated_hb.missed_count
+                )
+                new_events.append(to_evt)
+
+                alert = create_alert("CRITICAL", f"Module {mod_id} heartbeat timeout.", timestamp)
+                new_alerts.append(alert)
+                alert_evt = AlertRaised(
+                    RuntimeScheduler._create_id(),
+                    timestamp,
+                    alert.alert_id,
+                    alert.severity,
+                    alert.message,
+                )
+                new_events.append(alert_evt)
+
+                # Force module to FAILED
+                new_state = Supervisor.fail_module(new_state, mod_id, timestamp)
 
         return replace(
             new_state,
@@ -70,5 +69,5 @@ class RuntimeScheduler:
             uptime=new_uptime,
             heartbeats=new_hbs,
             alerts=tuple(new_alerts),
-            events=tuple(new_events)
+            events=tuple(new_events),
         )

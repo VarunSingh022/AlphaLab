@@ -10,6 +10,7 @@ class ConnectionStatus(Enum):
     CONNECTED = auto()
     RECOVERING = auto()
 
+
 @dataclass(frozen=True, slots=True)
 class ConnectionState:
     broker_id: str

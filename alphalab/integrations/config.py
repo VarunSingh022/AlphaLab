@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True, slots=True)
 class BrokerConfig:
     """Immutable environment configuration for a specific broker."""
+
     broker_id: str
     provider_name: str
     environment: str  # e.g., 'paper', 'live'

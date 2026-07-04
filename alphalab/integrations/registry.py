@@ -25,23 +25,18 @@ class BrokerRegistry:
 
         new_conns = dict(state.connections)
         new_conns[config.broker_id] = ConnectionState(
-            config.broker_id, 
-            ConnectionStatus.DISCONNECTED
+            config.broker_id, ConnectionStatus.DISCONNECTED
         )
 
         new_health = dict(state.health)
         new_health[config.broker_id] = BrokerHealth(
-            config.broker_id, 
-            0.0, 
-            0, 
-            False, 
-            config.rate_limit_per_second
+            config.broker_id, 0.0, 0, False, config.rate_limit_per_second
         )
 
         return replace(
-            state, 
-            configs=new_configs, 
-            auth_states=new_auths, 
-            connections=new_conns, 
-            health=new_health
+            state,
+            configs=new_configs,
+            auth_states=new_auths,
+            connections=new_conns,
+            health=new_health,
         )

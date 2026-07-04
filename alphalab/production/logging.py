@@ -11,9 +11,11 @@ class LogLevel(Enum):
     ERROR = auto()
     CRITICAL = auto()
 
+
 @dataclass(frozen=True, slots=True)
 class LogEntry:
     """Immutable structured log record."""
+
     timestamp: float
     level: LogLevel
     module_id: str
