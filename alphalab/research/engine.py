@@ -1,8 +1,8 @@
 """Top-level Engine Facade orchestrating Institutional Research."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.research.bias import detect_bias
 from alphalab.research.bootstrap import bootstrap_statistics
 from alphalab.research.capacity import estimate_capacity
@@ -31,7 +31,7 @@ class ResearchEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def initialize(research_id: str, strategy_id: str, timestamp: float) -> ResearchState:

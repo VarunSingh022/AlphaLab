@@ -1,8 +1,8 @@
 """Stateless registry for saved layouts and UI themes."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.workbench.events import LayoutRestored, LayoutSaved
 from alphalab.workbench.layout import WorkspaceLayout
 from alphalab.workbench.state import WorkbenchState
@@ -11,7 +11,7 @@ from alphalab.workbench.validation import validate_layout
 
 class WorkbenchRegistry:
     @staticmethod
-    def _create_id() -> str: return str(uuid.uuid4())
+    def _create_id() -> str: return str(new_id())
 
     @staticmethod
     def save_layout(

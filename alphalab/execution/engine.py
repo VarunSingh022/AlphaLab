@@ -1,9 +1,9 @@
 """Pure functional execution engine."""
 
-import uuid
 from dataclasses import replace
 from decimal import Decimal
 
+from alphalab.common.ids import new_id
 from alphalab.execution.events import (
     ExecutionCompleted,
     ExecutionExpired,
@@ -22,7 +22,7 @@ class ExecutionEngine:
 
     @staticmethod
     def _create_event_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def execute(

@@ -1,8 +1,8 @@
 """Stateless registry manipulations for Projects and Strategies."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.studio.events import ProjectCreated, StrategyRegistered
 from alphalab.studio.project import Project
 from alphalab.studio.state import StrategyStudioState
@@ -12,7 +12,7 @@ from alphalab.studio.validation import validate_project_creation, validate_proje
 
 class StudioRegistry:
     @staticmethod
-    def _create_id() -> str: return str(uuid.uuid4())
+    def _create_id() -> str: return str(new_id())
 
     @staticmethod
     def create_project(

@@ -1,8 +1,8 @@
 """Stateless registry manipulations for providers and connections."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.live.connection import ConnectionState
 from alphalab.live.events import ProviderConnected, ProviderDisconnected, ProviderRegistered
 from alphalab.live.exceptions import InvalidLiveStateError
@@ -16,7 +16,7 @@ class LiveRegistry:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def register_provider(state: LiveState, provider: Provider, timestamp: float) -> LiveState:

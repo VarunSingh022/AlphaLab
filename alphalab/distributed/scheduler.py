@@ -1,8 +1,8 @@
 """Deterministic resource matching algorithms."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.distributed.events import DistributedEvent, JobAssigned
 from alphalab.distributed.job import JobStatus
 from alphalab.distributed.state import DistributedState
@@ -14,7 +14,7 @@ class JobScheduler:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def assign_jobs(state: DistributedState, timestamp: float) -> DistributedState:

@@ -1,8 +1,8 @@
 """Orchestration of subscription states and lifecycle."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.live.events import SubscriptionCreated, SubscriptionRemoved
 from alphalab.live.exceptions import InvalidLiveStateError
 from alphalab.live.state import LiveState
@@ -15,7 +15,7 @@ class SubscriptionManager:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def subscribe(state: LiveState, subscription: Subscription, timestamp: float) -> LiveState:

@@ -1,6 +1,5 @@
 """Stateless registry manipulations for broker endpoints and accounts."""
 
-import uuid
 from dataclasses import replace
 
 from alphalab.brokers.account import AccountSnapshot
@@ -9,6 +8,7 @@ from alphalab.brokers.events import BrokerConnected, BrokerDisconnected, BrokerR
 from alphalab.brokers.exceptions import InvalidBrokerStateError
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.brokers.validation import validate_account, validate_broker_registration
+from alphalab.common.ids import new_id
 
 
 class BrokerRegistry:
@@ -16,7 +16,7 @@ class BrokerRegistry:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def register_broker(

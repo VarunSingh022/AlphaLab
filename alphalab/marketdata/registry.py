@@ -1,8 +1,8 @@
 """Stateless registry manipulations for market data providers."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.marketdata.config import ProviderConfig
 from alphalab.marketdata.connection import ConnectionState, ConnectionStatus
 from alphalab.marketdata.events import ProviderRegistered
@@ -13,7 +13,7 @@ from alphalab.marketdata.validation import validate_provider_registration
 class ProviderRegistry:
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def register(

@@ -1,9 +1,9 @@
 """Event dispatcher logic preserving chronological order and generating telemetry."""
 
-import uuid
 from dataclasses import replace
 from typing import Any
 
+from alphalab.common.ids import new_id
 from alphalab.runtime.events import DispatchCompleted, DispatchFailed
 from alphalab.runtime.state import RuntimeState
 from alphalab.runtime.validation import validate_dispatch
@@ -14,7 +14,7 @@ class EventDispatcher:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def dispatch(

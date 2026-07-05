@@ -1,8 +1,8 @@
 """Pure functional Risk Engine controlling order approvals."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.risk.checks import (
     check_buying_power,
     check_daily_loss,
@@ -34,7 +34,7 @@ class RiskEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def reset(limits: RiskLimits) -> RiskState:

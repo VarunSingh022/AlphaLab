@@ -1,8 +1,8 @@
 """Stateless registry manipulations for dataset catalogs."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.data.catalog import CatalogRecord
 from alphalab.data.dataset import Dataset
 from alphalab.data.events import DatasetCataloged
@@ -11,7 +11,7 @@ from alphalab.data.state import UniversalDataState
 
 class DatasetRegistry:
     @staticmethod
-    def _create_id() -> str: return str(uuid.uuid4())
+    def _create_id() -> str: return str(new_id())
 
     @staticmethod
     def catalog(state: UniversalDataState, dataset: Dataset, ts: float) -> UniversalDataState:

@@ -1,8 +1,8 @@
 """Pure functional Replay Engine orchestrating historical event sequences."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.replay.events import (
     ReplayAdvanced,
     ReplayCompleted,
@@ -25,7 +25,7 @@ class ReplayEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def initialize(

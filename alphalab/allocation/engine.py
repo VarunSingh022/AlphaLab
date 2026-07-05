@@ -1,6 +1,5 @@
 """Pure functional Allocation Engine."""
 
-import uuid
 from collections.abc import Mapping
 from dataclasses import replace
 from decimal import Decimal
@@ -20,6 +19,7 @@ from alphalab.allocation.request import OrderRequest, OrderSide
 from alphalab.allocation.sizing import SizingModel
 from alphalab.allocation.state import AllocationState
 from alphalab.allocation.validation import validate_intent, validate_net_quantity
+from alphalab.common.ids import new_id
 from alphalab.strategy.events import Intent
 
 
@@ -28,7 +28,7 @@ class AllocationEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def initialize(budget: CapitalBudget) -> AllocationState:

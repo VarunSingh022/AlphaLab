@@ -1,10 +1,10 @@
 """Pure functional Optimization Engine orchestrating trial evaluation."""
 
 import time
-import uuid
 from dataclasses import replace
 from typing import Any
 
+from alphalab.common.ids import new_id
 from alphalab.optimizer.events import (
     OptimizationCompleted,
     OptimizationFailed,
@@ -24,7 +24,7 @@ class OptimizationEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def initialize(

@@ -1,8 +1,8 @@
 """Orchestration of pure data transformation logic to state transitions."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.data.cleaning import remove_duplicates, remove_invalid_ohlc
 from alphalab.data.conversion import resample_bars
 from alphalab.data.dataset import Dataset
@@ -16,7 +16,7 @@ from alphalab.data.validation import validate_dataset_ingestion
 
 class DataManager:
     @staticmethod
-    def _create_id() -> str: return str(uuid.uuid4())
+    def _create_id() -> str: return str(new_id())
 
     @staticmethod
     def ingest(

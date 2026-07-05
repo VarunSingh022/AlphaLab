@@ -1,8 +1,8 @@
 """Deterministic state transitions for managed subsystems."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.production.events import ModuleRestarted, ModuleStarted, ModuleStopped
 from alphalab.production.exceptions import InvalidRuntimeStateError
 from alphalab.production.process import ManagedProcess, ProcessState
@@ -15,7 +15,7 @@ class Supervisor:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def register_module(

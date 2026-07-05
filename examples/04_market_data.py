@@ -25,13 +25,12 @@ Run
 from pathlib import Path
 
 from alphalab.marketdata import (
-    DataSubscription,
     Dataset,
+    DataSubscription,
     MarketDataEngine,
     active_subscriptions,
     available_datasets,
 )
-
 
 DATA_DIR = Path(__file__).parent / "data"
 

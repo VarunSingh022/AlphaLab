@@ -1,8 +1,8 @@
 """Pure functional Scheduler Engine orchestrating time progression."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.scheduler.clock import ClockState
 from alphalab.scheduler.events import (
     ClockAdvanced,
@@ -26,7 +26,7 @@ class SchedulerEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def initialize(initial_time: float) -> SchedulerState:

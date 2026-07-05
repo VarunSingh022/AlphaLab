@@ -1,8 +1,8 @@
 """Pure functional Reporting Engine orchestrating synthesis and exports."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.reporting.dashboard import Dashboard
 from alphalab.reporting.events import (
     DashboardGenerated,
@@ -22,7 +22,7 @@ class ReportingEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def initialize(engine_id: str) -> ReportingState:

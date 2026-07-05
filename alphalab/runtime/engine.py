@@ -1,8 +1,8 @@
 """Pure functional orchestration engine for the Live Trading Runtime."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.runtime.events import (
     RuntimeFailed,
     RuntimePaused,
@@ -21,7 +21,7 @@ class RuntimeEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def initialize(state: RuntimeState) -> RuntimeState:

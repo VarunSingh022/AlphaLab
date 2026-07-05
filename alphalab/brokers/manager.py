@@ -1,6 +1,5 @@
 """Orchestration of order routing and execution settlement logic."""
 
-import uuid
 from dataclasses import replace
 from decimal import Decimal
 
@@ -21,6 +20,7 @@ from alphalab.brokers.validation import (
     validate_order_cancellation,
     validate_order_submission,
 )
+from alphalab.common.ids import new_id
 
 
 class OrderManager:
@@ -28,7 +28,7 @@ class OrderManager:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def submit_order(

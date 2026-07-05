@@ -1,10 +1,11 @@
 """Deterministic serialization utilities using strict JSON."""
 
 import json
-from dataclasses import asdict, is_dataclass
+from dataclasses import is_dataclass
 from decimal import Decimal
 from typing import Any
 
+from alphalab.common.serialization import dataclass_to_dict
 from alphalab.persistence.exceptions import SerializationError
 
 
@@ -15,7 +16,7 @@ class DeterministicEncoder(json.JSONEncoder):
         if isinstance(obj, Decimal):
             return str(obj)
         if is_dataclass(obj) and not isinstance(obj, type):
-            return asdict(obj)
+            return dataclass_to_dict(obj)
         try:
             return super().default(obj)
         except TypeError:

@@ -1,8 +1,8 @@
 """Top-level Engine Facade orchestrating unified Market Data."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.marketdata.cache import CacheRecord
 from alphalab.marketdata.config import ProviderConfig
 from alphalab.marketdata.events import BarReceived, OrderBookUpdated, QuoteReceived, TradeReceived
@@ -19,7 +19,7 @@ class MarketDataEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def initialize(engine_id: str) -> MarketDataState:

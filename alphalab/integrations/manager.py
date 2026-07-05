@@ -1,10 +1,10 @@
 """Orchestration of connection, authentication, and routing states."""
 
-import uuid
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
+from alphalab.common.ids import new_id
 from alphalab.integrations.auth import AuthState, AuthStatus
 from alphalab.integrations.connection import ConnectionState, ConnectionStatus
 from alphalab.integrations.events import (
@@ -30,7 +30,7 @@ class IntegrationManager:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def authenticate(

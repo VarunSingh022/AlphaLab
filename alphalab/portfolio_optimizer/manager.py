@@ -1,9 +1,9 @@
 """Orchestration of pure optimization, constraints, and rebalancing tasks."""
 
-import uuid
 from dataclasses import replace
 from typing import Any
 
+from alphalab.common.ids import new_id
 from alphalab.portfolio_optimizer.constraints import WeightConstraints, apply_weight_constraints
 from alphalab.portfolio_optimizer.costs import CostModel, TransactionCostEstimate
 from alphalab.portfolio_optimizer.events import ConstraintViolated, Rebalanced, WeightsCalculated
@@ -27,7 +27,7 @@ from alphalab.portfolio_optimizer.weights import TargetWeights
 class PortfolioManager:
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def optimize(

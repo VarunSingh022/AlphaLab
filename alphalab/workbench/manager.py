@@ -1,8 +1,8 @@
 """Orchestration of pure UI transitions (Tabs, Projects, Views)."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.workbench.events import ProjectClosed, ProjectOpened, TabClosed, TabOpened
 from alphalab.workbench.navigation import Tab
 from alphalab.workbench.state import WorkbenchState
@@ -13,7 +13,7 @@ class WorkbenchManager:
     """Stateless mutator for GUI navigation and tab management."""
 
     @staticmethod
-    def _create_id() -> str: return str(uuid.uuid4())
+    def _create_id() -> str: return str(new_id())
 
     @staticmethod
     def open_project(

@@ -1,8 +1,8 @@
 """Ingestion and continuous update logic for the live snapshot states."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.live.events import SnapshotUpdated, TickReceived
 from alphalab.live.message import QuoteTick, TradeTick
 from alphalab.live.snapshot import MarketSnapshot
@@ -15,7 +15,7 @@ class LiveFeed:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def process_trade(state: LiveState, tick: TradeTick) -> LiveState:

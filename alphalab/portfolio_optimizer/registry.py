@@ -1,8 +1,8 @@
 """Stateless registry operations establishing portfolios and base allocations."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.portfolio_optimizer.allocation import CapitalAllocation
 from alphalab.portfolio_optimizer.events import AllocationChanged, PortfolioCreated
 from alphalab.portfolio_optimizer.state import PortfolioEngineState
@@ -16,7 +16,7 @@ from alphalab.portfolio_optimizer.validation import (
 class PortfolioRegistry:
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def create(

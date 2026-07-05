@@ -1,8 +1,8 @@
 """Health monitoring and failure propagation logic."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.runtime.events import Heartbeat
 from alphalab.runtime.state import RuntimeState
 from alphalab.runtime.validation import validate_heartbeat_config
@@ -13,7 +13,7 @@ class RuntimeSupervisor:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def configure(interval: float, max_missed: int) -> tuple[float, int]:

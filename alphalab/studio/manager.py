@@ -1,8 +1,8 @@
 """Orchestration of Workspaces and Sessions."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.studio.events import SessionStarted, WorkspaceSaved
 from alphalab.studio.sessions import StudioSession
 from alphalab.studio.state import StrategyStudioState
@@ -11,7 +11,7 @@ from alphalab.studio.workspace import WorkspaceSnapshot
 
 class StudioManager:
     @staticmethod
-    def _create_id() -> str: return str(uuid.uuid4())
+    def _create_id() -> str: return str(new_id())
 
     @staticmethod
     def start_session(

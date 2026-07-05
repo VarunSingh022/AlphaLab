@@ -1,8 +1,8 @@
 """Deterministic queue management for distributed workloads."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.distributed.events import JobSubmitted
 from alphalab.distributed.job import Job, JobStatus
 from alphalab.distributed.state import DistributedState
@@ -14,7 +14,7 @@ class JobQueue:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def submit(state: DistributedState, job: Job, timestamp: float) -> DistributedState:

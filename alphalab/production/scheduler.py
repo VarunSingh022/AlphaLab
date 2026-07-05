@@ -1,8 +1,8 @@
 """Chronological orchestration matching wall-clock or replay-clock ticks."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.production.events import AlertRaised, HeartbeatTimeout
 from alphalab.production.heartbeat import HeartbeatStatus
 from alphalab.production.monitor import create_alert
@@ -15,7 +15,7 @@ class RuntimeScheduler:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def tick(state: ProductionState, timestamp: float) -> ProductionState:

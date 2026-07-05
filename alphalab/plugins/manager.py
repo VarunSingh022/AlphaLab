@@ -1,8 +1,8 @@
 """High-level orchestration of registry operations and event tracking."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.plugins.events import (
     PluginDisabled,
     PluginEnabled,
@@ -20,7 +20,7 @@ class PluginManager:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def register_plugin(

@@ -1,6 +1,5 @@
 """Deterministic Paper Broker implementation."""
 
-import uuid
 from dataclasses import replace
 from decimal import Decimal
 
@@ -19,6 +18,7 @@ from alphalab.broker.order import BrokerOrder, BrokerOrderSide, BrokerOrderStatu
 from alphalab.broker.position import BrokerPosition
 from alphalab.broker.state import BrokerState, ConnectionStatus
 from alphalab.broker.validation import validate_cancel_request, validate_order_submission
+from alphalab.common.ids import new_id
 
 
 class PaperBroker:
@@ -26,7 +26,7 @@ class PaperBroker:
 
     @staticmethod
     def _generate_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     def connect(
         self, state: BrokerState, timestamp: float

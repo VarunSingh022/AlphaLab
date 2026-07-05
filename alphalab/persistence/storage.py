@@ -1,9 +1,9 @@
 """Deterministic pure-memory storage backend satisfying PersistenceProtocol."""
 
-import uuid
 from collections.abc import Sequence
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.persistence.events import (
     EventAppended,
     EventsLoaded,
@@ -26,7 +26,7 @@ class MemoryStorage:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     def save_snapshot(
         self, state: PersistenceState, snapshot: Snapshot, timestamp: float

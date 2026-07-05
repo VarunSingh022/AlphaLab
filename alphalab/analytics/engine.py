@@ -1,6 +1,5 @@
 """Pure functional Analytics Engine generating historical research reports."""
 
-import uuid
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
@@ -26,6 +25,7 @@ from alphalab.analytics.returns import (
 from alphalab.analytics.state import AnalyticsState
 from alphalab.analytics.summary import calculate_trade_metrics
 from alphalab.analytics.validation import validate_capital, validate_returns
+from alphalab.common.ids import new_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +44,7 @@ class AnalyticsEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def initialize() -> AnalyticsState:

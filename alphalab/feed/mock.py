@@ -1,9 +1,9 @@
 """Deterministic Mock Feed implementation satisfying FeedProtocol."""
 
-import uuid
 from dataclasses import replace
 from typing import Any
 
+from alphalab.common.ids import new_id
 from alphalab.feed.adapter import FeedAdapter
 from alphalab.feed.events import (
     FeedConnected,
@@ -31,7 +31,7 @@ class MockFeed:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     def connect(
         self, state: FeedState, timestamp: float

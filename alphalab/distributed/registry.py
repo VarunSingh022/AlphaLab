@@ -1,8 +1,8 @@
 """Worker lifecycle and health registry."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.distributed.events import WorkerRegistered, WorkerRemoved
 from alphalab.distributed.node import WorkerNode, WorkerStatus
 from alphalab.distributed.state import DistributedState
@@ -14,7 +14,7 @@ class WorkerRegistry:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def register(state: DistributedState, worker: WorkerNode, timestamp: float) -> DistributedState:

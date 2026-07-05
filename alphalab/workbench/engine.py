@@ -1,7 +1,7 @@
 """Top-level Engine Facade orchestrating AlphaLab Graphical Interfaces."""
 
-import uuid
 
+from alphalab.common.ids import new_id
 from alphalab.studio import (
     BacktestConfiguration,
     PipelineDefinition,
@@ -21,7 +21,7 @@ class WorkbenchEngine:
     """Facade orchestrating UI transitions AND delegating to Strategy Studio."""
 
     @staticmethod
-    def _create_id() -> str: return str(uuid.uuid4())
+    def _create_id() -> str: return str(new_id())
 
     @staticmethod
     def initialize(workbench_id: str, ts: float) -> WorkbenchState:

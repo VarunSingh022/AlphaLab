@@ -1,8 +1,8 @@
 """Deterministic failure recovery leveraging checkpoints."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.production.events import RecoveryCompleted, RecoveryStarted
 from alphalab.production.exceptions import RecoveryError
 from alphalab.production.state import ProductionState
@@ -13,7 +13,7 @@ class RecoveryEngine:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def recover(state: ProductionState, reason: str, timestamp: float) -> ProductionState:

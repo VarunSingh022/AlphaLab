@@ -1,8 +1,8 @@
 """Pure functional Market Data engine."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.market.bar import Bar
 from alphalab.market.events import (
     BarClosed,
@@ -29,7 +29,7 @@ class MarketEngine:
 
     @staticmethod
     def _create_event_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def reset() -> MarketState:

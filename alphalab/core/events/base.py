@@ -2,8 +2,9 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 
+from alphalab.common.time import utc_now
 from alphalab.core.exceptions import DomainValidationError
 from alphalab.core.ids import EventId, new_event_id, validate_uuid_id
 
@@ -21,16 +22,6 @@ def _empty_metadata() -> dict[str, MetadataValue]:
     return {}
 
 
-def _utc_now() -> datetime:
-    """Create a timezone-aware UTC timestamp.
-
-    Returns:
-        Current time in UTC.
-    """
-
-    return datetime.now(UTC)
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DomainEvent:
     """Immutable base event for the runtime event pipeline.
@@ -45,7 +36,7 @@ class DomainEvent:
     """
 
     id: EventId = field(default_factory=new_event_id)
-    timestamp: datetime = field(default_factory=_utc_now)
+    timestamp: datetime = field(default_factory=utc_now)
     correlation_id: EventId | None = None
     causation_id: EventId | None = None
     schema_version: int = 1

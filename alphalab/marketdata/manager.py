@@ -1,8 +1,8 @@
 """Orchestration of connections and subscriptions."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.marketdata.connection import ConnectionState, ConnectionStatus
 from alphalab.marketdata.events import (
     ProviderConnected,
@@ -20,7 +20,7 @@ from alphalab.marketdata.timeframe import Timeframe
 class ConnectionManager:
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def connect(

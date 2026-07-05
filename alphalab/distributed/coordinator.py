@@ -1,8 +1,8 @@
 """High-level orchestration of job execution lifecycles."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.distributed.events import JobCompleted, JobFailed, JobStarted
 from alphalab.distributed.job import JobStatus
 from alphalab.distributed.state import DistributedState
@@ -14,7 +14,7 @@ class JobCoordinator:
 
     @staticmethod
     def _create_id() -> str:
-        return str(uuid.uuid4())
+        return str(new_id())
 
     @staticmethod
     def start_job(state: DistributedState, job_id: str, timestamp: float) -> DistributedState:

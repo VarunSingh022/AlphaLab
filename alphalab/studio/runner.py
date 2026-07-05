@@ -1,8 +1,8 @@
 """Execution facades orchestrating simulated downstream AlphaLab engine calls."""
 
-import uuid
 from dataclasses import replace
 
+from alphalab.common.ids import new_id
 from alphalab.studio.adapter import StudioAdapter
 from alphalab.studio.backtest import BacktestConfiguration
 from alphalab.studio.events import BacktestCompleted, PipelineExecuted, ReportGenerated
@@ -16,7 +16,7 @@ class StudioRunner:
     """Stateless orchestrator that tracks and logs analytical workloads."""
 
     @staticmethod
-    def _create_id() -> str: return str(uuid.uuid4())
+    def _create_id() -> str: return str(new_id())
 
     @staticmethod
     def run_backtest(
