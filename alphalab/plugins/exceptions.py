@@ -1,7 +1,9 @@
 """Domain exceptions for the Plugin SDK."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class PluginError(Exception):
+
+class PluginError(AlphaLabError):
     """Base exception for all Plugin SDK errors."""
 
 

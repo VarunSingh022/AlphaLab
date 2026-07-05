@@ -1,7 +1,7 @@
 """Shared foundations for AlphaLab packages."""
 
 from alphalab.common.constants import DEFAULT_ENCODING, DEFAULT_SCHEMA_VERSION, PACKAGE_NAME
-from alphalab.common.events import CommonEvent
+from alphalab.common.events import BaseEvent, CommonEvent
 from alphalab.common.exceptions import (
     AlphaLabError,
     AlphaLabRegistryError,
@@ -31,6 +31,7 @@ __all__ = [
     "AlphaLabRegistryError",
     "AlphaLabSerializationError",
     "AlphaLabValidationError",
+    "BaseEvent",
     "CommonEvent",
     "Identifier",
     "Metadata",

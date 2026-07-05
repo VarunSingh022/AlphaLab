@@ -1,7 +1,9 @@
 """Domain exceptions for the Production Runtime Framework."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class ProductionError(Exception):
+
+class ProductionError(AlphaLabError):
     """Base exception for all Production Runtime errors."""
 
 

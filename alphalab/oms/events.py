@@ -3,16 +3,15 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.common.events import BaseEvent
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order
 
 
 @dataclass(frozen=True, slots=True)
-class OMSEvent:
+class OMSEvent(BaseEvent):
     """Base class for all Order Management System events."""
 
-    event_id: str
-    timestamp: float
     order_id: OrderId
 
 

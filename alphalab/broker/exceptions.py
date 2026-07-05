@@ -1,7 +1,9 @@
 """Domain exceptions for the Broker Abstraction Layer."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class BrokerError(Exception):
+
+class BrokerError(AlphaLabError):
     """Base exception for all Broker Abstraction errors."""
 
     pass

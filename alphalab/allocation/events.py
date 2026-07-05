@@ -3,11 +3,12 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.common.events import BaseEvent
+
 
 @dataclass(frozen=True, slots=True)
-class AllocationEvent:
-    event_id: str
-    timestamp: float
+class AllocationEvent(BaseEvent):
+    pass
 
 
 @dataclass(frozen=True, slots=True)

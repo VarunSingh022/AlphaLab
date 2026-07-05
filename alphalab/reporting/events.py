@@ -2,13 +2,14 @@
 
 from dataclasses import dataclass
 
+from alphalab.common.events import BaseEvent
+
 
 @dataclass(frozen=True, slots=True)
-class ReportingEvent:
+class ReportingEvent(BaseEvent):
     """Base class for all Reporting system events."""
 
-    event_id: str
-    timestamp: float
+    pass
 
 
 @dataclass(frozen=True, slots=True)

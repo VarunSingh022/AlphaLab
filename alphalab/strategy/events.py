@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
+from alphalab.common.events import BaseEvent
+
 
 @dataclass(frozen=True, slots=True)
 class Intent:
@@ -25,11 +27,10 @@ class Intent:
 
 
 @dataclass(frozen=True, slots=True)
-class StrategyRuntimeEvent:
+class StrategyRuntimeEvent(BaseEvent):
     """Base class for all Strategy Runtime system events."""
 
-    event_id: str
-    timestamp: float
+    pass
 
 
 @dataclass(frozen=True, slots=True)

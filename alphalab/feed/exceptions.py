@@ -1,7 +1,9 @@
 """Domain exceptions for the Market Data Feed Layer."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class FeedError(Exception):
+
+class FeedError(AlphaLabError):
     """Base exception for all Market Data Feed errors."""
 
     pass

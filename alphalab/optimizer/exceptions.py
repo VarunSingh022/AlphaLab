@@ -1,7 +1,9 @@
 """Domain exceptions for the Optimization Engine."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class OptimizerError(Exception):
+
+class OptimizerError(AlphaLabError):
     """Base exception for all Optimization Engine errors."""
 
     pass

@@ -12,6 +12,14 @@ from alphalab.common.validators import require_non_empty_string, require_positiv
 
 
 @dataclass(frozen=True, slots=True)
+class BaseEvent:
+    """Minimal immutable event base for subsystem event records."""
+
+    event_id: str
+    timestamp: float
+
+
+@dataclass(frozen=True, slots=True)
 class CommonEvent:
     """Minimal immutable event envelope shared across packages."""
 

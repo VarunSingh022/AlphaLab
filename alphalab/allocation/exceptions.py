@@ -1,7 +1,9 @@
 """Domain exceptions for the Allocation Engine."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class AllocationError(Exception):
+
+class AllocationError(AlphaLabError):
     """Base exception for all Allocation Engine errors."""
 
     pass

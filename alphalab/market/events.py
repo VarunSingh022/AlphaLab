@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from alphalab.common.events import BaseEvent
 from alphalab.market.bar import Bar
 from alphalab.market.quote import Quote
 from alphalab.market.snapshot import OrderBookSnapshot
@@ -9,9 +10,8 @@ from alphalab.market.tick import Tick
 
 
 @dataclass(frozen=True, slots=True)
-class MarketEvent:
-    event_id: str
-    timestamp: float
+class MarketEvent(BaseEvent):
+    pass
 
 
 @dataclass(frozen=True, slots=True)

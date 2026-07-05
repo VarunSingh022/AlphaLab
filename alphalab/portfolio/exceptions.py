@@ -1,4 +1,7 @@
-class PortfolioError(Exception):
+from alphalab.common.exceptions import AlphaLabError
+
+
+class PortfolioError(AlphaLabError):
     """Base exception for portfolio engine errors."""
 
 

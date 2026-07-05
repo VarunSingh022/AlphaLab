@@ -1,7 +1,9 @@
 """Domain exceptions for the Research Engine."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class ResearchError(Exception):
+
+class ResearchError(AlphaLabError):
     """Base exception for all Research Engine errors."""
 
 

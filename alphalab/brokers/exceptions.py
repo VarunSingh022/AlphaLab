@@ -1,7 +1,9 @@
 """Domain exceptions for the Broker Connector Framework."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class BrokerConnectorError(Exception):
+
+class BrokerConnectorError(AlphaLabError):
     """Base exception for all Broker Connector errors."""
 
 

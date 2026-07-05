@@ -1,7 +1,9 @@
 """Domain exceptions for the Broker Integration Framework."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class IntegrationError(Exception):
+
+class IntegrationError(AlphaLabError):
     """Base exception for all integration operations."""
 
 

@@ -1,7 +1,9 @@
 """Domain exceptions for the Order Management System."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class OMSError(Exception):
+
+class OMSError(AlphaLabError):
     """Base exception for all OMS errors."""
 
     pass

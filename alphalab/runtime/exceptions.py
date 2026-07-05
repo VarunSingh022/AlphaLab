@@ -1,7 +1,9 @@
 """Domain exceptions for the Live Trading Runtime."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class AlphaLabRuntimeError(Exception):
+
+class AlphaLabRuntimeError(AlphaLabError):
     """Base exception for all Runtime orchestration errors."""
 
 

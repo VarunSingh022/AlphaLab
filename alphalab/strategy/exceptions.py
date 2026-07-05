@@ -1,7 +1,9 @@
 """Domain exceptions for the Strategy Runtime."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class StrategyRuntimeError(Exception):
+
+class StrategyRuntimeError(AlphaLabError):
     """Base exception for all Strategy Runtime errors."""
 
 

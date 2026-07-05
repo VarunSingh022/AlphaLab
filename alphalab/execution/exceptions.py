@@ -1,7 +1,9 @@
 """Domain exceptions for the Execution Engine."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class ExecutionError(Exception):
+
+class ExecutionError(AlphaLabError):
     """Base exception for all Execution Engine errors."""
 
     pass

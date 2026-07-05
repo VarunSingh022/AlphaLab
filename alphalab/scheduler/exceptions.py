@@ -1,7 +1,9 @@
 """Domain exceptions for the Scheduler & Time Engine."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class SchedulerError(Exception):
+
+class SchedulerError(AlphaLabError):
     """Base exception for all Scheduler Engine errors."""
 
     pass

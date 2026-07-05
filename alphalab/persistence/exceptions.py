@@ -1,7 +1,9 @@
 """Domain exceptions for the Persistence Layer."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class PersistenceError(Exception):
+
+class PersistenceError(AlphaLabError):
     """Base exception for all Persistence Engine errors."""
 
 

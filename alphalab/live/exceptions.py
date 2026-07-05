@@ -1,7 +1,9 @@
 """Domain exceptions for the Live Market Data infrastructure."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class LiveDataError(Exception):
+
+class LiveDataError(AlphaLabError):
     """Base exception for all Live Market Data errors."""
 
 

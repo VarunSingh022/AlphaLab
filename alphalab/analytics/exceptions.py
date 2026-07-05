@@ -1,7 +1,9 @@
 """Domain exceptions for the Analytics Engine."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class AnalyticsError(Exception):
+
+class AnalyticsError(AlphaLabError):
     """Base exception for all Analytics Engine errors."""
 
     pass

@@ -3,13 +3,14 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.common.events import BaseEvent
+
 
 @dataclass(frozen=True, slots=True)
-class BrokerEvent:
+class BrokerEvent(BaseEvent):
     """Base class for all Broker Connector events."""
 
-    event_id: str
-    timestamp: float
+    pass
 
 
 @dataclass(frozen=True, slots=True)

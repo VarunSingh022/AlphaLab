@@ -2,13 +2,14 @@
 
 from dataclasses import dataclass
 
+from alphalab.common.events import BaseEvent
+
 
 @dataclass(frozen=True, slots=True)
-class OptimizerEvent:
+class OptimizerEvent(BaseEvent):
     """Base class for all Optimizer system events."""
 
-    event_id: str
-    timestamp: float
+    pass
 
 
 @dataclass(frozen=True, slots=True)

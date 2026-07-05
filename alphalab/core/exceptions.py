@@ -1,7 +1,9 @@
 """Core domain exceptions."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class AlphaLabCoreError(Exception):
+
+class AlphaLabCoreError(AlphaLabError):
     """Base exception for all core domain errors."""
 
 

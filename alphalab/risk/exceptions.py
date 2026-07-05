@@ -1,7 +1,9 @@
 """Domain exceptions for the Risk Engine."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class RiskError(Exception):
+
+class RiskError(AlphaLabError):
     """Base exception for all Risk Engine errors."""
 
 

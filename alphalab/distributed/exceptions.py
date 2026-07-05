@@ -1,7 +1,9 @@
 """Domain exceptions for the Distributed Research Framework."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class DistributedError(Exception):
+
+class DistributedError(AlphaLabError):
     """Base exception for all Distributed execution errors."""
 
 

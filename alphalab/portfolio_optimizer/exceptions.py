@@ -1,7 +1,9 @@
 """Domain exceptions for the Portfolio Engine."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class PortfolioEngineError(Exception):
+
+class PortfolioEngineError(AlphaLabError):
     """Base exception for all Portfolio Engine errors."""
 
 

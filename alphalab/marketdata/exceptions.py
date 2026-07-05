@@ -1,7 +1,9 @@
 """Domain exceptions for Market Data Infrastructure."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class MarketDataError(Exception):
+
+class MarketDataError(AlphaLabError):
     """Base exception for all Market Data errors."""
 
 

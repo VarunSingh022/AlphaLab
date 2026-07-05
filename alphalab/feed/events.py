@@ -3,13 +3,13 @@
 from dataclasses import dataclass
 from typing import Any
 
+from alphalab.common.events import BaseEvent
+
 
 @dataclass(frozen=True, slots=True)
-class FeedEvent:
+class FeedEvent(BaseEvent):
     """Base class for all Feed lifecycle and data events."""
 
-    event_id: str
-    timestamp: float
     provider_id: str
 
 

@@ -1,7 +1,9 @@
 """Domain exceptions for the Reporting Layer."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class ReportingError(Exception):
+
+class ReportingError(AlphaLabError):
     """Base exception for all Reporting Engine errors."""
 
 

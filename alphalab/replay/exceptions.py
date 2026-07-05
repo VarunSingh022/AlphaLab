@@ -1,7 +1,9 @@
 """Domain exceptions for the Replay Engine."""
 
+from alphalab.common.exceptions import AlphaLabError
 
-class ReplayError(Exception):
+
+class ReplayError(AlphaLabError):
     """Base exception for all Replay Engine errors."""
 
 

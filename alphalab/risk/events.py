@@ -3,13 +3,13 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.common.events import BaseEvent
 from alphalab.risk.models import OrderRequest
 
 
 @dataclass(frozen=True, slots=True)
-class RiskEvent:
-    event_id: str
-    timestamp: float
+class RiskEvent(BaseEvent):
+    pass
 
 
 @dataclass(frozen=True, slots=True)

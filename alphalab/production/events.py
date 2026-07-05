@@ -2,11 +2,12 @@
 
 from dataclasses import dataclass
 
+from alphalab.common.events import BaseEvent
+
 
 @dataclass(frozen=True, slots=True)
-class ProductionEvent:
-    event_id: str
-    timestamp: float
+class ProductionEvent(BaseEvent):
+    pass
 
 
 @dataclass(frozen=True, slots=True)

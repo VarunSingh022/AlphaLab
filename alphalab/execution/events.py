@@ -3,13 +3,13 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.common.events import BaseEvent
+
 
 @dataclass(frozen=True, slots=True)
-class ExecutionEvent:
+class ExecutionEvent(BaseEvent):
     """Base class for all execution events."""
 
-    event_id: str
-    timestamp: float
     order_id: str
 
 

@@ -2,13 +2,14 @@
 
 from dataclasses import dataclass
 
+from alphalab.common.events import BaseEvent
+
 
 @dataclass(frozen=True, slots=True)
-class LiveEvent:
+class LiveEvent(BaseEvent):
     """Base class for all Live Market Data events."""
 
-    event_id: str
-    timestamp: float
+    pass
 
 
 @dataclass(frozen=True, slots=True)
