@@ -1,0 +1,4 @@
+portfolio_id,symbol,weight
+PORT-001,AAPL,0.4000
+PORT-001,MSFT,0.3500
+PORT-001,SPY,0.2500
