@@ -39,14 +39,14 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = [
-  "build>=1.2",
-  "hatchling>=1.26",
-  "mypy>=1.16",
-  "pre-commit>=4.2",
-  "pytest>=8.4",
-  "pytest-cov>=6.2",
-  "ruff>=0.12",
-  "twine>=6.0",
+  "build>=1.2,<2",
+  "hatchling>=1.26,<2",
+  "mypy>=1.16,<2",
+  "pre-commit>=4.2,<5",
+  "pytest>=8.4,<10",
+  "pytest-cov>=6.2,<8",
+  "ruff>=0.12,<1",
+  "twine>=6.0,<7",
 ]
 
 [tool.hatch.build.targets.wheel]
