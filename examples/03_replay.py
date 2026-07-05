@@ -23,6 +23,7 @@ Run
 """
 
 from alphalab.replay import (
+    HistoricalEventProtocol,
     ReplayEngine,
     ReplaySession,
     completion_ratio,
@@ -33,7 +34,7 @@ from alphalab.replay import (
 )
 
 
-def load_historical_events():
+def load_historical_events() -> tuple[HistoricalEventProtocol, ...]:
     """
     Replace this placeholder with events produced by your loader.
 
@@ -90,15 +91,12 @@ def main() -> None:
     # Step 5 : Advance replay
     # ------------------------------------------------------------
 
-    while True:
-
+    while state.status.name != "COMPLETED":
         step = ReplayEngine.step_one_event(
-            state,
-            real_time=state.real_current_time + 0.01,
-        )
-
+        state,
+        real_time=state.real_current_time + 0.01,
+    )
         state = step.state
-
         if step.event is None:
             break
 

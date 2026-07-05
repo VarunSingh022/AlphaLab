@@ -76,6 +76,10 @@ def main() -> None:
     allocation = CapitalAllocation(
         portfolio_id=portfolio.portfolio_id,
         total_capital=1_000_000.0,
+        invested_capital=950_000.0,
+        cash_balance=50_000.0,
+        margin_used=0.0,
+        leverage_ratio=1.0,
     )
 
     state = PortfolioEngine.allocate(
@@ -133,8 +137,8 @@ def main() -> None:
     cost_model = CostModel(
         commission_rate=0.001,
         slippage_rate=0.001,
+        spread_rate=0.0002,
         market_impact_rate=0.0005,
-        borrow_cost_rate=0.0,
         fixed_exchange_fee=1.0,
     )
 
