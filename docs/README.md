@@ -216,13 +216,7 @@ These principles are applied consistently across every module.
 
 # Version
 
-Current Documentation
-
-```
-v0.33.0
-```
-
-Planned Stable Release
+Stable Release
 
 ```
 v1.0.0
