@@ -1,23 +1,19 @@
-name: Continuous Integration
+name: Release Validation
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 jobs:
-  quality:
-    name: Quality Gates (Python 3.12)
+  release:
+    name: Validate Release
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -32,20 +28,8 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip install build twine
 
-      - name: Ruff (Lint)
-        run: python -m ruff check .
-
-      - name: Ruff (Format Check)
-        run: python -m ruff format --check .
-
-      - name: MyPy
-        run: python -m mypy .
-
-      - name: Pytest
-        run: python -m pytest
-
       - name: Build package
         run: python -m build
 
-      - name: Validate distributions
+      - name: Verify distributions
         run: python -m twine check dist/*
