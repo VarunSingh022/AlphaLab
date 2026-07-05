@@ -1,19 +1,29 @@
-# Getting Started
+# Getting Started with AlphaLab
 
-Welcome to **AlphaLab**.
+Welcome to AlphaLab.
 
-This guide walks you through setting up the development environment, running the framework, and understanding the project structure.
+This guide will help you install the framework, understand its structure, and execute your first workflow.
+
+By the end of this guide you will have
+
+- Installed AlphaLab
+- Verified your environment
+- Explored the project structure
+- Understood the architecture
+- Run your first example
+- Learned where to go next
 
 ---
 
-# Requirements
+# Prerequisites
 
-AlphaLab currently targets:
+AlphaLab currently requires
 
 - Python 3.12+
 - Git
-- macOS, Linux or Windows
-- Virtual Environment (recommended)
+- pip
+
+A virtual environment is strongly recommended.
 
 ---
 
@@ -29,19 +39,15 @@ cd AlphaLab
 
 # Create a Virtual Environment
 
-### macOS / Linux
+macOS / Linux
 
 ```bash
-python3 -m venv .venv
-```
+python -m venv .venv
 
-Activate
-
-```bash
 source .venv/bin/activate
 ```
 
-### Windows
+Windows
 
 ```powershell
 python -m venv .venv
@@ -53,118 +59,177 @@ python -m venv .venv
 
 # Install AlphaLab
 
-Install the package in editable mode.
+Install the project in editable mode.
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 ```
 
-Editable mode allows changes to the source code without reinstalling the package.
+This installs AlphaLab together with development dependencies.
 
 ---
 
 # Verify Installation
 
-Run the quality checks.
-
-## Ruff
+Run the validation suite.
 
 ```bash
 ruff check .
-```
 
-Expected
-
-```text
-All checks passed!
-```
-
----
-
-## MyPy
-
-```bash
 mypy .
-```
 
-Expected
-
-```text
-Success: no issues found ...
-```
-
----
-
-## PyTest
-
-```bash
 pytest
 ```
 
-Expected
+Expected output
 
-```text
-414 passed
+```
+All checks passed.
+
+Success: no issues found.
+
+All tests passed.
 ```
 
-(The number of tests will increase as AlphaLab evolves.)
+If all commands complete successfully, your environment is correctly configured.
 
 ---
 
-# Project Structure
+# Repository Overview
 
-```text
+```
 AlphaLab/
 
 alphalab/
 benchmarks/
-tests/
 docs/
-
-README.md
-ARCHITECTURE.md
-ROADMAP.md
+examples/
+tests/
 ```
+
+### alphalab/
+
+Contains the framework source code.
 
 ---
 
-# Package Overview
+### tests/
 
-```text
-alphalab/
-
-allocation/
-analytics/
-broker/
-brokers/
-core/
-distributed/
-events/
-execution/
-feed/
-kernel/
-live/
-market/
-oms/
-optimizer/
-persistence/
-plugins/
-portfolio/
-replay/
-reporting/
-risk/
-runtime/
-scheduler/
-strategy/
-```
-
-Each package is responsible for a single domain of the framework.
+Contains the complete unit test suite.
 
 ---
 
-# Running the Test Suite
+### docs/
 
-Run the complete test suite.
+Contains technical documentation.
+
+---
+
+### examples/
+
+Contains executable demonstrations.
+
+---
+
+### benchmarks/
+
+Contains performance benchmarks.
+
+---
+
+# Understanding the Architecture
+
+Before writing strategies, it is helpful to understand how AlphaLab is organized.
+
+```
+Workbench
+
+↓
+
+Strategy Studio
+
+↓
+
+Research
+
+↓
+
+Portfolio Optimizer
+
+↓
+
+Production
+
+↓
+
+Broker Integrations
+```
+
+The Universal Data Engine supplies canonical datasets to all downstream modules.
+
+---
+
+# First Example
+
+Navigate to the examples directory.
+
+```
+examples/
+```
+
+Choose one of the introductory examples.
+
+Example workflow
+
+```
+Load Dataset
+
+↓
+
+Run Research
+
+↓
+
+Optimize Portfolio
+
+↓
+
+Generate Report
+```
+
+Each example demonstrates one complete workflow.
+
+---
+
+# Understanding the Packages
+
+Major packages include
+
+```
+research/
+
+portfolio_optimizer/
+
+data/
+
+studio/
+
+workbench/
+
+production/
+
+marketdata/
+
+integrations/
+```
+
+Each package owns one business capability.
+
+---
+
+# Running Tests
+
+Execute the full test suite.
 
 ```bash
 pytest
@@ -172,189 +237,176 @@ pytest
 
 Run a specific package.
 
-Example:
-
 ```bash
-pytest tests/unit/replay
+pytest tests/unit/research
 ```
 
-Example:
+Run one file.
 
 ```bash
-pytest tests/unit/optimizer
-```
-
----
-
-# Running Benchmarks
-
-Benchmarks are available in the `benchmarks` directory.
-
-Example:
-
-```bash
-python benchmarks/benchmark_optimizer.py
-```
-
-or
-
-```bash
-python benchmarks/benchmark_reporting.py
-```
-
-These benchmarks measure throughput and deterministic performance.
-
----
-
-# Development Workflow
-
-Typical workflow:
-
-```text
-Create feature branch
-
-↓
-
-Implement feature
-
-↓
-
-Run Ruff
-
-↓
-
-Run MyPy
-
-↓
-
-Run PyTest
-
-↓
-
-Commit
-
-↓
-
-Push
-
-↓
-
-Create Pull Request
+pytest tests/unit/research/test_research.py
 ```
 
 ---
 
 # Code Quality
 
-Every contribution must pass:
+Run Ruff.
 
 ```bash
 ruff check .
-
-ruff format .
-
-mypy .
-
-pytest
 ```
 
-before being committed.
-
----
-
-# Architecture Principles
-
-AlphaLab follows several engineering principles.
-
-## Immutable State
-
-State objects are never modified after creation.
-
-Every engine returns a new immutable state.
-
----
-
-## Pure Functions
-
-Business logic is implemented using pure functions wherever possible.
-
----
-
-## Deterministic Execution
-
-Running the same input twice must produce the same output.
-
----
-
-## Strong Typing
-
-The project uses strict static typing throughout the codebase.
-
----
-
-# Versioning
-
-AlphaLab uses semantic versioning.
-
-Example:
-
-```text
-v0.25.0
-```
-
-Major architectural milestones are tagged in Git.
-
----
-
-# Learning Path
-
-If you're new to AlphaLab, explore the modules in this order:
-
-1. Core
-2. Events
-3. Strategy
-4. Replay
-5. Market
-6. Portfolio
-7. Analytics
-8. Reporting
-9. Optimizer
-10. Live Market
-11. Broker Connector
-
-This progression mirrors the architecture of the framework.
-
----
-
-# Next Reading
-
-Continue with:
-
-- `ARCHITECTURE.md` — System design and module responsibilities.
-- `EXAMPLES.md` — Practical examples using AlphaLab.
-- `CONTRIBUTING.md` — Development guidelines and coding standards.
-- `ROADMAP.md` — Planned future development.
-
----
-
-# Need Help?
-
-If you encounter issues:
-
-1. Ensure you are using Python 3.12 or newer.
-2. Verify the virtual environment is activated.
-3. Run:
+Automatically fix formatting.
 
 ```bash
-ruff check .
-mypy .
-pytest
+ruff check . --fix
 ```
 
-4. If problems persist, open an issue on the GitHub repository with:
-   - Operating system
-   - Python version
-   - Error message
-   - Steps to reproduce
+Run MyPy.
 
-Following these steps will help maintainers reproduce and resolve issues efficiently.
+```bash
+mypy .
+```
+
+All three commands should succeed before committing changes.
+
+---
+
+# Exploring Documentation
+
+Recommended reading order
+
+1. README.md
+2. docs/GETTING_STARTED.md
+3. docs/ARCHITECTURE.md
+4. docs/SYSTEM_DESIGN.md
+5. docs/ENGINEERING_GUIDELINES.md
+
+---
+
+# Common Development Workflow
+
+Typical research workflow
+
+```
+Acquire Data
+
+↓
+
+Normalize Dataset
+
+↓
+
+Run Research
+
+↓
+
+Optimize Portfolio
+
+↓
+
+Replay Strategy
+
+↓
+
+Generate Report
+
+↓
+
+Deploy
+```
+
+Every stage is deterministic and uses immutable state.
+
+---
+
+# Learning by Examples
+
+The fastest way to learn AlphaLab is by reading and running the examples.
+
+Each example focuses on one subsystem.
+
+Examples include
+
+- Universal Data Engine
+- Research Engine
+- Portfolio Optimizer
+- Market Data
+- Broker Integrations
+- Strategy Studio
+- Workbench
+
+---
+
+# Running Benchmarks
+
+Performance benchmarks are located in
+
+```
+benchmarks/
+```
+
+Benchmarks measure execution speed and scalability.
+
+They complement—but do not replace—the unit test suite.
+
+---
+
+# Contributing
+
+Interested in contributing?
+
+Read
+
+```
+CONTRIBUTING.md
+```
+
+and
+
+```
+docs/ENGINEERING_GUIDELINES.md
+```
+
+before submitting changes.
+
+---
+
+# Getting Help
+
+If you encounter issues
+
+- Read the documentation
+- Search existing GitHub Issues
+- Open a Discussion
+- Create an Issue
+
+Please include enough information to reproduce the problem.
+
+---
+
+# Where to Go Next
+
+After completing this guide, consider exploring
+
+- Research Engine
+- Universal Data Engine
+- Portfolio Optimizer
+- Strategy Studio
+- Workbench
+- Production Runtime
+
+These modules form the core of AlphaLab.
+
+---
+
+# Next Steps
+
+Congratulations!
+
+You have successfully set up AlphaLab and are ready to begin building quantitative research workflows.
+
+As the platform evolves, additional guides and examples will be added to demonstrate more advanced capabilities such as machine learning, distributed research, cloud execution, and enterprise deployment.
+
+Welcome to AlphaLab.

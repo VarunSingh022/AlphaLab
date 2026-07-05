@@ -1,500 +1,316 @@
+<div align="center">
+
 # AlphaLab
 
-<p align="center">
+### Institutional-Grade Quantitative Research & Algorithmic Trading Platform
 
-**Institutional-Grade Event-Driven Quantitative Research & Algorithmic Trading Framework**
+*Deterministic • Event-Driven • Immutable • Production Ready*
 
-*Built with immutable architecture, strict typing, deterministic execution, and production-quality engineering practices.*
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
+[![License](https://img.shields.io/badge/License-MIT-green.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-583%20Passing-success)]()
+[![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
+[![Style](https://img.shields.io/badge/Ruff-Passing-red)]()
 
-![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Type Checked](https://img.shields.io/badge/MyPy-Strict-brightgreen)
-![Lint](https://img.shields.io/badge/Ruff-Passing-success)
-![Tests](https://img.shields.io/badge/Tests-414_Passing-success)
-![Architecture](https://img.shields.io/badge/Architecture-Immutable-orange)
-
-</p>
+</div>
 
 ---
 
-## Overview
+# What is AlphaLab?
 
-AlphaLab is an institutional-grade quantitative trading framework designed for building, testing, optimizing, validating, and eventually deploying systematic investment strategies.
+AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Unlike many backtesting libraries that primarily focus on simulation, AlphaLab is designed around the complete lifecycle of quantitative research:
+Unlike traditional trading libraries that focus on isolated components, AlphaLab provides a complete research-to-production workflow.
 
-- Historical replay
-- Event-driven strategy execution
-- Portfolio construction
-- Risk management
-- Analytics
-- Optimization
-- Reporting
-- Live market infrastructure
-- Broker abstraction
-- Distributed research
+Researchers can ingest data, engineer features, develop strategies, optimize portfolios, replay historical markets, connect brokers, and deploy production workflows through a unified architecture.
 
-The project follows a strict engineering philosophy:
+AlphaLab is designed to scale from personal research projects to institutional quantitative trading systems.
+
+---
+
+# Core Principles
+
+AlphaLab is built around several engineering principles.
 
 - Immutable state
-- Pure functional engines
-- Deterministic execution
+- Pure functional APIs
+- Event-driven architecture
+- Deterministic replay
 - Strict typing
-- Comprehensive testing
+- Production-first design
+- Extensive automated testing
 - Modular architecture
 
----
-
-# Design Philosophy
-
-AlphaLab follows several core principles.
-
-## Immutable State
-
-Every engine returns a completely new immutable state.
-
-No hidden mutations.
-
-No global state.
-
-No shared mutable objects.
+Every major subsystem follows the same design philosophy to ensure consistency across the framework.
 
 ---
 
-## Event Driven
+# Architecture
 
-Every subsystem communicates through deterministic events.
-
+```text
+                         AlphaLab Workbench
+                                 │
+                                 ▼
+                        Strategy Studio
+                                 │
+      ┌───────────────┬───────────────┬───────────────┐
+      ▼               ▼               ▼               ▼
+ Universal Data   Research Engine Portfolio Optimizer Production Runtime
+      │               │               │               │
+      └───────────────┴───────────────┴───────────────┘
+                                 │
+                         Broker Integrations
+                                 │
+                                 ▼
+                           Live Markets
 ```
-Market
-    ↓
-Strategy
-    ↓
-Allocation
-    ↓
-Risk
-    ↓
-OMS
-    ↓
-Execution
-    ↓
-Portfolio
-```
-
----
-
-## Pure Functional Engines
-
-Engines never modify existing state.
-
-Instead they return
-
-```
-Old State
-        │
-        ▼
-
- Pure Function
-
-        │
-        ▼
-
-New State
-```
-
-This makes the framework
-
-- reproducible
-- testable
-- deterministic
-
----
-
-## Strict Typing
-
-AlphaLab uses strict static typing across the entire codebase.
-
-- MyPy (strict)
-- Frozen dataclasses
-- Slots
-- Explicit protocols
-- Type-safe APIs
 
 ---
 
 # Features
 
-## Core Framework
+## Research
 
-- Immutable domain models
-- Strongly typed identifiers
-- Event infrastructure
-- Validation layer
-- Functional architecture
-
----
-
-## Strategy Engine
-
-- Deterministic strategy execution
-- Event-driven processing
-- Strategy abstraction
-- Position-independent logic
+- Event-driven research engine
+- Deterministic replay
+- Strategy evaluation
+- Statistical analysis
+- Research pipelines
 
 ---
 
-## Replay Engine
+## Market Data
 
-- Historical event replay
-- Timestamp stepping
-- Single-event stepping
-- Replay lifecycle management
-- Pause / Resume / Reset
+- Universal Data Engine
+- Automatic schema detection
+- Dataset normalization
+- Data quality validation
+- Canonical market data model
 
----
+Supports
 
-## Market Engine
-
-- Market event processing
-- Market state abstraction
-- Deterministic updates
-
----
-
-## Feed Engine
-
-- Historical data feeds
-- Deterministic market feeds
-- Feed validation
+- CSV
+- JSON
+- Parquet
+- Yahoo Finance
+- Polygon
+- Databento
+- Binance
+- NSE
+- Additional providers
 
 ---
 
-## Portfolio Engine
+## Portfolio Optimization
 
-- Portfolio accounting
-- Position management
-- Equity tracking
-- Cash management
-
----
-
-## Risk Engine
-
-- Exposure checks
-- Position validation
-- Risk constraints
-- Order validation
+- Equal Weight
+- Risk Parity
+- Minimum Variance
+- Maximum Sharpe
+- Exposure calculation
+- Constraint engine
+- Transaction cost estimation
+- Rebalancing
 
 ---
 
-## Order Management (OMS)
-
-- Order lifecycle
-- State transitions
-- Order validation
-
----
-
-## Execution Engine
-
-- Deterministic fills
-- Execution simulation
-- Order execution lifecycle
-
----
-
-## Analytics Engine
-
-Performance analytics including
-
-- Returns
-- CAGR
-- Sharpe Ratio
-- Sortino Ratio
-- Calmar Ratio
-- Drawdowns
-- VaR
-- CVaR
-- Rolling metrics
-- Trade statistics
-- Attribution
-
----
-
-## Runtime Engine
+## Production Runtime
 
 - Runtime supervision
+- Health monitoring
 - Heartbeats
-- Metrics
-- Runtime lifecycle
+- Checkpointing
+- Process management
 
 ---
 
-## Persistence
+## Broker Integrations
 
-- Immutable snapshots
-- Event persistence
-- Deterministic serialization
+Current architecture supports
 
----
+- Paper Trading
+- Alpaca
+- Interactive Brokers
+- Zerodha
 
-## Optimizer
-
-Parameter optimization framework
-
-- Search spaces
-- Objectives
-- Validation
-- Optimization engine
+Additional brokers can be implemented through the provider interface.
 
 ---
 
-## Reporting
+## Strategy Studio
 
-Generate
+Provides a unified workflow for
 
-- JSON reports
-- CSV exports
-- Markdown reports
-- Dashboards
-- Metrics summaries
-
----
-
-## Plugin SDK
-
-Extensible plugin architecture supporting
-
-- Strategy plugins
-- Feed plugins
-- Future extensions
+- Projects
+- Experiments
+- Pipelines
+- Reports
+- Backtests
+- Research sessions
 
 ---
 
-## Distributed Research
+## AlphaLab Workbench
 
-Infrastructure for
+Unified interface for
 
-- Worker registration
-- Distributed jobs
-- Job lifecycle
-- Worker management
-
----
-
-## Live Market Infrastructure
-
-Provider-independent live market framework.
-
-Supports
-
-- Market snapshots
-- Trade ticks
-- Quote ticks
-- Subscription management
-- Provider abstraction
-
-No vendor lock-in.
-
----
-
-## Broker Connector Framework
-
-Broker-independent execution infrastructure.
-
-Supports
-
-- Accounts
-- Orders
-- Positions
-- Executions
-- Connections
-
-Future broker adapters can be implemented without modifying AlphaLab internals.
-
----
-
-# Project Structure
-
-```text
-alphalab/
-
-├── allocation/
-├── analytics/
-├── broker/
-├── brokers/
-├── core/
-├── distributed/
-├── events/
-├── execution/
-├── feed/
-├── kernel/
-├── live/
-├── market/
-├── oms/
-├── optimizer/
-├── persistence/
-├── plugins/
-├── portfolio/
-├── replay/
-├── reporting/
-├── risk/
-├── runtime/
-├── scheduler/
-└── strategy/
-```
-
----
-
-# Current Project Status
-
-Current release:
-
-**v0.25.0**
-
-Current codebase:
-
-- 374 Python source files
-- 414 automated unit tests
-- Strict MyPy typing
-- Ruff compliant
-- Immutable architecture
+- Projects
+- Datasets
+- Research
+- Backtests
+- Portfolio analysis
+- Production monitoring
+- Reports
 
 ---
 
 # Installation
 
-Clone the repository
-
 ```bash
 git clone https://github.com/VarunSingh022/AlphaLab.git
 
 cd AlphaLab
-```
 
-Create a virtual environment
-
-```bash
 python -m venv .venv
-```
 
-Activate
-
-### macOS / Linux
-
-```bash
 source .venv/bin/activate
-```
 
-### Windows
-
-```powershell
-.venv\Scripts\activate
-```
-
-Install dependencies
-
-```bash
 pip install -e .
 ```
 
 ---
 
-# Development
+# Quick Example
 
-Run Ruff
+```python
+from alphalab.data import UniversalDataEngine
+from alphalab.research import ResearchEngine
+from alphalab.portfolio_optimizer import PortfolioEngine
 
-```bash
-ruff check .
+# Load market data
+dataset = UniversalDataEngine.load("data.csv")
+
+# Research
+research = ResearchEngine.run(dataset)
+
+# Optimize portfolio
+portfolio = PortfolioEngine.optimize(research)
 ```
 
-Format
+---
 
-```bash
-ruff format .
+# Project Structure
+
 ```
+alphalab/
 
-Run MyPy
-
-```bash
-mypy .
-```
-
-Run tests
-
-```bash
-pytest
-```
-
-Expected output
-
-```text
-414 passed
+├── allocation/
+├── analytics/
+├── broker/
+├── distributed/
+├── events/
+├── execution/
+├── feed/
+├── integrations/
+├── kernel/
+├── live/
+├── market/
+├── marketdata/
+├── oms/
+├── optimizer/
+├── persistence/
+├── plugins/
+├── portfolio/
+├── portfolio_optimizer/
+├── production/
+├── replay/
+├── reporting/
+├── research/
+├── risk/
+├── runtime/
+├── scheduler/
+├── strategy/
+├── data/
+├── studio/
+└── workbench/
 ```
 
 ---
 
 # Documentation
 
-Additional documentation is available in
+Complete documentation is available in the `docs/` directory.
 
-- ARCHITECTURE.md
-- GETTING_STARTED.md
-- EXAMPLES.md
-- CONTRIBUTING.md
-- CHANGELOG.md
-- ROADMAP.md
+| Document | Description |
+|----------|-------------|
+| Getting Started | Installation and first steps |
+| Architecture | System architecture |
+| System Design | Internal design |
+| Examples | Practical examples |
+| Roadmap | Future development |
+| Engineering Guidelines | Coding standards |
+| ADR | Architectural decisions |
 
 ---
 
 # Roadmap
 
-Completed
+## Completed
 
-- Core Architecture
 - Event System
-- Kernel
 - Replay Engine
-- Market Engine
-- Feed Engine
-- Portfolio
-- Allocation
-- Risk
-- OMS
-- Execution
-- Analytics
-- Runtime
-- Persistence
-- Optimizer
 - Reporting
 - Plugin SDK
 - Distributed Research
-- Live Market Infrastructure
-- Broker Connector Framework
-
-Upcoming
-
-- Strategy Validation Engine
+- Live Runtime
+- Broker Framework
+- Research Engine
 - Production Runtime
 - Broker Integrations
-- Paper Trading
-- Zerodha Adapter
-- Interactive Brokers Adapter
+- Market Data
+- Portfolio Optimizer
+- Universal Data Engine
+- Strategy Studio
+- AlphaLab Workbench
+
+## Planned
+
+- Feature Store
+- Factor Library
+- Options Engine
+- Futures Engine
+- Crypto Engine
+- Macro Engine
+- Alternative Data
+- Machine Learning
+- Deep Learning
+- Reinforcement Learning
+- Cloud Research
+- Cluster Scheduler
+- Experiment Tracking
+- Model Registry
+- AI Research Assistant
+- Deployment Manager
+- AlphaLab Cloud
+- AlphaLab Enterprise
 
 ---
 
-# Engineering Principles
+# Testing
 
-AlphaLab emphasizes
+AlphaLab is continuously validated using
 
-- Correctness over convenience
-- Deterministic execution
-- Pure functions
-- Immutable state
-- Strong typing
-- Testability
-- Separation of concerns
-- Long-term maintainability
+- Ruff
+- MyPy
+- Pytest
+
+Current status
+
+```
+583 Passing Tests
+Strict MyPy
+Ruff Clean
+```
 
 ---
 
@@ -502,34 +318,34 @@ AlphaLab emphasizes
 
 Contributions are welcome.
 
-Before submitting a pull request, ensure all quality checks pass.
+Please read
 
-```bash
-ruff check .
-
-mypy .
-
-pytest
+```
+docs/CONTRIBUTING.md
 ```
 
-Every contribution should maintain
-
-- immutable architecture
-- strict typing
-- deterministic behavior
-- complete documentation
-- comprehensive tests
+before submitting pull requests.
 
 ---
 
 # License
 
-This project is licensed under the MIT License.
+Released under the MIT License.
+
+See
+
+```
+LICENSE
+```
+
+for details.
 
 ---
 
-# Acknowledgements
+<div align="center">
 
-AlphaLab is inspired by modern quantitative research systems and best practices in event-driven software architecture.
+**AlphaLab**
 
-Rather than replicating existing trading frameworks, the project aims to provide a clean, strongly typed, immutable foundation for systematic research, simulation, optimization, and live execution.
+Building institutional-grade quantitative research infrastructure.
+
+</div>

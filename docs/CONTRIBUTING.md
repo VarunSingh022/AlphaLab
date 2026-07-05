@@ -2,29 +2,57 @@
 
 Thank you for your interest in contributing to AlphaLab.
 
-AlphaLab is an institutional-grade quantitative trading framework built around immutable architecture, deterministic execution, and strong engineering practices. Every contribution should preserve these principles.
+AlphaLab is an open-source quantitative research and algorithmic trading framework focused on deterministic execution, immutable state, and institutional-grade engineering practices.
+
+Whether you are fixing bugs, improving documentation, adding new modules, or implementing new research techniques, your contributions are welcome.
 
 ---
 
-# Development Philosophy
+# Table of Contents
 
-AlphaLab values:
+- Code of Conduct
+- Before You Begin
+- Development Setup
+- Repository Structure
+- Development Workflow
+- Coding Standards
+- Testing
+- Documentation
+- Pull Requests
+- Reporting Issues
+- Feature Requests
+- Roadmap
+- Community
 
-- Correctness over convenience
-- Simplicity over cleverness
-- Immutability over mutation
-- Pure functions over hidden side effects
-- Strong typing over implicit behavior
-- Deterministic execution over non-determinism
-- Maintainability over premature optimization
+---
 
-Every contribution should align with these goals.
+# Code of Conduct
+
+Please be respectful, constructive, and professional.
+
+We aim to build an inclusive community where contributors feel comfortable asking questions, proposing ideas, and reviewing code.
+
+Harassment, personal attacks, or abusive behavior will not be tolerated.
+
+---
+
+# Before You Begin
+
+Before making significant changes, please
+
+- Read the README
+- Read the Architecture documentation
+- Read the Engineering Guidelines
+- Check the Roadmap
+- Search existing issues and pull requests
+
+Understanding the overall architecture before writing code will save time and reduce unnecessary redesigns.
 
 ---
 
 # Development Setup
 
-Clone the repository.
+Clone the repository
 
 ```bash
 git clone https://github.com/VarunSingh022/AlphaLab.git
@@ -32,305 +60,302 @@ git clone https://github.com/VarunSingh022/AlphaLab.git
 cd AlphaLab
 ```
 
-Create a virtual environment.
+Create a virtual environment
 
 ```bash
 python -m venv .venv
 ```
 
-Activate it.
+Activate it
 
-### macOS / Linux
+Linux / macOS
 
 ```bash
 source .venv/bin/activate
 ```
 
-### Windows
+Windows
 
 ```powershell
 .venv\Scripts\activate
 ```
 
-Install AlphaLab.
+Install dependencies
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 ```
+
+---
+
+# Verify Your Environment
+
+Run the complete validation suite.
+
+```bash
+ruff check .
+
+mypy .
+
+pytest
+```
+
+Expected output
+
+```
+All checks passed.
+
+Success: no issues found.
+
+All tests passed.
+```
+
+Do not submit code that fails any of these checks.
 
 ---
 
 # Repository Structure
 
-```text
+```
 alphalab/
 benchmarks/
-configs/
 docs/
 examples/
 tests/
 ```
 
-Documentation is located inside the `docs` directory.
+Every production package should have corresponding unit tests.
 
-Examples are located inside the `examples` directory.
+Documentation should remain synchronized with implementation.
 
 ---
 
 # Development Workflow
 
-Typical workflow:
-
-```
-Fork
-
-↓
-
-Create Feature Branch
-
-↓
-
-Implement
-
-↓
-
-Run Ruff
-
-↓
-
-Run MyPy
-
-↓
-
-Run PyTest
-
-↓
-
-Commit
-
-↓
-
-Push
-
-↓
-
-Open Pull Request
-```
-
----
-
-# Code Style
-
-AlphaLab follows a strict coding style.
-
-## Formatting
-
-Use Ruff.
+1. Create a feature branch.
 
 ```bash
-ruff format .
+git checkout -b feature/my-feature
+```
+
+2. Implement the feature.
+
+3. Add or update tests.
+
+4. Update documentation if required.
+
+5. Run the validation suite.
+
+6. Commit your changes.
+
+7. Open a Pull Request.
+
+---
+
+# Coding Standards
+
+AlphaLab follows strict engineering standards.
+
+Every contribution should
+
+- Use static typing
+- Follow Ruff formatting
+- Pass MyPy
+- Include tests
+- Preserve immutable state
+- Avoid hidden side effects
+
+Refer to
+
+```
+docs/ENGINEERING_GUIDELINES.md
+```
+
+for detailed standards.
+
+---
+
+# Writing Tests
+
+Every new feature should include tests.
+
+Tests should verify
+
+- Expected behavior
+- Edge cases
+- Invalid inputs
+- Error conditions
+- Deterministic execution
+
+The structure of the tests should mirror the production package.
+
+Example
+
+```
+alphalab/research/
+
+↓
+
+tests/unit/research/
 ```
 
 ---
 
-## Linting
+# Documentation
 
-```bash
-ruff check .
-```
+Documentation is considered part of the codebase.
 
----
+Whenever public APIs change, update
 
-## Static Type Checking
+- README
+- Examples
+- Architecture documentation
+- System Design
+- Engineering Guidelines
 
-```bash
-mypy .
-```
-
-All code must pass MyPy.
-
----
-
-## Testing
-
-Run the complete test suite.
-
-```bash
-pytest
-```
-
-New functionality should include corresponding unit tests.
-
----
-
-# Architecture Guidelines
-
-## Immutable State
-
-State objects must be immutable.
-
-Use frozen dataclasses whenever appropriate.
-
-Avoid mutable shared state.
-
----
-
-## Pure Functional Engines
-
-Engines should not mutate existing objects.
-
-Instead they should return new immutable state.
-
-Example:
-
-```python
-new_state = Engine.process(old_state, event)
-```
-
----
-
-## Deterministic Behavior
-
-Given identical input, AlphaLab should always produce identical output.
-
-Avoid:
-
-- randomness
-- hidden global state
-- implicit ordering
-- non-deterministic behavior
-
-unless explicitly documented.
-
----
-
-## Strong Typing
-
-All public APIs should be fully typed.
-
-Avoid `Any` whenever possible.
-
-Prefer:
-
-- Protocols
-- Typed dataclasses
-- Explicit return types
-
----
-
-## Documentation
-
-Every public module should include:
-
-- module docstring
-- class docstrings
-- function docstrings
-
-Large architectural changes should also update the documentation inside `docs/`.
-
----
-
-# Testing Guidelines
-
-Unit tests should focus on:
-
-- correctness
-- edge cases
-- validation
-- deterministic behavior
-- state transitions
-- error handling
-
-Regression tests should accompany bug fixes whenever practical.
-
----
-
-# Benchmarks
-
-Performance-sensitive changes should include benchmark updates when appropriate.
-
-Benchmarks are located in:
-
-```text
-benchmarks/
-```
-
----
-
-# Commit Messages
-
-Use descriptive commit messages.
-
-Examples:
-
-```text
-feat(replay): implement timestamp stepping
-
-fix(analytics): correct sortino ratio calculation
-
-refactor(runtime): simplify heartbeat validation
-
-docs: update architecture guide
-
-test(optimizer): add edge case coverage
-```
+if applicable.
 
 ---
 
 # Pull Requests
 
-Before opening a pull request, verify:
+Good pull requests are
 
-- Ruff passes
-- MyPy passes
-- PyTest passes
-- Documentation is updated
-- New functionality includes tests
+- Focused
+- Small
+- Well documented
+- Fully tested
 
-Checklist:
+Before opening a pull request, ensure
 
-- [ ] Ruff
-- [ ] MyPy
-- [ ] PyTest
-- [ ] Documentation updated
-- [ ] Tests added
-- [ ] Benchmarks updated (if applicable)
+```bash
+ruff check .
+
+mypy .
+
+pytest
+```
+
+all succeed.
 
 ---
 
-# Reporting Issues
+# Commit Messages
 
-When reporting bugs, include:
+Use clear and descriptive commit messages.
 
-- Operating System
+Examples
+
+```
+Add Feature Store engine
+
+Implement Polygon market data provider
+
+Fix portfolio optimizer normalization
+
+Improve Strategy Studio documentation
+```
+
+Avoid vague messages such as
+
+```
+fix
+
+update
+
+changes
+
+misc
+```
+
+---
+
+# Reporting Bugs
+
+When reporting bugs, include
+
+- Operating system
 - Python version
 - AlphaLab version
 - Steps to reproduce
 - Expected behavior
 - Actual behavior
-- Relevant logs or tracebacks
+- Error messages
+- Stack trace (if applicable)
+
+Small reproducible examples are greatly appreciated.
 
 ---
 
-# Feature Requests
+# Requesting Features
 
-Feature requests should include:
+Feature requests should explain
 
-- Motivation
-- Proposed solution
-- Expected behavior
-- Possible alternatives
+- The problem
+- Why it matters
+- A proposed solution
+- Alternative approaches (if any)
 
----
-
-# Code of Conduct
-
-Please remain respectful and constructive.
-
-AlphaLab welcomes contributions from developers of all experience levels.
-
-Professional communication and thoughtful collaboration are expected.
+Discussion before implementation is encouraged for larger changes.
 
 ---
 
-Thank you for contributing to AlphaLab.
+# Areas for Contribution
+
+Examples of contributions include
+
+- Documentation improvements
+- New research metrics
+- Additional market data providers
+- Broker integrations
+- Portfolio optimization methods
+- Statistical analysis
+- Performance improvements
+- Bug fixes
+- Benchmarking
+- Examples
+
+---
+
+# Roadmap
+
+The long-term roadmap includes
+
+- Feature Store
+- Factor Library
+- Options Engine
+- Futures Engine
+- Crypto Engine
+- Macro Engine
+- Alternative Data
+- Machine Learning
+- Cloud Research
+- Enterprise Platform
+
+See
+
+```
+ROADMAP.md
+```
+
+for details.
+
+---
+
+# Getting Help
+
+If you have questions
+
+- Open a GitHub Discussion
+- Open an Issue
+- Start a Pull Request draft
+
+Questions are always welcome.
+
+---
+
+# Thank You
+
+Every contribution—whether it is a bug fix, documentation update, test improvement, or major feature—helps improve AlphaLab.
+
+Thank you for helping build a robust, open, and production-ready quantitative research platform.

@@ -1,25 +1,173 @@
-# Examples
+# AlphaLab Examples
 
-The `examples/` directory contains runnable examples demonstrating the core functionality of AlphaLab.
+## Overview
 
-## Available Examples
+The examples directory contains complete, executable demonstrations of AlphaLab functionality.
+
+Each example focuses on a single subsystem while following the same engineering principles used throughout the framework.
+
+Examples are intended to be read sequentially by new users and used as reference implementations by contributors.
+
+---
+
+# Learning Path
+
+We recommend exploring the examples in the following order.
 
 | Example | Description |
-|---------|-------------|
-| buy_and_hold.py | Minimal strategy implementation |
-| moving_average.py | Moving average crossover |
-| mean_reversion.py | Mean reversion strategy |
-| replay_example.py | Historical replay engine |
-| analytics_example.py | Performance analytics |
-| optimizer_example.py | Parameter optimization |
-| reporting_example.py | Generate reports |
-| live_market_example.py | Live market infrastructure |
-| broker_example.py | Broker connector framework |
+|----------|-------------|
+| Universal Data Engine | Load and normalize datasets |
+| Research Engine | Run quantitative analysis |
+| Portfolio Optimizer | Construct institutional portfolios |
+| Replay Engine | Historical simulation |
+| Market Data | Download live and historical data |
+| Broker Integrations | Connect to paper and live brokers |
+| Production Runtime | Supervise live systems |
+| Strategy Studio | End-to-end workflow orchestration |
+| AlphaLab Workbench | User interface workflows |
 
-## Running an Example
+---
 
-```bash
-python examples/replay_example.py
+# Universal Data
+
+Learn how AlphaLab transforms heterogeneous market data into canonical datasets.
+
+Topics include
+
+- CSV ingestion
+- JSON ingestion
+- Schema detection
+- Column mapping
+- Symbol normalization
+- Timestamp normalization
+
+---
+
+# Research
+
+Examples demonstrate
+
+- Performance metrics
+- Walk-forward analysis
+- Bootstrap statistics
+- Monte Carlo simulation
+- Regime analysis
+- Capacity estimation
+
+---
+
+# Portfolio Optimization
+
+Examples include
+
+- Equal Weight
+- Risk Parity
+- Maximum Sharpe
+- Minimum Variance
+- Constraint handling
+- Rebalancing
+
+---
+
+# Replay
+
+Replay examples demonstrate deterministic historical simulation.
+
+Topics include
+
+- Event replay
+- Historical execution
+- Performance validation
+
+---
+
+# Market Data
+
+Examples demonstrate
+
+- Yahoo Finance
+- Polygon
+- Databento
+- Binance
+- NSE
+
+All provider outputs are normalized through the Universal Data Engine.
+
+---
+
+# Broker Integrations
+
+Supported examples include
+
+- Paper Trading
+- Alpaca
+- Interactive Brokers
+- Zerodha
+
+---
+
+# Strategy Studio
+
+Examples demonstrate complete research workflows.
+
+Typical pipeline
+
 ```
 
-Each example is self-contained and focuses on a single subsystem.
+Acquire Data
+
+↓
+
+Normalize Dataset
+
+↓
+
+Research
+
+↓
+
+Portfolio Optimization
+
+↓
+
+Replay
+
+↓
+
+Reporting
+
+```
+
+---
+
+# Workbench
+
+Workbench examples illustrate
+
+- Projects
+- Sessions
+- Pipelines
+- Reports
+- Dashboards
+
+---
+
+# Future Examples
+
+As AlphaLab evolves, additional examples will be added for
+
+- Feature Store
+- Factor Library
+- Machine Learning
+- Cloud Research
+- Enterprise Deployment
+
+---
+
+# Philosophy
+
+Examples are intentionally concise.
+
+They demonstrate recommended usage patterns rather than every available API.
+
+They should remain synchronized with the public interfaces of AlphaLab.

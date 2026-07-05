@@ -2,244 +2,468 @@
 
 ## Overview
 
-AlphaLab is a modular, event-driven quantitative trading framework designed for deterministic research, backtesting, and live trading.
+This document describes the internal system design of AlphaLab.
 
-The framework follows four core principles:
+While the Architecture document explains the overall organization of the platform, this document focuses on implementation details, execution flow, package interactions, and subsystem responsibilities.
 
+The intended audience includes
+
+- contributors
+- maintainers
+- plugin developers
+- enterprise adopters
+
+---
+
+# Design Objectives
+
+AlphaLab is designed to satisfy several engineering objectives.
+
+- Deterministic execution
 - Immutable state
-- Pure functional state transitions
-- Event-driven architecture
-- Strong static typing
+- Event-driven workflows
+- High testability
+- Low coupling
+- High cohesion
+- Production readiness
+- Long-term extensibility
 
-Every subsystem is independently testable and communicates through well-defined domain models and events.
+Every implementation decision should reinforce these objectives.
 
 ---
 
-# High-Level Architecture
+# System Overview
 
 ```
-                   Strategy Engine
+                        User
                           │
                           ▼
-                 Order Management System
+                  AlphaLab Workbench
                           │
                           ▼
-                  Execution Engine
+                  Strategy Studio
                           │
-            ┌─────────────┴─────────────┐
-            ▼                           ▼
-      Portfolio Engine            Risk Engine
-            │                           │
-            └─────────────┬─────────────┘
-                          ▼
-                     Analytics Engine
+     ┌────────────┬──────────────┬─────────────┐
+     ▼            ▼              ▼             ▼
+ Universal    Research      Portfolio     Production
+ Data         Engine        Optimizer      Runtime
+     │            │              │             │
+     └────────────┴──────────────┴─────────────┘
                           │
                           ▼
-                  Dashboard / Reports
+                 Broker Integrations
+                          │
+                          ▼
+                    External Systems
 ```
 
 ---
 
-# Core Modules
+# Execution Philosophy
 
-## Core
+AlphaLab executes operations through immutable state transitions.
 
-Contains immutable domain models, identifiers, enums, and shared business objects used throughout the framework.
+Every operation follows the same lifecycle.
 
-Responsibilities:
+```
+Request
 
-- Asset identifiers
-- Instrument definitions
-- Trading enums
-- Shared domain models
+↓
 
----
+Validation
 
-## Event System
+↓
 
-Provides deterministic event processing.
+Business Logic
 
-Responsibilities:
+↓
 
-- Event queue
-- Event pipeline
-- Event registry
-- Event dispatch
+New State
 
----
+↓
 
-## Kernel
+Events
 
-The immutable application state engine.
+↓
 
-Responsibilities:
+Return
+```
 
-- State container
-- Reducers
-- Snapshots
-- State diffing
-- Version history
-- Time-travel support
+The previous state is never modified.
 
 ---
 
-## Portfolio
+# Core Design Principles
 
-Maintains all account positions and balances.
+## Stateless Engines
 
-Responsibilities:
+Engine classes do not own mutable state.
 
-- Position accounting
-- Cash ledger
-- Realized PnL
-- Unrealized PnL
-- NAV
-- Margin
-- Exposure
+Example
 
----
+```python
+new_state = ResearchEngine.run(
+    previous_state,
+    payload,
+)
+```
 
-## Order Management System
-
-Manages the complete lifecycle of every order.
-
-Responsibilities:
-
-- Order submission
-- Validation
-- Acceptance
-- Rejection
-- Replacement
-- Cancellation
-- Partial fills
-- Completed orders
+The engine acts as a coordinator.
 
 ---
 
-## Execution Engine (Planned)
+## Managers
 
-Executes accepted orders.
+Managers implement business logic.
 
-Responsibilities:
+Responsibilities include
 
-- Fill simulation
-- Partial fills
-- Slippage
-- Commission
-- Latency
-- Execution reports
+- validation
+- orchestration
+- state creation
+- event generation
 
----
-
-## Risk Engine (Planned)
-
-Validates strategy and portfolio risk.
-
-Responsibilities:
-
-- Position limits
-- Exposure limits
-- Leverage
-- Drawdown protection
-- Margin checks
+Managers remain internal implementation details.
 
 ---
 
-## Broker Layer (Planned)
+## Registries
 
-Provides integration with live brokers and exchanges.
+Registries own immutable collections.
 
-Responsibilities:
+Examples
 
-- Order routing
-- Execution reports
-- Market connectivity
+- datasets
+- brokers
+- portfolios
+- strategies
 
----
-
-## Analytics (Planned)
-
-Produces research metrics and reporting.
-
-Responsibilities:
-
-- Performance metrics
-- Risk statistics
-- Attribution
-- Tear sheets
+Registries never expose mutable containers.
 
 ---
 
-# Design Principles
+## Views
 
-## Immutability
+Views provide read-only projections of state.
 
-All domain objects are immutable.
-
-No object is modified after creation.
-
-Every state transition returns a new immutable object.
+Views simplify inspection while preserving encapsulation.
 
 ---
 
-## Deterministic Execution
+## Validation
 
-The same sequence of events must always produce the same system state.
+Every operation validates its inputs before execution.
 
-This guarantees reproducible research and debugging.
+Validation is centralized inside
 
----
+```
+validation.py
+```
 
-## Event-Driven Processing
-
-Subsystems communicate through domain events.
-
-Components remain loosely coupled.
+Validation should never be duplicated across managers.
 
 ---
 
-## Strong Typing
+# Package Interaction
 
-The framework is fully type-annotated and verified using MyPy.
+The following diagram illustrates communication between major subsystems.
+
+```
+Workbench
+
+↓
+
+Studio
+
+↓
+
+Research
+
+↓
+
+Portfolio
+
+↓
+
+Replay
+
+↓
+
+Production
+
+↓
+
+Integrations
+```
+
+Communication always follows public APIs.
 
 ---
 
-# Quality Standards
+# Engine Pattern
 
-Every pull request must satisfy:
+Every engine follows a common structure.
 
-- Ruff formatting
-- Ruff linting
-- MyPy type checking
-- Unit tests
-- Benchmarks (when applicable)
+```
+Engine
+
+↓
+
+Manager
+
+↓
+
+Registry
+
+↓
+
+State
+
+↓
+
+Events
+```
+
+The engine itself contains very little business logic.
 
 ---
 
-# Current Status
+# Internal Package Pattern
 
-| Module | Status |
-|---------|--------|
-| Core | ✅ Complete |
-| Events | ✅ Complete |
-| Kernel | ✅ Complete |
-| Portfolio | ✅ Complete |
-| OMS | ✅ Complete |
-| Execution | 🚧 Planned |
-| Risk | 🚧 Planned |
-| Broker | 🚧 Planned |
-| Strategy | 🚧 Planned |
-| Analytics | 🚧 Planned |
+Each subsystem follows the same implementation model.
+
+```
+engine.py
+
+↓
+
+manager.py
+
+↓
+
+validation.py
+
+↓
+
+state.py
+
+↓
+
+events.py
+
+↓
+
+views.py
+```
+
+Consistency is preferred over cleverness.
 
 ---
 
-# Long-Term Goal
+# Immutable State
 
-AlphaLab aims to become a modular, deterministic, institutional-grade quantitative trading framework supporting:
+Every package owns one immutable state object.
 
-- Research
-- Backtesting
-- Paper trading
-- Live trading
-- Performance analytics
-- Risk management
+Example
+
+```
+ResearchState
+
+PortfolioState
+
+RuntimeState
+
+ProductionState
+
+StudioState
+```
+
+Each operation returns a new instance.
+
+---
+
+# Event Lifecycle
+
+Operations generate events after successful execution.
+
+```
+Validation
+
+↓
+
+Execution
+
+↓
+
+Event
+
+↓
+
+State
+
+↓
+
+Return
+```
+
+Events never mutate state.
+
+---
+
+# Error Handling
+
+Recoverable problems are represented by package-specific exceptions.
+
+Examples
+
+```
+ResearchValidationError
+
+IntegrationError
+
+OptimizationError
+```
+
+Validation errors occur before business logic executes.
+
+---
+
+# Deterministic Processing
+
+The same inputs must always produce the same outputs.
+
+This applies to
+
+- research
+- replay
+- optimization
+- reporting
+
+Randomized algorithms should expose explicit seeds.
+
+---
+
+# Package Isolation
+
+Subsystems should remain independent.
+
+For example
+
+Research should not import
+
+- Production
+- Workbench
+
+Portfolio Optimizer should not import
+
+- Market Data providers
+- UI components
+
+Isolation simplifies testing and maintenance.
+
+---
+
+# Public API
+
+Applications interact only through
+
+```
+__init__.py
+```
+
+Example
+
+```python
+from alphalab.research import ResearchEngine
+```
+
+Internal modules are considered implementation details.
+
+---
+
+# Testing Strategy
+
+Every subsystem is expected to provide
+
+- unit tests
+- deterministic outputs
+- type safety
+- complete Ruff compliance
+- complete MyPy compliance
+
+Testing mirrors the production package layout.
+
+---
+
+# Performance
+
+Performance optimization should never compromise determinism.
+
+Before introducing optimization, contributors should verify
+
+- correctness
+- reproducibility
+- maintainability
+
+Optimization is secondary to correctness.
+
+---
+
+# Extension Model
+
+New functionality should extend
+
+- protocols
+- adapters
+- plugins
+
+rather than modifying existing engines.
+
+The architecture favors extension over modification.
+
+---
+
+# Future Compatibility
+
+The system design established in v1.0.0 is intended to support
+
+- distributed execution
+- cloud research
+- machine learning
+- enterprise deployment
+
+without requiring architectural redesign.
+
+---
+
+# Summary
+
+AlphaLab follows a consistent engineering model across every subsystem.
+
+```
+Request
+
+↓
+
+Validation
+
+↓
+
+Manager
+
+↓
+
+Immutable State
+
+↓
+
+Events
+
+↓
+
+Return
+```
+
+This pattern enables predictable behavior, comprehensive testing, and long-term maintainability.
+
+Future modules should preserve this execution model to ensure consistency across the platform.

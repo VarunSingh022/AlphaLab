@@ -2,182 +2,191 @@
 
 All notable changes to AlphaLab are documented in this file.
 
-The project follows Semantic Versioning for tagged releases.
+The format follows Keep a Changelog principles.
 
 ---
 
-# v0.25.0
+# v1.0.0
 
-## Broker Connector Framework
+## Release Date
 
-Added
-
-- Broker connector infrastructure
-- Account snapshots
-- Broker connections
-- Broker registry
-- Order manager
-- Execution reports
-- Position snapshots
-- Validation layer
-- Broker protocol
-- Broker adapter
-- Comprehensive unit tests
-- Benchmarks
-
-This release introduces a broker-agnostic execution layer that enables future integrations with external broker APIs without modifying AlphaLab's core architecture.
+Initial stable architecture release.
 
 ---
 
-# v0.24.0
+## Highlights
 
-## Live Market Infrastructure
-
-Added
-
-- Live market framework
-- Provider abstraction
-- Subscription management
-- Tick normalization
-- Market snapshots
-- Connection management
-- Registry
-- Validation
-- View layer
-- Benchmarks
-- Unit tests
-
-This release establishes a vendor-independent foundation for integrating real-time market data providers.
+- Stable modular architecture
+- Deterministic execution model
+- Immutable state throughout the framework
+- Event-driven subsystem communication
+- Comprehensive documentation
+- Institutional engineering standards
 
 ---
 
-# v0.23.0
+## Core Modules
 
-## Distributed Research
+### Existing Foundation
 
-Added
-
-- Distributed execution infrastructure
-- Worker registration
-- Job scheduling
-- Worker lifecycle
-- Validation
-- Registry
-- Benchmarks
-- Comprehensive unit tests
-
-This release introduces the foundation for distributed quantitative research and computation.
-
----
-
-# v0.22.0
-
-## Plugin SDK
-
-Added
-
-- Plugin infrastructure
-- Plugin protocol
-- Validation
-- Dynamic loading
-- Extensible plugin architecture
-- Benchmarks
-- Unit tests
-
-This release enables future extension of AlphaLab through modular plugins.
-
----
-
-# v0.21.0
-
-## Reporting Layer
-
-Added
-
-- Report engine
-- Markdown export
-- CSV export
-- JSON export
-- Dashboard generation
-- Validation
-- Reporting events
-- Unit tests
-- Benchmarks
-
-This release introduces deterministic reporting and export capabilities.
-
----
-
-# v0.20.0
-
-## Optimizer
-
-Added
-
-- Optimization engine
-- Search space abstraction
-- Objectives
-- Parameter validation
-- Optimization state
-- Benchmarks
-- Unit tests
-
-This release establishes the optimization framework for systematic strategy research.
-
----
-
-# v0.19.0
-
-## Persistence Layer
-
-Added
-
-- Snapshot persistence
-- Event persistence
-- Serialization
-- Deserialization
-- Validation
-- Benchmarks
-- Unit tests
-
-This release introduces deterministic persistence for replayable research workflows.
-
----
-
-# Earlier Development
-
-Prior to version **0.19.0**, AlphaLab established the core architecture of the framework, including:
-
-- Core domain models
-- Event system
-- Kernel
-- Strategy engine
-- Replay engine
-- Scheduler
-- Market engine
-- Feed engine
-- Portfolio engine
-- Risk engine
-- Order Management System (OMS)
-- Execution engine
+- Allocation
 - Analytics
-- Runtime supervision
-
-These foundational components formed the basis for the modular architecture that subsequent releases continue to expand.
+- Broker
+- Distributed Runtime
+- Events
+- Execution
+- Feed
+- Kernel
+- Live Runtime
+- Market
+- OMS
+- Optimizer
+- Persistence
+- Plugins
+- Portfolio
+- Replay
+- Reporting
+- Research
+- Risk
+- Runtime
+- Scheduler
+- Strategy
 
 ---
 
-## Future
+## New Modules
 
-Planned future releases include:
+### PR-027
 
-- Strategy Validation Engine
-- Production Runtime
+Production Runtime
+
+Features
+
+- Process supervision
+- Health monitoring
+- Checkpointing
+- Recovery
+- Runtime metrics
+
+---
+
+### PR-028
+
+Broker Integrations
+
+Features
+
 - Paper Trading
-- Broker API integrations
-- Live execution
-- Cloud deployment
-- Advanced visualization
-- Additional optimization techniques
+- Alpaca
+- Interactive Brokers
+- Zerodha
+- Authentication
+- Connection management
 
-Future milestones are documented in `ROADMAP.md`.
+---
+
+### PR-029
+
+Market Data Integrations
+
+Features
+
+- Yahoo Finance
+- Polygon
+- Databento
+- Binance
+- NSE
+- Provider abstraction
+
+---
+
+### PR-030
+
+Portfolio Optimizer
+
+Features
+
+- Equal Weight
+- Risk Parity
+- Maximum Sharpe
+- Minimum Variance
+- Constraints
+- Cost estimation
+- Rebalancing
+
+---
+
+### PR-031
+
+Universal Data Engine
+
+Features
+
+- Canonical datasets
+- Schema inference
+- Data normalization
+- Metadata extraction
+- Dataset validation
+
+---
+
+### PR-032
+
+Strategy Studio
+
+Features
+
+- Projects
+- Pipelines
+- Sessions
+- Reports
+- Workspace management
+
+---
+
+### PR-033
+
+AlphaLab Workbench
+
+Features
+
+- User workspace
+- Tabs
+- Panels
+- Dashboards
+- Research orchestration
+
+---
+
+## Documentation
+
+Added
+
+- README
+- Documentation index
+- Architecture Guide
+- System Design
+- Engineering Guidelines
+- Getting Started
+- Contributing Guide
+- Examples Guide
+
+---
+
+## Quality
+
+Current validation status
+
+- Ruff ✅
+- MyPy ✅
+- Pytest ✅
+
+Framework Status
+
+Stable
+
+---
+
+# Future
+
+Future releases will continue according to the roadmap documented in ROADMAP.md.
