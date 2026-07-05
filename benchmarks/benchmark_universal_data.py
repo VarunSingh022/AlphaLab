@@ -29,22 +29,22 @@ def run_benchmark() -> None:
 
     # 1. Parse into Canonical structures
     dataset = UniversalDataEngine.load(meta, raw_rows)
-    
+
     # 2. Ingest
     state = UniversalDataEngine.ingest(state, dataset, 1000.0)
-    
+
     # 3. Clean
     state = UniversalDataEngine.clean(state, "BENCH-1", 1001.0)
-    
+
     # 4. Convert (Resample 10s ticks to 60s bars -> ~16,666 bars)
     state = UniversalDataEngine.convert(state, "BENCH-1", 60.0, 1002.0)
-    
+
     # 5. Quality
     state = UniversalDataEngine.quality(state, "BENCH-1", 1003.0)
 
     duration = time.perf_counter() - start
     ops_sec = N / duration
-    
+
     print(f"Total Raw Rows Ingested: {N}")
     print(f"Total Canonical Bars Generated: {len(state.datasets['BENCH-1'].records)}")
     print(f"Evaluation Time: {duration:.4f}s")

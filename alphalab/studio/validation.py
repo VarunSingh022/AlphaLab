@@ -11,6 +11,7 @@ def validate_project_creation(state: StrategyStudioState, project: Project) -> N
     if project.project_id in state.projects:
         raise StudioValidationError(f"Project '{project.project_id}' already exists.")
 
+
 def validate_project_exists(state: StrategyStudioState, project_id: str) -> None:
     if project_id not in state.projects:
         raise StudioValidationError(f"Project '{project_id}' not found.")

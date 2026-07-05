@@ -93,9 +93,9 @@ def main() -> None:
 
     while state.status.name != "COMPLETED":
         step = ReplayEngine.step_one_event(
-        state,
-        real_time=state.real_current_time + 0.01,
-    )
+            state,
+            real_time=state.real_current_time + 0.01,
+        )
         state = step.state
         if step.event is None:
             break

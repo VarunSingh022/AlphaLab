@@ -1,0 +1,13 @@
+# AlphaLab Paper Trading Configuration
+
+[broker]
+provider = "paper"
+
+[execution]
+mode = "paper"
+
+[risk]
+max_position_size = 0.10
+
+[portfolio]
+starting_cash = 100000

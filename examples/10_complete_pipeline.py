@@ -189,10 +189,7 @@ def main() -> None:
 
     print("Congratulations!")
 
-    print(
-        "You have completed the AlphaLab end-to-end quantitative "
-        "research workflow."
-    )
+    print("You have completed the AlphaLab end-to-end quantitative research workflow.")
 
 
 if __name__ == "__main__":

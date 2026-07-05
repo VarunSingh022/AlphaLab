@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True, slots=True)
 class StrategyDefinition:
     """Metadata and parameter bounds defining a systematic strategy."""
+
     strategy_id: str
     name: str
     version: str

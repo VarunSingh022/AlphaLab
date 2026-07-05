@@ -14,6 +14,7 @@ from alphalab.data.schema import DatasetSchema
 @dataclass(frozen=True, slots=True)
 class UniversalDataState:
     """Deterministic snapshot of the Universal Data Engine."""
+
     engine_id: str
     datasets: Mapping[str, Dataset] = field(default_factory=dict)
     catalog: Mapping[str, CatalogRecord] = field(default_factory=dict)

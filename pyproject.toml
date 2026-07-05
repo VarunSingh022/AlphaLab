@@ -15,13 +15,6 @@ authors = [
   { name = "Varun Kumar Singh", email = "vvarunsingh.22@gmail.com" }
 ]
 
-urls = { 
-  Homepage = "https://github.com/VarunSingh022/AlphaLab",
-  Documentation = "https://github.com/VarunSingh022/AlphaLab/tree/main/docs",
-  Repository = "https://github.com/VarunSingh022/AlphaLab",
-  Issues = "https://github.com/VarunSingh022/AlphaLab/issues"
-}
-
 keywords = [
   "quantitative-finance",
   "algorithmic-trading",
@@ -125,3 +118,9 @@ pythonpath = [
 testpaths = [
   "tests",
 ]
+
+[project.urls]
+Homepage = "https://github.com/VarunSingh022/AlphaLab"
+Documentation = "https://github.com/VarunSingh022/AlphaLab/tree/main/docs"
+Repository = "https://github.com/VarunSingh022/AlphaLab"
+Issues = "https://github.com/VarunSingh022/AlphaLab/issues"

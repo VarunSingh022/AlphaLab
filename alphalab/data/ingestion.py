@@ -14,7 +14,7 @@ def parse_and_load(metadata: DatasetMetadata, raw_rows: Sequence[Mapping[str, An
     bars = parse_raw_rows("UNKNOWN", raw_rows)
     # Re-apply dataset symbol definition uniformly
     bars = tuple(
-        type(b)(metadata.dataset_id, b.timestamp, b.open, b.high, b.low, b.close, b.volume) 
+        type(b)(metadata.dataset_id, b.timestamp, b.open, b.high, b.low, b.close, b.volume)
         for b in bars
     )
     return create_dataset(metadata, bars)

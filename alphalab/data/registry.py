@@ -11,19 +11,19 @@ from alphalab.data.state import UniversalDataState
 
 class DatasetRegistry:
     @staticmethod
-    def _create_id() -> str: return str(new_id())
+    def _create_id() -> str:
+        return str(new_id())
 
     @staticmethod
     def catalog(state: UniversalDataState, dataset: Dataset, ts: float) -> UniversalDataState:
         meta = dataset.metadata
-        
+
         record = CatalogRecord(meta, dataset.quality, len(dataset.records))
         new_catalog = dict(state.catalog)
         new_catalog[meta.dataset_id] = record
-        
+
         evt = DatasetCataloged(
-            DatasetRegistry._create_id(), ts, meta.dataset_id, meta.asset_class.name)
-        
-        return replace(
-            state, catalog=new_catalog, events=(*state.events, evt)
+            DatasetRegistry._create_id(), ts, meta.dataset_id, meta.asset_class.name
         )
+
+        return replace(state, catalog=new_catalog, events=(*state.events, evt))

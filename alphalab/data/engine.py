@@ -26,11 +26,7 @@ class UniversalDataEngine:
         return parse_and_load(metadata, raw_rows)
 
     @staticmethod
-    def ingest(
-        state: UniversalDataState, 
-        dataset: Dataset, 
-        ts: float
-    ) -> UniversalDataState:
+    def ingest(state: UniversalDataState, dataset: Dataset, ts: float) -> UniversalDataState:
         """Registers the dataset into the active working state."""
         return DataManager.ingest(state, dataset, ts)
 
@@ -39,11 +35,7 @@ class UniversalDataEngine:
         return DataManager.clean(state, dataset_id, ts)
 
     @staticmethod
-    def quality(
-        state: UniversalDataState, 
-        dataset_id: str, 
-        ts: float
-    ) -> UniversalDataState:
+    def quality(state: UniversalDataState, dataset_id: str, ts: float) -> UniversalDataState:
         return DataManager.quality(state, dataset_id, ts)
 
     @staticmethod
@@ -53,11 +45,7 @@ class UniversalDataEngine:
         return DataManager.convert_timeframe(state, dataset_id, interval_sec, ts)
 
     @staticmethod
-    def catalog(
-        state: UniversalDataState, 
-        dataset_id: str, 
-        ts: float
-    ) -> UniversalDataState:
+    def catalog(state: UniversalDataState, dataset_id: str, ts: float) -> UniversalDataState:
         if dataset_id not in state.datasets:
             raise ValueError("Dataset not found.")
         dataset = state.datasets[dataset_id]

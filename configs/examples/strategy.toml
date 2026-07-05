@@ -1,0 +1,12 @@
+# Example Strategy Configuration
+
+[strategy]
+name = "Mean Reversion"
+
+[parameters]
+lookback = 20
+entry_zscore = 2.0
+exit_zscore = 0.5
+
+[risk]
+max_position = 0.10

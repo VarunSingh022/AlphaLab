@@ -1,0 +1,17 @@
+# AlphaLab Development Configuration
+
+[project]
+name = "AlphaLab"
+environment = "development"
+
+[python]
+version = "3.12"
+
+[logging]
+level = "DEBUG"
+
+[data]
+cache = true
+
+[testing]
+run_validation = true

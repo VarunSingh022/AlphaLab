@@ -1,0 +1,16 @@
+# AlphaLab Production Configuration
+
+[environment]
+mode = "production"
+
+[logging]
+level = "INFO"
+
+[monitoring]
+health_checks = true
+
+[runtime]
+auto_restart = true
+
+[safety]
+confirm_orders = true

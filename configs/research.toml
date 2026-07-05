@@ -1,0 +1,16 @@
+# AlphaLab Research Configuration
+
+[research]
+engine = "default"
+
+[random]
+seed = 42
+
+[data]
+timezone = "UTC"
+
+[portfolio]
+base_currency = "USD"
+
+[validation]
+strict = true

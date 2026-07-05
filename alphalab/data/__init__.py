@@ -105,5 +105,5 @@ __all__ = [
     "remove_invalid_ohlc",
     "resample_bars",
     "schema_report",
-    "validate_dataset_ingestion"
+    "validate_dataset_ingestion",
 ]

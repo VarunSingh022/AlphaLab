@@ -1,0 +1,14 @@
+# Logging Configuration
+
+[root]
+level = "INFO"
+
+[file]
+enabled = true
+
+[console]
+enabled = true
+
+[rotation]
+max_size_mb = 10
+keep_files = 5

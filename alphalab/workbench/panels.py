@@ -19,9 +19,11 @@ class PanelType(Enum):
     REPORTS = auto()
     SETTINGS = auto()
 
+
 @dataclass(frozen=True, slots=True)
 class Panel:
     """Immutable representation of a dockable UI component."""
+
     panel_id: str
     panel_type: PanelType
     is_visible: bool = True

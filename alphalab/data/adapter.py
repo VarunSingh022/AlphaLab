@@ -17,10 +17,10 @@ class DataAdapter:
             asset_class = DataAssetClass[asset.upper()]
         except KeyError:
             asset_class = DataAssetClass.EQUITY
-            
+
         try:
             time_freq = TimeFrequency[freq.upper()]
         except KeyError:
             time_freq = TimeFrequency.DAILY
-            
+
         return DatasetMetadata(ds_id, src, asset_class, time_freq, start, end)

@@ -14,6 +14,7 @@ class BacktestResult:
     max_drawdown: float
     metadata: Mapping[str, str] = field(default_factory=dict)
 
+
 @dataclass(frozen=True, slots=True)
 class ResearchResult:
     result_id: str
@@ -23,6 +24,7 @@ class ResearchResult:
     capacity_score: float
     overall_score: float
 
+
 @dataclass(frozen=True, slots=True)
 class PipelineResult:
     result_id: str
@@ -30,6 +32,7 @@ class PipelineResult:
     success: bool
     execution_time_seconds: float
     step_metrics: Mapping[str, float] = field(default_factory=dict)
+
 
 @dataclass(frozen=True, slots=True)
 class ExperimentResult:

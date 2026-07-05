@@ -17,6 +17,7 @@ from alphalab.studio.workspace import WorkspaceSnapshot
 @dataclass(frozen=True, slots=True)
 class StrategyStudioState:
     """Deterministic snapshot of the entire Studio workspace."""
+
     engine_id: str
     config: StudioConfig
     projects: Mapping[str, Project] = field(default_factory=dict)

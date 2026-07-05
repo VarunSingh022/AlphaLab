@@ -1,6 +1,5 @@
 """Top-level Engine Facade orchestrating Strategy Studio."""
 
-
 from alphalab.studio.backtest import BacktestConfiguration
 from alphalab.studio.config import StudioConfig
 from alphalab.studio.manager import StudioManager
@@ -36,29 +35,40 @@ class StrategyStudioEngine:
 
     @staticmethod
     def run_backtest(
-        state: StrategyStudioState, project_id: str, config: BacktestConfiguration, 
-        simulated_metrics: dict[str, float], ts: float
+        state: StrategyStudioState,
+        project_id: str,
+        config: BacktestConfiguration,
+        simulated_metrics: dict[str, float],
+        ts: float,
     ) -> StrategyStudioState:
         return StudioRunner.run_backtest(state, project_id, config, simulated_metrics, ts)
 
     @staticmethod
     def run_pipeline(
-        state: StrategyStudioState, project_id: str, pipeline: PipelineDefinition, 
-        simulated_metrics: dict[str, float], duration: float, ts: float
+        state: StrategyStudioState,
+        project_id: str,
+        pipeline: PipelineDefinition,
+        simulated_metrics: dict[str, float],
+        duration: float,
+        ts: float,
     ) -> StrategyStudioState:
         return StudioRunner.run_pipeline(
-            state, 
-            project_id, 
-            pipeline, 
-            simulated_metrics, 
-            duration, 
+            state,
+            project_id,
+            pipeline,
+            simulated_metrics,
+            duration,
             ts,
         )
 
     @staticmethod
     def generate_report(
-        state: StrategyStudioState, project_id: str, report_type: str, content: str, 
-        metrics: tuple[float, ...], ts: float
+        state: StrategyStudioState,
+        project_id: str,
+        report_type: str,
+        content: str,
+        metrics: tuple[float, ...],
+        ts: float,
     ) -> StrategyStudioState:
         return StudioRunner.generate_report(state, project_id, report_type, content, metrics, ts)
 

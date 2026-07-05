@@ -20,8 +20,7 @@ def run_benchmark() -> None:
 
     # Pre-generate configurations to simulate rapid user backtest dispatches
     configs = tuple(
-        BacktestConfiguration(f"BT-{i}", "STRAT-1", (), 0.0, 100.0, 100_000.0)
-        for i in range(N)
+        BacktestConfiguration(f"BT-{i}", "STRAT-1", (), 0.0, 100.0, 100_000.0) for i in range(N)
     )
     metrics = {"total_return": 0.10}
 
@@ -32,22 +31,24 @@ def run_benchmark() -> None:
         wb_state, studio_state = WorkbenchEngine.run_backtest(
             wb_state, studio_state, "PROJ-B", configs[i], metrics, float(1001 + i)
         )
-        
+
         # 2. Simulate User closing the tab immediately to prevent infinite array growth
         from alphalab.workbench.manager import WorkbenchManager
+
         wb_state = WorkbenchManager.close_tab(
-            wb_state, 
-            f"bt-{configs[i].backtest_id}", 
+            wb_state,
+            f"bt-{configs[i].backtest_id}",
             float(1001 + i),
         )
 
     duration = time.perf_counter() - start
     ops_sec = N / duration
-    
+
     print(f"Total Backtest Delegations: {studio_state.metrics.backtests_run}")
     print(f"Open Tabs in UI: {len(wb_state.tabs)}")
     print(f"Evaluation Time: {duration:.4f}s")
     print(f"Throughput: {ops_sec:.2f} UI rendering/delegation cycles/sec")
+
 
 if __name__ == "__main__":
     run_benchmark()

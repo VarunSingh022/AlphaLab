@@ -16,6 +16,7 @@ class QualityReport:
     out_of_order_count: int
     quality_score: float
 
+
 def evaluate_bar_quality(dataset_id: str, bars: tuple[Bar, ...]) -> QualityReport:
     """Deterministically identifies missing, invalid, or corrupted data."""
     if not bars:
@@ -23,7 +24,7 @@ def evaluate_bar_quality(dataset_id: str, bars: tuple[Bar, ...]) -> QualityRepor
 
     total = len(bars)
     missing, invalid, out_of_order, duplicates = 0, 0, 0, 0
-    
+
     seen_ts = set()
     prev_ts = -1.0
 
@@ -31,12 +32,12 @@ def evaluate_bar_quality(dataset_id: str, bars: tuple[Bar, ...]) -> QualityRepor
         # Invalid OHLC checks
         if b.high < b.low or b.open < 0 or b.high < 0 or b.low < 0 or b.close < 0:
             invalid += 1
-            
+
         # Time consistency
         if b.timestamp in seen_ts:
             duplicates += 1
         seen_ts.add(b.timestamp)
-        
+
         if b.timestamp < prev_ts:
             out_of_order += 1
         prev_ts = b.timestamp
@@ -48,6 +49,12 @@ def evaluate_bar_quality(dataset_id: str, bars: tuple[Bar, ...]) -> QualityRepor
     score = (completeness * 0.4) + (consistency * 0.6)
 
     return QualityReport(
-        dataset_id, round(completeness, 2), round(consistency, 2), 
-        missing, duplicates, invalid, out_of_order, round(score, 2)
+        dataset_id,
+        round(completeness, 2),
+        round(consistency, 2),
+        missing,
+        duplicates,
+        invalid,
+        out_of_order,
+        round(score, 2),
     )

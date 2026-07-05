@@ -14,6 +14,7 @@ class PipelineStep(Enum):
     REPLAY = auto()
     REPORT = auto()
 
+
 @dataclass(frozen=True, slots=True)
 class PipelineDefinition:
     pipeline_id: str

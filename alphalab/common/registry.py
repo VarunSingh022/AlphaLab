@@ -21,5 +21,3 @@ def without_mapping_key[KeyT, ValueT](
     updated = dict(mapping)
     del updated[key]
     return updated
-
-

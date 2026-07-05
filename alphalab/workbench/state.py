@@ -13,6 +13,7 @@ from alphalab.workbench.workspace import WorkbenchConfig
 @dataclass(frozen=True, slots=True)
 class WorkbenchState:
     """Deterministic snapshot of the entire AlphaLab Graphical User Interface."""
+
     workbench_id: str
     config: WorkbenchConfig
     active_project_id: str | None = None
