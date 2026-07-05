@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from alphalab.common.ids import new_id
+from alphalab.common.registry import with_mapping_item
 from alphalab.marketdata.config import ProviderConfig
 from alphalab.marketdata.connection import ConnectionState, ConnectionStatus
 from alphalab.marketdata.events import ProviderRegistered
@@ -21,16 +22,13 @@ class ProviderRegistry:
     ) -> MarketDataState:
         validate_provider_registration(state, config)
 
-        new_providers = dict(state.providers)
-        new_providers[config.provider_id] = config
-
-        new_conns = dict(state.connections)
-        new_conns[config.provider_id] = ConnectionState(
-            config.provider_id, ConnectionStatus.DISCONNECTED
+        new_providers = with_mapping_item(state.providers, config.provider_id, config)
+        new_conns = with_mapping_item(
+            state.connections,
+            config.provider_id,
+            ConnectionState(config.provider_id, ConnectionStatus.DISCONNECTED),
         )
-
-        new_metrics = dict(state.metrics)
-        new_metrics[config.provider_id] = ProviderMetrics()
+        new_metrics = with_mapping_item(state.metrics, config.provider_id, ProviderMetrics())
 
         evt = ProviderRegistered(ProviderRegistry._create_id(), timestamp, config.provider_id)
 

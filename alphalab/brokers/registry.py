@@ -9,6 +9,7 @@ from alphalab.brokers.exceptions import InvalidBrokerStateError
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.brokers.validation import validate_account, validate_broker_registration
 from alphalab.common.ids import new_id
+from alphalab.common.registry import with_mapping_item
 
 
 class BrokerRegistry:
@@ -25,8 +26,7 @@ class BrokerRegistry:
         """Validates and registers a new broker configuration."""
         validate_broker_registration(state, connection)
 
-        new_connections = dict(state.connections)
-        new_connections[connection.broker_id] = connection
+        new_connections = with_mapping_item(state.connections, connection.broker_id, connection)
 
         evt = BrokerRegistered(
             BrokerRegistry._create_id(),
@@ -50,8 +50,7 @@ class BrokerRegistry:
             return state
 
         new_conn = replace(conn, connected=True, last_heartbeat=timestamp)
-        new_connections = dict(state.connections)
-        new_connections[broker_id] = new_conn
+        new_connections = with_mapping_item(state.connections, broker_id, new_conn)
 
         evt = BrokerConnected(BrokerRegistry._create_id(), timestamp, broker_id)
 
@@ -70,8 +69,7 @@ class BrokerRegistry:
             return state
 
         new_conn = replace(conn, connected=False)
-        new_connections = dict(state.connections)
-        new_connections[broker_id] = new_conn
+        new_connections = with_mapping_item(state.connections, broker_id, new_conn)
 
         evt = BrokerDisconnected(BrokerRegistry._create_id(), timestamp, broker_id, reason)
 
@@ -82,7 +80,6 @@ class BrokerRegistry:
         """Links a financial account to a registered broker."""
         validate_account(state, account.account_id, account.broker_id)
 
-        new_accounts = dict(state.accounts)
-        new_accounts[account.account_id] = account
+        new_accounts = with_mapping_item(state.accounts, account.account_id, account)
 
         return replace(state, accounts=new_accounts)

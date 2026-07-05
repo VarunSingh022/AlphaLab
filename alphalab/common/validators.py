@@ -1,25 +1,61 @@
 """Shared validation helpers."""
 
+from collections.abc import Mapping
+
 from alphalab.common.exceptions import AlphaLabValidationError
 
 
-def require_non_empty_string(value: str, field_name: str) -> str:
+def require_non_empty_string(
+    value: str,
+    field_name: str,
+    *,
+    message: str | None = None,
+    exception_type: type[Exception] = AlphaLabValidationError,
+) -> str:
     """Validate and return a non-empty string.
 
     Args:
         value: Candidate value.
         field_name: Name used in the validation error.
+        message: Optional exact validation message.
+        exception_type: Exception type raised on validation failure.
 
     Returns:
         The validated string.
 
     Raises:
-        AlphaLabValidationError: If the value is empty or whitespace.
+        Exception: If the value is empty or whitespace.
     """
 
     if not value.strip():
-        raise AlphaLabValidationError(f"{field_name} cannot be empty")
+        raise exception_type(message or f"{field_name} cannot be empty")
     return value
+
+
+def require_mapping_key[KeyT](
+    mapping: Mapping[KeyT, object],
+    key: KeyT,
+    message: str,
+    *,
+    exception_type: type[Exception] = AlphaLabValidationError,
+) -> None:
+    """Validate that a mapping contains a key."""
+
+    if key not in mapping:
+        raise exception_type(message)
+
+
+def require_missing_mapping_key[KeyT](
+    mapping: Mapping[KeyT, object],
+    key: KeyT,
+    message: str,
+    *,
+    exception_type: type[Exception] = AlphaLabValidationError,
+) -> None:
+    """Validate that a mapping does not contain a key."""
+
+    if key in mapping:
+        raise exception_type(message)
 
 
 def require_positive_int(value: int, field_name: str) -> int:

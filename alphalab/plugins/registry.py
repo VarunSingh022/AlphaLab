@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+from alphalab.common.registry import with_mapping_item, without_mapping_key
 from alphalab.plugins.protocol import PluginProtocol
 from alphalab.plugins.state import PluginState
 from alphalab.plugins.validation import validate_lookup, validate_registration
@@ -15,8 +16,7 @@ class PluginRegistry:
         validate_registration(state, plugin)
 
         meta = plugin.metadata()
-        new_plugins = dict(state.plugins)
-        new_plugins[meta.plugin_id] = plugin
+        new_plugins = with_mapping_item(state.plugins, meta.plugin_id, plugin)
 
         new_enabled = set(state.enabled_ids)
         if meta.enabled:
@@ -40,8 +40,7 @@ class PluginRegistry:
     def unregister(state: PluginState, plugin_id: str) -> PluginState:
         validate_lookup(state, plugin_id)
 
-        new_plugins = dict(state.plugins)
-        del new_plugins[plugin_id]
+        new_plugins = without_mapping_key(state.plugins, plugin_id)
 
         new_enabled = set(state.enabled_ids)
         if plugin_id in new_enabled:

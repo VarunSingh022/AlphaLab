@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from alphalab.common.ids import new_id
+from alphalab.common.registry import with_mapping_item
 from alphalab.live.connection import ConnectionState
 from alphalab.live.events import ProviderConnected, ProviderDisconnected, ProviderRegistered
 from alphalab.live.exceptions import InvalidLiveStateError
@@ -23,11 +24,12 @@ class LiveRegistry:
         """Adds a new provider and establishes its default disconnected state."""
         validate_provider_registration(state, provider)
 
-        new_providers = dict(state.providers)
-        new_providers[provider.provider_id] = provider
-
-        new_connections = dict(state.connections)
-        new_connections[provider.provider_id] = ConnectionState(provider.provider_id)
+        new_providers = with_mapping_item(state.providers, provider.provider_id, provider)
+        new_connections = with_mapping_item(
+            state.connections,
+            provider.provider_id,
+            ConnectionState(provider.provider_id),
+        )
 
         evt = ProviderRegistered(
             LiveRegistry._create_id(), timestamp, provider.provider_id, provider.vendor
@@ -51,8 +53,7 @@ class LiveRegistry:
             return state
 
         new_conn = replace(conn, connected=True, last_heartbeat=timestamp)
-        new_connections = dict(state.connections)
-        new_connections[provider_id] = new_conn
+        new_connections = with_mapping_item(state.connections, provider_id, new_conn)
 
         evt = ProviderConnected(LiveRegistry._create_id(), timestamp, provider_id)
 
@@ -71,8 +72,7 @@ class LiveRegistry:
             return state
 
         new_conn = replace(conn, connected=False)
-        new_connections = dict(state.connections)
-        new_connections[provider_id] = new_conn
+        new_connections = with_mapping_item(state.connections, provider_id, new_conn)
 
         evt = ProviderDisconnected(LiveRegistry._create_id(), timestamp, provider_id, reason)
 

@@ -6,27 +6,56 @@ from alphalab.brokers.connection import BrokerConnection
 from alphalab.brokers.exceptions import BrokerValidationError, InvalidBrokerStateError
 from alphalab.brokers.order import BrokerOrder, OrderStatus
 from alphalab.brokers.state import BrokerConnectorState
+from alphalab.common.validators import (
+    require_mapping_key,
+    require_missing_mapping_key,
+    require_non_empty_string,
+)
 
 
 def validate_broker_registration(state: BrokerConnectorState, connection: BrokerConnection) -> None:
-    if not connection.broker_id.strip():
-        raise BrokerValidationError("Broker ID cannot be empty.")
-    if connection.broker_id in state.connections:
-        raise InvalidBrokerStateError(f"Broker '{connection.broker_id}' is already registered.")
+    require_non_empty_string(
+        connection.broker_id,
+        "broker_id",
+        message="Broker ID cannot be empty.",
+        exception_type=BrokerValidationError,
+    )
+    require_missing_mapping_key(
+        state.connections,
+        connection.broker_id,
+        f"Broker '{connection.broker_id}' is already registered.",
+        exception_type=InvalidBrokerStateError,
+    )
 
 
 def validate_account(state: BrokerConnectorState, account_id: str, broker_id: str) -> None:
-    if account_id in state.accounts:
-        raise InvalidBrokerStateError(f"Account '{account_id}' is already registered.")
-    if broker_id not in state.connections:
-        raise BrokerValidationError(f"Broker '{broker_id}' does not exist.")
+    require_missing_mapping_key(
+        state.accounts,
+        account_id,
+        f"Account '{account_id}' is already registered.",
+        exception_type=InvalidBrokerStateError,
+    )
+    require_mapping_key(
+        state.connections,
+        broker_id,
+        f"Broker '{broker_id}' does not exist.",
+        exception_type=BrokerValidationError,
+    )
 
 
 def validate_order_submission(state: BrokerConnectorState, order: BrokerOrder) -> None:
-    if order.account_id not in state.accounts:
-        raise BrokerValidationError(f"Account '{order.account_id}' does not exist.")
-    if order.order_id in state.orders:
-        raise InvalidBrokerStateError(f"Order '{order.order_id}' is already tracked.")
+    require_mapping_key(
+        state.accounts,
+        order.account_id,
+        f"Account '{order.account_id}' does not exist.",
+        exception_type=BrokerValidationError,
+    )
+    require_missing_mapping_key(
+        state.orders,
+        order.order_id,
+        f"Order '{order.order_id}' is already tracked.",
+        exception_type=InvalidBrokerStateError,
+    )
     if order.quantity <= Decimal("0"):
         raise BrokerValidationError("Order quantity must be positive.")
     if order.price < Decimal("0") or order.stop_price < Decimal("0"):
@@ -34,8 +63,12 @@ def validate_order_submission(state: BrokerConnectorState, order: BrokerOrder) -
 
 
 def validate_order_cancellation(state: BrokerConnectorState, order_id: str) -> BrokerOrder:
-    if order_id not in state.orders:
-        raise BrokerValidationError(f"Order '{order_id}' not found.")
+    require_mapping_key(
+        state.orders,
+        order_id,
+        f"Order '{order_id}' not found.",
+        exception_type=BrokerValidationError,
+    )
 
     order = state.orders[order_id]
     terminal_states = {
@@ -53,9 +86,17 @@ def validate_order_cancellation(state: BrokerConnectorState, order_id: str) -> B
 def validate_execution(
     state: BrokerConnectorState, execution_id: str, order_id: str
 ) -> BrokerOrder:
-    if execution_id in state.executions:
-        raise InvalidBrokerStateError(f"Duplicate execution ID '{execution_id}'.")
-    if order_id not in state.orders:
-        raise BrokerValidationError(f"Execution references unknown order '{order_id}'.")
+    require_missing_mapping_key(
+        state.executions,
+        execution_id,
+        f"Duplicate execution ID '{execution_id}'.",
+        exception_type=InvalidBrokerStateError,
+    )
+    require_mapping_key(
+        state.orders,
+        order_id,
+        f"Execution references unknown order '{order_id}'.",
+        exception_type=BrokerValidationError,
+    )
 
     return state.orders[order_id]

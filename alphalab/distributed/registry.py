@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from alphalab.common.ids import new_id
+from alphalab.common.registry import with_mapping_item, without_mapping_key
 from alphalab.distributed.events import WorkerRegistered, WorkerRemoved
 from alphalab.distributed.node import WorkerNode, WorkerStatus
 from alphalab.distributed.state import DistributedState
@@ -21,8 +22,7 @@ class WorkerRegistry:
         """Validates and registers a computation node."""
         validate_worker_registration(state, worker)
 
-        new_workers = dict(state.workers)
-        new_workers[worker.node_id] = worker
+        new_workers = with_mapping_item(state.workers, worker.node_id, worker)
 
         evt = WorkerRegistered(
             WorkerRegistry._create_id(), timestamp, worker.node_id, worker.capacity
@@ -36,8 +36,7 @@ class WorkerRegistry:
         if worker_id not in state.workers:
             return state
 
-        new_workers = dict(state.workers)
-        del new_workers[worker_id]
+        new_workers = without_mapping_key(state.workers, worker_id)
 
         evt = WorkerRemoved(WorkerRegistry._create_id(), timestamp, worker_id)
 
@@ -56,7 +55,6 @@ class WorkerRegistry:
             return state
 
         updated_worker = replace(worker, status=status)
-        new_workers = dict(state.workers)
-        new_workers[worker_id] = updated_worker
+        new_workers = with_mapping_item(state.workers, worker_id, updated_worker)
 
         return replace(state, workers=new_workers)
