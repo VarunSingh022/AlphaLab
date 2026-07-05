@@ -11,7 +11,7 @@ Estimated Time : 15 minutes
 Prerequisites
 -------------
 
-✓ Examples 01–09
+✓ Examples 01-09
 
 Topics
 ------
@@ -32,12 +32,10 @@ Run
 from pathlib import Path
 
 from alphalab.data import UniversalDataEngine
-from alphalab.research import ResearchEngine
 from alphalab.portfolio_optimizer import PortfolioEngine
-from alphalab.replay import ReplayEngine
+from alphalab.research import ResearchEngine
 from alphalab.studio import StrategyStudioEngine
 from alphalab.workbench import WorkbenchEngine
-
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -62,10 +60,10 @@ def main() -> None:
 
     banner("STEP 1 • Universal Data")
 
-    print(f"Loading market data from:")
+    print("Loading market data from:")
     print(f"  {DATA_DIR / 'sample_ohlcv.csv'}")
 
-    data_engine = UniversalDataEngine.initialize(
+    UniversalDataEngine.initialize(
         engine_id="DATA-001",
     )
 
@@ -81,7 +79,7 @@ def main() -> None:
 
     banner("STEP 2 • Quantitative Research")
 
-    research_state = ResearchEngine.initialize(
+    ResearchEngine.initialize(
         research_id="RESEARCH-001",
         strategy_id="MEAN_REV_V1",
         timestamp=1_720_000_000.0,
@@ -102,7 +100,7 @@ def main() -> None:
 
     banner("STEP 3 • Portfolio Optimizer")
 
-    portfolio_state = PortfolioEngine.initialize(
+    PortfolioEngine.initialize(
         engine_id="PORTFOLIO-001",
     )
 
@@ -118,7 +116,7 @@ def main() -> None:
 
     banner("STEP 4 • Deterministic Replay")
 
-    print(f"Loading trades from:")
+    print("Loading trades from:")
     print(f"  {DATA_DIR / 'sample_trades.csv'}")
 
     print("✓ Replay session initialized")
@@ -131,7 +129,7 @@ def main() -> None:
 
     banner("STEP 5 • Strategy Studio")
 
-    studio_state = StrategyStudioEngine.initialize(
+    StrategyStudioEngine.initialize(
         engine_id="STUDIO-001",
         workspace_dir="./workspace",
     )
@@ -148,7 +146,7 @@ def main() -> None:
 
     banner("STEP 6 • AlphaLab Workbench")
 
-    workbench_state = WorkbenchEngine.initialize(
+    WorkbenchEngine.initialize(
         workbench_id="WORKBENCH-001",
         ts=1_720_000_000.0,
     )
