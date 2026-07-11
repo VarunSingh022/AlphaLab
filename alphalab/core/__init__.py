@@ -50,6 +50,10 @@ from alphalab.core.position import Position
 from alphalab.core.signal import Signal
 from alphalab.core.trade import Trade
 
+# Compatibility re-export for legacy OMS imports.
+# The canonical business entity remains alphalab.core.order.Order.
+OrderCompat = Order
+
 __all__ = [
     "AccountId",
     "AlphaLabCoreError",
@@ -73,6 +77,7 @@ __all__ = [
     "Metadata",
     "MetadataValue",
     "Order",
+    "OrderCompat",
     "OrderId",
     "OrderType",
     "PortfolioId",

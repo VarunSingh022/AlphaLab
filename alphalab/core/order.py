@@ -1,4 +1,10 @@
-"""Order domain model."""
+"""Canonical Order domain model.
+
+This module represents the shared business entity for orders across AlphaLab.
+The OMS-specific order implementation remains available as a compatibility wrapper.
+"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
