@@ -1,6 +1,7 @@
 from dataclasses import FrozenInstanceError, asdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
@@ -19,7 +20,6 @@ from alphalab.core import (
     Signal,
     TimeInForce,
     Trade,
-    new_account_id,
     new_asset_id,
     new_event_id,
     new_fill_id,
@@ -30,6 +30,10 @@ from alphalab.core import (
     new_strategy_id,
     new_trade_id,
 )
+from alphalab.portfolio.account import Account
+from alphalab.portfolio.cash import CashLedger
+from alphalab.portfolio.engine import PortfolioState as CanonicalPortfolioState
+from alphalab.portfolio.position import Position as CanonicalPosition
 
 NOW = datetime(2026, 1, 2, 15, 30, tzinfo=UTC)
 
@@ -182,59 +186,79 @@ def test_trade_creation_equality_and_serialization() -> None:
 
 
 def test_position_creation_equality_and_serialization() -> None:
-    position_id = new_position_id()
     asset_id = new_asset_id()
 
     position = Position(
-        position_id=position_id,
         asset_id=asset_id,
-        asset_type=AssetType.EQUITY,
         quantity=Decimal("12"),
-        average_price=Decimal("10"),
+        average_cost=Decimal("10"),
         market_price=Decimal("12"),
-        updated_at=NOW,
+        realized_pnl=Decimal("1.25"),
+        currency="USD",
+        last_updated=NOW.timestamp(),
     )
     same_position = Position(
-        position_id=position_id,
         asset_id=asset_id,
-        asset_type=AssetType.EQUITY,
         quantity=Decimal("12"),
-        average_price=Decimal("10"),
+        average_cost=Decimal("10"),
         market_price=Decimal("12"),
-        updated_at=NOW,
+        realized_pnl=Decimal("1.25"),
+        currency="USD",
+        last_updated=NOW.timestamp(),
     )
 
     assert position == same_position
-    assert asdict(position)["asset_type"] == "equity"
+    assert asdict(position)["asset_id"] == asset_id
+    assert position.market_value == Decimal("144.00")
+    assert position.unrealized_pnl == Decimal("24.00")
 
 
 def test_portfolio_state_is_immutable_snapshot_with_serializable_positions() -> None:
     position = Position(
-        position_id=new_position_id(),
         asset_id=new_asset_id(),
-        asset_type=AssetType.EQUITY,
         quantity=Decimal("3"),
-        average_price=Decimal("20"),
+        average_cost=Decimal("20"),
         market_price=Decimal("21"),
-        updated_at=NOW,
+        realized_pnl=Decimal("12"),
+        currency="USD",
+        last_updated=NOW.timestamp(),
     )
     portfolio = PortfolioState(
-        portfolio_id=new_portfolio_id(),
-        account_id=new_account_id(),
-        base_currency="USD",
-        cash=Decimal("10000"),
-        equity=Decimal("10063"),
-        realized_pnl=Decimal("12"),
-        unrealized_pnl=Decimal("3"),
-        updated_at=NOW,
-        positions=(position,),
+        account=Account("core-account", "USD", "Core Account", NOW.timestamp()),
+        cash=CashLedger(balances={"USD": Decimal("10000.00")}),
+        positions={position.asset_id: position},
     )
 
     data = asdict(portfolio)
 
-    assert data["positions"][0]["asset_id"] == position.asset_id
+    assert data["positions"][position.asset_id]["asset_id"] == position.asset_id
+    assert data["cash"]["balances"]["USD"] == Decimal("10000.00")
     with pytest.raises(FrozenInstanceError):
-        portfolio.__setattr__("base_currency", "EUR")
+        portfolio.__setattr__("account", Account("other", "EUR", "Other", NOW.timestamp()))
+
+
+def test_core_portfolio_state_is_canonical_portfolio_state() -> None:
+    assert PortfolioState is CanonicalPortfolioState
+
+
+def test_core_position_is_canonical_position() -> None:
+    assert Position is CanonicalPosition
+
+
+def test_core_id_helpers_create_uuid_backed_ids() -> None:
+    asset_id: AssetId = new_asset_id()
+    portfolio_id = new_portfolio_id()
+    position_id = new_position_id()
+
+    assert str(UUID(asset_id)) == asset_id
+    assert str(UUID(portfolio_id)) == portfolio_id
+    assert str(UUID(position_id)) == position_id
+
+
+def test_asset_type_enum_behavior() -> None:
+    assert AssetType.EQUITY.value == "equity"
+    assert AssetType.CASH.value == "cash"
+    assert AssetType("equity") is AssetType.EQUITY
 
 
 def test_event_rejects_naive_timestamp() -> None:
@@ -313,49 +337,36 @@ def test_trade_rejects_duplicate_fill_ids() -> None:
         )
 
 
-def test_position_rejects_zero_quantity() -> None:
-    with pytest.raises(DomainValidationError):
-        Position(
-            position_id=new_position_id(),
-            asset_id=new_asset_id(),
-            asset_type=AssetType.EQUITY,
-            quantity=Decimal("0"),
-            average_price=Decimal("10"),
-            market_price=Decimal("10"),
-            updated_at=NOW,
-        )
-
-
-def test_portfolio_state_rejects_duplicate_position_assets() -> None:
-    asset_id: AssetId = new_asset_id()
-    first_position = Position(
-        position_id=new_position_id(),
-        asset_id=asset_id,
-        asset_type=AssetType.EQUITY,
-        quantity=Decimal("1"),
-        average_price=Decimal("10"),
+def test_position_supports_flat_quantity_for_portfolio_accounting() -> None:
+    position = Position(
+        asset_id=new_asset_id(),
+        quantity=Decimal("0"),
+        average_cost=Decimal("0"),
         market_price=Decimal("10"),
-        updated_at=NOW,
-    )
-    second_position = Position(
-        position_id=new_position_id(),
-        asset_id=asset_id,
-        asset_type=AssetType.EQUITY,
-        quantity=Decimal("2"),
-        average_price=Decimal("20"),
-        market_price=Decimal("20"),
-        updated_at=NOW,
+        realized_pnl=Decimal("0"),
+        currency="USD",
+        last_updated=NOW.timestamp(),
     )
 
-    with pytest.raises(DomainValidationError):
-        PortfolioState(
-            portfolio_id=new_portfolio_id(),
-            account_id=new_account_id(),
-            base_currency="USD",
-            cash=Decimal("100"),
-            equity=Decimal("100"),
-            realized_pnl=Decimal("0"),
-            unrealized_pnl=Decimal("0"),
-            updated_at=NOW,
-            positions=(first_position, second_position),
-        )
+    assert position.market_value == Decimal("0.00")
+    assert position.unrealized_pnl == Decimal("0.00")
+
+
+def test_portfolio_state_positions_are_keyed_by_asset_id() -> None:
+    asset_id = new_asset_id()
+    first_position = Position(
+        asset_id=asset_id,
+        quantity=Decimal("1"),
+        average_cost=Decimal("10"),
+        market_price=Decimal("10"),
+        realized_pnl=Decimal("0"),
+        currency="USD",
+        last_updated=NOW.timestamp(),
+    )
+
+    portfolio = PortfolioState(
+        account=Account("core-account", "USD", "Core Account", NOW.timestamp()),
+        positions={asset_id: first_position},
+    )
+
+    assert portfolio.positions[asset_id] is first_position

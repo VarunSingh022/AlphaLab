@@ -6,6 +6,7 @@ versioning, state diffs, and immutability.
 """
 
 from dataclasses import FrozenInstanceError, replace
+from decimal import Decimal
 
 import pytest
 
@@ -28,17 +29,33 @@ from alphalab.kernel import (
     get_symbol_position,
     get_unrealized_pnl,
 )
+from alphalab.portfolio.account import Account
+from alphalab.portfolio.cash import CashLedger
+from alphalab.portfolio.engine import PortfolioState as CanonicalPortfolioState
+from alphalab.portfolio.position import Position as CanonicalPosition
 
 
 @pytest.fixture
 def base_position() -> PositionState:
-    return PositionState(symbol="AAPL", quantity=100.0, average_price=150.0, market_price=155.0)
+    return PositionState(
+        asset_id="AAPL",
+        quantity=Decimal("100"),
+        average_cost=Decimal("150"),
+        market_price=Decimal("155"),
+        realized_pnl=Decimal("500"),
+        currency="USD",
+        last_updated=100.0,
+    )
 
 
 @pytest.fixture
 def base_system_state(base_position: PositionState) -> SystemState:
     market = MarketState(prices={"AAPL": 155.0, "GOOG": 2800.0}, calendar_status="OPEN")
-    portfolio = PortfolioState(cash=50000.0, positions={"AAPL": base_position}, realized_pnl=500.0)
+    portfolio = PortfolioState(
+        account=Account("kernel-account", "USD", "Kernel Account", 0.0),
+        cash=CashLedger(balances={"USD": Decimal("50000.00")}),
+        positions={"AAPL": base_position},
+    )
     return SystemState(version=1, timestamp=100.0, market=market, portfolio=portfolio)
 
 
@@ -49,7 +66,7 @@ def base_system_state(base_position: PositionState) -> SystemState:
 
 def test_01_position_state_immutability(base_position: PositionState) -> None:
     with pytest.raises(FrozenInstanceError):
-        base_position.quantity = 200.0  # type: ignore[misc]
+        base_position.quantity = Decimal("200")  # type: ignore[misc]
 
 
 def test_02_market_state_immutability() -> None:
@@ -59,9 +76,9 @@ def test_02_market_state_immutability() -> None:
 
 
 def test_03_portfolio_state_immutability() -> None:
-    portfolio = PortfolioState(cash=1000.0)
+    portfolio = PortfolioState(account=Account("kernel-account", "USD", "Kernel Account", 0.0))
     with pytest.raises(FrozenInstanceError):
-        portfolio.cash = 2000.0  # type: ignore[misc]
+        portfolio.cash = CashLedger(balances={"USD": Decimal("2000.00")})  # type: ignore[misc]
 
 
 def test_04_system_state_immutability(base_system_state: SystemState) -> None:
@@ -76,6 +93,12 @@ def test_05_replace_creates_new_instance(base_system_state: SystemState) -> None
     assert base_system_state is not new_state
 
 
+def test_05b_kernel_portfolio_exports_are_canonical() -> None:
+    assert PortfolioState is CanonicalPortfolioState
+    assert PositionState is CanonicalPosition
+    assert isinstance(SystemState().portfolio, CanonicalPortfolioState)
+
+
 # -------------------------------------------------------------------------
 # Selectors & Accounting Tests (Tests 6 to 11)
 # -------------------------------------------------------------------------
@@ -84,7 +107,7 @@ def test_05_replace_creates_new_instance(base_system_state: SystemState) -> None
 def test_06_selectors_cash_and_positions(
     base_system_state: SystemState, base_position: PositionState
 ) -> None:
-    assert get_cash(base_system_state) == 50000.0
+    assert get_cash(base_system_state) == Decimal("50000.00")
     positions = get_positions(base_system_state)
     assert len(positions) == 1
     assert positions["AAPL"] == base_position
@@ -92,11 +115,11 @@ def test_06_selectors_cash_and_positions(
 
 def test_07_selectors_equity_and_pnl(base_system_state: SystemState) -> None:
     # Equity = Cash (50,000) + AAPL Market Value (100 * 155 = 15,500) = 65,500
-    assert get_equity(base_system_state) == 65500.0
-    assert get_portfolio_value(base_system_state) == 65500.0
+    assert get_equity(base_system_state) == Decimal("65500.00")
+    assert get_portfolio_value(base_system_state) == Decimal("65500.00")
     # Unrealized PnL = (155 - 150) * 100 = 500
-    assert get_unrealized_pnl(base_system_state) == 500.0
-    assert get_realized_pnl(base_system_state) == 500.0
+    assert get_unrealized_pnl(base_system_state) == Decimal("500.00")
+    assert get_realized_pnl(base_system_state) == Decimal("500.00")
 
 
 def test_08_selector_symbol_position(
@@ -118,8 +141,8 @@ def test_10_selector_immutability_guarantee(base_system_state: SystemState) -> N
 
 
 def test_11_position_state_derived_properties(base_position: PositionState) -> None:
-    assert base_position.market_value == 15500.0
-    assert base_position.unrealized_pnl == 500.0
+    assert base_position.market_value == Decimal("15500.00")
+    assert base_position.unrealized_pnl == Decimal("500.00")
 
 
 # -------------------------------------------------------------------------
@@ -130,39 +153,43 @@ def test_11_position_state_derived_properties(base_position: PositionState) -> N
 def test_12_reducer_registration_and_execution() -> None:
     registry = ReducerRegistry()
 
-    def dummy_cash_reducer(state: SystemState, event: dict[str, float]) -> SystemState:
+    def dummy_cash_reducer(state: SystemState, event: dict[str, Decimal]) -> SystemState:
         if "add_cash" in event:
-            new_portfolio = replace(state.portfolio, cash=state.portfolio.cash + event["add_cash"])
+            currency = state.portfolio.account.base_currency
+            new_cash = state.portfolio.cash.deposit(event["add_cash"], currency)
+            new_portfolio = replace(state.portfolio, cash=new_cash)
             return replace(state, portfolio=new_portfolio)
         return state
 
     registry.register(dummy_cash_reducer)
     initial = SystemState()
-    updated = registry.reduce(initial, {"add_cash": 500.0})
+    updated = registry.reduce(initial, {"add_cash": Decimal("500.00")})
 
-    assert initial.portfolio.cash == 0.0
-    assert updated.portfolio.cash == 500.0
+    assert get_cash(initial) == Decimal("0.00")
+    assert get_cash(updated) == Decimal("500.00")
 
 
 def test_13_reducer_composition() -> None:
     registry = ReducerRegistry()
 
-    def version_reducer(state: SystemState, event: dict[str, float]) -> SystemState:
+    def version_reducer(state: SystemState, event: dict[str, Decimal]) -> SystemState:
         return replace(state, version=state.version + 1)
 
-    def cash_reducer(state: SystemState, event: dict[str, float]) -> SystemState:
-        amount = event.get("cash", 0.0)
-        new_portfolio = replace(state.portfolio, cash=state.portfolio.cash + amount)
+    def cash_reducer(state: SystemState, event: dict[str, Decimal]) -> SystemState:
+        amount = event.get("cash", Decimal("0.00"))
+        currency = state.portfolio.account.base_currency
+        new_cash = state.portfolio.cash.deposit(amount, currency)
+        new_portfolio = replace(state.portfolio, cash=new_cash)
         return replace(state, portfolio=new_portfolio)
 
     registry.register(version_reducer)
     registry.register(cash_reducer)
 
     state = SystemState()
-    new_state = registry.reduce(state, {"cash": 1000.0})
+    new_state = registry.reduce(state, {"cash": Decimal("1000.00")})
 
     assert new_state.version == 1
-    assert new_state.portfolio.cash == 1000.0
+    assert get_cash(new_state) == Decimal("1000.00")
 
 
 def test_14_reducer_unregister() -> None:
@@ -348,10 +375,13 @@ def test_27_state_diff_added_and_removed_nested_keys() -> None:
 def test_28_state_diff_deep_nesting(
     base_system_state: SystemState, base_position: PositionState
 ) -> None:
-    new_pos = replace(base_position, market_price=160.0)
+    new_pos = replace(base_position, market_price=Decimal("160"))
     new_portfolio = replace(base_system_state.portfolio, positions={"AAPL": new_pos})
     new_state = replace(base_system_state, portfolio=new_portfolio)
 
     diff = StateDiff.compare(base_system_state, new_state)
     assert "portfolio.positions.AAPL.market_price" in diff.changed
-    assert diff.changed["portfolio.positions.AAPL.market_price"] == (155.0, 160.0)
+    assert diff.changed["portfolio.positions.AAPL.market_price"] == (
+        Decimal("155"),
+        Decimal("160"),
+    )
