@@ -22,6 +22,21 @@ class OrderType(StrEnum):
 
 
 @unique
+class OrderStatus(StrEnum):
+    """Canonical lifecycle status values for orders."""
+
+    NEW = "new"
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    PARTIALLY_FILLED = "partially_filled"
+    FILLED = "filled"
+    CANCEL_PENDING = "cancel_pending"
+    CANCELLED = "cancelled"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+
+
+@unique
 class AssetType(StrEnum):
     """Supported financial instrument categories."""
 

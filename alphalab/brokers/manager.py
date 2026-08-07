@@ -12,7 +12,7 @@ from alphalab.brokers.events import (
 )
 from alphalab.brokers.exceptions import BrokerValidationError
 from alphalab.brokers.execution import ExecutionReport
-from alphalab.brokers.order import BrokerOrder, OrderSide, OrderStatus
+from alphalab.brokers.order import BrokerOrder, OrderStatus
 from alphalab.brokers.position import AssetClass, PositionSnapshot
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.brokers.validation import (
@@ -21,6 +21,8 @@ from alphalab.brokers.validation import (
     validate_order_submission,
 )
 from alphalab.common.ids import new_id
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
+from alphalab.core.enums import Side as CoreSide
 
 
 class OrderManager:
@@ -37,6 +39,7 @@ class OrderManager:
         """Validates and registers an outbound order."""
         validate_order_submission(state, order)
 
+        # Keep connector-local SUBMITTED as a local staging state
         submitted_order = replace(order, status=OrderStatus.SUBMITTED, updated_at=timestamp)
 
         new_orders = dict(state.orders)
@@ -60,7 +63,7 @@ class OrderManager:
         """Marks an active order as cancelled."""
         order = validate_order_cancellation(state, order_id)
 
-        cancelled_order = replace(order, status=OrderStatus.CANCELLED, updated_at=timestamp)
+        cancelled_order = replace(order, status=CoreOrderStatus.CANCELLED, updated_at=timestamp)
 
         new_orders = dict(state.orders)
         new_orders[order_id] = cancelled_order
@@ -90,7 +93,9 @@ class OrderManager:
         new_avg_price = total_cost / new_filled_qty
 
         new_status = (
-            OrderStatus.FILLED if new_filled_qty == order.quantity else OrderStatus.PARTIALLY_FILLED
+            CoreOrderStatus.FILLED
+            if new_filled_qty == order.quantity
+            else CoreOrderStatus.PARTIALLY_FILLED
         )
 
         updated_order = replace(
@@ -105,7 +110,7 @@ class OrderManager:
         account = state.accounts[order.account_id]
         exec_value = execution.fill_quantity * execution.fill_price
 
-        if order.side == OrderSide.BUY:
+        if order.side == CoreSide.BUY:
             new_cash = account.cash_balance - exec_value - execution.commission
         else:
             new_cash = account.cash_balance + exec_value - execution.commission
@@ -129,7 +134,7 @@ class OrderManager:
             ),
         )
 
-        if order.side == OrderSide.BUY:
+        if order.side == CoreSide.BUY:
             pos_new_qty = pos.quantity + execution.fill_quantity
             if pos_new_qty != Decimal("0"):
                 pos_cost = (pos.quantity * pos.average_price) + exec_value
@@ -174,7 +179,7 @@ class OrderManager:
         )
 
         events: list[BrokerEvent] = [exec_evt]
-        if new_status == OrderStatus.FILLED:
+        if new_status == CoreOrderStatus.FILLED:
             fill_evt = OrderFilled(
                 OrderManager._create_id(),
                 timestamp,

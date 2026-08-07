@@ -14,11 +14,14 @@ from alphalab.broker.events import (
     OrderSubmitted,
 )
 from alphalab.broker.execution import BrokerExecution
-from alphalab.broker.order import BrokerOrder, BrokerOrderSide, BrokerOrderStatus, BrokerOrderType
+from alphalab.broker.order import BrokerOrder
 from alphalab.broker.position import BrokerPosition
 from alphalab.broker.state import BrokerState, ConnectionStatus
 from alphalab.broker.validation import validate_cancel_request, validate_order_submission
 from alphalab.common.ids import new_id
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
+from alphalab.core.enums import OrderType as CoreOrderType
+from alphalab.core.enums import Side as CoreSide
 
 
 class PaperBroker:
@@ -69,13 +72,13 @@ class PaperBroker:
         events: list[BrokerEvent] = [sub_evt, acc_evt]
         new_orders = dict(state.orders)
 
-        updated_order = replace(order, status=BrokerOrderStatus.ACCEPTED, updated_at=timestamp)
+        updated_order = replace(order, status=CoreOrderStatus.ACCEPTED, updated_at=timestamp)
         new_orders[order.broker_order_id] = updated_order
 
         temp_state = replace(state, orders=new_orders)
 
         # Paper Broker simulates instant perfect fills for Market Orders
-        if order.order_type == BrokerOrderType.MARKET:
+        if order.order_type == CoreOrderType.MARKET:
             return self._simulate_fill(
                 temp_state, updated_order, order.quantity, order.price, timestamp, tuple(events)
             )
@@ -89,7 +92,7 @@ class PaperBroker:
         validate_cancel_request(state, broker_order_id)
 
         order = state.orders[broker_order_id]
-        updated_order = replace(order, status=BrokerOrderStatus.CANCELLED, updated_at=timestamp)
+        updated_order = replace(order, status=CoreOrderStatus.CANCELLED, updated_at=timestamp)
 
         new_orders = dict(state.orders)
         new_orders[broker_order_id] = updated_order
@@ -149,9 +152,9 @@ class PaperBroker:
         # 1. Update Order
         new_filled = order.filled_quantity + fill_qty
         new_status = (
-            BrokerOrderStatus.FILLED
+            CoreOrderStatus.FILLED
             if new_filled >= order.quantity
-            else BrokerOrderStatus.PARTIALLY_FILLED
+            else CoreOrderStatus.PARTIALLY_FILLED
         )
 
         total_cost = (order.filled_quantity * order.average_fill_price) + (fill_qty * fill_price)
@@ -173,7 +176,7 @@ class PaperBroker:
 
         # 2. Update Account
         cost_impact = (fill_qty * fill_price) + commission
-        if order.side == BrokerOrderSide.BUY:
+        if order.side == CoreSide.BUY:
             new_cash = state.account.cash - cost_impact
         else:
             new_cash = state.account.cash + cost_impact
@@ -194,17 +197,17 @@ class PaperBroker:
             ),
         )
 
-        pos_qty_change = fill_qty if order.side == BrokerOrderSide.BUY else -fill_qty
+        pos_qty_change = fill_qty if order.side == CoreSide.BUY else -fill_qty
         new_qty = current_pos.quantity + pos_qty_change
 
-        if new_qty != Decimal("0.00") and order.side == BrokerOrderSide.BUY:
+        if new_qty != Decimal("0.00") and order.side == CoreSide.BUY:
             pos_cost = (current_pos.quantity * current_pos.average_price) + (fill_qty * fill_price)
             new_pos_avg = pos_cost / new_qty
         else:
             new_pos_avg = current_pos.average_price
 
         realized_pnl = current_pos.realized_pnl
-        if order.side == BrokerOrderSide.SELL and current_pos.quantity > Decimal("0.00"):
+        if order.side == CoreSide.SELL and current_pos.quantity > Decimal("0.00"):
             realized_pnl += fill_qty * (fill_price - current_pos.average_price)
 
         updated_position = replace(

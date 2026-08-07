@@ -101,7 +101,7 @@ def running_state(
 
 def test_run_backtest(running_state: StrategyStudioState) -> None:
     cfg = build_backtest_config("BT-1", "STRAT-1", ("DATA-1",), 0.0, 100.0, 10_000.0)
-    metrics = {"total_return": 0.15, "sharpe": 1.5, "max_drawdown": 0.05}
+    metrics = {"total_return": 0.15, "sharpe_ratio": 1.25, "max_drawdown": 0.05}
 
     s1 = StrategyStudioEngine.run_backtest(running_state, "PROJ-1", cfg, metrics, 1002.0)
 
@@ -110,6 +110,7 @@ def test_run_backtest(running_state: StrategyStudioState) -> None:
     assert proj.backtests[0].backtest_id == "BT-1"
 
     res = backtest_summary(s1)
+    assert res[0].sharpe_ratio == 1.25
     assert len(res) == 1
     assert res[0].total_return == 0.15
     assert studio_metrics(s1).backtests_run == 1

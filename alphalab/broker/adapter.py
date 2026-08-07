@@ -2,12 +2,9 @@
 
 from typing import Any, Protocol
 
-from alphalab.broker.order import (
-    BrokerOrder,
-    BrokerOrderSide,
-    BrokerOrderStatus,
-    BrokerOrderType,
-)
+from alphalab.broker.order import BrokerOrder, BrokerOrderStatus
+from alphalab.core.enums import OrderType as CoreOrderType
+from alphalab.core.enums import Side as CoreSide
 
 
 class OMSOrderProtocol(Protocol):
@@ -36,13 +33,13 @@ class BrokerAdapter:
     def to_broker_order(
         oms_order: OMSOrderProtocol,
         broker_order_id: str,
-        order_type: BrokerOrderType,
+        order_type: CoreOrderType,
         timestamp: float,
     ) -> BrokerOrder:
         """Converts an OMS order request into an immutable BrokerOrder."""
         from decimal import Decimal
 
-        side = BrokerOrderSide.BUY if str(oms_order.side).upper() == "BUY" else BrokerOrderSide.SELL
+        side = CoreSide.BUY if str(oms_order.side).upper() == "BUY" else CoreSide.SELL
 
         return BrokerOrder(
             broker_order_id=broker_order_id,

@@ -3,8 +3,9 @@
 from decimal import Decimal
 
 from alphalab.broker.exceptions import BrokerValidationError, InvalidBrokerStateError
-from alphalab.broker.order import BrokerOrder, BrokerOrderStatus
+from alphalab.broker.order import BrokerOrder
 from alphalab.broker.state import BrokerState
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
 
 
 def validate_order_submission(state: BrokerState, order: BrokerOrder) -> None:
@@ -26,10 +27,11 @@ def validate_cancel_request(state: BrokerState, broker_order_id: str) -> None:
 
     order = state.orders[broker_order_id]
 
+    # Terminal lifecycle states are represented by the canonical core OrderStatus.
     if order.status in {
-        BrokerOrderStatus.FILLED,
-        BrokerOrderStatus.CANCELLED,
-        BrokerOrderStatus.REJECTED,
+        CoreOrderStatus.FILLED,
+        CoreOrderStatus.CANCELLED,
+        CoreOrderStatus.REJECTED,
     }:
         raise InvalidBrokerStateError(
             f"Cannot cancel order {broker_order_id} in status {order.status.name}"

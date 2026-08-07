@@ -8,6 +8,7 @@ from alphalab.brokers.execution import ExecutionReport
 from alphalab.brokers.order import BrokerOrder, OrderStatus
 from alphalab.brokers.position import PositionSnapshot
 from alphalab.brokers.state import BrokerConnectorState, BrokerStatistics
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
 
 
 def active_brokers(state: BrokerConnectorState) -> Sequence[BrokerConnection]:
@@ -27,7 +28,11 @@ def list_positions(state: BrokerConnectorState, account_id: str) -> Sequence[Pos
 
 def open_orders(state: BrokerConnectorState) -> Sequence[BrokerOrder]:
     """Returns all non-terminal active orders across the framework."""
-    active_statuses = {OrderStatus.PENDING, OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED}
+    active_statuses = {
+        CoreOrderStatus.PENDING,
+        OrderStatus.SUBMITTED,
+        CoreOrderStatus.PARTIALLY_FILLED,
+    }
     return tuple(o for o in state.orders.values() if o.status in active_statuses)
 
 

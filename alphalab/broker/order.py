@@ -1,50 +1,49 @@
-"""Immutable broker order models."""
+"""Immutable broker order models.
+
+This module retains broker-local operational statuses (staging/cancel-in-flight)
+but routes all shared lifecycle/state and type values to the canonical core
+enumerations in `alphalab.core.enums`.
+"""
 
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum, auto
 
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
+from alphalab.core.enums import OrderType as CoreOrderType
+from alphalab.core.enums import Side as CoreSide
+
 
 class BrokerOrderStatus(Enum):
-    """Lifecycle statuses for an order residing at the broker."""
+    """Broker-local operational states that must remain subsystem-specific.
+
+    Only non-canonical, connector/broker workflow values live here. Shared
+    lifecycle statuses (accepted, filled, etc.) are represented by
+    `alphalab.core.enums.OrderStatus`.
+    """
 
     PENDING_SUBMIT = auto()
-    ACCEPTED = auto()
-    PARTIALLY_FILLED = auto()
-    FILLED = auto()
     PENDING_CANCEL = auto()
-    CANCELLED = auto()
-    REJECTED = auto()
-
-
-class BrokerOrderType(Enum):
-    """Standard broker order types."""
-
-    MARKET = auto()
-    LIMIT = auto()
-    STOP = auto()
-
-
-class BrokerOrderSide(Enum):
-    """Execution side for broker orders."""
-
-    BUY = auto()
-    SELL = auto()
 
 
 @dataclass(frozen=True, slots=True)
 class BrokerOrder:
-    """Immutable representation of an order residing at an external broker."""
+    """Immutable representation of an order residing at an external broker.
+
+    - `side` and `order_type` use canonical core enums.
+    - `status` may be either a core `OrderStatus` (shared lifecycle) or a
+      broker-local `BrokerOrderStatus` (operational lifecycle).
+    """
 
     broker_order_id: str
     oms_order_id: str
     symbol: str
-    side: BrokerOrderSide
-    order_type: BrokerOrderType
+    side: CoreSide
+    order_type: CoreOrderType
     quantity: Decimal
     price: Decimal
     filled_quantity: Decimal
     average_fill_price: Decimal
-    status: BrokerOrderStatus
+    status: CoreOrderStatus | BrokerOrderStatus
     created_at: float
     updated_at: float

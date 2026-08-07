@@ -4,13 +4,14 @@ from decimal import Decimal
 
 from alphalab.brokers.connection import BrokerConnection
 from alphalab.brokers.exceptions import BrokerValidationError, InvalidBrokerStateError
-from alphalab.brokers.order import BrokerOrder, OrderStatus
+from alphalab.brokers.order import BrokerOrder
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.common.validators import (
     require_mapping_key,
     require_missing_mapping_key,
     require_non_empty_string,
 )
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
 
 
 def validate_broker_registration(state: BrokerConnectorState, connection: BrokerConnection) -> None:
@@ -72,10 +73,10 @@ def validate_order_cancellation(state: BrokerConnectorState, order_id: str) -> B
 
     order = state.orders[order_id]
     terminal_states = {
-        OrderStatus.FILLED,
-        OrderStatus.CANCELLED,
-        OrderStatus.REJECTED,
-        OrderStatus.EXPIRED,
+        CoreOrderStatus.FILLED,
+        CoreOrderStatus.CANCELLED,
+        CoreOrderStatus.REJECTED,
+        CoreOrderStatus.EXPIRED,
     }
     if order.status in terminal_states:
         raise InvalidBrokerStateError(f"Cannot cancel order in terminal state {order.status.name}.")

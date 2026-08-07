@@ -7,6 +7,7 @@ from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.order import BrokerOrder, BrokerOrderStatus
 from alphalab.broker.position import BrokerPosition
 from alphalab.broker.state import BrokerState
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
 
 
 def account_snapshot(state: BrokerState) -> BrokerAccount:
@@ -18,8 +19,8 @@ def open_orders(state: BrokerState) -> Sequence[BrokerOrder]:
     """Returns all currently active orders residing at the broker."""
     open_statuses = {
         BrokerOrderStatus.PENDING_SUBMIT,
-        BrokerOrderStatus.ACCEPTED,
-        BrokerOrderStatus.PARTIALLY_FILLED,
+        CoreOrderStatus.ACCEPTED,
+        CoreOrderStatus.PARTIALLY_FILLED,
     }
     return tuple(o for o in state.orders.values() if o.status in open_statuses)
 

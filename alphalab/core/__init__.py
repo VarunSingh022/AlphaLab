@@ -1,6 +1,6 @@
 """Public core domain API for AlphaLab."""
 
-from alphalab.core.enums import AssetType, EventType, OrderType, Side, TimeInForce
+from alphalab.core.enums import AssetType, EventType, OrderStatus, OrderType, Side, TimeInForce
 from alphalab.core.event import Event
 from alphalab.core.events import (
     DomainEvent,
@@ -79,6 +79,7 @@ __all__ = [
     "Order",
     "OrderCompat",
     "OrderId",
+    "OrderStatus",
     "OrderType",
     "PortfolioId",
     "PortfolioState",

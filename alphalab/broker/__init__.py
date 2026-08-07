@@ -22,9 +22,7 @@ from alphalab.broker.exceptions import (
 from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.order import (
     BrokerOrder,
-    BrokerOrderSide,
     BrokerOrderStatus,
-    BrokerOrderType,
 )
 from alphalab.broker.paper import PaperBroker
 from alphalab.broker.position import BrokerPosition
@@ -36,6 +34,8 @@ from alphalab.broker.validation import (
     validate_order_submission,
 )
 from alphalab.broker.views import account_snapshot, executions, open_orders, positions
+from alphalab.core.enums import OrderType as BrokerOrderType
+from alphalab.core.enums import Side as BrokerOrderSide
 
 __all__ = [
     "BrokerAccount",

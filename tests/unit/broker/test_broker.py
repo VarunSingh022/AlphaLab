@@ -9,7 +9,6 @@ from alphalab.broker import (
     BrokerAdapter,
     BrokerEngine,
     BrokerOrderSide,
-    BrokerOrderStatus,
     BrokerOrderType,
     BrokerState,
     BrokerValidationError,
@@ -21,6 +20,7 @@ from alphalab.broker import (
     open_orders,
     positions,
 )
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
 
 
 @dataclass(frozen=True)
@@ -96,7 +96,7 @@ def test_submit_limit_order(default_state: BrokerState, base_oms_order: MockOMSO
     s1, evts = broker.submit_order(default_state, order, 1001.0)
 
     assert len(open_orders(s1)) == 1
-    assert s1.orders["B-1"].status == BrokerOrderStatus.ACCEPTED
+    assert s1.orders["B-1"].status == CoreOrderStatus.ACCEPTED
     assert len(evts) == 2
     assert type(evts[0]).__name__ == "OrderSubmitted"
     assert type(evts[1]).__name__ == "OrderAccepted"
@@ -113,7 +113,7 @@ def test_submit_market_order_fills_immediately(
 
     # Market order instantly fills
     assert len(open_orders(s1)) == 0
-    assert s1.orders["B-1"].status == BrokerOrderStatus.FILLED
+    assert s1.orders["B-1"].status == CoreOrderStatus.FILLED
     assert s1.orders["B-1"].filled_quantity == Decimal("100")
 
     assert len(executions(s1)) == 1
@@ -136,7 +136,7 @@ def test_cancel_order(default_state: BrokerState, base_oms_order: MockOMSOrder) 
     s2, evts = broker.cancel_order(s1, "B-1", 1002.0)
 
     assert len(open_orders(s2)) == 0
-    assert s2.orders["B-1"].status == BrokerOrderStatus.CANCELLED
+    assert s2.orders["B-1"].status == CoreOrderStatus.CANCELLED
     assert len(evts) == 1
     assert type(evts[0]).__name__ == "OrderCancelled"
 

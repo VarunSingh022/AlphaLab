@@ -25,6 +25,7 @@ from alphalab.brokers import (
     list_positions,
     open_orders,
 )
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
 
 
 @pytest.fixture
@@ -212,7 +213,7 @@ def test_cancel_order_success(running_state: BrokerConnectorState) -> None:
 
     s2 = BrokerConnectorEngine.cancel_order(s1, "O-1", 1006.0)
     assert len(open_orders(s2)) == 0
-    assert s2.orders["O-1"].status == OrderStatus.CANCELLED
+    assert s2.orders["O-1"].status == CoreOrderStatus.CANCELLED
     assert any(type(e).__name__ == "OrderCancelled" for e in s2.events)
 
 
@@ -244,7 +245,7 @@ def test_process_partial_execution(running_state: BrokerConnectorState) -> None:
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
 
     o2 = s2.orders["O-1"]
-    assert o2.status == OrderStatus.PARTIALLY_FILLED
+    assert o2.status == CoreOrderStatus.PARTIALLY_FILLED
     assert o2.filled_quantity == Decimal("40")
 
     acc = get_account(s2, "ACC-01")
@@ -267,7 +268,7 @@ def test_process_full_execution(running_state: BrokerConnectorState) -> None:
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
 
     o2 = s2.orders["O-1"]
-    assert o2.status == OrderStatus.FILLED
+    assert o2.status == CoreOrderStatus.FILLED
     assert len(open_orders(s2)) == 0
     assert any(type(e).__name__ == "OrderFilled" for e in s2.events)
 

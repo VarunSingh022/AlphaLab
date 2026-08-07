@@ -4,7 +4,11 @@ from decimal import Decimal
 from typing import Any
 
 from alphalab.brokers.execution import ExecutionReport
-from alphalab.brokers.order import BrokerOrder, OrderSide, OrderStatus, OrderType, TimeInForce
+from alphalab.brokers.order import BrokerOrder
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
+from alphalab.core.enums import OrderType as CoreOrderType
+from alphalab.core.enums import Side as CoreSide
+from alphalab.core.enums import TimeInForce as CoreTimeInForce
 
 
 class BrokerAdapter:
@@ -17,15 +21,15 @@ class BrokerAdapter:
             order_id=str(payload["order_id"]),
             account_id=str(payload["account_id"]),
             symbol=str(payload["symbol"]),
-            side=OrderSide[str(payload["side"]).upper()],
-            order_type=OrderType[str(payload["order_type"]).upper()],
-            tif=TimeInForce[str(payload.get("tif", "DAY")).upper()],
+            side=CoreSide[str(payload["side"]).upper()],
+            order_type=CoreOrderType[str(payload["order_type"]).upper()],
+            tif=CoreTimeInForce[str(payload.get("tif", "DAY")).upper()],
             quantity=Decimal(str(payload["quantity"])),
             price=Decimal(str(payload.get("price", "0.0"))),
             stop_price=Decimal(str(payload.get("stop_price", "0.0"))),
             filled_quantity=Decimal(str(payload.get("filled_quantity", "0.0"))),
             average_fill_price=Decimal(str(payload.get("average_fill_price", "0.0"))),
-            status=OrderStatus.PENDING,
+            status=CoreOrderStatus.PENDING,
             created_at=float(payload["timestamp"]),
             updated_at=float(payload["timestamp"]),
         )

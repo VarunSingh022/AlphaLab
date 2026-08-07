@@ -17,7 +17,7 @@ class StudioAdapter:
             bt_id,
             strat_id,
             metrics.get("total_return", 0.0),
-            metrics.get("sharpe", 0.0),
+            metrics.get("sharpe_ratio", 0.0),
             metrics.get("max_drawdown", 0.0),
         )
 
