@@ -39,3 +39,19 @@ class BudgetExceeded(AllocationEvent):
 @dataclass(frozen=True, slots=True)
 class AllocationRejected(AllocationEvent):
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class AllocationExecutionApplied(AllocationEvent):
+    event_id: str
+    timestamp: float
+    order_id: str
+    executed_notional: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class AllocationReservationReleased(AllocationEvent):
+    event_id: str
+    timestamp: float
+    order_id: str
+    released_notional: Decimal

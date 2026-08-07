@@ -9,7 +9,9 @@ from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.allocation.events import (
     AllocationCompleted,
+    AllocationExecutionApplied,
     AllocationRejected,
+    AllocationReservationReleased,
     AllocationStarted,
     BudgetExceeded,
     NettingCompleted,
@@ -143,3 +145,31 @@ class AllocationEngine:
         )
 
         return new_state, tuple(orders)
+
+    @staticmethod
+    def apply_execution(
+        state: AllocationState, order_id: str, executed_notional: Decimal, timestamp: float
+    ) -> AllocationState:
+        """Apply executed notional against reserved allocation for an order.
+
+        This reduces the historical `notional_allocated` by the executed amount.
+        """
+        new_notional = max(Decimal("0.00"), state.notional_allocated - executed_notional)
+        evt = AllocationExecutionApplied(
+            AllocationEngine._create_id(), timestamp, order_id, executed_notional
+        )
+        return replace(state, notional_allocated=new_notional, events=(*state.events, evt))
+
+    @staticmethod
+    def release_reservation(
+        state: AllocationState, order_id: str, released_notional: Decimal, timestamp: float
+    ) -> AllocationState:
+        """Release reserved notional for a cancelled or rejected order.
+
+        Subtracts the released amount from `notional_allocated`.
+        """
+        new_notional = max(Decimal("0.00"), state.notional_allocated - released_notional)
+        evt = AllocationReservationReleased(
+            AllocationEngine._create_id(), timestamp, order_id, released_notional
+        )
+        return replace(state, notional_allocated=new_notional, events=(*state.events, evt))

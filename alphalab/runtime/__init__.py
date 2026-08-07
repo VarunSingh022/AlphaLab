@@ -18,6 +18,12 @@ from alphalab.runtime.exceptions import (
     InvalidRuntimeTransitionError,
     RuntimeValidationError,
 )
+from alphalab.runtime.execution_pipeline import (
+    ExecutionPipeline,
+    ExecutionPipelineConfig,
+    ExecutionPipelineResult,
+    ExecutionPipelineState,
+)
 from alphalab.runtime.lifecycle import RuntimeStatus
 from alphalab.runtime.metrics import RuntimeMetrics
 from alphalab.runtime.runtime import create_runtime
@@ -40,6 +46,10 @@ __all__ = [
     "DispatchCompleted",
     "DispatchFailed",
     "EventDispatcher",
+    "ExecutionPipeline",
+    "ExecutionPipelineConfig",
+    "ExecutionPipelineResult",
+    "ExecutionPipelineState",
     "Heartbeat",
     "InvalidRuntimeTransitionError",
     "RuntimeEngine",
