@@ -2,9 +2,9 @@
 
 from decimal import Decimal
 
+from alphalab.core.enums import OrderType
 from alphalab.oms.exceptions import OrderValidationError
 from alphalab.oms.order import Order
-from alphalab.oms.status import OrderType
 
 
 def validate_order(order: Order, current_timestamp: float) -> None:

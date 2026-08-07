@@ -2,9 +2,11 @@
 
 from dataclasses import replace
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
+from alphalab.core.enums import Side
 from alphalab.execution import (
     ExecutionEngine,
     ExecutionSimulator,
@@ -27,7 +29,7 @@ def base_instruction() -> OrderInstruction:
         asset_id="AAPL",
         quantity=Decimal("100"),
         price=Decimal("150.00"),
-        side="BUY",
+        side=Side.BUY,
         venue="SIM",
         currency="USD",
     )
@@ -52,6 +54,34 @@ def test_full_fill_simulation(base_instruction: OrderInstruction) -> None:
     assert rep.fill_quantity == Decimal("100")
     assert rep.fill_price == Decimal("150.00")
     assert rep.status == FillStatus.FULL_FILL
+
+
+def test_order_instruction_requires_core_side() -> None:
+    instruction = OrderInstruction(
+        order_id="ORD-123",
+        strategy_id="STRAT-1",
+        asset_id="AAPL",
+        quantity=Decimal("100"),
+        price=Decimal("150.00"),
+        side=Side.BUY,
+        venue="SIM",
+        currency="USD",
+    )
+
+    assert instruction.side is Side.BUY
+
+    invalid_side: Any = "BUY"
+    with pytest.raises(TypeError, match="side must be a core Side"):
+        OrderInstruction(
+            order_id="ORD-123",
+            strategy_id="STRAT-1",
+            asset_id="AAPL",
+            quantity=Decimal("100"),
+            price=Decimal("150.00"),
+            side=invalid_side,
+            venue="SIM",
+            currency="USD",
+        )
 
 
 def test_partial_fill_simulation(base_instruction: OrderInstruction) -> None:
@@ -84,7 +114,7 @@ def test_slippage_model(base_instruction: OrderInstruction) -> None:
     assert rep_buy.fill_price == Decimal("100.50")
 
     # SELL should subtract slippage
-    sell_inst = replace(base_instruction, side="SELL")
+    sell_inst = replace(base_instruction, side=Side.SELL)
     rep_sell = simulator.simulate_fill(
         sell_inst, Decimal("10"), Decimal("100.00"), 1000.0, FillStatus.FULL_FILL
     )

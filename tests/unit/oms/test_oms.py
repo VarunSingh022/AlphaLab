@@ -7,6 +7,9 @@ from decimal import Decimal
 
 import pytest
 
+from alphalab.core.enums import OrderStatus as CoreOrderStatus
+from alphalab.core.enums import OrderType as CoreOrderType
+from alphalab.core.enums import Side as CoreSide
 from alphalab.oms import (
     OMSEngine,
     OMSState,
@@ -73,6 +76,23 @@ def test_submit_order(
     assert len(new_state.events) == 1
 
     assert len(new_state.history) == 1
+
+
+def test_oms_uses_canonical_core_order_enums(order: Order) -> None:
+    assert OrderType is CoreOrderType
+    assert OrderStatus is CoreOrderStatus
+    assert Side is CoreSide
+    assert order.order_type is CoreOrderType.LIMIT
+    assert order.status is CoreOrderStatus.NEW
+    assert order.side is CoreSide.BUY
+
+
+def test_oms_status_module_no_longer_defines_independent_enums() -> None:
+    import alphalab.oms.status as oms_status
+
+    assert oms_status.OrderType is CoreOrderType
+    assert oms_status.OrderStatus is CoreOrderStatus
+    assert oms_status.Side is CoreSide
 
 
 def test_duplicate_order_rejected(

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum, auto
 
+from alphalab.core.enums import Side
+
 
 class FillStatus(Enum):
     FULL_FILL = auto()
@@ -22,6 +24,10 @@ class OrderInstruction:
     asset_id: str
     quantity: Decimal
     price: Decimal
-    side: str
+    side: Side
     venue: str
     currency: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.side, Side):
+            raise TypeError("side must be a core Side")

@@ -13,29 +13,12 @@ from decimal import Decimal
 from typing import cast
 from uuid import UUID
 
-from alphalab.core.enums import OrderType as CoreOrderType
-from alphalab.core.enums import Side as CoreSide
-from alphalab.core.enums import TimeInForce
+from alphalab.core.enums import OrderStatus, OrderType, Side, TimeInForce
 from alphalab.core.ids import AssetId
 from alphalab.core.ids import OrderId as CoreOrderId
 from alphalab.core.order import Order as CoreOrder
 from alphalab.oms.exceptions import InvalidTransitionError
 from alphalab.oms.ids import OrderId
-from alphalab.oms.status import OrderStatus, OrderType, Side
-
-
-def _to_core_side(side: Side) -> CoreSide:
-    return CoreSide.BUY if side is Side.BUY else CoreSide.SELL
-
-
-def _to_core_order_type(order_type: OrderType) -> CoreOrderType:
-    if order_type is OrderType.MARKET:
-        return CoreOrderType.MARKET
-    if order_type is OrderType.LIMIT:
-        return CoreOrderType.LIMIT
-    if order_type is OrderType.STOP:
-        return CoreOrderType.STOP
-    return CoreOrderType.STOP_LIMIT
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,8 +82,8 @@ class Order:
         return CoreOrder(
             order_id=cast(CoreOrderId, str(self.order_id.value)),
             asset_id=cast(AssetId, self.asset_id),
-            side=_to_core_side(self.side),
-            order_type=_to_core_order_type(self.order_type),
+            side=self.side,
+            order_type=self.order_type,
             quantity=self.quantity,
             created_at=datetime.fromtimestamp(self.created_at, tz=UTC),
             time_in_force=TimeInForce.DAY,
@@ -123,22 +106,13 @@ class Order:
         metadata: Mapping[str, str] | None = None,
     ) -> Order:
         """Create an OMS compatibility order from a canonical core Order."""
-        side = Side.BUY if order.side is CoreSide.BUY else Side.SELL
-        order_type = OrderType.MARKET
-        if order.order_type is CoreOrderType.LIMIT:
-            order_type = OrderType.LIMIT
-        elif order.order_type is CoreOrderType.STOP:
-            order_type = OrderType.STOP
-        elif order.order_type is CoreOrderType.STOP_LIMIT:
-            order_type = OrderType.STOP_LIMIT
-
         created_at = order.created_at.timestamp()
         return cls(
             order_id=OrderId(UUID(order.order_id)),
             strategy_id="",
             asset_id=order.asset_id,
-            side=side,
-            order_type=order_type,
+            side=order.side,
+            order_type=order.order_type,
             status=status,
             quantity=order.quantity,
             filled_quantity=filled_quantity,

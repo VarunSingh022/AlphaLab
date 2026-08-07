@@ -3,6 +3,7 @@
 import time
 from decimal import Decimal
 
+from alphalab.core.enums import Side
 from alphalab.execution import (
     ExecutionEngine,
     ExecutionSimulator,
@@ -23,7 +24,7 @@ def run_benchmark() -> None:
         asset_id="AAPL",
         quantity=Decimal("100"),
         price=Decimal("150.00"),
-        side="BUY",
+        side=Side.BUY,
         venue="SIM",
         currency="USD",
     )

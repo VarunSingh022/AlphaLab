@@ -424,7 +424,7 @@ def _instruction(order: OMSOrder, state: ExecutionPipelineState) -> OrderInstruc
         order.asset_id,
         order.remaining_quantity,
         state.market_prices[order.asset_id],
-        order.side.name,
+        order.side,
         state.config.venue,
         state.config.currency,
     )

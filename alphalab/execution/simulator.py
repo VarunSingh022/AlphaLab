@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.core.enums import Side
 from alphalab.execution.commission import CommissionModel, FixedCommission
 from alphalab.execution.fill import FillStatus, OrderInstruction
 from alphalab.execution.latency import ConstantLatency, LatencyModel
@@ -40,7 +41,7 @@ class ExecutionSimulator:
         slippage = self.slippage_model.calculate(fill_quantity, market_price, instruction.side)
 
         # Apply slippage directionally
-        if instruction.side.upper() == "BUY":
+        if instruction.side is Side.BUY:
             fill_price = market_price + slippage
         else:
             fill_price = max(Decimal("0.01"), market_price - slippage)

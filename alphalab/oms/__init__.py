@@ -1,5 +1,15 @@
 """Public Order Management System API."""
 
+from alphalab.core.enums import (
+    OrderStatus as OrderStatus,
+)
+from alphalab.core.enums import (
+    OrderType as OrderType,
+)
+from alphalab.core.enums import (
+    Side as Side,
+)
+
 from .book import OrderBook as OrderBook
 from .engine import OMSEngine as OMSEngine
 from .events import (
@@ -47,15 +57,6 @@ from .exceptions import (
 from .ids import OrderId as OrderId
 from .order import Order as Order
 from .state import OMSState as OMSState
-from .status import (
-    OrderStatus as OrderStatus,
-)
-from .status import (
-    OrderType as OrderType,
-)
-from .status import (
-    Side as Side,
-)
 from .validation import validate_order as validate_order
 from .views import (
     active_orders as active_orders,

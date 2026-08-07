@@ -3,9 +3,11 @@
 from decimal import Decimal
 from typing import Protocol
 
+from alphalab.core.enums import Side
+
 
 class SlippageModel(Protocol):
-    def calculate(self, fill_quantity: Decimal, fill_price: Decimal, side: str) -> Decimal: ...
+    def calculate(self, fill_quantity: Decimal, fill_price: Decimal, side: Side) -> Decimal: ...
 
 
 class FixedSlippage:
@@ -14,7 +16,7 @@ class FixedSlippage:
     def __init__(self, slippage_amount: Decimal) -> None:
         self._slippage_amount = slippage_amount
 
-    def calculate(self, fill_quantity: Decimal, fill_price: Decimal, side: str) -> Decimal:
+    def calculate(self, fill_quantity: Decimal, fill_price: Decimal, side: Side) -> Decimal:
         if fill_quantity <= 0:
             return Decimal("0.00")
         return self._slippage_amount
@@ -26,7 +28,7 @@ class PercentageSlippage:
     def __init__(self, rate: Decimal) -> None:
         self._rate = rate
 
-    def calculate(self, fill_quantity: Decimal, fill_price: Decimal, side: str) -> Decimal:
+    def calculate(self, fill_quantity: Decimal, fill_price: Decimal, side: Side) -> Decimal:
         if fill_quantity <= 0:
             return Decimal("0.00")
         return (fill_price * self._rate).quantize(Decimal("0.0001"))
@@ -38,7 +40,7 @@ class MarketImpactSlippage:
     def __init__(self, impact_factor: Decimal) -> None:
         self._impact_factor = impact_factor
 
-    def calculate(self, fill_quantity: Decimal, fill_price: Decimal, side: str) -> Decimal:
+    def calculate(self, fill_quantity: Decimal, fill_price: Decimal, side: Side) -> Decimal:
         if fill_quantity <= 0:
             return Decimal("0.00")
         # Simplified deterministic impact: quadratic to quantity scaled by factor
