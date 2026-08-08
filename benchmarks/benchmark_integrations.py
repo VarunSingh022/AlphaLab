@@ -21,16 +21,14 @@ def run_benchmark() -> None:
 
     # Pre-generate generic AlphaLab dict payloads
     orders = tuple(
-        IntegrationAdapter.to_broker_payload(
-            {
-                "order_id": f"O-{i}",
-                "symbol": "AAPL",
-                "side": "BUY",
-                "order_type": "MARKET",
-                "quantity": 10.0,
-                "price": 0.0,
-            }
-        )
+        IntegrationAdapter.to_broker_payload({
+            "order_id": f"O-{i}",
+            "symbol": "AAPL",
+            "side": "BUY",
+            "order_type": "MARKET",
+            "quantity": 10.0,
+            "price": 0.0,
+        })
         for i in range(N)
     )
 

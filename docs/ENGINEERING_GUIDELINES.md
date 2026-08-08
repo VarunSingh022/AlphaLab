@@ -85,8 +85,7 @@ Example
     frozen=True,
     slots=True,
 )
-class ResearchResult:
-    ...
+class ResearchResult: ...
 ```
 
 Benefits include
