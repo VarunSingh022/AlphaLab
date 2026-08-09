@@ -1,5 +1,7 @@
 """Comprehensive tests validating strict multi-provider market data orchestration."""
 
+from typing import Any
+
 import pytest
 
 from alphalab.marketdata import (
@@ -18,8 +20,50 @@ from alphalab.marketdata import (
     provider_summary,
     subscription_summary,
 )
-from alphalab.marketdata.yahoo.adapter import YahooAdapter
-from alphalab.marketdata.yahoo.config import YahooConfig
+
+
+class _FakeProvider:
+    """A minimal, explicit MarketDataProtocol double for engine-orchestration tests.
+
+    Engine tests exercise MarketDataEngine's registration/connection/subscription/
+    caching logic, not any specific provider's data. Previously these tests reused
+    YahooAdapter for this purpose, which meant they were incidentally depending on
+    YahooClient's implementation details rather than on a real, intentional test
+    double -- fine while YahooClient happened to return fixed canned data, but a
+    real dependency to have either way. This double makes that dependency explicit.
+    """
+
+    def connect(self) -> bool:
+        return True
+
+    def disconnect(self) -> bool:
+        return True
+
+    def subscribe(self, symbol: str, timeframe: Timeframe) -> bool:
+        return True
+
+    def unsubscribe(self, symbol: str, timeframe: Timeframe) -> bool:
+        return True
+
+    def request_history(
+        self, symbol: str, timeframe: Timeframe, start: float, end: float
+    ) -> tuple[Bar, ...]:
+        return (Bar(symbol, start, 100.0, 105.0, 95.0, 102.0, 1000.0),)
+
+    def latest_quote(self, symbol: str) -> Quote | None:
+        return Quote(symbol, 1000.0, 101.0, 102.0, 10.0, 10.0)
+
+    def latest_trade(self, symbol: str) -> Trade | None:
+        return Trade(symbol, 1000.0, 101.5, 100.0)
+
+    def latest_bar(self, symbol: str) -> Bar | None:
+        return Bar(symbol, 1000.0, 100.0, 105.0, 95.0, 102.0, 1000.0)
+
+    def order_book(self, symbol: str) -> OrderBook | None:
+        return OrderBook(symbol, 1000.0, (), ())
+
+    def health(self) -> dict[str, Any]:
+        return {"status": "healthy"}
 
 
 @pytest.fixture
@@ -33,8 +77,8 @@ def yahoo_config() -> ProviderConfig:
 
 
 @pytest.fixture
-def yahoo_provider() -> YahooAdapter:
-    return YahooAdapter(YahooConfig("YAHOO-1", "key"))
+def yahoo_provider() -> _FakeProvider:
+    return _FakeProvider()
 
 
 # --- REGISTRATION & CONNECTION TESTS (20+ assertions) ---
@@ -71,7 +115,7 @@ def test_register_empty_id(base_state: MarketDataState) -> None:
 
 
 def test_connect_success(
-    base_state: MarketDataState, yahoo_config: ProviderConfig, yahoo_provider: YahooAdapter
+    base_state: MarketDataState, yahoo_config: ProviderConfig, yahoo_provider: _FakeProvider
 ) -> None:
     s1 = MarketDataEngine.register(base_state, yahoo_config, 1000.0)
     s2 = MarketDataEngine.connect(s1, "YAHOO-1", yahoo_provider, 1001.0)
@@ -84,7 +128,7 @@ def test_connect_success(
 
 
 def test_disconnect(
-    base_state: MarketDataState, yahoo_config: ProviderConfig, yahoo_provider: YahooAdapter
+    base_state: MarketDataState, yahoo_config: ProviderConfig, yahoo_provider: _FakeProvider
 ) -> None:
     s1 = MarketDataEngine.register(base_state, yahoo_config, 1000.0)
     s2 = MarketDataEngine.connect(s1, "YAHOO-1", yahoo_provider, 1001.0)
@@ -102,13 +146,13 @@ def test_disconnect(
 
 @pytest.fixture
 def connected_state(
-    base_state: MarketDataState, yahoo_config: ProviderConfig, yahoo_provider: YahooAdapter
+    base_state: MarketDataState, yahoo_config: ProviderConfig, yahoo_provider: _FakeProvider
 ) -> MarketDataState:
     s1 = MarketDataEngine.register(base_state, yahoo_config, 1000.0)
     return MarketDataEngine.connect(s1, "YAHOO-1", yahoo_provider, 1001.0)
 
 
-def test_subscribe_success(connected_state: MarketDataState, yahoo_provider: YahooAdapter) -> None:
+def test_subscribe_success(connected_state: MarketDataState, yahoo_provider: _FakeProvider) -> None:
     s1 = MarketDataEngine.subscribe(
         connected_state, "YAHOO-1", yahoo_provider, "AAPL", Timeframe.MINUTE, 1002.0
     )
@@ -117,7 +161,7 @@ def test_subscribe_success(connected_state: MarketDataState, yahoo_provider: Yah
 
 
 def test_unsubscribe_success(
-    connected_state: MarketDataState, yahoo_provider: YahooAdapter
+    connected_state: MarketDataState, yahoo_provider: _FakeProvider
 ) -> None:
     s1 = MarketDataEngine.subscribe(
         connected_state, "YAHOO-1", yahoo_provider, "AAPL", Timeframe.MINUTE, 1002.0
@@ -136,7 +180,7 @@ def test_unsubscribe_success(
 
 
 def test_request_history_caching(
-    connected_state: MarketDataState, yahoo_provider: YahooAdapter
+    connected_state: MarketDataState, yahoo_provider: _FakeProvider
 ) -> None:
     s1 = MarketDataEngine.request_history(
         connected_state, "YAHOO-1", yahoo_provider, "AAPL", Timeframe.DAILY, 1000.0, 2000.0

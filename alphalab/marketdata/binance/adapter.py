@@ -6,14 +6,17 @@ from alphalab.marketdata.binance.client import binanceClient
 from alphalab.marketdata.binance.config import binanceConfig
 from alphalab.marketdata.feed import Bar, OrderBook, Quote, Trade
 from alphalab.marketdata.timeframe import Timeframe
+from alphalab.marketdata.transport import HttpTransport, Transport
 
 
 class binanceAdapter:
     __slots__ = ("_client", "_config")
 
-    def __init__(self, config: binanceConfig) -> None:
+    def __init__(self, config: binanceConfig, transport: Transport | None = None) -> None:
         self._config = config
-        self._client = binanceClient()
+        self._client = binanceClient(
+            config, transport or HttpTransport(timeout_seconds=config.timeout_seconds)
+        )
 
     def connect(self) -> bool:
         return self._client.connect()
