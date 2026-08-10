@@ -11,6 +11,7 @@ in time" instead of unintentionally querying the present.
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.common.point_in_time import known_as_of as _generic_known_as_of
 from alphalab.macro.enums import Frequency
 from alphalab.macro.exceptions import MacroInputError
 
@@ -83,12 +84,8 @@ def known_as_of(
 ) -> IndicatorObservation | None:
     """Returns the observation reflecting what was actually known at `as_of`.
 
-    Filters to observations released on or before `as_of`, then prefers the most
-    recent reference_period (the most current economic picture), and within that
-    period, the most recent release (the latest revision known by that date).
-    Returns None if nothing had been released yet by `as_of`.
+    Thin delegation to `alphalab.common.point_in_time.known_as_of` -- kept as a
+    named, indicator-specific function for API stability and discoverability, not
+    because the logic differs. See that module for the full behavior description.
     """
-    known = tuple(obs for obs in observations if obs.release_date <= as_of)
-    if not known:
-        return None
-    return max(known, key=lambda obs: (obs.reference_period, obs.release_date))
+    return _generic_known_as_of(observations, as_of)

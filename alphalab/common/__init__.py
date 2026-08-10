@@ -10,6 +10,8 @@ from alphalab.common.exceptions import (
 )
 from alphalab.common.ids import Identifier, is_uuid, new_id, require_uuid
 from alphalab.common.metadata import Metadata, copy_metadata
+from alphalab.common.point_in_time import PointInTimeRecord
+from alphalab.common.point_in_time import known_as_of as generic_known_as_of
 from alphalab.common.results import Result
 from alphalab.common.serialization import dataclass_to_dict
 from alphalab.common.time import ensure_timezone_aware, to_utc, utc_now
@@ -36,12 +38,14 @@ __all__ = [
     "Metadata",
     "MetadataMapping",
     "MetadataValue",
+    "PointInTimeRecord",
     "Registry",
     "Result",
     "__version__",
     "copy_metadata",
     "dataclass_to_dict",
     "ensure_timezone_aware",
+    "generic_known_as_of",
     "is_uuid",
     "new_id",
     "require_non_empty_string",
