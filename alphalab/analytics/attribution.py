@@ -3,7 +3,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
-from types import MappingProxyType
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +39,7 @@ def calculate_attribution(trades: tuple[TradeRecord, ...]) -> AttributionMetrics
         by_sector[t.sector_id] = by_sector.get(t.sector_id, Decimal("0.00")) + t.realized_pnl
 
     return AttributionMetrics(
-        pnl_by_strategy=MappingProxyType(by_strat),
-        pnl_by_asset=MappingProxyType(by_asset),
-        pnl_by_sector=MappingProxyType(by_sector),
+        pnl_by_strategy=by_strat,
+        pnl_by_asset=by_asset,
+        pnl_by_sector=by_sector,
     )

@@ -198,3 +198,54 @@ def test_engine_integration() -> None:
     # Immutability
     assert len(state.reports) == 1
     assert len(state.events) == 1
+
+
+def test_attribution_returns_plain_dicts() -> None:
+    """AttributionMetrics fields are ordinary dicts (consistent with the rest of
+    AlphaLab's frozen dataclasses) so the report can be serialized (D2)."""
+    trades = (
+        TradeRecord("T1", "S1", "AAPL", "TECH", Decimal("100"), Decimal("1000"), 10.0),
+        TradeRecord("T2", "S1", "MSFT", "TECH", Decimal("-25"), Decimal("500"), 10.0),
+    )
+    attr = calculate_attribution(trades)
+    assert type(attr.pnl_by_strategy) is dict
+    assert type(attr.pnl_by_asset) is dict
+    assert type(attr.pnl_by_sector) is dict
+    assert attr.pnl_by_strategy == {"S1": Decimal("75")}
+    assert attr.pnl_by_asset == {"AAPL": Decimal("100"), "MSFT": Decimal("-25")}
+
+
+def test_performance_report_serializes_deterministically() -> None:
+    """A PerformanceReport built by the engine can be serialized by
+    alphalab.persistence, deterministically and idempotently (regression for D2)."""
+    from alphalab.persistence.serializer import deserialize, serialize
+
+    state = AnalyticsEngine.initialize()
+    snapshots = (
+        PortfolioSnapshot(
+            100.0, Decimal("1000.00"), Decimal("1000.00"), Decimal("0"), Decimal("0")
+        ),
+        PortfolioSnapshot(
+            101.0, Decimal("1050.00"), Decimal("1000.00"), Decimal("50"), Decimal("0")
+        ),
+        PortfolioSnapshot(
+            102.0, Decimal("1040.00"), Decimal("1000.00"), Decimal("40"), Decimal("0")
+        ),
+    )
+    trades = (
+        TradeRecord("T1", "S1", "AAPL", "TECH", Decimal("30.00"), Decimal("300"), 60.0),
+        TradeRecord("T2", "S1", "MSFT", "FIN", Decimal("-10.00"), Decimal("200"), 60.0),
+    )
+    state = AnalyticsEngine.compile_report(state, snapshots, trades, 200.0)
+    report = state.reports[-1]
+
+    s1 = serialize(report)
+    s2 = serialize(report)
+    assert s1 == s2  # deterministic + repeated serialization identical
+
+    primitives = deserialize(s1)
+    assert primitives["ending_capital"] == "1040.00"
+    assert primitives["attribution"]["pnl_by_asset"]["AAPL"] == "30.00"
+
+    # serialized -> deserialized -> reserialized is stable for the primitive form
+    assert serialize(deserialize(serialize(primitives))) == serialize(primitives)
