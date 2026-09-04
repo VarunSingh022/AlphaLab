@@ -43,7 +43,6 @@ from alphalab.core.ids import (
     new_uuid,
     validate_uuid_id,
 )
-from alphalab.core.order import Order
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade
 
@@ -68,7 +67,6 @@ __all__ = [
     "LoggingMiddleware",
     "Metadata",
     "MetadataValue",
-    "Order",
     "OrderId",
     "OrderRequest",
     "OrderStatus",

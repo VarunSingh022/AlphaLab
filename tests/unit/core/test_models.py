@@ -10,10 +10,7 @@ from alphalab.core import (
     AssetType,
     DomainValidationError,
     Fill,
-    Order,
-    OrderType,
     Side,
-    TimeInForce,
     Trade,
     new_asset_id,
     new_fill_id,
@@ -28,39 +25,6 @@ from alphalab.portfolio.engine import PortfolioState
 from alphalab.portfolio.position import Position
 
 NOW = datetime(2026, 1, 2, 15, 30, tzinfo=UTC)
-
-
-def test_order_creation_equality_and_serialization() -> None:
-    order_id = new_order_id()
-    asset_id = new_asset_id()
-
-    order = Order(
-        order_id=order_id,
-        asset_id=asset_id,
-        side=Side.BUY,
-        order_type=OrderType.LIMIT,
-        quantity=Decimal("10"),
-        created_at=NOW,
-        time_in_force=TimeInForce.DAY,
-        limit_price=Decimal("125.50"),
-    )
-    same_order = Order(
-        order_id=order_id,
-        asset_id=asset_id,
-        side=Side.BUY,
-        order_type=OrderType.LIMIT,
-        quantity=Decimal("10"),
-        created_at=NOW,
-        time_in_force=TimeInForce.DAY,
-        limit_price=Decimal("125.50"),
-    )
-
-    data = asdict(order)
-
-    assert order == same_order
-    assert data["order_id"] == order_id
-    assert data["order_type"] == "limit"
-    assert data["limit_price"] == Decimal("125.50")
 
 
 def test_fill_creation_equality_and_serialization() -> None:
@@ -188,31 +152,6 @@ def test_asset_type_enum_behavior() -> None:
     assert AssetType.EQUITY.value == "equity"
     assert AssetType.CASH.value == "cash"
     assert AssetType("equity") is AssetType.EQUITY
-
-
-def test_order_rejects_invalid_price_shape_for_order_type() -> None:
-    with pytest.raises(DomainValidationError):
-        Order(
-            order_id=new_order_id(),
-            asset_id=new_asset_id(),
-            side=Side.BUY,
-            order_type=OrderType.MARKET,
-            quantity=Decimal("1"),
-            created_at=NOW,
-            limit_price=Decimal("100"),
-        )
-
-
-def test_order_rejects_non_positive_quantity() -> None:
-    with pytest.raises(DomainValidationError):
-        Order(
-            order_id=new_order_id(),
-            asset_id=new_asset_id(),
-            side=Side.SELL,
-            order_type=OrderType.MARKET,
-            quantity=Decimal("0"),
-            created_at=NOW,
-        )
 
 
 def test_fill_rejects_negative_commission() -> None:
