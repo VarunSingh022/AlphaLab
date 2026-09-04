@@ -45,6 +45,7 @@ from alphalab.core.ids import (
     validate_uuid_id,
 )
 from alphalab.core.order import Order
+from alphalab.core.order_request import OrderRequest
 from alphalab.core.portfolio import PortfolioState
 from alphalab.core.position import Position
 from alphalab.core.signal import Signal
@@ -79,6 +80,7 @@ __all__ = [
     "Order",
     "OrderCompat",
     "OrderId",
+    "OrderRequest",
     "OrderStatus",
     "OrderType",
     "PortfolioId",

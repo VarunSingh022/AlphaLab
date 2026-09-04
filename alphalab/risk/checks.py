@@ -2,7 +2,9 @@
 
 from decimal import Decimal
 
-from alphalab.risk.models import OrderRequest, OrderSide, RiskViolation
+from alphalab.core.enums import Side
+from alphalab.core.order_request import OrderRequest
+from alphalab.risk.models import RiskViolation
 from alphalab.risk.state import RiskState
 
 
@@ -32,7 +34,7 @@ def check_position_limit(request: OrderRequest, state: RiskState) -> RiskViolati
     current_pos = state.exposure.asset_exposure.get(request.asset_id, Decimal("0.00"))
 
     # Calculate post-trade position assuming full fill
-    trade_qty = request.quantity if request.side == OrderSide.BUY else -request.quantity
+    trade_qty = request.quantity if request.side == Side.BUY else -request.quantity
     projected_pos = abs(current_pos + trade_qty)
 
     if projected_pos > limit.max_quantity:

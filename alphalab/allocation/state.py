@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.events import AllocationEvent
-from alphalab.allocation.request import OrderRequest
+from alphalab.core.order_request import OrderRequest
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,8 +15,6 @@ from uuid import UUID
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.allocation.engine import AllocationEngine
-from alphalab.allocation.request import OrderRequest as AllocationOrderRequest
-from alphalab.allocation.request import OrderSide as AllocationOrderSide
 from alphalab.allocation.sizing import FixedQuantitySizing, SizingModel
 from alphalab.allocation.state import AllocationState
 from alphalab.analytics.attribution import TradeRecord
@@ -24,6 +22,7 @@ from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
+from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
 from alphalab.execution.engine import ExecutionEngine
 from alphalab.execution.fill import FillStatus, OrderInstruction
@@ -48,13 +47,8 @@ from alphalab.risk.engine import RiskEngine
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
-from alphalab.risk.models import OrderRequest as RiskOrderRequest
-from alphalab.risk.models import OrderSide as RiskOrderSide
 from alphalab.risk.state import RiskState
-from alphalab.runtime.execution_adapters import (
-    canonical_execution_from_report,
-    core_side_from_oms,
-)
+from alphalab.runtime.execution_adapters import canonical_execution_from_report
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import Intent
@@ -117,7 +111,7 @@ class ExecutionPipelineResult:
     state: ExecutionPipelineState
     market_event: MarketEvent
     intents: tuple[Intent, ...]
-    order_requests: tuple[AllocationOrderRequest, ...]
+    order_requests: tuple[OrderRequest, ...]
     risk_decisions: tuple[RiskDecision, ...]
     oms_orders: tuple[OMSOrder, ...]
     execution_reports: tuple[ExecutionReport, ...]
@@ -227,7 +221,7 @@ def _process_requests(
     state: ExecutionPipelineState,
     event: MarketEvent,
     intents: tuple[Intent, ...],
-    requests: tuple[AllocationOrderRequest, ...],
+    requests: tuple[OrderRequest, ...],
     fill_status: FillStatus,
     fill_quantity: Decimal | None,
 ) -> ExecutionPipelineResult:
@@ -273,14 +267,14 @@ def _process_requests(
 
 
 def _evaluate_risk(
-    state: ExecutionPipelineState, request: AllocationOrderRequest, timestamp: float
+    state: ExecutionPipelineState, request: OrderRequest, timestamp: float
 ) -> tuple[ExecutionPipelineState, RiskDecision]:
-    risk, decision = RiskEngine.evaluate(state.risk, _risk_request(request), timestamp)
+    risk, decision = RiskEngine.evaluate(state.risk, request, timestamp)
     return replace(state, risk=risk), decision
 
 
 def _submit_and_accept_order(
-    state: ExecutionPipelineState, request: AllocationOrderRequest, timestamp: float
+    state: ExecutionPipelineState, request: OrderRequest, timestamp: float
 ) -> tuple[ExecutionPipelineState, OMSOrder]:
     submitted_order = _oms_order(request)
     oms = OMSEngine.submit(state.oms, submitted_order, timestamp)
@@ -321,7 +315,7 @@ def _apply_reports(
 
     for report in reports:
         current = _apply_report_to_oms(current, order.order_id, report)
-        fill, trade = _canonical_execution(report, _core_side(order.side))
+        fill, trade = _canonical_execution(report, order.side)
         current = _apply_report_to_portfolio(current, report, order.side)
         # Reconcile allocation budgets with executed notional
         executed_notional = report.fill_quantity * report.fill_price
@@ -384,25 +378,12 @@ def _apply_report_to_portfolio(
     )
 
 
-def _risk_request(request: AllocationOrderRequest) -> RiskOrderRequest:
-    side = RiskOrderSide.BUY if request.side is AllocationOrderSide.BUY else RiskOrderSide.SELL
-    return RiskOrderRequest(
-        request.order_id,
-        request.strategy_id,
-        request.asset_id,
-        side,
-        request.quantity,
-        request.price,
-    )
-
-
-def _oms_order(request: AllocationOrderRequest) -> OMSOrder:
-    side = OMSSide.BUY if request.side is AllocationOrderSide.BUY else OMSSide.SELL
+def _oms_order(request: OrderRequest) -> OMSOrder:
     return OMSOrder(
         OrderId(UUID(request.order_id)),
         request.strategy_id,
         request.asset_id,
-        side,
+        request.side,
         OrderType.MARKET,
         OrderStatus.NEW,
         request.quantity,
@@ -432,10 +413,6 @@ def _instruction(order: OMSOrder, state: ExecutionPipelineState) -> OrderInstruc
 
 def _canonical_execution(report: ExecutionReport, side: CoreSide) -> tuple[CoreFill, CoreTrade]:
     return canonical_execution_from_report(report, side)
-
-
-def _core_side(side: OMSSide) -> CoreSide:
-    return core_side_from_oms(side.name)
 
 
 def _trade_record(report: ExecutionReport, portfolio: PortfolioState) -> TradeRecord:

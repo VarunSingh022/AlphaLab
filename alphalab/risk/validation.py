@@ -2,8 +2,8 @@
 
 from decimal import Decimal
 
+from alphalab.core.order_request import OrderRequest
 from alphalab.risk.exceptions import RiskValidationError
-from alphalab.risk.models import OrderRequest
 
 
 def validate_order_request(request: OrderRequest) -> None:

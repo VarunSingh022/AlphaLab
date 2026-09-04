@@ -4,8 +4,8 @@ from collections.abc import Sequence
 from decimal import Decimal
 
 from alphalab.allocation.budget import CapitalBudget
-from alphalab.allocation.request import OrderRequest
 from alphalab.allocation.state import AllocationState
+from alphalab.core.order_request import OrderRequest
 
 
 def current_budget(state: AllocationState) -> CapitalBudget:

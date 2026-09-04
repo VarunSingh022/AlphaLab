@@ -13,13 +13,13 @@ from alphalab.allocation import (
     EqualWeightSizing,
     FixedDollarSizing,
     FixedQuantitySizing,
-    OrderSide,
     TargetWeightSizing,
     VolatilityTargetSizing,
     allocation_history,
     total_notional_allocated,
     validate_intent,
 )
+from alphalab.core.enums import Side
 from alphalab.strategy.events import Intent
 
 
@@ -115,11 +115,33 @@ def test_engine_netting_offsets(
 
     assert len(orders) == 1
     assert orders[0].asset_id == "AAPL"
-    assert orders[0].side == OrderSide.BUY
+    assert orders[0].side == Side.BUY
     assert orders[0].quantity == Decimal("30")
 
     # Total Notional allocated = 30 * 150 = 4500
     assert total_notional_allocated(new_state) == Decimal("4500.00")
+
+
+def test_allocation_emits_canonical_core_order_requests(
+    default_budget: CapitalBudget, default_constraints: AllocationConstraints
+) -> None:
+    """R1: allocation no longer defines its own OrderRequest/OrderSide."""
+    from alphalab.core.order_request import OrderRequest as CoreOrderRequest
+
+    state = AllocationEngine.initialize(default_budget)
+    _new_state, orders = AllocationEngine.allocate(
+        state,
+        (Intent("STRAT-A", "AAPL", Decimal("-40")),),
+        {"AAPL": Decimal("150.00")},
+        FixedQuantitySizing(),
+        default_constraints,
+        1000.0,
+    )
+
+    assert isinstance(orders[0], CoreOrderRequest)
+    assert orders[0].side is Side.SELL
+    assert type(orders[0].side) is Side
+    assert orders[0].timestamp == 1000.0
 
 
 def test_engine_budget_breach(

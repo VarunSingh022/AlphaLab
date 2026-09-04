@@ -14,10 +14,6 @@ from alphalab.core.trade import Trade as CoreTrade
 from alphalab.execution.report import ExecutionReport
 
 
-def core_side_from_oms(side_name: str) -> CoreSide:
-    return CoreSide.BUY if side_name.upper() == "BUY" else CoreSide.SELL
-
-
 def canonical_execution_from_report(
     report: ExecutionReport, side: CoreSide
 ) -> tuple[CoreFill, CoreTrade]:

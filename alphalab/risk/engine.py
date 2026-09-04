@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from alphalab.common.ids import new_id
+from alphalab.core.order_request import OrderRequest
 from alphalab.risk.checks import (
     check_buying_power,
     check_daily_loss,
@@ -24,7 +25,7 @@ from alphalab.risk.events import (
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
-from alphalab.risk.models import OrderRequest, RiskViolation
+from alphalab.risk.models import RiskViolation
 from alphalab.risk.state import RiskState
 from alphalab.risk.validation import validate_order_request
 
