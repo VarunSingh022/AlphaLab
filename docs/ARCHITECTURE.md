@@ -4,11 +4,84 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Rather than being a collection of independent utilities, AlphaLab is designed as a cohesive platform where every subsystem follows the same engineering principles and integrates through well-defined interfaces.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but as of v2.0.0 only `alphalab.runtime.ExecutionPipeline` actually wires a group of them together — see the **Implementation Status (v2.0.0)** section below.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 
 Every component—from market data ingestion to production deployment—is designed to operate deterministically, enabling researchers to reproduce results across development, testing, and live environments.
+
+---
+
+# Implementation Status (v2.0.0)
+
+Most of this document describes the **target** architecture. This section states
+what is actually built as of v2.0.0 so the two are not confused.
+
+## AlphaLab is a library
+
+There is no server, daemon, scheduler process, event bus, or CLI. Every package
+exposes pure functions / stateless engine classes that take an immutable state
+value and return a new one. The caller owns the process and the event loop.
+
+## The one integrated path: `alphalab.runtime.ExecutionPipeline`
+
+`ExecutionPipeline` is the only place where multiple domain engines are wired
+together. It threads a single immutable `ExecutionPipelineState` through, one
+market event at a time:
+
+```
+market event (Quote / Bar / Tick)
+   → StrategyEngine.process_event        → Intents
+   → AllocationEngine.allocate           → core.OrderRequest[]   (core.enums.Side)
+   → RiskEngine.evaluate                 → RiskDecision
+   → OMSEngine.submit/accept             → oms.order.Order        (canonical)
+   → ExecutionEngine.simulate            → ExecutionReport        (deterministic fills)
+   → PortfolioEngine.apply_fill          → cash / positions / realized P&L
+   → AnalyticsEngine.compile_report      → PerformanceReport      (on demand)
+```
+
+Packages on this path: `core`, `runtime`, `strategy`, `allocation`, `risk`,
+`oms`, `execution`, `portfolio`, `analytics`, `market`.
+
+## Standalone engine libraries
+
+Everything else is an independent, deterministic, individually tested library
+that is **not** wired into `ExecutionPipeline` or into a shared runtime:
+`research`, `replay`, `portfolio_optimizer`, `optimizer`, `reporting`,
+`feature_store`, `factor_library`, `alt_data`, `ml`, `deep_learning`,
+`reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
+`cloud_research`, `cluster_scheduler`, `distributed`, `experiment_tracking`,
+`model_registry`, `deployment_manager`, `research_assistant`, `studio`,
+`workbench`, `enterprise`, `live`, `production`, `broker`, `brokers`,
+`integrations`, `data`, `marketdata`, `feed`, `kernel`, `plugins`, `scheduler`,
+`persistence`.
+
+## Canonical domain models (v2.0.0, R1–R4)
+
+- `alphalab.core.enums.Side` — the one order-direction enum.
+- `alphalab.core.OrderRequest` — the one proposed-order DTO (allocation → risk).
+- `alphalab.oms.order.Order` — the one lifecycle order (OMS + pipeline).
+- `alphalab.core.Fill.filled_at` / `alphalab.core.Trade.executed_at` — `float`
+  Unix seconds, like every other timestamp on the path.
+
+See ADR-0008.
+
+## Known gaps and deferred areas
+
+- **Mark-to-market is not implemented.** Positions are not repriced from live
+  quotes between fills.
+- **`replay` does not drive the execution path.** It is a standalone engine;
+  nothing in `runtime/` imports it.
+- **`data.feed.Bar` and `market.bar.Bar` are separate, incompatible types**
+  (a third `Bar` exists in `marketdata.feed`).
+- **`broker` / `brokers`, `marketdata` / `data` / `feed`, `kernel`, and
+  `core/events`** overlap or are unused by the execution path; consolidation is
+  a deferred product decision.
+- **`ExecutionPipeline._trade_record`** attributes realized P&L by scanning
+  portfolio events in reverse and hard-codes `sector_id="UNCLASSIFIED"` and
+  `holding_period_seconds=0.0` ("D3", deferred).
+
+See ADR-0009 for the rationale behind the integrated-path / standalone-engine split.
 
 ---
 
@@ -826,7 +899,14 @@ Each layer transforms its inputs into immutable outputs before passing them to t
 
 # End-to-End Workflow
 
-The complete lifecycle of a quantitative strategy within AlphaLab is illustrated below.
+> **Target, not current state.** The lifecycle below is the design goal. It is
+> not a single pipeline that exists today: the stages are separate engines, and
+> `Replay Engine → Performance Report` in particular is **not** how the built
+> execution path works. The concrete path is `alphalab.runtime.ExecutionPipeline`
+> (market → strategy → allocation → risk → OMS → execution simulator → portfolio
+> → analytics); `replay` is a standalone engine that does not drive it.
+
+The intended lifecycle of a quantitative strategy within AlphaLab is illustrated below.
 
 ```
                    External Data Sources
@@ -999,9 +1079,12 @@ The output is a target portfolio.
 
 # Stage 5 — Replay Engine
 
-Before entering production, strategies are validated using deterministic replay.
+> As of v2.0.0 `alphalab.replay` is a standalone engine. It is **not** wired into
+> `ExecutionPipeline` and is not a required stage of any built workflow. The
+> integrated execution path uses `alphalab.execution`'s deterministic simulator
+> directly.
 
-Replay simulates historical execution under reproducible conditions.
+Replay simulates historical event playback under reproducible conditions.
 
 Responsibilities include
 
@@ -1009,7 +1092,6 @@ Responsibilities include
 - Event ordering
 - Time progression
 - Deterministic execution
-- Performance validation
 
 Replay never modifies research outputs.
 
@@ -1592,7 +1674,7 @@ Examples
 | Data | DatasetState |
 | Research | ResearchState |
 | Replay | ReplayState |
-| Portfolio | PortfolioEngineState |
+| Portfolio | PortfolioState |
 | Runtime | RuntimeState |
 | Production | ProductionState |
 | Studio | StrategyStudioState |
@@ -1987,38 +2069,33 @@ Each package represents a single subsystem within the platform.
 ```
 alphalab/
 
-allocation/
-analytics/
-broker/
-data/
-distributed/
-events/
-execution/
-feed/
-integrations/
-kernel/
-live/
-market/
-marketdata/
-oms/
-optimizer/
-persistence/
-plugins/
-portfolio/
-portfolio_optimizer/
-production/
-replay/
-reporting/
-research/
-risk/
-runtime/
-scheduler/
-strategy/
-studio/
-workbench/
+# Canonical execution core — wired together by runtime.ExecutionPipeline
+core/  runtime/  strategy/  allocation/  risk/  oms/
+execution/  portfolio/  analytics/  market/
+
+# Shared infrastructure
+common/  kernel/  plugins/  scheduler/  persistence/  optimizer/
+
+# Standalone engines
+research/  replay/  portfolio_optimizer/  reporting/
+feature_store/  factor_library/  alt_data/
+ml/  deep_learning/  reinforcement_learning/
+options/  futures/  crypto/  macro/
+cloud_research/  cluster_scheduler/  distributed/
+experiment_tracking/  model_registry/  deployment_manager/
+studio/  workbench/  research_assistant/  enterprise/
+
+# Data surface (overlapping; consolidation deferred)
+data/  marketdata/  feed/
+
+# Live / ops surface (deferred product decisions)
+live/  production/  broker/  brokers/  integrations/
 ```
 
 Every package follows a consistent internal organization.
+
+> `alphalab/core/events/` exists but is not used by the execution path.
+> There is no top-level `alphalab/events/` package.
 
 ---
 
@@ -2986,13 +3063,23 @@ This philosophy allows AlphaLab to evolve from a quantitative research platform 
 
 # Future Architecture
 
+> **Historical note.** This section was written for v1.0.0. Most of what it calls
+> "future" — the feature store, factor library, options / futures / crypto /
+> macro engines, alternative data, ML / deep learning / RL, cloud research,
+> cluster scheduler, experiment tracking, model registry, research assistant,
+> deployment manager, and Enterprise — has since shipped (v1.34.0–v2.0.0) as
+> standalone packages. The per-module "Future Version" tags below are left as
+> written for the record; treat them as delivered. What remains genuinely
+> unbuilt is the *integration* of these engines into one runtime (see
+> **Implementation Status** and `ROADMAP.md`).
+
 AlphaLab has been designed with long-term extensibility in mind.
 
 The current architecture is intentionally modular so that future capabilities can be introduced without redesigning existing subsystems.
 
-The architecture established in v1.0.0 serves as the stable foundation upon which future releases will be built.
+The architecture established in v1.0.0 serves as the stable foundation upon which subsequent releases have been built.
 
-Rather than creating separate frameworks for machine learning, derivatives, cloud computing, or enterprise deployments, future modules extend the existing architecture through well-defined interfaces.
+Rather than creating separate frameworks for machine learning, derivatives, cloud computing, or enterprise deployments, these modules extend the existing architecture through well-defined interfaces.
 
 ---
 
@@ -3770,6 +3857,8 @@ These principles are considered architectural contracts rather than implementati
 | v0.32 | Strategy Studio |
 | v0.33 | AlphaLab Workbench |
 | **v1.0.0** | Stable Architecture & Engineering Foundation |
+| v1.34.0 – v1.46.0 | Engine series — feature store, factor library, options, futures, crypto, macro, alternative data, ML, deep learning, RL, cloud research, cluster scheduler, experiment tracking |
+| **v2.0.0** | Model registry, research assistant, deployment manager, Enterprise; canonical execution domain-model unification (R1–R4); portfolio cash-accounting and `PerformanceReport` serialization fixes (D1/D2) |
 
 ---
 
@@ -3789,6 +3878,6 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v1.0.0
-Status: Stable
+Version: v2.0.0
+Status: Target architecture; see "Implementation Status (v2.0.0)" for what is built
 ```

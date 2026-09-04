@@ -86,6 +86,10 @@ Reference
 
 # Architecture Overview
 
+The diagram below is a **design target**, not one running system. Today
+`alphalab.runtime.ExecutionPipeline` is the only wired-together path; every other
+subsystem is a standalone, individually tested engine.
+
 ```
                          AlphaLab Workbench
                                  │
@@ -104,13 +108,23 @@ Reference
                             Live Markets
 ```
 
+Integrated execution path that actually exists:
+
+```
+market event → strategy → allocation → risk → OMS → execution simulator
+             → portfolio → analytics       (alphalab.runtime.ExecutionPipeline)
+```
+
 Each subsystem is independently testable, immutable where appropriate, and designed around deterministic execution.
 
 ---
 
 # Core Components
 
-AlphaLab currently consists of the following major subsystems.
+AlphaLab consists of the packages below plus the canonical execution core
+(`alphalab.core`, `runtime`, `strategy`, `allocation`, `risk`, `oms`,
+`execution`, `portfolio`, `analytics`, `market`) that `ExecutionPipeline` wires
+together.
 
 ## Research
 
@@ -166,9 +180,21 @@ User-facing workspace for managing projects, monitoring strategies, visualizing 
 
 ---
 
+## Engine libraries (v1.34.0 – v2.0.0)
+
+Additional standalone, individually tested engines added after v1.0.0:
+`feature_store`, `factor_library`, `alt_data`, `options`, `futures`, `crypto`,
+`macro`, `ml`, `deep_learning`, `reinforcement_learning`, `cloud_research`,
+`cluster_scheduler`, `experiment_tracking`, `model_registry`,
+`research_assistant`, `deployment_manager`, `enterprise`. None are wired into
+`ExecutionPipeline`.
+
+---
+
 # Development Workflow
 
-The recommended workflow for using AlphaLab is:
+A typical research workflow composes the standalone engines by hand — you pass
+each engine's immutable output into the next:
 
 ```
 Market Data
@@ -183,17 +209,13 @@ Research
 Portfolio Optimization
       │
       ▼
-Replay & Validation
-      │
-      ▼
-Strategy Studio
-      │
-      ▼
-Production Runtime
-      │
-      ▼
-Broker Integrations
+Reporting
 ```
+
+`replay`, `studio`, `production`, and the broker packages are separate engines you
+can call, but nothing chains them automatically. For a wired-together
+market-to-portfolio-to-analytics path, use `alphalab.runtime.ExecutionPipeline`
+directly.
 
 ---
 
@@ -216,11 +238,14 @@ These principles are applied consistently across every module.
 
 # Version
 
-Stable Release
+```
+v2.0.0
+```
 
-```
-v1.0.0
-```
+v2.0.0 consolidates the v1.34.0–v1.46.0 engine series, adds the model registry,
+research assistant, deployment manager, and enterprise packages, unifies the
+canonical execution domain models (R1–R4), and fixes two portfolio/analytics
+defects (D1/D2). It contains breaking public API changes — see `../CHANGELOG.md`.
 
 ---
 

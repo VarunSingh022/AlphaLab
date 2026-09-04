@@ -64,7 +64,12 @@ Examples:
 - StudioState
 - WorkbenchState
 - IntegrationState
-- PortfolioEngineState
+- PortfolioState
+
+`alphalab.runtime.ExecutionPipelineState` is a composite: it holds one snapshot of
+each subsystem state on the integrated execution path (market, strategy,
+allocation, risk, OMS, execution, portfolio, analytics) and is itself a frozen
+dataclass replaced wholesale on every step.
 
 ---
 

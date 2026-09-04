@@ -139,33 +139,28 @@ Contains performance benchmarks.
 
 # Understanding the Architecture
 
-Before writing strategies, it is helpful to understand how AlphaLab is organized.
+AlphaLab is a **library**. There is no server, daemon, or CLI — you import
+packages and call their pure engine APIs.
+
+Two kinds of package:
+
+- **`alphalab.runtime.ExecutionPipeline`** — the one integrated path. It wires
+  market data → strategy → allocation → risk → OMS → execution simulator →
+  portfolio → analytics as pure functions over one immutable state snapshot.
+- **Standalone engines** — `research`, `replay`, `portfolio_optimizer`, the
+  learning and asset-class engines, `studio`, `workbench`, `enterprise`, and the
+  rest. Each is deterministic and individually tested, but they are not chained
+  together automatically.
 
 ```
-Workbench
+Workbench   ─┐
+Strategy Studio ─┤  standalone orchestration engines
+Research     ─┤
+Portfolio Optimizer ─┘
 
-↓
-
-Strategy Studio
-
-↓
-
-Research
-
-↓
-
-Portfolio Optimizer
-
-↓
-
-Production
-
-↓
-
-Broker Integrations
+market event → strategy → allocation → risk → OMS → execution simulator
+             → portfolio → analytics       ← alphalab.runtime.ExecutionPipeline
 ```
-
-The Universal Data Engine supplies canonical datasets to all downstream modules.
 
 ---
 
@@ -287,7 +282,8 @@ Recommended reading order
 
 # Common Development Workflow
 
-Typical research workflow
+Typical research workflow — you invoke each engine and pass its immutable output
+to the next:
 
 ```
 Acquire Data
@@ -306,18 +302,11 @@ Optimize Portfolio
 
 ↓
 
-Replay Strategy
-
-↓
-
 Generate Report
-
-↓
-
-Deploy
 ```
 
-Every stage is deterministic and uses immutable state.
+Every stage is deterministic and uses immutable state. `replay` and the
+deployment packages are separate engines; nothing chains them automatically.
 
 ---
 

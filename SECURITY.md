@@ -10,8 +10,8 @@ Security is an important part of building reliable quantitative research and tra
 
 | Version | Supported |
 |----------|-----------|
-| 1.x | ✅ Yes |
-| < 1.0.0 | ❌ No |
+| 2.x | ✅ Yes |
+| < 2.0.0 | ❌ No |
 
 Only the latest stable release receives security updates.
 
