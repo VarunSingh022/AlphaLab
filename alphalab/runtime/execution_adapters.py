@@ -5,8 +5,6 @@ execution pipeline remains a thin coordinator and the canonical core
 constructors live in a dedicated adapter boundary.
 """
 
-from datetime import UTC, datetime
-
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.ids import AssetId, OrderId, new_fill_id, new_trade_id
@@ -17,7 +15,6 @@ from alphalab.execution.report import ExecutionReport
 def canonical_execution_from_report(
     report: ExecutionReport, side: CoreSide
 ) -> tuple[CoreFill, CoreTrade]:
-    filled_at = datetime.fromtimestamp(report.timestamp, tz=UTC)
     fill_id = new_fill_id()
     fill = CoreFill(
         fill_id=fill_id,
@@ -26,7 +23,7 @@ def canonical_execution_from_report(
         side=side,
         quantity=report.fill_quantity,
         price=report.fill_price,
-        filled_at=filled_at,
+        filled_at=report.timestamp,
         commission=report.commission,
     )
     trade = CoreTrade(
@@ -36,7 +33,7 @@ def canonical_execution_from_report(
         quantity=report.fill_quantity,
         average_price=report.fill_price,
         fill_ids=(fill_id,),
-        executed_at=filled_at,
+        executed_at=report.timestamp,
         order_id=OrderId(report.order_id),
     )
     return fill, trade

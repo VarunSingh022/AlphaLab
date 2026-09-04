@@ -25,6 +25,7 @@ from alphalab.portfolio.engine import PortfolioState
 from alphalab.portfolio.position import Position
 
 NOW = datetime(2026, 1, 2, 15, 30, tzinfo=UTC)
+NOW_TS = NOW.timestamp()
 
 
 def test_fill_creation_equality_and_serialization() -> None:
@@ -39,7 +40,7 @@ def test_fill_creation_equality_and_serialization() -> None:
         side=Side.SELL,
         quantity=Decimal("4"),
         price=Decimal("201.10"),
-        filled_at=NOW,
+        filled_at=NOW_TS,
         commission=Decimal("1.25"),
     )
     same_fill = Fill(
@@ -49,7 +50,7 @@ def test_fill_creation_equality_and_serialization() -> None:
         side=Side.SELL,
         quantity=Decimal("4"),
         price=Decimal("201.10"),
-        filled_at=NOW,
+        filled_at=NOW_TS,
         commission=Decimal("1.25"),
     )
 
@@ -70,7 +71,7 @@ def test_trade_creation_equality_and_serialization() -> None:
         quantity=Decimal("8"),
         average_price=Decimal("99.95"),
         fill_ids=fill_ids,
-        executed_at=NOW,
+        executed_at=NOW_TS,
     )
     same_trade = Trade(
         trade_id=trade_id,
@@ -79,7 +80,7 @@ def test_trade_creation_equality_and_serialization() -> None:
         quantity=Decimal("8"),
         average_price=Decimal("99.95"),
         fill_ids=fill_ids,
-        executed_at=NOW,
+        executed_at=NOW_TS,
     )
 
     assert trade == same_trade
@@ -163,7 +164,7 @@ def test_fill_rejects_negative_commission() -> None:
             side=Side.BUY,
             quantity=Decimal("1"),
             price=Decimal("10"),
-            filled_at=NOW,
+            filled_at=NOW_TS,
             commission=Decimal("-0.01"),
         )
 
@@ -179,7 +180,7 @@ def test_trade_rejects_duplicate_fill_ids() -> None:
             quantity=Decimal("1"),
             average_price=Decimal("10"),
             fill_ids=(fill_id, fill_id),
-            executed_at=NOW,
+            executed_at=NOW_TS,
         )
 
 

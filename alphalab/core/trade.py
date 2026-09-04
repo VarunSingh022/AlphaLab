@@ -1,7 +1,6 @@
 """Trade domain model."""
 
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
 
 from alphalab.core.enums import Side
@@ -20,7 +19,7 @@ class Trade:
         quantity: Positive trade quantity.
         average_price: Positive average execution price.
         fill_ids: One or more fills that compose the trade.
-        executed_at: Time the trade was recorded. The timestamp must be timezone-aware.
+        executed_at: Unix timestamp (seconds) the trade was recorded.
         order_id: Optional order identifier linked to the trade.
     """
 
@@ -30,7 +29,7 @@ class Trade:
     quantity: Decimal
     average_price: Decimal
     fill_ids: tuple[FillId, ...]
-    executed_at: datetime
+    executed_at: float
     order_id: OrderId | None = None
 
     def __post_init__(self) -> None:
@@ -50,5 +49,3 @@ class Trade:
             raise DomainValidationError("fill_ids must be unique")
         for fill_id in self.fill_ids:
             validate_uuid_id(fill_id, "fill_ids")
-        if self.executed_at.tzinfo is None or self.executed_at.utcoffset() is None:
-            raise DomainValidationError("executed_at must be timezone-aware")

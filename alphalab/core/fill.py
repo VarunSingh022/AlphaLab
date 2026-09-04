@@ -1,7 +1,6 @@
 """Fill domain model."""
 
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
 
 from alphalab.core.enums import Side
@@ -20,7 +19,7 @@ class Fill:
         side: Executed direction.
         quantity: Positive filled quantity.
         price: Positive execution price.
-        filled_at: Time the fill occurred. The timestamp must be timezone-aware.
+        filled_at: Unix timestamp (seconds) the fill occurred.
         commission: Non-negative execution commission.
     """
 
@@ -30,7 +29,7 @@ class Fill:
     side: Side
     quantity: Decimal
     price: Decimal
-    filled_at: datetime
+    filled_at: float
     commission: Decimal = Decimal("0")
 
     def __post_init__(self) -> None:
@@ -45,5 +44,3 @@ class Fill:
             raise DomainValidationError("price must be positive")
         if self.commission < Decimal("0"):
             raise DomainValidationError("commission must be non-negative")
-        if self.filled_at.tzinfo is None or self.filled_at.utcoffset() is None:
-            raise DomainValidationError("filled_at must be timezone-aware")
