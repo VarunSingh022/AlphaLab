@@ -8,7 +8,7 @@ and adheres to Semantic Versioning.
 
 ---
 
-# [2.0.0] - Unreleased
+# [2.0.0] - 2026-09-04
 
 ## Overview
 
@@ -137,6 +137,19 @@ tests and benchmark.
   (`cannot pickle 'mappingproxy' object`). It now returns ordinary `dict`s, like
   every other frozen dataclass in AlphaLab. Field names and the
   `Mapping[str, Decimal]` annotations are unchanged.
+
+---
+
+## Build / Packaging
+
+- The release build and distribution validation were aligned with **Core
+  Metadata 2.5 / Twine 7**. Hatchling 1.30 emits `Metadata-Version: 2.5`
+  (PEP 639), which Twine 6 rejects; the dev toolchain pin is now
+  `twine>=7.0,<8`, and the redundant unpinned `pip install build twine` step
+  was dropped from the CI and release workflows so they use the pinned
+  toolchain. `python -m build` and `twine check dist/*` pass for the 2.0.0
+  wheel and sdist. Hatchling is unchanged; no application dependency changed
+  (`dependencies = []`).
 
 ---
 
