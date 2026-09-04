@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.1.1-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.1.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-1221%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-1429%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -36,14 +36,14 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.1.1**
+**Current Release:** **v2.1.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.1.1 |
-| Tests | **1273 Passing** |
-| Static Typing | **Strict MyPy** (840 source files) |
+| Version | 2.1.0 |
+| Tests | **1429 Passing** |
+| Static Typing | **Strict MyPy** (843 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
@@ -241,8 +241,8 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 1221 passing tests (1207 unit, 4 integration, 10 regression)
-- ✅ Strict MyPy type checking (833 source files)
+- ✅ 1429 passing tests (1367 unit, 19 integration, 43 regression)
+- ✅ Strict MyPy type checking (843 source files)
 - ✅ Ruff linting and formatting
 - ✅ Source distribution validation
 - ✅ Wheel validation
@@ -310,7 +310,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v2.1.1**
+**AlphaLab v2.1.0**
 
 Building deterministic infrastructure for quantitative research.
 

@@ -17,7 +17,7 @@ Contract
 
 Why this matters
 ----------------
-Before v2.1.1 the cash ledger rounded ``quantity * price + commission`` while
+Before this policy the cash ledger rounded ``quantity * price + commission`` while
 the position independently rounded ``(exit_price - average_cost) * quantity``.
 Two independent roundings of the same economic event disagree by up to half a
 cent each, and the error accumulated: an ordinary penny-spread quote
