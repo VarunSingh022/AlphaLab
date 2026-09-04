@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from alphalab.core.enums import Side
 from alphalab.risk import (
     DailyLossLimit,
     DrawdownLimit,
@@ -14,7 +15,6 @@ from alphalab.risk import (
     MarginLimit,
     MarginStatus,
     OrderRequest,
-    OrderSide,
     OrderSizeLimit,
     PositionLimit,
     RiskEngine,
@@ -43,15 +43,42 @@ def base_request() -> OrderRequest:
         order_id="ORD-001",
         strategy_id="STRAT-01",
         asset_id="AAPL",
-        side=OrderSide.BUY,
+        side=Side.BUY,
         quantity=Decimal("100"),
         price=Decimal("150.00"),
     )
 
 
+def test_risk_uses_the_canonical_core_order_request() -> None:
+    """R1: risk no longer defines its own OrderRequest/OrderSide; it shares core's."""
+    from alphalab.core.order_request import OrderRequest as CoreOrderRequest
+
+    assert OrderRequest is CoreOrderRequest
+    assert not hasattr(__import__("alphalab.risk", fromlist=["x"]), "OrderSide")
+
+
+def test_evaluate_accepts_a_canonical_request_with_no_conversion(
+    default_limits: RiskLimits,
+) -> None:
+    state = RiskEngine.reset(default_limits)
+    state = replace(state, buying_power=Decimal("1000000"))
+
+    # Constructed straight from core with a canonical Side member.
+    request = OrderRequest(
+        order_id="ORD-CANON",
+        strategy_id="STRAT-01",
+        asset_id="AAPL",
+        side=Side.SELL,
+        quantity=Decimal("10"),
+        price=Decimal("100.00"),
+    )
+    _new_state, decision = RiskEngine.evaluate(state, request, 1000.0)
+    assert decision.approved is True
+
+
 def test_order_validation(default_limits: RiskLimits) -> None:
     state = RiskEngine.reset(default_limits)
-    bad_req = OrderRequest("O1", "S1", "AAPL", OrderSide.BUY, Decimal("-10"), Decimal("100"))
+    bad_req = OrderRequest("O1", "S1", "AAPL", Side.BUY, Decimal("-10"), Decimal("100"))
 
     with pytest.raises(RiskValidationError, match="Order quantity must be positive"):
         RiskEngine.evaluate(state, bad_req, 1000.0)
@@ -84,7 +111,7 @@ def test_order_size_limit_rejection(default_limits: RiskLimits, base_request: Or
     )
 
     # 2000 quantity > 1000 limit
-    huge_req = OrderRequest("O2", "S1", "AAPL", OrderSide.BUY, Decimal("2000"), Decimal("10.00"))
+    huge_req = OrderRequest("O2", "S1", "AAPL", Side.BUY, Decimal("2000"), Decimal("10.00"))
 
     _unused_state, decision = RiskEngine.evaluate(state, huge_req, 1000.0)
 

@@ -59,6 +59,24 @@ Every implementation decision should reinforce these objectives.
 
 ---
 
+# Integrated Execution Path
+
+`alphalab.runtime.ExecutionPipeline` is the one place several domain engines are
+composed. It is a stateless facade: each method takes an immutable
+`ExecutionPipelineState` and a market event and returns a new state plus an
+`ExecutionPipelineResult`. Internally it calls, in order, `StrategyEngine`,
+`AllocationEngine`, `RiskEngine`, `OMSEngine`, `ExecutionEngine` (deterministic
+simulator), `PortfolioEngine`, and — on demand — `AnalyticsEngine`. Boundary
+conversions between packages live in `runtime/execution_adapters.py`; the
+canonical entities (`core.enums.Side`, `core.OrderRequest`, `oms.order.Order`,
+`core.Fill`, `core.Trade`) are preserved end to end.
+
+Every other engine described in this document (`research`, `replay`, `studio`,
+`production`, the learning and asset-class engines, …) is standalone and is not
+invoked by `ExecutionPipeline`.
+
+---
+
 # Execution Philosophy
 
 AlphaLab executes operations through immutable state transitions.
@@ -425,14 +443,10 @@ The architecture favors extension over modification.
 
 # Future Compatibility
 
-The system design established in v1.0.0 is intended to support
-
-- distributed execution
-- cloud research
-- machine learning
-- enterprise deployment
-
-without requiring architectural redesign.
+The system design established in v1.0.0 has since absorbed distributed execution,
+cloud research, machine learning, and enterprise deployment as standalone
+packages (v1.34.0–v2.0.0) without architectural redesign. Wiring those packages
+into the integrated execution path remains future work.
 
 ---
 

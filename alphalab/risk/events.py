@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from alphalab.common.events import BaseEvent
-from alphalab.risk.models import OrderRequest
+from alphalab.core.order_request import OrderRequest
 
 
 @dataclass(frozen=True, slots=True)

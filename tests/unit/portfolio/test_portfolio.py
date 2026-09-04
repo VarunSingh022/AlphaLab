@@ -125,6 +125,79 @@ def test_engine_apply_fill(
     assert s2.cash.balance("USD") == Decimal("8498.50")
 
 
+def test_engine_round_trip_winning_close_cash_and_pnl(
+    empty_state: PortfolioState,
+) -> None:
+    """A buy/sell round-trip returning to flat: cash must equal the actual cash
+    flows and, equivalently, initial + realized P&L - total commission. Realized
+    P&L must not be added to cash a second time (regression for D1)."""
+    initial = Decimal("100000")
+    n, p1, p2, comm = Decimal("10"), Decimal("150.00"), Decimal("165.00"), Decimal("1.00")
+
+    s = PortfolioEngine.apply_deposit(empty_state, initial, "USD", 100.0)
+    s = PortfolioEngine.apply_fill(s, "AAPL", n, p1, comm, 101.0)  # BUY 10 @ 150
+    s = PortfolioEngine.apply_fill(s, "AAPL", -n, p2, comm, 102.0)  # SELL 10 @ 165
+
+    realized = (p2 - p1) * n  # 150.00
+    cash_flow_expected = initial - n * p1 - comm + n * p2 - comm  # 100148.00
+    identity_expected = initial + realized - (comm + comm)  # 100148.00
+
+    assert cash_flow_expected == identity_expected
+    assert s.cash.balance("USD") == cash_flow_expected
+    assert s.positions == {}
+
+
+def test_engine_round_trip_losing_close_cash(
+    empty_state: PortfolioState,
+) -> None:
+    """A losing round-trip: cash must be down by the loss plus commissions,
+    never inflated (regression for D1)."""
+    initial = Decimal("100000")
+    n, p1, p2, comm = Decimal("8"), Decimal("200.00"), Decimal("175.00"), Decimal("0.75")
+
+    s = PortfolioEngine.apply_deposit(empty_state, initial, "USD", 100.0)
+    s = PortfolioEngine.apply_fill(s, "MSFT", n, p1, comm, 101.0)  # BUY 8 @ 200
+    s = PortfolioEngine.apply_fill(s, "MSFT", -n, p2, comm, 102.0)  # SELL 8 @ 175
+
+    realized = (p2 - p1) * n  # -200.00
+    cash_flow_expected = initial - n * p1 - comm + n * p2 - comm  # 99798.50
+    identity_expected = initial + realized - (comm + comm)  # 99798.50
+
+    assert cash_flow_expected == identity_expected
+    assert s.cash.balance("USD") == cash_flow_expected
+    assert s.positions == {}
+
+
+def test_engine_partial_reduction_cash(
+    empty_state: PortfolioState,
+) -> None:
+    """Selling M < N leaves a residual long; cash reflects only the executed
+    legs and commissions, and the realized P&L on the closed portion is not
+    double-counted into cash (regression for D1)."""
+    initial = Decimal("100000")
+    n, m, p1, p2, comm = (
+        Decimal("10"),
+        Decimal("4"),
+        Decimal("100.00"),
+        Decimal("130.00"),
+        Decimal("0.50"),
+    )
+
+    s = PortfolioEngine.apply_deposit(empty_state, initial, "USD", 100.0)
+    s = PortfolioEngine.apply_fill(s, "NVDA", n, p1, comm, 101.0)  # BUY 10 @ 100
+    s = PortfolioEngine.apply_fill(s, "NVDA", -m, p2, comm, 102.0)  # SELL 4 @ 130
+
+    realized = (p2 - p1) * m  # 120.00
+    cash_flow_expected = initial - n * p1 - comm + m * p2 - comm  # 98999.00
+    identity_expected = initial + realized - (comm + comm) - (n - m) * p1  # 98999.00
+
+    assert cash_flow_expected == identity_expected
+    assert s.cash.balance("USD") == cash_flow_expected
+    assert s.positions["NVDA"].quantity == (n - m)
+    assert s.positions["NVDA"].realized_pnl == realized
+    assert s.positions["NVDA"].average_cost == p1  # cost basis of the remaining lot unchanged
+
+
 def test_pnl_and_nav(
     empty_state: PortfolioState,
 ) -> None:

@@ -158,18 +158,12 @@ def test_environment_state_is_immutable() -> None:
         state.step_count = 99  # type: ignore[misc]
 
 
-def test_known_double_counting_bug_in_portfolio_engine_apply_fill() -> None:
-    """DOCUMENTS A KNOWN BUG, NOT DESIRED BEHAVIOR. See environment.py's module
-    docstring for the full explanation.
-
-    alphalab.portfolio.engine.PortfolioEngine.apply_fill computes
-    cash_impact = -(quantity*price) - commission + pnl, which double-counts
-    realized P&L: pnl is already fully reflected in -(quantity*price). A correct
-    BUY-then-HOLD-then-SELL round trip (buy@150, mark to 155, sell@152) should
-    realize (152-150)*10=+20 total P&L. This test asserts the CURRENT (incorrect)
-    behavior -- if PortfolioEngine.apply_fill is ever fixed, this test will fail
-    and must be updated to assert the correct +20 result instead of silently
-    passing with a wrong expectation forever.
+def test_environment_round_trip_realizes_correct_pnl() -> None:
+    """A BUY -> HOLD -> SELL round trip (buy@150, mark to 155, sell@152) realizes
+    exactly (152-150)*10 = +20 total P&L, with no double-count of realized P&L
+    into cash. Regression guard for D1 (PortfolioEngine.apply_fill previously
+    added ``+ pnl`` to the cash flow; this test asserted the buggy +40 result
+    and is now updated to the correct +20).
     """
     config = _new_config()
     state = create_environment(config, timestamp=1000.0)
@@ -181,14 +175,9 @@ def test_known_double_counting_bug_in_portfolio_engine_apply_fill() -> None:
     total_pnl = sold.state.equity - Decimal("100000.00")
     correct_pnl = Decimal("20.00")  # (152 - 150) * 10
 
-    assert total_pnl != correct_pnl, (
-        "If this now holds, PortfolioEngine.apply_fill's double-counting bug has "
-        "been fixed -- update this test to assert total_pnl == correct_pnl instead."
-    )
-    # The actual (buggy) result: proceeds (152*10=1520) plus the realized pnl
-    # (152-150)*10=20 double-counted on top, relative to the 100050 equity that
-    # existed right before this sell (98500 cash + 1550 marked position value).
-    assert sold.state.equity == Decimal("100040.00")
+    assert total_pnl == correct_pnl
+    # 98500 cash after the buy, + 1520 sale proceeds on the close, position flat.
+    assert sold.state.equity == Decimal("100020.00")
 
     # Internal consistency check that IS expected to hold regardless of the bug:
     # summed step rewards must equal the total equity change, since reward is

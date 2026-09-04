@@ -1,33 +1,25 @@
-"""Compatibility Order model for OMS workflows.
+"""Canonical lifecycle Order model.
 
-This module preserves the historical OMS API while routing conversions through the
-canonical core Order domain model.
+This is the order representation used across AlphaLab's execution path -- OMS,
+the runtime execution pipeline, and everything downstream. It carries mutable
+lifecycle state (status, fills) alongside the original instruction and exposes
+the deterministic state transitions that move an order through its lifecycle.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
 from decimal import Decimal
-from typing import cast
-from uuid import UUID
 
-from alphalab.core.enums import OrderStatus, OrderType, Side, TimeInForce
-from alphalab.core.ids import AssetId
-from alphalab.core.ids import OrderId as CoreOrderId
-from alphalab.core.order import Order as CoreOrder
+from alphalab.core.enums import OrderStatus, OrderType, Side
 from alphalab.oms.exceptions import InvalidTransitionError
 from alphalab.oms.ids import OrderId
 
 
 @dataclass(frozen=True, slots=True)
 class Order:
-    """Immutable representation of a market order.
-
-    This remains the OMS-facing compatibility model, but it can be converted into
-    the canonical core Order for shared domain usage.
-    """
+    """Immutable snapshot of a market order and its lifecycle state."""
 
     order_id: OrderId
     strategy_id: str
@@ -71,59 +63,6 @@ class Order:
         if self.quantity == Decimal("0"):
             return Decimal("0")
         return self.filled_quantity / self.quantity
-
-    @property
-    def canonical_order(self) -> CoreOrder:
-        """Expose the canonical core Order representation for shared domain usage."""
-        return self.to_core_order()
-
-    def to_core_order(self) -> CoreOrder:
-        """Convert the OMS order into the canonical core Order representation."""
-        return CoreOrder(
-            order_id=cast(CoreOrderId, str(self.order_id.value)),
-            asset_id=cast(AssetId, self.asset_id),
-            side=self.side,
-            order_type=self.order_type,
-            quantity=self.quantity,
-            created_at=datetime.fromtimestamp(self.created_at, tz=UTC),
-            time_in_force=TimeInForce.DAY,
-            limit_price=self.limit_price,
-            stop_price=self.stop_price,
-            strategy_id=None,
-            signal_id=None,
-        )
-
-    @classmethod
-    def from_core_order(
-        cls,
-        order: CoreOrder,
-        *,
-        status: OrderStatus = OrderStatus.NEW,
-        filled_quantity: Decimal = Decimal("0"),
-        remaining_quantity: Decimal | None = None,
-        average_fill_price: Decimal = Decimal("0"),
-        updated_at: float | None = None,
-        metadata: Mapping[str, str] | None = None,
-    ) -> Order:
-        """Create an OMS compatibility order from a canonical core Order."""
-        created_at = order.created_at.timestamp()
-        return cls(
-            order_id=OrderId(UUID(order.order_id)),
-            strategy_id="",
-            asset_id=order.asset_id,
-            side=order.side,
-            order_type=order.order_type,
-            status=status,
-            quantity=order.quantity,
-            filled_quantity=filled_quantity,
-            remaining_quantity=order.quantity if remaining_quantity is None else remaining_quantity,
-            limit_price=order.limit_price,
-            stop_price=order.stop_price,
-            average_fill_price=average_fill_price,
-            created_at=created_at,
-            updated_at=created_at if updated_at is None else updated_at,
-            metadata=dict(metadata or {}),
-        )
 
     def accept(self, timestamp: float) -> Order:
         """Transitions order to ACCEPTED state."""

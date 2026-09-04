@@ -8,23 +8,31 @@ Each example focuses on a single subsystem while following the same engineering 
 
 Examples are intended to be read sequentially by new users and used as reference implementations by contributors.
 
+> The example scripts were written for v1.0.0 and exercise the **standalone**
+> engine APIs. They are not part of the automated test suite. As of v2.0.0,
+> `03_replay.py` fails on a pre-existing empty-dataset issue; the other nine run.
+> For the integrated market-to-analytics path, see
+> `alphalab.runtime.ExecutionPipeline` and its tests under
+> `tests/integration/` and `tests/regression/`.
+
 ---
 
 # Learning Path
 
-We recommend exploring the examples in the following order.
+The `examples/` directory contains:
 
-| Example | Description |
-|----------|-------------|
-| Universal Data Engine | Load and normalize datasets |
-| Research Engine | Run quantitative analysis |
-| Portfolio Optimizer | Construct institutional portfolios |
-| Replay Engine | Historical simulation |
-| Market Data | Download live and historical data |
-| Broker Integrations | Connect to paper and live brokers |
-| Production Runtime | Supervise live systems |
-| Strategy Studio | End-to-end workflow orchestration |
-| AlphaLab Workbench | User interface workflows |
+| File | Description |
+|------|-------------|
+| `01_research.py` | Research engine |
+| `02_backtest.py` | Backtest workflow |
+| `03_replay.py` | Historical replay *(currently broken)* |
+| `04_market_data.py` | Market data providers |
+| `05_broker_connection.py` | Broker integration adapters |
+| `06_portfolio_optimizer.py` | Portfolio construction |
+| `07_universal_data.py` | Universal Data Engine |
+| `08_strategy_studio.py` | Strategy Studio orchestration |
+| `09_workbench.py` | Workbench workspace |
+| `10_complete_pipeline.py` | Multi-engine walkthrough |
 
 ---
 
@@ -152,15 +160,12 @@ Workbench examples illustrate
 
 ---
 
-# Future Examples
+# Additional engines
 
-As AlphaLab evolves, additional examples will be added for
-
-- Feature Store
-- Factor Library
-- Machine Learning
-- Cloud Research
-- Enterprise Deployment
+The feature store, factor library, machine learning, cloud research, enterprise,
+and other engines added in v1.34.0–v2.0.0 do not yet have dedicated example
+scripts. Their usage is covered by the unit tests under `tests/unit/<package>/`
+and by the benchmarks under `benchmarks/`.
 
 ---
 

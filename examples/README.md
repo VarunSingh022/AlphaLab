@@ -1,6 +1,6 @@
 # AlphaLab Example Datasets
 
-This directory contains the official synthetic datasets used by the AlphaLab **v1.0.0** example suite.
+This directory contains the synthetic datasets used by the AlphaLab example suite. The example scripts and these datasets date from **v1.0.0**, exercise the standalone engine APIs, and are not part of the automated test suite. As of v2.0.0, `03_replay.py` fails on a pre-existing empty-dataset issue; the other nine scripts run.
 
 These datasets are intentionally small, deterministic, and internally consistent so that every example can be executed without external market data providers.
 

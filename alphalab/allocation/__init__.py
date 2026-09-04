@@ -19,7 +19,6 @@ from alphalab.allocation.exceptions import (
 )
 from alphalab.allocation.netting import NettingEngine
 from alphalab.allocation.optimizer import AllocationOptimizer
-from alphalab.allocation.request import OrderRequest, OrderSide
 from alphalab.allocation.sizing import (
     EqualWeightSizing,
     FixedDollarSizing,
@@ -36,6 +35,7 @@ from alphalab.allocation.views import (
     recent_orders_for_asset,
     total_notional_allocated,
 )
+from alphalab.core.order_request import OrderRequest
 
 __all__ = [
     "AllocationCompleted",
@@ -58,7 +58,6 @@ __all__ = [
     "NettingCompleted",
     "NettingEngine",
     "OrderRequest",
-    "OrderSide",
     "SizingModel",
     "TargetWeightSizing",
     "VolatilityTargetSizing",

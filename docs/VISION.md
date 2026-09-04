@@ -30,23 +30,22 @@ Every component should follow these principles.
 
 # Current State
 
-As of the current development milestone (PR-033), AlphaLab provides:
+As of v2.0.0, AlphaLab provides:
 
-- Core runtime
-- Event system
-- Strategy framework
-- Portfolio management
-- Replay engine
-- Reporting
-- Production runtime
-- Broker integrations
-- Market data integrations
-- Universal Data Engine
-- Portfolio Optimizer
-- Strategy Studio
-- AlphaLab Workbench
+- The canonical execution core and the `alphalab.runtime.ExecutionPipeline` that
+  wires it together (strategy → allocation → risk → OMS → execution simulator →
+  portfolio → analytics)
+- Standalone engines for research, replay, reporting, portfolio optimization,
+  feature store, factor library, alternative data, machine learning, deep
+  learning, reinforcement learning, options, futures, crypto, macro, cloud
+  research, cluster scheduling, experiment tracking, model registry, deployment
+  management, the AI research assistant, Strategy Studio, Workbench, and
+  Enterprise governance
+- Broker and market-data integration scaffolding, and a production runtime
+  supervisor
 
-The platform has reached a stable architectural foundation and is preparing for the v1.0.0 release.
+These engines share the engineering model but are not yet fused into a single
+runtime. AlphaLab is a library, not a running application.
 
 ---
 
@@ -84,26 +83,17 @@ AlphaLab prioritizes correctness, clarity, and maintainability over unnecessary 
 
 # Long-Term Roadmap
 
-After the v1.0.0 release, AlphaLab will expand with:
+The engine expansion planned after v1.0.0 is now delivered (v1.34.0–v2.0.0):
+feature store, factor library, options, futures, crypto, macro, alternative data,
+machine learning, deep learning, reinforcement learning, cloud research,
+experiment tracking, model registry, AI research assistant, deployment manager,
+and the Enterprise platform — each as a standalone package on the v1.0.0
+foundation.
 
-- Feature Store
-- Factor Library
-- Options Engine
-- Futures Engine
-- Crypto Engine
-- Macro Engine
-- Alternative Data
-- Machine Learning
-- Deep Learning
-- Reinforcement Learning
-- Cloud Research
-- Experiment Tracking
-- Model Registry
-- AI Research Assistant
-- Deployment Manager
-- Enterprise Platform
-
-Each addition will build upon the architectural foundation established in v1.0.0.
+The remaining long-term work is integration, not more engines: composing these
+packages into one runtime, wiring `replay` into the execution path,
+mark-to-market repricing, and consolidating the overlapping data surfaces. See
+`../ROADMAP.md`.
 
 ---
 
@@ -117,6 +107,9 @@ The project values thoughtful design, constructive collaboration, and high engin
 
 # Looking Ahead
 
-Version 1.0.0 represents the completion of AlphaLab's architectural foundation.
+Version 1.0.0 established AlphaLab's architectural foundation; v1.34.0–v2.0.0
+populated it with standalone quantitative engines.
 
-Future releases will focus on expanding quantitative capabilities while preserving the project's core principles of determinism, immutability, modularity, and production readiness.
+Future releases will focus on integrating those engines into a coherent runtime
+while preserving the project's core principles of determinism, immutability,
+modularity, and production readiness.

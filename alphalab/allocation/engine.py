@@ -17,11 +17,12 @@ from alphalab.allocation.events import (
     NettingCompleted,
 )
 from alphalab.allocation.netting import NettingEngine
-from alphalab.allocation.request import OrderRequest, OrderSide
 from alphalab.allocation.sizing import SizingModel
 from alphalab.allocation.state import AllocationState
 from alphalab.allocation.validation import validate_intent, validate_net_quantity
 from alphalab.common.ids import new_id
+from alphalab.core.enums import Side
+from alphalab.core.order_request import OrderRequest
 from alphalab.strategy.events import Intent
 
 
@@ -93,7 +94,7 @@ class AllocationEngine:
             if constraints.enforce_integer_quantities:
                 net_qty = net_qty.to_integral_value()
 
-            side = OrderSide.BUY if net_qty > Decimal("0") else OrderSide.SELL
+            side = Side.BUY if net_qty > Decimal("0") else Side.SELL
             abs_qty = abs(net_qty)
             price = market_prices.get(asset_id, Decimal("0.00"))
 

@@ -7,13 +7,13 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.0.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-583%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-1221%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
-*A modular Python framework for quantitative research, systematic strategy development, portfolio optimization, market simulation, broker integration, and production deployment.*
+*A modular Python library for quantitative research, systematic strategy development, portfolio optimization, market simulation, broker integration, and production tooling.*
 
 </div>
 
@@ -21,9 +21,14 @@
 
 # What is AlphaLab?
 
-AlphaLab is an open-source Python framework for building deterministic quantitative research and algorithmic trading systems.
+AlphaLab is an open-source Python **library** for building deterministic quantitative research and algorithmic trading components.
 
-Instead of providing isolated utilities for market data, research, optimization, or execution, AlphaLab organizes the complete research-to-production workflow into independent but interoperable engines built around immutable state, deterministic execution, and event-driven architecture.
+It is a library, not a running application: there is no server, daemon, scheduler process, or CLI. You import the packages you need and call their pure, immutable engine APIs from your own code.
+
+AlphaLab ships two kinds of package:
+
+- **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable state snapshot. This is the concrete backtest / execution path.
+- **Standalone engine libraries.** Most other packages (research, portfolio optimizer, replay, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, experiment tracking, model registry, research assistant, deployment manager, enterprise, studio, workbench) are independent, deterministic, individually tested libraries. They share the engineering model but are **not** currently fused into a single runtime.
 
 The framework is designed for researchers, quantitative developers, students, and engineering teams building reproducible trading infrastructure.
 
@@ -31,19 +36,23 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v1.0.0**
+**Current Release:** **v2.0.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 1.0.0 |
-| Tests | **583 Passing** |
-| Static Typing | **Strict MyPy** |
+| Version | 2.0.0 |
+| Tests | **1221 Passing** |
+| Static Typing | **Strict MyPy** (833 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+v2.0.0 consolidates the v1.34–v1.46 engine series, adds the model registry, research
+assistant, deployment manager, and enterprise packages, and unifies the canonical
+execution domain models. It contains breaking public API changes — see `CHANGELOG.md`.
 
 ---
 
@@ -64,45 +73,60 @@ AlphaLab is built around a consistent engineering philosophy.
 
 # Architecture
 
+## The integrated execution path
+
+`alphalab.runtime.ExecutionPipeline` is the concrete, wired-together spine. One
+market event flows through each stage as a pure function over an immutable
+`ExecutionPipelineState`:
+
 ```text
-                          AlphaLab Workbench
-                                  │
-                                  ▼
-                          Strategy Studio
-                                  │
-      ┌───────────────────────────┼───────────────────────────┐
-      ▼                           ▼                           ▼
-Universal Data Engine      Research Engine      Portfolio Optimizer
-      │                           │                           │
-      └───────────────────────────┼───────────────────────────┘
-                                  ▼
-                          Strategy Runtime
-                                  │
-                                  ▼
-                       Broker Integrations
-                                  │
-                                  ▼
-                         Production Runtime
-                                  │
-                                  ▼
-                            Live Markets
+Market event (Quote / Bar / Tick)
+        │
+        ▼
+Strategy   →  Intents
+        │
+        ▼
+Allocation →  sized OrderRequests            (core.OrderRequest, core.enums.Side)
+        │
+        ▼
+Risk       →  RiskDecision (approve / reject)
+        │
+        ▼
+OMS        →  Order lifecycle                (oms.order.Order — canonical)
+        │
+        ▼
+Execution simulator → ExecutionReport (deterministic fills, commission)
+        │
+        ▼
+Portfolio  →  cash, positions, realized P&L  (Fill / Trade — float timestamps)
+        │
+        ▼
+Analytics  →  PerformanceReport (compiled on demand)
 ```
 
----
+The caller owns the event loop and feeds events in one at a time.
 
-# Framework Modules
+## Standalone engine libraries
 
-| Module | Purpose |
-|---------|---------|
-| Universal Data Engine | Market data ingestion, normalization and validation |
-| Research Engine | Quantitative research and signal evaluation |
-| Strategy Runtime | Deterministic strategy execution |
-| Replay Engine | Historical event replay |
-| Portfolio Optimizer | Portfolio construction and optimization |
-| Broker Integrations | Unified broker abstraction layer |
-| Production Runtime | Runtime supervision and monitoring |
-| Strategy Studio | Research projects, experiments and pipelines |
-| Workbench | Unified research-to-production workflow |
+Everything below is importable, deterministic, and independently tested, but is
+**not** currently connected into `ExecutionPipeline` or into one another:
+
+| Area | Packages |
+|---|---|
+| Research & simulation | `research`, `replay`, `reporting` |
+| Portfolio construction | `portfolio_optimizer`, `optimizer` |
+| Data surface (overlapping) | `data`, `marketdata`, `feed` |
+| Features & factors | `feature_store`, `factor_library`, `alt_data` |
+| Learning | `ml`, `deep_learning`, `reinforcement_learning` |
+| Asset classes | `options`, `futures`, `crypto`, `macro` |
+| Scale-out | `cloud_research`, `cluster_scheduler`, `distributed` |
+| Lifecycle | `experiment_tracking`, `model_registry`, `deployment_manager` |
+| Workflow & governance | `studio`, `workbench`, `research_assistant`, `enterprise` |
+| Live / ops surface | `live`, `production`, `broker`, `brokers`, `integrations` |
+
+> The Workbench → Studio → live-markets flow shown in `docs/` is a design target,
+> not a single runtime that exists today. `replay` is a standalone engine and does
+> **not** drive `ExecutionPipeline`. Mark-to-market repricing is not implemented.
 
 ---
 
@@ -128,24 +152,27 @@ pip install -e ".[dev]"
 
 The recommended way to learn the framework is through the curated examples.
 
-| Example | Description |
-|---------|-------------|
-| 01 | Research Engine |
-| 02 | Strategy Runtime |
-| 03 | Historical Replay |
-| 04 | Market Data |
-| 05 | Broker Integrations |
-| 06 | Portfolio Optimizer |
-| 07 | Universal Data Engine |
-| 08 | Strategy Studio |
-| 09 | Workbench |
-| 10 | Complete End-to-End Pipeline |
+| Example | File | Description |
+|---------|------|-------------|
+| 01 | `01_research.py` | Research Engine |
+| 02 | `02_backtest.py` | Backtest workflow |
+| 03 | `03_replay.py` | Historical replay *(currently broken — pre-existing dataset issue)* |
+| 04 | `04_market_data.py` | Market Data |
+| 05 | `05_broker_connection.py` | Broker Integrations |
+| 06 | `06_portfolio_optimizer.py` | Portfolio Optimizer |
+| 07 | `07_universal_data.py` | Universal Data Engine |
+| 08 | `08_strategy_studio.py` | Strategy Studio |
+| 09 | `09_workbench.py` | Workbench |
+| 10 | `10_complete_pipeline.py` | Multi-engine walkthrough |
 
 Run any example:
 
 ```bash
 python examples/01_research.py
 ```
+
+The example scripts date from v1.0.0 and exercise the standalone engine APIs; they
+are not part of the automated test suite.
 
 ---
 
@@ -168,17 +195,27 @@ The complete documentation is available in the `docs/` directory.
 
 ```text
 alphalab/
-├── common/
-├── core/
-├── data/
-├── research/
-├── strategy/
-├── replay/
-├── portfolio_optimizer/
-├── integrations/
-├── production/
-├── studio/
-├── workbench/
+├── core/            Canonical domain models — Side, OrderRequest, Fill, Trade, ids
+├── runtime/         ExecutionPipeline (the integrated execution spine) + runtime engine
+├── strategy/        Strategy protocol, engine, supervisor
+├── allocation/      Intent sizing / netting → OrderRequest
+├── risk/            Pre-trade risk checks and limits
+├── oms/             Order lifecycle (oms.order.Order is canonical)
+├── execution/       Deterministic execution simulator, commission models
+├── portfolio/       Cash ledger, positions, NAV, realized P&L
+├── analytics/       Performance report, attribution
+├── market/          In-memory market state and events
+├── common/          Shared version, events, serialization, constants
+├── research/  replay/  portfolio_optimizer/  reporting/       Standalone engines
+├── feature_store/  factor_library/  alt_data/                 Standalone engines
+├── ml/  deep_learning/  reinforcement_learning/               Standalone engines
+├── options/  futures/  crypto/  macro/                        Standalone engines
+├── cloud_research/  cluster_scheduler/  distributed/          Standalone engines
+├── experiment_tracking/  model_registry/  deployment_manager/ Standalone engines
+├── studio/  workbench/  research_assistant/  enterprise/      Standalone engines
+├── data/  marketdata/  feed/                                  Data-surface (overlapping; see docs)
+├── live/  production/  broker/  brokers/  integrations/       Live/ops surface (deferred)
+├── kernel/  plugins/  scheduler/  persistence/  optimizer/    Infrastructure
 └── ...
 ```
 
@@ -202,9 +239,9 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 583 passing unit tests
-- ✅ Strict MyPy type checking
-- ✅ Ruff linting
+- ✅ 1221 passing tests (1207 unit, 4 integration, 10 regression)
+- ✅ Strict MyPy type checking (833 source files)
+- ✅ Ruff linting and formatting
 - ✅ Source distribution validation
 - ✅ Wheel validation
 - ✅ Python packaging verification
@@ -213,29 +250,29 @@ AlphaLab is continuously validated through automated tooling.
 
 # Roadmap
 
-## v1.0.0
+## Delivered
 
-- Universal Data Engine
-- Research Engine
-- Strategy Runtime
-- Replay Engine
-- Portfolio Optimizer
-- Broker Integrations
-- Production Runtime
-- Strategy Studio
-- AlphaLab Workbench
+**v1.0.0** — architectural foundation: core domain models, strategy runtime,
+replay engine, portfolio optimizer, broker integration scaffolding, production
+runtime, Strategy Studio, Workbench.
 
-## Future
+**v1.34.0 – v1.46.0** — engine series: feature store, factor library, options,
+futures, crypto, macro, alternative data, machine learning, deep learning,
+reinforcement learning, cloud research, cluster scheduler, experiment tracking.
 
-- Feature Store
-- Factor Library
-- Options Engine
-- Futures Engine
-- Machine Learning
-- Experiment Tracking
-- Model Registry
-- Distributed Research
-- AlphaLab Cloud
+**v2.0.0** — model registry, AI research assistant, deployment manager, AlphaLab
+Enterprise; canonical execution domain-model unification (`core.enums.Side`,
+`core.OrderRequest`, `oms.order.Order`, float `Fill`/`Trade` timestamps);
+portfolio close/reduce cash-accounting fix; `PerformanceReport` serialization fix.
+See `CHANGELOG.md` and `ROADMAP.md`.
+
+## Not yet addressed
+
+- A single integrated runtime spanning all engines (only `ExecutionPipeline` is wired today)
+- `replay` integration with the execution path
+- Mark-to-market position repricing
+- Consolidation of the overlapping data surfaces (`data` / `market` / `marketdata` / `feed`)
+- Live broker connectivity into `ExecutionPipeline`
 
 ---
 
@@ -263,7 +300,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v1.0.0**
+**AlphaLab v2.0.0**
 
 Building deterministic infrastructure for quantitative research.
 

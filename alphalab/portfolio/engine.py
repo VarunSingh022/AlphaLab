@@ -122,7 +122,12 @@ class PortfolioEngine:
                     timestamp, state.account.account_id, asset_id, quantity, price, pnl
                 )
 
-        cash_impact = -(quantity * price) - commission + pnl
+        # Cash moves by actual trade proceeds/cost and commission only. Realized
+        # P&L is an accounting result (tracked on Position.realized_pnl and carried
+        # on the PositionReduced/PositionClosed events); it is already implicit in
+        # the proceeds vs. the entry cost that were each applied on their own fill,
+        # so it must not be added to cash a second time here.
+        cash_impact = -(quantity * price) - commission
         new_cash = state.cash
         if cash_impact > 0:
             new_cash = new_cash.deposit(cash_impact, currency)

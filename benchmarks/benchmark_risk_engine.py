@@ -4,6 +4,7 @@ import time
 from dataclasses import replace
 from decimal import Decimal
 
+from alphalab.core.enums import Side
 from alphalab.risk import (
     DailyLossLimit,
     DrawdownLimit,
@@ -11,7 +12,6 @@ from alphalab.risk import (
     LeverageLimit,
     MarginLimit,
     OrderRequest,
-    OrderSide,
     OrderSizeLimit,
     PositionLimit,
     RiskEngine,
@@ -42,7 +42,7 @@ def run_benchmark() -> None:
         order_id="BENCH-ORD",
         strategy_id="STRAT-01",
         asset_id="AAPL",
-        side=OrderSide.BUY,
+        side=Side.BUY,
         quantity=Decimal("10"),
         price=Decimal("150.00"),
     )
