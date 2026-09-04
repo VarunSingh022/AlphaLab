@@ -1,0 +1,80 @@
+"""AlphaLab Model Registry.
+
+Versioned registration, stage promotion, rollback, and deployment metadata for
+trained models.
+
+``alphalab.experiment_tracking`` already versions experiment *runs* -- their
+metric histories and the lineage of one run being a re-run of another. This
+package versions the trained model *artifacts* those runs produce, and governs
+each one's lifecycle: registered at ``NONE``, promoted through ``STAGING`` and
+``PRODUCTION``, finally ``ARCHIVED``. ``ModelVersion.run_id`` links a version
+back to the experiment run that produced it -- a reference, not a copy; run
+history stays in ``experiment_tracking``.
+
+The registry is artifact-type-agnostic. It stores the model object itself
+(``alphalab.ml`` / ``alphalab.deep_learning`` /
+``alphalab.reinforcement_learning`` model dataclasses, or anything else)
+alongside its metadata and stage; :func:`get_model` recovers it with a checked
+type. Nothing here serializes models to disk -- state is threaded functionally
+through immutable ``ModelRegistry`` values, exactly as the rest of the recent
+engines do.
+"""
+
+from alphalab.model_registry.deployment import (
+    deployed_versions,
+    deployment_metadata,
+    set_deployment_metadata,
+)
+from alphalab.model_registry.exceptions import ModelRegistryError, ModelRegistryInputError
+from alphalab.model_registry.promotion import (
+    production_version,
+    promote,
+    staging_version,
+    versions_in_stage,
+)
+from alphalab.model_registry.registry import (
+    DeploymentMetadata,
+    ModelRegistry,
+    ModelStage,
+    ModelVersion,
+    ParamValue,
+    PromotionRecord,
+    get_model,
+    get_version,
+    latest_version,
+    list_versions,
+    model_names,
+    register_model,
+)
+from alphalab.model_registry.rollback import (
+    previous_production_version,
+    promotion_history,
+    rollback,
+)
+
+__all__ = [
+    "DeploymentMetadata",
+    "ModelRegistry",
+    "ModelRegistryError",
+    "ModelRegistryInputError",
+    "ModelStage",
+    "ModelVersion",
+    "ParamValue",
+    "PromotionRecord",
+    "deployed_versions",
+    "deployment_metadata",
+    "get_model",
+    "get_version",
+    "latest_version",
+    "list_versions",
+    "model_names",
+    "previous_production_version",
+    "production_version",
+    "promote",
+    "promotion_history",
+    "register_model",
+    "rollback",
+    "set_deployment_metadata",
+    "staging_version",
+    "versions_in_stage",
+]
