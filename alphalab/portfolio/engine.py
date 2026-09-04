@@ -47,6 +47,7 @@ from alphalab.portfolio.events import (
 )
 from alphalab.portfolio.exceptions import InvalidTransactionError
 from alphalab.portfolio.ledger import TransactionLedger
+from alphalab.portfolio.money import ZERO_MONEY, notional, to_money, to_price, to_quantity
 from alphalab.portfolio.position import Position
 from alphalab.portfolio.transaction import Transaction
 from alphalab.portfolio.types import TransactionType
@@ -65,8 +66,8 @@ class PortfolioState:
     positions: Mapping[str, Position] = field(default_factory=dict)
     ledger: TransactionLedger = field(default_factory=TransactionLedger)
     events: AppendOnlyLog[PortfolioEvent] = field(default_factory=AppendOnlyLog)
-    realized_pnl: Decimal = Decimal("0.00")
-    commission_paid: Decimal = Decimal("0.00")
+    realized_pnl: Decimal = ZERO_MONEY
+    commission_paid: Decimal = ZERO_MONEY
 
 
 class PortfolioEngine:
@@ -74,6 +75,7 @@ class PortfolioEngine:
     def apply_deposit(
         state: PortfolioState, amount: Decimal, currency: str, timestamp: float
     ) -> PortfolioState:
+        amount = to_money(amount)
         new_cash = state.cash.deposit(amount, currency)
         evt = CashDeposited(
             timestamp=timestamp,
@@ -100,6 +102,7 @@ class PortfolioEngine:
     def apply_withdrawal(
         state: PortfolioState, amount: Decimal, currency: str, timestamp: float
     ) -> PortfolioState:
+        amount = to_money(amount)
         new_cash = state.cash.withdraw(amount, currency)
         evt = CashWithdrawn(
             timestamp=timestamp,
@@ -139,19 +142,30 @@ class PortfolioEngine:
         counted twice.
         """
 
-        if quantity == 0:
-            raise InvalidTransactionError("A fill must have a non-zero quantity.")
         if price <= 0:
             raise InvalidTransactionError("A fill must have a positive price.")
         if commission < 0:
             raise InvalidTransactionError("A fill commission cannot be negative.")
 
+        # Round once, here, at the boundary. `quantity`, `price`, `trade_value`
+        # and `commission` are from now on exact at their declared precision, and
+        # both the cash movement and the position's cost basis are derived from
+        # these same values -- see alphalab.portfolio.money.
+        quantity = to_quantity(quantity)
+        price = to_price(price)
+        trade_value = notional(quantity, price)
+        commission = to_money(commission)
+
+        # Checked after rounding: a quantity below the supported share precision
+        # is not a tiny fill, it is zero shares, and applying it would fabricate
+        # a position event and a ledger entry for a trade that did not happen.
+        if quantity == 0:
+            raise InvalidTransactionError("A fill must have a non-zero quantity.")
+
         positions = dict(state.positions)
         pos = positions.get(
             asset_id,
-            Position(
-                asset_id, Decimal("0"), Decimal("0"), price, Decimal("0"), currency, timestamp
-            ),
+            Position(asset_id, Decimal("0"), Decimal("0"), price, ZERO_MONEY, currency, timestamp),
         )
 
         is_opening = pos.quantity == 0
@@ -181,7 +195,7 @@ class PortfolioEngine:
         # on the PositionReduced/PositionClosed events); it is already implicit in
         # the proceeds vs. the entry cost that were each applied on their own fill,
         # so it must not be added to cash a second time here.
-        cash_impact = -(quantity * price) - commission
+        cash_impact = (trade_value if quantity < 0 else -trade_value) - commission
         new_cash = state.cash
         if cash_impact > 0:
             new_cash = new_cash.deposit(cash_impact, currency)
@@ -207,8 +221,8 @@ class PortfolioEngine:
             cash=new_cash,
             ledger=state.ledger.append(tx),
             events=state.events.append(evt),
-            realized_pnl=(state.realized_pnl + pnl).quantize(Decimal("0.01")),
-            commission_paid=(state.commission_paid + commission).quantize(Decimal("0.01")),
+            realized_pnl=state.realized_pnl + pnl,
+            commission_paid=state.commission_paid + commission,
         )
 
     @staticmethod

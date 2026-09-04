@@ -78,6 +78,11 @@ States using `AppendOnlyLog`: `RiskState`, `MarketState`, `ExecutionState`,
 `OMSState`, `AllocationState`, `PortfolioState`, `TransactionLedger`, and the
 `ExecutionPipelineState` fill / trade / trade-record / snapshot accumulators.
 
+Serialization goes through `alphalab.common.dataclass_to_dict`, which converts an
+`AppendOnlyLog` exactly as the tuple it replaced. Use it (or
+`alphalab.persistence.serialize`) rather than `dataclasses.asdict` directly:
+`asdict` cannot be extended, so it deep-copies the log as an opaque object.
+
 ---
 
 # Ownership

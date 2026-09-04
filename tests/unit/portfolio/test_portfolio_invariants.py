@@ -212,6 +212,8 @@ def test_each_fill_produces_exactly_one_event_and_one_transaction(
     ("quantity", "price", "commission", "match"),
     [
         (Decimal("0"), Decimal("10.00"), Decimal("0.00"), "non-zero quantity"),
+        # Below SHARE_QUANT: rounds to zero shares, so it is a zero-quantity fill.
+        (Decimal("0.0000001"), Decimal("10.00"), Decimal("0.00"), "non-zero quantity"),
         (Decimal("1"), Decimal("0"), Decimal("0.00"), "positive price"),
         (Decimal("1"), Decimal("-5.00"), Decimal("0.00"), "positive price"),
         (Decimal("1"), Decimal("10.00"), Decimal("-1.00"), "cannot be negative"),

@@ -7,7 +7,7 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.1.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.1.1-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
 [![Tests](https://img.shields.io/badge/Tests-1221%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
@@ -36,12 +36,12 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.1.0**
+**Current Release:** **v2.1.1**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.1.0 |
+| Version | 2.1.1 |
 | Tests | **1273 Passing** |
 | Static Typing | **Strict MyPy** (840 source files) |
 | Linting | **Ruff Clean** |
@@ -310,7 +310,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v2.1.0**
+**AlphaLab v2.1.1**
 
 Building deterministic infrastructure for quantitative research.
 

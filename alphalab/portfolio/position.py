@@ -3,11 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
+from alphalab.portfolio.money import (
+    CURRENCY_QUANT,
+    PRICE_QUANT,
+    SHARE_QUANT,
+    ZERO_MONEY,
+    notional,
+    to_money,
+    to_price,
+    to_quantity,
+)
 from alphalab.portfolio.types import PositionSide
 
-SHARE_QUANT = Decimal("0.000001")
-PRICE_QUANT = Decimal("0.0001")
-CURRENCY_QUANT = Decimal("0.01")
+__all__ = ["CURRENCY_QUANT", "PRICE_QUANT", "SHARE_QUANT", "Position"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +28,18 @@ class Position:
     Negative quantity = Short
 
     Zero quantity = Flat
+
+    ``cost_basis`` is the authoritative money figure: for a long it is the exact
+    cash paid for the open quantity, for a short the exact cash received. P&L is
+    derived from it, so realized P&L is always exactly the difference between the
+    money that moved on the way in and the money that moved on the way out --
+    never an independently rounded recomputation from ``average_cost``. See
+    :mod:`alphalab.portfolio.money`.
+
+    ``average_cost`` remains the reported per-unit cost, derived from the basis.
+    When a ``Position`` is constructed without an explicit ``cost_basis`` (as
+    external callers and fixtures do), the basis is taken to be
+    ``average_cost * |quantity|`` rounded to money.
     """
 
     asset_id: str
@@ -29,6 +49,7 @@ class Position:
     realized_pnl: Decimal
     currency: str
     last_updated: float
+    cost_basis: Decimal | None = None
 
     @property
     def side(self) -> PositionSide:
@@ -41,20 +62,33 @@ class Position:
         return PositionSide.FLAT
 
     @property
+    def basis(self) -> Decimal:
+        """Exact money cost basis of the open quantity, always non-negative."""
+
+        if self.cost_basis is not None:
+            return self.cost_basis
+        return notional(self.quantity, self.average_cost)
+
+    @property
     def market_value(self) -> Decimal:
-        return (self.quantity * self.market_price).quantize(CURRENCY_QUANT)
+        return to_money(self.quantity * self.market_price)
 
     @property
     def unrealized_pnl(self) -> Decimal:
+        """Open P&L: the difference between current market value and cost basis.
+
+        Both terms are exact money, so the result is exact money -- no further
+        rounding is applied or needed.
+        """
+
         if self.quantity == 0:
-            return Decimal("0.00")
+            return ZERO_MONEY
 
         if self.side is PositionSide.LONG:
-            pnl = (self.market_price - self.average_cost) * self.quantity
-        else:
-            pnl = (self.average_cost - self.market_price) * abs(self.quantity)
+            return self.market_value - self.basis
 
-        return pnl.quantize(CURRENCY_QUANT)
+        # Short: market_value is negative, basis is the credit received.
+        return self.market_value + self.basis
 
     def update_market_price(
         self,
@@ -64,7 +98,28 @@ class Position:
 
         return replace(
             self,
-            market_price=price.quantize(PRICE_QUANT),
+            market_price=to_price(price),
+            last_updated=timestamp,
+        )
+
+    def _rebased(
+        self,
+        quantity: Decimal,
+        basis: Decimal,
+        realized_total: Decimal,
+        price: Decimal,
+        timestamp: float,
+    ) -> Position:
+        """Rebuild the position from an exact quantity/basis pair."""
+
+        average = to_price(basis / abs(quantity)) if quantity != 0 else Decimal("0")
+        return replace(
+            self,
+            quantity=quantity,
+            average_cost=average,
+            cost_basis=basis,
+            realized_pnl=realized_total,
+            market_price=price,
             last_updated=timestamp,
         )
 
@@ -80,43 +135,32 @@ class Position:
         BUY  -> positive quantity
 
         SELL -> negative quantity
+
+        Returns the updated position and the realized P&L crystallised by this
+        fill. ``total`` below is the same money value the cash ledger moves for
+        this fill, so the two can never disagree.
         """
 
-        quantity = quantity.quantize(SHARE_QUANT)
-        price = price.quantize(PRICE_QUANT)
+        quantity = to_quantity(quantity)
+        price = to_price(price)
 
         if quantity == 0:
-            return (
-                self,
-                Decimal("0.00"),
-            )
+            return (self, ZERO_MONEY)
+
+        total = notional(quantity, price)
 
         if self.side is PositionSide.FLAT:
             return (
-                replace(
-                    self,
-                    quantity=quantity,
-                    average_cost=price,
-                    market_price=price,
-                    last_updated=timestamp,
-                ),
-                Decimal("0.00"),
+                self._rebased(quantity, total, self.realized_pnl, price, timestamp),
+                ZERO_MONEY,
             )
 
         if self.side is PositionSide.LONG:
-            return self._apply_long(
-                quantity,
-                price,
-                timestamp,
-            )
+            return self._apply_long(quantity, price, total, timestamp)
 
-        return self._apply_short(
-            quantity,
-            price,
-            timestamp,
-        )
-        # ---------------------------------------------------------------------
+        return self._apply_short(quantity, price, total, timestamp)
 
+    # ---------------------------------------------------------------------
     # Long Position Logic
     # ---------------------------------------------------------------------
 
@@ -124,6 +168,7 @@ class Position:
         self,
         quantity: Decimal,
         price: Decimal,
+        total: Decimal,
         timestamp: float,
     ) -> tuple[Position, Decimal]:
         """
@@ -134,24 +179,23 @@ class Position:
         quantity < 0  -> reduce / close / reverse
         """
 
+        basis = self.basis
+
         # ---------------------------------------------------------
         # Increase Long
         # ---------------------------------------------------------
 
         if quantity > 0:
-            new_quantity = self.quantity + quantity
-
-            average_cost = ((self.average_cost * self.quantity) + (price * quantity)) / new_quantity
-
-            position = replace(
-                self,
-                quantity=new_quantity.quantize(SHARE_QUANT),
-                average_cost=average_cost.quantize(PRICE_QUANT),
-                market_price=price,
-                last_updated=timestamp,
+            return (
+                self._rebased(
+                    to_quantity(self.quantity + quantity),
+                    basis + total,
+                    self.realized_pnl,
+                    price,
+                    timestamp,
+                ),
+                ZERO_MONEY,
             )
-
-            return position, Decimal("0.00")
 
         sell_quantity = abs(quantity)
 
@@ -160,56 +204,63 @@ class Position:
         # ---------------------------------------------------------
 
         if sell_quantity < self.quantity:
-            realized = ((price - self.average_cost) * sell_quantity).quantize(CURRENCY_QUANT)
+            # Relieve a proportional slice of the basis; the remainder is what
+            # is left over, by subtraction, so the two always sum to `basis`.
+            relieved = to_money(basis * sell_quantity / self.quantity)
+            realized = total - relieved
 
-            position = replace(
-                self,
-                quantity=(self.quantity - sell_quantity).quantize(SHARE_QUANT),
-                realized_pnl=(self.realized_pnl + realized).quantize(CURRENCY_QUANT),
-                market_price=price,
-                last_updated=timestamp,
+            return (
+                self._rebased(
+                    to_quantity(self.quantity - sell_quantity),
+                    basis - relieved,
+                    to_money(self.realized_pnl + realized),
+                    price,
+                    timestamp,
+                ),
+                realized,
             )
-
-            return position, realized
 
         # ---------------------------------------------------------
         # Close Position
         # ---------------------------------------------------------
 
         if sell_quantity == self.quantity:
-            realized = ((price - self.average_cost) * self.quantity).quantize(CURRENCY_QUANT)
+            realized = total - basis
 
-            position = replace(
-                self,
-                quantity=Decimal("0"),
-                average_cost=Decimal("0"),
-                realized_pnl=(self.realized_pnl + realized).quantize(CURRENCY_QUANT),
-                market_price=price,
-                last_updated=timestamp,
+            return (
+                self._rebased(
+                    Decimal("0"),
+                    ZERO_MONEY,
+                    to_money(self.realized_pnl + realized),
+                    price,
+                    timestamp,
+                ),
+                realized,
             )
-
-            return position, realized
 
         # ---------------------------------------------------------
         # Reverse Long -> Short
         # ---------------------------------------------------------
+        # The closing leg's proceeds and the new short's credit must add up to
+        # `total` exactly -- that is the cash the ledger moves -- so the opening
+        # leg is derived by subtraction rather than rounded independently.
 
-        realized = ((price - self.average_cost) * self.quantity).quantize(CURRENCY_QUANT)
+        closing_proceeds = notional(self.quantity, price)
+        realized = closing_proceeds - basis
+        short_quantity = to_quantity(sell_quantity - self.quantity)
 
-        short_quantity = (sell_quantity - self.quantity).quantize(SHARE_QUANT)
-
-        position = replace(
-            self,
-            quantity=-short_quantity,
-            average_cost=price,
-            realized_pnl=(self.realized_pnl + realized).quantize(CURRENCY_QUANT),
-            market_price=price,
-            last_updated=timestamp,
+        return (
+            self._rebased(
+                -short_quantity,
+                total - closing_proceeds,
+                to_money(self.realized_pnl + realized),
+                price,
+                timestamp,
+            ),
+            realized,
         )
 
-        return position, realized
-        # ---------------------------------------------------------------------
-
+    # ---------------------------------------------------------------------
     # Short Position Logic
     # ---------------------------------------------------------------------
 
@@ -217,6 +268,7 @@ class Position:
         self,
         quantity: Decimal,
         price: Decimal,
+        total: Decimal,
         timestamp: float,
     ) -> tuple[Position, Decimal]:
         """
@@ -228,26 +280,23 @@ class Position:
         """
 
         current_short = abs(self.quantity)
+        basis = self.basis
 
         # ---------------------------------------------------------
         # Increase Short
         # ---------------------------------------------------------
 
         if quantity < 0:
-            added = abs(quantity)
-            new_quantity = current_short + added
-
-            average_cost = ((self.average_cost * current_short) + (price * added)) / new_quantity
-
-            position = replace(
-                self,
-                quantity=-new_quantity.quantize(SHARE_QUANT),
-                average_cost=average_cost.quantize(PRICE_QUANT),
-                market_price=price,
-                last_updated=timestamp,
+            return (
+                self._rebased(
+                    -to_quantity(current_short + abs(quantity)),
+                    basis + total,
+                    self.realized_pnl,
+                    price,
+                    timestamp,
+                ),
+                ZERO_MONEY,
             )
-
-            return position, Decimal("0.00")
 
         buy_quantity = quantity
 
@@ -256,51 +305,53 @@ class Position:
         # ---------------------------------------------------------
 
         if buy_quantity < current_short:
-            realized = ((self.average_cost - price) * buy_quantity).quantize(CURRENCY_QUANT)
+            relieved = to_money(basis * buy_quantity / current_short)
+            realized = relieved - total
 
-            position = replace(
-                self,
-                quantity=(self.quantity + buy_quantity).quantize(SHARE_QUANT),
-                realized_pnl=(self.realized_pnl + realized).quantize(CURRENCY_QUANT),
-                market_price=price,
-                last_updated=timestamp,
+            return (
+                self._rebased(
+                    to_quantity(self.quantity + buy_quantity),
+                    basis - relieved,
+                    to_money(self.realized_pnl + realized),
+                    price,
+                    timestamp,
+                ),
+                realized,
             )
-
-            return position, realized
 
         # ---------------------------------------------------------
         # Close Short
         # ---------------------------------------------------------
 
         if buy_quantity == current_short:
-            realized = ((self.average_cost - price) * current_short).quantize(CURRENCY_QUANT)
+            realized = basis - total
 
-            position = replace(
-                self,
-                quantity=Decimal("0"),
-                average_cost=Decimal("0"),
-                realized_pnl=(self.realized_pnl + realized).quantize(CURRENCY_QUANT),
-                market_price=price,
-                last_updated=timestamp,
+            return (
+                self._rebased(
+                    Decimal("0"),
+                    ZERO_MONEY,
+                    to_money(self.realized_pnl + realized),
+                    price,
+                    timestamp,
+                ),
+                realized,
             )
-
-            return position, realized
 
         # ---------------------------------------------------------
         # Reverse Short -> Long
         # ---------------------------------------------------------
 
-        realized = ((self.average_cost - price) * current_short).quantize(CURRENCY_QUANT)
+        closing_cost = notional(current_short, price)
+        realized = basis - closing_cost
+        long_quantity = to_quantity(buy_quantity - current_short)
 
-        long_quantity = (buy_quantity - current_short).quantize(SHARE_QUANT)
-
-        position = replace(
-            self,
-            quantity=long_quantity,
-            average_cost=price,
-            realized_pnl=(self.realized_pnl + realized).quantize(CURRENCY_QUANT),
-            market_price=price,
-            last_updated=timestamp,
+        return (
+            self._rebased(
+                long_quantity,
+                total - closing_cost,
+                to_money(self.realized_pnl + realized),
+                price,
+                timestamp,
+            ),
+            realized,
         )
-
-        return position, realized

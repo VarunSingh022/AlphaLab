@@ -12,9 +12,10 @@ from decimal import Decimal
 
 from alphalab.portfolio.cash import CashLedger
 from alphalab.portfolio.engine import PortfolioState
+from alphalab.portfolio.money import CURRENCY_QUANT, ZERO_MONEY
 from alphalab.portfolio.position import Position
 
-CURRENCY_QUANT = Decimal("0.01")
+__all__ = ["CURRENCY_QUANT", "PortfolioValuation", "PortfolioValuationSnapshot"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +95,7 @@ class PortfolioValuation:
         long_value = PortfolioValuation.long_value(positions)
         short_value = PortfolioValuation.short_value(positions)
         positions_value = long_value + short_value
-        unrealized = sum((p.unrealized_pnl for p in positions.values()), Decimal("0.00"))
+        unrealized = sum((p.unrealized_pnl for p in positions.values()), ZERO_MONEY)
 
         return PortfolioValuationSnapshot(
             timestamp=timestamp,
@@ -103,8 +104,8 @@ class PortfolioValuation:
             long_value=long_value,
             short_value=short_value,
             positions_value=positions_value,
-            unrealized_pnl=unrealized.quantize(CURRENCY_QUANT),
+            unrealized_pnl=unrealized,
             realized_pnl=state.realized_pnl,
             commission_paid=state.commission_paid,
-            equity=(cash + positions_value).quantize(CURRENCY_QUANT),
+            equity=cash + positions_value,
         )

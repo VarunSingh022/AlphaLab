@@ -8,6 +8,96 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.1.1] - 2026-09-04
+
+## Overview
+
+Pre-merge fixes for the two blocking defects and one lifecycle gap found by the
+independent review of the v2.1 branch. No new features; v2.1's runtime semantics
+and performance are unchanged.
+
+---
+
+## Fixed
+
+- **Append-only histories serialized as a repr string (blocker).**
+  `dataclasses.asdict` recurses into tuples but deep-copies anything else, so an
+  `AppendOnlyLog` reached `DeterministicEncoder`, whose `str()` fallback wrote
+  `"events": "AppendOnlyLog([...])"` instead of a JSON array. It raised nothing
+  and passed snapshot validation, so every `PersistenceAdapter.to_snapshot` of a
+  migrated state (`PortfolioState`, `RiskState`, `MarketState`, `ExecutionState`,
+  `AllocationState`) silently persisted unreadable history. `dataclass_to_dict`
+  now recurses itself, converting a log exactly as the tuple it replaced.
+- **The accounting identity was not exact (blocker).** The cash ledger rounded
+  `quantity * price + commission` while the position independently rounded
+  `(exit_price - average_cost) * quantity`. Two roundings of one economic event
+  disagreed by up to half a cent each, and the error accumulated: an ordinary
+  penny-spread quote (bid 100.00 / ask 100.01, mid 100.005) put the identity out
+  by $0.01, and randomized multi-asset portfolios drifted by up to $0.05. The
+  documented invariant is now exact for any price and quantity the engine
+  accepts -- see **Changed** below.
+- **`FillStatus.NO_FILL` left the order open.** It was excluded from v2.1's
+  terminal-state handling, so the order stayed `ACCEPTED` in
+  `oms.active_orders` with its allocation reservation leaked. `NO_FILL` now
+  moves the order to `CANCELLED`, removes it from `active_orders`, and releases
+  the reservation exactly once -- fabricating no fill, trade or position.
+- **A sub-tick fill quantity fabricated a position event.** A quantity below
+  `SHARE_QUANT` (1e-6) passed the non-zero check, then rounded to zero shares,
+  emitting a `PositionClosed` event and a ledger transaction for a trade that
+  did not happen. The check now runs after rounding, consistent with the
+  precision policy.
+- **Mark-to-market documentation overstated its reach.** The marked portfolio
+  reaches **risk** only. The strategy's context comes from the caller's
+  `context_factory`, which the pipeline does not populate, and allocation sizes
+  from market prices and its capital budget. Docs now say so.
+
+---
+
+## Changed
+
+- **One monetary precision policy, in `alphalab.portfolio.money`.** Money is
+  exact at the currency minor unit; rounding happens once, at entry to
+  `PortfolioEngine.apply_fill`; prices and quantities keep their own finer
+  precision and become money only when multiplied into an amount. Cash and cost
+  basis are now derived from the *same* rounded notional, so they cannot
+  disagree.
+- **`Position.cost_basis`** (new trailing optional field) is the authoritative
+  money figure: exact cash paid (long) or received (short) for the open
+  quantity. Realized P&L is the difference between money in and money out;
+  unrealized P&L is `market_value - basis`. `average_cost` is derived from the
+  basis and keeps its meaning and precision. A `Position` built without a
+  `cost_basis` derives one from `average_cost * |quantity|`, so external
+  constructions are unaffected.
+- **`DeterministicEncoder` no longer stringifies unknown objects.** `Decimal`,
+  dataclasses, `AppendOnlyLog`, `Enum` and `UUID` are handled by explicit
+  branch; anything else raises `SerializationError` naming the type. This is a
+  breaking change for callers that relied on the previous silent `str()`
+  fallback -- which produced payloads that could not be read back.
+
+---
+
+## Known Limitations
+
+- **`OMSState` is not JSON-serializable as a whole state**, on v2.1.1 exactly as
+  on v2.0.0: `OrderBook` keys orders by the `OrderId` dataclass, which neither
+  `asdict` nor `json.dumps` accepts as a mapping key. Its history logs serialize
+  correctly. Unrelated to append-only logs; not addressed here.
+- **A risk-rejected request does not release its allocation reservation**, so
+  `notional_allocated` over-reports after a risk rejection. Pre-existing; does
+  not gate trading. Not addressed here.
+- `dataclasses.asdict` cannot be extended, so it still returns an
+  `AppendOnlyLog` for a history field. `dataclass_to_dict` /
+  `persistence.serialize` are the supported boundary.
+
+---
+
+## Quality Gates
+
+`ruff check`, `ruff format --check`, `mypy` (strict), `pytest`,
+`git diff --check`, `python -m build` and `twine check dist/*` all pass.
+
+---
+
 # [2.1.0] - 2026-09-04
 
 ## Overview

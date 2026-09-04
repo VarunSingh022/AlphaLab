@@ -59,6 +59,10 @@ from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
 ContextFactory = Callable[[str], StrategyContext]
 
+#: Execution outcomes that produce no report: the order never trades, so its
+#: reservation is released and its OMS order is closed out.
+_NON_TRADING_STATUSES = (FillStatus.REJECTED, FillStatus.EXPIRED, FillStatus.NO_FILL)
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutionPipelineConfig:
@@ -189,8 +193,13 @@ class ExecutionPipeline:
 
         1. The event's price updates the known market prices.
         2. Open positions are marked to market at those prices, so unrealized
-           P&L, NAV and the risk state all reflect the market as of this event
-           *before* anything is decided on it.
+           P&L and NAV reflect the market as of this event *before* anything is
+           decided on it, and the risk state is resynced from the marked book so
+           risk evaluates against the current valuation.
+           Note that the strategy does *not* see the marked portfolio: its
+           context comes from the caller's ``context_factory``, which this
+           pipeline does not populate. Allocation sizes from market prices and
+           its capital budget, not from the portfolio.
         3. Strategy, allocation, risk, OMS, execution and portfolio run.
         4. One portfolio snapshot is recorded for the event, after every fill
            it produced has been applied.
@@ -273,10 +282,10 @@ def _process_requests(
             continue
         current, order = _submit_and_accept_order(current, request, event.timestamp)
         current, new_reports = _execute_order(current, order, fill_status, fill_quantity)
-        # A rejected or expired execution produces no report. The order never
-        # trades, so release its reserved allocation and close it out of the
-        # OMS instead of leaving it open forever awaiting a fill.
-        if not new_reports and fill_status in (FillStatus.REJECTED, FillStatus.EXPIRED):
+        # A rejected, expired or unfilled execution produces no report. The
+        # order never trades, so release its reserved allocation and close it
+        # out of the OMS instead of leaving it open forever awaiting a fill.
+        if not new_reports and fill_status in _NON_TRADING_STATUSES:
             released_notional = request.quantity * request.price
             allocation_state = AllocationEngine.release_reservation(
                 current.allocation, request.order_id, released_notional, event.timestamp
@@ -428,10 +437,19 @@ def _apply_report_to_portfolio(
 def _close_unfilled_order(
     oms: OMSState, order: OMSOrder, fill_status: FillStatus, timestamp: float
 ) -> OMSState:
-    """Move an accepted order the venue never filled into a terminal state."""
+    """Move an accepted order the venue never filled into a terminal state.
+
+    Each non-trading outcome maps to the lifecycle state that describes it:
+    the venue refused the order (REJECTED), it timed out (EXPIRED), or it was
+    simply never filled (NO_FILL). The pipeline mints a fresh order per market
+    event and never re-works an existing one, so an unfilled order will not be
+    worked again and is withdrawn rather than left open.
+    """
 
     if fill_status is FillStatus.EXPIRED:
         return OMSEngine.expire(oms, order.order_id, timestamp)
+    if fill_status is FillStatus.NO_FILL:
+        return OMSEngine.cancel(oms, order.order_id, timestamp)
     return OMSEngine.reject(oms, order.order_id, "Rejected by execution venue", timestamp)
 
 

@@ -112,10 +112,20 @@ ignored, non-positive prices are rejected as invalid market data, and a position
 with no price in `prices` keeps its previous mark. A `MarketValueUpdated` event
 is emitted only when at least one position was actually re-marked.
 
-`ExecutionPipeline.process_market_event` marks **before** the strategy sees the
-event, so strategy, allocation and risk all decide against a portfolio valued at
-the current market. Marks are applied at the event's mid price (quote), close
-(bar) or trade price (tick).
+`ExecutionPipeline.process_market_event` marks **before** any decision is taken
+on the event, and resyncs the risk state from the marked book, so **risk**
+evaluates against a portfolio valued at the current market. Marks are applied at
+the event's mid price (quote), close (bar) or trade price (tick).
+
+Two honest limits on that reach:
+
+- **The strategy does not see the marked portfolio.** `StrategyEngine.process_event`
+  builds each strategy's `StrategyContext` from the caller-supplied
+  `context_factory`; the pipeline does not populate it. A strategy that wants
+  portfolio state must obtain it through its own context factory.
+- **Allocation does not see the portfolio at all.** `AllocationEngine.allocate`
+  sizes from market prices and its `CapitalBudget`, neither of which the mark
+  changes.
 
 `PortfolioValuation.snapshot(state, timestamp, currency)` is the read model:
 cash, long/short/positions value, unrealized and realized P&L, commissions and
@@ -136,17 +146,80 @@ sign: a short's `market_value` is negative, and its unrealized P&L is
   before risk and reports them on `ExecutionPipelineResult.unpriced_requests`.
   Previously the order was submitted and the execution leg raised `KeyError`.
   The condition is per-event: a later quote for the asset makes it tradeable.
-- **A rejected or expired execution is terminal for the order.** The OMS order
-  moves to `REJECTED` / `EXPIRED` and leaves `active_orders`, and the reserved
-  allocation notional is released. Before v2.1 the order stayed `ACCEPTED` and
-  open forever, so open orders never reconciled with fills.
-  `Order.reject` accepts `ACCEPTED` as well as `NEW` / `PENDING` for this
-  reason; an order that has already traded still cannot be rejected.
+- **Every non-trading execution outcome is terminal for the order.** An
+  execution that produces no report moves its OMS order to `REJECTED`
+  (venue rejection), `EXPIRED` (timeout) or `CANCELLED` (`NO_FILL`); the order
+  leaves `active_orders`, and the reserved allocation notional is released
+  exactly once. Before v2.1 the order stayed `ACCEPTED` and open forever, so
+  open orders never reconciled with fills. `Order.reject` accepts `ACCEPTED` as
+  well as `NEW` / `PENDING` for this reason; an order that has already traded
+  still cannot be rejected.
+  A **risk**-rejected request never reaches the OMS at all, but its allocation
+  reservation is still not released -- a pre-existing gap, listed below.
 - **Analytics trade records attribute realized P&L to the fill that produced
   it.** `_trade_record` reads only the portfolio events of the current fill;
   v2.0.0 scanned the whole portfolio history in reverse and could credit an
   opening fill with an earlier close's P&L. (`sector_id="UNCLASSIFIED"` and
   `holding_period_seconds=0.0` are still hard-coded — "D3", deferred.)
+
+## Monetary precision (v2.1)
+
+`alphalab.portfolio.money` holds the portfolio's one and only rounding policy:
+
+1. **Money is exact at the currency minor unit.** Every monetary amount stored
+   in `PortfolioState` -- cash, cost basis, realized P&L, commissions, market
+   value -- is an exact multiple of `0.01`. `to_money` is the only place
+   rounding happens.
+2. **Rounding happens once, at entry.** `PortfolioEngine.apply_fill` rounds the
+   fill's notional and commission as they enter; the cash movement *and* the
+   position's cost basis are then derived from those same rounded values.
+3. **Prices and quantities are inputs, not money.** They keep their own finer
+   precision (`PRICE_QUANT` 1e-4, `SHARE_QUANT` 1e-6) and become money only when
+   multiplied into an amount.
+
+`Position.cost_basis` is the authoritative money figure -- the exact cash paid
+(long) or received (short) for the open quantity. Realized P&L is the difference
+between the money that moved in and the money that moved out; unrealized P&L is
+`market_value - basis`. `average_cost` is derived from the basis and remains the
+reported per-unit cost. When a split is needed (a partial close, or a reversal
+that both closes and opens), one part is rounded and the other is obtained by
+*subtraction*, so the parts always sum to the exact whole.
+
+Because of this, the accounting identity is **exact** -- an identity over exact
+Decimal values, for any price and quantity the engine accepts, not an
+approximation that happens to hold for round numbers:
+
+```
+equity == deposits - withdrawals + realized_pnl + unrealized_pnl - commission_paid
+```
+
+Before this policy, the cash ledger rounded `quantity * price + commission` while
+the position independently rounded `(exit_price - average_cost) * quantity`. Two
+roundings of one economic event disagreed by up to half a cent each and the error
+accumulated: an ordinary penny-spread quote (bid 100.00 / ask 100.01, mid
+100.005) put the identity out by a cent, and randomized multi-asset portfolios
+drifted by up to five.
+
+## Serialization of append-only histories (v2.1)
+
+`dataclasses.asdict` recurses into tuples but deep-copies anything it does not
+recognise, so an `AppendOnlyLog` reached the JSON encoder intact and a `str()`
+fallback persisted it as `"AppendOnlyLog([...])"` -- silently, and passing
+snapshot validation. Two changes fix this at the boundary:
+
+- `alphalab.common.dataclass_to_dict` does its own recursion (`asdict`'s
+  behaviour plus one rule: an `AppendOnlyLog` converts like the tuple it
+  replaced), so histories serialize as sequences of objects.
+- `DeterministicEncoder` handles `Decimal`, dataclasses, `AppendOnlyLog`, `Enum`
+  and `UUID` by explicit branch and **raises `SerializationError` for anything
+  else** instead of coercing it with `str()`. A silent stringify produces a
+  plausible-looking payload that cannot be read back, which is how the defect
+  went unnoticed.
+
+`OMSState` remains unserializable as a whole state, on v2.1 exactly as on
+v2.0.0: `OrderBook` indexes orders by `OrderId`, and neither `asdict` nor
+`json.dumps` accepts a dataclass as a mapping key. Its history logs serialize
+correctly; the limitation is the typed identifier, not the log.
 
 ## Append-only histories and complexity (v2.1)
 
@@ -193,6 +266,13 @@ rather than dict copying, which is a larger change than v2.1 scoped for.
   a deferred product decision.
 - **The OMS order book copies its whole order dict per stored order**, which is
   the execution path's remaining super-linear term (see above).
+- **`OMSState` cannot be JSON-serialized as a whole state** because `OrderBook`
+  keys orders by the `OrderId` dataclass (pre-existing; see above).
+- **A risk-rejected order request does not release its allocation reservation.**
+  `AllocationEngine.allocate` adds the request's notional to
+  `notional_allocated`, and the pipeline skips the request without releasing it,
+  so that field over-reports after any risk rejection. Pre-existing; it does not
+  gate trading, because the budget check reads `available_global_capital`.
 - **Multi-currency valuation is not implemented.** `PortfolioValuation` and
   `NAVCalculator` value the base currency only; FX rates would be needed
   otherwise.
