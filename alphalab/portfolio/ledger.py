@@ -1,16 +1,19 @@
 from dataclasses import dataclass, field
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.portfolio.transaction import Transaction
 
 
 @dataclass(frozen=True, slots=True)
 class TransactionLedger:
-    transactions: tuple[Transaction, ...] = field(default_factory=tuple)
+    """Append-only ledger of every cash and position transaction."""
+
+    transactions: AppendOnlyLog[Transaction] = field(default_factory=AppendOnlyLog)
 
     def append(self, transaction: Transaction) -> "TransactionLedger":
-        return TransactionLedger(transactions=(*self.transactions, transaction))
+        return TransactionLedger(transactions=self.transactions.append(transaction))
 
-    def history(self) -> tuple[Transaction, ...]:
+    def history(self) -> AppendOnlyLog[Transaction]:
         return self.transactions
 
     def between(self, start_time: float, end_time: float) -> tuple[Transaction, ...]:

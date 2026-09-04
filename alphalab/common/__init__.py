@@ -1,5 +1,6 @@
 """Shared foundations for AlphaLab packages."""
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.constants import DEFAULT_ENCODING, DEFAULT_SCHEMA_VERSION, PACKAGE_NAME
 from alphalab.common.events import BaseEvent, CommonEvent
 from alphalab.common.exceptions import (
@@ -32,6 +33,7 @@ __all__ = [
     "AlphaLabRegistryError",
     "AlphaLabSerializationError",
     "AlphaLabValidationError",
+    "AppendOnlyLog",
     "BaseEvent",
     "CommonEvent",
     "Identifier",

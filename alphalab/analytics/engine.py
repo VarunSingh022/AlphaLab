@@ -1,5 +1,6 @@
 """Pure functional Analytics Engine generating historical research reports."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
@@ -53,8 +54,8 @@ class AnalyticsEngine:
     @staticmethod
     def compile_report(
         state: AnalyticsState,
-        snapshots: tuple[PortfolioSnapshot, ...],
-        trades: tuple[TradeRecord, ...],
+        snapshots: Sequence[PortfolioSnapshot],
+        trades: Sequence[TradeRecord],
         timestamp: float,
         years_elapsed: float = 1.0,
         risk_free_rate: float = 0.0,

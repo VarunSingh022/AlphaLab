@@ -12,10 +12,10 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v2.0.0)
+# Implementation Status (v2.1)
 
 Most of this document describes the **target** architecture. This section states
-what is actually built as of v2.0.0 so the two are not confused.
+what is actually built as of v2.1 so the two are not confused.
 
 ## AlphaLab is a library
 
@@ -31,12 +31,17 @@ market event at a time:
 
 ```
 market event (Quote / Bar / Tick)
+   → market price update                 → market_prices
+   → PortfolioEngine.update_market_prices→ positions marked, unrealized P&L      (v2.1)
+   → risk resync from the marked book    → NAV / exposure / margin               (v2.1)
    → StrategyEngine.process_event        → Intents
    → AllocationEngine.allocate           → core.OrderRequest[]   (core.enums.Side)
+   → (drop requests with no market price)→ result.unpriced_requests              (v2.1)
    → RiskEngine.evaluate                 → RiskDecision
    → OMSEngine.submit/accept             → oms.order.Order        (canonical)
    → ExecutionEngine.simulate            → ExecutionReport        (deterministic fills)
    → PortfolioEngine.apply_fill          → cash / positions / realized P&L
+   → PortfolioValuation.snapshot         → one snapshot per market event         (v2.1)
    → AnalyticsEngine.compile_report      → PerformanceReport      (on demand)
 ```
 
@@ -66,10 +71,119 @@ that is **not** wired into `ExecutionPipeline` or into a shared runtime:
 
 See ADR-0008.
 
+## Portfolio accounting and mark-to-market (v2.1)
+
+`PortfolioState` keeps four quantities strictly separated, and the portfolio
+accounting identity ties them together:
+
+```
+equity == deposits - withdrawals + realized_pnl + unrealized_pnl - commission_paid
+```
+
+| Quantity | Where it lives | Moved by |
+| --- | --- | --- |
+| `cash` | `PortfolioState.cash` (`CashLedger`) | deposits, withdrawals, trade proceeds/cost, commissions |
+| `realized_pnl` | `PortfolioState.realized_pnl` (cumulative) | reducing or closing a position |
+| `commission_paid` | `PortfolioState.commission_paid` (cumulative) | every fill, exactly once |
+| unrealized P&L | derived, never stored | marking positions to market |
+
+- **Realized P&L is not a cash movement.** It is already implicit in the entry
+  cost and the exit proceeds, each applied on its own fill. Adding it to cash a
+  second time was the D1 bug fixed in v2.0.0; `realized_pnl` is an accounting
+  total alongside cash, never added into it.
+- **`realized_pnl` and `commission_paid` are account-level and cumulative**, so
+  they survive a position going flat and being dropped from `positions`. Before
+  v2.1, closing a position discarded its realized P&L along with the position.
+- **Commissions never enter a position's cost basis.** `average_cost` stays a
+  clean price; commissions are expensed to cash at fill time.
+- **`PortfolioEngine.apply_fill` rejects malformed fills** (zero quantity,
+  non-positive price, negative commission) with `InvalidTransactionError` rather
+  than producing an incoherent position or ledger entry.
+- **Each fill produces exactly one** position update, cash movement, ledger
+  transaction and portfolio event, so a fill cannot be applied twice.
+
+### Mark-to-market
+
+`PortfolioEngine.update_market_prices(state, prices, timestamp)` is the
+mark-to-market step. It re-prices held positions and touches nothing else --
+cash, realized P&L, commissions and the ledger are all left alone, so the only
+thing a mark moves is unrealized P&L. Prices for assets that are not held are
+ignored, non-positive prices are rejected as invalid market data, and a position
+with no price in `prices` keeps its previous mark. A `MarketValueUpdated` event
+is emitted only when at least one position was actually re-marked.
+
+`ExecutionPipeline.process_market_event` marks **before** the strategy sees the
+event, so strategy, allocation and risk all decide against a portfolio valued at
+the current market. Marks are applied at the event's mid price (quote), close
+(bar) or trade price (tick).
+
+`PortfolioValuation.snapshot(state, timestamp, currency)` is the read model:
+cash, long/short/positions value, unrealized and realized P&L, commissions and
+equity, computed deterministically from the state. It is what
+`ExecutionPipelineResult.valuation` carries and what the analytics
+`PortfolioSnapshot` is projected from. Long and short positions are handled by
+sign: a short's `market_value` is negative, and its unrealized P&L is
+`(average_cost - market_price) * abs(quantity)`.
+
+## Execution guarantees (v2.1)
+
+- **One portfolio snapshot per market event**, recorded after every fill that
+  event produced (plus one at funding time). v2.0.0 recorded a snapshot per fill
+  and none for events that did not trade, so the equity curve had no points
+  where the portfolio was only marked.
+- **A request for an asset with no known market price never reaches the OMS.**
+  Allocation prices unknown assets at `0.00`; the pipeline drops such requests
+  before risk and reports them on `ExecutionPipelineResult.unpriced_requests`.
+  Previously the order was submitted and the execution leg raised `KeyError`.
+  The condition is per-event: a later quote for the asset makes it tradeable.
+- **A rejected or expired execution is terminal for the order.** The OMS order
+  moves to `REJECTED` / `EXPIRED` and leaves `active_orders`, and the reserved
+  allocation notional is released. Before v2.1 the order stayed `ACCEPTED` and
+  open forever, so open orders never reconciled with fills.
+  `Order.reject` accepts `ACCEPTED` as well as `NEW` / `PENDING` for this
+  reason; an order that has already traded still cannot be rejected.
+- **Analytics trade records attribute realized P&L to the fill that produced
+  it.** `_trade_record` reads only the portfolio events of the current fill;
+  v2.0.0 scanned the whole portfolio history in reverse and could credit an
+  opening fill with an earlier close's P&L. (`sector_id="UNCLASSIFIED"` and
+  `holding_period_seconds=0.0` are still hard-coded — "D3", deferred.)
+
+## Append-only histories and complexity (v2.1)
+
+Engine histories (`state.events`, `state.history`, the transaction ledger and the
+pipeline's fill/trade/snapshot accumulators) are
+`alphalab.common.AppendOnlyLog`, not `tuple`. They are still immutable sequences
+with value semantics; the difference is that appending is O(1) amortized instead
+of rebuilding the whole tuple, so a run of N transitions costs O(N) rather than
+O(N^2). Full history is retained — nothing is dropped to gain the speed.
+
+Converted: `risk`, `market`, `execution`, `oms`, `allocation`, `portfolio` and
+`ExecutionPipelineState`. `strategy` and `analytics` histories grow per lifecycle
+transition or per compiled report, not per market event, and were left as tuples.
+
+Measured on the development machine, full history retained in every case:
+
+| Benchmark | v2.0.0 | v2.1 |
+| --- | --- | --- |
+| `benchmark_risk_engine` (100k evaluations) | 285.7s | 1.4s |
+| `benchmarks_market_engine` (100k quotes) | 2,060 ops/sec | 163,816 ops/sec |
+| `benchmarks_market_engine` (100k books) | 640 ops/sec | 165,970 ops/sec |
+| `benchmark_portfolio_engine` (20k fills) | 1.90s | 0.22s |
+
+`benchmark_risk_engine` was 9.5x outside its own 30s budget on v2.0.0, and
+`benchmark_portfolio_engine`'s full 100k-fill workload could not complete at all.
+The cost is now linear in the number of transitions rather than quadratic.
+
+**Residual bottleneck (not fixed in v2.1).** `benchmarks/benchmark_execution_pipeline.py`
+scales ~8x across a 4x workload, down from ~17x on v2.0.0, but that is still
+super-linear. The remaining cost is *not* event accumulation: it is the OMS's
+immutable order book. `OrderBook.add` / `OrderBook.replace` copy the whole order
+dict and `OMSEngine._update_sets` copies both order-id frozensets, once per
+order stored (three stores per order). Fixing it properly needs a persistent map
+rather than dict copying, which is a larger change than v2.1 scoped for.
+
 ## Known gaps and deferred areas
 
-- **Mark-to-market is not implemented.** Positions are not repriced from live
-  quotes between fills.
 - **`replay` does not drive the execution path.** It is a standalone engine;
   nothing in `runtime/` imports it.
 - **`data.feed.Bar` and `market.bar.Bar` are separate, incompatible types**
@@ -77,9 +191,13 @@ See ADR-0008.
 - **`broker` / `brokers`, `marketdata` / `data` / `feed`, `kernel`, and
   `core/events`** overlap or are unused by the execution path; consolidation is
   a deferred product decision.
-- **`ExecutionPipeline._trade_record`** attributes realized P&L by scanning
-  portfolio events in reverse and hard-codes `sector_id="UNCLASSIFIED"` and
-  `holding_period_seconds=0.0` ("D3", deferred).
+- **The OMS order book copies its whole order dict per stored order**, which is
+  the execution path's remaining super-linear term (see above).
+- **Multi-currency valuation is not implemented.** `PortfolioValuation` and
+  `NAVCalculator` value the base currency only; FX rates would be needed
+  otherwise.
+- **`ExecutionPipeline._trade_record`** still hard-codes
+  `sector_id="UNCLASSIFIED"` and `holding_period_seconds=0.0` ("D3", deferred).
 
 See ADR-0009 for the rationale behind the integrated-path / standalone-engine split.
 

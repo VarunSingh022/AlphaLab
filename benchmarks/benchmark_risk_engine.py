@@ -18,6 +18,10 @@ from alphalab.risk import (
     RiskLimits,
 )
 
+# Wall-clock contract for the 100k-evaluation workload. Before v2.1 the engine
+# rebuilt its history tuple on every evaluation and could not finish inside it.
+BUDGET_SECONDS = 30.0
+
 
 def run_benchmark() -> None:
     limits = RiskLimits(
@@ -59,6 +63,18 @@ def run_benchmark() -> None:
     print(f"Risk Evaluation Time: {duration:.4f}s")
     print(f"Throughput: {ops_sec:.2f} evaluations/sec")
     print(f"Total risk events emitted: {len(state.events)}")
+    print(f"Total decisions retained: {len(state.history)}")
+
+    # The workload is only meaningful if the full history is retained: the
+    # engine must stay fast by appending in O(1), not by discarding history.
+    assert len(state.history) == N
+    assert len(state.events) == 2 * N
+
+    if duration > BUDGET_SECONDS:
+        raise SystemExit(
+            f"Risk engine benchmark exceeded its {BUDGET_SECONDS:.0f}s budget "
+            f"({duration:.2f}s). Event accumulation may be quadratic again."
+        )
 
 
 if __name__ == "__main__":

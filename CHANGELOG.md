@@ -8,6 +8,157 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.1.0] - 2026-09-04
+
+## Overview
+
+AlphaLab 2.1.0 is "Execution + Portfolio Correctness". It makes the existing
+execution spine reliable rather than adding new packages: mark-to-market,
+separated portfolio accounting, explicit execution invariants, and the fix for
+the O(N^2) event accumulation that stopped the risk benchmark from completing.
+
+No new packages. No new domain models. `PortfolioState` remains the single
+canonical portfolio state and `oms.order.Order` the single lifecycle order.
+
+---
+
+## Breaking Changes
+
+- **Engine histories are `AppendOnlyLog`, not `tuple`.** `RiskState`,
+  `MarketState`, `ExecutionState`, `OMSState`, `AllocationState`,
+  `PortfolioState`, `TransactionLedger` and the `ExecutionPipelineState`
+  accumulators now hold `alphalab.common.AppendOnlyLog`. It is an immutable
+  `Sequence` and compares equal to tuples and lists, so `len()`, indexing,
+  slicing, iteration, `in`, `reversed()` and `== (...)` are unchanged. Code that
+  required a literal `tuple` (`isinstance(..., tuple)`, tuple concatenation with
+  `+`) must call `.to_tuple()`.
+- **`PortfolioEngine.apply_fill` rejects malformed fills** with
+  `InvalidTransactionError`: zero quantity, non-positive price, or negative
+  commission. These previously produced an incoherent position or ledger entry.
+- **A venue-rejected or expired execution is now terminal for the OMS order.**
+  The order moves to `REJECTED` / `EXPIRED` and leaves `active_orders`;
+  previously it stayed `ACCEPTED` and open forever. `Order.reject` accordingly
+  accepts `ACCEPTED` in addition to `NEW` / `PENDING`.
+- **One portfolio snapshot per market event**, not one per fill.
+  `ExecutionPipelineState.portfolio_snapshots` now also has a point for events
+  that only marked the book and did not trade.
+- **`AnalyticsEngine.compile_report`, `AllocationEngine.allocate` and
+  `calculate_attribution`** accept `Sequence` where they previously required
+  `tuple`. Existing tuple callers are unaffected.
+
+---
+
+## Added
+
+- **Mark-to-market.** `PortfolioEngine.update_market_prices` is now wired into
+  `ExecutionPipeline.process_market_event` and runs *before* the strategy sees
+  the event, so strategy, allocation and risk all decide against a portfolio
+  valued at the current market. It moves unrealized P&L only -- cash, realized
+  P&L, commissions and the ledger are untouched. Non-positive prices are
+  rejected as invalid market data and unheld assets are ignored; a position with
+  no price keeps its previous mark. Emits `MarketValueUpdated` when something was
+  actually re-marked.
+- **`PortfolioValuation.snapshot` / `PortfolioValuationSnapshot`** -- the
+  deterministic read model over `PortfolioState`: cash, long/short/positions
+  value, unrealized and realized P&L, commissions, and equity. Carried on
+  `ExecutionPipelineResult.valuation` and projected into the analytics
+  `PortfolioSnapshot`. Not a second portfolio state.
+- **`PortfolioState.realized_pnl` and `PortfolioState.commission_paid`** --
+  cumulative account totals that survive a position being closed and dropped
+  from `positions`. They satisfy the accounting identity
+  `equity == deposits - withdrawals + realized_pnl + unrealized_pnl - commission_paid`,
+  which the new invariant tests assert after every operation.
+- **`ExecutionPipelineResult.unpriced_requests`** -- order requests dropped
+  because the pipeline had no market price for the asset.
+- **`alphalab.common.AppendOnlyLog`** -- immutable append-only sequence with
+  O(1) amortized append and copy-on-branch structural sharing.
+- **`benchmarks/benchmark_execution_pipeline.py`** -- end-to-end pipeline
+  throughput and scaling benchmark.
+- Tests: `tests/unit/common/test_append_log.py`,
+  `tests/unit/portfolio/test_portfolio_invariants.py`,
+  `tests/integration/test_mark_to_market_pipeline.py`,
+  `tests/regression/test_event_accumulation_complexity.py`.
+
+---
+
+## Fixed
+
+- **O(N^2) event/history accumulation.** Every engine grew its append-only
+  history with `(*state.events, event)`, rebuilding the whole tuple on each
+  transition; N transitions copied O(N^2) elements.
+  Measured on the development machine, with full history retained in every case:
+
+  | Benchmark | v2.0.0 | v2.1 |
+  | --- | --- | --- |
+  | `benchmark_risk_engine` (100k evaluations) | 285.7s | **1.4s** |
+  | `benchmarks_market_engine` (100k quotes) | 2,060 ops/sec | **163,816 ops/sec** |
+  | `benchmarks_market_engine` (100k books) | 640 ops/sec | **165,970 ops/sec** |
+  | `benchmark_portfolio_engine` (20k fills) | 1.90s | **0.22s** |
+  | `benchmark_execution_pipeline` (4000 events) | 6.76s | **~1.8-2.2s** |
+
+  `benchmark_risk_engine` was 9.5x outside its own 30s budget on v2.0.0.
+  `benchmark_portfolio_engine`'s full 100k-fill workload could not complete on
+  v2.0.0 at all; v2.1 runs it in 1.8s. End-to-end, the pipeline benchmark's
+  scaling across a 4x workload dropped from ~17x to ~8x.
+- **Realized P&L was discarded when a position closed.** Closing removes the
+  position from `positions`, taking its `realized_pnl` with it, so account-level
+  realized P&L was unrecoverable after a round trip. It now accumulates on
+  `PortfolioState`.
+- **Analytics trade records could be credited with another fill's P&L.**
+  `ExecutionPipeline._trade_record` scanned the whole portfolio history in
+  reverse for the asset's last realized-P&L event, so an opening fill inherited
+  an earlier close's P&L. It now reads only the events the current fill
+  produced.
+- **An order for an asset with no market price raised `KeyError`.** Allocation
+  prices unknown assets at `0.00`; the pipeline now drops such requests before
+  the OMS and reports them on `unpriced_requests`. The condition is per-event --
+  a later quote makes the asset tradeable.
+- **Venue-rejected orders stayed open forever** in `oms.active_orders`, so open
+  orders never reconciled with fills.
+- **Positions were never repriced between fills**, so unrealized P&L, NAV, risk
+  NAV and the equity curve were stale until the next trade.
+- **`benchmarks/benchmarks_market_engine.py` could never run.** Its first quote
+  carried timestamp `0.0`, which `market.timestamp.is_valid_timestamp` rejects as
+  not strictly positive, so the benchmark raised `MarketValidationError`
+  immediately. The sequence now starts at `1.0`. (Pre-existing on v2.0.0; found
+  while validating the v2.1 benchmark runs.)
+
+---
+
+## Not Changed
+
+- The D1 close-fill cash accounting fix from 2.0.0 stands: realized P&L is still
+  never added to cash on top of the trade proceeds.
+- Commissions still stay out of a position's cost basis; `average_cost` remains
+  a clean price.
+- No package was added, removed, or merged. The standalone-engine /
+  integrated-path split from ADR-0009 is unchanged.
+
+---
+
+## Known Limitations
+
+- **The OMS order book is the execution path's remaining super-linear term.**
+  `OrderBook.add` / `.replace` copy the whole order dict and
+  `OMSEngine._update_sets` copies both order-id frozensets, once per stored
+  order. This is a persistent-map problem, not event accumulation, and was
+  deliberately left out of 2.1.0's scope. `benchmarks/benchmark_execution_pipeline.py`
+  measures it.
+- **Valuation is single-currency.** `PortfolioValuation` and `NAVCalculator`
+  value the base currency only.
+- **`_trade_record` still hard-codes** `sector_id="UNCLASSIFIED"` and
+  `holding_period_seconds=0.0` ("D3", deferred).
+
+---
+
+## Quality Gates
+
+`ruff check`, `ruff format --check`, `mypy` (strict, 840 source files), `pytest`
+(1273 tests), `git diff --check`, `python -m build`, and `twine check dist/*`
+all pass.
+
+---
+
 # [2.0.0] - 2026-09-04
 
 ## Overview

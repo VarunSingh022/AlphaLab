@@ -71,8 +71,15 @@ class Order:
         return replace(self, status=OrderStatus.ACCEPTED, updated_at=timestamp)
 
     def reject(self, timestamp: float) -> Order:
-        """Transitions order to REJECTED state."""
-        if self.status not in {OrderStatus.NEW, OrderStatus.PENDING}:
+        """Transitions order to REJECTED state.
+
+        An order can be rejected before it is working (NEW / PENDING) and also
+        after acceptance, which is what a venue rejection looks like: the OMS
+        accepted the order, the execution venue then refused it. Without the
+        ACCEPTED case such an order would stay open forever with no fills.
+        An order that has already traded cannot be rejected.
+        """
+        if self.status not in {OrderStatus.NEW, OrderStatus.PENDING, OrderStatus.ACCEPTED}:
             raise InvalidTransitionError(f"Cannot reject order in status: {self.status}")
         return replace(self, status=OrderStatus.REJECTED, updated_at=timestamp)
 

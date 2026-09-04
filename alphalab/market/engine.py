@@ -58,8 +58,8 @@ class MarketEngine:
         return replace(
             state,
             latest_ticks=new_ticks,
-            history=(*state.history, event),
-            events=(*state.events, event),
+            history=state.history.append(event),
+            events=state.events.append(event),
         )
 
     @staticmethod
@@ -79,8 +79,8 @@ class MarketEngine:
         return replace(
             state,
             latest_quotes=new_quotes,
-            history=(*state.history, event),
-            events=(*state.events, event),
+            history=state.history.append(event),
+            events=state.events.append(event),
         )
 
     @staticmethod
@@ -100,8 +100,8 @@ class MarketEngine:
         return replace(
             state,
             latest_bars=new_bars,
-            history=(*state.history, event),
-            events=(*state.events, event),
+            history=state.history.append(event),
+            events=state.events.append(event),
         )
 
     @staticmethod
@@ -128,8 +128,8 @@ class MarketEngine:
         return replace(
             state,
             latest_books=new_books,
-            history=(*state.history, event),
-            events=(*state.events, event),
+            history=state.history.append(event),
+            events=state.events.append(event),
         )
 
     @staticmethod
@@ -149,6 +149,6 @@ class MarketEngine:
         return replace(
             state,
             latest_books=new_books,
-            history=(*state.history, event),
-            events=(*state.events, event),
+            history=state.history.append(event),
+            events=state.events.append(event),
         )

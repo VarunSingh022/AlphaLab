@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.market.bar import Bar
 from alphalab.market.events import MarketEvent
 from alphalab.market.quote import Quote
@@ -19,7 +20,7 @@ class MarketState:
     latest_ticks: Mapping[str, Tick] = field(default_factory=dict)
     latest_bars: Mapping[str, Bar] = field(default_factory=dict)
 
-    # In a real high-frequency system, unbounded history is a leak.
-    # Kept as tuple for immutability and test alignment per specs.
-    history: tuple[MarketEvent, ...] = field(default_factory=tuple)
-    events: tuple[MarketEvent, ...] = field(default_factory=tuple)
+    # Unbounded history is still retained; AppendOnlyLog makes growing it
+    # O(1) amortized instead of rebuilding a tuple on every publish.
+    history: AppendOnlyLog[MarketEvent] = field(default_factory=AppendOnlyLog)
+    events: AppendOnlyLog[MarketEvent] = field(default_factory=AppendOnlyLog)

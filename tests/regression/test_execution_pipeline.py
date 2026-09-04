@@ -29,8 +29,14 @@ def test_rejected_execution_does_not_create_fill_trade_or_position() -> None:
         state, _quote(asset_id), _context_factory, FillStatus.REJECTED
     )
 
+    # v2.1: a venue rejection is terminal. Before v2.1 the order was left
+    # ACCEPTED and stayed in oms.active_orders forever, waiting for a fill that
+    # could never arrive, so open orders never reconciled with fills.
     order = result.state.oms.orders.find(result.oms_orders[0].order_id)
-    assert order.status is OrderStatus.ACCEPTED
+    assert order.status is OrderStatus.REJECTED
+    assert order.filled_quantity == Decimal("0")
+    assert order.order_id not in result.state.oms.active_orders
+    assert order.order_id in result.state.oms.completed_orders
     assert result.execution_reports == ()
     assert result.fills == ()
     assert result.trades == ()

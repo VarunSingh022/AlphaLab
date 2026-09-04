@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.execution.events import ExecutionEvent
 from alphalab.execution.report import ExecutionReport
 
@@ -12,5 +13,5 @@ class ExecutionState:
     """Deterministic snapshot of execution history and generated reports."""
 
     reports: Mapping[str, ExecutionReport] = field(default_factory=dict)
-    history: tuple[ExecutionReport, ...] = field(default_factory=tuple)
-    events: tuple[ExecutionEvent, ...] = field(default_factory=tuple)
+    history: AppendOnlyLog[ExecutionReport] = field(default_factory=AppendOnlyLog)
+    events: AppendOnlyLog[ExecutionEvent] = field(default_factory=AppendOnlyLog)

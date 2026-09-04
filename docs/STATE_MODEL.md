@@ -52,6 +52,34 @@ This provides immutability and efficient memory usage.
 
 ---
 
+# Append-only histories
+
+Most state objects carry append-only histories -- `events`, `history`, the
+portfolio's transaction ledger. As of v2.1 these are
+`alphalab.common.AppendOnlyLog`, not `tuple`.
+
+An `AppendOnlyLog` is still an immutable `Sequence` with value semantics:
+`len()`, indexing, slicing, iteration, `in`, `reversed()` and equality against a
+tuple or list all behave as before, and `append()` / `extend()` return a *new*
+log rather than mutating the one they were called on.
+
+What changed is the cost. Growing a tuple with `(*state.events, event)` rebuilds
+the whole tuple, so N transitions copy O(N^2) elements. An `AppendOnlyLog` is a
+view `(buffer, length)` over a shared backing list: appending to the newest
+version pushes onto the shared buffer and returns a longer view, which is O(1)
+amortized. Appending to an *older* version would collide with entries past its
+end, so that case copies the prefix into a fresh buffer -- copy on branch. Older
+views only ever read `buffer[:length]`, so they never observe later appends.
+
+The backing buffer is only ever appended to and is not safe to grow from several
+threads at once; AlphaLab's engines are single-threaded and deterministic.
+
+States using `AppendOnlyLog`: `RiskState`, `MarketState`, `ExecutionState`,
+`OMSState`, `AllocationState`, `PortfolioState`, `TransactionLedger`, and the
+`ExecutionPipelineState` fill / trade / trade-record / snapshot accumulators.
+
+---
+
 # Ownership
 
 Each package owns exactly one primary state object.
@@ -70,6 +98,13 @@ Examples:
 each subsystem state on the integrated execution path (market, strategy,
 allocation, risk, OMS, execution, portfolio, analytics) and is itself a frozen
 dataclass replaced wholesale on every step.
+
+`PortfolioState` is the single canonical portfolio state. It owns cash,
+positions, the transaction ledger, the event log, and the cumulative
+`realized_pnl` and `commission_paid` totals. Unrealized P&L and equity are not
+stored: they are derived by `PortfolioValuation.snapshot`, which is a read model
+over `PortfolioState`, not a second state object. See
+`docs/ARCHITECTURE.md` for the accounting identity these satisfy.
 
 ---
 

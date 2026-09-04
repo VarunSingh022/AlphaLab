@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.events import AllocationEvent
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.core.order_request import OrderRequest
 
 
@@ -13,6 +14,6 @@ class AllocationState:
     """Deterministic snapshot of allocation history and budget utilization."""
 
     budget: CapitalBudget
-    history: tuple[OrderRequest, ...] = field(default_factory=tuple)
-    events: tuple[AllocationEvent, ...] = field(default_factory=tuple)
+    history: AppendOnlyLog[OrderRequest] = field(default_factory=AppendOnlyLog)
+    events: AppendOnlyLog[AllocationEvent] = field(default_factory=AppendOnlyLog)
     notional_allocated: Decimal = Decimal("0.00")

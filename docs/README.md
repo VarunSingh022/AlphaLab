@@ -239,13 +239,18 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v2.0.0
+v2.1.0
 ```
 
-v2.0.0 consolidates the v1.34.0–v1.46.0 engine series, adds the model registry,
-research assistant, deployment manager, and enterprise packages, unifies the
-canonical execution domain models (R1–R4), and fixes two portfolio/analytics
-defects (D1/D2). It contains breaking public API changes — see `../CHANGELOG.md`.
+v2.1.0 — "Execution + Portfolio Correctness" — adds mark-to-market to
+`ExecutionPipeline`, separates the portfolio's cash / realized P&L / unrealized
+P&L / commission accounting, makes execution invariants explicit, and replaces
+the O(N²) tuple-rebuilt engine histories with `common.AppendOnlyLog`. It builds
+on v2.0.0, which consolidated the v1.34.0–v1.46.0 engine series, added the model
+registry, research assistant, deployment manager and enterprise packages,
+unified the canonical execution domain models (R1–R4), and fixed two
+portfolio/analytics defects (D1/D2). Both releases contain breaking public API
+changes — see `../CHANGELOG.md`.
 
 ---
 
