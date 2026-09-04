@@ -8,6 +8,237 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.1.0] - 2026-09-04
+
+## Overview
+
+AlphaLab 2.1.0 is "Execution + Portfolio Correctness". It makes the existing
+execution spine correct and fast rather than adding new packages: mark-to-market,
+a single monetary precision policy with an exact accounting identity, explicit
+execution invariants, correct persistence of engine histories, and the fix for
+the O(N^2) event accumulation that stopped the risk benchmark from completing.
+
+No new packages. No new domain models. `PortfolioState` remains the single
+canonical portfolio state and `oms.order.Order` the single lifecycle order.
+
+---
+
+## Breaking Changes
+
+Public symbols or behaviour changed. Import sites and callers may need updating.
+
+- **Engine histories are `AppendOnlyLog`, not `tuple`.** `RiskState`,
+  `MarketState`, `ExecutionState`, `OMSState`, `AllocationState`,
+  `PortfolioState`, `TransactionLedger` and the `ExecutionPipelineState`
+  accumulators now hold `alphalab.common.AppendOnlyLog`. It is an immutable
+  `Sequence` and compares equal to tuples and lists, so `len()`, indexing,
+  slicing, iteration, `in`, `reversed()` and `== (...)` are unchanged. Code that
+  required a literal `tuple` (`isinstance(..., tuple)`, concatenation with `+`)
+  must call `.to_tuple()`.
+- **`PortfolioEngine.apply_fill` rejects malformed fills** with
+  `InvalidTransactionError`: non-positive price, negative commission, and a
+  quantity that is zero or rounds to zero at `SHARE_QUANT`. These previously
+  produced an incoherent position, a fabricated `PositionClosed` event, or a
+  ledger entry for a trade that did not happen.
+- **Every non-trading execution outcome is terminal for the order.** A
+  rejected, expired or unfilled execution moves the OMS order to `REJECTED` /
+  `EXPIRED` / `CANCELLED` and out of `active_orders`; previously it stayed
+  `ACCEPTED` and open forever. `Order.reject` accordingly accepts `ACCEPTED` in
+  addition to `NEW` / `PENDING`; an order that has already traded still cannot
+  be rejected.
+- **One portfolio snapshot per market event**, not one per fill.
+  `ExecutionPipelineState.portfolio_snapshots` now also has a point for events
+  that only marked the book and did not trade.
+- **`DeterministicEncoder` no longer stringifies unknown objects.** `Decimal`,
+  dataclasses, `AppendOnlyLog`, `Enum` and `UUID` are handled by explicit
+  branch; anything else raises `SerializationError` naming the type. Callers
+  that relied on the previous silent `str()` fallback were receiving payloads
+  that could not be read back.
+- **`AnalyticsEngine.compile_report`, `AllocationEngine.allocate` and
+  `calculate_attribution`** accept `Sequence` where they previously required
+  `tuple`. Existing tuple callers are unaffected.
+
+---
+
+## Added
+
+- **Mark-to-market.** `PortfolioEngine.update_market_prices` is wired into
+  `ExecutionPipeline.process_market_event` and runs *before* any decision is
+  taken on the event, so unrealized P&L and NAV reflect the current market and
+  the risk state is resynced from the marked book. It moves unrealized P&L only
+  -- cash, realized P&L, commissions and the ledger are untouched. Non-positive
+  prices are rejected as invalid market data and unheld assets ignored; a
+  position with no price keeps its previous mark. Emits `MarketValueUpdated`
+  when something was actually re-marked.
+
+  The marked portfolio reaches **risk** only. The strategy's `StrategyContext`
+  comes from the caller's `context_factory`, which the pipeline does not
+  populate, and allocation sizes from market prices and its capital budget.
+- **`PortfolioValuation.snapshot` / `PortfolioValuationSnapshot`** -- the
+  deterministic read model over `PortfolioState`: cash, long/short/positions
+  value, unrealized and realized P&L, commissions, and equity. Carried on
+  `ExecutionPipelineResult.valuation` and projected into the analytics
+  `PortfolioSnapshot`. Not a second portfolio state.
+- **`PortfolioState.realized_pnl` and `PortfolioState.commission_paid`** --
+  cumulative account totals that survive a position being closed and dropped
+  from `positions`.
+- **`alphalab.portfolio.money`** -- the portfolio's single monetary precision
+  policy (see *Monetary precision* below), and **`Position.cost_basis`**, the
+  authoritative money figure it rests on.
+- **`ExecutionPipelineResult.unpriced_requests`** -- order requests dropped
+  because the pipeline had no market price for the asset.
+- **`alphalab.common.AppendOnlyLog`** -- immutable append-only sequence with
+  O(1) amortized append and copy-on-branch structural sharing.
+- **`benchmarks/benchmark_execution_pipeline.py`** -- end-to-end pipeline
+  throughput and scaling benchmark.
+- Tests: `tests/unit/common/test_append_log.py`,
+  `tests/unit/portfolio/test_portfolio_invariants.py`,
+  `tests/unit/portfolio/test_monetary_precision.py`,
+  `tests/integration/test_mark_to_market_pipeline.py`,
+  `tests/regression/test_event_accumulation_complexity.py`,
+  `tests/regression/test_state_serialization.py`.
+
+---
+
+## Monetary precision
+
+`alphalab.portfolio.money` holds one rounding policy for the whole portfolio:
+
+1. **Money is exact at the currency minor unit.** Every monetary amount stored
+   in `PortfolioState` -- cash, cost basis, realized P&L, commissions, market
+   value -- is an exact multiple of `0.01`. `to_money` is the only place
+   rounding happens.
+2. **Rounding happens once, at entry.** `PortfolioEngine.apply_fill` rounds the
+   fill's notional and commission as they enter, and both the cash movement and
+   the position's cost basis are derived from those same rounded values.
+3. **Prices and quantities are inputs, not money.** They keep their own finer
+   precision (`PRICE_QUANT` 1e-4, `SHARE_QUANT` 1e-6).
+
+`Position.cost_basis` is the authoritative money figure -- the exact cash paid
+(long) or received (short) for the open quantity. Realized P&L is the difference
+between money in and money out; unrealized P&L is `market_value - basis`.
+Splits (partial close, reversal) round one part and derive the other by
+subtraction, so the parts always sum to the exact whole. `average_cost` is
+derived from the basis and keeps its meaning; a `Position` constructed without a
+`cost_basis` derives one from `average_cost * |quantity|`.
+
+The accounting identity is therefore **exact** -- an identity over exact Decimal
+values for any price and quantity the engine accepts, not an approximation that
+happens to hold for round numbers:
+
+```
+equity == deposits - withdrawals + realized_pnl + unrealized_pnl - commission_paid
+```
+
+---
+
+## Fixed
+
+- **O(N^2) event/history accumulation.** Every engine grew its append-only
+  history with `(*state.events, event)`, rebuilding the whole tuple on each
+  transition; N transitions copied O(N^2) elements. Measured on the development
+  machine, with full history retained in every case:
+
+  | Benchmark | v2.0.0 | v2.1.0 |
+  | --- | --- | --- |
+  | `benchmark_risk_engine` (100k evaluations) | 285.7s | **1.4s** |
+  | `benchmarks_market_engine` (100k quotes) | 2,060 ops/sec | **~167,000 ops/sec** |
+  | `benchmarks_market_engine` (100k books) | 640 ops/sec | **~165,000 ops/sec** |
+  | `benchmark_portfolio_engine` (20k fills) | 1.90s | **0.22s** |
+  | `benchmark_execution_pipeline` (4000 events) | 6.76s | **~1.8s** |
+
+  `benchmark_risk_engine` was 9.5x outside its own 30s budget on v2.0.0.
+  `benchmark_portfolio_engine`'s full 100k-fill workload could not complete on
+  v2.0.0 at all; it now runs in ~1.9s. End-to-end, the pipeline benchmark's
+  scaling across a 4x workload dropped from ~17x to ~7.5x.
+- **The accounting identity was not exact.** The cash ledger rounded
+  `quantity * price + commission` while the position independently rounded
+  `(exit_price - average_cost) * quantity`. Two roundings of one economic event
+  disagreed by up to half a cent each and the error accumulated: an ordinary
+  penny-spread quote (bid 100.00 / ask 100.01, mid 100.005) put the identity out
+  by $0.01, and randomized multi-asset portfolios drifted by up to $0.05. See
+  *Monetary precision* above.
+- **Append-only histories serialized as a repr string.** `dataclasses.asdict`
+  recurses into tuples but deep-copies anything else, so an `AppendOnlyLog`
+  reached `DeterministicEncoder`, whose `str()` fallback wrote
+  `"events": "AppendOnlyLog([...])"` instead of a JSON array. It raised nothing
+  and passed snapshot validation, so `PersistenceAdapter.to_snapshot` of a
+  migrated state silently persisted unreadable history.
+  `alphalab.common.dataclass_to_dict` now does its own recursion -- `asdict`'s
+  behaviour plus one rule: an `AppendOnlyLog` converts like the tuple it
+  replaced.
+- **Realized P&L was discarded when a position closed.** Closing removes the
+  position from `positions`, taking its `realized_pnl` with it, so account-level
+  realized P&L was unrecoverable after a round trip. It now accumulates on
+  `PortfolioState`.
+- **Analytics trade records could be credited with another fill's P&L.**
+  `ExecutionPipeline._trade_record` scanned the whole portfolio history in
+  reverse for the asset's last realized-P&L event, so an opening fill inherited
+  an earlier close's P&L and the performance report overstated realized P&L on
+  every re-entry. It now reads only the events the current fill produced.
+- **An order for an asset with no market price raised `KeyError`.** Allocation
+  prices unknown assets at `0.00`; the pipeline now drops such requests before
+  the OMS and reports them on `unpriced_requests`. The condition is per-event --
+  a later quote makes the asset tradeable.
+- **`FillStatus.NO_FILL` left the order open.** It now moves the order to
+  `CANCELLED`, removes it from `active_orders`, and releases the allocation
+  reservation exactly once -- fabricating no fill, trade or position.
+- **Venue-rejected orders stayed open forever** in `oms.active_orders`, so open
+  orders never reconciled with fills.
+- **Positions were never repriced between fills**, so unrealized P&L, NAV, risk
+  NAV and the equity curve were stale until the next trade.
+- **`benchmarks/benchmarks_market_engine.py` could never run.** Its first quote
+  carried timestamp `0.0`, which `market.timestamp.is_valid_timestamp` rejects
+  as not strictly positive, so the benchmark raised `MarketValidationError`
+  immediately. The sequence now starts at `1.0`. (Pre-existing on v2.0.0.)
+
+---
+
+## Not Changed
+
+- The D1 close-fill cash accounting fix from 2.0.0 stands: realized P&L is still
+  never added to cash on top of the trade proceeds.
+- Commissions still stay out of a position's cost basis; `average_cost` remains
+  a clean per-unit price.
+- No package was added, removed, or merged. The standalone-engine /
+  integrated-path split from ADR-0009 is unchanged.
+
+---
+
+## Known Limitations
+
+- **The OMS order book is the execution path's remaining super-linear term.**
+  `OrderBook.add` / `.replace` copy the whole order dict and
+  `OMSEngine._update_sets` copies both order-id frozensets, once per stored
+  order. This is a persistent-map problem, not event accumulation, and was
+  deliberately left out of scope. `benchmarks/benchmark_execution_pipeline.py`
+  measures it.
+- **`OMSState` cannot be JSON-serialized as a whole state**, on 2.1.0 exactly as
+  on 2.0.0: `OrderBook` keys orders by the `OrderId` dataclass, which neither
+  `asdict` nor `json.dumps` accepts as a mapping key. Its history logs serialize
+  correctly; the limitation is the typed identifier, not the log.
+- **A risk-rejected request does not release its allocation reservation**, so
+  `notional_allocated` over-reports after a risk rejection. Pre-existing; it
+  does not gate trading, because the budget check reads
+  `available_global_capital`.
+- `dataclasses.asdict` cannot be extended, so it still returns an
+  `AppendOnlyLog` for a history field. `alphalab.common.dataclass_to_dict` and
+  `alphalab.persistence.serialize` are the supported serialization boundary.
+- **Valuation is single-currency.** `PortfolioValuation` and `NAVCalculator`
+  value the base currency only.
+- **`_trade_record` still hard-codes** `sector_id="UNCLASSIFIED"` and
+  `holding_period_seconds=0.0` ("D3", deferred).
+
+---
+
+## Quality Gates
+
+`ruff check`, `ruff format --check`, `mypy` (strict, 843 source files), `pytest`
+(1429 tests), `git diff --check`, `python -m build`, and `twine check dist/*`
+all pass.
+
+---
+
 # [2.0.0] - 2026-09-04
 
 ## Overview

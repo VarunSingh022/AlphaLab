@@ -51,7 +51,7 @@ class RiskEngine:
 
         # Emit start event
         start_event = RiskCheckStarted(RiskEngine._create_id(), timestamp, request)
-        events = (*state.events, start_event)
+        events = state.events.append(start_event)
 
         # Run independent checks
         violations: list[RiskViolation] = []
@@ -78,17 +78,17 @@ class RiskEngine:
             reject_event = RiskRejected(
                 RiskEngine._create_id(), timestamp, decision_id, request.order_id, decision.reason
             )
-            events = (*events, reject_event)
+            events = events.append(reject_event)
         else:
             decision = RiskEngine.approve(decision_id, request, timestamp, state)
             approve_event = RiskApproved(
                 RiskEngine._create_id(), timestamp, decision_id, request.order_id
             )
-            events = (*events, approve_event)
+            events = events.append(approve_event)
 
         new_state = replace(
             state,
-            history=(*state.history, decision),
+            history=state.history.append(decision),
             events=events,
         )
         return new_state, decision
@@ -140,7 +140,7 @@ class RiskEngine:
         return replace(
             state,
             margin=margin,
-            events=(*state.events, event),
+            events=state.events.append(event),
         )
 
     @staticmethod
@@ -152,5 +152,5 @@ class RiskEngine:
         return replace(
             state,
             exposure=exposure,
-            events=(*state.events, event),
+            events=state.events.append(event),
         )

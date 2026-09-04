@@ -36,6 +36,14 @@ below are kept as a historical record of scope.
 v2.0.0 also unified the canonical execution-path domain models (R1–R4) and fixed
 two portfolio/analytics defects (D1/D2). See `CHANGELOG.md`.
 
+v2.1.0 — "Execution + Portfolio Correctness" — added mark-to-market to the
+execution pipeline, separated the portfolio's cash / realized P&L / unrealized
+P&L / commission accounting behind an explicit accounting identity, made
+execution invariants (unpriced requests, terminal rejected orders, per-fill P&L
+attribution) explicit, and fixed the O(N^2) event/history accumulation that had
+prevented `benchmark_risk_engine.py` from completing. No new packages. See
+`CHANGELOG.md`.
+
 ---
 
 # Feature notes (delivered)

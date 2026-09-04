@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.0.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.1.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-1221%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-1429%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -36,23 +36,25 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.0.0**
+**Current Release:** **v2.1.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.0.0 |
-| Tests | **1221 Passing** |
-| Static Typing | **Strict MyPy** (833 source files) |
+| Version | 2.1.0 |
+| Tests | **1429 Passing** |
+| Static Typing | **Strict MyPy** (843 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-v2.0.0 consolidates the v1.34–v1.46 engine series, adds the model registry, research
-assistant, deployment manager, and enterprise packages, and unifies the canonical
-execution domain models. It contains breaking public API changes — see `CHANGELOG.md`.
+v2.1.0 — "Execution + Portfolio Correctness" — adds mark-to-market to the execution
+pipeline, separates the portfolio's cash / realized P&L / unrealized P&L / commission
+accounting behind an explicit accounting identity, makes execution invariants explicit,
+and fixes the O(N²) event accumulation that had stopped the risk benchmark from
+completing. It contains breaking public API changes — see `CHANGELOG.md`.
 
 ---
 
@@ -239,8 +241,8 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 1221 passing tests (1207 unit, 4 integration, 10 regression)
-- ✅ Strict MyPy type checking (833 source files)
+- ✅ 1429 passing tests (1367 unit, 19 integration, 43 regression)
+- ✅ Strict MyPy type checking (843 source files)
 - ✅ Ruff linting and formatting
 - ✅ Source distribution validation
 - ✅ Wheel validation
@@ -264,13 +266,21 @@ reinforcement learning, cloud research, cluster scheduler, experiment tracking.
 Enterprise; canonical execution domain-model unification (`core.enums.Side`,
 `core.OrderRequest`, `oms.order.Order`, float `Fill`/`Trade` timestamps);
 portfolio close/reduce cash-accounting fix; `PerformanceReport` serialization fix.
+
+**v2.1.0** — execution and portfolio correctness: mark-to-market wired into
+`ExecutionPipeline`; account-level realized P&L and commissions; the
+`PortfolioValuation` read model; per-fill P&L attribution; unpriced-request and
+terminal-rejection execution invariants; O(1) amortized append-only histories
+(`common.AppendOnlyLog`) replacing the O(N²) tuple rebuilds.
 See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## Not yet addressed
 
 - A single integrated runtime spanning all engines (only `ExecutionPipeline` is wired today)
 - `replay` integration with the execution path
-- Mark-to-market position repricing
+- The OMS order book copies its whole order dict per stored order — the execution
+  path's remaining super-linear term
+- Multi-currency valuation (`PortfolioValuation` values the base currency only)
 - Consolidation of the overlapping data surfaces (`data` / `market` / `marketdata` / `feed`)
 - Live broker connectivity into `ExecutionPipeline`
 
@@ -300,7 +310,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v2.0.0**
+**AlphaLab v2.1.0**
 
 Building deterministic infrastructure for quantitative research.
 

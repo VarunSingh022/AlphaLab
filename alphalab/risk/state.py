@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.events import RiskEvent
 from alphalab.risk.exposure import ExposureStatus
@@ -24,8 +25,8 @@ class RiskState:
     current_nav: Decimal = Decimal("0.00")
     daily_loss: Decimal = Decimal("0.00")
 
-    history: tuple[RiskDecision, ...] = field(default_factory=tuple)
-    events: tuple[RiskEvent, ...] = field(default_factory=tuple)
+    history: AppendOnlyLog[RiskDecision] = field(default_factory=AppendOnlyLog)
+    events: AppendOnlyLog[RiskEvent] = field(default_factory=AppendOnlyLog)
 
     @property
     def current_drawdown_pct(self) -> Decimal:

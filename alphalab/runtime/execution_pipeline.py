@@ -7,7 +7,7 @@ remains explicit and the canonical core entities are preserved.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from uuid import UUID
@@ -20,6 +20,7 @@ from alphalab.allocation.state import AllocationState
 from alphalab.analytics.attribution import TradeRecord
 from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.order_request import OrderRequest
@@ -41,7 +42,9 @@ from alphalab.oms.status import OrderStatus, OrderType
 from alphalab.oms.status import Side as OMSSide
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
+from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
 from alphalab.portfolio.nav import NAVCalculator
+from alphalab.portfolio.valuation import PortfolioValuation, PortfolioValuationSnapshot
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.engine import RiskEngine
 from alphalab.risk.exposure import ExposureStatus
@@ -55,6 +58,10 @@ from alphalab.strategy.events import Intent
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
 ContextFactory = Callable[[str], StrategyContext]
+
+#: Execution outcomes that produce no report: the order never trades, so its
+#: reservation is released and its OMS order is closed out.
+_NON_TRADING_STATUSES = (FillStatus.REJECTED, FillStatus.EXPIRED, FillStatus.NO_FILL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,10 +105,10 @@ class ExecutionPipelineState:
     portfolio: PortfolioState
     analytics: AnalyticsState
     market_prices: Mapping[str, Decimal] = field(default_factory=dict)
-    fills: tuple[CoreFill, ...] = field(default_factory=tuple)
-    trades: tuple[CoreTrade, ...] = field(default_factory=tuple)
-    trade_records: tuple[TradeRecord, ...] = field(default_factory=tuple)
-    portfolio_snapshots: tuple[PortfolioSnapshot, ...] = field(default_factory=tuple)
+    fills: AppendOnlyLog[CoreFill] = field(default_factory=AppendOnlyLog)
+    trades: AppendOnlyLog[CoreTrade] = field(default_factory=AppendOnlyLog)
+    trade_records: AppendOnlyLog[TradeRecord] = field(default_factory=AppendOnlyLog)
+    portfolio_snapshots: AppendOnlyLog[PortfolioSnapshot] = field(default_factory=AppendOnlyLog)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +124,8 @@ class ExecutionPipelineResult:
     execution_reports: tuple[ExecutionReport, ...]
     fills: tuple[CoreFill, ...]
     trades: tuple[CoreTrade, ...]
+    unpriced_requests: tuple[OrderRequest, ...] = field(default_factory=tuple)
+    valuation: PortfolioValuationSnapshot | None = None
 
 
 class ExecutionPipeline:
@@ -147,7 +156,7 @@ class ExecutionPipeline:
             execution=ExecutionState(),
             portfolio=portfolio,
             analytics=AnalyticsEngine.initialize(),
-            portfolio_snapshots=(snapshot,),
+            portfolio_snapshots=AppendOnlyLog((snapshot,)),
         )
 
     @staticmethod
@@ -178,9 +187,30 @@ class ExecutionPipeline:
         fill_status: FillStatus = FillStatus.FULL_FILL,
         fill_quantity: Decimal | None = None,
     ) -> ExecutionPipelineResult:
-        """Route one market event through strategy, order, execution, and portfolio."""
+        """Route one market event through strategy, order, execution, and portfolio.
+
+        Order of operations, and why:
+
+        1. The event's price updates the known market prices.
+        2. Open positions are marked to market at those prices, so unrealized
+           P&L and NAV reflect the market as of this event *before* anything is
+           decided on it, and the risk state is resynced from the marked book so
+           risk evaluates against the current valuation.
+           Note that the strategy does *not* see the marked portfolio: its
+           context comes from the caller's ``context_factory``, which this
+           pipeline does not populate. Allocation sizes from market prices and
+           its capital budget, not from the portfolio.
+        3. Strategy, allocation, risk, OMS, execution and portfolio run.
+        4. One portfolio snapshot is recorded for the event, after every fill
+           it produced has been applied.
+        """
 
         market_prices = _market_prices_with_event(state.market_prices, event)
+        portfolio = PortfolioEngine.update_market_prices(
+            state.portfolio, market_prices, event.timestamp
+        )
+        risk = _sync_risk_from_portfolio(state.risk, portfolio)
+
         strategy, intents = StrategyEngine.process_event(
             state.strategy, event, context_factory, event.timestamp
         )
@@ -193,7 +223,12 @@ class ExecutionPipeline:
             event.timestamp,
         )
         current = replace(
-            state, strategy=strategy, allocation=allocation, market_prices=market_prices
+            state,
+            strategy=strategy,
+            allocation=allocation,
+            market_prices=market_prices,
+            portfolio=portfolio,
+            risk=risk,
         )
         return _process_requests(current, event, intents, requests, fill_status, fill_quantity)
 
@@ -230,28 +265,48 @@ def _process_requests(
     reports: list[ExecutionReport] = []
     fills: list[CoreFill] = []
     trades: list[CoreTrade] = []
+    unpriced: list[OrderRequest] = []
     current = state
 
     for request in requests:
+        # An order cannot be priced, executed or valued without a market price
+        # for its asset -- allocation prices unknown assets at 0.00. Drop the
+        # request here, deterministically and before it reaches the OMS, rather
+        # than submitting an order the execution leg cannot price.
+        if request.asset_id not in current.market_prices:
+            unpriced.append(request)
+            continue
         current, decision = _evaluate_risk(current, request, event.timestamp)
         decisions.append(decision)
         if not decision.approved:
             continue
         current, order = _submit_and_accept_order(current, request, event.timestamp)
         current, new_reports = _execute_order(current, order, fill_status, fill_quantity)
-        # If execution rejected with no reports, release the reserved allocation
-        if not new_reports and fill_status is FillStatus.REJECTED:
+        # A rejected, expired or unfilled execution produces no report. The
+        # order never trades, so release its reserved allocation and close it
+        # out of the OMS instead of leaving it open forever awaiting a fill.
+        if not new_reports and fill_status in _NON_TRADING_STATUSES:
             released_notional = request.quantity * request.price
             allocation_state = AllocationEngine.release_reservation(
                 current.allocation, request.order_id, released_notional, event.timestamp
             )
-            current = replace(current, allocation=allocation_state)
+            current = replace(
+                current,
+                allocation=allocation_state,
+                oms=_close_unfilled_order(current.oms, order, fill_status, event.timestamp),
+            )
 
         current, new_fills, new_trades = _apply_reports(current, order, new_reports)
         orders.append(order)
         reports.extend(new_reports)
         fills.extend(new_fills)
         trades.extend(new_trades)
+
+    snapshot = _portfolio_snapshot(current.portfolio, current.config.currency, event.timestamp)
+    current = replace(current, portfolio_snapshots=current.portfolio_snapshots.append(snapshot))
+    valuation = PortfolioValuation.snapshot(
+        current.portfolio, event.timestamp, current.config.currency
+    )
 
     return ExecutionPipelineResult(
         current,
@@ -263,6 +318,8 @@ def _process_requests(
         tuple(reports),
         tuple(fills),
         tuple(trades),
+        tuple(unpriced),
+        valuation,
     )
 
 
@@ -329,8 +386,8 @@ def _apply_reports(
     return (
         replace(
             current,
-            fills=(*current.fills, *fills),
-            trades=(*current.trades, *trades),
+            fills=current.fills.extend(fills),
+            trades=current.trades.extend(trades),
         ),
         tuple(fills),
         tuple(trades),
@@ -357,6 +414,7 @@ def _apply_report_to_portfolio(
     state: ExecutionPipelineState, report: ExecutionReport, side: OMSSide
 ) -> ExecutionPipelineState:
     signed_quantity = report.fill_quantity if side is OMSSide.BUY else -report.fill_quantity
+    before = len(state.portfolio.events)
     portfolio = PortfolioEngine.apply_fill(
         state.portfolio,
         report.asset_id,
@@ -366,16 +424,33 @@ def _apply_report_to_portfolio(
         report.timestamp,
         report.currency,
     )
-    snapshot = _portfolio_snapshot(portfolio, state.config.currency, report.timestamp)
     risk = _sync_risk_from_portfolio(state.risk, portfolio)
-    record = _trade_record(report, portfolio)
+    record = _trade_record(report, portfolio.events[before:])
     return replace(
         state,
         portfolio=portfolio,
         risk=risk,
-        trade_records=(*state.trade_records, record),
-        portfolio_snapshots=(*state.portfolio_snapshots, snapshot),
+        trade_records=state.trade_records.append(record),
     )
+
+
+def _close_unfilled_order(
+    oms: OMSState, order: OMSOrder, fill_status: FillStatus, timestamp: float
+) -> OMSState:
+    """Move an accepted order the venue never filled into a terminal state.
+
+    Each non-trading outcome maps to the lifecycle state that describes it:
+    the venue refused the order (REJECTED), it timed out (EXPIRED), or it was
+    simply never filled (NO_FILL). The pipeline mints a fresh order per market
+    event and never re-works an existing one, so an unfilled order will not be
+    worked again and is withdrawn rather than left open.
+    """
+
+    if fill_status is FillStatus.EXPIRED:
+        return OMSEngine.expire(oms, order.order_id, timestamp)
+    if fill_status is FillStatus.NO_FILL:
+        return OMSEngine.cancel(oms, order.order_id, timestamp)
+    return OMSEngine.reject(oms, order.order_id, "Rejected by execution venue", timestamp)
 
 
 def _oms_order(request: OrderRequest) -> OMSOrder:
@@ -415,19 +490,19 @@ def _canonical_execution(report: ExecutionReport, side: CoreSide) -> tuple[CoreF
     return canonical_execution_from_report(report, side)
 
 
-def _trade_record(report: ExecutionReport, portfolio: PortfolioState) -> TradeRecord:
-    # Attempt to extract realized PnL from the portfolio events generated
-    # by `PortfolioEngine.apply_fill`. Prefer the most recent matching
-    # PositionReduced or PositionClosed event for the asset.
+def _trade_record(report: ExecutionReport, fill_events: Sequence[PortfolioEvent]) -> TradeRecord:
+    """Build the analytics trade record for one execution report.
+
+    ``fill_events`` are only the portfolio events this fill produced. Scanning
+    the whole portfolio history instead would attribute an earlier close's
+    realized P&L to an opening fill that realized nothing.
+    """
+
     realized = Decimal("0.00")
-    for evt in reversed(portfolio.events):
+    for evt in fill_events:
         # PositionReduced(timestamp, account_id, asset_id, reduced_quantity, price, realized_pnl)
         # PositionClosed(timestamp, account_id, asset_id, price, realized_pnl)
-        if (
-            hasattr(evt, "asset_id")
-            and evt.asset_id == report.asset_id
-            and hasattr(evt, "realized_pnl")
-        ):
+        if isinstance(evt, PositionReduced | PositionClosed):
             realized = evt.realized_pnl
             break
 
@@ -468,21 +543,15 @@ def _market_price(event: MarketEvent) -> tuple[str, Decimal] | None:
 def _portfolio_snapshot(
     portfolio: PortfolioState, currency: str, timestamp: float
 ) -> PortfolioSnapshot:
-    cash = portfolio.cash.balance(currency)
-    long_value = sum(
-        (p.market_value for p in portfolio.positions.values() if p.market_value > 0),
-        Decimal("0.00"),
-    )
-    short_value = sum(
-        (p.market_value for p in portfolio.positions.values() if p.market_value < 0),
-        Decimal("0.00"),
-    )
+    """Project the canonical portfolio valuation into the analytics snapshot."""
+
+    valuation = PortfolioValuation.snapshot(portfolio, timestamp, currency)
     return PortfolioSnapshot(
         timestamp,
-        NAVCalculator.calculate(portfolio.cash, portfolio.positions, currency),
-        cash,
-        long_value,
-        short_value,
+        valuation.equity,
+        valuation.cash,
+        valuation.long_value,
+        valuation.short_value,
     )
 
 

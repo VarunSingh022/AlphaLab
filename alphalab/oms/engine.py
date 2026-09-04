@@ -40,8 +40,8 @@ class OMSEngine:
 
         return replace(
             state,
-            history=(*state.history, event),
-            events=(*state.events, event),
+            history=state.history.append(event),
+            events=state.events.append(event),
         )
 
     @staticmethod

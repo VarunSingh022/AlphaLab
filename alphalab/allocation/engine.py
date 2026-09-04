@@ -1,6 +1,6 @@
 """Pure functional Allocation Engine."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from decimal import Decimal
 
@@ -41,7 +41,7 @@ class AllocationEngine:
     @staticmethod
     def allocate(
         state: AllocationState,
-        intents: tuple[Intent, ...],
+        intents: Sequence[Intent],
         market_prices: Mapping[str, Decimal],
         sizing_model: SizingModel,
         constraints: AllocationConstraints,
@@ -51,8 +51,9 @@ class AllocationEngine:
         Processes a batch of intents, sizes them, applies cross-strategy netting,
         checks capital budgets, and emits netted OrderRequests.
         """
-        events = list(state.events)
-        events.append(AllocationStarted(AllocationEngine._create_id(), timestamp, len(intents)))
+        events = state.events.append(
+            AllocationStarted(AllocationEngine._create_id(), timestamp, len(intents))
+        )
 
         # 1. Validation
         valid_intents = []
@@ -64,10 +65,12 @@ class AllocationEngine:
                     continue
                 valid_intents.append(intent)
             except Exception as e:
-                events.append(AllocationRejected(AllocationEngine._create_id(), timestamp, str(e)))
+                events = events.append(
+                    AllocationRejected(AllocationEngine._create_id(), timestamp, str(e))
+                )
 
         if not valid_intents:
-            return replace(state, events=tuple(events)), ()
+            return replace(state, events=events), ()
 
         # 2. Sizing
         sized_deltas = IntentAllocator.size_intents(
@@ -88,7 +91,9 @@ class AllocationEngine:
             try:
                 validate_net_quantity(net_qty, enforce_long_only=not constraints.allow_shorting)
             except Exception as e:
-                events.append(AllocationRejected(AllocationEngine._create_id(), timestamp, str(e)))
+                events = events.append(
+                    AllocationRejected(AllocationEngine._create_id(), timestamp, str(e))
+                )
                 continue
 
             if constraints.enforce_integer_quantities:
@@ -101,7 +106,7 @@ class AllocationEngine:
             notional = abs_qty * price
             total_notional += notional
 
-            events.append(
+            events = events.append(
                 NettingCompleted(
                     AllocationEngine._create_id(), timestamp, asset_id, abs_qty, side.name
                 )
@@ -123,16 +128,16 @@ class AllocationEngine:
         available_cap = state.budget.available_global_capital
         if total_notional > available_cap or total_notional > state.budget.maximum_exposure:
             reason = "Requested notional exceeds global capital or exposure limits."
-            events.append(
+            events = events.append(
                 BudgetExceeded(
                     AllocationEngine._create_id(), timestamp, reason, total_notional, available_cap
                 )
             )
             # Strict rejection mode: if batch breaches budget, drop batch.
-            return replace(state, events=tuple(events)), ()
+            return replace(state, events=events), ()
 
         # 6. Finalization
-        events.append(
+        events = events.append(
             AllocationCompleted(
                 AllocationEngine._create_id(), timestamp, len(orders), total_notional
             )
@@ -140,8 +145,8 @@ class AllocationEngine:
 
         new_state = replace(
             state,
-            history=(*state.history, *orders),
-            events=tuple(events),
+            history=state.history.extend(orders),
+            events=events,
             notional_allocated=state.notional_allocated + total_notional,
         )
 
@@ -159,7 +164,7 @@ class AllocationEngine:
         evt = AllocationExecutionApplied(
             AllocationEngine._create_id(), timestamp, order_id, executed_notional
         )
-        return replace(state, notional_allocated=new_notional, events=(*state.events, evt))
+        return replace(state, notional_allocated=new_notional, events=state.events.append(evt))
 
     @staticmethod
     def release_reservation(
@@ -173,4 +178,4 @@ class AllocationEngine:
         evt = AllocationReservationReleased(
             AllocationEngine._create_id(), timestamp, order_id, released_notional
         )
-        return replace(state, notional_allocated=new_notional, events=(*state.events, evt))
+        return replace(state, notional_allocated=new_notional, events=state.events.append(evt))

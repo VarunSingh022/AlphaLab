@@ -3,8 +3,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from alphalab.portfolio.exceptions import InsufficientFundsError
+from alphalab.portfolio.money import CURRENCY_QUANT, to_money
 
-CURRENCY_QUANT = Decimal("0.01")
+__all__ = ["CURRENCY_QUANT", "CashLedger"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,9 +17,7 @@ class CashLedger:
 
     def deposit(self, amount: Decimal, currency: str) -> "CashLedger":
         new_balances = dict(self.balances)
-        new_balances[currency] = new_balances.get(currency, Decimal("0.00")) + amount.quantize(
-            CURRENCY_QUANT
-        )
+        new_balances[currency] = new_balances.get(currency, Decimal("0.00")) + to_money(amount)
         return CashLedger(balances=new_balances, reserved=self.reserved)
 
     def withdraw(self, amount: Decimal, currency: str) -> "CashLedger":
@@ -26,21 +25,19 @@ class CashLedger:
         if avail < amount:
             raise InsufficientFundsError(f"Cannot withdraw {amount} {currency}. Available: {avail}")
         new_balances = dict(self.balances)
-        new_balances[currency] -= amount.quantize(CURRENCY_QUANT)
+        new_balances[currency] -= to_money(amount)
         return CashLedger(balances=new_balances, reserved=self.reserved)
 
     def reserve(self, amount: Decimal, currency: str) -> "CashLedger":
         if self.available_cash(currency) < amount:
             raise InsufficientFundsError("Insufficient funds to reserve.")
         new_reserved = dict(self.reserved)
-        new_reserved[currency] = new_reserved.get(currency, Decimal("0.00")) + amount.quantize(
-            CURRENCY_QUANT
-        )
+        new_reserved[currency] = new_reserved.get(currency, Decimal("0.00")) + to_money(amount)
         return CashLedger(balances=self.balances, reserved=new_reserved)
 
     def release(self, amount: Decimal, currency: str) -> "CashLedger":
         current_res = self.reserved.get(currency, Decimal("0.00"))
-        release_amt = min(amount, current_res).quantize(CURRENCY_QUANT)
+        release_amt = to_money(min(amount, current_res))
         new_reserved = dict(self.reserved)
         new_reserved[currency] = current_res - release_amt
         return CashLedger(balances=self.balances, reserved=new_reserved)

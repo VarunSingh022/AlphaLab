@@ -1,6 +1,6 @@
 """Attribution modeling mapping PnL strictly to entities and domains."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -27,7 +27,7 @@ class AttributionMetrics:
     pnl_by_sector: Mapping[str, Decimal]
 
 
-def calculate_attribution(trades: tuple[TradeRecord, ...]) -> AttributionMetrics:
+def calculate_attribution(trades: Sequence[TradeRecord]) -> AttributionMetrics:
     """Generates immutable PnL groupings based on standard metadata tags."""
     by_strat: dict[str, Decimal] = {}
     by_asset: dict[str, Decimal] = {}

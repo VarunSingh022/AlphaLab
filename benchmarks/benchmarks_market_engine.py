@@ -27,7 +27,9 @@ def run_benchmark() -> None:
     for i in range(N):
         q = Quote(
             "AAPL",
-            float(i),
+            # Timestamps must be strictly positive (market.timestamp.is_valid_timestamp),
+            # so the sequence starts at 1.0 rather than 0.0.
+            float(i) + 1.0,
             Decimal("100"),
             Decimal("101"),
             Decimal("1"),
@@ -42,7 +44,7 @@ def run_benchmark() -> None:
     # 2. Book Publishing
     start = time.perf_counter()
     for i in range(N):
-        book = OrderBookSnapshot("AAPL", float(i), bids, asks, i + 1)
+        book = OrderBookSnapshot("AAPL", float(i) + 1.0, bids, asks, i + 1)
         state = MarketEngine.publish_book(state, book)
     book_time = time.perf_counter() - start
     print(f"Book Publishing: {N / book_time:.2f} ops/sec")

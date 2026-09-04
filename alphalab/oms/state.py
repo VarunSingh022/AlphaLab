@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.oms.book import OrderBook
 from alphalab.oms.events import OMSEvent
 from alphalab.oms.ids import OrderId
@@ -14,5 +15,5 @@ class OMSState:
     orders: OrderBook = field(default_factory=OrderBook)
     active_orders: frozenset[OrderId] = field(default_factory=frozenset)
     completed_orders: frozenset[OrderId] = field(default_factory=frozenset)
-    history: tuple[OMSEvent, ...] = field(default_factory=tuple)
-    events: tuple[OMSEvent, ...] = field(default_factory=tuple)
+    history: AppendOnlyLog[OMSEvent] = field(default_factory=AppendOnlyLog)
+    events: AppendOnlyLog[OMSEvent] = field(default_factory=AppendOnlyLog)

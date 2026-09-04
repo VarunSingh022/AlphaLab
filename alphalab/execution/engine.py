@@ -45,8 +45,8 @@ class ExecutionEngine:
         return replace(
             state,
             reports=new_reports,
-            history=(*state.history, report),
-            events=(*state.events, event),
+            history=state.history.append(report),
+            events=state.events.append(event),
         )
 
     @staticmethod
@@ -72,8 +72,8 @@ class ExecutionEngine:
         return replace(
             state,
             reports=new_reports,
-            history=(*state.history, report),
-            events=(*state.events, event),
+            history=state.history.append(report),
+            events=state.events.append(event),
         )
 
     @staticmethod
@@ -90,7 +90,7 @@ class ExecutionEngine:
             order_id=instruction.order_id,
             reason=reason,
         )
-        return replace(state, events=(*state.events, event))
+        return replace(state, events=state.events.append(event))
 
     @staticmethod
     def expire(
@@ -104,7 +104,7 @@ class ExecutionEngine:
             timestamp=timestamp,
             order_id=instruction.order_id,
         )
-        return replace(state, events=(*state.events, event))
+        return replace(state, events=state.events.append(event))
 
     @staticmethod
     def simulate(
@@ -127,7 +127,7 @@ class ExecutionEngine:
             price=instruction.price,
         )
 
-        state_with_sub = replace(state, events=(*state.events, sub_event))
+        state_with_sub = replace(state, events=state.events.append(sub_event))
 
         # 2. Simulate
         report = simulator.simulate_fill(
