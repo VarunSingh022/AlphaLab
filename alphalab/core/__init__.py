@@ -1,7 +1,6 @@
 """Public core domain API for AlphaLab."""
 
 from alphalab.core.enums import AssetType, EventType, OrderStatus, OrderType, Side, TimeInForce
-from alphalab.core.event import Event
 from alphalab.core.events import (
     DomainEvent,
     EventDispatcher,
@@ -46,14 +45,7 @@ from alphalab.core.ids import (
 )
 from alphalab.core.order import Order
 from alphalab.core.order_request import OrderRequest
-from alphalab.core.portfolio import PortfolioState
-from alphalab.core.position import Position
-from alphalab.core.signal import Signal
 from alphalab.core.trade import Trade
-
-# Compatibility re-export for legacy OMS imports.
-# The canonical business entity remains alphalab.core.order.Order.
-OrderCompat = Order
 
 __all__ = [
     "AccountId",
@@ -62,7 +54,6 @@ __all__ = [
     "AssetType",
     "DomainEvent",
     "DomainValidationError",
-    "Event",
     "EventDispatcher",
     "EventHandler",
     "EventId",
@@ -78,19 +69,15 @@ __all__ = [
     "Metadata",
     "MetadataValue",
     "Order",
-    "OrderCompat",
     "OrderId",
     "OrderRequest",
     "OrderStatus",
     "OrderType",
     "PortfolioId",
-    "PortfolioState",
-    "Position",
     "PositionId",
     "PriorityEventQueue",
     "ReplayEngine",
     "Side",
-    "Signal",
     "SignalId",
     "StrategyId",
     "TimeInForce",
