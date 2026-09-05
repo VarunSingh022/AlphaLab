@@ -45,6 +45,7 @@ from alphalab.lifecycle.identity import (
     COMPONENT_RUN,
     COMPONENT_STRATEGY,
     DeploymentRef,
+    parse_ref,
 )
 from alphalab.lifecycle.promotion import record_stage_change
 from alphalab.lifecycle.state import LifecycleState
@@ -52,6 +53,21 @@ from alphalab.lifecycle.strategy_version import StrategyVersion, get_strategy_ve
 from alphalab.lifecycle.views import active_strategy_version, environments_running
 from alphalab.model_registry.deployment import set_deployment_metadata
 from alphalab.model_registry.registry import DeploymentMetadata, ModelStage, get_version
+
+
+def _strategy_version_of(
+    state: LifecycleState, release_name: str, release_version: int
+) -> StrategyVersion | None:
+    """The strategy version a registered release package names, if it names one."""
+
+    reference = get_release(state.deployments, release_name, release_version).components.get(
+        COMPONENT_STRATEGY
+    )
+    if reference is None:
+        return None
+    name, version = parse_ref(reference)
+    return get_strategy_version(state.strategies, name, version)
+
 
 __all__ = [
     "DEPLOYABLE_STAGES",
@@ -120,6 +136,30 @@ def _release_for(
     )
 
 
+def _require_deployable_model(state: LifecycleState, strategy: StrategyVersion) -> None:
+    """Raise unless the model this version runs is still fit to be deployed.
+
+    Promotion already established this, but a model version can be archived
+    *after* a strategy version was promoted on top of it and before that
+    version is deployed -- to a second environment, or for the first time. The
+    archived artifact would then reach an environment with nothing standing
+    behind it, and ``set_deployment_metadata`` would refuse the note that
+    records where it went. Refusing the deployment is the honest answer;
+    skipping the note quietly is how the registry and the ledger start to
+    disagree again.
+    """
+    if strategy.model is None:
+        return
+    model = get_version(state.models, strategy.model.name, strategy.model.version)
+    if model.stage not in DEPLOYABLE_STAGES:
+        raise LifecycleTransitionError(
+            f"Strategy '{strategy.name}' version {strategy.version} runs model "
+            f"'{strategy.model}', which is now in stage {model.stage.name}; it was "
+            f"{' or '.join(stage.name for stage in DEPLOYABLE_STAGES)} when the "
+            "strategy was promoted. Re-stage the model before deploying."
+        )
+
+
 def _note_model_deployment(
     state: LifecycleState,
     strategy: StrategyVersion,
@@ -133,11 +173,10 @@ def _note_model_deployment(
     ``ModelVersion.deployment`` is a note, and the ledger is the fact. This
     derives the note from the deployment that just happened rather than letting
     a caller assert one, which is what kept the two able to disagree.
+    Callers have already established that the model can carry one, through
+    :func:`_require_deployable_model`.
     """
     if strategy.model is None:
-        return state
-    model = get_version(state.models, strategy.model.name, strategy.model.version)
-    if model.stage not in DEPLOYABLE_STAGES:
         return state
     metadata = DeploymentMetadata(
         environment=environment,
@@ -183,10 +222,11 @@ def deploy_strategy_version(
     Raises:
         LifecycleInputError: If the version is unknown or ``environment`` is
             blank.
-        LifecycleTransitionError: If the version is not staged, or is already
-            the active version in ``environment``. A redeploy of what is already
-            running is refused rather than silently appending a second identical
-            ledger entry; nothing is registered before the refusal.
+        LifecycleTransitionError: If the version is not staged, is already the
+            active version in ``environment``, or runs a model version that has
+            since been archived. A redeploy of what is already running is
+            refused rather than silently appending a second identical ledger
+            entry; nothing is registered before any of these refusals.
     """
     if not environment.strip():
         raise LifecycleInputError("environment cannot be empty.")
@@ -205,6 +245,7 @@ def deploy_strategy_version(
         raise LifecycleTransitionError(
             f"Strategy '{name}' version {version} is already active in '{environment}'."
         )
+    _require_deployable_model(state, strategy)
 
     deployed, package = _release_for(state, strategy, timestamp)
     deployed = replace(
@@ -247,8 +288,11 @@ def rollback_environment(
     being taken down is archived, unless it is still running somewhere else.
 
     Raises:
-        LifecycleInputError: If ``environment`` has never been deployed to, or
-            has had only one deployment and so has nothing to return to.
+        LifecycleInputError: If ``environment`` has never been deployed to, has
+            had only one deployment and so has nothing to return to, or the
+            release it would return to names no strategy version.
+        LifecycleTransitionError: If the version being restored runs a model
+            that has since been archived. Nothing is written before the refusal.
     """
     target = previous_release(state.deployments, environment)
     if target is None:
@@ -257,18 +301,22 @@ def rollback_environment(
         )
 
     outgoing = active_strategy_version(state, environment)
+    restorable = _strategy_version_of(state, *target)
+    if restorable is None:
+        raise LifecycleInputError(
+            f"The release '{target[0]}@{target[1]}' that '{environment}' would return to "
+            "names no strategy version; it was not built by alphalab.lifecycle and "
+            "cannot be rolled back through it."
+        )
+    _require_deployable_model(state, restorable)
+
     try:
         manager = rollback_release(state.deployments, environment, timestamp)
     except DeploymentManagerInputError as error:  # pragma: no cover - guarded above
         raise LifecycleInputError(str(error)) from error
 
     rolled = replace(state, deployments=manager)
-    restored = active_strategy_version(rolled, environment)
-    if restored is None:
-        raise LifecycleInputError(
-            f"The release restored in '{environment}' names no strategy version; it was "
-            "not built by alphalab.lifecycle and cannot be rolled back through it."
-        )
+    restored = restorable
 
     if restored.stage is not ModelStage.PRODUCTION:
         rolled = record_stage_change(

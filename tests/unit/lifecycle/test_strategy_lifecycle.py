@@ -623,3 +623,57 @@ def test_every_stage_change_is_recorded_with_its_reason() -> None:
         (2, "PRODUCTION", "ARCHIVED"),
     ]
     assert all(record.reason for record in state.strategies.promotions)
+
+
+# --------------------------------------------------------------------------- #
+# A model archived after the strategy was promoted
+# --------------------------------------------------------------------------- #
+
+
+def test_deploying_a_strategy_whose_model_was_archived_is_refused() -> None:
+    """Promotion established the model was staged. It can be archived after,
+    and before the strategy is deployed -- which would put an artifact with
+    nothing standing behind it into an environment."""
+    state, ref = _staged()
+    state = replace(state, models=promote(state.models, "momentum", 1, ModelStage.ARCHIVED, 8.0))
+
+    with pytest.raises(LifecycleTransitionError, match="which is now in stage ARCHIVED"):
+        deploy_strategy_version(state, ref.name, ref.version, "paper", 9.0)
+
+
+def test_that_refusal_writes_nothing() -> None:
+    state, ref = _staged()
+    state = replace(state, models=promote(state.models, "momentum", 1, ModelStage.ARCHIVED, 8.0))
+    with pytest.raises(LifecycleTransitionError):
+        deploy_strategy_version(state, ref.name, ref.version, "paper", 9.0)
+
+    assert len(state.deployments.deployments) == 0
+    assert "ma-crossover" not in state.deployments.releases
+    assert _stage(state, ref) is ModelStage.STAGING
+
+
+def test_rolling_back_to_a_version_whose_model_was_archived_is_refused() -> None:
+    """The same rule on the way back: a rollback must restore something still
+    fit to run, not merely something that ran once."""
+    state, first, _ = _two_deployments()
+    # Each staged strategy version got its own model version; v1 runs momentum@1.
+    assert get_strategy_version(state.strategies, first.name, first.version).model == ModelRef(
+        "momentum", 1
+    )
+    state = replace(state, models=promote(state.models, "momentum", 1, ModelStage.ARCHIVED, 13.0))
+
+    with pytest.raises(LifecycleTransitionError, match="which is now in stage ARCHIVED"):
+        rollback_environment(state, "paper", 14.0)
+    assert _stage(state, first) is ModelStage.ARCHIVED
+
+
+def test_a_strategy_with_no_model_is_unaffected_by_that_rule() -> None:
+    state, run_id = _completed_run(LifecycleState())
+    state, ref = register_strategy(
+        state, "rules-only", _definition("r-001", "1"), 5.0, run_id=run_id
+    )
+    state, evidence_id = _with_evidence(state, ref)
+    state = promote_strategy_version(state, ref.name, ref.version, POLICY, evidence_id, 7.0)
+    state, _ = deploy_strategy_version(state, ref.name, ref.version, "paper", 8.0)
+
+    assert _stage(state, ref) is ModelStage.PRODUCTION
