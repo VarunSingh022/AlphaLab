@@ -27,12 +27,12 @@ Together these satisfy the portfolio accounting identity, which
               - commission_paid
 """
 
-import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.ids import new_id
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.cash import CashLedger
 from alphalab.portfolio.events import (
@@ -84,7 +84,7 @@ class PortfolioEngine:
             currency=currency,
         )
         tx = Transaction(
-            transaction_id=str(uuid.uuid4()),
+            transaction_id=str(new_id()),
             timestamp=timestamp,
             account_id=state.account.account_id,
             type=TransactionType.DEPOSIT,
@@ -111,7 +111,7 @@ class PortfolioEngine:
             currency=currency,
         )
         tx = Transaction(
-            transaction_id=str(uuid.uuid4()),
+            transaction_id=str(new_id()),
             timestamp=timestamp,
             account_id=state.account.account_id,
             type=TransactionType.WITHDRAWAL,
@@ -204,7 +204,7 @@ class PortfolioEngine:
 
         tx_type = TransactionType.BUY if quantity > 0 else TransactionType.SELL
         tx = Transaction(
-            str(uuid.uuid4()),
+            str(new_id()),
             timestamp,
             state.account.account_id,
             tx_type,
