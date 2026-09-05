@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 
-from alphalab.brokers.account import AccountSnapshot
+from alphalab.broker.account import BrokerAccount
 from alphalab.brokers.connection import BrokerConnection
 from alphalab.brokers.events import BrokerConnected, BrokerDisconnected, BrokerRegistered
 from alphalab.brokers.exceptions import InvalidBrokerStateError
@@ -76,7 +76,7 @@ class BrokerRegistry:
         return replace(state, connections=new_connections, events=(*state.events, evt))
 
     @staticmethod
-    def add_account(state: BrokerConnectorState, account: AccountSnapshot) -> BrokerConnectorState:
+    def add_account(state: BrokerConnectorState, account: BrokerAccount) -> BrokerConnectorState:
         """Links a financial account to a registered broker."""
         validate_account(state, account.account_id, account.broker_id)
 

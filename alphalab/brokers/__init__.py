@@ -1,5 +1,26 @@
-"""AlphaLab Broker Connector Framework Layer."""
+"""AlphaLab Broker Connector Framework: routing over the canonical boundary.
 
+This package answers "which broker, which account?". The canonical broker
+boundary in :mod:`alphalab.broker` answers "what is an order, a fill, an
+account, a position?" -- and as of v2.3 this package routes those canonical
+types rather than defining a parallel set of its own.
+
+What lives here is what a single-broker adapter has no use for:
+:class:`~alphalab.brokers.connection.BrokerConnection` and
+:class:`~alphalab.brokers.connection.BrokerType` (a registered endpoint),
+:class:`~alphalab.brokers.registry.BrokerRegistry` (registering and connecting
+them), and :class:`~alphalab.brokers.state.BrokerConnectorState` (many brokers,
+many accounts, one immutable value).
+
+``AccountSnapshot``, ``PositionSnapshot``, ``ExecutionReport``, ``BrokerOrder``,
+``OrderStatus`` and ``AssetClass`` remain importable from here and are now the
+canonical types under this package's historical names.
+"""
+
+from alphalab.broker.account import BrokerAccount
+from alphalab.broker.execution import BrokerExecution
+from alphalab.broker.order import BrokerOrder, BrokerOrderStatus
+from alphalab.broker.position import BrokerPosition
 from alphalab.brokers.account import AccountSnapshot
 from alphalab.brokers.adapter import BrokerAdapter
 from alphalab.brokers.connection import BrokerConnection, BrokerType
@@ -22,7 +43,7 @@ from alphalab.brokers.exceptions import (
 )
 from alphalab.brokers.execution import ExecutionReport
 from alphalab.brokers.manager import OrderManager
-from alphalab.brokers.order import BrokerOrder, OrderStatus
+from alphalab.brokers.order import OrderStatus
 from alphalab.brokers.position import AssetClass, PositionSnapshot
 from alphalab.brokers.protocol import BrokerProtocol
 from alphalab.brokers.registry import BrokerRegistry
@@ -48,6 +69,7 @@ from alphalab.core.enums import Side as OrderSide
 __all__ = [
     "AccountSnapshot",
     "AssetClass",
+    "BrokerAccount",
     "BrokerAdapter",
     "BrokerConnected",
     "BrokerConnection",
@@ -56,7 +78,10 @@ __all__ = [
     "BrokerConnectorState",
     "BrokerDisconnected",
     "BrokerEvent",
+    "BrokerExecution",
     "BrokerOrder",
+    "BrokerOrderStatus",
+    "BrokerPosition",
     "BrokerProtocol",
     "BrokerRegistered",
     "BrokerRegistry",

@@ -1,30 +1,20 @@
-"""Immutable models defining portfolio holdings per broker."""
+"""Positions this connector tracks -- the canonical broker position.
 
-from dataclasses import dataclass
-from decimal import Decimal
-from enum import Enum, auto
+``PositionSnapshot`` duplicated :class:`alphalab.broker.position.BrokerPosition`
+and ``AssetClass`` duplicated :class:`alphalab.core.enums.AssetType`. Both are
+now the canonical types. The ``position_id`` field is gone: a position is
+identified by the account and symbol it belongs to, which is exactly the key
+:class:`~alphalab.brokers.state.BrokerConnectorState` stores it under, so the
+field restated the key rather than adding to it.
+"""
 
+from alphalab.broker.position import BrokerPosition
+from alphalab.core.enums import AssetType
 
-class AssetClass(Enum):
-    """Standardized asset classifications."""
+#: Canonical instrument categories, under the name this package has always used.
+AssetClass = AssetType
 
-    EQUITY = auto()
-    FUTURE = auto()
-    OPTION = auto()
-    FOREX = auto()
-    CRYPTO = auto()
+#: The canonical position, under the name this package has always used.
+PositionSnapshot = BrokerPosition
 
-
-@dataclass(frozen=True, slots=True)
-class PositionSnapshot:
-    """Immutable representation of an open asset position at a broker."""
-
-    position_id: str
-    account_id: str
-    symbol: str
-    asset_class: AssetClass
-    quantity: Decimal
-    average_price: Decimal
-    market_price: Decimal
-    unrealized_pnl: Decimal
-    realized_pnl: Decimal
+__all__ = ["AssetClass", "BrokerPosition", "PositionSnapshot"]

@@ -33,7 +33,14 @@ def run_benchmark() -> None:
     state = BrokerConnectorEngine.initialize("BENCH-ENG-01")
     conn = BrokerConnection("B-1", "BenchBroker", BrokerType.PAPER)
     acc = AccountSnapshot(
-        "BENCH-ACC", "B-1", "USD", Decimal("10000000.00"), Decimal("10000000.00"), Decimal("0.00")
+        account_id="BENCH-ACC",
+        cash=Decimal("10000000.00"),
+        equity=Decimal("10000000.00"),
+        buying_power=Decimal("10000000.00"),
+        margin=Decimal("0.00"),
+        available_funds=Decimal("10000000.00"),
+        currency="USD",
+        broker_id="B-1",
     )
 
     state = BrokerConnectorEngine.register_broker(state, conn, 1000.0)
@@ -48,13 +55,13 @@ def run_benchmark() -> None:
     executions = tuple(
         ExecutionReport(
             execution_id=f"E-{i}",
-            order_id=f"O-{i}",
-            account_id="BENCH-ACC",
+            broker_order_id=f"O-{i}",
             symbol="AAPL",
             fill_quantity=Decimal("10"),
             fill_price=Decimal("150.00"),
             commission=Decimal("0.50"),
             timestamp=float(1002 + i),
+            account_id="BENCH-ACC",
         )
         for i in range(N)
     )

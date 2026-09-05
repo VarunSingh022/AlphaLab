@@ -1,10 +1,10 @@
 """Top-level Engine Facade orchestrating all Broker Connector components."""
 
-from alphalab.brokers.account import AccountSnapshot
+from alphalab.broker.account import BrokerAccount
+from alphalab.broker.execution import BrokerExecution
+from alphalab.broker.order import BrokerOrder
 from alphalab.brokers.connection import BrokerConnection
-from alphalab.brokers.execution import ExecutionReport
 from alphalab.brokers.manager import OrderManager
-from alphalab.brokers.order import BrokerOrder
 from alphalab.brokers.registry import BrokerRegistry
 from alphalab.brokers.state import BrokerConnectorState
 
@@ -38,7 +38,7 @@ class BrokerConnectorEngine:
         return BrokerRegistry.disconnect_broker(state, broker_id, reason, timestamp)
 
     @staticmethod
-    def add_account(state: BrokerConnectorState, account: AccountSnapshot) -> BrokerConnectorState:
+    def add_account(state: BrokerConnectorState, account: BrokerAccount) -> BrokerConnectorState:
         return BrokerRegistry.add_account(state, account)
 
     @staticmethod
@@ -49,12 +49,12 @@ class BrokerConnectorEngine:
 
     @staticmethod
     def cancel_order(
-        state: BrokerConnectorState, order_id: str, timestamp: float
+        state: BrokerConnectorState, broker_order_id: str, timestamp: float
     ) -> BrokerConnectorState:
-        return OrderManager.cancel_order(state, order_id, timestamp)
+        return OrderManager.cancel_order(state, broker_order_id, timestamp)
 
     @staticmethod
     def process_execution(
-        state: BrokerConnectorState, execution: ExecutionReport, timestamp: float
+        state: BrokerConnectorState, execution: BrokerExecution, timestamp: float
     ) -> BrokerConnectorState:
         return OrderManager.process_execution(state, execution, timestamp)

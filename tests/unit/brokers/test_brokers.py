@@ -46,11 +46,13 @@ def generic_connection() -> BrokerConnection:
 def generic_account() -> AccountSnapshot:
     return AccountSnapshot(
         account_id="ACC-01",
-        broker_id="IBKR-1",
-        currency="USD",
-        cash_balance=Decimal("100000.00"),
+        cash=Decimal("100000.00"),
+        equity=Decimal("100000.00"),
         buying_power=Decimal("200000.00"),
         margin=Decimal("0.00"),
+        available_funds=Decimal("100000.00"),
+        currency="USD",
+        broker_id="IBKR-1",
     )
 
 
@@ -240,7 +242,7 @@ def test_process_partial_execution(running_state: BrokerConnectorState) -> None:
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
     exec_rpt = ExecutionReport(
-        "E-1", "O-1", "ACC-01", "AAPL", Decimal("40"), Decimal("150.0"), Decimal("1.0"), 1006.0
+        "E-1", "O-1", "AAPL", Decimal("40"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
 
@@ -251,7 +253,7 @@ def test_process_partial_execution(running_state: BrokerConnectorState) -> None:
     acc = get_account(s2, "ACC-01")
     # 100000 - (40*150) - 1 = 93999
     assert acc is not None
-    assert acc.cash_balance == Decimal("93999.00")
+    assert acc.cash == Decimal("93999.00")
 
     pos = list_positions(s2, "ACC-01")[0]
     assert pos.quantity == Decimal("40")
@@ -263,7 +265,7 @@ def test_process_full_execution(running_state: BrokerConnectorState) -> None:
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
     exec_rpt = ExecutionReport(
-        "E-1", "O-1", "ACC-01", "AAPL", Decimal("100"), Decimal("150.0"), Decimal("1.0"), 1006.0
+        "E-1", "O-1", "AAPL", Decimal("100"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
 
@@ -278,7 +280,7 @@ def test_process_overfill_execution(running_state: BrokerConnectorState) -> None
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
     exec_rpt = ExecutionReport(
-        "E-1", "O-1", "ACC-01", "AAPL", Decimal("150"), Decimal("150.0"), Decimal("1.0"), 1006.0
+        "E-1", "O-1", "AAPL", Decimal("150"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
     with pytest.raises(BrokerValidationError, match="overfill"):
         BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
@@ -289,7 +291,7 @@ def test_process_duplicate_execution(running_state: BrokerConnectorState) -> Non
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
     exec_rpt = ExecutionReport(
-        "E-1", "O-1", "ACC-01", "AAPL", Decimal("40"), Decimal("150.0"), Decimal("1.0"), 1006.0
+        "E-1", "O-1", "AAPL", Decimal("40"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
 
@@ -302,7 +304,7 @@ def test_sell_execution_pnl(running_state: BrokerConnectorState) -> None:
     o_buy = BrokerAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
     s1 = BrokerConnectorEngine.submit_order(running_state, o_buy, 1005.0)
     e1 = ExecutionReport(
-        "E-1", "O-1", "ACC-01", "AAPL", Decimal("100"), Decimal("150.0"), Decimal("0.0"), 1006.0
+        "E-1", "O-1", "AAPL", Decimal("100"), Decimal("150.0"), Decimal("0.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, e1, 1006.0)
 
@@ -313,7 +315,7 @@ def test_sell_execution_pnl(running_state: BrokerConnectorState) -> None:
 
     s3 = BrokerConnectorEngine.submit_order(s2, o_sell, 1007.0)
     e2 = ExecutionReport(
-        "E-2", "O-2", "ACC-01", "AAPL", Decimal("50"), Decimal("160.0"), Decimal("0.0"), 1008.0
+        "E-2", "O-2", "AAPL", Decimal("50"), Decimal("160.0"), Decimal("0.0"), 1008.0, "ACC-01"
     )
     s4 = BrokerConnectorEngine.process_execution(s3, e2, 1008.0)
 
@@ -328,7 +330,7 @@ def test_sell_execution_pnl(running_state: BrokerConnectorState) -> None:
     # Cash: 100000 - 15000 + 8000 = 93000
     acc = get_account(s4, "ACC-01")
     assert acc is not None
-    assert acc.cash_balance == Decimal("93000.00")
+    assert acc.cash == Decimal("93000.00")
 
 
 def test_immutability(running_state: BrokerConnectorState) -> None:
@@ -345,7 +347,7 @@ def test_list_executions(running_state: BrokerConnectorState) -> None:
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
     exec_rpt = ExecutionReport(
-        "E-1", "O-1", "ACC-01", "AAPL", Decimal("40"), Decimal("150.0"), Decimal("1.0"), 1006.0
+        "E-1", "O-1", "AAPL", Decimal("40"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
 

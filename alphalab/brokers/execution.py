@@ -1,18 +1,15 @@
-"""Immutable models defining execution reports from brokers."""
+"""Execution reports this connector settles -- the canonical broker execution.
 
-from dataclasses import dataclass
-from decimal import Decimal
+``ExecutionReport`` was a second definition of
+:class:`alphalab.broker.execution.BrokerExecution` that differed only in naming
+its order field ``order_id`` instead of ``broker_order_id``. It is now that
+class, so a fill an adapter produces can be settled by this router without a
+copy, and ``external_id`` is preserved end to end.
+"""
 
+from alphalab.broker.execution import BrokerExecution
 
-@dataclass(frozen=True, slots=True)
-class ExecutionReport:
-    """Immutable record of a partial or complete order fill."""
+#: The canonical execution, under the name this package has always used.
+ExecutionReport = BrokerExecution
 
-    execution_id: str
-    order_id: str
-    account_id: str
-    symbol: str
-    fill_quantity: Decimal
-    fill_price: Decimal
-    commission: Decimal
-    timestamp: float
+__all__ = ["BrokerExecution", "ExecutionReport"]
