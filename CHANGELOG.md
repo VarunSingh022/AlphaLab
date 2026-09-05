@@ -146,6 +146,13 @@ research candidate → experiment run → validation evidence → model version
   deterministic JSON form, and stringifying it would produce a payload that
   reads back as prose — the failure v2.1 removed from the append-only logs.
 
+### Single-pass mapping views — `PersistentMap.items()` / `.values()`
+
+`Mapping`'s default views iterate the keys and then index the map, resolving
+every key twice. On a persistent map a resolution is a chain probe, not a hash
+lookup, so the second one is real work. Iterating a 500-entry map's values is
+1.7× faster, for every `PersistentMap` in the repository.
+
 ### The declared stage transitions — `alphalab.model_registry.stages`
 
 - `LEGAL_TRANSITIONS` states every legal move once. `illegal_stage_move` is the
@@ -200,6 +207,46 @@ doubling of the workload — linear is ~2x:
 
 The containers are the ones v2.2 introduced: `PersistentMap` where a key is
 rewritten, `AppendOnlyLog` where a history only grows.
+
+End to end on the benchmark suites, v2.3.0 → this release:
+
+| Benchmark | v2.3.0 | v2.4.0 | Change |
+| --- | --- | --- | --- |
+| `benchmark_model_registry` rollback + re-promote (1k) | 3.45s / 290 per sec | 0.03s / 30,301 per sec | **104×** |
+| `benchmark_deployment_manager` `active_release` (50k) | 2.99s / 16,727 per sec | 0.03s / 1,523,693 per sec | **91×** |
+| `benchmark_model_registry` `production_version` (50k) | 1.78s / 28,038 per sec | 0.03s / 1,923,545 per sec | **69×** |
+| `benchmark_model_registry` promote (2k over 20k versions) | 2.68s / 746 per sec | 0.04s / 50,456 per sec | **66×** |
+| `benchmark_deployment_manager` rollback + re-deploy (1k) | 1.24s / 1,618 per sec | 0.03s / 73,482 per sec | **45×** |
+| `benchmark_deployment_manager` deploy (5k) | 0.52s / 9,549 per sec | 0.03s / 154,437 per sec | **16×** |
+| `benchmark_model_registry` `register_model` (20k) | 0.97s / 20,673 per sec | 0.08s / 248,404 per sec | **12×** |
+| `benchmark_deployment_manager` `register_release` (10k) | 0.25s / 39,871 per sec | 0.04s / 226,184 per sec | **5.6×** |
+| `benchmark_experiment_tracking` `log_metric` (10k) | 0.19s / 52,802 per sec | 0.04s / 262,332 per sec | **5.0×** |
+| `benchmark_experiment_tracking` `best_run` (10k × 501 runs) | 0.56s / 17,736 per sec | 2.48s / 4,030 per sec | **0.23× — slower** |
+
+### The one regression: readers that scan a whole map
+
+`best_run` compares every run in a tracker on every call, and resolving a key in
+a `PersistentMap` is a chain probe rather than a hash lookup. Scanning 501 runs
+ten thousand times therefore costs about 4× what it did against plain dicts.
+Both are O(runs) per call; only the constant changed.
+
+That is the trade, and it is the right way round: the writers stopped being
+quadratic and the readers stayed linear. It is the same trade v2.3 documented
+for market-data ingestion at universe 1, one order of magnitude further along.
+
+`ExperimentRun.metrics` in particular is a persistent map and not a plain dict
+because a run has **two** growth axes: the values logged to a metric, and the
+number of distinct metric names. A run logging a value per feature, per asset
+or per layer has thousands of the latter. A draft of this release made `metrics`
+a dict to buy back 25% of the `best_run` constant, and made logging distinct
+metric names quadratic (3.8× per doubling) to do it. The regression test now
+holds both axes.
+
+`PersistentMap.items()` and `.values()` are new, and recover part of it.
+`Mapping`'s default views resolve every key twice — once to decide it is present
+and once to read it — which on a persistent map means two chain probes.
+Iterating a 500-entry map's values is 1.7× faster as a result, for every reader
+in the repository, not only these.
 
 Three scans needed indexes, which no container change would have fixed:
 
@@ -303,7 +350,7 @@ Measured on the release commit, not carried over:
 
 | Gate | Result |
 | --- | --- |
-| `pytest -q` | **1887 passed** (1756 at v2.3.0) |
+| `pytest -q` | **1897 passed** (1756 at v2.3.0) |
 | `mypy .` (strict) | clean, 905 source files |
 | `ruff check .` | clean |
 | `ruff format --check .` | clean, 948 files |

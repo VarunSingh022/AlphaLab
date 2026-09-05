@@ -42,7 +42,7 @@ and any state holding one -- iterates and serializes deterministically.
 from __future__ import annotations
 
 from bisect import bisect_left
-from collections.abc import Hashable, Iterable, Iterator, Mapping
+from collections.abc import Hashable, ItemsView, Iterable, Iterator, Mapping, ValuesView
 from collections.abc import Set as AbstractSet
 from typing import Any, Final, TypeVar, cast
 
@@ -162,9 +162,38 @@ class PersistentMap(Mapping[K, V]):
         return self._size
 
     def __iter__(self) -> Iterator[K]:
+        lookup = self._lookup
         for key in self._store.keys:
-            if not isinstance(self._lookup(key), _Missing):
+            if not isinstance(lookup(key), _Missing):
                 yield key
+
+    def _iter_items(self) -> Iterator[tuple[K, V]]:
+        """Every live ``(key, value)`` pair, resolving each key once.
+
+        ``Mapping``'s default views iterate the keys and then index the map,
+        which resolves every key twice: once to decide it is present, once to
+        read it. On a persistent map a resolution is a chain probe rather than a
+        hash lookup, so paying for it twice is worth avoiding -- it made
+        ``values()`` over a 500-entry map about 1.7x slower than it needed to
+        be, which showed up as a regression in every reader that scans a whole
+        map. :meth:`items` and :meth:`values` are built on this.
+        """
+
+        lookup = self._lookup
+        for key in self._store.keys:
+            value = lookup(key)
+            if not isinstance(value, _Missing):
+                yield key, value
+
+    def items(self) -> ItemsView[K, V]:
+        """A view of the map's items, iterating with one lookup per entry."""
+
+        return _PersistentItemsView(self)
+
+    def values(self) -> ValuesView[V]:
+        """A view of the map's values, iterating with one lookup per entry."""
+
+        return _PersistentValuesView(self)
 
     # -- writes -------------------------------------------------------------
 
@@ -207,7 +236,7 @@ class PersistentMap(Mapping[K, V]):
     def to_dict(self) -> dict[K, V]:
         """Return this map's contents as a plain ``dict``, in insertion order."""
 
-        return dict(self.items())
+        return dict(self._iter_items())
 
     def __serializable__(self) -> dict[K, V]:
         """Serialize exactly as the ``dict`` field this map replaced.
@@ -221,6 +250,33 @@ class PersistentMap(Mapping[K, V]):
 
     def __repr__(self) -> str:
         return f"PersistentMap({self.to_dict()!r})"
+
+
+class _PersistentItemsView(ItemsView[K, V]):
+    """``ItemsView`` that iterates a :class:`PersistentMap` in one pass."""
+
+    __slots__ = ("_source",)
+
+    def __init__(self, mapping: PersistentMap[K, V]) -> None:
+        super().__init__(mapping)
+        self._source = mapping
+
+    def __iter__(self) -> Iterator[tuple[K, V]]:
+        return self._source._iter_items()
+
+
+class _PersistentValuesView(ValuesView[V]):
+    """``ValuesView`` that iterates a :class:`PersistentMap` in one pass."""
+
+    __slots__ = ("_source",)
+
+    def __init__(self, mapping: PersistentMap[Any, V]) -> None:
+        super().__init__(mapping)
+        self._source = mapping
+
+    def __iter__(self) -> Iterator[V]:
+        for _, value in self._source._iter_items():
+            yield value
 
 
 class PersistentSet(AbstractSet[T]):

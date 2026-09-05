@@ -218,3 +218,29 @@ def test_deployment_stays_linear_in_the_ledger_before_it() -> None:
         f"Deploying 4,000 releases took {large:.3f}s against {small:.3f}s for 1,000; "
         "the deployment path is scanning the ledger."
     )
+
+
+def _log_distinct_metrics(count: int) -> float:
+    """The second growth axis of a run: distinct metric names, not values."""
+
+    tracker, run_id = start_run(ExperimentTracker(), "bench", {"lr": 0.1}, 0.0)
+    start = time.perf_counter()
+    for i in range(count):
+        tracker = log_metric(tracker, run_id, f"metric-{i}", float(i))
+    return time.perf_counter() - start
+
+
+def test_logging_distinct_metrics_stays_linear_in_the_names_already_logged() -> None:
+    """A run that logs a value per feature, per asset or per layer has thousands
+    of metric names, and rebuilding the name mapping per write is quadratic in
+    exactly that. This is why ``metrics`` is a persistent map and not a dict --
+    a draft that made it a dict, to buy back a constant factor on the read side,
+    scaled at 3.8x per doubling here.
+    """
+    small = _log_distinct_metrics(1_000)
+    large = _log_distinct_metrics(4_000)
+
+    assert large < small * 8.0, (
+        f"Logging 4,000 distinct metric names took {large:.3f}s against {small:.3f}s "
+        "for 1,000; the metric name mapping is being rebuilt per write."
+    )

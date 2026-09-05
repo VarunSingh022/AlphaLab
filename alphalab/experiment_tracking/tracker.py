@@ -20,6 +20,19 @@ values to one metric took 13x as long as logging 2000. They are now a
 of copying, so both are O(1) amortized per write and the value semantics are
 unchanged. Both containers accept and compare equal to the plain ``dict`` /
 ``tuple`` they replaced, so ``run.metrics["loss"] == (0.5, 0.3)`` still holds.
+
+``metrics`` is a persistent map and not a plain ``dict`` because a run has two
+independent growth axes, not one: the values logged to a metric, and the number
+of distinct metric names. A run logging a value per feature, per asset or per
+layer has thousands of the latter, and rebuilding a plain dict on every write
+would be quadratic in exactly that -- which is what
+``tests/regression/test_lifecycle_registry_complexity.py`` holds on both axes.
+
+The cost is a constant one on the read side: resolving a key in a persistent map
+is a chain probe rather than a hash lookup, so a reader that scans every run
+(``comparison.best_run``) is slower than it was against plain dicts. That is the
+trade, and it is the right way round: a reader stays linear either way, and a
+writer does not.
 """
 
 from collections.abc import Mapping, Sequence
