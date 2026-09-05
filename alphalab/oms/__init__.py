@@ -56,6 +56,24 @@ from .exceptions import (
 )
 from .ids import OrderId as OrderId
 from .order import Order as Order
+from .snapshot import (
+    OMSEventRecord as OMSEventRecord,
+)
+from .snapshot import (
+    OMSSnapshot as OMSSnapshot,
+)
+from .snapshot import (
+    SnapshotDecodeError as SnapshotDecodeError,
+)
+from .snapshot import (
+    capture as capture,
+)
+from .snapshot import (
+    from_primitives as from_primitives,
+)
+from .snapshot import (
+    restore as restore,
+)
 from .state import OMSState as OMSState
 from .validation import validate_order as validate_order
 from .views import (
@@ -86,6 +104,8 @@ __all__ = [
     "OMSEngine",
     "OMSError",
     "OMSEvent",
+    "OMSEventRecord",
+    "OMSSnapshot",
     "OMSState",
     "Order",
     "OrderAccepted",
@@ -102,13 +122,17 @@ __all__ = [
     "OrderType",
     "OrderValidationError",
     "Side",
+    "SnapshotDecodeError",
     "UnknownOrderError",
     "active_orders",
+    "capture",
     "completed_orders",
     "filled_volume",
+    "from_primitives",
     "order",
     "orders",
     "orders_for_asset",
     "orders_for_strategy",
+    "restore",
     "validate_order",
 ]

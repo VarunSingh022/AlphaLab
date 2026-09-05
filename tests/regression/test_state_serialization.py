@@ -182,8 +182,9 @@ MIGRATED_STATES = {
     "AllocationState": (_allocation_state, ("events", "history")),
 }
 
-#: OMSState is migrated and its logs must serialize, but the whole state cannot
-#: be JSON-encoded -- see test_oms_state_whole_state_limitation_is_pre_existing.
+#: OMSState is migrated and its logs must serialize. Its whole-state payload
+#: goes through the explicit v2.2 snapshot projection, where each event is
+#: wrapped in a typed record -- see tests/regression/test_oms_state_snapshot.py.
 OMS_LOG_FIELDS = ("events", "history")
 
 
@@ -353,15 +354,28 @@ def test_oms_state_logs_serialize_as_arrays() -> None:
         assert "AppendOnlyLog(" not in json.dumps(decoded)
 
 
-def test_oms_state_whole_state_limitation_is_pre_existing_and_unrelated_to_logs() -> None:
-    """OMSState has never been JSON-serializable, on v2.0.0 or v2.1.
+def test_oms_state_serializes_as_a_whole_state() -> None:
+    """The v2.0.0/v2.1 whole-state limitation is fixed in v2.2.
 
-    `OrderBook` indexes orders by `OrderId`, a dataclass, and neither
-    `dataclasses.asdict` nor `json.dumps` can use a dataclass as a mapping key.
-    That is a typed-identifier problem, not an append-only-log problem: the log
-    fields above serialize correctly. Pinned here so the limitation is explicit
-    rather than discovered again.
+    `OrderBook` indexed orders by `OrderId`, a dataclass, and neither `asdict`
+    nor `json.dumps` can use a dataclass as a mapping key, so the whole state
+    was unserializable. v2.2 keeps the typed key in memory and gives the state
+    an explicit snapshot projection in which orders are an array. Pinned here
+    so the fix cannot silently regress to the old limitation.
     """
 
-    with pytest.raises(SerializationError, match="unhashable type"):
-        serialize(_oms_state())
+    decoded = json.loads(serialize(_oms_state()))
+
+    assert isinstance(decoded["orders"], list)
+    assert len(decoded["orders"]) == 1
+    assert decoded["orders"][0]["status"] == "filled"
+    assert isinstance(decoded["active_orders"], list)
+    assert isinstance(decoded["completed_orders"], list)
+    assert len(decoded["completed_orders"]) == 1
+
+
+def test_a_dataclass_mapping_key_is_still_rejected_rather_than_stringified() -> None:
+    """The projection is explicit; it is not a blanket str() of unknown keys."""
+
+    with pytest.raises(SerializationError):
+        serialize({"book": {OrderId.generate(): "value"}})

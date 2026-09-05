@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import replace
 from decimal import Decimal
 
+from alphalab.common.ids import new_id
 from alphalab.oms.events import (
     OMSEvent,
     OrderAccepted,
@@ -68,20 +68,17 @@ class OMSEngine:
     ) -> OMSState:
         """Update active/completed order sets."""
 
-        active = set(state.active_orders)
-        completed = set(state.completed_orders)
-
         if order.is_open:
-            active.add(order.order_id)
-            completed.discard(order.order_id)
+            active = state.active_orders.add(order.order_id)
+            completed = state.completed_orders.discard(order.order_id)
         else:
-            active.discard(order.order_id)
-            completed.add(order.order_id)
+            active = state.active_orders.discard(order.order_id)
+            completed = state.completed_orders.add(order.order_id)
 
         return replace(
             state,
-            active_orders=frozenset(active),
-            completed_orders=frozenset(completed),
+            active_orders=active,
+            completed_orders=completed,
         )
 
     @staticmethod
@@ -158,7 +155,7 @@ class OMSEngine:
         )
 
         event = OrderSubmitted(
-            event_id=str(uuid.uuid4()),
+            event_id=str(new_id()),
             timestamp=current_timestamp,
             order_id=order.order_id,
             order=order,
@@ -193,7 +190,7 @@ class OMSEngine:
         )
 
         event = OrderAccepted(
-            event_id=str(uuid.uuid4()),
+            event_id=str(new_id()),
             timestamp=timestamp,
             order_id=order_id,
         )
@@ -229,7 +226,7 @@ class OMSEngine:
         )
 
         event = OrderRejected(
-            event_id=str(uuid.uuid4()),
+            event_id=str(new_id()),
             timestamp=timestamp,
             order_id=order_id,
             reason=reason,
@@ -263,7 +260,7 @@ class OMSEngine:
         )
 
         event = OrderCancelled(
-            event_id=str(uuid.uuid4()),
+            event_id=str(new_id()),
             timestamp=timestamp,
             order_id=order_id,
         )
@@ -296,7 +293,7 @@ class OMSEngine:
         )
 
         event = OrderExpired(
-            event_id=str(uuid.uuid4()),
+            event_id=str(new_id()),
             timestamp=timestamp,
             order_id=order_id,
         )
@@ -333,7 +330,7 @@ class OMSEngine:
         )
 
         event = OrderPartiallyFilled(
-            event_id=str(uuid.uuid4()),
+            event_id=str(new_id()),
             timestamp=timestamp,
             order_id=order_id,
             fill_quantity=quantity,
@@ -372,7 +369,7 @@ class OMSEngine:
         )
 
         event = OrderFilled(
-            event_id=str(uuid.uuid4()),
+            event_id=str(new_id()),
             timestamp=timestamp,
             order_id=order_id,
             fill_quantity=quantity,
@@ -411,7 +408,7 @@ class OMSEngine:
         )
 
         event = OrderReplaced(
-            event_id=str(uuid.uuid4()),
+            event_id=str(new_id()),
             timestamp=timestamp,
             order_id=order_id,
             new_quantity=quantity,
