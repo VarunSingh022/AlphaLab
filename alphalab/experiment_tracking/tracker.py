@@ -8,16 +8,54 @@ alphalab.reinforcement_learning), or hyperparameters that aren't just floats (an
 optimizer name, a boolean flag). ExperimentRun and ExperimentTracker provide that,
 independently of alphalab.studio -- see studio_bridge.py for the integration point
 if the simpler studio.ExperimentResult shape is what's specifically wanted instead.
+
+Container choice
+----------------
+A tracker's runs and a run's metric histories are grown one write at a time, and
+every write returns a new immutable value. Copying a ``dict`` or rebuilding a
+``tuple`` per write makes ``N`` writes cost ``O(N^2)``: at v2.3, logging 8000
+values to one metric took 13x as long as logging 2000. They are now a
+:class:`~alphalab.common.persistent_map.PersistentMap` and an
+:class:`~alphalab.common.append_log.AppendOnlyLog`, which share structure instead
+of copying, so both are O(1) amortized per write and the value semantics are
+unchanged. Both containers accept and compare equal to the plain ``dict`` /
+``tuple`` they replaced, so ``run.metrics["loss"] == (0.5, 0.3)`` still holds.
+
+``metrics`` is a persistent map and not a plain ``dict`` because a run has two
+independent growth axes, not one: the values logged to a metric, and the number
+of distinct metric names. A run logging a value per feature, per asset or per
+layer has thousands of the latter, and rebuilding a plain dict on every write
+would be quadratic in exactly that -- which is what
+``tests/regression/test_lifecycle_registry_complexity.py`` holds on both axes.
+
+The cost is a constant one on the read side: resolving a key in a persistent map
+is a chain probe rather than a hash lookup, so a reader that scans every run
+(``comparison.best_run``) is slower than it was against plain dicts. That is the
+trade, and it is the right way round: a reader stays linear either way, and a
+writer does not.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import new_id
+from alphalab.common.persistent_map import PersistentMap
+from alphalab.common.types import ParamValue
 from alphalab.experiment_tracking.exceptions import ExperimentTrackingInputError
 
-ParamValue = str | int | float | bool
+__all__ = [
+    "ExperimentRun",
+    "ExperimentTracker",
+    "ParamValue",
+    "RunStatus",
+    "complete_run",
+    "fail_run",
+    "log_metric",
+    "log_metrics",
+    "start_run",
+]
 
 
 class RunStatus(Enum):
@@ -43,7 +81,9 @@ class ExperimentRun:
         metrics: Named metric histories -- each value is the full sequence of
             logged values for that metric, in the order logged, not just the
             latest. Training loss per epoch, reward per episode, etc. all fit
-            naturally as one growing tuple per metric name.
+            naturally as one growing log per metric name. A plain mapping of
+            sequences is accepted and converted; each history compares equal to
+            the tuple it stands in for.
         parent_run_id: The run this one is a new version of, if any.
         tags: Free-form labels for filtering/grouping.
         created_at: Unix timestamp the run started.
@@ -54,18 +94,46 @@ class ExperimentRun:
     name: str
     status: RunStatus
     parameters: Mapping[str, ParamValue]
-    metrics: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
+    metrics: PersistentMap[str, AppendOnlyLog[float]] = field(default_factory=PersistentMap)
     parent_run_id: str | None = None
     tags: Mapping[str, str] = field(default_factory=dict)
     created_at: float = 0.0
     completed_at: float | None = None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metrics", _as_histories(self.metrics))
+
 
 @dataclass(frozen=True, slots=True)
 class ExperimentTracker:
-    """Immutable collection of every experiment run."""
+    """Immutable collection of every experiment run.
 
-    runs: Mapping[str, ExperimentRun] = field(default_factory=dict)
+    ``runs`` is keyed by ``run_id`` and iterates in the order runs were started.
+    """
+
+    runs: PersistentMap[str, ExperimentRun] = field(default_factory=PersistentMap)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.runs, PersistentMap):
+            object.__setattr__(self, "runs", PersistentMap(self.runs))
+
+
+def _as_histories(
+    metrics: Mapping[str, Sequence[float]],
+) -> PersistentMap[str, AppendOnlyLog[float]]:
+    """Convert a plain mapping of sequences into metric histories.
+
+    Only the outer container's type is checked -- this runs on every ``replace``
+    and so on every logged value; see ``ModelRegistry.__post_init__`` for why
+    inspecting the entries here would be quadratic.
+    """
+
+    if isinstance(metrics, PersistentMap):
+        return metrics
+    return PersistentMap(
+        (name, history if isinstance(history, AppendOnlyLog) else AppendOnlyLog(history))
+        for name, history in metrics.items()
+    )
 
 
 def start_run(
@@ -97,9 +165,7 @@ def start_run(
         tags=dict(tags) if tags else {},
         created_at=timestamp,
     )
-    new_runs = dict(tracker.runs)
-    new_runs[run_id] = run
-    return ExperimentTracker(runs=new_runs), run_id
+    return ExperimentTracker(runs=tracker.runs.set(run_id, run)), run_id
 
 
 def log_metric(
@@ -120,14 +186,9 @@ def log_metric(
             "only RUNNING runs accept metrics."
         )
 
-    new_metrics = dict(run.metrics)
-    existing = new_metrics.get(metric_name, ())
-    new_metrics[metric_name] = (*existing, value)
-    updated_run = replace(run, metrics=new_metrics)
-
-    new_runs = dict(tracker.runs)
-    new_runs[run_id] = updated_run
-    return ExperimentTracker(runs=new_runs)
+    history = run.metrics.get(metric_name, AppendOnlyLog[float]())
+    updated_run = replace(run, metrics=run.metrics.set(metric_name, history.append(value)))
+    return ExperimentTracker(runs=tracker.runs.set(run_id, updated_run))
 
 
 def log_metrics(
@@ -151,9 +212,7 @@ def _transition(
             f"Run '{run_id}' has status {run.status.name}, not RUNNING; cannot transition."
         )
     updated_run = replace(run, status=new_status, completed_at=timestamp)
-    new_runs = dict(tracker.runs)
-    new_runs[run_id] = updated_run
-    return ExperimentTracker(runs=new_runs)
+    return ExperimentTracker(runs=tracker.runs.set(run_id, updated_run))
 
 
 def complete_run(tracker: ExperimentTracker, run_id: str, timestamp: float) -> ExperimentTracker:

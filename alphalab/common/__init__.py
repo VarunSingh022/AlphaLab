@@ -25,7 +25,7 @@ from alphalab.common.point_in_time import known_as_of as generic_known_as_of
 from alphalab.common.results import Result
 from alphalab.common.serialization import dataclass_to_dict
 from alphalab.common.time import ensure_timezone_aware, to_utc, utc_now
-from alphalab.common.types import MetadataMapping, MetadataValue
+from alphalab.common.types import MetadataMapping, MetadataValue, ParamValue
 from alphalab.common.validators import (
     require_non_empty_string,
     require_non_negative_int,
@@ -50,6 +50,7 @@ __all__ = [
     "Metadata",
     "MetadataMapping",
     "MetadataValue",
+    "ParamValue",
     "PointInTimeRecord",
     "Registry",
     "Result",

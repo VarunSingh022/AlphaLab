@@ -18,6 +18,20 @@ alongside its metadata and stage; :func:`get_model` recovers it with a checked
 type. Nothing here serializes models to disk -- state is threaded functionally
 through immutable ``ModelRegistry`` values, exactly as the rest of the recent
 engines do.
+
+A version may also carry an :class:`ArtifactRef`: where the trained bytes live,
+what they should hash to, and how big they are. AlphaLab never reads, writes or
+hashes those bytes -- there is no object store here and this release does not
+pretend otherwise. The reference is what makes a registry snapshot useful
+anyway, because :meth:`ModelVersion.__serializable__` projects a version to its
+metadata and references rather than stringifying the model object.
+
+Which stage moves are legal is declared in
+:mod:`alphalab.model_registry.stages`, not left implicit. The registry is
+mechanism: it refuses incoherent moves (a demotion out of ``PRODUCTION``, an
+archived version resurrected into production without being the one to roll back
+to) and records what happened. Requiring *evidence* before a promotion is
+policy, and lives in :mod:`alphalab.lifecycle`.
 """
 
 from alphalab.model_registry.deployment import (
@@ -33,6 +47,7 @@ from alphalab.model_registry.promotion import (
     versions_in_stage,
 )
 from alphalab.model_registry.registry import (
+    ArtifactRef,
     DeploymentMetadata,
     ModelRegistry,
     ModelStage,
@@ -46,13 +61,17 @@ from alphalab.model_registry.registry import (
     model_names,
     register_model,
 )
-from alphalab.model_registry.rollback import (
+from alphalab.model_registry.rollback import promotion_history, rollback
+from alphalab.model_registry.stages import (
+    LEGAL_TRANSITIONS,
+    illegal_stage_move,
     previous_production_version,
-    promotion_history,
-    rollback,
+    validate_transition,
 )
 
 __all__ = [
+    "LEGAL_TRANSITIONS",
+    "ArtifactRef",
     "DeploymentMetadata",
     "ModelRegistry",
     "ModelRegistryError",
@@ -65,6 +84,7 @@ __all__ = [
     "deployment_metadata",
     "get_model",
     "get_version",
+    "illegal_stage_move",
     "latest_version",
     "list_versions",
     "model_names",
@@ -76,5 +96,6 @@ __all__ = [
     "rollback",
     "set_deployment_metadata",
     "staging_version",
+    "validate_transition",
     "versions_in_stage",
 ]

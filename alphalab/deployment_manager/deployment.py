@@ -7,6 +7,7 @@ never loses the record of what was live before.
 
 from dataclasses import replace
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.deployment_manager.exceptions import DeploymentManagerInputError
 from alphalab.deployment_manager.packaging import ReleasePackage, verify_checksum
 from alphalab.deployment_manager.releases import (
@@ -23,6 +24,8 @@ def record_deployment(
     is_rollback: bool,
     timestamp: float,
 ) -> DeploymentManager:
+    """Append one deployment to the ledger and to its environment's index."""
+
     incumbent = active_release(manager, environment)
     record = DeploymentRecord(
         environment=environment,
@@ -32,7 +35,12 @@ def record_deployment(
         is_rollback=is_rollback,
         timestamp=timestamp,
     )
-    return replace(manager, deployments=(*manager.deployments, record))
+    history = manager.environments.get(environment, AppendOnlyLog[DeploymentRecord]())
+    return replace(
+        manager,
+        deployments=manager.deployments.append(record),
+        environments=manager.environments.set(environment, history.append(record)),
+    )
 
 
 def deploy(
@@ -68,17 +76,18 @@ def deploy(
 
 
 def active_release(manager: DeploymentManager, environment: str) -> ReleasePackage | None:
-    """Returns the release currently active in ``environment``, or ``None``."""
-    for record in reversed(manager.deployments):
-        if record.environment == environment:
-            return get_release(manager, record.release_name, record.version)
-    return None
+    """Returns the release currently active in ``environment``, or ``None``.
+
+    The environment's newest ledger entry, read from the environment index, so
+    this is O(1) and safe to call from the deployment path.
+    """
+    history = manager.environments.get(environment)
+    if not history:
+        return None
+    record = history[-1]
+    return get_release(manager, record.release_name, record.version)
 
 
 def deployed_environments(manager: DeploymentManager) -> tuple[str, ...]:
     """Returns every environment that has ever been deployed to, in first-seen order."""
-    seen: list[str] = []
-    for record in manager.deployments:
-        if record.environment not in seen:
-            seen.append(record.environment)
-    return tuple(seen)
+    return tuple(manager.environments)

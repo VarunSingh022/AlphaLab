@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline` and the packages that drive it — `alphalab.backtesting` and `alphalab.runtime.session` — actually wire a group of them together. See the **Implementation Status (v2.3)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline` and the packages that drive it — `alphalab.backtesting` and `alphalab.runtime.session` — and, separately, `alphalab.lifecycle`, actually wire a group of them together. See the **Implementation Status (v2.4)** section below.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 
@@ -12,10 +12,20 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v2.3)
+# Implementation Status (v2.4)
 
 Most of this document describes the **target** architecture. This section states
-what is actually built as of v2.3 so the two are not confused.
+what is actually built as of v2.4 so the two are not confused.
+
+There are **two** wired-together paths, and they are deliberately not joined:
+
+| Path | Package | Answers |
+| --- | --- | --- |
+| Execution | `runtime.ExecutionPipeline`, driven by `backtesting` and `runtime.session` | what happens to one market event |
+| Lifecycle | `alphalab.lifecycle` | which strategy version an environment should be running, and why |
+
+A deployment names what should run; running it is the execution path's job. The
+caller joins them.
 
 ## AlphaLab is a library
 
@@ -264,23 +274,114 @@ from outside this repository.
 
 See ADR-0012.
 
+## The model and strategy lifecycle: `alphalab.lifecycle` (v2.4)
+
+The third integration package. It adds no engine and no state any of the four
+packages it composes already defines.
+
+```
+research candidate         (research_assistant.generate_candidates)
+   → StrategyDefinition    (research_assistant.to_strategy_definition — canonical)
+   → experiment run        (experiment_tracking: parameters, metric history)
+   → model version         (model_registry: staged, cites the run)
+   → strategy version      (lifecycle.StrategyVersion: immutable, numbered)
+   → validation evidence   (from analytics.PerformanceReport / research.ResearchScore)
+   → promotion             (lifecycle.promote_strategy_version — gated)
+   → deployment            (deployment_manager: checksummed release + env ledger)
+   → rollback              (lifecycle.rollback_environment)
+```
+
+### The four identities it keeps apart
+
+| Identity | Type | Not to be confused with |
+| --- | --- | --- |
+| Strategy line | `StrategyVersion.name` | any one version of it |
+| Strategy version | `StrategyVersionRef(name, version)` | the model it runs |
+| Model version | `ModelRef(name, version)` | the strategy version referencing it |
+| Deployment | `DeploymentRef(environment, release, version)` | the version deployed — one version in two environments is two deployments |
+
+References render as `"name@version"`, the form `deployment_manager` already
+documented for release components, and a name containing `"@"` is refused at
+construction. `ModelRef` and `StrategyVersionRef` render identically and do not
+compare equal, which is the whole point of them being separate types.
+
+### Stages, and what is refused
+
+`ModelStage` (`NONE` → `STAGING` → `PRODUCTION` → `ARCHIVED`) is AlphaLab's one
+stage vocabulary for a registered, promotable artifact, and stages both model
+versions and strategy versions. It is unrelated to
+`strategy.LifecycleState` (`CREATED` … `DISPOSED`), which tracks a strategy
+*instance running inside a session*: a deployed strategy version is started and
+stopped many times without its stage changing.
+
+| Attempted move | Answer |
+| --- | --- |
+| `NONE → STAGING` without passing evidence | Refused by `alphalab.lifecycle` |
+| `NONE → STAGING` when the model version is not itself staged | Refused — a strategy cannot be more validated than the model in it |
+| anything `→ PRODUCTION` by promotion | Refused — a version goes live by being *deployed* |
+| `PRODUCTION → STAGING` | Refused by `model_registry.stages` — a live version leaves production by being archived or replaced |
+| `ARCHIVED → PRODUCTION`, version never live | Refused — a resurrection, not a rollback |
+| `ARCHIVED → PRODUCTION`, version is the rollback target | Allowed — this *is* rollback |
+| `PRODUCTION → ARCHIVED` while still live elsewhere | Refused — roll back or replace it |
+| `anything → NONE` | Refused — `NONE` is initial-only |
+
+`model_registry.promote` remains the mechanism and refuses only what is
+incoherent; the evidence gate is policy and lives in `alphalab.lifecycle`.
+
+### One source of truth for what is live
+
+The `deployment_manager` ledger, and nothing else.
+`StrategyVersionRegistry` carries no production index, deliberately — a second
+copy would be a second thing to keep true. `model_registry.DeploymentMetadata`
+remains as a *note* on a version, and the integrated path derives it from the
+deployment that happened.
+
+### Validation evidence
+
+| Property | Behaviour |
+| --- | --- |
+| Where the numbers come from | `analytics.PerformanceReport` (via `BacktestResult`) or `research.ResearchScore`. Extracted, never recomputed |
+| Identity | SHA-256 digest of method + subject + dataset + seed + sorted metrics, the same construction `compute_checksum` uses for a release manifest |
+| Tampering | `verify_evidence_id` fails, and `evaluate_policy` checks it before reading any threshold |
+| A metric the policy asks for and the evidence lacks | A failure. An absent number is not a passing one |
+| Failures reported | All of them, in policy order — never just the first |
+| What a pass claims | The stated thresholds were met. **Not** statistical significance, out-of-sample validity, or a multiple-testing correction |
+
+### Artifacts
+
+`ArtifactRef` records a location, media type, checksum and size.
+**AlphaLab never reads, writes or hashes those bytes**; there is no object store
+here. `ModelVersion.__serializable__` projects a version to metadata plus that
+reference, so a registry snapshot is metadata and references by construction
+rather than a stringified model object.
+
+### What a deployment is not
+
+It is a lifecycle fact. Making a release active in `"live-eu"` records that
+`"live-eu"` should be running that strategy version. It starts no process, opens
+no connection, and reaches no venue.
+
+See ADR-0013.
+
 ## Standalone engine libraries
 
 Everything else is an independent, deterministic, individually tested library
-that is **not** wired into `ExecutionPipeline`, `backtesting`, or a shared
-runtime: `research`, `portfolio_optimizer`, `optimizer`, `reporting`,
+that is **not** wired into `ExecutionPipeline`, `backtesting`, `lifecycle`, or a
+shared runtime: `portfolio_optimizer`, `optimizer`, `reporting`,
 `feature_store`, `factor_library`, `alt_data`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
-`cloud_research`, `cluster_scheduler`, `distributed`, `experiment_tracking`,
-`model_registry`, `deployment_manager`, `research_assistant`, `studio`,
+`cloud_research`, `cluster_scheduler`, `distributed`, `studio`,
 `workbench`, `enterprise`, `live`, `production`, `brokers`, `integrations`,
 `data`, `marketdata`, `feed`, `kernel`, `plugins`, `scheduler`, `persistence`.
 
 As of v2.3, `alphalab.broker` is reachable from the execution path through
 `alphalab.runtime.broker_routing`, and `alphalab.data.feed` /
 `alphalab.marketdata.feed` supply the wire records
-`alphalab.market.normalization` lifts. The rest of those packages, `brokers`
-and `live` included, remain standalone.
+`alphalab.market.normalization` lifts. As of v2.4, `experiment_tracking`,
+`model_registry`, `deployment_manager` and `research_assistant` are composed by
+`alphalab.lifecycle`, and `research` / `analytics` supply the reports it
+extracts evidence from — `research` itself is otherwise still standalone. The
+rest of those packages, `brokers` and `live` included, remain standalone.
 
 ## Canonical domain models (v2.0.0, R1–R4)
 

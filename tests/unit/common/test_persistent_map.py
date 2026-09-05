@@ -200,3 +200,52 @@ def test_set_iterates_in_insertion_order_and_serializes_as_an_array() -> None:
 
     assert list(members) == ["c", "a", "b"]
     assert members.__serializable__() == ("c", "a", "b")
+
+
+# ---------------------------------------------------------------------------
+# Views (v2.4)
+# ---------------------------------------------------------------------------
+
+
+def test_values_and_items_agree_with_the_mapping() -> None:
+    built: PersistentMap[str, int] = PersistentMap({"a": 1, "b": 2, "c": 3})
+
+    assert list(built.values()) == [1, 2, 3]
+    assert list(built.items()) == [("a", 1), ("b", 2), ("c", 3)]
+    assert dict(built.items()) == {"a": 1, "b": 2, "c": 3}
+
+
+def test_views_skip_deleted_keys_and_see_overwrites() -> None:
+    built: PersistentMap[str, int] = PersistentMap({"a": 1, "b": 2, "c": 3})
+    updated = built.delete("b").set("a", 10)
+
+    assert list(updated.values()) == [10, 3]
+    assert list(updated.items()) == [("a", 10), ("c", 3)]
+    # The older view is unchanged, as with every other read.
+    assert list(built.values()) == [1, 2, 3]
+
+
+def test_views_iterate_in_first_insertion_order() -> None:
+    built: PersistentMap[str, int] = PersistentMap()
+    for key in ("z", "a", "m"):
+        built = built.set(key, 1)
+    built = built.set("z", 2)  # a rewrite keeps the key's original position
+
+    assert [key for key, _ in built.items()] == ["z", "a", "m"]
+
+
+def test_views_still_behave_as_set_like_mapping_views() -> None:
+    built: PersistentMap[str, int] = PersistentMap({"a": 1, "b": 2})
+
+    assert len(built.values()) == 2
+    assert len(built.items()) == 2
+    assert 1 in built.values()
+    assert ("a", 1) in built.items()
+    assert ("a", 9) not in built.items()
+
+
+def test_views_of_an_empty_map_are_empty() -> None:
+    empty: PersistentMap[str, int] = PersistentMap()
+
+    assert list(empty.values()) == []
+    assert list(empty.items()) == []

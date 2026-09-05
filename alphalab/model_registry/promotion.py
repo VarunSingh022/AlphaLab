@@ -1,14 +1,16 @@
 """Stage promotion for registered model versions.
 
-Promoting a version to ``PRODUCTION`` automatically archives whichever version
-of the same model was previously in ``PRODUCTION`` -- a model has at most one
-production version at a time. Every transition, including that automatic
-archival, is appended to ``ModelRegistry.promotions``.
+Every move goes through :func:`~alphalab.model_registry.stages.validate_transition`,
+so the legal moves are the declared ones and nothing else. Promoting a version
+to ``PRODUCTION`` automatically archives whichever version of the same model was
+previously in ``PRODUCTION`` -- a model has at most one production version at a
+time. Every transition, including that automatic archival, is appended to
+``ModelRegistry.promotions``.
 """
 
 from dataclasses import replace
 
-from alphalab.model_registry.exceptions import ModelRegistryInputError
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.model_registry.registry import (
     ModelRegistry,
     ModelStage,
@@ -18,13 +20,16 @@ from alphalab.model_registry.registry import (
     list_versions,
     replace_version,
 )
+from alphalab.model_registry.stages import validate_transition
 
-_PROMOTABLE_STAGES = (ModelStage.STAGING, ModelStage.PRODUCTION, ModelStage.ARCHIVED)
+__all__ = ["production_version", "promote", "staging_version", "versions_in_stage"]
 
 
 def _transition(
     registry: ModelRegistry, version: ModelVersion, to_stage: ModelStage, timestamp: float
 ) -> ModelRegistry:
+    """Apply one already-validated stage move, updating the indexes with it."""
+
     record = PromotionRecord(
         name=version.name,
         version=version.version,
@@ -33,7 +38,22 @@ def _transition(
         timestamp=timestamp,
     )
     moved = replace_version(registry, replace(version, stage=to_stage))
-    return replace(moved, promotions=(*moved.promotions, record))
+
+    production = moved.production
+    production_line = moved.production_line
+    if to_stage is ModelStage.PRODUCTION:
+        production = production.set(version.name, version.version)
+        line = production_line.get(version.name, AppendOnlyLog[int]())
+        production_line = production_line.set(version.name, line.append(version.version))
+    elif version.stage is ModelStage.PRODUCTION and version.name in production:
+        production = production.delete(version.name)
+
+    return replace(
+        moved,
+        promotions=moved.promotions.append(record),
+        production=production,
+        production_line=production_line,
+    )
 
 
 def promote(
@@ -41,25 +61,18 @@ def promote(
 ) -> ModelRegistry:
     """Moves ``name`` version ``version`` to ``stage``.
 
-    ``stage`` must be ``STAGING``, ``PRODUCTION``, or ``ARCHIVED`` -- a version
-    cannot be moved back to ``NONE``. Promoting to ``PRODUCTION`` first archives
-    the current production version of the same model, if there is one.
+    The move must be one :mod:`alphalab.model_registry.stages` declares legal.
+    Promoting to ``PRODUCTION`` first archives the current production version of
+    the same model, if there is one.
 
     Raises:
-        ModelRegistryInputError: If the version is unknown, ``stage`` is
-            ``NONE``, or the version is already in ``stage``.
+        ModelRegistryInputError: If the version is unknown, or the move is not a
+            legal transition -- including a move to ``NONE``, a move to the
+            stage the version is already in, and an archived version returning
+            to ``PRODUCTION`` when it is not the version to roll back to.
     """
-    if stage not in _PROMOTABLE_STAGES:
-        raise ModelRegistryInputError(
-            f"Cannot promote to {stage.name}; valid targets are "
-            f"{', '.join(s.name for s in _PROMOTABLE_STAGES)}."
-        )
-
     target = get_version(registry, name, version)
-    if target.stage is stage:
-        raise ModelRegistryInputError(
-            f"Model '{name}' version {version} is already in stage {stage.name}."
-        )
+    validate_transition(registry, name, version, target.stage, stage)
 
     updated = registry
     if stage is ModelStage.PRODUCTION:
@@ -86,17 +99,20 @@ def production_version(registry: ModelRegistry, name: str) -> ModelVersion | Non
 
     Returns ``None`` both when ``name`` is unknown and when it has no production
     version -- callers that need the stricter distinction use
-    :func:`get_version`.
+    :func:`~alphalab.model_registry.registry.get_version`. Read from the
+    registry's production index, so this is O(1) and safe to call from a write
+    path.
     """
-    versions = registry.versions.get(name, ())
-    for version in versions:
-        if version.stage is ModelStage.PRODUCTION:
-            return version
-    return None
+    version = registry.production.get(name)
+    if version is None:
+        return None
+    return get_version(registry, name, version)
 
 
 def staging_version(registry: ModelRegistry, name: str) -> ModelVersion | None:
     """Returns the most recent ``STAGING`` version of ``name``, or ``None``."""
-    versions = registry.versions.get(name, ())
-    staged = [v for v in versions if v.stage is ModelStage.STAGING]
+    versions = registry.versions.get(name)
+    if versions is None:
+        return None
+    staged = [v for v in versions.values() if v.stage is ModelStage.STAGING]
     return staged[-1] if staged else None
