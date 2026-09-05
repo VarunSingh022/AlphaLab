@@ -6,10 +6,13 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.experiment_tracking import complete_run, start_run
 from alphalab.experiment_tracking.tracker import ExperimentTracker
 from alphalab.ml import LinearRegressionModel, predict_linear, train_linear_regression
 from alphalab.model_registry import (
+    LEGAL_TRANSITIONS,
+    ArtifactRef,
     DeploymentMetadata,
     ModelRegistry,
     ModelRegistryInputError,
@@ -19,6 +22,7 @@ from alphalab.model_registry import (
     deployment_metadata,
     get_model,
     get_version,
+    illegal_stage_move,
     latest_version,
     list_versions,
     model_names,
@@ -406,3 +410,195 @@ def test_end_to_end_with_ml_model_and_experiment_run() -> None:
 
     recovered = get_model(registry, "trend-model", prod.version, LinearRegressionModel)
     assert predict_linear(recovered, ((10.0,),))[0] == pytest.approx(32.0)
+
+
+# --------------------------------------------------------------------------- #
+# The declared stage transitions (v2.4)
+# --------------------------------------------------------------------------- #
+
+
+def test_every_stage_declares_what_it_can_reach() -> None:
+    """The table is the definition; nothing else decides which moves exist."""
+    assert LEGAL_TRANSITIONS[ModelStage.NONE] == frozenset(
+        {ModelStage.STAGING, ModelStage.PRODUCTION, ModelStage.ARCHIVED}
+    )
+    assert LEGAL_TRANSITIONS[ModelStage.STAGING] == frozenset(
+        {ModelStage.PRODUCTION, ModelStage.ARCHIVED}
+    )
+    assert LEGAL_TRANSITIONS[ModelStage.PRODUCTION] == frozenset({ModelStage.ARCHIVED})
+    assert LEGAL_TRANSITIONS[ModelStage.ARCHIVED] == frozenset(
+        {ModelStage.STAGING, ModelStage.PRODUCTION}
+    )
+
+
+def test_no_stage_can_return_to_none() -> None:
+    assert not any(ModelStage.NONE in targets for targets in LEGAL_TRANSITIONS.values())
+
+
+def test_demoting_a_production_version_to_staging_is_refused() -> None:
+    """A live version leaves production by being archived or replaced. Quietly
+    demoting it would leave the model with nothing live and no record of it."""
+    registry, _ = register_model(ModelRegistry(), "alpha", object(), timestamp=1.0)
+    registry = promote(registry, "alpha", 1, ModelStage.PRODUCTION, timestamp=2.0)
+
+    with pytest.raises(ModelRegistryInputError, match="can only move to ARCHIVED"):
+        promote(registry, "alpha", 1, ModelStage.STAGING, timestamp=3.0)
+
+
+def test_an_archived_version_that_was_never_live_cannot_be_sent_to_production() -> None:
+    """That is a resurrection, not a rollback."""
+    registry, _ = register_model(ModelRegistry(), "alpha", object(), timestamp=1.0)
+    registry = promote(registry, "alpha", 1, ModelStage.ARCHIVED, timestamp=2.0)
+
+    with pytest.raises(ModelRegistryInputError, match="is not the version to roll back to"):
+        promote(registry, "alpha", 1, ModelStage.PRODUCTION, timestamp=3.0)
+
+
+def test_an_archived_version_can_always_be_restaged() -> None:
+    """Putting a retired artifact back into circulation is allowed; shipping it
+    straight to production without going through staging is not."""
+    registry, _ = register_model(ModelRegistry(), "alpha", object(), timestamp=1.0)
+    registry = promote(registry, "alpha", 1, ModelStage.ARCHIVED, timestamp=2.0)
+    registry = promote(registry, "alpha", 1, ModelStage.STAGING, timestamp=3.0)
+
+    assert get_version(registry, "alpha", 1).stage is ModelStage.STAGING
+
+
+def test_an_archived_version_that_is_the_rollback_target_may_return_to_production() -> None:
+    registry = _registry_with_two_production_promotions()
+    assert previous_production_version(registry, "alpha") == 1
+    registry = promote(registry, "alpha", 1, ModelStage.PRODUCTION, timestamp=6.0)
+
+    assert _prod(registry, "alpha").version == 1
+
+
+def test_an_archived_version_that_is_not_the_rollback_target_is_still_refused() -> None:
+    registry, _ = register_model(ModelRegistry(), "alpha", object(), timestamp=1.0)
+    registry, _ = register_model(registry, "alpha", object(), timestamp=2.0)
+    registry, _ = register_model(registry, "alpha", object(), timestamp=3.0)
+    registry = promote(registry, "alpha", 1, ModelStage.PRODUCTION, timestamp=4.0)
+    registry = promote(registry, "alpha", 2, ModelStage.PRODUCTION, timestamp=5.0)
+    registry = promote(registry, "alpha", 3, ModelStage.ARCHIVED, timestamp=6.0)
+
+    # v1 is the rollback target; v3 was never live.
+    with pytest.raises(ModelRegistryInputError, match="is not the version to roll back to"):
+        promote(registry, "alpha", 3, ModelStage.PRODUCTION, timestamp=7.0)
+
+
+def test_illegal_stage_move_states_the_reason_without_a_registry() -> None:
+    """The table check is shared with alphalab.lifecycle, so it takes no
+    registry and returns a reason rather than raising."""
+    assert illegal_stage_move(ModelStage.NONE, ModelStage.STAGING) is None
+    assert "already in stage" in str(illegal_stage_move(ModelStage.STAGING, ModelStage.STAGING))
+    assert "can only move to ARCHIVED" in str(
+        illegal_stage_move(ModelStage.PRODUCTION, ModelStage.STAGING)
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Index consistency (v2.4)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_production_index_agrees_with_the_versions_it_indexes() -> None:
+    registry = _registry_with_two_production_promotions()
+    registry = rollback(registry, "alpha", timestamp=5.0)
+
+    indexed = registry.production.get("alpha")
+    scanned = [
+        v.version for v in list_versions(registry, "alpha") if v.stage is ModelStage.PRODUCTION
+    ]
+    assert scanned == [indexed]
+
+
+def test_archiving_the_production_version_empties_the_index() -> None:
+    registry, _ = register_model(ModelRegistry(), "alpha", object(), timestamp=1.0)
+    registry = promote(registry, "alpha", 1, ModelStage.PRODUCTION, timestamp=2.0)
+    registry = promote(registry, "alpha", 1, ModelStage.ARCHIVED, timestamp=3.0)
+
+    assert "alpha" not in registry.production
+    assert production_version(registry, "alpha") is None
+
+
+def test_the_production_line_records_every_tenure_in_order() -> None:
+    registry = _registry_with_two_production_promotions()
+    assert list(registry.production_line["alpha"]) == [1, 2]
+
+    registry = rollback(registry, "alpha", timestamp=5.0)
+    assert list(registry.production_line["alpha"]) == [1, 2, 1]
+    assert previous_production_version(registry, "alpha") == 2
+
+
+# --------------------------------------------------------------------------- #
+# Artifact references and the serializable projection (v2.4)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_version_can_reference_the_artifact_it_was_trained_into() -> None:
+    artifact = ArtifactRef("s3://models/alpha-1.bin", "application/octet-stream", "abc123", 4096)
+    registry, version = register_model(
+        ModelRegistry(), "alpha", object(), timestamp=1.0, artifact=artifact
+    )
+
+    assert version.artifact == artifact
+    assert get_version(registry, "alpha", 1).artifact == artifact
+
+
+def test_an_artifact_reference_needs_a_location() -> None:
+    with pytest.raises(ModelRegistryInputError, match="uri cannot be empty"):
+        ArtifactRef("   ")
+
+
+def test_an_artifact_cannot_have_a_negative_size() -> None:
+    with pytest.raises(ModelRegistryInputError, match="cannot be negative"):
+        ArtifactRef("file://a.bin", size_bytes=-1)
+
+
+def test_a_registry_serializes_as_metadata_and_references() -> None:
+    """The model object has no deterministic JSON form; stringifying it would
+    produce a payload that reads back as prose."""
+    import json
+
+    from alphalab.persistence.serializer import serialize
+
+    registry, _ = register_model(
+        ModelRegistry(),
+        "alpha",
+        LinearRegressionModel(feature_names=("x",), coefficients=(1.0,), intercept=0.0),
+        timestamp=1.0,
+        metrics={"r2": 0.9},
+        artifact=ArtifactRef("file://alpha-1.bin"),
+    )
+    registry = promote(registry, "alpha", 1, ModelStage.STAGING, timestamp=2.0)
+    version = json.loads(serialize(registry))["versions"]["alpha"]["1"]
+
+    assert "model" not in version
+    assert version["model_type"].endswith("LinearRegressionModel")
+    assert version["artifact"]["uri"] == "file://alpha-1.bin"
+    assert version["metrics"] == {"r2": 0.9}
+    assert version["stage"] == "ModelStage.STAGING"
+
+
+def test_a_registry_with_no_artifact_reference_still_serializes() -> None:
+    import json
+
+    from alphalab.persistence.serializer import serialize
+
+    registry, _ = register_model(ModelRegistry(), "alpha", object(), timestamp=1.0)
+    assert json.loads(serialize(registry))["versions"]["alpha"]["1"]["artifact"] is None
+
+
+def test_a_hand_built_registry_is_converted_to_persistent_containers() -> None:
+    """A plain mapping of tuples still works, and takes the persistent path.
+
+    The declared field type is the persistent one, so mypy rejects this call --
+    which is the point of the ignore below, not a gap in it. The conversion
+    exists for callers outside the type checker's reach; without it, a plain
+    mapping would half-work and then fail on the first write.
+    """
+    _, version = register_model(ModelRegistry(), "alpha", object(), timestamp=1.0)
+    rebuilt = ModelRegistry(versions={"alpha": (version,)})  # type: ignore[arg-type]
+
+    assert isinstance(rebuilt.versions, PersistentMap)
+    assert get_version(rebuilt, "alpha", 1) == version
+    assert latest_version(rebuilt, "alpha").version == 1

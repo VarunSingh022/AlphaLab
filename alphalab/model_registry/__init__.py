@@ -64,6 +64,7 @@ from alphalab.model_registry.registry import (
 from alphalab.model_registry.rollback import promotion_history, rollback
 from alphalab.model_registry.stages import (
     LEGAL_TRANSITIONS,
+    illegal_stage_move,
     previous_production_version,
     validate_transition,
 )
@@ -83,6 +84,7 @@ __all__ = [
     "deployment_metadata",
     "get_model",
     "get_version",
+    "illegal_stage_move",
     "latest_version",
     "list_versions",
     "model_names",

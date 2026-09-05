@@ -33,7 +33,12 @@ from collections.abc import Mapping
 from alphalab.model_registry.exceptions import ModelRegistryInputError
 from alphalab.model_registry.registry import ModelRegistry, ModelStage
 
-__all__ = ["LEGAL_TRANSITIONS", "previous_production_version", "validate_transition"]
+__all__ = [
+    "LEGAL_TRANSITIONS",
+    "illegal_stage_move",
+    "previous_production_version",
+    "validate_transition",
+]
 
 #: Every legal stage move. A stage absent from a target set cannot be reached
 #: from that stage; ``NONE`` is absent from every one, so it is initial-only.
@@ -43,6 +48,30 @@ LEGAL_TRANSITIONS: Mapping[ModelStage, frozenset[ModelStage]] = {
     ModelStage.PRODUCTION: frozenset({ModelStage.ARCHIVED}),
     ModelStage.ARCHIVED: frozenset({ModelStage.STAGING, ModelStage.PRODUCTION}),
 }
+
+
+def illegal_stage_move(current: ModelStage, target: ModelStage) -> str | None:
+    """Returns why moving from ``current`` to ``target`` is illegal, or ``None``.
+
+    The table check alone, with no registry and no subject, so the two things
+    that stage versions -- the model registry and
+    :mod:`alphalab.lifecycle.promotion` -- share one definition of which moves
+    exist instead of writing the table twice. It returns a reason rather than
+    raising so each caller raises its own domain exception with its own subject
+    in the message.
+    """
+
+    if current is target:
+        return f"is already in stage {target.name}"
+
+    allowed = LEGAL_TRANSITIONS[current]
+    if target not in allowed:
+        reachable = ", ".join(sorted(stage.name for stage in allowed))
+        return (
+            f"cannot move from {current.name} to {target.name}; "
+            f"{current.name} can only move to {reachable}"
+        )
+    return None
 
 
 def previous_production_version(registry: ModelRegistry, name: str) -> int | None:
@@ -69,18 +98,9 @@ def validate_transition(
             is unreachable from it, or is ``PRODUCTION`` reached from
             ``ARCHIVED`` by a version that is not the one to roll back to.
     """
-    if current is target:
-        raise ModelRegistryInputError(
-            f"Model '{name}' version {version} is already in stage {target.name}."
-        )
-
-    allowed = LEGAL_TRANSITIONS[current]
-    if target not in allowed:
-        reachable = ", ".join(sorted(stage.name for stage in allowed)) or "no other stage"
-        raise ModelRegistryInputError(
-            f"Model '{name}' version {version} cannot move from {current.name} to "
-            f"{target.name}; {current.name} can only move to {reachable}."
-        )
+    reason = illegal_stage_move(current, target)
+    if reason is not None:
+        raise ModelRegistryInputError(f"Model '{name}' version {version} {reason}.")
 
     if current is ModelStage.ARCHIVED and target is ModelStage.PRODUCTION:
         restorable = previous_production_version(registry, name)
