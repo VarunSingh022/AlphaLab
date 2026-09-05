@@ -2,7 +2,7 @@
 AlphaLab Examples
 =================
 
-Example 02 : Strategy Studio Backtest
+Example 02 : Strategy Studio Backtest Records
 
 Difficulty : Beginner
 
@@ -14,9 +14,19 @@ Topics
 • Strategy Studio
 • Project Management
 • Strategy Registration
-• Backtesting
+• Backtest result bookkeeping
 • Immutable State
 • Studio Views
+
+What this shows
+---------------
+
+Strategy Studio's *record keeping*: projects, registered strategies, and the
+results of backtests that were computed elsewhere. The metrics below are
+supplied by the caller; Studio stores and reports them.
+
+To actually run a backtest -- a dataset through strategy, allocation, risk, OMS,
+execution and portfolio -- see `examples/11_unified_backtest.py`.
 
 Run
 

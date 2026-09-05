@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.1.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.2.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-1429%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-1588%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -27,8 +27,8 @@ It is a library, not a running application: there is no server, daemon, schedule
 
 AlphaLab ships two kinds of package:
 
-- **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable state snapshot. This is the concrete backtest / execution path.
-- **Standalone engine libraries.** Most other packages (research, portfolio optimizer, replay, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, experiment tracking, model registry, research assistant, deployment manager, enterprise, studio, workbench) are independent, deterministic, individually tested libraries. They share the engineering model but are **not** currently fused into a single runtime.
+- **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable state snapshot. `alphalab.backtesting` drives that spine from a dataset, either straight through or through `alphalab.replay`'s cursor; both call the same step, so a backtest and a replay of one dataset produce identical orders, fills and P&L.
+- **Standalone engine libraries.** Most other packages (research, portfolio optimizer, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, experiment tracking, model registry, research assistant, deployment manager, enterprise, studio, workbench) are independent, deterministic, individually tested libraries. They share the engineering model but are **not** currently fused into a single runtime.
 
 The framework is designed for researchers, quantitative developers, students, and engineering teams building reproducible trading infrastructure.
 
@@ -36,25 +36,28 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.1.0**
+**Current Release:** **v2.2.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.1.0 |
-| Tests | **1429 Passing** |
-| Static Typing | **Strict MyPy** (843 source files) |
+| Version | 2.2.0 |
+| Tests | **1588 Passing** |
+| Static Typing | **Strict MyPy** (869 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-v2.1.0 — "Execution + Portfolio Correctness" — adds mark-to-market to the execution
-pipeline, separates the portfolio's cash / realized P&L / unrealized P&L / commission
-accounting behind an explicit accounting identity, makes execution invariants explicit,
-and fixes the O(N²) event accumulation that had stopped the risk benchmark from
-completing. It contains breaking public API changes — see `CHANGELOG.md`.
+v2.2.0 — "Unified Backtesting + Replay" — adds `alphalab.backtesting`, an integration
+package that turns a dataset into a run over the real execution path, and puts
+`alphalab.replay` on that same path. It also closes the four v2.1 limitations that
+blocked a real backtest: the quadratic OMS order book (100k order lifecycles went from
+~16 minutes to 7.5s), the allocation reservation leaked on a risk rejection, the
+unserializable `OMSState`, and a replay engine that produced no orders or fills. Runs
+are reproducible field for field from a recorded seed. Contains one small breaking
+API change — see `CHANGELOG.md`.
 
 ---
 
@@ -115,7 +118,7 @@ Everything below is importable, deterministic, and independently tested, but is
 
 | Area | Packages |
 |---|---|
-| Research & simulation | `research`, `replay`, `reporting` |
+| Research & simulation | `research`, `reporting` |
 | Portfolio construction | `portfolio_optimizer`, `optimizer` |
 | Data surface (overlapping) | `data`, `marketdata`, `feed` |
 | Features & factors | `feature_store`, `factor_library`, `alt_data` |
@@ -127,8 +130,10 @@ Everything below is importable, deterministic, and independently tested, but is
 | Live / ops surface | `live`, `production`, `broker`, `brokers`, `integrations` |
 
 > The Workbench → Studio → live-markets flow shown in `docs/` is a design target,
-> not a single runtime that exists today. `replay` is a standalone engine and does
-> **not** drive `ExecutionPipeline`. Mark-to-market repricing is not implemented.
+> not a single runtime that exists today. What is wired together is
+> `ExecutionPipeline` and the `backtesting` package that drives it — including
+> `replay`, as of v2.2. Market-data model convergence and live broker connectivity
+> are not done; see `ROADMAP.md`.
 
 ---
 
@@ -157,8 +162,8 @@ The recommended way to learn the framework is through the curated examples.
 | Example | File | Description |
 |---------|------|-------------|
 | 01 | `01_research.py` | Research Engine |
-| 02 | `02_backtest.py` | Backtest workflow |
-| 03 | `03_replay.py` | Historical replay *(currently broken — pre-existing dataset issue)* |
+| 02 | `02_backtest.py` | Strategy Studio backtest bookkeeping |
+| 03 | `03_replay.py` | Historical replay over the real execution path |
 | 04 | `04_market_data.py` | Market Data |
 | 05 | `05_broker_connection.py` | Broker Integrations |
 | 06 | `06_portfolio_optimizer.py` | Portfolio Optimizer |
@@ -166,6 +171,7 @@ The recommended way to learn the framework is through the curated examples.
 | 08 | `08_strategy_studio.py` | Strategy Studio |
 | 09 | `09_workbench.py` | Workbench |
 | 10 | `10_complete_pipeline.py` | Multi-engine walkthrough |
+| 11 | `11_unified_backtest.py` | Dataset → orders → fills → P&L → analytics |
 
 Run any example:
 
@@ -208,7 +214,9 @@ alphalab/
 ├── analytics/       Performance report, attribution
 ├── market/          In-memory market state and events
 ├── common/          Shared version, events, serialization, constants
-├── research/  replay/  portfolio_optimizer/  reporting/       Standalone engines
+├── backtesting/     Dataset → execution path → analytics (backtest + replay)
+├── replay/          Deterministic replay cursor (drives backtesting)
+├── research/  portfolio_optimizer/  reporting/               Standalone engines
 ├── feature_store/  factor_library/  alt_data/                 Standalone engines
 ├── ml/  deep_learning/  reinforcement_learning/               Standalone engines
 ├── options/  futures/  crypto/  macro/                        Standalone engines
@@ -241,8 +249,8 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 1429 passing tests (1367 unit, 19 integration, 43 regression)
-- ✅ Strict MyPy type checking (843 source files)
+- ✅ 1588 passing tests (1441 unit, 53 integration, 94 regression)
+- ✅ Strict MyPy type checking (869 source files)
 - ✅ Ruff linting and formatting
 - ✅ Source distribution validation
 - ✅ Wheel validation
@@ -272,17 +280,27 @@ portfolio close/reduce cash-accounting fix; `PerformanceReport` serialization fi
 `PortfolioValuation` read model; per-fill P&L attribution; unpriced-request and
 terminal-rejection execution invariants; O(1) amortized append-only histories
 (`common.AppendOnlyLog`) replacing the O(N²) tuple rebuilds.
+
+**v2.2.0** — unified backtesting and replay: `alphalab.backtesting` composes
+`ExecutionPipeline` into a real backtest, and `alphalab.replay` drives the same
+path; fill policies (`ImmediateFill`, `StaticFill`, `LiquidityCappedFill`);
+persistent order-book containers (`common.PersistentMap` / `PersistentSet`)
+replacing the quadratic dict/frozenset copying; a per-order allocation
+reservation ledger released exactly once; complete round-trippable `OMSState`
+snapshots; seeded, reproducible identifiers.
 See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## Not yet addressed
 
-- A single integrated runtime spanning all engines (only `ExecutionPipeline` is wired today)
-- `replay` integration with the execution path
-- The OMS order book copies its whole order dict per stored order — the execution
-  path's remaining super-linear term
+- Market-data model convergence: the overlapping `data` / `market` / `marketdata` /
+  `feed` surfaces and the three separate `Bar` types (v2.3)
+- `broker` / `brokers` consolidation and live broker connectivity into the
+  execution path (v2.3)
+- A single integrated runtime spanning *all* engines (`ExecutionPipeline` and
+  `backtesting` are what is wired today)
+- Strategies do not see the marked portfolio: `StrategyContext` comes from the
+  caller's `context_factory`
 - Multi-currency valuation (`PortfolioValuation` values the base currency only)
-- Consolidation of the overlapping data surfaces (`data` / `market` / `marketdata` / `feed`)
-- Live broker connectivity into `ExecutionPipeline`
 
 ---
 
@@ -310,7 +328,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v2.1.0**
+**AlphaLab v2.2.0**
 
 Building deterministic infrastructure for quantitative research.
 

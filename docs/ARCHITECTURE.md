@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but as of v2.0.0 only `alphalab.runtime.ExecutionPipeline` actually wires a group of them together — see the **Implementation Status (v2.0.0)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline` and the `alphalab.backtesting` package that drives it actually wire a group of them together — see the **Implementation Status (v2.2)** section below.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 
@@ -12,10 +12,10 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v2.1)
+# Implementation Status (v2.2)
 
 Most of this document describes the **target** architecture. This section states
-what is actually built as of v2.1 so the two are not confused.
+what is actually built as of v2.2 so the two are not confused.
 
 ## AlphaLab is a library
 
@@ -23,11 +23,10 @@ There is no server, daemon, scheduler process, event bus, or CLI. Every package
 exposes pure functions / stateless engine classes that take an immutable state
 value and return a new one. The caller owns the process and the event loop.
 
-## The one integrated path: `alphalab.runtime.ExecutionPipeline`
+## The integrated path: `alphalab.runtime.ExecutionPipeline`
 
-`ExecutionPipeline` is the only place where multiple domain engines are wired
-together. It threads a single immutable `ExecutionPipelineState` through, one
-market event at a time:
+`ExecutionPipeline` is where the domain engines are wired together. It threads a
+single immutable `ExecutionPipelineState` through, one market event at a time:
 
 ```
 market event (Quote / Bar / Tick)
@@ -35,10 +34,11 @@ market event (Quote / Bar / Tick)
    → PortfolioEngine.update_market_prices→ positions marked, unrealized P&L      (v2.1)
    → risk resync from the marked book    → NAV / exposure / margin               (v2.1)
    → StrategyEngine.process_event        → Intents
-   → AllocationEngine.allocate           → core.OrderRequest[]   (core.enums.Side)
+   → AllocationEngine.allocate           → core.OrderRequest[] + reservations    (v2.2)
    → (drop requests with no market price)→ result.unpriced_requests              (v2.1)
-   → RiskEngine.evaluate                 → RiskDecision
+   → RiskEngine.evaluate                 → RiskDecision (rejection releases)     (v2.2)
    → OMSEngine.submit/accept             → oms.order.Order        (canonical)
+   → FillPolicy.decide                   → FillDecision           (v2.2)
    → ExecutionEngine.simulate            → ExecutionReport        (deterministic fills)
    → PortfolioEngine.apply_fill          → cash / positions / realized P&L
    → PortfolioValuation.snapshot         → one snapshot per market event         (v2.1)
@@ -48,11 +48,85 @@ market event (Quote / Bar / Tick)
 Packages on this path: `core`, `runtime`, `strategy`, `allocation`, `risk`,
 `oms`, `execution`, `portfolio`, `analytics`, `market`.
 
+## Backtesting and replay: `alphalab.backtesting` (v2.2)
+
+`alphalab.backtesting` is the second integration package, and the only other one.
+It adds no engine and no domain model: it turns a dataset into a run by calling
+`ExecutionPipeline`.
+
+```
+MarketDataset (MarketRecord: Quote | Bar | Tick + event_id + timestamp)
+   → MarketEngine.publish_quote / publish_bar / publish_tick
+   → ExecutionPipeline.process_market_event      ← the path above, unchanged
+   → BacktestStep recorded per record
+   → AnalyticsEngine.compile_report              (on finalize)
+```
+
+`backtesting.engine.advance` is the canonical step, and there are two drivers
+for it:
+
+| Driver | Cursor | Everything else |
+| --- | --- | --- |
+| `BacktestEngine.run` | iterates `dataset.records` | `advance` |
+| `ReplayBacktest.run` | `ReplayEngine.step_one_event` | `advance` |
+
+Because both call the same function, backtest/replay parity is structural rather
+than a coincidence the tests happen to observe. `MarketRecord` satisfies
+`replay.HistoricalEventProtocol`, so one dataset type feeds both.
+
+**Replay is now on the execution path.** `alphalab.replay` still owns exactly
+what it owned before — the cursor, the replay clock, the session lifecycle and
+chronological validation — and `alphalab.backtesting.replay` is what connects it
+to execution. ADR-0009 listed `replay` as standalone; ADR-0010 supersedes that
+for `replay` only.
+
+### Execution semantics: fill policies (v2.2)
+
+A `FillPolicy` decides what the venue does with one order at one market event.
+It reads a `LiquidityContext` — asset, side, requested quantity, event price,
+and the size the event showed — and returns a `FillDecision`:
+
+| Policy | Behaviour |
+| --- | --- |
+| `ImmediateFill` | fills the whole request; liquidity assumed unlimited (default) |
+| `StaticFill(status, quantity)` | always the same outcome; expresses the pre-v2.2 fixed `fill_status` argument |
+| `LiquidityCappedFill(participation_rate)` | fills up to a share of the size the event showed; partial when capped, no fill when the event showed none |
+
+Available size comes from the market event: a quote's `ask_size` / `bid_size` on
+the side being crossed, a bar's `volume`, a tick's `quantity`. An event carrying
+no size cannot be capped and fills in full.
+
+Policies depend only on `alphalab.core` and hold no state, so the same policy
+produces the same decisions in a backtest and in a replay.
+
+### Determinism and the identifier source (v2.2)
+
+Quantities on this path were always deterministic. Identifiers were not: every
+event id, execution id, order id and transaction id came from `uuid4`, so two
+runs of one workload agreed on every number and disagreed on every identity.
+
+`alphalab.common.ids` now routes all of them through one `new_id()`, and
+`use_id_source(source)` scopes where that source is for the duration of a block.
+`BacktestConfig.seed` installs a `DeterministicIdSource` for the run and is
+recorded on the result. With a seed, repeated runs are identical field for
+field — orders, fills, positions, cash, realized and unrealized P&L, analytics.
+Without one, identifiers stay on `uuid4` and only the economics reproduce.
+
+The source is an ambient `ContextVar`, deliberately: threading an id-source
+parameter through every engine method would put a reproducibility argument on
+APIs that have nothing to do with reproducibility. The scope is explicit,
+nests, and is restored on exit.
+
+The replay cursor mints its own lifecycle event ids from a *separate* stream
+(`seed + REPLAY_CURSOR_SEED_OFFSET`). Drawing them from the execution path's
+stream would shift the identity of every order and fill in a replay, and parity
+would fail for a reason unrelated to execution.
+
 ## Standalone engine libraries
 
 Everything else is an independent, deterministic, individually tested library
-that is **not** wired into `ExecutionPipeline` or into a shared runtime:
-`research`, `replay`, `portfolio_optimizer`, `optimizer`, `reporting`,
+that is **not** wired into `ExecutionPipeline`, `backtesting`, or a shared
+runtime: `research`, `portfolio_optimizer`, `optimizer`, `reporting`,
 `feature_store`, `factor_library`, `alt_data`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
 `cloud_research`, `cluster_scheduler`, `distributed`, `experiment_tracking`,
@@ -135,7 +209,7 @@ equity, computed deterministically from the state. It is what
 sign: a short's `market_value` is negative, and its unrealized P&L is
 `(average_cost - market_price) * abs(quantity)`.
 
-## Execution guarantees (v2.1)
+## Execution guarantees (v2.1, extended in v2.2)
 
 - **One portfolio snapshot per market event**, recorded after every fill that
   event produced (plus one at funding time). v2.0.0 recorded a snapshot per fill
@@ -154,13 +228,45 @@ sign: a short's `market_value` is negative, and its unrealized P&L is
   open orders never reconciled with fills. `Order.reject` accepts `ACCEPTED` as
   well as `NEW` / `PENDING` for this reason; an order that has already traded
   still cannot be rejected.
-  A **risk**-rejected request never reaches the OMS at all, but its allocation
-  reservation is still not released -- a pre-existing gap, listed below.
+  A **risk**-rejected request never reaches the OMS at all; as of v2.2 its
+  allocation reservation is released at that point too (see below).
 - **Analytics trade records attribute realized P&L to the fill that produced
   it.** `_trade_record` reads only the portfolio events of the current fill;
   v2.0.0 scanned the whole portfolio history in reverse and could credit an
   opening fill with an earlier close's P&L. (`sector_id="UNCLASSIFIED"` and
   `holding_period_seconds=0.0` are still hard-coded — "D3", deferred.)
+
+## Allocation reservation lifecycle (v2.2)
+
+`AllocationEngine.allocate` commits capital against every request it emits.
+Until v2.2 that commitment was a single running total, `notional_allocated`:
+anything could subtract from it, nothing could say which order the capital
+belonged to, and a release that never happened was indistinguishable from one
+that happened twice. A risk-rejected request was skipped with a bare `continue`
+and a request with no market price was skipped earlier still, so neither
+released anything and the total over-reported for the rest of the run.
+
+`AllocationState.reservations` is now a per-order ledger, and
+`notional_allocated` is its total.
+
+| Event | Ledger |
+| --- | --- |
+| allocation emits a request | reserve `quantity * price` under the request's order id |
+| a fill executes | consume up to the executed notional; drop the entry when exhausted |
+| a partial fill | consume what executed, leave the residual reserved — the order is still working |
+| risk rejects, or no market price | release the whole reservation |
+| the venue rejects / expires / does not fill | release the whole reservation |
+
+Ownership is split deliberately: the **allocation engine owns the amount**
+(`release_reservation` takes no amount — it frees whatever the ledger holds, so
+a release can neither free more than was reserved nor free it twice) and the
+**pipeline owns the moment** (it is what knows a request's lifecycle has
+ended). Releasing an order that holds no live reservation raises
+`UnknownReservationError` rather than silently subtracting, which is what makes
+"exactly once" a checkable property rather than an assertion.
+
+`AllocationEngine.release_reservation(state, order_id, timestamp)` is a breaking
+signature change: it previously took the amount to release.
 
 ## Monetary precision (v2.1)
 
@@ -216,10 +322,36 @@ snapshot validation. Two changes fix this at the boundary:
   plausible-looking payload that cannot be read back, which is how the defect
   went unnoticed.
 
-`OMSState` remains unserializable as a whole state, on v2.1 exactly as on
-v2.0.0: `OrderBook` indexes orders by `OrderId`, and neither `asdict` nor
-`json.dumps` accepts a dataclass as a mapping key. Its history logs serialize
-correctly; the limitation is the typed identifier, not the log.
+## OMS state snapshots (v2.2)
+
+`OMSState` could not be JSON-serialized as a whole state on v2.0.0 or v2.1:
+`OrderBook` indexes orders by `OrderId`, and neither `asdict` nor `json.dumps`
+accepts a dataclass as a mapping key. Its history logs serialized correctly —
+the limitation was the typed identifier, not the log — but replay and
+persistence need complete snapshots, not partial ones.
+
+v2.2 fixes it without weakening the identifier. `OrderId` stays a dataclass in
+memory; the state declares an explicit serializable projection
+(`alphalab.oms.snapshot`):
+
+- **orders serialize as an array**, in submission order, each carrying its own
+  `OrderId` as a *value* (which encodes fine) rather than as a key;
+- the book's asset and strategy indices are **omitted** — they are derived from
+  the order array and rebuilt exactly by `restore`;
+- `active_orders` / `completed_orders` serialize as arrays of `OrderId` in
+  insertion order;
+- **every event carries an `event_type` tag**, without which a heterogenous
+  event log cannot be read back into typed events.
+
+`capture(state)` and `restore(snapshot)` are inverses in memory;
+`restore(from_primitives(deserialize(payload))) == state` across JSON, event log
+included, and the restored state is a working state the engine carries on from.
+
+The mechanism is a general one: `dataclass_to_dict` now honours a
+`__serializable__()` projection, which is how a type whose in-memory shape has
+no JSON form declares one. Anything *without* such a projection still reaches
+the encoder unchanged and is still rejected there rather than stringified — a
+raw `{OrderId: ...}` mapping raises exactly as before.
 
 ## Append-only histories and complexity (v2.1)
 
@@ -247,39 +379,92 @@ Measured on the development machine, full history retained in every case:
 `benchmark_portfolio_engine`'s full 100k-fill workload could not complete at all.
 The cost is now linear in the number of transitions rather than quadratic.
 
-**Residual bottleneck (not fixed in v2.1).** `benchmarks/benchmark_execution_pipeline.py`
-scales ~8x across a 4x workload, down from ~17x on v2.0.0, but that is still
-super-linear. The remaining cost is *not* event accumulation: it is the OMS's
-immutable order book. `OrderBook.add` / `OrderBook.replace` copy the whole order
-dict and `OMSEngine._update_sets` copies both order-id frozensets, once per
-order stored (three stores per order). Fixing it properly needs a persistent map
-rather than dict copying, which is a larger change than v2.1 scoped for.
+## Persistent containers and complexity (v2.2)
+
+v2.1 made engine *histories* O(1) amortized to append, which left the execution
+path's remaining super-linear term exposed: the OMS order book.
+`OrderBook.add` rebuilt the whole order `dict` and both index `frozenset`s,
+`OrderBook.replace` rebuilt the order `dict`, and `OMSEngine._update_sets`
+rebuilt both order-id `frozenset`s — once per stored order, and the OMS stores
+an order on submit and again on every lifecycle transition. Submitting N orders
+copied O(N²) entries.
+
+`alphalab.common.PersistentMap` and `PersistentSet` replace them. The idiom is
+the one `AppendOnlyLog` established, generalised from "append to a sequence" to
+"write to a key": a map is a *view* over shared append-only storage, identified
+by `(store, version, size)`. The store keeps, per key, the chain of
+`(version, value)` writes to it plus the order keys were first inserted in. A
+view at version `v` reads a key by finding the newest chain entry at or before
+`v`, so a later write is invisible to it and **older states keep observing
+exactly what they observed before**. Writing to the newest view appends one
+chain entry (O(1) amortized); writing to an older view copies — "copy on
+branch" — which linear engine histories never do.
+
+Two properties come free and are relied on: iteration is in first-insertion
+order, so a state holding one serializes deterministically (`frozenset`
+iterated in hash order), and `orders()` returns orders in submission order.
+
+Measured on the development machine, full history retained:
+
+| Benchmark | v2.1 | v2.2 |
+| --- | --- | --- |
+| `benchmark_oms` (100k order lifecycles) | ~16 min | 7.5s |
+| `benchmark_oms` scaling (10k → 20k) | ~4.4x | 2.00x |
+| `benchmark_execution_pipeline` (4000 events) | 1.79s | 1.18s |
+| `benchmark_execution_pipeline` scaling (4x workload) | ~7.4x | ~4.7x |
+
+**On the residual above 4.00x in the pipeline benchmark.** It is the cyclic
+garbage collector, not the pipeline. Orders, events and states are all container
+objects, so a run keeps a large live heap for the collector to walk. Measured on
+one build: 1k/2k/4k events cost 0.253s/0.546s/1.372s with the collector running
+(5.43x across 4x) and 0.231s/0.476s/0.993s with it paused — 2.06x and 2.08x per
+doubling, i.e. linear. The pipeline benchmark leaves it on because that is what
+a real run pays; `benchmark_oms` and the complexity regression test pause it
+around their timed sections, because otherwise the growth ratio measures the
+collector rather than the data structure and has been observed both well above
+and well below linear on the same build.
+
+## Closed in v2.2
+
+The four limitations the v2.1.0 review listed as blocking a real backtest are
+fixed, and each has a regression test pinning it:
+
+| v2.1 limitation | v2.2 |
+| --- | --- |
+| OMS order book copies its whole order dict per stored order | persistent containers; linear (`tests/regression/test_oms_book_complexity.py`) |
+| Risk-rejected requests retain their allocation reservation | per-order ledger, released exactly once (`tests/regression/test_risk_reservation_leak.py`) |
+| `OMSState` cannot be JSON-serialized as a whole state | explicit snapshot projection, round-trips (`tests/regression/test_oms_state_snapshot.py`) |
+| Replay is not integrated with the real execution path | `alphalab.backtesting.replay`, parity tested (`tests/integration/test_backtest_replay_parity.py`) |
 
 ## Known gaps and deferred areas
 
-- **`replay` does not drive the execution path.** It is a standalone engine;
-  nothing in `runtime/` imports it.
-- **`data.feed.Bar` and `market.bar.Bar` are separate, incompatible types**
-  (a third `Bar` exists in `marketdata.feed`).
-- **`broker` / `brokers`, `marketdata` / `data` / `feed`, `kernel`, and
-  `core/events`** overlap or are unused by the execution path; consolidation is
-  a deferred product decision.
-- **The OMS order book copies its whole order dict per stored order**, which is
-  the execution path's remaining super-linear term (see above).
-- **`OMSState` cannot be JSON-serialized as a whole state** because `OrderBook`
-  keys orders by the `OrderId` dataclass (pre-existing; see above).
-- **A risk-rejected order request does not release its allocation reservation.**
-  `AllocationEngine.allocate` adds the request's notional to
-  `notional_allocated`, and the pipeline skips the request without releasing it,
-  so that field over-reports after any risk rejection. Pre-existing; it does not
-  gate trading, because the budget check reads `available_global_capital`.
+- **Market-data model convergence is not done.** `data.feed.Bar` and
+  `market.bar.Bar` are still separate, incompatible types (a third `Bar` exists
+  in `marketdata.feed`), and `data` / `marketdata` / `feed` still overlap. A
+  backtest reads `alphalab.market` inputs only. Deferred to v2.3.
+- **`broker` / `brokers` overlap, and live broker connectivity is not wired
+  into the execution path.** Deferred to v2.3.
+- **`kernel` and `core/events` are unused by the execution path.** Deferred.
+- **A strategy still does not see the marked portfolio.** `StrategyContext`
+  comes from the caller's `context_factory`; neither `ExecutionPipeline` nor
+  `BacktestEngine` populates it. Allocation sizes from market prices and its
+  capital budget, not from the portfolio.
+- **`ExecutionPipeline` mints a fresh order per market event and never re-works
+  an existing one.** A partially filled order stays `PARTIALLY_FILLED` with its
+  residual reserved; it is not topped up on a later event. A participation-capped
+  strategy that wants to finish a large order must keep expressing the intent.
 - **Multi-currency valuation is not implemented.** `PortfolioValuation` and
   `NAVCalculator` value the base currency only; FX rates would be needed
   otherwise.
 - **`ExecutionPipeline._trade_record`** still hard-codes
   `sector_id="UNCLASSIFIED"` and `holding_period_seconds=0.0` ("D3", deferred).
+- **An unseeded run does not reproduce its identifiers.** `BacktestConfig.seed`
+  defaults to `None`, which leaves identifiers on `uuid4`; only the economics
+  reproduce. This is deliberate — the default is not silently made
+  deterministic — and the source of nondeterminism is visible on the config.
 
-See ADR-0009 for the rationale behind the integrated-path / standalone-engine split.
+See ADR-0009 for the integrated-path / standalone-engine split, and ADR-0010 for
+the unified backtest/replay decision that supersedes it for `replay`.
 
 ---
 
@@ -1098,11 +1283,13 @@ Each layer transforms its inputs into immutable outputs before passing them to t
 # End-to-End Workflow
 
 > **Target, not current state.** The lifecycle below is the design goal. It is
-> not a single pipeline that exists today: the stages are separate engines, and
-> `Replay Engine → Performance Report` in particular is **not** how the built
-> execution path works. The concrete path is `alphalab.runtime.ExecutionPipeline`
-> (market → strategy → allocation → risk → OMS → execution simulator → portfolio
-> → analytics); `replay` is a standalone engine that does not drive it.
+> not a single pipeline that exists today: most stages are still separate
+> engines. The concrete path is `alphalab.runtime.ExecutionPipeline` (market →
+> strategy → allocation → risk → OMS → execution simulator → portfolio →
+> analytics), driven end to end from a dataset by `alphalab.backtesting`. As of
+> v2.2 `Replay Engine → Performance Report` *is* built, via
+> `alphalab.backtesting.replay`, which drives that same path; the research,
+> universal-data and reporting stages around it are not wired in.
 
 The intended lifecycle of a quantitative strategy within AlphaLab is illustrated below.
 
@@ -1277,10 +1464,13 @@ The output is a target portfolio.
 
 # Stage 5 — Replay Engine
 
-> As of v2.0.0 `alphalab.replay` is a standalone engine. It is **not** wired into
-> `ExecutionPipeline` and is not a required stage of any built workflow. The
-> integrated execution path uses `alphalab.execution`'s deterministic simulator
-> directly.
+> As of v2.2 `alphalab.replay` drives the real execution path, through
+> `alphalab.backtesting.replay.ReplayBacktest`. The replay package itself still
+> owns only the cursor, the replay clock, the session lifecycle and
+> chronological validation; `backtesting` is what connects each event it yields
+> to strategy, allocation, risk, OMS, execution and portfolio. A replay and a
+> backtest of the same dataset produce identical orders, fills and P&L (see
+> ADR-0010).
 
 Replay simulates historical event playback under reproducible conditions.
 

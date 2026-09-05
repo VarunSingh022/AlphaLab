@@ -44,6 +44,23 @@ attribution) explicit, and fixed the O(N^2) event/history accumulation that had
 prevented `benchmark_risk_engine.py` from completing. No new packages. See
 `CHANGELOG.md`.
 
+v2.2.0 — "Unified Backtesting + Replay" — turned the existing engines into one
+deterministic dataset → analytics workflow, and closed the four v2.1 limitations
+that blocked it:
+
+- `alphalab.backtesting` composes `ExecutionPipeline` into a real backtest.
+  There is no backtest-only order, fill or portfolio model.
+- `alphalab.replay` now drives that same path, so a replay produces orders,
+  fills and P&L identical to the equivalent backtest (ADR-0010).
+- The OMS order book moved onto persistent containers: the 100k-order benchmark
+  went from ~16 minutes to 7.5s, and from quadratic to linear.
+- Allocation reservations became a per-order ledger, released exactly once.
+- `OMSState` gained a complete, round-trippable snapshot projection.
+- Identifiers became seedable, so a seeded run reproduces field for field.
+
+One new package (`backtesting`), which is an integration package, not another
+standalone engine. See `CHANGELOG.md`.
+
 ---
 
 # Feature notes (delivered)
@@ -289,20 +306,27 @@ Enterprise capabilities
 # Not yet addressed
 
 The engine packages exist and are individually tested. The following integration
-and consolidation work has **not** been done and is not currently scheduled:
+and consolidation work has **not** been done:
 
-- A single integrated runtime spanning all engines. Today `ExecutionPipeline`
-  (`alphalab.runtime`) is the only wired-together path — market → strategy →
-  allocation → risk → OMS → execution simulator → portfolio → analytics.
-- `alphalab.replay` integration with the execution path. Replay is a standalone
-  engine and does not drive `ExecutionPipeline`.
-- Mark-to-market position repricing.
-- Consolidation of the overlapping data surfaces (`data` / `marketdata` / `feed`),
-  the separate `data.feed.Bar` vs `market.bar.Bar` types, and `broker` / `brokers`.
-- Live broker connectivity into `ExecutionPipeline`.
+- **Market-data model convergence** (v2.3): the overlapping `data` / `marketdata`
+  / `feed` surfaces, and the separate `data.feed.Bar`, `market.bar.Bar` and
+  `marketdata.feed` Bar types. A backtest reads `alphalab.market` inputs only.
+- **`broker` / `brokers` consolidation and live broker connectivity into the
+  execution path** (v2.3).
+- A single integrated runtime spanning *all* engines. Today `ExecutionPipeline`
+  (`alphalab.runtime`) and `alphalab.backtesting`, which drives it from a
+  dataset, are the wired-together paths; research, reporting, feature store and
+  the rest remain standalone libraries.
 - Resolution of `kernel` and `core/events` (currently unused by the execution path).
+- Strategies still do not see the marked portfolio: `StrategyContext` comes from
+  the caller's `context_factory`.
+- Multi-currency valuation (`PortfolioValuation` / `NAVCalculator` value the base
+  currency only).
 - `_trade_record` attribution in `execution_pipeline` still hard-codes
   `sector_id="UNCLASSIFIED"` / `holding_period_seconds=0.0` ("D3").
+
+Delivered since this list was written: mark-to-market position repricing (v2.1)
+and `alphalab.replay` integration with the execution path (v2.2).
 
 ---
 
@@ -323,6 +347,11 @@ addressed**, not just additional engine packages.
 
 Major releases introduce architectural milestones or breaking public API changes
 (v2.0.0 unified the canonical execution domain models).
+
+Minor releases may still make small, documented breaking changes to a narrow
+public API where correctness requires it: v2.2.0 changed
+`AllocationEngine.release_reservation` to take no amount, because the reservation
+ledger owns it.
 
 Minor releases introduce new capabilities (v1.34.0–v1.46.0 each added one engine).
 
