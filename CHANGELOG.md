@@ -150,6 +150,11 @@ See `docs/ADR/0011-canonical-market-data-model.md` and
   different behaviour: hold orders versus refuse them.
 - `BrokerOrderStatus` gains `SUBMITTED` from the connector package, so
   broker-local operational states are one shared set.
+- The routing events in `alphalab.brokers.events` name their identifier
+  `broker_order_id` rather than `order_id`. `OrderManager` always passed the
+  venue handle into that field, so only the name changes — but leaving it
+  called `order_id` would have preserved, inside the converged package, exactly
+  the ambiguity that decided which broker order model was canonical.
 
 ### Moved (all re-exported, no import breaks)
 
@@ -213,16 +218,83 @@ the adapter boundary where it belongs.
 
 ## Breaking changes
 
-Confined to `alphalab.brokers`, whose types are now the canonical ones:
+Confined to `alphalab.brokers`, whose types are now the canonical ones. No
+public name was removed from any package, no module disappeared, and no enum
+member was removed — the breaks below are all changes of *shape*, not of
+availability.
+
+### Dataclass shapes
 
 - `AccountSnapshot` takes `cash` / `equity` / `available_funds` instead of
   `cash_balance`, and requires the fields a venue account actually reports.
   `broker_id` and `metadata` are optional.
 - `ExecutionReport` and `BrokerOrder` name their order field
   `broker_order_id`; `ExecutionReport.account_id` moved after `timestamp` and
-  now defaults.
-- `PositionSnapshot.position_id` is removed. It restated the
-  `"<account_id>:<symbol>"` key the state stores the position under.
+  now defaults. `BrokerOrder` additionally requires `oms_order_id`, because a
+  single `order_id` could not say whether it held AlphaLab's identifier or the
+  venue's.
+- **`PositionSnapshot` changed shape, not just field membership.** It was nine
+  required fields (`position_id`, `account_id`, `symbol`, `asset_class`,
+  `quantity`, `average_price`, `market_price`, `unrealized_pnl`,
+  `realized_pnl`); it is now six required plus three defaulted:
+
+  | | v2.2.0 | v2.3.0 |
+  | --- | --- | --- |
+  | `position_id` | required | **removed** — it restated the `"<account_id>:<symbol>"` key the state already stores the position under |
+  | `market_value` | absent | **required (new)** |
+  | `symbol`, `quantity`, `average_price`, `unrealized_pnl`, `realized_pnl` | required | required |
+  | `account_id` | required | optional, defaults to `""` |
+  | `asset_class` | required | optional, defaults to `AssetType.EQUITY` |
+  | `market_price` | required | optional, defaults to `Decimal("0")` |
+
+  Because the arity and the order both changed, **positional construction
+  breaks**: a v2.2 call passing nine positional arguments will raise, and a
+  call passing six will silently bind them to different fields. Construct with
+  keywords. `market_price` and `market_value` are both kept because a venue
+  reports both and they are different numbers — the mark for one unit, and the
+  mark for the whole holding.
+
+### Keyword-parameter renames — `order_id` → `broker_order_id`
+
+Positional callers are unaffected; keyword callers break. Every affected public
+entry point:
+
+| Callable | v2.2.0 | v2.3.0 |
+| --- | --- | --- |
+| `BrokerConnectorEngine.cancel_order` | `(state, order_id, timestamp)` | `(state, broker_order_id, timestamp)` |
+| `OrderManager.cancel_order` | `(state, order_id, timestamp)` | `(state, broker_order_id, timestamp)` |
+| `brokers.list_executions` | `(state, order_id)` | `(state, broker_order_id)` |
+| `brokers.validate_execution` | `(state, execution_id, order_id)` | `(state, execution_id, broker_order_id)` |
+| `brokers.validate_order_cancellation` | `(state, order_id)` | `(state, broker_order_id)` |
+
+The routing events in `alphalab.brokers.events` are renamed for the same
+reason: `OrderSubmitted`, `OrderCancelled`, `OrderFilled` and
+`ExecutionReceived` name their identifier `broker_order_id` instead of
+`order_id`. The *value* was always the venue handle — `OrderManager` has always
+passed `order.broker_order_id` — so only the name changes, and field order is
+unchanged, leaving positional construction working. Nothing in the codebase
+read the field by name.
+
+### Enum values
+
+Both enums are now aliases of canonical types, so their `.value` changed.
+**`.name` is unchanged in every case**, and nothing in AlphaLab reads `.value`
+on either — but external code that persisted or transmitted a `.value` will
+read it back differently.
+
+| Member | v2.2.0 `.value` | v2.3.0 `.value` | `.name` |
+| --- | --- | --- | --- |
+| `AssetClass.EQUITY` | `1` (`Enum`, `auto()`) | `"equity"` (`StrEnum`) | unchanged |
+| `AssetClass.FUTURE` / `OPTION` / `FOREX` / `CRYPTO` | `2`–`5` | `"future"` / `"option"` / `"forex"` / `"crypto"` | unchanged |
+| `OrderStatus.SUBMITTED` | `1` | `2` | unchanged |
+
+`AssetClass` is now `alphalab.core.enums.AssetType` and therefore also gains a
+`CASH` member; `OrderStatus` is now `alphalab.broker.order.BrokerOrderStatus`
+and gains `PENDING_SUBMIT` (which takes value `1`, shifting `SUBMITTED` to `2`)
+and `PENDING_CANCEL`. Both are widenings: no member was removed.
+
+### Protocols and state containers
+
 - `BrokerProtocol` (both packages) gained methods; a v2.2 adapter will not
   satisfy the v2.3 protocol.
 - `MarketState`, `BrokerState`, `BrokerConnectorState`, `MarketDataState`,

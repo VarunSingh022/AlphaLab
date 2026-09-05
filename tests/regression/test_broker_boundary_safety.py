@@ -121,6 +121,69 @@ def test_an_execution_names_the_order_it_belongs_to_unambiguously() -> None:
     assert "external_id" in fields
 
 
+def test_routing_events_name_the_venue_handle_they_actually_carry() -> None:
+    """An event that logs an identifier must say which identifier it is.
+
+    These carried the venue handle all along; before v2.3 they called it
+    ``order_id``, which reintroduced -- inside the converged package -- the
+    ambiguity that decided which broker order model was canonical.
+    """
+    from alphalab.brokers import events as routing_events
+
+    for name in ("OrderSubmitted", "OrderCancelled", "OrderFilled", "ExecutionReceived"):
+        fields = {f.name for f in dataclasses.fields(getattr(routing_events, name))}
+        assert "broker_order_id" in fields, f"{name} must name the venue handle"
+        assert "order_id" not in fields, f"{name} must not carry an ambiguous order_id"
+
+
+def test_a_routing_event_records_the_venue_handle_the_order_carries() -> None:
+    """Not just the field name -- the value must be the broker handle."""
+    from alphalab.brokers import (
+        BrokerConnection,
+        BrokerConnectorEngine,
+        BrokerType,
+        OrderSubmitted,
+    )
+    from alphalab.brokers.adapter import BrokerAdapter
+
+    state = BrokerConnectorEngine.initialize("E")
+    state = BrokerConnectorEngine.register_broker(
+        state, BrokerConnection("B-1", "Bench", BrokerType.PAPER), 1.0
+    )
+    state = BrokerConnectorEngine.add_account(
+        state,
+        BrokerAccount(
+            account_id="ACC-1",
+            cash=Decimal("1000"),
+            equity=Decimal("1000"),
+            buying_power=Decimal("1000"),
+            margin=Decimal("0"),
+            available_funds=Decimal("1000"),
+            currency="USD",
+            broker_id="B-1",
+        ),
+    )
+    order = BrokerAdapter.dict_to_order(
+        {
+            "order_id": "VENUE-HANDLE-1",
+            "oms_order_id": "OMS-1",
+            "account_id": "ACC-1",
+            "symbol": "AAPL",
+            "side": "BUY",
+            "order_type": "LIMIT",
+            "quantity": Decimal("10"),
+            "price": Decimal("100"),
+            "timestamp": 1.0,
+        }
+    )
+    submitted = BrokerConnectorEngine.submit_order(state, order, 2.0)
+
+    event = next(e for e in submitted.events if isinstance(e, OrderSubmitted))
+    assert event.broker_order_id == "VENUE-HANDLE-1"
+    assert event.broker_order_id == order.broker_order_id
+    assert event.broker_order_id != order.oms_order_id
+
+
 def test_identifier_bindings_cannot_be_silently_overwritten() -> None:
     from alphalab.broker.exceptions import BrokerValidationError
 

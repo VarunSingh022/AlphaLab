@@ -72,6 +72,16 @@ a fifth copy of `core.enums.AssetType`.
 `PositionSnapshot.position_id` is deleted: it restated the
 `"<account_id>:<symbol>"` key the state already stored the position under.
 
+The routing events in `alphalab.brokers.events` follow the same rule as the
+order model: `OrderSubmitted`, `OrderCancelled`, `OrderFilled` and
+`ExecutionReceived` name their identifier `broker_order_id`. They always
+carried the venue handle — `OrderManager` passed `order.broker_order_id` into
+them — so this is a naming correction, not a change of content. Leaving the
+field called `order_id` would have kept, inside the converged package, the very
+ambiguity that decided canonicity above. `account_id` stays on these events and
+is what makes them *routing* events: the single-broker equivalents in
+`alphalab.broker.events` have no account to name.
+
 Kept in `alphalab.brokers`, because they are routing and not vocabulary:
 `BrokerConnection`, `BrokerType`, `BrokerRegistry`, `BrokerConnectorState`,
 `BrokerStatistics`.
