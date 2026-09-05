@@ -19,7 +19,11 @@ from alphalab.market.events import (
     TickReceived,
     TradeReceived,
 )
-from alphalab.market.exceptions import MarketDataError, MarketValidationError
+from alphalab.market.exceptions import (
+    MarketDataError,
+    MarketValidationError,
+    UnsupportedRecordError,
+)
 from alphalab.market.level import OrderBookLevel
 from alphalab.market.normalization import (
     DEFAULT_POLICY,
@@ -88,6 +92,7 @@ __all__ = [
     "TickReceived",
     "TimeFrame",
     "TradeReceived",
+    "UnsupportedRecordError",
     "bars",
     "best_ask",
     "best_bid",

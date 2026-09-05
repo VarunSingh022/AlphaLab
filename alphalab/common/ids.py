@@ -23,7 +23,7 @@ says what made it reproducible.
 """
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from random import Random
 from typing import NewType
@@ -84,6 +84,25 @@ def use_id_source(source: Callable[[], str] | None) -> Iterator[None]:
         yield
     finally:
         _ID_SOURCE.reset(token)
+
+
+def id_source(seed: int | None) -> Callable[[], str] | None:
+    """The identifier source a seed selects; ``None`` means ``uuid4``."""
+
+    return None if seed is None else DeterministicIdSource(seed)
+
+
+def id_scope(seed: int | None) -> AbstractContextManager[None]:
+    """Scope in which a run's identifiers are minted.
+
+    A seeded run mints reproducible ids; an unseeded one keeps ``uuid4``.
+    Entering the scope is what makes "the same run twice" mean the same orders
+    and fills, not merely the same P&L.
+    """
+
+    if seed is None:
+        return nullcontext()
+    return use_id_source(id_source(seed))
 
 
 def is_uuid(value: str) -> bool:
