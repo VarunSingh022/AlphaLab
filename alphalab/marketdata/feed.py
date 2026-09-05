@@ -1,46 +1,36 @@
-"""Canonical Market Data Payload definitions."""
+"""Wire records this package's providers produce.
 
-from dataclasses import dataclass
+Before v2.3 this module defined ``Quote``, ``Trade``, ``Bar``, ``OrderBookLevel``
+and ``OrderBook`` as its own dataclasses, field-for-field identical to the ones
+in :mod:`alphalab.data.feed`. Two identical definitions of one concept is not a
+distinction, it is drift waiting to happen: a provider adapter and the data
+engine could not exchange a bar without a copy, and a fix applied to one copy
+would silently miss the other.
 
+There is now one definition, in :mod:`alphalab.data.feed`, re-exported here. The
+names, fields and semantics are unchanged, so ``from alphalab.marketdata.feed
+import Bar`` keeps working -- and now returns the same class the data engine
+uses.
 
-@dataclass(frozen=True, slots=True)
-class Quote:
-    symbol: str
-    timestamp: float
-    bid: float
-    ask: float
-    bid_size: float
-    ask_size: float
+These are *wire* records: ``float`` prices keyed by provider ``symbol``. See
+:mod:`alphalab.market.normalization` for the boundary that lifts them into the
+canonical ``Decimal`` / ``asset_id`` domain records the execution path consumes.
+"""
 
+from alphalab.data.feed import (
+    Bar,
+    CanonicalRecord,
+    OrderBook,
+    OrderBookLevel,
+    Quote,
+    Trade,
+)
 
-@dataclass(frozen=True, slots=True)
-class Trade:
-    symbol: str
-    timestamp: float
-    price: float
-    size: float
-
-
-@dataclass(frozen=True, slots=True)
-class Bar:
-    symbol: str
-    timestamp: float
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
-
-
-@dataclass(frozen=True, slots=True)
-class OrderBookLevel:
-    price: float
-    size: float
-
-
-@dataclass(frozen=True, slots=True)
-class OrderBook:
-    symbol: str
-    timestamp: float
-    bids: tuple[OrderBookLevel, ...]
-    asks: tuple[OrderBookLevel, ...]
+__all__ = [
+    "Bar",
+    "CanonicalRecord",
+    "OrderBook",
+    "OrderBookLevel",
+    "Quote",
+    "Trade",
+]
