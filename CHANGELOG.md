@@ -179,7 +179,7 @@ portfolio. It now drives the real path through `alphalab.backtesting.replay`.
 
 ## Tests
 
-1588 tests pass (1429 on v2.1.0). New:
+1589 tests pass (1429 on v2.1.0). New:
 
 | Area | File |
 | --- | --- |
