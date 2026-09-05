@@ -1,8 +1,17 @@
-"""Global immutable state container for the Replay Engine."""
+"""Global immutable state container for the Replay Engine.
+
+``system_events`` is an :class:`~alphalab.common.append_log.AppendOnlyLog`, not a
+tuple. The replay cursor appends one ``ReplayAdvanced`` per record, and rebuilding
+a tuple on every append made a replay cost O(N^2) in the records it had already
+read -- the defect v2.1 removed from the risk engine and v2.2 from the OMS, left
+behind on the very path v2.2 wired into execution. The log appends in O(1)
+amortized and still compares equal to the tuple it replaced.
+"""
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.replay.events import ReplaySystemEvent
 from alphalab.replay.loader import HistoricalEventProtocol
 from alphalab.replay.metrics import ReplayMetrics
@@ -30,7 +39,7 @@ class ReplayState:
     current_timestamp: float
     real_start_time: float
     real_current_time: float
-    system_events: tuple[ReplaySystemEvent, ...] = field(default_factory=tuple)
+    system_events: AppendOnlyLog[ReplaySystemEvent] = field(default_factory=AppendOnlyLog)
 
     @property
     def metrics(self) -> ReplayMetrics:

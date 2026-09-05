@@ -136,8 +136,15 @@ def test_a_request_with_no_market_price_releases_its_reservation() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_an_approved_request_reserves_while_it_is_working() -> None:
-    """A partial fill leaves the residual reserved: the order is still live."""
+def test_a_partial_fill_consumes_and_then_releases_its_whole_reservation() -> None:
+    """A partial fill executes part of the reservation and frees the rest.
+
+    The allocation engine still leaves the residual reserved when the execution
+    is applied -- that is correct, and its docstring says why. What changed in
+    v2.5 is what happens next: the pipeline withdraws the remainder in the same
+    step, because nothing will ever work it, so the residual is released rather
+    than held forever. See ADR-0014.
+    """
 
     asset_id = str(uuid4())
     state = _pipeline({2.0: Decimal("10")}, asset_id)
@@ -151,12 +158,12 @@ def test_an_approved_request_reserves_while_it_is_working() -> None:
     )
     order = result.oms_orders[0]
 
-    assert result.state.oms.orders.find(order.order_id).status is OrderStatus.PARTIALLY_FILLED
-    assert result.state.allocation.notional_allocated == Decimal("6") * MID
-    assert (
-        AllocationEngine.reserved_notional(result.state.allocation, str(order.order_id.value))
-        == Decimal("6") * MID
-    )
+    assert result.state.oms.orders.find(order.order_id).status is OrderStatus.CANCELLED
+    assert result.state.allocation.notional_allocated == Decimal("0.00")
+    assert AllocationEngine.reserved_notional(
+        result.state.allocation, str(order.order_id.value)
+    ) == Decimal("0.00")
+    assert dict(open_reservations(result.state.allocation)) == {}
 
 
 def test_a_fully_executed_request_consumes_its_reservation() -> None:

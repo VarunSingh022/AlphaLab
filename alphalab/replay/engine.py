@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import new_id
 from alphalab.replay.events import (
     ReplayAdvanced,
@@ -43,7 +44,7 @@ class ReplayEngine:
             current_timestamp=session.start_time,
             real_start_time=real_time,
             real_current_time=real_time,
-            system_events=(),
+            system_events=AppendOnlyLog(),
         )
 
     @staticmethod
@@ -64,7 +65,7 @@ class ReplayEngine:
             status=ReplayStatus.RUNNING,
             real_start_time=real_time,
             real_current_time=real_time,
-            system_events=(*state.system_events, start_evt),
+            system_events=state.system_events.append(start_evt),
         )
 
     @staticmethod
@@ -81,7 +82,7 @@ class ReplayEngine:
             state,
             status=ReplayStatus.PAUSED,
             real_current_time=real_time,
-            system_events=(*state.system_events, pause_evt),
+            system_events=state.system_events.append(pause_evt),
         )
 
     @staticmethod
@@ -98,7 +99,7 @@ class ReplayEngine:
             state,
             status=ReplayStatus.RUNNING,
             real_current_time=real_time,
-            system_events=(*state.system_events, resume_evt),
+            system_events=state.system_events.append(resume_evt),
         )
 
     @staticmethod
@@ -115,7 +116,7 @@ class ReplayEngine:
             state,
             status=ReplayStatus.STOPPED,
             real_current_time=real_time,
-            system_events=(*state.system_events, stop_evt),
+            system_events=state.system_events.append(stop_evt),
         )
 
     @staticmethod
@@ -132,7 +133,7 @@ class ReplayEngine:
                 state,
                 status=ReplayStatus.COMPLETED,
                 real_current_time=real_time,
-                system_events=(*state.system_events, comp_evt),
+                system_events=state.system_events.append(comp_evt),
             )
             return ReplayStepResult(new_state, None)
 
@@ -148,7 +149,7 @@ class ReplayEngine:
             current_index=new_idx,
             current_timestamp=event.timestamp,
             real_current_time=real_time,
-            system_events=(*state.system_events, adv_evt),
+            system_events=state.system_events.append(adv_evt),
         )
 
         if new_idx >= len(state.events):
@@ -158,7 +159,7 @@ class ReplayEngine:
             new_state = replace(
                 new_state,
                 status=ReplayStatus.COMPLETED,
-                system_events=(*new_state.system_events, comp_evt),
+                system_events=new_state.system_events.append(comp_evt),
             )
 
         return ReplayStepResult(new_state, event)
@@ -204,7 +205,7 @@ class ReplayEngine:
             current_index=idx,
             current_timestamp=target_timestamp,
             real_current_time=real_time,
-            system_events=(*state.system_events, adv_evt),
+            system_events=state.system_events.append(adv_evt),
         )
 
         if idx >= length:
@@ -214,7 +215,7 @@ class ReplayEngine:
             new_state = replace(
                 new_state,
                 status=ReplayStatus.COMPLETED,
-                system_events=(*new_state.system_events, comp_evt),
+                system_events=new_state.system_events.append(comp_evt),
             )
 
         return ReplayBatchResult(new_state, tuple(batch))
@@ -230,5 +231,5 @@ class ReplayEngine:
             current_timestamp=state.session.start_time,
             real_start_time=real_time,
             real_current_time=real_time,
-            system_events=(*state.system_events, reset_evt),
+            system_events=state.system_events.append(reset_evt),
         )

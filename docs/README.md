@@ -86,9 +86,12 @@ Reference
 
 # Architecture Overview
 
-The diagram below is a **design target**, not one running system. Today
-`alphalab.runtime.ExecutionPipeline` is the only wired-together path; every other
-subsystem is a standalone, individually tested engine.
+The diagram below is a **design target**, not one running system. Three paths
+are wired together today -- the execution path (`alphalab.runtime.ExecutionPipeline`,
+driven by `alphalab.backtesting` and `alphalab.runtime.session`), the lifecycle
+path (`alphalab.lifecycle`, v2.4) and the market-data path into the session
+(`alphalab.market.provider`, v2.5). Every other subsystem is a standalone,
+individually tested engine.
 
 ```
                          AlphaLab Workbench
@@ -108,12 +111,22 @@ subsystem is a standalone, individually tested engine.
                             Live Markets
 ```
 
-Integrated execution path that actually exists:
+Integrated paths that actually exist:
 
 ```
 market event → strategy → allocation → risk → OMS → execution simulator
              → portfolio → analytics       (alphalab.runtime.ExecutionPipeline)
+
+provider adapter → normalization → MarketDataSource → TradingSession
+                                                     (alphalab.market.provider, v2.5)
+
+research candidate → experiment run → validation evidence → model version
+  → strategy version → promotion → deployment → rollback
+                                                     (alphalab.lifecycle, v2.4)
 ```
+
+The lifecycle path is deliberately *not* joined to the execution path: a
+deployment names what should run, and the execution path runs it.
 
 Each subsystem is independently testable, immutable where appropriate, and designed around deterministic execution.
 
@@ -185,9 +198,10 @@ User-facing workspace for managing projects, monitoring strategies, visualizing 
 Additional standalone, individually tested engines added after v1.0.0:
 `feature_store`, `factor_library`, `alt_data`, `options`, `futures`, `crypto`,
 `macro`, `ml`, `deep_learning`, `reinforcement_learning`, `cloud_research`,
-`cluster_scheduler`, `experiment_tracking`, `model_registry`,
-`research_assistant`, `deployment_manager`, `enterprise`. None are wired into
-`ExecutionPipeline`.
+`cluster_scheduler`, `enterprise`. None are wired into `ExecutionPipeline`.
+`experiment_tracking`, `model_registry`, `research_assistant` and
+`deployment_manager` are composed by `alphalab.lifecycle` as of v2.4, and remain
+usable on their own.
 
 ---
 
@@ -239,18 +253,23 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v2.1.0
+v2.5.0
 ```
 
-v2.1.0 — "Execution + Portfolio Correctness" — adds mark-to-market to
-`ExecutionPipeline`, separates the portfolio's cash / realized P&L / unrealized
-P&L / commission accounting, makes execution invariants explicit, and replaces
-the O(N²) tuple-rebuilt engine histories with `common.AppendOnlyLog`. It builds
-on v2.0.0, which consolidated the v1.34.0–v1.46.0 engine series, added the model
-registry, research assistant, deployment manager and enterprise packages,
-unified the canonical execution domain models (R1–R4), and fixed two
-portfolio/analytics defects (D1/D2). Both releases contain breaking public API
-changes — see `../CHANGELOG.md`.
+v2.5.0 — "State Round-Trip and the Live Data Path" — makes the states AlphaLab
+writes readable back (`capture` / `restore` for `PortfolioState` and
+`LifecycleState`, joining `OMSState`), connects a market-data provider to the
+execution path through the normalization boundary v2.3 built
+(`alphalab.market.provider`), removes the last quadratic on a wired path (the
+replay cursor), and decides what a session does with unordered records and what
+happens to a partially filled order's remainder. See `ADR/0014`.
+
+Earlier milestones: v2.4.0 composed the model and strategy lifecycle (ADR-0013);
+v2.3.0 unified the market-data and broker models (ADR-0011, ADR-0012); v2.2.0
+unified backtesting and replay (ADR-0010); v2.1.0 added mark-to-market and
+removed the O(N²) engine histories; v2.0.0 consolidated the v1.34.0–v1.46.0
+engine series and unified the canonical execution domain models. Several
+releases contain breaking public API changes — see `../CHANGELOG.md`.
 
 ---
 

@@ -206,7 +206,9 @@ def test_partial_fill_then_completion_keeps_position_consistent_with_fills() -> 
     )
 
     order = partial.state.oms.orders.find(partial.oms_orders[0].order_id)
-    assert order.status is OrderStatus.PARTIALLY_FILLED
+    # The remainder is withdrawn (ADR-0014); the fill it did produce is kept,
+    # and the position below still tracks the fills rather than the order.
+    assert order.status is OrderStatus.CANCELLED
     assert order.filled_quantity == Decimal("4")
     assert order.remaining_quantity == Decimal("6.000000")
 

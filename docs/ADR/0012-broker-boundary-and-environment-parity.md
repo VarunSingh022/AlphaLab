@@ -225,7 +225,16 @@ that gets over-stated:
 | `PaperBroker` | **Implemented** — a simulation, and the reference adapter |
 | Order routing, fill return, reconciliation, gates | **Implemented and tested** |
 | A live session driving a real venue | **Not implemented.** No connectivity to any real venue exists in this repository |
-| Vendor adapters (Alpaca, IB, Zerodha, Binance, Databento, NSE, Polygon, Yahoo) | **Stubs.** Deterministic canned responses or `NotImplementedError`; none is wired to an endpoint |
+| Broker adapters (Alpaca, IB, Zerodha) in `alphalab.integrations` | **Stubs.** Deterministic canned responses -- `authenticate()` returns `True`, `account()` returns a fixed balance. None is wired to an endpoint |
+| Market-data clients (Databento, NSE, Polygon, Yahoo) | **Stubs.** `NotImplementedError`, with the shape an implementation would take |
+| Market-data client (Binance) | **Implemented**, and corrected here in v2.5. `alphalab.marketdata.binance` parses real `/api/v3/klines`, `/bookTicker`, `/trades` and `/depth` responses over `alphalab.marketdata.transport.HttpTransport`, which performs a real HTTP GET. It has never been run against a live endpoint from this environment, so treat it as unverified -- but it is not a stub, and this table said it was from v2.3 until v2.5 |
+| A market-data client reaching the execution path | **Implemented in v2.5.** `alphalab.market.provider.ProviderHistorySource` normalizes a provider's historical bars into canonical records and satisfies `MarketDataSource`. Historical bars only: no polling, no streaming, no subscription |
+
+> **Correction (v2.5).** The row above about vendor adapters said "every vendor
+> client is a stub" from v2.3 until v2.5, and that was wrong about Binance: a
+> real HTTP transport and a real Binance market-data client have existed since
+> v1.39.0 (`5bfb6fa`). It remains true that no *broker* adapter reaches a venue,
+> and that is what "AlphaLab does not support live trading" means.
 
 AlphaLab does **not** support live trading. It supports the adapter contract a
 live venue would be reached through, and an adapter plus its transport must be

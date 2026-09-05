@@ -71,7 +71,18 @@ conversions between packages live in `runtime/execution_adapters.py`; the
 canonical entities (`core.enums.Side`, `core.OrderRequest`, `oms.order.Order`,
 `core.Fill`, `core.Trade`) are preserved end to end.
 
-Every other engine described in this document (`research`, `replay`, `studio`,
+`replay` is **not** standalone: since v2.2, `alphalab.backtesting.replay` drives
+`ExecutionPipeline` from the replay cursor, so a replay produces the same orders,
+fills and P&L as the equivalent backtest (ADR-0010). This document said otherwise
+from v2.2 until v2.5.
+
+Two further paths are wired together, and neither runs through
+`ExecutionPipeline`: `alphalab.lifecycle` composes experiment tracking, the model
+registry and the deployment manager (v2.4, ADR-0013), and
+`alphalab.market.provider` turns a market-data provider's history into a
+`MarketDataSource` a `TradingSession` can read (v2.5, ADR-0014).
+
+Every other engine described in this document (`research`, `studio`,
 `production`, the learning and asset-class engines, …) is standalone and is not
 invoked by `ExecutionPipeline`.
 
@@ -445,8 +456,9 @@ The architecture favors extension over modification.
 
 The system design established in v1.0.0 has since absorbed distributed execution,
 cloud research, machine learning, and enterprise deployment as standalone
-packages (v1.34.0–v2.0.0) without architectural redesign. Wiring those packages
-into the integrated execution path remains future work.
+packages (v1.34.0–v2.0.0) without architectural redesign. Wiring the rest of them
+into an integrated path remains future work; v2.2 wired `replay`, v2.4 composed
+the lifecycle packages, and v2.5 connected the market-data provider boundary.
 
 ---
 

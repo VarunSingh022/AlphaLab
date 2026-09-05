@@ -37,6 +37,11 @@ from alphalab.market.normalization import (
     reject_stale,
     to_decimal,
 )
+from alphalab.market.provider import (
+    BarHistoryProvider,
+    ProviderHistorySource,
+    normalize_wire_bars,
+)
 from alphalab.market.quote import Quote
 from alphalab.market.record import MarketInput, MarketRecord, records_from_inputs
 from alphalab.market.snapshot import OrderBookSnapshot
@@ -70,6 +75,7 @@ __all__ = [
     "DEFAULT_POLICY",
     "Bar",
     "BarClosed",
+    "BarHistoryProvider",
     "BookUpdated",
     "MarketDataError",
     "MarketDataSource",
@@ -83,6 +89,7 @@ __all__ = [
     "OrderBookLevel",
     "OrderBookSnapshot",
     "OrderingGuarantee",
+    "ProviderHistorySource",
     "Quote",
     "QuoteReceived",
     "SequenceSource",
@@ -105,6 +112,7 @@ __all__ = [
     "latest_tick",
     "mid_price",
     "normalize_wire_bar",
+    "normalize_wire_bars",
     "normalize_wire_book",
     "normalize_wire_quote",
     "normalize_wire_trade",

@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline` and the packages that drive it — `alphalab.backtesting` and `alphalab.runtime.session` — and, separately, `alphalab.lifecycle`, actually wire a group of them together. See the **Implementation Status (v2.4)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline` and the packages that drive it — `alphalab.backtesting` and `alphalab.runtime.session` — and, separately, `alphalab.lifecycle`, actually wire a group of them together. See the **Implementation Status (v2.5)** section below.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 
@@ -12,10 +12,10 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v2.4)
+# Implementation Status (v2.5)
 
 Most of this document describes the **target** architecture. This section states
-what is actually built as of v2.4 so the two are not confused.
+what is actually built as of v2.5 so the two are not confused.
 
 There are **two** wired-together paths, and they are deliberately not joined:
 
@@ -26,6 +26,12 @@ There are **two** wired-together paths, and they are deliberately not joined:
 
 A deployment names what should run; running it is the execution path's job. The
 caller joins them.
+
+As of v2.5 the execution path can be fed by a market-data provider rather than
+only by a stored dataset (`alphalab.market.provider`), and three states can be
+captured and restored as typed values rather than only written
+(`alphalab.oms.snapshot`, `alphalab.portfolio.snapshot`,
+`alphalab.lifecycle.snapshot`).
 
 ## AlphaLab is a library
 
@@ -362,6 +368,101 @@ It is a lifecycle fact. Making a release active in `"live-eu"` records that
 no connection, and reaches no venue.
 
 See ADR-0013.
+
+## State round-trip: `capture` / `restore` (v2.5)
+
+Every AlphaLab state has serialized deterministically since v2.1. Until v2.5
+exactly one could be read back: `deserialize()` returns `Any`, so a snapshot came
+back as nested dictionaries, and only `alphalab.oms.snapshot` turned those into
+typed values again.
+
+| State | Round-trips | Notes |
+| --- | --- | --- |
+| `OMSState` | ✅ v2.2 | book indices rebuilt by replaying `add` |
+| `PortfolioState` | ✅ v2.5 | cash, positions, ledger, typed event history |
+| `LifecycleState` | ✅ v2.5 | model objects supplied by the caller — see below |
+| `ExecutionPipelineState` | ❌ | holds `StrategyProtocol` instances, an `ExecutionSimulator`, a `SizingModel` |
+| `SessionState` | ❌ | same blocker, through `config` and `pipeline` |
+
+### The contract
+
+`restore(capture(state)) == state`. The restored value **compares equal**; it
+does not reproduce internal container lineage, and nothing can observe the
+difference — `PersistentMap` inherits `Mapping.__eq__`, `PersistentSet` inherits
+`Set.__eq__`, `AppendOnlyLog` compares `to_tuple()`. One rule for every state.
+
+### Typed decoding
+
+`alphalab.persistence.decode` supplies the primitives — `require`, `as_decimal`,
+`as_float`, `as_int`, `as_bool`, `as_str`, `as_mapping`, `as_sequence`,
+`as_named_enum`, `as_value_enum` — and each raises `StateDecodeError` **naming
+the field**. It is deliberately not a reflective object mapper: a domain package
+states field by field what it expects, because that is where a wrong type or a
+missing key gets caught.
+
+| Situation | Answer |
+| --- | --- |
+| Missing field | `StateDecodeError`, naming it. Never a default |
+| Wrong type | `StateDecodeError`, naming the field and what it got |
+| String where an array belongs | Refused (a `str` is a `Sequence` in Python) |
+| Unknown event type / enum member | Refused, listing what was expected |
+| `"STAGING"` where `"ModelStage.STAGING"` is written | Refused — one encoding, one decoder |
+| Unknown `schema_version` | Refused. There is no migration path in v2.5 |
+| Unread extra field | Ignored, and not carried into the restored state |
+
+### Live objects are referenced, not reconstructed
+
+`ModelVersion.model` is an arbitrary object and `__serializable__` already drops
+it for `model_type` plus the artifact reference. So
+`lifecycle.snapshot.restore(snapshot, models={"momentum@1": obj})` takes the
+objects back from the caller, and **raises** when one is missing or is not the
+type that was captured. Never a substituted `None`.
+
+## The live data path (v2.5)
+
+```
+provider adapter        marketdata.binance.binanceAdapter  (real /api/v3 parsing)
+  -> wire bars          marketdata.feed.Bar                (float, provider symbol)
+  -> normalization      market.normalization               (Decimal, asset_id)
+  -> MarketRecord       market.record
+  -> ProviderHistorySource                                 (a MarketDataSource)
+  -> TradingSession     runtime.session
+```
+
+v2.3 built both ends and never joined them, so `normalize_wire_*` had no
+production caller and `SequenceSource` was the only source in the repository.
+`alphalab.market.provider` is that link and only that link — no HTTP, no vendor
+API, no second provider.
+
+It is a **history** source: a finite, closed range of bars, re-iterable, with
+deterministic record ids. No polling, no subscription, no reconnect.
+
+### Ordering
+
+`MarketEngine.publish_quote` writes `latest_quotes[asset_id]` unconditionally and
+the pipeline marks the portfolio to whatever it finds, so a late record rewrites
+valuation backwards. AlphaLab does not reorder market data; it says so:
+
+| `SessionConfig.ordering` | A record whose timestamp regresses |
+| --- | --- |
+| `CHRONOLOGICAL` (default) | **Raises.** The source broke the guarantee it declared |
+| `UNORDERED` | **Skipped and recorded** on `SessionState.skipped`, with the reason |
+
+A source declaring `UNORDERED` handed to a `CHRONOLOGICAL` session is refused by
+`TradingSession.run` before any record is processed. Nothing is buffered or
+reordered.
+
+## Partial fills terminate (v2.5)
+
+The pipeline mints a fresh order per market event and never re-works an existing
+one. Every non-trading outcome was withdrawn under that rule; a *partial* fill
+was the branch that skipped it, so the order stayed `PARTIALLY_FILLED` forever
+and held the reservation for a quantity nothing would execute.
+
+A partially filled order is now cancelled and its residual reservation released.
+`Order.cancel` preserves `filled_quantity` and `average_fill_price`. **This
+changes bookkeeping, not economics**: no fill is created or destroyed, so cash,
+positions, P&L and the equity curve are unchanged.
 
 ## Standalone engine libraries
 

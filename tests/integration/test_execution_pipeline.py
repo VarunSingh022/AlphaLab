@@ -176,7 +176,15 @@ def test_quote_drives_full_end_to_end_execution_pipeline() -> None:
     assert final_state.analytics.reports[0].ending_capital == Decimal("100000.00")
 
 
-def test_partial_execution_updates_oms_and_portfolio_without_closing_order() -> None:
+def test_partial_execution_applies_the_fill_and_withdraws_the_remainder() -> None:
+    """The four units that traded are kept; the six that did not are withdrawn.
+
+    Before v2.5 the order stayed PARTIALLY_FILLED and open. Nothing in this
+    pipeline would ever have worked it again -- a fresh order is minted per
+    market event -- so it sat in a state it could not leave, holding capital.
+    See ADR-0014.
+    """
+
     strategy_id = str(uuid4())
     asset_id = str(uuid4())
     strategy_state = _running_strategy_state(
@@ -193,13 +201,16 @@ def test_partial_execution_updates_oms_and_portfolio_without_closing_order() -> 
     )
 
     order = result.state.oms.orders.find(result.oms_orders[0].order_id)
-    assert order.status is OrderStatus.PARTIALLY_FILLED
+    assert order.status is OrderStatus.CANCELLED
+    # Cancelling preserves what actually executed.
     assert order.filled_quantity == Decimal("4")
     assert order.remaining_quantity == Decimal("6.000000")
     assert result.execution_reports[0].status is FillStatus.PARTIAL_FILL
     assert result.fills[0].quantity == Decimal("4")
     assert result.state.portfolio.positions[asset_id].quantity == Decimal("4.000000")
-    assert result.oms_orders[0].order_id in result.state.oms.active_orders
+    assert result.oms_orders[0].order_id in result.state.oms.completed_orders
+    assert result.oms_orders[0].order_id not in result.state.oms.active_orders
 
-    # Partial execution should have reduced reserved notional by executed amount
-    assert result.state.allocation.notional_allocated == Decimal("600.00")
+    # The executed notional was consumed and the residual released, so nothing
+    # is held against a quantity that will never trade.
+    assert result.state.allocation.notional_allocated == Decimal("0.00")

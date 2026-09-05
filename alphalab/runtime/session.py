@@ -68,9 +68,10 @@ from enum import Enum, auto
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import id_scope
 from alphalab.execution.policy import FillPolicy, ImmediateFill
+from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.normalization import is_stale
 from alphalab.market.record import MarketRecord
-from alphalab.market.source import MarketDataSource
+from alphalab.market.source import MarketDataSource, OrderingGuarantee
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.runtime.execution_pipeline import (
     ContextFactory,
@@ -141,6 +142,10 @@ class SessionConfig:
         max_market_data_age_seconds: Oldest record the session will act on,
             measured against the clock passed to :meth:`TradingSession.advance`.
             ``None`` disables the gate, which is correct for historical runs.
+        ordering: What this session will accept from its records. The default
+            requires timestamps never to go backwards, and a record that
+            regresses raises. Set it to ``UNORDERED`` to have such a record
+            skipped and recorded instead. See ADR-0014.
     """
 
     pipeline: ExecutionPipelineConfig
@@ -149,6 +154,7 @@ class SessionConfig:
     seed: int | None = None
     start_timestamp: float = 0.0
     max_market_data_age_seconds: float | None = None
+    ordering: OrderingGuarantee = OrderingGuarantee.CHRONOLOGICAL
 
     def __post_init__(self) -> None:
         # The mode decides routing; a config that disagreed with its own mode
@@ -171,6 +177,11 @@ class SessionState:
     processed: int = 0
     current_timestamp: float = 0.0
     skipped: AppendOnlyLog[SkippedRecord] = field(default_factory=AppendOnlyLog)
+    #: Timestamp of the newest record actually processed, or ``None`` before the
+    #: first one. Kept apart from ``current_timestamp``, which starts at the
+    #: funding instant, so the ordering check only ever compares record to
+    #: record.
+    last_record_timestamp: float | None = None
 
     @property
     def working_orders(self) -> tuple[OMSOrder, ...]:
@@ -181,6 +192,31 @@ class SessionState:
         """
 
         return tuple(self.pipeline.oms.orders.open_orders())
+
+
+def _out_of_order(
+    state: SessionState, record: MarketRecord, previous: float
+) -> tuple[SessionState, ExecutionPipelineResult | None]:
+    """Answer a record whose timestamp went backwards.
+
+    The market engine writes ``latest_quotes[asset_id]`` unconditionally and the
+    pipeline marks the portfolio to whatever it finds there, so acting on an
+    older record rewrites valuation backwards and nothing downstream notices.
+    Neither answer here is a reorder: the record is refused or it is dropped,
+    and nothing is buffered or held back.
+    """
+
+    detail = (
+        f"Record {record.event_id!r} is timestamped {record.timestamp}, which is "
+        f"before the last record processed at {previous}."
+    )
+    if state.config.ordering is OrderingGuarantee.CHRONOLOGICAL:
+        raise MarketValidationError(
+            f"{detail} This session requires chronological records, so its source "
+            "broke the guarantee it declared. Set SessionConfig.ordering to "
+            "UNORDERED to skip such records instead."
+        )
+    return replace(state, skipped=state.skipped.append(SkippedRecord(record, detail))), None
 
 
 class TradingSession:
@@ -212,7 +248,15 @@ class TradingSession:
         historical run. A live session passes its real clock.
 
         Returns the next state and the pipeline result, or ``None`` when the
-        record was skipped.
+        record was skipped -- because it was stale, or because its timestamp
+        went backwards and the session tolerates that.
+
+        Raises:
+            MarketValidationError: If the record's timestamp regresses and
+                ``config.ordering`` is ``CHRONOLOGICAL``. Acting on it would
+                mark the portfolio at a price the market has already moved past,
+                and the market engine's ``latest_*`` index would silently take
+                the older quote as current. See ADR-0014.
         """
 
         clock = record.timestamp if now is None else now
@@ -225,6 +269,10 @@ class TradingSession:
             )
             return replace(state, skipped=state.skipped.append(skipped)), None
 
+        previous = state.last_record_timestamp
+        if previous is not None and record.timestamp < previous:
+            return _out_of_order(state, record, previous)
+
         result = ExecutionPipeline.process_record(
             state.pipeline, record, context_factory, state.config.fill_policy
         )
@@ -234,6 +282,7 @@ class TradingSession:
                 pipeline=result.state,
                 processed=state.processed + 1,
                 current_timestamp=record.timestamp,
+                last_record_timestamp=record.timestamp,
             ),
             result,
         )
@@ -251,7 +300,29 @@ class TradingSession:
         ``clock`` supplies one reading per record for the staleness gate. Omit
         it and each record is judged against its own timestamp, which is what a
         historical source wants.
+
+        Raises:
+            MarketValidationError: If the source declares ``UNORDERED`` and the
+                session's config requires ``CHRONOLOGICAL``. The mismatch is
+                refused here, before any record is processed, rather than at
+                whichever record happens to arrive out of order -- a session
+                that would abort partway through a run should not start it. Set
+                ``SessionConfig.ordering`` to ``UNORDERED`` to accept the source
+                and have regressing records skipped and recorded.
         """
+
+        if (
+            source.ordering is OrderingGuarantee.UNORDERED
+            and config.ordering is OrderingGuarantee.CHRONOLOGICAL
+        ):
+            raise MarketValidationError(
+                f"Source {source.source_id!r} declares UNORDERED records and this "
+                "session requires CHRONOLOGICAL ones. AlphaLab does not reorder market "
+                "data: the market engine takes the newest record it is given as "
+                "current, so a record arriving late would mark the portfolio "
+                "backwards. Set SessionConfig.ordering to UNORDERED to skip and record "
+                "such records instead."
+            )
 
         readings = iter(clock) if clock is not None else None
         with id_scope(config.seed):
