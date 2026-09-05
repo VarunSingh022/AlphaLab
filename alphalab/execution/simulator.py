@@ -1,9 +1,9 @@
 """Execution Simulator composing models to generate reports."""
 
-import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.common.ids import new_id
 from alphalab.core.enums import Side
 from alphalab.execution.commission import CommissionModel, FixedCommission
 from alphalab.execution.fill import FillStatus, OrderInstruction
@@ -52,7 +52,7 @@ class ExecutionSimulator:
             validate_execution_parameters(fill_quantity, fill_price, commission, execution_time)
 
         return ExecutionReport(
-            execution_id=str(uuid.uuid4()),
+            execution_id=str(new_id()),
             order_id=instruction.order_id,
             asset_id=instruction.asset_id,
             strategy_id=instruction.strategy_id,

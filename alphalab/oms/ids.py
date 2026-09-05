@@ -3,6 +3,8 @@
 import uuid
 from dataclasses import dataclass
 
+from alphalab.common.ids import new_id
+
 
 @dataclass(frozen=True, slots=True)
 class OrderId:
@@ -12,5 +14,9 @@ class OrderId:
 
     @classmethod
     def generate(cls) -> "OrderId":
-        """Generates a new, unique OrderId."""
-        return cls(uuid.uuid4())
+        """Generates a new, unique OrderId.
+
+        Draws from the ambient identifier source, so an OrderId minted inside
+        ``use_id_source`` is reproducible (see :mod:`alphalab.common.ids`).
+        """
+        return cls(uuid.UUID(str(new_id())))

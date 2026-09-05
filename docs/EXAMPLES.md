@@ -8,11 +8,11 @@ Each example focuses on a single subsystem while following the same engineering 
 
 Examples are intended to be read sequentially by new users and used as reference implementations by contributors.
 
-> The example scripts were written for v1.0.0 and exercise the **standalone**
-> engine APIs. They are not part of the automated test suite. As of v2.0.0,
-> `03_replay.py` fails on a pre-existing empty-dataset issue; the other nine run.
-> For the integrated market-to-analytics path, see
-> `alphalab.runtime.ExecutionPipeline` and its tests under
+> Examples `01`–`10` were written for v1.0.0 and exercise the **standalone**
+> engine APIs. `11_unified_backtest.py` (v2.2) drives the integrated execution
+> path end to end. None are part of the automated test suite, though all eleven
+> run. For the integrated market-to-analytics path see `alphalab.backtesting`,
+> `alphalab.runtime.ExecutionPipeline`, and their tests under
 > `tests/integration/` and `tests/regression/`.
 
 ---
@@ -24,8 +24,8 @@ The `examples/` directory contains:
 | File | Description |
 |------|-------------|
 | `01_research.py` | Research engine |
-| `02_backtest.py` | Backtest workflow |
-| `03_replay.py` | Historical replay *(currently broken)* |
+| `02_backtest.py` | Strategy Studio backtest bookkeeping |
+| `03_replay.py` | Historical replay cursor |
 | `04_market_data.py` | Market data providers |
 | `05_broker_connection.py` | Broker integration adapters |
 | `06_portfolio_optimizer.py` | Portfolio construction |
@@ -33,6 +33,7 @@ The `examples/` directory contains:
 | `08_strategy_studio.py` | Strategy Studio orchestration |
 | `09_workbench.py` | Workbench workspace |
 | `10_complete_pipeline.py` | Multi-engine walkthrough |
+| `11_unified_backtest.py` | Dataset → orders → fills → P&L → analytics, plus replay parity |
 
 ---
 

@@ -6,13 +6,16 @@ path. Only the strategy itself is scripted, so a test can state exactly which
 intent it wants at which market event.
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
+from alphalab.backtesting.config import BacktestConfig
+from alphalab.backtesting.dataset import MarketDataset
+from alphalab.execution.policy import FillPolicy, ImmediateFill
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.market.quote import Quote
 from alphalab.portfolio.account import Account
@@ -161,3 +164,83 @@ def quote(asset_id: str, timestamp: float, mid: Decimal, spread: Decimal = Decim
         venue="SIM",
         currency="USD",
     )
+
+
+# ---------------------------------------------------------------------------
+# Backtest / replay helpers (v2.2)
+# ---------------------------------------------------------------------------
+
+
+def sized_quote(
+    asset_id: str,
+    timestamp: float,
+    mid: Decimal,
+    size: Decimal,
+    spread: Decimal = Decimal("0"),
+) -> Quote:
+    """A quote showing exactly ``size`` on both sides, for liquidity policies."""
+
+    half = spread / Decimal("2")
+    return Quote(
+        asset_id=asset_id,
+        timestamp=timestamp,
+        bid=mid - half,
+        ask=mid + half,
+        bid_size=size,
+        ask_size=size,
+        venue="SIM",
+        currency="USD",
+    )
+
+
+def backtest_config(
+    strategy_id: str,
+    seed: int | None = 20220,
+    fill_policy: FillPolicy | None = None,
+    starting_cash: Decimal = START_CASH,
+    simulator: ExecutionSimulator | None = None,
+    risk_limits: RiskLimits | None = None,
+    compile_analytics: bool = True,
+) -> BacktestConfig:
+    """A seeded backtest config over the shared permissive pipeline config."""
+
+    return BacktestConfig(
+        pipeline=pipeline_config(strategy_id, starting_cash, simulator, risk_limits),
+        fill_policy=fill_policy if fill_policy is not None else ImmediateFill(),
+        seed=seed,
+        start_timestamp=1.0,
+        compile_analytics=compile_analytics,
+    )
+
+
+def dataset_of_quotes(
+    asset_id: str,
+    mids: Sequence[Decimal],
+    dataset_id: str = "DS",
+    first_timestamp: float = 2.0,
+    size: Decimal = Decimal("100"),
+) -> MarketDataset:
+    """One quote per mid, one second apart, starting at ``first_timestamp``."""
+
+    return MarketDataset.of(
+        dataset_id,
+        [
+            sized_quote(asset_id, first_timestamp + index, mid, size)
+            for index, mid in enumerate(mids)
+        ],
+    )
+
+
+def scripted_run(
+    plan: Mapping[float, Decimal],
+    mids: Sequence[Decimal],
+    strategy_id: str,
+    asset_id: str,
+    **config_kwargs: object,
+) -> tuple[BacktestConfig, MarketDataset, StrategyRuntimeState]:
+    """Everything one scripted backtest needs, built consistently."""
+
+    config = backtest_config(strategy_id, **config_kwargs)  # type: ignore[arg-type]
+    dataset = dataset_of_quotes(asset_id, mids)
+    state = running_strategy_state(strategy_id, ScriptedStrategy(strategy_id, asset_id, plan))
+    return config, dataset, state

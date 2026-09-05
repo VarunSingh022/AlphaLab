@@ -144,13 +144,17 @@ packages and call their pure engine APIs.
 
 Two kinds of package:
 
-- **`alphalab.runtime.ExecutionPipeline`** — the one integrated path. It wires
-  market data → strategy → allocation → risk → OMS → execution simulator →
-  portfolio → analytics as pure functions over one immutable state snapshot.
-- **Standalone engines** — `research`, `replay`, `portfolio_optimizer`, the
-  learning and asset-class engines, `studio`, `workbench`, `enterprise`, and the
-  rest. Each is deterministic and individually tested, but they are not chained
-  together automatically.
+- **Integrated path** — `alphalab.runtime.ExecutionPipeline` wires market data →
+  strategy → allocation → risk → OMS → execution simulator → portfolio →
+  analytics as pure functions over one immutable state snapshot, and
+  `alphalab.backtesting` drives it from a dataset. `BacktestEngine.run` walks
+  the dataset directly; `ReplayBacktest.run` walks it through
+  `alphalab.replay`'s cursor. Both call the same step, so a backtest and a
+  replay of one dataset produce identical orders, fills and P&L.
+- **Standalone engines** — `research`, `portfolio_optimizer`, the learning and
+  asset-class engines, `studio`, `workbench`, `enterprise`, and the rest. Each is
+  deterministic and individually tested, but they are not chained together
+  automatically.
 
 ```
 Workbench   ─┐
@@ -305,8 +309,11 @@ Optimize Portfolio
 Generate Report
 ```
 
-Every stage is deterministic and uses immutable state. `replay` and the
-deployment packages are separate engines; nothing chains them automatically.
+Every stage is deterministic and uses immutable state. As of v2.2 the
+market-data → analytics segment *is* chained, by `alphalab.backtesting`, with
+`replay` as an alternative driver of the same path. The research, optimization,
+reporting and deployment packages around it are separate engines; nothing chains
+those automatically.
 
 ---
 

@@ -8,6 +8,224 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.2.0] - 2026-09-05
+
+## Overview
+
+AlphaLab 2.2.0 is "Unified Backtesting + Replay". It turns the existing research,
+market-data, execution, portfolio and analytics components into one deterministic
+dataset → analytics workflow, and closes the four v2.1 limitations that stood in
+its way: the super-linear OMS order book, the leaked allocation reservation on a
+risk rejection, the unserializable `OMSState`, and a replay engine that never
+reached the execution path.
+
+One new package, `alphalab.backtesting`. It is an *integration* package: it adds
+no engine and no domain model, and composes `ExecutionPipeline` instead. There is
+no backtest-only order model, no backtest-only fill model and — the point of the
+release — no second set of portfolio books.
+
+See `docs/ADR/0010-unified-backtesting-and-replay.md`.
+
+---
+
+## Added
+
+### Unified backtesting — `alphalab.backtesting`
+
+- `MarketDataset` / `MarketRecord` — an ordered, validated sequence of canonical
+  market inputs (`Quote` / `Bar` / `Tick`), each carrying the `event_id` and
+  `timestamp` `replay.HistoricalEventProtocol` requires. One dataset type feeds
+  both drivers.
+- `backtesting.engine.advance` — the canonical step: publish one record to the
+  market engine, hand the resulting event to
+  `ExecutionPipeline.process_market_event`.
+- `BacktestEngine.run(config, dataset, strategy_state, context_factory)` — walks
+  a dataset through that step and returns a `BacktestResult` with the final
+  pipeline state, per-record `BacktestStep`s, the equity curve, the valuation and
+  the compiled performance report.
+- `BacktestConfig` — the execution-path config, the fill policy, the seed, and
+  the analytics parameters, as one value.
+- Read-only views: `final_equity`, `final_cash`, `realized_pnl`,
+  `unrealized_pnl`, `commission_paid`, `equity_values`, `submitted_orders`,
+  `executed_fills`, `steps_with_fills`, `performance_report`.
+
+### Replay on the execution path — `alphalab.backtesting.replay`
+
+- `ReplayBacktest.run(...)` drives `ReplayEngine`'s cursor and calls the *same*
+  `advance` for every event it yields, so backtest/replay parity is structural
+  rather than a coincidence the tests happen to observe.
+- `alphalab.replay` itself is unchanged in responsibility: it still owns the
+  cursor, the replay clock, the session lifecycle and chronological validation.
+- The replay clock is the record index, not wall time, so a replay's own state is
+  a pure function of its dataset.
+
+### Execution semantics — `alphalab.execution.policy`
+
+- `FillPolicy` decides one order's outcome at one market event from a
+  `LiquidityContext` (asset, side, requested quantity, event price, size shown)
+  and returns a `FillDecision`.
+- `ImmediateFill` (default, fills in full), `StaticFill` (the pre-v2.2 fixed
+  `fill_status` argument, as a policy) and `LiquidityCappedFill` (fills up to a
+  share of the size the event showed; partial when capped, no fill when it showed
+  none).
+- `ExecutionPipeline.process_market_event` / `process_quote` gained an optional
+  `fill_policy` parameter, which takes precedence over `fill_status` /
+  `fill_quantity`. Both previous arguments still work unchanged.
+
+### Persistent containers — `alphalab.common.persistent_map`
+
+- `PersistentMap` and `PersistentSet`: immutable `Mapping` / `Set` with O(1)
+  amortized update and structural sharing, using the same "shared append-only
+  storage plus copy on branch" idiom `AppendOnlyLog` established in v2.1. Older
+  versions keep observing exactly what they observed before; iteration is in
+  first-insertion order.
+
+### Deterministic identifiers — `alphalab.common.ids`
+
+- `DeterministicIdSource(seed)` and `use_id_source(source)` scope where
+  identifiers come from. `BacktestConfig.seed` installs one for a run and records
+  it on the result.
+- All identifier factories on the execution path now route through `new_id()`,
+  `alphalab.core.ids.new_uuid` included.
+
+### OMS snapshots — `alphalab.oms.snapshot`
+
+- `capture` / `restore` / `from_primitives`, plus `OMSSnapshot` and
+  `OMSEventRecord`.
+- `alphalab.common.serialization` recognises a `__serializable__()` projection,
+  which is how a type whose in-memory shape has no JSON form declares one.
+
+### Benchmarks
+
+- `benchmarks/benchmark_backtesting.py` — backtest and replay throughput, the
+  scaling factor across a 4x workload, the replay cursor's overhead, and a parity
+  assertion at both sizes.
+
+---
+
+## Fixed
+
+### The OMS order book was quadratic
+
+`OrderBook.add` rebuilt the whole order `dict` and both index `frozenset`s,
+`OrderBook.replace` rebuilt the order `dict`, and `OMSEngine._update_sets`
+rebuilt both order-id `frozenset`s — once per stored order, and the OMS stores an
+order on submit and again on every lifecycle transition. Submitting N orders
+copied O(N²) entries. All five containers are now persistent.
+
+### The execution report index was quadratic too
+
+Found by running the whole benchmark suite after the order-book fix, which is
+the only reason it was found at all: `benchmarks_execution.py` took 85s for
+100k fills. `ExecutionEngine.execute` and `partial_fill` stored a report by
+rebuilding the whole `ExecutionState.reports` dict -- the same defect as the
+order book, on the same execution path, paid by every fill a backtest produces.
+`ExecutionState.reports` is now a `PersistentMap`; it is still an immutable
+`Mapping` keyed by execution id and still serializes as the JSON object it
+always did.
+
+### Measured
+
+On the development machine, full history retained:
+
+| Benchmark | v2.1 | v2.2 |
+| --- | --- | --- |
+| `benchmark_oms` (100k order lifecycles) | 26.3 min | 6.7s |
+| `benchmark_oms` scaling (10k → 20k) | 4.70x | 2.06x |
+| `benchmarks_execution` (100k fills) | 85.3s | 1.55s |
+| `benchmark_execution_pipeline` (4000 events) | 1.79s | 1.03s |
+| `benchmark_execution_pipeline` scaling (4x workload) | ~7.4x | ~4.4x |
+
+The residual above 4.00x in the pipeline benchmark is the cyclic garbage
+collector walking a growing live heap, not an algorithmic term: with the
+collector paused the same path scales 2.06x and 2.08x per doubling.
+
+### A risk-rejected request leaked its allocation reservation
+
+`AllocationEngine.allocate` commits capital against every request it emits.
+A request that risk refused was skipped with a bare `continue`, and a request
+with no market price was skipped earlier still; neither released anything, so
+`notional_allocated` over-reported for the rest of the run.
+
+`AllocationState.reservations` is now a per-order ledger. The allocation engine
+owns the amount, the pipeline owns the moment, and releasing an order that holds
+no live reservation raises `UnknownReservationError` instead of silently
+subtracting — which is what makes "released exactly once" checkable.
+
+### `OMSState` could not be serialized as a whole state
+
+`OrderBook` keys orders by `OrderId`, a dataclass, which JSON cannot use as an
+object key. Rather than weakening the identifier, the state now declares an
+explicit projection: orders serialize as an array in submission order, the
+derived indices are omitted and rebuilt on restore, and every event carries an
+`event_type` tag so the log reads back as typed events.
+`restore(from_primitives(deserialize(serialize(state)))) == state`, and the
+restored state is a working state the engine carries on from. Values without such
+a projection are still rejected by the encoder rather than stringified.
+
+### Replay produced nothing
+
+`alphalab.replay` sequenced events and never reached a strategy, an order or a
+portfolio. It now drives the real path through `alphalab.backtesting.replay`.
+
+---
+
+## Changed
+
+- **Breaking:** `AllocationEngine.release_reservation(state, order_id, timestamp)`
+  no longer takes the amount to release — the ledger owns it.
+- `OMSState.active_orders` / `completed_orders` are `PersistentSet[OrderId]`
+  rather than `frozenset[OrderId]`. They compare equal to a `frozenset` in both
+  directions and support `in`, `len` and iteration as before; iteration is now in
+  insertion order rather than hash order.
+- `OrderBook.orders()` and `orders_for_asset` / `orders_for_strategy` return
+  orders in submission order.
+- `AllocationState` gained `reservations`; `AllocationEngine` gained
+  `reserved_notional`, and `alphalab.allocation` gained the `reserved_for_order`
+  and `open_reservations` views.
+- `benchmarks/benchmark_oms.py` reports a scaling factor and fails if it exceeds
+  3.00x. It and `tests/regression/test_oms_book_complexity.py` pause the cyclic
+  collector around their timed sections, because otherwise the growth ratio
+  measures the collector rather than the data structure.
+- `benchmark_execution_pipeline`'s scaling ceiling tightened from 12.0x to 6.0x.
+
+---
+
+## Tests
+
+1599 tests pass (1429 on v2.1.0). New:
+
+| Area | File |
+| --- | --- |
+| Persistent containers | `tests/unit/common/test_persistent_map.py` |
+| Reservation ledger | `tests/unit/allocation/test_reservations.py` |
+| Fill policies | `tests/unit/execution/test_fill_policy.py` |
+| OMS snapshots | `tests/unit/oms/test_oms_snapshot.py` |
+| Dataset validation | `tests/unit/backtesting/test_dataset.py` |
+| Backtest loop | `tests/unit/backtesting/test_engine.py` |
+| OMS complexity | `tests/regression/test_oms_book_complexity.py` |
+| Execution report index complexity | `tests/regression/test_execution_reports_complexity.py` |
+| Reservation leak | `tests/regression/test_risk_reservation_leak.py` |
+| Whole-state OMS serialization | `tests/regression/test_oms_state_snapshot.py` |
+| Run-to-run determinism | `tests/regression/test_deterministic_backtest.py` |
+| Full backtest path | `tests/integration/test_backtest_pipeline.py` |
+| Backtest/replay parity | `tests/integration/test_backtest_replay_parity.py` |
+
+`tests/regression/test_state_serialization.py` no longer pins `OMSState` as
+unserializable; it pins the fix, and that a raw dataclass-keyed mapping is still
+rejected.
+
+---
+
+## Not in this release
+
+Deferred to v2.3: market-data model convergence (`data` / `marketdata` / `feed`,
+and the three separate `Bar` types), `broker` / `brokers` consolidation, and live
+broker connectivity into the execution path. See `docs/ARCHITECTURE.md`,
+"Known gaps and deferred areas".
+
+---
+
 # [2.1.0] - 2026-09-04
 
 ## Overview

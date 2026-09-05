@@ -27,11 +27,23 @@ from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
 from alphalab.execution.engine import ExecutionEngine
 from alphalab.execution.fill import FillStatus, OrderInstruction
+from alphalab.execution.policy import (
+    FillDecision,
+    FillPolicy,
+    LiquidityContext,
+    StaticFill,
+)
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
 from alphalab.market.engine import MarketEngine
-from alphalab.market.events import BarClosed, MarketEvent, QuoteReceived, TickReceived
+from alphalab.market.events import (
+    BarClosed,
+    MarketEvent,
+    QuoteReceived,
+    TickReceived,
+    TradeReceived,
+)
 from alphalab.market.quote import Quote
 from alphalab.market.state import MarketState
 from alphalab.oms.engine import OMSEngine
@@ -166,6 +178,7 @@ class ExecutionPipeline:
         context_factory: ContextFactory,
         fill_status: FillStatus = FillStatus.FULL_FILL,
         fill_quantity: Decimal | None = None,
+        fill_policy: FillPolicy | None = None,
     ) -> ExecutionPipelineResult:
         """Publish a quote and process the resulting market event."""
 
@@ -177,6 +190,7 @@ class ExecutionPipeline:
             context_factory,
             fill_status,
             fill_quantity,
+            fill_policy,
         )
 
     @staticmethod
@@ -186,6 +200,7 @@ class ExecutionPipeline:
         context_factory: ContextFactory,
         fill_status: FillStatus = FillStatus.FULL_FILL,
         fill_quantity: Decimal | None = None,
+        fill_policy: FillPolicy | None = None,
     ) -> ExecutionPipelineResult:
         """Route one market event through strategy, order, execution, and portfolio.
 
@@ -203,6 +218,11 @@ class ExecutionPipeline:
         3. Strategy, allocation, risk, OMS, execution and portfolio run.
         4. One portfolio snapshot is recorded for the event, after every fill
            it produced has been applied.
+
+        ``fill_policy`` decides each order's execution outcome from the
+        liquidity the event showed, and takes precedence over ``fill_status`` /
+        ``fill_quantity``, which apply one fixed outcome to every order. Passing
+        neither fills every order in full, as it always has.
         """
 
         market_prices = _market_prices_with_event(state.market_prices, event)
@@ -230,7 +250,10 @@ class ExecutionPipeline:
             portfolio=portfolio,
             risk=risk,
         )
-        return _process_requests(current, event, intents, requests, fill_status, fill_quantity)
+        policy: FillPolicy = (
+            fill_policy if fill_policy is not None else StaticFill(fill_status, fill_quantity)
+        )
+        return _process_requests(current, event, intents, requests, policy)
 
     @staticmethod
     def compile_analytics(
@@ -257,8 +280,7 @@ def _process_requests(
     event: MarketEvent,
     intents: tuple[Intent, ...],
     requests: tuple[OrderRequest, ...],
-    fill_status: FillStatus,
-    fill_quantity: Decimal | None,
+    policy: FillPolicy,
 ) -> ExecutionPipelineResult:
     decisions: list[RiskDecision] = []
     orders: list[OMSOrder] = []
@@ -275,26 +297,29 @@ def _process_requests(
         # than submitting an order the execution leg cannot price.
         if request.asset_id not in current.market_prices:
             unpriced.append(request)
+            current = _release_reservation(current, request, event.timestamp)
             continue
         current, decision = _evaluate_risk(current, request, event.timestamp)
         decisions.append(decision)
         if not decision.approved:
+            # Allocation reserved this request's notional when it sized it.
+            # Risk refused it, so it will never reach the OMS and never
+            # execute: the capital it holds is freed here, at the point its
+            # lifecycle ends, and exactly once.
+            current = _release_reservation(current, request, event.timestamp)
             continue
         current, order = _submit_and_accept_order(current, request, event.timestamp)
-        current, new_reports = _execute_order(current, order, fill_status, fill_quantity)
+        decision_out = _decide_fill(policy, order, event, current.market_prices[request.asset_id])
+        current, new_reports = _execute_order(current, order, decision_out)
         # A rejected, expired or unfilled execution produces no report. The
         # order never trades, so release its reserved allocation and close it
         # out of the OMS instead of leaving it open forever awaiting a fill.
-        if not new_reports and fill_status in _NON_TRADING_STATUSES:
-            released_notional = request.quantity * request.price
-            allocation_state = AllocationEngine.release_reservation(
-                current.allocation, request.order_id, released_notional, event.timestamp
-            )
+        if not new_reports and decision_out.status in _NON_TRADING_STATUSES:
             current = replace(
                 current,
-                allocation=allocation_state,
-                oms=_close_unfilled_order(current.oms, order, fill_status, event.timestamp),
+                oms=_close_unfilled_order(current.oms, order, decision_out.status, event.timestamp),
             )
+            current = _release_reservation(current, request, event.timestamp)
 
         current, new_fills, new_trades = _apply_reports(current, order, new_reports)
         orders.append(order)
@@ -330,6 +355,56 @@ def _evaluate_risk(
     return replace(state, risk=risk), decision
 
 
+def _release_reservation(
+    state: ExecutionPipelineState, request: OrderRequest, timestamp: float
+) -> ExecutionPipelineState:
+    """Free the allocation capital a request holds, once its lifecycle ends.
+
+    The allocation engine owns the amount; the pipeline owns the moment. A
+    request that never produced a request-level reservation (a batch dropped by
+    the budget check emits none) has nothing to release.
+    """
+
+    if request.order_id not in state.allocation.reservations:
+        return state
+    return replace(
+        state,
+        allocation=AllocationEngine.release_reservation(
+            state.allocation, request.order_id, timestamp
+        ),
+    )
+
+
+def _decide_fill(
+    policy: FillPolicy, order: OMSOrder, event: MarketEvent, price: Decimal
+) -> FillDecision:
+    """Ask the policy what the venue does with this order at this event."""
+
+    return policy.decide(
+        LiquidityContext(
+            asset_id=order.asset_id,
+            side=order.side,
+            requested_quantity=order.remaining_quantity,
+            price=price,
+            available_quantity=_available_quantity(event, order.side),
+            timestamp=event.timestamp,
+        )
+    )
+
+
+def _available_quantity(event: MarketEvent, side: OMSSide) -> Decimal | None:
+    """Size the market event showed, on the side the order has to cross."""
+
+    if isinstance(event, QuoteReceived):
+        quote = event.quote
+        return quote.ask_size if side is OMSSide.BUY else quote.bid_size
+    if isinstance(event, BarClosed):
+        return event.bar.volume
+    if isinstance(event, TickReceived | TradeReceived):
+        return event.tick.quantity
+    return None
+
+
 def _submit_and_accept_order(
     state: ExecutionPipelineState, request: OrderRequest, timestamp: float
 ) -> tuple[ExecutionPipelineState, OMSOrder]:
@@ -343,12 +418,11 @@ def _submit_and_accept_order(
 def _execute_order(
     state: ExecutionPipelineState,
     order: OMSOrder,
-    fill_status: FillStatus,
-    fill_quantity: Decimal | None,
+    decision: FillDecision,
 ) -> tuple[ExecutionPipelineState, tuple[ExecutionReport, ...]]:
     before = len(state.execution.history)
     instruction = _instruction(order, state)
-    quantity = order.remaining_quantity if fill_quantity is None else fill_quantity
+    quantity = decision.quantity if decision.quantity is not None else order.remaining_quantity
     execution = ExecutionEngine.simulate(
         state.execution,
         state.config.simulator,
@@ -356,7 +430,7 @@ def _execute_order(
         quantity,
         instruction.price,
         order.updated_at,
-        fill_status,
+        decision.status,
     )
     return replace(state, execution=execution), execution.history[before:]
 
@@ -377,7 +451,7 @@ def _apply_reports(
         # Reconcile allocation budgets with executed notional
         executed_notional = report.fill_quantity * report.fill_price
         allocation_state = AllocationEngine.apply_execution(
-            current.allocation, str(report.order_id), executed_notional, report.timestamp
+            current.allocation, report.order_id, executed_notional, report.timestamp
         )
         current = replace(current, allocation=allocation_state)
         fills.append(fill)

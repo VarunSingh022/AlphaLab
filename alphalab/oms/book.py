@@ -1,12 +1,25 @@
-"""
-Update an existing order.
+"""The OMS order book: an immutable, indexed collection of live orders.
 
-Identity fields must remain unchanged.
+The book is a value. Every mutation returns a new book and leaves the one it
+was derived from observably unchanged, which is what lets an ``OMSState`` be
+kept, compared and replayed.
+
+Until v2.2 that value semantics was paid for by copying: ``add`` rebuilt the
+whole order ``dict`` and both index ``frozenset`` s, and ``replace`` rebuilt the
+order ``dict``. The OMS stores an order on submit and again on every lifecycle
+transition, so a run of ``N`` orders copied ``O(N^2)`` entries -- the residual
+super-linear term left on the execution path after v2.1 fixed event
+accumulation. The three containers are now
+:class:`~alphalab.common.persistent_map.PersistentMap` /
+:class:`~alphalab.common.persistent_map.PersistentSet`, which share structure
+and update in O(1) amortized time while preserving exactly the same value
+semantics.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.oms.exceptions import UnknownOrderError
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order
@@ -14,31 +27,30 @@ from alphalab.oms.order import Order
 
 @dataclass(frozen=True, slots=True)
 class OrderBook:
-    """
-    Immutable mapping index representing the full collection of orders.
-    Modifications return copies with structural sharing.
+    """Immutable mapping index representing the full collection of orders.
+
+    Modifications return new books with structural sharing.
     """
 
-    _orders: Mapping[OrderId, Order] = field(default_factory=dict)
-    _by_asset: Mapping[str, frozenset[OrderId]] = field(default_factory=dict)
-    _by_strategy: Mapping[str, frozenset[OrderId]] = field(default_factory=dict)
+    _orders: PersistentMap[OrderId, Order] = field(default_factory=PersistentMap)
+    _by_asset: PersistentMap[str, PersistentSet[OrderId]] = field(default_factory=PersistentMap)
+    _by_strategy: PersistentMap[str, PersistentSet[OrderId]] = field(default_factory=PersistentMap)
 
     def add(self, order: Order) -> "OrderBook":
         """Adds an order to the book and index mappings."""
-        new_orders = dict(self._orders)
-        new_orders[order.order_id] = order
-
-        new_by_asset = dict(self._by_asset)
-        asset_set = set(new_by_asset.get(order.asset_id, set()))
-        asset_set.add(order.order_id)
-        new_by_asset[order.asset_id] = frozenset(asset_set)
-
-        new_by_strat = dict(self._by_strategy)
-        strat_set = set(new_by_strat.get(order.strategy_id, set()))
-        strat_set.add(order.order_id)
-        new_by_strat[order.strategy_id] = frozenset(strat_set)
-
-        return OrderBook(_orders=new_orders, _by_asset=new_by_asset, _by_strategy=new_by_strat)
+        by_asset = self._by_asset.set(
+            order.asset_id,
+            self._by_asset.get(order.asset_id, PersistentSet()).add(order.order_id),
+        )
+        by_strategy = self._by_strategy.set(
+            order.strategy_id,
+            self._by_strategy.get(order.strategy_id, PersistentSet()).add(order.order_id),
+        )
+        return OrderBook(
+            _orders=self._orders.set(order.order_id, order),
+            _by_asset=by_asset,
+            _by_strategy=by_strategy,
+        )
 
     def remove(self, order_id: OrderId) -> "OrderBook":
         """Removes an order fully from the book."""
@@ -47,26 +59,25 @@ class OrderBook:
 
         order = self._orders[order_id]
 
-        new_orders = dict(self._orders)
-        del new_orders[order_id]
+        assets = self._by_asset[order.asset_id].discard(order_id)
+        by_asset = (
+            self._by_asset.delete(order.asset_id)
+            if not assets
+            else self._by_asset.set(order.asset_id, assets)
+        )
 
-        new_by_asset = dict(self._by_asset)
-        asset_set = set(new_by_asset.get(order.asset_id, set()))
-        asset_set.discard(order_id)
-        if not asset_set:
-            del new_by_asset[order.asset_id]
-        else:
-            new_by_asset[order.asset_id] = frozenset(asset_set)
+        strategies = self._by_strategy[order.strategy_id].discard(order_id)
+        by_strategy = (
+            self._by_strategy.delete(order.strategy_id)
+            if not strategies
+            else self._by_strategy.set(order.strategy_id, strategies)
+        )
 
-        new_by_strat = dict(self._by_strategy)
-        strat_set = set(new_by_strat.get(order.strategy_id, set()))
-        strat_set.discard(order_id)
-        if not strat_set:
-            del new_by_strat[order.strategy_id]
-        else:
-            new_by_strat[order.strategy_id] = frozenset(strat_set)
-
-        return OrderBook(_orders=new_orders, _by_asset=new_by_asset, _by_strategy=new_by_strat)
+        return OrderBook(
+            _orders=self._orders.delete(order_id),
+            _by_asset=by_asset,
+            _by_strategy=by_strategy,
+        )
 
     def replace(self, order: Order) -> "OrderBook":
         """Updates an existing order.
@@ -74,37 +85,53 @@ class OrderBook:
         if order.order_id not in self._orders:
             raise UnknownOrderError(f"Cannot replace unknown order: {order.order_id}")
 
-        new_orders = dict(self._orders)
-        new_orders[order.order_id] = order
-
         return OrderBook(
-            _orders=new_orders, _by_asset=self._by_asset, _by_strategy=self._by_strategy
+            _orders=self._orders.set(order.order_id, order),
+            _by_asset=self._by_asset,
+            _by_strategy=self._by_strategy,
         )
 
     def find(self, order_id: OrderId) -> Order:
         """Looks up an order by strictly unique OrderId."""
-        if order_id not in self._orders:
+        order = self._orders.get(order_id)
+        if order is None:
             raise UnknownOrderError(f"Order not found: {order_id}")
-        return self._orders[order_id]
+        return order
 
     def contains(self, order_id: OrderId) -> bool:
         """Determines if the order exists within the book."""
         return order_id in self._orders
 
     def orders(self) -> Sequence[Order]:
-        """Returns all managed orders."""
+        """Returns all managed orders, in submission order."""
         return tuple(self._orders.values())
 
     def open_orders(self) -> Sequence[Order]:
-        """Returns only orders in an active state."""
+        """Returns only orders in an active state, in submission order."""
         return tuple(o for o in self._orders.values() if o.is_open)
 
     def orders_for_asset(self, asset_id: str) -> Sequence[Order]:
         """Looks up all orders mapped to a specific asset identifier."""
-        order_ids = self._by_asset.get(asset_id, frozenset())
+        order_ids = self._by_asset.get(asset_id)
+        if order_ids is None:
+            return ()
         return tuple(self._orders[oid] for oid in order_ids)
 
     def orders_for_strategy(self, strategy_id: str) -> Sequence[Order]:
         """Looks up all orders generated by a specific strategy identifier."""
-        order_ids = self._by_strategy.get(strategy_id, frozenset())
+        order_ids = self._by_strategy.get(strategy_id)
+        if order_ids is None:
+            return ()
         return tuple(self._orders[oid] for oid in order_ids)
+
+    def __serializable__(self) -> tuple[Order, ...]:
+        """Serialize as the ordered sequence of orders the book holds.
+
+        The book cannot serialize as a JSON object: its keys are ``OrderId``
+        dataclasses, which are not valid mapping keys. It serializes as an
+        array instead -- orders in submission order, each carrying its own
+        identity -- and the asset/strategy indices are omitted because they are
+        derived from that array and rebuilt on restore.
+        """
+
+        return tuple(self.orders())

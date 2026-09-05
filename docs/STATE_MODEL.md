@@ -83,6 +83,40 @@ Serialization goes through `alphalab.common.dataclass_to_dict`, which converts a
 `alphalab.persistence.serialize`) rather than `dataclasses.asdict` directly:
 `asdict` cannot be extended, so it deep-copies the log as an opaque object.
 
+## Persistent keyed state (v2.2)
+
+`alphalab.common.PersistentMap` and `PersistentSet` are the same idea applied to
+keyed containers, and exist for the same reason: a `dict`/`frozenset` field
+rebuilt on every write makes a run of N transitions copy O(N²) entries. A map is
+a view `(store, version, size)` over shared append-only storage that keeps, per
+key, the chain of `(version, value)` writes to it. A view reads the newest entry
+at or before its own version, so a later write is invisible to it; writing to
+the newest view appends one entry (O(1) amortized) and writing to an older view
+copies -- copy on branch, exactly as `AppendOnlyLog` does.
+
+Iteration is in first-insertion order, so a state holding one serializes
+deterministically.
+
+States using them: `OMSState.orders` (the `OrderBook`'s order index and its
+asset/strategy indices), `OMSState.active_orders` / `completed_orders`,
+`ExecutionState.reports`, and `AllocationState.reservations`.
+
+## Serializable projections (v2.2)
+
+A state whose in-memory shape has no JSON form declares one by defining
+`__serializable__()`, which `dataclass_to_dict` honours before its dataclass
+branch. `OMSState` uses it: `OrderBook` keys orders by the `OrderId` dataclass,
+which JSON cannot use as an object key, so the state projects to
+`alphalab.oms.snapshot.OMSSnapshot` -- orders as an array in submission order,
+derived indices omitted and rebuilt on restore, and every event tagged with its
+`event_type` so the log reads back as typed events.
+
+`capture` / `restore` are inverses in memory, and
+`restore(from_primitives(deserialize(serialize(state)))) == state` across JSON.
+
+A value *without* such a projection is still rejected by the encoder rather than
+stringified: the mechanism is an explicit declaration, not a fallback.
+
 ---
 
 # Ownership

@@ -1,8 +1,9 @@
 """UUID-backed identifiers for core domain models."""
 
 from typing import NewType
-from uuid import UUID, uuid4
+from uuid import UUID
 
+from alphalab.common.ids import new_id
 from alphalab.core.exceptions import DomainValidationError
 
 AccountId = NewType("AccountId", str)
@@ -20,11 +21,15 @@ TradeId = NewType("TradeId", str)
 def new_uuid() -> str:
     """Create a canonical UUID4 string.
 
+    Drawn from the ambient identifier source
+    (:func:`alphalab.common.ids.new_id`), so core identifiers minted inside a
+    seeded run reproduce along with everything else on the execution path.
+
     Returns:
         A lowercase UUID4 string suitable for storing in typed domain IDs.
     """
 
-    return str(uuid4())
+    return str(new_id())
 
 
 def new_account_id() -> AccountId:
