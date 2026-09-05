@@ -28,18 +28,18 @@ from typing import Any
 
 import pytest
 
-from alphalab.market.bar import TimeFrame
+from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.normalization import NormalizationPolicy, SymbolMap
 from alphalab.market.provider import ProviderHistorySource
-from alphalab.market.source import OrderingGuarantee, SequenceSource
+from alphalab.market.source import MarketDataSource, OrderingGuarantee, SequenceSource
 from alphalab.marketdata.binance.adapter import binanceAdapter
 from alphalab.marketdata.binance.config import binanceConfig
 from alphalab.marketdata.timeframe import Timeframe
 from alphalab.marketdata.transport import StaticTransport
 from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.portfolio.snapshot import capture, from_primitives, restore
-from alphalab.runtime.session import SessionConfig, TradingSession
+from alphalab.runtime.session import SessionConfig, SessionState, TradingSession
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
@@ -132,7 +132,20 @@ def _session_config(**overrides: Any) -> SessionConfig:
     )
 
 
-def _run(source: ProviderHistorySource, **overrides: Any):  # type: ignore[no-untyped-def]
+def _first_bar(source: ProviderHistorySource) -> Bar:
+    """The source's first record as the canonical bar it must be.
+
+    ``MarketRecord.payload`` is ``Quote | Bar | Tick`` -- the union the execution
+    path accepts -- so a bar source narrowing it is part of what these tests
+    assert, not a formality.
+    """
+
+    payload = next(iter(source.records())).payload
+    assert isinstance(payload, Bar), f"a bar source yielded a {type(payload).__name__}"
+    return payload
+
+
+def _run(source: MarketDataSource, **overrides: Any) -> SessionState:
     return TradingSession.run(
         _session_config(**overrides),
         source,
@@ -168,7 +181,7 @@ def test_the_records_carry_canonical_domain_values_not_wire_values() -> None:
     which interval its rows are, so the caller does.
     """
 
-    bar = next(iter(_source().records())).payload
+    bar = _first_bar(_source())
 
     assert isinstance(bar.open, Decimal)
     assert isinstance(bar.volume, Decimal)
@@ -184,7 +197,7 @@ def test_precision_goes_through_str_not_through_the_float() -> None:
     payload = json.dumps(
         [[1_700_000_000_000, "0.1", "0.1", "0.1", "0.1", "0.1", 0, "0", 0, "0", "0", "0"]]
     ).encode()
-    bar = next(iter(_source(payload=payload).records())).payload
+    bar = _first_bar(_source(payload=payload))
 
     assert bar.open == Decimal("0.1")
     assert str(bar.open) == "0.1"
@@ -193,7 +206,7 @@ def test_precision_goes_through_str_not_through_the_float() -> None:
 def test_unreported_fields_stay_unreported() -> None:
     """A wire bar carries no vwap and no trade count; none is invented."""
 
-    bar = next(iter(_source().records())).payload
+    bar = _first_bar(_source())
     assert bar.vwap == Decimal("0")
     assert bar.trade_count == 0
 
