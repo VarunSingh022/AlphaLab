@@ -1,8 +1,9 @@
 """Global immutable state container for the Live Market Data framework."""
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.live.connection import ConnectionState
 from alphalab.live.events import LiveEvent
 from alphalab.live.provider import Provider
@@ -21,13 +22,19 @@ class LiveStatistics:
 
 @dataclass(frozen=True, slots=True)
 class LiveState:
-    """Deterministic snapshot of the entire Live Market Data infrastructure."""
+    """Deterministic snapshot of the entire Live Market Data infrastructure.
+
+    Persistent containers for the same reason the canonical market state uses
+    them: growing a ``tuple`` of events per tick copies O(N^2) elements, which
+    is what made ``benchmarks/benchmark_live.py`` take minutes to route 100k
+    ticks.
+    """
 
     engine_id: str
-    providers: Mapping[str, Provider] = field(default_factory=dict)
-    connections: Mapping[str, ConnectionState] = field(default_factory=dict)
-    subscriptions: Mapping[str, Subscription] = field(default_factory=dict)
-    snapshots: Mapping[str, MarketSnapshot] = field(default_factory=dict)
+    providers: PersistentMap[str, Provider] = field(default_factory=PersistentMap)
+    connections: PersistentMap[str, ConnectionState] = field(default_factory=PersistentMap)
+    subscriptions: PersistentMap[str, Subscription] = field(default_factory=PersistentMap)
+    snapshots: PersistentMap[str, MarketSnapshot] = field(default_factory=PersistentMap)
     statistics: LiveStatistics = field(default_factory=LiveStatistics)
-    events: tuple[LiveEvent, ...] = field(default_factory=tuple)
-    metadata: Mapping[str, str] = field(default_factory=dict)
+    events: AppendOnlyLog[LiveEvent] = field(default_factory=AppendOnlyLog)
+    metadata: PersistentMap[str, str] = field(default_factory=PersistentMap)

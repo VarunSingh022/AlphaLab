@@ -95,27 +95,35 @@ def test_brokers_registry_order_also_uses_canonical_side_and_type() -> None:
     """The separate multi-broker `brokers` package agrees with `broker` on vocabulary.
 
     Before Phase 4, `alphalab.brokers.order.OrderType/OrderStatus/OrderSide` were an
-    independent enum family from `alphalab.broker`'s. This proves both packages now
-    converge on the exact same alphalab.core.enums members, not just similarly-named
-    ones.
+    independent enum family from `alphalab.broker`'s. Both packages then converged on
+    the exact same alphalab.core.enums members, not just similarly-named ones.
+
+    v2.3 goes one step further: `brokers` no longer defines its own order *type*
+    either. The assertion below is that the class itself is the canonical one --
+    two dataclasses with identical fields would still be different types, so this
+    checks identity, not shape.
     """
+    from alphalab.broker.order import BrokerOrder as CanonicalBrokerOrder
     from alphalab.brokers.order import BrokerOrder as RegistryBrokerOrder
 
+    assert RegistryBrokerOrder is CanonicalBrokerOrder
+
     order = RegistryBrokerOrder(
-        order_id="REG-ORDER-1",
-        account_id="ACC-1",
+        broker_order_id="REG-ORDER-1",
+        oms_order_id="OMS-ORDER-1",
         symbol="AAPL",
         side=Side.SELL,
         order_type=OrderType.LIMIT,
-        tif=TimeInForce.DAY,
         quantity=Decimal("50"),
         price=Decimal("151.00"),
-        stop_price=Decimal("0"),
         filled_quantity=Decimal("0"),
         average_fill_price=Decimal("0"),
         status=OrderStatus.NEW,
         created_at=1000.0,
         updated_at=1000.0,
+        account_id="ACC-1",
+        tif=TimeInForce.DAY,
+        stop_price=Decimal("0"),
     )
 
     # Cross-package identity check: the Side value constructed here (from core.enums,
@@ -125,3 +133,7 @@ def test_brokers_registry_order_also_uses_canonical_side_and_type() -> None:
     assert order.side is Side.SELL
     assert order.order_type is OrderType.LIMIT
     assert order.status is OrderStatus.NEW
+
+    # The two identities an order carries stay distinct, which is what makes
+    # reconciliation possible at all.
+    assert order.broker_order_id != order.oms_order_id

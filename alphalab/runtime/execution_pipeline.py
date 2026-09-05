@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
+from enum import Enum, auto
 from uuid import UUID
 
 from alphalab.allocation.budget import CapitalBudget
@@ -36,6 +37,7 @@ from alphalab.execution.policy import (
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
+from alphalab.market.bar import Bar
 from alphalab.market.engine import MarketEngine
 from alphalab.market.events import (
     BarClosed,
@@ -44,8 +46,11 @@ from alphalab.market.events import (
     TickReceived,
     TradeReceived,
 )
+from alphalab.market.exceptions import UnsupportedRecordError
 from alphalab.market.quote import Quote
+from alphalab.market.record import MarketRecord
 from alphalab.market.state import MarketState
+from alphalab.market.tick import Tick
 from alphalab.oms.engine import OMSEngine
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order as OMSOrder
@@ -76,6 +81,27 @@ ContextFactory = Callable[[str], StrategyContext]
 _NON_TRADING_STATUSES = (FillStatus.REJECTED, FillStatus.EXPIRED, FillStatus.NO_FILL)
 
 
+class ExecutionRouting(Enum):
+    """Where an accepted order executes -- the one thing environments differ in.
+
+    Everything before this point is identical in a backtest, a replay, a paper
+    run and a live session: the same market event, strategy, allocation, risk
+    and OMS. What changes is only what happens to an order the OMS has
+    accepted.
+    """
+
+    #: The order executes against :class:`~alphalab.execution.simulator.ExecutionSimulator`,
+    #: with a :class:`~alphalab.execution.policy.FillPolicy` deciding the outcome
+    #: from the liquidity the market event showed. Backtest, replay and paper.
+    SIMULATED = auto()
+
+    #: The order is left working in the OMS for a broker adapter to route; no
+    #: fill is invented for it. Its allocation reservation stays held, because
+    #: the order is still live and that capital is still committed. Fills come
+    #: back later through :mod:`alphalab.runtime.broker_routing`. Live only.
+    EXTERNAL = auto()
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionPipelineConfig:
     """Configuration required to connect the production execution path.
@@ -90,6 +116,8 @@ class ExecutionPipelineConfig:
         simulator: Execution simulator used for deterministic fills.
         venue: Execution venue label for generated instructions.
         currency: Currency used for cash, execution reports, and portfolio fills.
+        routing: Where an accepted order executes. Defaults to ``SIMULATED``,
+            which is what every environment before v2.3 did.
     """
 
     account: Account
@@ -101,6 +129,7 @@ class ExecutionPipelineConfig:
     simulator: ExecutionSimulator = field(default_factory=ExecutionSimulator)
     venue: str = "SIM"
     currency: str = "USD"
+    routing: ExecutionRouting = ExecutionRouting.SIMULATED
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +223,52 @@ class ExecutionPipeline:
         )
 
     @staticmethod
+    def publish_record(market: MarketState, record: MarketRecord) -> MarketState:
+        """Publish one market record to the market engine.
+
+        The record's payload decides which publication it is; nothing else in
+        the path needs to know which kind of input drove an event.
+        """
+
+        payload = record.payload
+        if isinstance(payload, Quote):
+            return MarketEngine.publish_quote(market, payload)
+        if isinstance(payload, Bar):
+            return MarketEngine.publish_bar(market, payload)
+        if isinstance(payload, Tick):
+            return MarketEngine.publish_tick(market, payload)
+        raise UnsupportedRecordError(
+            f"Record {record.event_id} carries an unsupported market input: "
+            f"{type(payload).__name__}"
+        )
+
+    @staticmethod
+    def process_record(
+        state: ExecutionPipelineState,
+        record: MarketRecord,
+        context_factory: ContextFactory,
+        fill_policy: FillPolicy | None = None,
+    ) -> ExecutionPipelineResult:
+        """Move one market record through the whole execution path.
+
+        This is *the* canonical step, and every environment takes it: a
+        backtest walking a dataset, a replay driven by its cursor, a paper run
+        reading a live source, and a live session -- see
+        :mod:`alphalab.runtime.session`. They differ in where the record came
+        from and in where an accepted order executes, and in nothing else.
+        Sharing this function is what makes that a structural guarantee rather
+        than a convention four call sites have to keep.
+        """
+
+        market = ExecutionPipeline.publish_record(state.market, record)
+        return ExecutionPipeline.process_market_event(
+            replace(state, market=market),
+            market.events[-1],
+            context_factory,
+            fill_policy=fill_policy,
+        )
+
+    @staticmethod
     def process_market_event(
         state: ExecutionPipelineState,
         event: MarketEvent,
@@ -256,6 +331,26 @@ class ExecutionPipeline:
         return _process_requests(current, event, intents, requests, policy)
 
     @staticmethod
+    def apply_execution_report(
+        state: ExecutionPipelineState,
+        order: OMSOrder,
+        report: ExecutionReport,
+    ) -> tuple[ExecutionPipelineState, tuple[CoreFill, ...], tuple[CoreTrade, ...]]:
+        """Apply one execution report that did not come from the simulator.
+
+        This is the seam a real venue arrives through. A fill reported by a
+        broker is turned into an :class:`~alphalab.execution.report.ExecutionReport`
+        by :mod:`alphalab.runtime.broker_routing` and then applied *here* -- by
+        the same function a simulated fill goes through, so the OMS transition,
+        the portfolio accounting, the allocation reconciliation and the
+        analytics trade record are identical whether the fill was simulated or
+        real. Duplicating that logic for live trading is precisely the mistake
+        this method exists to prevent.
+        """
+
+        return _apply_reports(state, order, (report,))
+
+    @staticmethod
     def compile_analytics(
         state: ExecutionPipelineState,
         timestamp: float,
@@ -309,6 +404,12 @@ def _process_requests(
             current = _release_reservation(current, request, event.timestamp)
             continue
         current, order = _submit_and_accept_order(current, request, event.timestamp)
+        if current.config.routing is ExecutionRouting.EXTERNAL:
+            # The order is now working and belongs to whoever routes it. No
+            # fill is invented, the order is not closed out, and its
+            # reservation stays held -- the capital is still committed.
+            orders.append(order)
+            continue
         decision_out = _decide_fill(policy, order, event, current.market_prices[request.asset_id])
         current, new_reports = _execute_order(current, order, decision_out)
         # A rejected, expired or unfilled execution produces no report. The

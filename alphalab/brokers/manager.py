@@ -3,6 +3,9 @@
 from dataclasses import replace
 from decimal import Decimal
 
+from alphalab.broker.execution import BrokerExecution
+from alphalab.broker.order import BrokerOrder
+from alphalab.broker.position import BrokerPosition
 from alphalab.brokers.events import (
     BrokerEvent,
     ExecutionReceived,
@@ -11,9 +14,7 @@ from alphalab.brokers.events import (
     OrderSubmitted,
 )
 from alphalab.brokers.exceptions import BrokerValidationError
-from alphalab.brokers.execution import ExecutionReport
-from alphalab.brokers.order import BrokerOrder, OrderStatus
-from alphalab.brokers.position import AssetClass, PositionSnapshot
+from alphalab.brokers.order import OrderStatus
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.brokers.validation import (
     validate_execution,
@@ -42,11 +43,12 @@ class OrderManager:
         # Keep connector-local SUBMITTED as a local staging state
         submitted_order = replace(order, status=OrderStatus.SUBMITTED, updated_at=timestamp)
 
-        new_orders = dict(state.orders)
-        new_orders[order.order_id] = submitted_order
-
         evt = OrderSubmitted(
-            OrderManager._create_id(), timestamp, order.order_id, order.account_id, order.symbol
+            OrderManager._create_id(),
+            timestamp,
+            order.broker_order_id,
+            order.account_id,
+            order.symbol,
         )
 
         new_stats = replace(
@@ -54,30 +56,38 @@ class OrderManager:
             total_orders_submitted=state.statistics.total_orders_submitted + 1,
         )
 
-        return replace(state, orders=new_orders, statistics=new_stats, events=(*state.events, evt))
+        return replace(
+            state,
+            orders=state.orders.set(order.broker_order_id, submitted_order),
+            statistics=new_stats,
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def cancel_order(
-        state: BrokerConnectorState, order_id: str, timestamp: float
+        state: BrokerConnectorState, broker_order_id: str, timestamp: float
     ) -> BrokerConnectorState:
         """Marks an active order as cancelled."""
-        order = validate_order_cancellation(state, order_id)
+        order = validate_order_cancellation(state, broker_order_id)
 
         cancelled_order = replace(order, status=CoreOrderStatus.CANCELLED, updated_at=timestamp)
 
-        new_orders = dict(state.orders)
-        new_orders[order_id] = cancelled_order
+        evt = OrderCancelled(
+            OrderManager._create_id(), timestamp, broker_order_id, order.account_id
+        )
 
-        evt = OrderCancelled(OrderManager._create_id(), timestamp, order_id, order.account_id)
-
-        return replace(state, orders=new_orders, events=(*state.events, evt))
+        return replace(
+            state,
+            orders=state.orders.set(broker_order_id, cancelled_order),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def process_execution(
-        state: BrokerConnectorState, execution: ExecutionReport, timestamp: float
+        state: BrokerConnectorState, execution: BrokerExecution, timestamp: float
     ) -> BrokerConnectorState:
         """Deterministically settles a fill report against orders, accounts, and positions."""
-        order = validate_execution(state, execution.execution_id, execution.order_id)
+        order = validate_execution(state, execution.execution_id, execution.broker_order_id)
 
         if execution.fill_quantity <= Decimal("0"):
             raise BrokerValidationError("Execution fill quantity must be positive.")
@@ -111,26 +121,24 @@ class OrderManager:
         exec_value = execution.fill_quantity * execution.fill_price
 
         if order.side == CoreSide.BUY:
-            new_cash = account.cash_balance - exec_value - execution.commission
+            new_cash = account.cash - exec_value - execution.commission
         else:
-            new_cash = account.cash_balance + exec_value - execution.commission
+            new_cash = account.cash + exec_value - execution.commission
 
-        updated_account = replace(account, cash_balance=new_cash)
+        updated_account = replace(account, cash=new_cash)
 
         # 3. Update Position
         pos_key = f"{order.account_id}:{order.symbol}"
         pos = state.positions.get(
             pos_key,
-            PositionSnapshot(
-                position_id=pos_key,
-                account_id=order.account_id,
+            BrokerPosition(
                 symbol=order.symbol,
-                asset_class=AssetClass.EQUITY,
                 quantity=Decimal("0"),
                 average_price=Decimal("0"),
-                market_price=Decimal("0"),
+                market_value=Decimal("0"),
                 unrealized_pnl=Decimal("0"),
                 realized_pnl=Decimal("0"),
+                account_id=order.account_id,
             ),
         )
 
@@ -157,23 +165,11 @@ class OrderManager:
         )
 
         # 4. Assemble State
-        new_orders = dict(state.orders)
-        new_orders[order.order_id] = updated_order
-
-        new_accounts = dict(state.accounts)
-        new_accounts[account.account_id] = updated_account
-
-        new_positions = dict(state.positions)
-        new_positions[pos_key] = updated_position
-
-        new_executions = dict(state.executions)
-        new_executions[execution.execution_id] = execution
-
         exec_evt = ExecutionReceived(
             OrderManager._create_id(),
             timestamp,
             execution.execution_id,
-            order.order_id,
+            order.broker_order_id,
             execution.fill_price,
             execution.fill_quantity,
         )
@@ -183,7 +179,7 @@ class OrderManager:
             fill_evt = OrderFilled(
                 OrderManager._create_id(),
                 timestamp,
-                order.order_id,
+                order.broker_order_id,
                 order.account_id,
                 new_filled_qty,
             )
@@ -196,10 +192,10 @@ class OrderManager:
 
         return replace(
             state,
-            orders=new_orders,
-            accounts=new_accounts,
-            positions=new_positions,
-            executions=new_executions,
+            orders=state.orders.set(order.broker_order_id, updated_order),
+            accounts=state.accounts.set(account.account_id, updated_account),
+            positions=state.positions.set(pos_key, updated_position),
+            executions=state.executions.set(execution.execution_id, execution),
             statistics=new_stats,
-            events=(*state.events, *events),
+            events=state.events.extend(events),
         )

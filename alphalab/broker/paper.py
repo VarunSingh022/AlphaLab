@@ -1,8 +1,23 @@
-"""Deterministic Paper Broker implementation."""
+"""The reference broker adapter: a deterministic paper venue.
 
+:class:`PaperBroker` is a complete implementation of
+:class:`~alphalab.broker.protocol.BrokerProtocol` with no external dependency,
+which makes it two things at once: a usable paper-trading venue, and the
+executable statement of what the contract requires. A real vendor adapter is
+correct when it behaves like this one at the boundary.
+
+It is a *venue*, not an accounting system. The cash and positions it tracks are
+the venue's own books -- what a broker would report back -- and they exist so
+reconciliation has something to compare against. AlphaLab's authoritative
+accounting is :class:`~alphalab.portfolio.engine.PortfolioEngine`, reached
+through the execution path; see :mod:`alphalab.runtime.session`.
+"""
+
+from collections.abc import Sequence
 from dataclasses import replace
 from decimal import Decimal
 
+from alphalab.broker.account import BrokerAccount
 from alphalab.broker.events import (
     BrokerConnected,
     BrokerDisconnected,
@@ -16,6 +31,12 @@ from alphalab.broker.events import (
 from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.order import BrokerOrder
 from alphalab.broker.position import BrokerPosition
+from alphalab.broker.reconciliation import (
+    ExecutionDecision,
+    ReconciliationLog,
+    apply_execution,
+    classify_execution,
+)
 from alphalab.broker.state import BrokerState, ConnectionStatus
 from alphalab.broker.validation import validate_cancel_request, validate_order_submission
 from alphalab.common.ids import new_id
@@ -39,7 +60,7 @@ class PaperBroker:
 
         evt = BrokerConnected(self._generate_id(), timestamp, state.broker_name)
         new_state = replace(
-            state, connection_status=ConnectionStatus.CONNECTED, events=(*state.events, evt)
+            state, connection_status=ConnectionStatus.CONNECTED, events=state.events.append(evt)
         )
         return new_state, (evt,)
 
@@ -48,7 +69,7 @@ class PaperBroker:
     ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
         evt = BrokerDisconnected(self._generate_id(), timestamp, state.broker_name, reason)
         new_state = replace(
-            state, connection_status=ConnectionStatus.DISCONNECTED, events=(*state.events, evt)
+            state, connection_status=ConnectionStatus.DISCONNECTED, events=state.events.append(evt)
         )
         return new_state, (evt,)
 
@@ -56,7 +77,7 @@ class PaperBroker:
         self, state: BrokerState, timestamp: float
     ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
         evt = Heartbeat(self._generate_id(), timestamp, state.broker_name)
-        new_state = replace(state, events=(*state.events, evt))
+        new_state = replace(state, events=state.events.append(evt), last_heartbeat=timestamp)
         return new_state, (evt,)
 
     def submit_order(
@@ -70,12 +91,9 @@ class PaperBroker:
         acc_evt = OrderAccepted(self._generate_id(), timestamp, order.broker_order_id)
 
         events: list[BrokerEvent] = [sub_evt, acc_evt]
-        new_orders = dict(state.orders)
 
         updated_order = replace(order, status=CoreOrderStatus.ACCEPTED, updated_at=timestamp)
-        new_orders[order.broker_order_id] = updated_order
-
-        temp_state = replace(state, orders=new_orders)
+        temp_state = replace(state, orders=state.orders.set(order.broker_order_id, updated_order))
 
         # Paper Broker simulates instant perfect fills for Market Orders
         if order.order_type == CoreOrderType.MARKET:
@@ -84,7 +102,7 @@ class PaperBroker:
             )
 
         # Limit orders rest in the book
-        return replace(temp_state, events=(*state.events, *events)), tuple(events)
+        return replace(temp_state, events=state.events.extend(events)), tuple(events)
 
     def cancel_order(
         self, state: BrokerState, broker_order_id: str, timestamp: float
@@ -94,11 +112,12 @@ class PaperBroker:
         order = state.orders[broker_order_id]
         updated_order = replace(order, status=CoreOrderStatus.CANCELLED, updated_at=timestamp)
 
-        new_orders = dict(state.orders)
-        new_orders[broker_order_id] = updated_order
-
         evt = OrderCancelled(self._generate_id(), timestamp, broker_order_id)
-        new_state = replace(state, orders=new_orders, events=(*state.events, evt))
+        new_state = replace(
+            state,
+            orders=state.orders.set(broker_order_id, updated_order),
+            events=state.events.append(evt),
+        )
 
         return new_state, (evt,)
 
@@ -115,11 +134,8 @@ class PaperBroker:
         order = state.orders[broker_order_id]
         updated_order = replace(order, quantity=new_quantity, price=new_price, updated_at=timestamp)
 
-        new_orders = dict(state.orders)
-        new_orders[broker_order_id] = updated_order
-
         # Simulated standard replacing behavior
-        new_state = replace(state, orders=new_orders)
+        new_state = replace(state, orders=state.orders.set(broker_order_id, updated_order))
         return new_state, ()
 
     def _simulate_fill(
@@ -168,11 +184,8 @@ class PaperBroker:
             updated_at=timestamp,
         )
 
-        new_orders = dict(state.orders)
-        new_orders[order.broker_order_id] = updated_order
-
-        new_executions = dict(state.executions)
-        new_executions[exec_id] = execution
+        new_orders = state.orders.set(order.broker_order_id, updated_order)
+        new_executions = state.executions.set(exec_id, execution)
 
         # 2. Update Account
         cost_impact = (fill_qty * fill_price) + commission
@@ -184,8 +197,7 @@ class PaperBroker:
         updated_account = replace(state.account, cash=new_cash)
 
         # 3. Update Position
-        new_positions = dict(state.positions)
-        current_pos = new_positions.get(
+        current_pos = state.positions.get(
             order.symbol,
             BrokerPosition(
                 order.symbol,
@@ -216,8 +228,6 @@ class PaperBroker:
             average_price=new_pos_avg.quantize(Decimal("0.0001")),
             realized_pnl=realized_pnl.quantize(Decimal("0.0001")),
         )
-        new_positions[order.symbol] = updated_position
-
         # Re-assemble
         events_out = (*existing_events, exec_evt)
         new_state = replace(
@@ -225,8 +235,83 @@ class PaperBroker:
             orders=new_orders,
             executions=new_executions,
             account=updated_account,
-            positions=new_positions,
-            events=(*state.events, *events_out),
+            positions=state.positions.set(order.symbol, updated_position),
+            events=state.events.extend(events_out),
         )
 
         return new_state, events_out
+
+    def apply_execution(
+        self, state: BrokerState, execution: BrokerExecution, timestamp: float
+    ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
+        """Apply a fill the venue reported, idempotently.
+
+        Delegates the decision to :mod:`alphalab.broker.reconciliation`, so a
+        redelivered fill is a no-op and a fill against a terminal or unknown
+        order is refused rather than silently applied. A refused fill produces
+        no event: nothing happened.
+        """
+
+        new_state, decision, _ = apply_execution(state, execution)
+        if not decision.applied:
+            return state, ()
+
+        evt = ExecutionReceived(
+            self._generate_id(),
+            timestamp,
+            execution.execution_id,
+            execution.broker_order_id,
+            execution.fill_quantity,
+            execution.fill_price,
+        )
+        return replace(new_state, events=new_state.events.append(evt)), (evt,)
+
+    def classify_execution(
+        self, state: BrokerState, execution: BrokerExecution
+    ) -> ExecutionDecision:
+        """Why :meth:`apply_execution` would accept or refuse a fill."""
+
+        return classify_execution(state, execution)
+
+    def apply_execution_logged(
+        self,
+        state: BrokerState,
+        execution: BrokerExecution,
+        log: ReconciliationLog,
+        timestamp: float,
+    ) -> tuple[BrokerState, ExecutionDecision, ReconciliationLog]:
+        """:meth:`apply_execution`, keeping every refusal in ``log``."""
+
+        new_state, decision, new_log = apply_execution(state, execution, log)
+        if not decision.applied:
+            return state, decision, new_log
+
+        evt = ExecutionReceived(
+            self._generate_id(),
+            timestamp,
+            execution.execution_id,
+            execution.broker_order_id,
+            execution.fill_quantity,
+            execution.fill_price,
+        )
+        return replace(new_state, events=new_state.events.append(evt)), decision, new_log
+
+    def order_status(self, state: BrokerState, broker_order_id: str) -> BrokerOrder | None:
+        """The order as this venue currently holds it."""
+
+        return state.orders.get(broker_order_id)
+
+    def account(self, state: BrokerState) -> BrokerAccount:
+        """The venue's account snapshot."""
+
+        return state.account
+
+    def positions(self, state: BrokerState) -> Sequence[BrokerPosition]:
+        """Open positions at this venue."""
+
+        return tuple(p for p in state.positions.values() if p.quantity != Decimal("0"))
+
+    def status(self, state: BrokerState) -> ConnectionStatus:
+        """Current connectivity."""
+
+        return state.connection_status

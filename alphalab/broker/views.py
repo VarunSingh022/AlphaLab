@@ -19,6 +19,10 @@ def open_orders(state: BrokerState) -> Sequence[BrokerOrder]:
     """Returns all currently active orders residing at the broker."""
     open_statuses = {
         BrokerOrderStatus.PENDING_SUBMIT,
+        BrokerOrderStatus.SUBMITTED,
+        BrokerOrderStatus.PENDING_CANCEL,
+        CoreOrderStatus.NEW,
+        CoreOrderStatus.PENDING,
         CoreOrderStatus.ACCEPTED,
         CoreOrderStatus.PARTIALLY_FILLED,
     }

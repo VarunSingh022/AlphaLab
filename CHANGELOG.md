@@ -8,6 +8,317 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.3.0] - 2026-09-05
+
+## Overview
+
+AlphaLab 2.3.0 is "Market Data + Broker/Live Execution". It is a connectivity
+and convergence release: it establishes one canonical market-data model with an
+explicit normalization boundary, one canonical broker adapter boundary, and
+makes historical, replay, paper and live execution take the same canonical step
+through the same engines.
+
+It closes both items v2.2 deferred: market-data model convergence
+(`data` / `market` / `marketdata` / `feed` / `live`, and the multiple `Bar`
+types) and `broker` / `brokers` consolidation.
+
+No new engine packages. Two new modules on the integrated path
+(`alphalab.runtime.session`, `alphalab.runtime.broker_routing`) and three in the
+market layer (`alphalab.market.record`, `.source`, `.normalization`).
+
+**AlphaLab does not support live trading.** It supports the adapter contract a
+live venue would be reached through; there is no connectivity to any real venue
+in this repository. See `docs/ADR/0012` for the precise implemented /
+adapter-only / absent breakdown.
+
+See `docs/ADR/0011-canonical-market-data-model.md` and
+`docs/ADR/0012-broker-boundary-and-environment-parity.md`.
+
+---
+
+## Added
+
+### The market-data normalization boundary — `alphalab.market.normalization`
+
+- `normalize_wire_quote` / `normalize_wire_trade` / `normalize_wire_bar` /
+  `normalize_wire_book` lift `alphalab.data.feed` wire records into the
+  canonical `alphalab.market` domain records the execution path consumes.
+- Every number converts through `Decimal(str(value))`. `Decimal(0.1)` keeps the
+  float's binary expansion; going through `str` keeps the number the provider
+  wrote. That is what makes normalization deterministic.
+- `NormalizationPolicy` supplies what the wire cannot carry (venue, currency,
+  timeframe) and names an unattributed venue `"UNKNOWN"` rather than guessing.
+  `SymbolMap` rewrites a provider symbol to an `asset_id`.
+- Fields a wire record does not report — vwap, trade count, book order counts,
+  trade direction — are documented as unreported, not invented.
+- `is_stale` / `reject_stale` treat staleness as a caller decision, separate
+  from validation: a stale record is well-formed, and how old is too old is a
+  property of the strategy.
+
+### The market-data adapter boundary — `alphalab.market.source`
+
+- `MarketDataSource` yields canonical `MarketRecord`s and nothing else, so the
+  execution path cannot tell a stored file from a socket.
+- `SequenceSource` (finite, re-iterable, deterministic record ids),
+  `OrderingGuarantee` (a source declares whether it can promise chronological
+  order), `validate_ordering`.
+- No provider API is modelled: no HTTP, no websockets, no vendor
+  authentication, no reconnect loop.
+
+### The canonical market record — `alphalab.market.record`
+
+- `MarketInput` and `MarketRecord` moved here from
+  `alphalab.backtesting.dataset` (re-exported unchanged), so a live feed
+  adapter can produce a record without importing the backtesting package.
+- `records_from_inputs` assigns deterministic, fixed-width record ids.
+
+### Broker reconciliation — `alphalab.broker.reconciliation`
+
+- `ExternalOrderMap` holds `oms_order_id ↔ broker_order_id` and refuses to
+  rebind either direction.
+- `classify_execution` is total: `APPLIED`, `DUPLICATE`, `UNKNOWN_ORDER`,
+  `TERMINAL_ORDER`, `OVERFILL`, `INVALID`. Nothing is silently dropped.
+- `apply_execution` is idempotent in `execution_id`; a refused fill leaves the
+  state untouched.
+- `ReconciliationLog` keeps every refusal, separating expected redelivery from
+  a genuine break.
+- `reconcile()` compares local state against a venue snapshot and produces
+  `ReconciliationReport` — missing, unknown, divergent orders, divergent
+  positions, cash difference. It states differences and does not resolve them.
+
+### Trading sessions — `alphalab.runtime.session`
+
+- `TradingSession` drives any `MarketDataSource` through
+  `ExecutionPipeline.process_record`.
+- `ExecutionMode` (`BACKTEST` / `REPLAY` / `PAPER` / `LIVE`) declares its own
+  routing and whether its clock is moving.
+- `max_market_data_age_seconds` gates stale records in a real-time session;
+  skipped records are recorded with a reason rather than silently dropped.
+
+### The venue boundary — `alphalab.runtime.broker_routing`
+
+- `route_order` sends an accepted OMS order to a venue, with two pre-trade
+  gates: never on a connection that is not `CONNECTED`, and never twice for one
+  OMS order. The client order id is derived from the OMS order id, so a retry
+  after a lost response addresses the same order.
+- `apply_broker_execution` brings a venue fill back through
+  `ExecutionPipeline.apply_execution_report` — the same function a simulated
+  fill uses, so OMS, portfolio, allocation and analytics are identical either
+  way.
+- `routable()` projects an OMS order onto `broker.adapter.OMSOrderProtocol`,
+  which the real `oms.order.Order` did not actually satisfy.
+
+### The canonical step — `alphalab.runtime.execution_pipeline`
+
+- `ExecutionPipeline.publish_record` and `process_record`. Every environment
+  takes this step; `backtesting.engine.advance` delegates to it.
+- `ExecutionPipeline.apply_execution_report` applies a report that did not come
+  from the simulator.
+- `ExecutionRouting` (`SIMULATED` / `EXTERNAL`) on `ExecutionPipelineConfig`.
+  `EXTERNAL` leaves an accepted order working, invents no fill, and keeps its
+  allocation reservation held.
+
+### Benchmarks
+
+- `benchmarks/benchmark_market_data.py` — normalization cost per record type
+  and an ingestion sweep across universe size.
+
+---
+
+## Changed
+
+### Market-data models converged
+
+- `alphalab.marketdata.feed` re-exports `alphalab.data.feed`'s `Quote`, `Trade`,
+  `Bar`, `OrderBookLevel` and `OrderBook`. They were field-for-field identical
+  copies; they are now the same class objects.
+- `alphalab.live.message.OrderBookLevel` is `alphalab.data.feed.OrderBookLevel`.
+- `data.Bar` and `market.Bar` both remain, deliberately — different layers, not
+  a duplicate. `tests/regression/test_market_model_convergence.py` asserts the
+  distinction.
+
+### Broker models converged
+
+- `alphalab.brokers` routes the canonical types from `alphalab.broker`:
+  `BrokerOrder`, `BrokerExecution` (`ExecutionReport`), `BrokerAccount`
+  (`AccountSnapshot`), `BrokerPosition` (`PositionSnapshot`),
+  `BrokerOrderStatus` (`OrderStatus`), and `AssetClass`, which was a fifth copy
+  of `core.enums.AssetType`.
+- `BrokerProtocol` covers order status, execution reception, account and
+  positions. `PaperBroker` implements all of it.
+- `ConnectionStatus` gains `RECONNECTING` and `FAILED`, which call for
+  different behaviour: hold orders versus refuse them.
+- `BrokerOrderStatus` gains `SUBMITTED` from the connector package, so
+  broker-local operational states are one shared set.
+- The routing events in `alphalab.brokers.events` name their identifier
+  `broker_order_id` rather than `order_id`. `OrderManager` always passed the
+  venue handle into that field, so only the name changes — but leaving it
+  called `order_id` would have preserved, inside the converged package, exactly
+  the ambiguity that decided which broker order model was canonical.
+
+### Moved (all re-exported, no import breaks)
+
+- `id_scope` / `id_source` → `alphalab.common.ids`, so a session can mint
+  reproducible identifiers without importing the backtesting engine.
+- `UnsupportedRecordError` → `alphalab.market.exceptions`. It is no longer a
+  subclass of `BacktestError`; four environments publish records now.
+
+---
+
+## Fixed
+
+### The broker layer was quadratic
+
+`BrokerState` and `BrokerConnectorState` rebuilt their order, execution,
+position and account indexes with `dict(old)` and grew `events` with
+`(*events, e)` on every transition, so a session copied O(N²). v2.3 routes
+paper and live execution through those states, which would have made this the
+slowest part of a long session.
+
+Measured, v2.2.0 → this release:
+
+| Benchmark | v2.2.0 | v2.3.0 | Change |
+| --- | --- | --- | --- |
+| `benchmark_broker` (100k orders) | 676.70s / 148 per sec | 4.65s / 21,485 per sec | **145×** |
+| `benchmark_live` (100k ticks) | 219.02s / 457 per sec | 1.28s / 78,338 per sec | **172×** |
+| `benchmark_feed` (100k events) | 42.95s / 2,328 per sec | 0.69s / 144,489 per sec | **62×** |
+| `benchmark_brokers` (10k cycles) | 2.44s / 4,106 per sec | 0.34s / 29,465 per sec | **7.2×** |
+| `benchmark_marketdata` (100k trades) | did not run | 0.57s / 174,454 per sec | — |
+| `benchmarks_market_engine` (quotes) | 105,670 per sec | 147,727 per sec | 1.4× |
+
+`MarketState`, `MarketDataState`, `LiveState`, `FeedState` and
+`MarketDataCache` moved to the same persistent containers.
+
+### Market-data ingestion cost scaled with the universe
+
+`MarketEngine.publish_*` rebuilt the whole `latest_*` index on every publish,
+so a publish cost O(universe): 20k quotes into a 20,000-instrument universe ran
+at 22,688 per sec against 215,808 per sec into a one-instrument universe, a
+9.5× penalty that grew with the universe. Ingestion is now flat — ~195,000 per
+sec at every universe size measured, 1 through 20,000.
+
+The one regression is ~8% at universe 1, where a persistent map costs more than
+copying a one-key dict. That is the trade, and it is the right way round.
+
+### `benchmark_marketdata.py` could not run
+
+It connected through `YahooAdapter`, whose client raises `NotImplementedError`
+because it used to return hardcoded fake data. It fails identically on v2.2.0.
+It now uses an explicit in-benchmark test double, which is what a benchmark of
+the *engine* should have depended on. No vendor connectivity is faked.
+
+### `oms.order.Order` did not satisfy `broker.adapter.OMSOrderProtocol`
+
+Its `order_id` is an `OrderId`, not a string, and it has no single `price`. The
+protocol claimed to decouple the broker layer from the OMS while not actually
+matching it. `broker_routing.routable()` does the translation explicitly, at
+the adapter boundary where it belongs.
+
+---
+
+## Breaking changes
+
+Confined to `alphalab.brokers`, whose types are now the canonical ones. No
+public name was removed from any package, no module disappeared, and no enum
+member was removed — the breaks below are all changes of *shape*, not of
+availability.
+
+### Dataclass shapes
+
+- `AccountSnapshot` takes `cash` / `equity` / `available_funds` instead of
+  `cash_balance`, and requires the fields a venue account actually reports.
+  `broker_id` and `metadata` are optional.
+- `ExecutionReport` and `BrokerOrder` name their order field
+  `broker_order_id`; `ExecutionReport.account_id` moved after `timestamp` and
+  now defaults. `BrokerOrder` additionally requires `oms_order_id`, because a
+  single `order_id` could not say whether it held AlphaLab's identifier or the
+  venue's.
+- **`PositionSnapshot` changed shape, not just field membership.** It was nine
+  required fields (`position_id`, `account_id`, `symbol`, `asset_class`,
+  `quantity`, `average_price`, `market_price`, `unrealized_pnl`,
+  `realized_pnl`); it is now six required plus three defaulted:
+
+  | | v2.2.0 | v2.3.0 |
+  | --- | --- | --- |
+  | `position_id` | required | **removed** — it restated the `"<account_id>:<symbol>"` key the state already stores the position under |
+  | `market_value` | absent | **required (new)** |
+  | `symbol`, `quantity`, `average_price`, `unrealized_pnl`, `realized_pnl` | required | required |
+  | `account_id` | required | optional, defaults to `""` |
+  | `asset_class` | required | optional, defaults to `AssetType.EQUITY` |
+  | `market_price` | required | optional, defaults to `Decimal("0")` |
+
+  Because the arity and the order both changed, **positional construction
+  breaks**: a v2.2 call passing nine positional arguments will raise, and a
+  call passing six will silently bind them to different fields. Construct with
+  keywords. `market_price` and `market_value` are both kept because a venue
+  reports both and they are different numbers — the mark for one unit, and the
+  mark for the whole holding.
+
+### Keyword-parameter renames — `order_id` → `broker_order_id`
+
+Positional callers are unaffected; keyword callers break. Every affected public
+entry point:
+
+| Callable | v2.2.0 | v2.3.0 |
+| --- | --- | --- |
+| `BrokerConnectorEngine.cancel_order` | `(state, order_id, timestamp)` | `(state, broker_order_id, timestamp)` |
+| `OrderManager.cancel_order` | `(state, order_id, timestamp)` | `(state, broker_order_id, timestamp)` |
+| `brokers.list_executions` | `(state, order_id)` | `(state, broker_order_id)` |
+| `brokers.validate_execution` | `(state, execution_id, order_id)` | `(state, execution_id, broker_order_id)` |
+| `brokers.validate_order_cancellation` | `(state, order_id)` | `(state, broker_order_id)` |
+
+The routing events in `alphalab.brokers.events` are renamed for the same
+reason: `OrderSubmitted`, `OrderCancelled`, `OrderFilled` and
+`ExecutionReceived` name their identifier `broker_order_id` instead of
+`order_id`. The *value* was always the venue handle — `OrderManager` has always
+passed `order.broker_order_id` — so only the name changes, and field order is
+unchanged, leaving positional construction working. Nothing in the codebase
+read the field by name.
+
+### Enum values
+
+Both enums are now aliases of canonical types, so their `.value` changed.
+**`.name` is unchanged in every case**, and nothing in AlphaLab reads `.value`
+on either — but external code that persisted or transmitted a `.value` will
+read it back differently.
+
+| Member | v2.2.0 `.value` | v2.3.0 `.value` | `.name` |
+| --- | --- | --- | --- |
+| `AssetClass.EQUITY` | `1` (`Enum`, `auto()`) | `"equity"` (`StrEnum`) | unchanged |
+| `AssetClass.FUTURE` / `OPTION` / `FOREX` / `CRYPTO` | `2`–`5` | `"future"` / `"option"` / `"forex"` / `"crypto"` | unchanged |
+| `OrderStatus.SUBMITTED` | `1` | `2` | unchanged |
+
+`AssetClass` is now `alphalab.core.enums.AssetType` and therefore also gains a
+`CASH` member; `OrderStatus` is now `alphalab.broker.order.BrokerOrderStatus`
+and gains `PENDING_SUBMIT` (which takes value `1`, shifting `SUBMITTED` to `2`)
+and `PENDING_CANCEL`. Both are widenings: no member was removed.
+
+### Protocols and state containers
+
+- `BrokerProtocol` (both packages) gained methods; a v2.2 adapter will not
+  satisfy the v2.3 protocol.
+- `MarketState`, `BrokerState`, `BrokerConnectorState`, `MarketDataState`,
+  `LiveState` and `FeedState` fields are `PersistentMap` / `AppendOnlyLog`, not
+  `dict` / `tuple`. Reads are unchanged (both are `Mapping` / `Sequence`);
+  constructing one with a plain `dict` is a type error.
+
+Every assertion in the existing tests is preserved. Only construction sites
+moved.
+
+---
+
+## Quality
+
+- 1737 tests pass (1599 at v2.2.0).
+- `ruff check`, `ruff format --check`, `mypy --strict` clean.
+- `python -m build` and `twine check dist/*` clean.
+- All 11 examples run.
+- 47 of 48 benchmarks run. `benchmark_workbench.py` fails on an unrelated
+  workbench tab-lifecycle assertion and fails identically on v2.2.0; it is not
+  in v2.3's scope.
+
+---
+
 # [2.2.0] - 2026-09-05
 
 ## Overview

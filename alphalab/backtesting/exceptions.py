@@ -1,6 +1,7 @@
 """Domain exceptions for the Backtesting Engine."""
 
 from alphalab.common.exceptions import AlphaLabError
+from alphalab.market.exceptions import UnsupportedRecordError
 
 
 class BacktestError(AlphaLabError):
@@ -11,5 +12,4 @@ class DatasetValidationError(BacktestError):
     """Raised when a market dataset is empty, unordered, or ambiguous."""
 
 
-class UnsupportedRecordError(BacktestError):
-    """Raised when a dataset record is not a market input the engine can publish."""
+__all__ = ["BacktestError", "DatasetValidationError", "UnsupportedRecordError"]

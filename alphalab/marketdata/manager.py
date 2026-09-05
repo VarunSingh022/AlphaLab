@@ -33,26 +33,24 @@ class ConnectionManager:
         if not success:
             return state
 
-        new_conns = dict(state.connections)
-        new_conns[provider_id] = ConnectionState(
-            provider_id, ConnectionStatus.CONNECTED, 0.0, ts, 0
+        new_conns = state.connections.set(
+            provider_id, ConnectionState(provider_id, ConnectionStatus.CONNECTED, 0.0, ts, 0)
         )
 
         evt = ProviderConnected(ConnectionManager._create_id(), ts, provider_id)
-        return replace(state, connections=new_conns, events=(*state.events, evt))
+        return replace(state, connections=new_conns, events=state.events.append(evt))
 
     @staticmethod
     def disconnect(
         state: MarketDataState, provider_id: str, provider: MarketDataProtocol, ts: float
     ) -> MarketDataState:
         provider.disconnect()
-        new_conns = dict(state.connections)
-        new_conns[provider_id] = ConnectionState(
-            provider_id, ConnectionStatus.DISCONNECTED, 0.0, ts, 0
+        new_conns = state.connections.set(
+            provider_id, ConnectionState(provider_id, ConnectionStatus.DISCONNECTED, 0.0, ts, 0)
         )
 
         evt = ProviderDisconnected(ConnectionManager._create_id(), ts, provider_id, "Manual")
-        return replace(state, connections=new_conns, events=(*state.events, evt))
+        return replace(state, connections=new_conns, events=state.events.append(evt))
 
     @staticmethod
     def subscribe(
@@ -68,11 +66,12 @@ class ConnectionManager:
         if not success:
             return state
 
-        new_subs = dict(state.subscriptions)
-        new_subs[sub_id] = Subscription(sub_id, provider_id, symbol, tf, SubscriptionStatus.ACTIVE)
+        new_subs = state.subscriptions.set(
+            sub_id, Subscription(sub_id, provider_id, symbol, tf, SubscriptionStatus.ACTIVE)
+        )
 
         evt = SubscriptionCreated(ConnectionManager._create_id(), ts, sub_id, provider_id, symbol)
-        return replace(state, subscriptions=new_subs, events=(*state.events, evt))
+        return replace(state, subscriptions=new_subs, events=state.events.append(evt))
 
     @staticmethod
     def unsubscribe(
@@ -86,9 +85,11 @@ class ConnectionManager:
         sub_id = f"{provider_id}:{symbol}:{tf.name}"
         provider.unsubscribe(symbol, tf)
 
-        new_subs = dict(state.subscriptions)
+        new_subs = state.subscriptions
         if sub_id in new_subs:
-            new_subs[sub_id] = replace(new_subs[sub_id], status=SubscriptionStatus.REMOVED)
+            new_subs = new_subs.set(
+                sub_id, replace(new_subs[sub_id], status=SubscriptionStatus.REMOVED)
+            )
 
         evt = SubscriptionRemoved(ConnectionManager._create_id(), ts, sub_id)
-        return replace(state, subscriptions=new_subs, events=(*state.events, evt))
+        return replace(state, subscriptions=new_subs, events=state.events.append(evt))

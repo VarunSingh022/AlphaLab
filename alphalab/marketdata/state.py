@@ -1,8 +1,9 @@
 """Global immutable state container for Market Data Engine."""
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.marketdata.cache import MarketDataCache
 from alphalab.marketdata.config import ProviderConfig
 from alphalab.marketdata.connection import ConnectionState
@@ -30,15 +31,25 @@ class MarketDataHealth:
 
 @dataclass(frozen=True, slots=True)
 class MarketDataState:
+    """Deterministic snapshot of every registered provider and what it has sent.
+
+    The indexes are :class:`~alphalab.common.persistent_map.PersistentMap` and
+    ``events`` is an :class:`~alphalab.common.append_log.AppendOnlyLog`. As
+    ``dict`` and ``tuple`` they were rebuilt on every message, so ingesting N
+    ticks copied O(N^2) events -- the same quadratic v2.1 removed from the risk
+    engine. It is the reason ``benchmarks/benchmark_marketdata.py`` could not
+    finish its 100k-tick workload.
+    """
+
     engine_id: str
-    providers: Mapping[str, ProviderConfig] = field(default_factory=dict)
-    connections: Mapping[str, ConnectionState] = field(default_factory=dict)
-    subscriptions: Mapping[str, Subscription] = field(default_factory=dict)
+    providers: PersistentMap[str, ProviderConfig] = field(default_factory=PersistentMap)
+    connections: PersistentMap[str, ConnectionState] = field(default_factory=PersistentMap)
+    subscriptions: PersistentMap[str, Subscription] = field(default_factory=PersistentMap)
     cache: MarketDataCache = field(default_factory=MarketDataCache)
-    metrics: Mapping[str, ProviderMetrics] = field(default_factory=dict)
-    metadata: Mapping[str, MarketMetadata] = field(default_factory=dict)
-    quotes: Mapping[str, Quote] = field(default_factory=dict)
-    trades: Mapping[str, Trade] = field(default_factory=dict)
-    bars: Mapping[str, Bar] = field(default_factory=dict)
-    order_books: Mapping[str, OrderBook] = field(default_factory=dict)
-    events: tuple[MarketDataEvent, ...] = field(default_factory=tuple)
+    metrics: PersistentMap[str, ProviderMetrics] = field(default_factory=PersistentMap)
+    metadata: PersistentMap[str, MarketMetadata] = field(default_factory=PersistentMap)
+    quotes: PersistentMap[str, Quote] = field(default_factory=PersistentMap)
+    trades: PersistentMap[str, Trade] = field(default_factory=PersistentMap)
+    bars: PersistentMap[str, Bar] = field(default_factory=PersistentMap)
+    order_books: PersistentMap[str, OrderBook] = field(default_factory=PersistentMap)
+    events: AppendOnlyLog[MarketDataEvent] = field(default_factory=AppendOnlyLog)

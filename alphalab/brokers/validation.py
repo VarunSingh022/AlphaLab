@@ -2,9 +2,9 @@
 
 from decimal import Decimal
 
+from alphalab.broker.order import BrokerOrder
 from alphalab.brokers.connection import BrokerConnection
 from alphalab.brokers.exceptions import BrokerValidationError, InvalidBrokerStateError
-from alphalab.brokers.order import BrokerOrder
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.common.validators import (
     require_mapping_key,
@@ -53,8 +53,8 @@ def validate_order_submission(state: BrokerConnectorState, order: BrokerOrder) -
     )
     require_missing_mapping_key(
         state.orders,
-        order.order_id,
-        f"Order '{order.order_id}' is already tracked.",
+        order.broker_order_id,
+        f"Order '{order.broker_order_id}' is already tracked.",
         exception_type=InvalidBrokerStateError,
     )
     if order.quantity <= Decimal("0"):
@@ -63,15 +63,15 @@ def validate_order_submission(state: BrokerConnectorState, order: BrokerOrder) -
         raise BrokerValidationError("Order price cannot be negative.")
 
 
-def validate_order_cancellation(state: BrokerConnectorState, order_id: str) -> BrokerOrder:
+def validate_order_cancellation(state: BrokerConnectorState, broker_order_id: str) -> BrokerOrder:
     require_mapping_key(
         state.orders,
-        order_id,
-        f"Order '{order_id}' not found.",
+        broker_order_id,
+        f"Order '{broker_order_id}' not found.",
         exception_type=BrokerValidationError,
     )
 
-    order = state.orders[order_id]
+    order = state.orders[broker_order_id]
     terminal_states = {
         CoreOrderStatus.FILLED,
         CoreOrderStatus.CANCELLED,
@@ -85,7 +85,7 @@ def validate_order_cancellation(state: BrokerConnectorState, order_id: str) -> B
 
 
 def validate_execution(
-    state: BrokerConnectorState, execution_id: str, order_id: str
+    state: BrokerConnectorState, execution_id: str, broker_order_id: str
 ) -> BrokerOrder:
     require_missing_mapping_key(
         state.executions,
@@ -95,9 +95,9 @@ def validate_execution(
     )
     require_mapping_key(
         state.orders,
-        order_id,
-        f"Execution references unknown order '{order_id}'.",
+        broker_order_id,
+        f"Execution references unknown order '{broker_order_id}'.",
         exception_type=BrokerValidationError,
     )
 
-    return state.orders[order_id]
+    return state.orders[broker_order_id]

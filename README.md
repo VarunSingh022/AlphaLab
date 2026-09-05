@@ -7,7 +7,7 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.2.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.3.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
 [![Tests](https://img.shields.io/badge/Tests-1599%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
@@ -36,28 +36,36 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.2.0**
+**Current Release:** **v2.3.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.2.0 |
-| Tests | **1599 Passing** |
-| Static Typing | **Strict MyPy** (870 source files) |
+| Version | 2.3.0 |
+| Tests | **1737 Passing** |
+| Static Typing | **Strict MyPy** (885 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-v2.2.0 — "Unified Backtesting + Replay" — adds `alphalab.backtesting`, an integration
-package that turns a dataset into a run over the real execution path, and puts
-`alphalab.replay` on that same path. It also closes the four v2.1 limitations that
-blocked a real backtest: the quadratic OMS order book (100k order lifecycles went from
-~16 minutes to 7.5s), the allocation reservation leaked on a risk rejection, the
-unserializable `OMSState`, and a replay engine that produced no orders or fills. Runs
-are reproducible field for field from a recorded seed. Contains one small breaking
-API change — see `CHANGELOG.md`.
+v2.3.0 — "Market Data + Broker/Live Execution" — is a connectivity and convergence
+release. It establishes one canonical market-data model (`alphalab.market`) with an
+explicit normalization boundary over one canonical wire record, one canonical broker
+adapter boundary (`alphalab.broker`) with reconciliation, and makes backtest, replay,
+paper and live take the same canonical step through the same engines. It closes both
+items v2.2 deferred: market-data model convergence and `broker` / `brokers`
+consolidation. It also removed the quadratics those layers carried — the 100k-order
+PaperBroker benchmark went from 676.70s to 4.65s, and market-data ingestion no longer
+slows down as the universe widens. Contains breaking changes confined to
+`alphalab.brokers` — see `CHANGELOG.md`.
+
+> **AlphaLab does not support live trading.** v2.3 adds the adapter *contract* a live
+> venue would be reached through, and tests both directions of it. There is no
+> connectivity to any real venue in this repository; every vendor client is a stub.
+> See `docs/ADR/0012-broker-boundary-and-environment-parity.md` for the precise
+> implemented / adapter-only / absent breakdown.
 
 ---
 
@@ -131,9 +139,10 @@ Everything below is importable, deterministic, and independently tested, but is
 
 > The Workbench → Studio → live-markets flow shown in `docs/` is a design target,
 > not a single runtime that exists today. What is wired together is
-> `ExecutionPipeline` and the `backtesting` package that drives it — including
-> `replay`, as of v2.2. Market-data model convergence and live broker connectivity
-> are not done; see `ROADMAP.md`.
+> `ExecutionPipeline` and the packages that drive it: `backtesting` (including
+> `replay`, as of v2.2) and `runtime.session` (paper and the live boundary, as of
+> v2.3). Market data and the broker boundary converged in v2.3; connectivity to a
+> real venue is still absent. See `ROADMAP.md`.
 
 ---
 
@@ -289,16 +298,27 @@ persistent order-book and execution-report containers
 dict/frozenset copying; a per-order allocation
 reservation ledger released exactly once; complete round-trippable `OMSState`
 snapshots; seeded, reproducible identifiers.
+**v2.3.0** — market data and broker/live execution: one canonical market-data
+model (`alphalab.market`) over one canonical wire record, with an explicit
+normalization boundary (`market.normalization`) and adapter contract
+(`market.source`); one canonical broker boundary (`alphalab.broker`) that
+`alphalab.brokers` routes rather than redefines; order/fill reconciliation with
+defined answers for duplicate, out-of-order, unknown and terminal-order fills and
+the cancel/fill race; `runtime.session.TradingSession` driving backtest, replay,
+paper and live through one canonical step; `runtime.broker_routing` carrying an
+order out to a venue and a fill back through the same portfolio accounting a
+simulated fill uses; and the removal of the quadratic index rebuilds in the
+broker, market, marketdata, live and feed states.
+
 See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## Not yet addressed
 
-- Market-data model convergence: the overlapping `data` / `market` / `marketdata` /
-  `feed` surfaces and the three separate `Bar` types (v2.3)
-- `broker` / `brokers` consolidation and live broker connectivity into the
-  execution path (v2.3)
-- A single integrated runtime spanning *all* engines (`ExecutionPipeline` and
-  `backtesting` are what is wired today)
+- Connectivity to a real venue. v2.3 built and tested the adapter contract, the
+  routing gates, reconciliation and the fill-return path; the transport does not
+  exist, and every vendor client is a stub
+- A single integrated runtime spanning *all* engines (`ExecutionPipeline`,
+  `backtesting` and `runtime.session` are what is wired today)
 - Strategies do not see the marked portfolio: `StrategyContext` comes from the
   caller's `context_factory`
 - Multi-currency valuation (`PortfolioValuation` values the base currency only)
@@ -329,7 +349,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v2.2.0**
+**AlphaLab v2.3.0**
 
 Building deterministic infrastructure for quantitative research.
 

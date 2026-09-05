@@ -27,20 +27,13 @@ the replay cursor, which is why the two paths cannot diverge.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 
 from alphalab.backtesting.config import BacktestConfig
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
-from alphalab.backtesting.exceptions import UnsupportedRecordError
 from alphalab.backtesting.state import BacktestResult, BacktestState, BacktestStep
-from alphalab.common.ids import DeterministicIdSource, use_id_source
-from alphalab.market.bar import Bar
-from alphalab.market.engine import MarketEngine
-from alphalab.market.quote import Quote
+from alphalab.common.ids import id_scope, id_source
 from alphalab.market.state import MarketState
-from alphalab.market.tick import Tick
 from alphalab.runtime.execution_pipeline import (
     ContextFactory,
     ExecutionPipeline,
@@ -58,39 +51,20 @@ __all__ = [
     "publish",
 ]
 
-
-def id_source(seed: int | None) -> Callable[[], str] | None:
-    """The identifier source a seed selects; ``None`` means ``uuid4``."""
-
-    return None if seed is None else DeterministicIdSource(seed)
-
-
-def id_scope(seed: int | None) -> AbstractContextManager[None]:
-    """Scope in which a run's identifiers are minted.
-
-    A seeded run mints reproducible ids; an unseeded one keeps ``uuid4``.
-    Entering the scope is what makes "the same run twice" mean the same orders
-    and fills, not merely the same P&L.
-    """
-
-    if seed is None:
-        return nullcontext()
-    return use_id_source(id_source(seed))
+# ``id_scope`` and ``id_source`` are defined in :mod:`alphalab.common.ids` as of
+# v2.3 and re-exported here unchanged. They moved so that a session outside this
+# package -- :mod:`alphalab.runtime.session` -- can mint reproducible
+# identifiers without importing the backtesting engine, which imports it.
 
 
 def publish(market: MarketState, record: MarketRecord) -> MarketState:
-    """Publish one dataset record to the market engine."""
+    """Publish one dataset record to the market engine.
 
-    payload = record.payload
-    if isinstance(payload, Quote):
-        return MarketEngine.publish_quote(market, payload)
-    if isinstance(payload, Bar):
-        return MarketEngine.publish_bar(market, payload)
-    if isinstance(payload, Tick):
-        return MarketEngine.publish_tick(market, payload)
-    raise UnsupportedRecordError(
-        f"Record {record.event_id} carries an unsupported market input: {type(payload).__name__}"
-    )
+    Delegates to :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.publish_record`,
+    which every environment publishes through.
+    """
+
+    return ExecutionPipeline.publish_record(market, record)
 
 
 def initialize(config: BacktestConfig, strategy_state: StrategyRuntimeState) -> BacktestState:
@@ -110,18 +84,16 @@ def advance(
     record: MarketRecord,
     context_factory: ContextFactory,
 ) -> tuple[BacktestState, ExecutionPipelineResult]:
-    """Move one dataset record through the whole execution path.
+    """Move one dataset record through the whole execution path, and record it.
 
-    The canonical step of both a backtest and a replay.
+    The run-level wrapper around
+    :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.process_record`,
+    which is the canonical step every environment takes. What this adds is the
+    run's own bookkeeping -- which record it was, and what it produced.
     """
 
-    market = publish(state.pipeline.market, record)
-    event = market.events[-1]
-    result = ExecutionPipeline.process_market_event(
-        replace(state.pipeline, market=market),
-        event,
-        context_factory,
-        fill_policy=state.config.fill_policy,
+    result = ExecutionPipeline.process_record(
+        state.pipeline, record, context_factory, state.config.fill_policy
     )
 
     step = BacktestStep(

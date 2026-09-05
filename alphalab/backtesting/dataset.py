@@ -1,16 +1,21 @@
 """The dataset a backtest -- or a replay of it -- consumes.
 
 A :class:`MarketDataset` is an ordered, validated sequence of
-:class:`MarketRecord` s. A record pairs one canonical market input (a
-:class:`~alphalab.market.quote.Quote`, :class:`~alphalab.market.bar.Bar` or
-:class:`~alphalab.market.tick.Tick`) with the identity and timestamp that
-:mod:`alphalab.replay` requires of anything it sequences.
+:class:`~alphalab.market.record.MarketRecord` s. A record pairs one canonical
+market input (a :class:`~alphalab.market.quote.Quote`,
+:class:`~alphalab.market.bar.Bar` or :class:`~alphalab.market.tick.Tick`) with
+the identity and timestamp that :mod:`alphalab.replay` requires of anything it
+sequences.
 
 That pairing is deliberate and is what makes backtest/replay parity structural
 rather than aspirational: one dataset type satisfies both
 :class:`~alphalab.replay.loader.HistoricalEventProtocol` and the backtest loop,
 so the two paths cannot drift apart in what they read or the order they read it
 in. They differ only in what drives the cursor.
+
+``MarketInput`` and ``MarketRecord`` are defined in
+:mod:`alphalab.market.record` as of v2.3 and re-exported here unchanged, so a
+live feed adapter can produce records without importing this package.
 """
 
 from __future__ import annotations
@@ -19,27 +24,9 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from alphalab.backtesting.exceptions import DatasetValidationError
-from alphalab.market.bar import Bar
-from alphalab.market.quote import Quote
-from alphalab.market.tick import Tick
+from alphalab.market.record import MarketInput, MarketRecord, records_from_inputs
 
-#: The canonical market inputs a dataset can carry.
-MarketInput = Quote | Bar | Tick
-
-
-@dataclass(frozen=True, slots=True)
-class MarketRecord:
-    """One dataset entry: a market input plus its replay identity."""
-
-    event_id: str
-    timestamp: float
-    payload: MarketInput
-
-    @property
-    def asset_id(self) -> str:
-        """Asset the underlying market input refers to."""
-
-        return self.payload.asset_id
+__all__ = ["MarketDataset", "MarketInput", "MarketRecord", "validate_dataset"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,14 +71,7 @@ class MarketDataset:
         the run depends on.
         """
 
-        width = max(len(str(max(len(inputs) - 1, 0))), 1)
-        return cls(
-            dataset_id,
-            tuple(
-                MarketRecord(f"{dataset_id}-{index:0{width}d}", item.timestamp, item)
-                for index, item in enumerate(inputs)
-            ),
-        )
+        return cls(dataset_id, records_from_inputs(dataset_id, inputs))
 
 
 def validate_dataset(dataset: MarketDataset) -> None:

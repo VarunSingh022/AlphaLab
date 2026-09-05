@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline` and the `alphalab.backtesting` package that drives it actually wire a group of them together — see the **Implementation Status (v2.2)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline` and the packages that drive it — `alphalab.backtesting` and `alphalab.runtime.session` — actually wire a group of them together. See the **Implementation Status (v2.3)** section below.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 
@@ -12,10 +12,10 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v2.2)
+# Implementation Status (v2.3)
 
 Most of this document describes the **target** architecture. This section states
-what is actually built as of v2.2 so the two are not confused.
+what is actually built as of v2.3 so the two are not confused.
 
 ## AlphaLab is a library
 
@@ -48,6 +48,9 @@ market event (Quote / Bar / Tick)
 Packages on this path: `core`, `runtime`, `strategy`, `allocation`, `risk`,
 `oms`, `execution`, `portfolio`, `analytics`, `market`.
 
+`ExecutionPipeline.process_record` is the canonical step (v2.3): publish one
+`MarketRecord`, then process the event it produced. Every environment takes it.
+
 ## Backtesting and replay: `alphalab.backtesting` (v2.2)
 
 `alphalab.backtesting` is the second integration package, and the only other one.
@@ -62,8 +65,8 @@ MarketDataset (MarketRecord: Quote | Bar | Tick + event_id + timestamp)
    → AnalyticsEngine.compile_report              (on finalize)
 ```
 
-`backtesting.engine.advance` is the canonical step, and there are two drivers
-for it:
+`backtesting.engine.advance` wraps `ExecutionPipeline.process_record` with the
+run's own bookkeeping, and there are two drivers for it:
 
 | Driver | Cursor | Everything else |
 | --- | --- | --- |
@@ -122,6 +125,145 @@ The replay cursor mints its own lifecycle event ids from a *separate* stream
 stream would shift the identity of every order and fill in a replay, and parity
 would fail for a reason unrelated to execution.
 
+## Market data: one domain model, one wire record, one boundary (v2.3)
+
+Five market-data surfaces coexisted at v2.2. Two of them were the same surface
+written twice. v2.3 keeps the ones that answer different questions and collapses
+the ones that did not.
+
+| Layer | Package | Shape | Who fills it in |
+| --- | --- | --- | --- |
+| **Canonical domain** | `alphalab.market` | `Decimal`, `asset_id`, venue / currency / timeframe / sequence | AlphaLab, after normalization |
+| **Wire record** | `alphalab.data.feed` | `float`, provider `symbol` | a provider, knowing nothing about AlphaLab |
+| **Provider message** | `alphalab.live.message` | wire shape plus a `provider_id` tag | a provider, for a layer that routes by provider |
+
+`alphalab.marketdata.feed` re-exports the wire records; before v2.3 it defined
+field-for-field identical copies of all five, and `alphalab.live.message`
+defined a third identical `OrderBookLevel`. Those are now the same class
+objects, not merely equal shapes.
+
+`data.Bar` and `market.Bar` both remain, deliberately. They sit on opposite
+sides of a conversion: one is what a provider can send, the other is what the
+execution path consumes. Merging them would force one to claim fields it does
+not have.
+
+### The canonical market-data types
+
+| Concept | Canonical type |
+| --- | --- |
+| Top of book | `alphalab.market.quote.Quote` |
+| Trade print | `alphalab.market.tick.Tick` |
+| OHLCV bar | `alphalab.market.bar.Bar` |
+| Depth book | `alphalab.market.snapshot.OrderBookSnapshot` |
+| Book level | `alphalab.market.level.OrderBookLevel` |
+| Stream record | `alphalab.market.record.MarketRecord` |
+
+`MarketInput` / `MarketRecord` moved from `alphalab.backtesting.dataset` to
+`alphalab.market.record` (re-exported unchanged), so a live feed adapter can
+produce a record without importing the backtesting package.
+
+### Normalization rules — `alphalab.market.normalization`
+
+Everything reaching the execution path crosses this boundary.
+
+| Rule | Behaviour |
+| --- | --- |
+| Precision | `Decimal(str(value))`, never `Decimal(value)`. `Decimal(0.1)` keeps the float's binary expansion; going through `str` keeps the number the provider wrote. This is what makes normalization deterministic. |
+| Quantization | None. The venue's precision is preserved; rounding is a downstream decision. |
+| Timestamps | Unix seconds as `float`, passed through. Must be strictly positive. |
+| Identity | Provider `symbol` → `asset_id` verbatim, unless a `SymbolMap` rewrites it. |
+| Venue / currency / timeframe | Not on the wire. Supplied by an explicit `NormalizationPolicy`, which names an unattributed venue `"UNKNOWN"` rather than guessing. |
+| vwap, trade count, order counts | Not reported by a wire record. Set to zero and documented as *unreported*, not measured. |
+| Trade direction | Not represented. A wire trade carries no aggressor flag, and none is inferred. |
+| Book levels | Passed through in provider order; sequence is supplied by the caller, because `MarketEngine.publish_book` refuses a non-advancing sequence. |
+| Invalid data | Raises `MarketValidationError` at the boundary, not deeper in the path. |
+| Stale data | Not an error. `is_stale` / `reject_stale` let the caller decide, because how old is too old is a strategy property. |
+
+### The market-data adapter boundary — `alphalab.market.source`
+
+A `MarketDataSource` yields canonical `MarketRecord`s and nothing else, so the
+execution path cannot tell a stored file from a socket. `OrderingGuarantee`
+lets a source declare whether it can promise chronological order — a stored
+dataset can, a venue feed cannot. No provider API is modelled here.
+
+See ADR-0011.
+
+## The broker boundary and the four environments (v2.3)
+
+`alphalab.broker` is the canonical broker adapter boundary: the vocabulary
+every adapter speaks (`BrokerOrder`, `BrokerExecution`, `BrokerAccount`,
+`BrokerPosition`, `ConnectionStatus`) and the contract it implements
+(`BrokerProtocol`: submit, cancel, replace, order status, execution reception,
+account, positions, connectivity). `alphalab.brokers` is the multi-broker
+router *above* that boundary and routes those types rather than redefining
+them.
+
+An order carries two identifiers — `oms_order_id` (AlphaLab's) and
+`broker_order_id` (the venue's handle) — and a fill carries `external_id` (the
+venue's own record). Distinguishing them is what makes reconciliation possible.
+
+### Reconciliation — `alphalab.broker.reconciliation`
+
+| Situation | Answer |
+| --- | --- |
+| Fill redelivered after a reconnect | `DUPLICATE`. A no-op, not an error. |
+| Fill for an order this process never sent | `UNKNOWN_ORDER`. Never applied, always surfaced. |
+| Fill against a terminal order | `TERMINAL_ORDER`. Recorded as a break — applying it would resurrect the order, dropping it would hide a position. |
+| Fill exceeding the ordered quantity | `OVERFILL`. Refused, not truncated. |
+| Two fills out of order | Applied. Fills are additive, so either order gives the same result. |
+| Fill then cancel | Order fills; the cancel is refused. |
+| Cancel then fill | Order stays cancelled; the fill is surfaced as a break. |
+| Local and venue disagree | `reconcile()` **states** the differences and does not resolve them. |
+
+### Parity across historical, replay, paper and live
+
+| Layer | Backtest | Replay | Paper | Live |
+| --- | --- | --- | --- | --- |
+| Market record / event | same | same | same | same |
+| Strategy → intents | same | same | same | same |
+| Allocation → `OrderRequest` | same | same | same | same |
+| Risk → `RiskDecision` | same | same | same | same |
+| OMS order lifecycle | same | same | same | same |
+| **Execution venue** | simulator | simulator | simulator | **broker** |
+| `Fill` / portfolio / analytics | same | same | same | same |
+| Record source | dataset | replay cursor | live source | live source |
+| Clock | record ts | record ts | wall | wall |
+| Staleness gate | none | none | optional | optional |
+
+`alphalab.runtime.session.TradingSession` drives any `MarketDataSource` through
+`ExecutionPipeline.process_record`. Paper is a backtest that reads from a live
+source — no paper-only accounting, order model or fill model.
+
+Live's one genuine difference is `ExecutionRouting.EXTERNAL`: an accepted order
+stays working instead of being simulated, no fill is invented, and its
+allocation reservation stays held because the capital is still committed.
+`alphalab.runtime.broker_routing` carries an order out (`route_order`) and a
+fill back (`apply_broker_execution`), and the return leg goes through
+`ExecutionPipeline.apply_execution_report` — the same function a simulated fill
+uses.
+
+Two pre-trade gates: an order is never sent on a connection that is not
+`CONNECTED`, and an OMS order already bound to a venue handle is never sent
+again. The client order id is *derived* from the OMS order id, so a retry after
+a lost response addresses the same order rather than creating a second one.
+
+### What "live" does and does not mean here
+
+| | Status |
+| --- | --- |
+| Backtest, replay, paper | **Implemented**, end to end, tested |
+| Canonical broker vocabulary and `BrokerProtocol` | **Implemented** |
+| `PaperBroker` | **Implemented** — a simulation, and the reference adapter |
+| Routing, fill return, reconciliation, pre-trade gates | **Implemented and tested** |
+| A live session driving a real venue | **Not implemented.** No connectivity to any real venue exists in this repository |
+| Vendor adapters (Alpaca, IB, Zerodha, Binance, Databento, NSE, Polygon, Yahoo) | **Stubs** — canned responses or `NotImplementedError`. None is wired to an endpoint |
+
+**AlphaLab does not support live trading.** It supports the adapter contract a
+live venue would be reached through. An adapter and its transport must come
+from outside this repository.
+
+See ADR-0012.
+
 ## Standalone engine libraries
 
 Everything else is an independent, deterministic, individually tested library
@@ -131,9 +273,14 @@ runtime: `research`, `portfolio_optimizer`, `optimizer`, `reporting`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
 `cloud_research`, `cluster_scheduler`, `distributed`, `experiment_tracking`,
 `model_registry`, `deployment_manager`, `research_assistant`, `studio`,
-`workbench`, `enterprise`, `live`, `production`, `broker`, `brokers`,
-`integrations`, `data`, `marketdata`, `feed`, `kernel`, `plugins`, `scheduler`,
-`persistence`.
+`workbench`, `enterprise`, `live`, `production`, `brokers`, `integrations`,
+`data`, `marketdata`, `feed`, `kernel`, `plugins`, `scheduler`, `persistence`.
+
+As of v2.3, `alphalab.broker` is reachable from the execution path through
+`alphalab.runtime.broker_routing`, and `alphalab.data.feed` /
+`alphalab.marketdata.feed` supply the wire records
+`alphalab.market.normalization` lifts. The rest of those packages, `brokers`
+and `live` included, remain standalone.
 
 ## Canonical domain models (v2.0.0, R1–R4)
 
@@ -4283,5 +4430,5 @@ The architecture documented here serves as the reference implementation for all 
 ```
 Architecture Specification
 Version: v2.0.0
-Status: Target architecture; see "Implementation Status (v2.0.0)" for what is built
+Status: Target architecture; see "Implementation Status (v2.3)" for what is built
 ```

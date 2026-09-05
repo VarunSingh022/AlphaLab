@@ -52,12 +52,9 @@ class MarketEngine:
             tick=tick,
         )
 
-        new_ticks = dict(state.latest_ticks)
-        new_ticks[tick.asset_id] = tick
-
         return replace(
             state,
-            latest_ticks=new_ticks,
+            latest_ticks=state.latest_ticks.set(tick.asset_id, tick),
             history=state.history.append(event),
             events=state.events.append(event),
         )
@@ -73,12 +70,9 @@ class MarketEngine:
             quote=quote,
         )
 
-        new_quotes = dict(state.latest_quotes)
-        new_quotes[quote.asset_id] = quote
-
         return replace(
             state,
-            latest_quotes=new_quotes,
+            latest_quotes=state.latest_quotes.set(quote.asset_id, quote),
             history=state.history.append(event),
             events=state.events.append(event),
         )
@@ -94,12 +88,9 @@ class MarketEngine:
             bar=bar,
         )
 
-        new_bars = dict(state.latest_bars)
-        new_bars[f"{bar.asset_id}_{bar.timeframe.value}"] = bar
-
         return replace(
             state,
-            latest_bars=new_bars,
+            latest_bars=state.latest_bars.set(f"{bar.asset_id}_{bar.timeframe.value}", bar),
             history=state.history.append(event),
             events=state.events.append(event),
         )
@@ -122,12 +113,9 @@ class MarketEngine:
             snapshot=book,
         )
 
-        new_books = dict(state.latest_books)
-        new_books[book.asset_id] = book
-
         return replace(
             state,
-            latest_books=new_books,
+            latest_books=state.latest_books.set(book.asset_id, book),
             history=state.history.append(event),
             events=state.events.append(event),
         )
@@ -143,12 +131,9 @@ class MarketEngine:
             snapshot=snapshot,
         )
 
-        new_books = dict(state.latest_books)
-        new_books[snapshot.asset_id] = snapshot
-
         return replace(
             state,
-            latest_books=new_books,
+            latest_books=state.latest_books.set(snapshot.asset_id, snapshot),
             history=state.history.append(event),
             events=state.events.append(event),
         )
