@@ -423,6 +423,7 @@ def _process_requests(
             current = _release_reservation(current, request, event.timestamp)
 
         current, new_fills, new_trades = _apply_reports(current, order, new_reports)
+        current = _withdraw_partial_remainder(current, request, order, event.timestamp)
         orders.append(order)
         reports.extend(new_reports)
         fills.extend(new_fills)
@@ -607,6 +608,40 @@ def _apply_report_to_portfolio(
         risk=risk,
         trade_records=state.trade_records.append(record),
     )
+
+
+def _withdraw_partial_remainder(
+    state: ExecutionPipelineState,
+    request: OrderRequest,
+    order: OMSOrder,
+    timestamp: float,
+) -> ExecutionPipelineState:
+    """Retire what a partial fill left behind, and free the capital it held.
+
+    A partially filled order keeps a positive ``remaining_quantity``, and under
+    this pipeline's own rule -- stated in :func:`_close_unfilled_order`, and true
+    since the pipeline was written -- that remainder will never be worked again:
+    a fresh order is minted per market event and no existing one is revisited.
+    Before v2.5 the order simply stayed ``PARTIALLY_FILLED`` forever, holding the
+    reservation for a quantity nothing would ever execute.
+    ``LiquidityCappedFill`` makes partial fills routine, so that was a slowly
+    growing set of orders in a state nothing could leave, and capital held
+    against them indefinitely.
+
+    The remainder is therefore cancelled, exactly as a never-filled order is, and
+    its residual reservation released. Nothing else changes: no fill is created
+    or destroyed, so cash, positions, realized and unrealized P&L, the equity
+    curve and every analytics figure are the same as before. ``Order.cancel``
+    preserves ``filled_quantity`` and ``average_fill_price``, so the fill that
+    did happen is untouched. See ADR-0014.
+    """
+
+    current = state.oms.orders.find(order.order_id)
+    if current.status is not OrderStatus.PARTIALLY_FILLED:
+        return state
+
+    withdrawn = replace(state, oms=OMSEngine.cancel(state.oms, order.order_id, timestamp))
+    return _release_reservation(withdrawn, request, timestamp)
 
 
 def _close_unfilled_order(

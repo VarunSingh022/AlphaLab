@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from decimal import Decimal
 from uuid import uuid4
 
+from alphalab.allocation.views import open_reservations
 from alphalab.backtesting import (
     BacktestEngine,
     BacktestResult,
@@ -202,12 +203,22 @@ def test_a_liquidity_capped_policy_partially_fills_an_oversized_order() -> None:
     )
 
     assert result.fills[0].quantity == Decimal("3")
-    assert result.orders[0].status is OrderStatus.PARTIALLY_FILLED
     assert result.state.portfolio.positions[asset_id].quantity == Decimal("3.000000")
+    # The three units that traded are what the position and the fill record. The
+    # seven that did not are withdrawn, because this pipeline mints a fresh
+    # order per market event and never re-works an existing one (ADR-0014).
+    assert result.orders[0].status is OrderStatus.CANCELLED
+    assert result.orders[0].filled_quantity == Decimal("3")
+    assert result.orders[0].remaining_quantity == Decimal("7.000000")
 
 
-def test_a_partially_filled_order_keeps_its_residual_reserved() -> None:
-    """It is still working, so the capital behind it is still committed."""
+def test_a_partially_filled_order_releases_its_residual_reservation() -> None:
+    """The remainder will never be worked, so its capital is not held.
+
+    Before v2.5 the order stayed PARTIALLY_FILLED forever and kept the residual
+    reserved on the premise that it was "still working" -- which nothing in this
+    pipeline would ever act on. See ADR-0014.
+    """
 
     strategy_id, asset_id = str(uuid4()), str(uuid4())
     dataset = MarketDataset.of(
@@ -223,7 +234,12 @@ def test_a_partially_filled_order_keeps_its_residual_reserved() -> None:
         context_factory,
     )
 
-    assert result.state.allocation.notional_allocated == Decimal("7") * MIDS[0]
+    assert result.state.allocation.notional_allocated == Decimal("0.00")
+    assert dict(open_reservations(result.state.allocation)) == {}
+    # The economics are untouched: only bookkeeping changed. The position is
+    # the three units that traded, and the accounting identity still holds.
+    assert result.state.portfolio.positions[asset_id].quantity == Decimal("3.000000")
+    assert _identity_holds(result)
 
 
 def test_participation_capping_spreads_a_large_order_across_records() -> None:
