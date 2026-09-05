@@ -8,6 +8,308 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.4.0] - 2026-09-05
+
+## Overview
+
+AlphaLab 2.4.0 is "Model + Strategy Lifecycle". Four packages each implemented
+one stage of a lifecycle — `experiment_tracking` (v1.46.0), `model_registry`,
+`research_assistant` and `deployment_manager` (all v2.0.0) — and none of them
+met. Between them there was one link, `ModelVersion.run_id`, an unvalidated
+string, and one convention: that a release component *might* say `"momentum@3"`,
+which nothing produced and nothing parsed.
+
+This release connects them, adds the three things that were missing at the
+seams, and removes the quadratic behaviour all three stateful packages carried.
+
+One new package, `alphalab.lifecycle`. It is an integration package, not a
+fifth engine — the `alphalab.backtesting` pattern from v2.2. Each of the four
+packages still works on its own and none of them changed shape to be composed.
+
+**A deployment here is a lifecycle fact, not an operation on a machine.** It
+records that an environment should be running a strategy version. It starts no
+process, opens no connection and reaches no venue; AlphaLab still has no
+transport to any real venue (ADR-0012 is unchanged). The registry references
+artifacts and stores no bytes.
+
+See `docs/ADR/0013-model-and-strategy-lifecycle.md`.
+
+---
+
+## Added
+
+### The lifecycle package — `alphalab.lifecycle`
+
+```text
+research candidate → experiment run → validation evidence → model version
+    → strategy version → promotion → deployment → rollback
+```
+
+- `LifecycleState` holds the four registries plus the evidence store, as one
+  immutable, serializable value — the role `ExecutionPipelineState` plays for
+  the execution path. Nothing is copied into it.
+- Not to be confused with `alphalab.strategy.LifecycleState`, an enum naming
+  the stages of a strategy *instance running inside a session*. A deployed
+  strategy version is started and stopped many times without its stage
+  changing.
+
+### Strategy versions — `alphalab.lifecycle.strategy_version`
+
+- `StrategyVersion` is the immutable, numbered record that did not exist.
+  `studio.StrategyDefinition.version` was a free-form string, so nothing could
+  be pointed at by a deployment or compared with the one before it.
+- It carries the canonical `StrategyDefinition` rather than a second parameter
+  format, so a candidate from `research_assistant.to_strategy_definition`
+  reaches a strategy version with no shape in between.
+- Four identities stay apart: the strategy line (`name`), the version, the
+  `ModelRef` it runs, and the deployments it appears in. One version deployed
+  to two environments is two deployments, which no field on the version could
+  have said.
+- `StrategyVersionRegistry` deliberately has **no** production index — see
+  "one source of truth" below.
+
+### Typed references — `alphalab.lifecycle.identity`
+
+- `ModelRef`, `StrategyVersionRef`, `DeploymentRef`. A model version and a
+  strategy version are both a name and a number, which is why they were passed
+  as indistinguishable strings before; they are now different types that render
+  the same way and do not compare equal.
+- Rendering is `"name@version"` — the form `deployment_manager` already
+  documented for release components. `parse_ref` reads it back, and a name
+  containing `"@"` is refused at construction rather than producing a reference
+  that parses to something else.
+
+### Validation evidence — `alphalab.lifecycle.evidence`
+
+- `ValidationEvidence` records what was measured, over what data, with what
+  seed, and where the full report is. It computes nothing:
+  `evidence_from_backtest` reads a run's `PerformanceReport` and
+  `evidence_from_research` reads a `ResearchScore`. Both already existed and
+  are referenced, not reimplemented.
+- `evidence_id` is a SHA-256 digest of the evidence's own content — the
+  construction `compute_checksum` already used for a release manifest. The same
+  measurement identifies itself the same way without coordination, and
+  `verify_evidence_id` detects numbers edited after the fact.
+- `ValidationPolicy` states thresholds in advance. `evaluate_policy` names
+  **every** failed check, not the first; a metric the policy asks for that the
+  evidence does not carry is a failure, because an absent number is not a
+  passing one; and evidence that no longer matches its own id fails before a
+  single threshold is read.
+- `required_method` lets a policy insist on `BACKTEST` evidence rather than
+  numbers typed in by hand.
+- **What a pass claims** is that the stated thresholds were met by the recorded
+  numbers. Not statistical significance, not out-of-sample validity, and not a
+  correction for how many candidates were searched first.
+
+### The promotion gate — `alphalab.lifecycle.promotion`
+
+- `promote_strategy_version` requires passing evidence, and requires the model
+  version the strategy runs to be staged itself: a strategy cannot be more
+  validated than the model inside it.
+- It refuses to reach `PRODUCTION` at all. A strategy version goes live by
+  being deployed, so the ledger is the only thing that ever puts one there.
+- `retire_strategy_version` refuses to archive a version that is still active
+  somewhere — taking down what is live is a rollback or a replacement, not a
+  stage edit.
+- Every accepted move appends a `StrategyPromotionRecord` carrying *why*, so a
+  promoted version records what it passed rather than only that it passed.
+
+### Checked references — `alphalab.lifecycle.registration`
+
+- `register_model_version` and `register_strategy` verify that a cited
+  experiment run exists and has **completed**, and that a cited model version is
+  real. `ModelVersion.run_id` was an unvalidated `str | None`; neither package
+  could check it alone without depending on the other.
+
+### Deployment and rollback — `alphalab.lifecycle.deployment`
+
+- `deploy_strategy_version` builds the release manifest from the version's typed
+  references, makes it active in an environment, moves the version to
+  `PRODUCTION`, and archives whichever version it displaced — unless that
+  version is still active in another environment.
+- One release package stands for one strategy version however many environments
+  it reaches. A strategy version is immutable, so its manifest is fixed.
+- `rollback_environment` restores the version the append-only ledger names as
+  previously active, archives the one being taken down, and re-derives the
+  model's deployment note. Deterministic: the same state and environment always
+  roll back to the same place.
+- Redeploying the version already running in an environment is refused, and
+  nothing is registered before the refusal.
+
+### Artifact references — `alphalab.model_registry.ArtifactRef`
+
+- Where a version's trained bytes live, what they should hash to, and how big
+  they are. AlphaLab never reads, writes or hashes those bytes: there is no
+  object store here and this release does not pretend there is.
+- `ModelVersion.__serializable__` projects a version to its metadata plus that
+  reference, dropping the in-memory `model` object. An arbitrary object has no
+  deterministic JSON form, and stringifying it would produce a payload that
+  reads back as prose — the failure v2.1 removed from the append-only logs.
+
+### The declared stage transitions — `alphalab.model_registry.stages`
+
+- `LEGAL_TRANSITIONS` states every legal move once. `illegal_stage_move` is the
+  pure table check, shared with `alphalab.lifecycle` so the table is not written
+  twice.
+
+### Benchmarks
+
+- `benchmarks/benchmark_lifecycle.py` — three growth shapes (many versions of
+  one line, many lines, a deep environment ledger) plus a full
+  promote → deploy → rollback sweep.
+
+---
+
+## Changed
+
+### One source of truth for what is live
+
+`model_registry.DeploymentMetadata` was a hand-set blob claiming a version was
+deployed somewhere; `deployment_manager`'s ledger recorded what actually was.
+Both remain, but the integrated path now **derives** the note from the
+deployment that happened rather than letting a caller assert one, and updates it
+on rollback. `alphalab.lifecycle.views` answers "what is running here?" by
+reading the ledger.
+
+### `ParamValue` has one definition
+
+`experiment_tracking.tracker.ParamValue` and `model_registry.registry.ParamValue`
+were identical, and the registry's own docstring said consolidating them was
+owed. Both now re-export `alphalab.common.types.ParamValue`. `MetadataValue` is
+deliberately *not* the same alias: metadata admits `None`, a parameter does not.
+
+---
+
+## Fixed
+
+### The lifecycle registries were quadratic
+
+Every write copied the whole mapping or rebuilt the whole tuple, and three write
+paths scanned the data they were writing to. Measured on one machine, per
+doubling of the workload — linear is ~2x:
+
+| Operation | v2.3.0 | v2.4.0 |
+| --- | --- | --- |
+| `log_metric` (2k → 4k → 8k) | 0.0091 → 0.0313 → 0.1226s (**3.4x, 3.9x**) | 0.0094 → 0.0179 → 0.0357s (1.9x, 2.0x) |
+| `start_run` (2k → 4k → 8k) | 0.0165 → 0.0508 → 0.1738s (**3.1x, 3.4x**) | 0.0114 → 0.0196 → 0.0428s (1.7x, 2.2x) |
+| `register_model`, one name (2k → 4k → 8k) | 0.0120 → 0.0442 → 0.1592s (**3.7x, 3.6x**) | 0.0073 → 0.0145 → 0.0310s (2.0x, 2.2x) |
+| `register_model`, many names (2k → 4k → 8k) | 0.0113 → 0.0371 → 0.1341s (**3.3x, 3.6x**) | 0.0079 → 0.0190 → 0.0374s (2.4x, 2.0x) |
+| `promote` (1k → 2k → 4k) | 0.0525 → 0.2000 → 0.7769s (**3.8x, 3.9x**) | 0.0126 → 0.0251 → 0.0543s (2.0x, 2.2x) |
+| `register_release` (1k → 2k → 4k) | 0.0041 → 0.0124 → 0.0423s (**3.0x, 3.4x**) | 0.0044 → 0.0089 → 0.0181s (2.0x, 2.0x) |
+| `deploy` (0.5k → 1k → 2k) | 0.0077 → 0.0261 → 0.0975s (**3.4x, 3.7x**) | 0.0056 → 0.0109 → 0.0222s (2.0x, 2.0x) |
+
+The containers are the ones v2.2 introduced: `PersistentMap` where a key is
+rewritten, `AppendOnlyLog` where a history only grows.
+
+Three scans needed indexes, which no container change would have fixed:
+
+- `promote()` called `production_version()`, which scanned every version of the
+  model. `ModelRegistry` now carries `production` (name → current production
+  version) and `production_line` (name → the versions that have held it, in
+  order). Both are O(1).
+- `rollback()` rebuilt the filtered promotion history to find the version to
+  return to. It is now `production_line[-2]`.
+- `deploy()` called `active_release()`, which scanned the whole ledger
+  backwards. `DeploymentManager` now indexes the same records by environment.
+
+`tests/regression/test_lifecycle_registry_complexity.py` guards both growth axes
+— versions per name *and* number of names. An early draft of this release fixed
+the first and made the second 50× slower and still quadratic, by inspecting
+every entry of the container inside `__post_init__`, which runs on every write.
+
+### A promotion could move a version anywhere
+
+`promote()` refused only a move to `NONE` and a move to the stage the version
+was already in. See **Breaking changes**.
+
+---
+
+## Breaking changes
+
+Confined to `alphalab.model_registry` and `alphalab.experiment_tracking`. No
+public name was removed, no module disappeared, and no enum member was removed.
+
+### Two stage transitions are now refused
+
+| Move | v2.3.0 | v2.4.0 |
+| --- | --- | --- |
+| `PRODUCTION → STAGING` | allowed | **refused** |
+| `ARCHIVED → PRODUCTION`, version never in production | allowed | **refused** |
+| `ARCHIVED → PRODUCTION`, version is the rollback target | allowed | allowed |
+| `NONE → PRODUCTION` | allowed | allowed |
+| `ARCHIVED → STAGING` | allowed | allowed |
+
+A live version leaves production by being archived or replaced; a quiet
+demotion leaves the model with nothing live and no record that anything was
+taken down. An archived version that was never live returning to production is a
+resurrection, not a restore — and if it were allowed, "roll back" would stop
+being a distinguishable operation.
+
+`NONE → PRODUCTION` stays legal at the registry level deliberately: the registry
+is mechanism, and requiring evidence is policy, which lives in
+`alphalab.lifecycle`.
+
+### Container types on three state classes
+
+Fields that were `dict` / `tuple` are now persistent containers. Both compare
+equal to what they replaced — `run.metrics["loss"] == (0.5, 0.3)` and
+`registry.promotions == ()` still hold — and `__post_init__` converts a
+hand-built plain mapping, so runtime construction keeps working. A caller that
+*annotates* one of these field types sees a different one.
+
+| Field | v2.3.0 | v2.4.0 |
+| --- | --- | --- |
+| `ExperimentTracker.runs` | `Mapping[str, ExperimentRun]` | `PersistentMap[str, ExperimentRun]` |
+| `ExperimentRun.metrics` | `Mapping[str, tuple[float, ...]]` | `PersistentMap[str, AppendOnlyLog[float]]` |
+| `ModelRegistry.versions` | `Mapping[str, tuple[ModelVersion, ...]]` | `PersistentMap[str, PersistentMap[int, ModelVersion]]` |
+| `ModelRegistry.promotions` | `tuple[PromotionRecord, ...]` | `AppendOnlyLog[PromotionRecord]` |
+| `DeploymentManager.releases` | `Mapping[str, tuple[ReleasePackage, ...]]` | `PersistentMap[str, AppendOnlyLog[ReleasePackage]]` |
+| `DeploymentManager.deployments` | `tuple[DeploymentRecord, ...]` | `AppendOnlyLog[DeploymentRecord]` |
+
+**`ModelRegistry.versions[name]` changed indexing.** It was a positional tuple,
+so `registry.versions["alpha"][0]` was version 1; it is now keyed by version
+number, so that expression raises `KeyError` and `registry.versions["alpha"][1]`
+is version 1. Use `list_versions(registry, name)` — the documented accessor,
+whose return type is unchanged — or `get_version(registry, name, version)`,
+which is now O(1).
+
+### New fields on two state classes
+
+`ModelRegistry` gained `production` and `production_line`; `DeploymentManager`
+gained `environments`. They are indexes, maintained by their packages' own
+functions the way `oms.book.OrderBook` maintains its own. Positional
+construction of either class is unaffected (the new fields are appended and
+default to empty), but a registry built by hand from `versions` alone will
+report no production version until one is promoted — build through
+`register_model` and `promote`.
+
+---
+
+## Documentation
+
+- `docs/ADR/0013-model-and-strategy-lifecycle.md` — new.
+- `docs/ARCHITECTURE.md` — Implementation Status updated to v2.4; the four
+  lifecycle packages move out of the standalone list.
+- `README.md`, `ROADMAP.md` — v2.4 status, capabilities and remaining gaps.
+- `examples/12_model_lifecycle.py` — new: a research candidate through a real
+  backtest to a deployment and back, including the refusal of a promotion that
+  no evidence supports.
+
+---
+
+## Quality gates
+
+Measured on the release commit, not carried over:
+
+| Gate | Result |
+| --- | --- |
+| `pytest -q` | **1887 passed** (1756 at v2.3.0) |
+| `mypy .` (strict) | clean, 905 source files |
+| `ruff check .` | clean |
+| `ruff format --check .` | clean, 948 files |
+
+---
+
 # [2.3.0] - 2026-09-05
 
 ## Overview

@@ -89,6 +89,41 @@ No new engine packages. See `CHANGELOG.md`, ADR-0011 and ADR-0012.
 would be reached through. There is no connectivity to any real venue in this
 repository, and every vendor client is a stub.
 
+v2.4.0 — "Model + Strategy Lifecycle" — connects four packages that each shipped
+one stage of a lifecycle and never met: Experiment Tracking (PR-046), the Model
+Registry (PR-047), the AI Research Assistant (PR-048) and the Deployment Manager
+(PR-049). Between them there was one link — `ModelVersion.run_id`, an
+unvalidated string — and one convention nothing produced or parsed.
+
+- **One package composes them.** `alphalab.lifecycle` is an integration package,
+  not a fifth engine, following the `alphalab.backtesting` pattern from v2.2.
+  Each of the four still works on its own and none changed shape.
+- **A strategy version exists.** `StrategyDefinition.version` was a free-form
+  string; `StrategyVersion` is immutable and numbered, and keeps the strategy
+  line, the version, the model version it runs and its deployments apart.
+- **Promotion has preconditions.** It requires evidence that passed a stated
+  policy, and a model version that is itself staged. It refuses to reach
+  `PRODUCTION` at all: a strategy version goes live by being deployed.
+- **One source of truth for what is live.** The append-only deployment ledger.
+  `model_registry.DeploymentMetadata` is now derived from the deployment that
+  happened rather than asserted by a caller.
+- **Evidence is recorded, not invented.** `ValidationEvidence` extracts metrics
+  from the `PerformanceReport` and `ResearchScore` AlphaLab already produces,
+  and its id is a digest of its own content. A passing policy claims that the
+  stated thresholds were met — not statistical significance.
+- **Rollback is first-class and deterministic.** The version restored is the one
+  the ledger names as previously active.
+- **The lifecycle registries stopped being quadratic.** Every write path in
+  experiment tracking, the model registry and the deployment manager was
+  ~4x per doubling; all are now ~2x.
+
+One new package (`lifecycle`), which is an integration package. See
+`CHANGELOG.md` and ADR-0013.
+
+**v2.4 does not add artifact storage.** A model version *references* an
+artifact — a location, a media type, a checksum, a size. AlphaLab never reads,
+writes or hashes those bytes, and there is no object store in this repository.
+
 ---
 
 # Feature notes (delivered)
@@ -336,16 +371,29 @@ Enterprise capabilities
 The engine packages exist and are individually tested. The following integration
 and consolidation work has **not** been done:
 
-- **Live venue connectivity** (v2.4+): v2.3 built the adapter contract, the
+- **Live venue connectivity** (v2.5+): v2.3 built the adapter contract, the
   routing gates, reconciliation and the fill-return path, and tested all of
   them. What does not exist is a transport to any real venue. Every vendor
   client in `alphalab.marketdata.*` and `alphalab.integrations.*` is a stub —
   canned responses or `NotImplementedError`. An async live session loop,
   order-state polling and reconnect scheduling all wait on that transport.
+- **Artifact storage** (v2.5+): `ArtifactRef` records where a model version's
+  bytes live and what they should hash to. Nothing fetches, writes or verifies
+  them, because there is no object store here and faking one would be the only
+  untestable part of the lifecycle.
+- **Approval workflow** (v2.5+): a promotion is exactly the kind of auditable
+  privileged action `alphalab.enterprise` models with RBAC and an audit log, but
+  the two are not connected. `ValidationPolicy` states thresholds; it does not
+  state who may apply one.
+- **Per-environment promotion policy** (v2.5+): a strategy version has one stage
+  across all environments, and `PRODUCTION` means "live somewhere". A policy
+  that differs between `paper` and `live-eu` is not expressible.
 - A single integrated runtime spanning *all* engines. Today `ExecutionPipeline`
-  (`alphalab.runtime`), `alphalab.backtesting` and
-  `alphalab.runtime.session`, which drive it, are the wired-together paths;
-  research, reporting, feature store and the rest remain standalone libraries.
+  (`alphalab.runtime`), `alphalab.backtesting` and `alphalab.runtime.session`,
+  which drive it, are one wired-together path, and `alphalab.lifecycle` is
+  another. The two are deliberately not joined: a deployment names what should
+  run, and the execution path runs it. Research, reporting, feature store and
+  the rest remain standalone libraries.
 - Resolution of `kernel` and `core/events` (currently unused by the execution path).
 - Strategies still do not see the marked portfolio: `StrategyContext` comes from
   the caller's `context_factory`.
@@ -359,8 +407,9 @@ and consolidation work has **not** been done:
   path.
 
 Delivered since this list was written: mark-to-market position repricing (v2.1),
-`alphalab.replay` integration with the execution path (v2.2), and market-data /
-broker convergence with paper execution on the canonical path (v2.3).
+`alphalab.replay` integration with the execution path (v2.2), market-data /
+broker convergence with paper execution on the canonical path (v2.3), and the
+model/strategy lifecycle composing PR-046 through PR-049 (v2.4).
 
 ---
 
@@ -385,8 +434,10 @@ Major releases introduce architectural milestones or breaking public API changes
 Minor releases may still make small, documented breaking changes to a narrow
 public API where correctness requires it: v2.2.0 changed
 `AllocationEngine.release_reservation` to take no amount, because the reservation
-ledger owns it, and v2.3.0 changed `alphalab.brokers`' account, order and
-execution field names so both broker packages speak one vocabulary.
+ledger owns it, v2.3.0 changed `alphalab.brokers`' account, order and execution
+field names so both broker packages speak one vocabulary, and v2.4.0 refused two
+model-registry stage transitions that made rollback indistinguishable from
+promoting something old.
 
 Minor releases introduce new capabilities (v1.34.0–v1.46.0 each added one engine).
 
