@@ -17,10 +17,15 @@ from alphalab.deployment_manager.releases import (
 def deployment_history(
     manager: DeploymentManager, environment: str | None = None
 ) -> tuple[DeploymentRecord, ...]:
-    """Returns deployment records in order, optionally filtered to one environment."""
+    """Returns deployment records in order, optionally filtered to one environment.
+
+    Filtering reads the environment index rather than scanning the whole ledger,
+    so the cost is the size of the answer.
+    """
     if environment is None:
-        return manager.deployments
-    return tuple(record for record in manager.deployments if record.environment == environment)
+        return manager.deployments.to_tuple()
+    history = manager.environments.get(environment)
+    return () if history is None else history.to_tuple()
 
 
 def previous_release(manager: DeploymentManager, environment: str) -> tuple[str, int] | None:
@@ -28,8 +33,8 @@ def previous_release(manager: DeploymentManager, environment: str) -> tuple[str,
 
     ``None`` if the environment has had fewer than two deployments.
     """
-    history = deployment_history(manager, environment)
-    if len(history) < 2:
+    history = manager.environments.get(environment)
+    if history is None or len(history) < 2:
         return None
     prior = history[-2]
     return prior.release_name, prior.version

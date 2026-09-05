@@ -6,6 +6,8 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
+from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.deployment_manager import (
     DeploymentManager,
     DeploymentManagerInputError,
@@ -179,7 +181,7 @@ def test_deploy_rejects_a_release_that_fails_checksum() -> None:
         checksum="not-the-real-digest",
         created_at=0.0,
     )
-    manager = DeploymentManager(releases={"stack": (tampered,)})
+    manager = DeploymentManager(releases=PersistentMap({"stack": AppendOnlyLog([tampered])}))
     with pytest.raises(DeploymentManagerInputError):
         deploy(manager, "stack", 1, "staging", timestamp=1.0)
 
