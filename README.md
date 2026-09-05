@@ -268,8 +268,8 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 1599 passing tests (1441 unit, 57 integration, 101 regression)
-- ✅ Strict MyPy type checking (870 source files)
+- ✅ 1897 passing tests (1630 unit, 90 integration, 177 regression)
+- ✅ Strict MyPy type checking (905 source files)
 - ✅ Ruff linting and formatting
 - ✅ Source distribution validation
 - ✅ Wheel validation
