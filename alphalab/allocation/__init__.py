@@ -16,6 +16,7 @@ from alphalab.allocation.exceptions import (
     AllocationError,
     AllocationValidationError,
     BudgetExceededError,
+    UnknownReservationError,
 )
 from alphalab.allocation.netting import NettingEngine
 from alphalab.allocation.optimizer import AllocationOptimizer
@@ -32,7 +33,9 @@ from alphalab.allocation.validation import validate_intent, validate_net_quantit
 from alphalab.allocation.views import (
     allocation_history,
     current_budget,
+    open_reservations,
     recent_orders_for_asset,
+    reserved_for_order,
     total_notional_allocated,
 )
 from alphalab.core.order_request import OrderRequest
@@ -60,10 +63,13 @@ __all__ = [
     "OrderRequest",
     "SizingModel",
     "TargetWeightSizing",
+    "UnknownReservationError",
     "VolatilityTargetSizing",
     "allocation_history",
     "current_budget",
+    "open_reservations",
     "recent_orders_for_asset",
+    "reserved_for_order",
     "total_notional_allocated",
     "validate_intent",
     "validate_net_quantity",

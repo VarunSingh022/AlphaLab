@@ -16,6 +16,7 @@ from alphalab.allocation.events import (
     BudgetExceeded,
     NettingCompleted,
 )
+from alphalab.allocation.exceptions import UnknownReservationError
 from alphalab.allocation.netting import NettingEngine
 from alphalab.allocation.sizing import SizingModel
 from alphalab.allocation.state import AllocationState
@@ -143,39 +144,93 @@ class AllocationEngine:
             )
         )
 
+        # Every emitted request reserves its own notional, so the capital held
+        # against it can later be consumed or released by order id.
+        reservations = state.reservations
+        for order in orders:
+            reservations = reservations.set(order.order_id, order.quantity * order.price)
+
         new_state = replace(
             state,
             history=state.history.extend(orders),
             events=events,
             notional_allocated=state.notional_allocated + total_notional,
+            reservations=reservations,
         )
 
         return new_state, tuple(orders)
 
     @staticmethod
+    def reserved_notional(state: AllocationState, order_id: str) -> Decimal:
+        """Capital still held against ``order_id``; zero if it holds none."""
+
+        return state.reservations.get(order_id, Decimal("0.00"))
+
+    @staticmethod
     def apply_execution(
         state: AllocationState, order_id: str, executed_notional: Decimal, timestamp: float
     ) -> AllocationState:
-        """Apply executed notional against reserved allocation for an order.
+        """Consume executed notional from the capital reserved for an order.
 
-        This reduces the historical `notional_allocated` by the executed amount.
+        A fill consumes the reservation up to what it executed. A fully
+        executed order's entry is dropped from the ledger; a partial fill
+        leaves the residual reserved, because the order is still working and
+        that capital is still committed.
         """
-        new_notional = max(Decimal("0.00"), state.notional_allocated - executed_notional)
+
+        reserved = state.reservations.get(order_id)
+        if reserved is None:
+            # The order holds no reservation (it was released, or fully
+            # consumed by earlier fills). Record the execution; nothing to free.
+            consumed = Decimal("0.00")
+            reservations = state.reservations
+        else:
+            consumed = min(reserved, executed_notional)
+            remaining = reserved - consumed
+            reservations = (
+                state.reservations.delete(order_id)
+                if remaining <= Decimal("0.00")
+                else state.reservations.set(order_id, remaining)
+            )
+
         evt = AllocationExecutionApplied(
             AllocationEngine._create_id(), timestamp, order_id, executed_notional
         )
-        return replace(state, notional_allocated=new_notional, events=state.events.append(evt))
+        return replace(
+            state,
+            notional_allocated=state.notional_allocated - consumed,
+            reservations=reservations,
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def release_reservation(
-        state: AllocationState, order_id: str, released_notional: Decimal, timestamp: float
+        state: AllocationState, order_id: str, timestamp: float
     ) -> AllocationState:
-        """Release reserved notional for a cancelled or rejected order.
+        """Release whatever capital ``order_id`` still holds.
 
-        Subtracts the released amount from `notional_allocated`.
+        Called once, at the point a request's lifecycle ends without further
+        execution: risk rejected it, it was dropped before reaching the OMS, or
+        the venue returned a non-trading outcome. The amount comes from the
+        ledger rather than from the caller, so a release can neither free more
+        than was reserved nor free the same reservation twice.
+
+        Raises:
+            UnknownReservationError: if the order holds no live reservation.
         """
-        new_notional = max(Decimal("0.00"), state.notional_allocated - released_notional)
+
+        released = state.reservations.get(order_id)
+        if released is None:
+            raise UnknownReservationError(
+                f"Order {order_id} holds no allocation reservation to release."
+            )
+
         evt = AllocationReservationReleased(
-            AllocationEngine._create_id(), timestamp, order_id, released_notional
+            AllocationEngine._create_id(), timestamp, order_id, released
         )
-        return replace(state, notional_allocated=new_notional, events=state.events.append(evt))
+        return replace(
+            state,
+            notional_allocated=state.notional_allocated - released,
+            reservations=state.reservations.delete(order_id),
+            events=state.events.append(evt),
+        )

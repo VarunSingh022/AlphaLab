@@ -18,6 +18,14 @@ from alphalab.execution.events import (
 from alphalab.execution.exceptions import ExecutionError, ExecutionValidationError
 from alphalab.execution.fill import FillStatus, OrderInstruction
 from alphalab.execution.latency import ConstantLatency, DeterministicLatency, LatencyModel
+from alphalab.execution.policy import (
+    FillDecision,
+    FillPolicy,
+    ImmediateFill,
+    LiquidityCappedFill,
+    LiquidityContext,
+    StaticFill,
+)
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.slippage import (
@@ -46,16 +54,22 @@ __all__ = [
     "ExecutionState",
     "ExecutionSubmitted",
     "ExecutionValidationError",
+    "FillDecision",
+    "FillPolicy",
     "FillStatus",
     "FixedCommission",
     "FixedSlippage",
+    "ImmediateFill",
     "LatencyModel",
+    "LiquidityCappedFill",
+    "LiquidityContext",
     "MarketImpactSlippage",
     "OrderInstruction",
     "PerShareCommission",
     "PercentageCommission",
     "PercentageSlippage",
     "SlippageModel",
+    "StaticFill",
     "all_reports",
     "report",
     "reports_for_asset",
