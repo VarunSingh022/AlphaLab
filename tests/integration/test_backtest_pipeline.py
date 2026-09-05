@@ -315,6 +315,40 @@ def test_analytics_are_compiled_from_the_run_that_produced_them() -> None:
     assert len(result.state.trade_records) == 2
 
 
+def test_drawdown_is_measured_over_the_run_equity_curve() -> None:
+    """The dip at record 2 (119.003 after 120.007) must show up as drawdown."""
+
+    result, _ = _run({2.0: Decimal("10")})
+    report = result.report
+
+    assert report is not None
+    assert len(report.drawdowns.drawdowns) == len(result.equity_curve)
+    assert report.drawdowns.max_drawdown > 0.0
+    assert report.drawdowns.ulcer_index > 0.0
+
+
+def test_exposure_reflects_the_position_the_run_ended_holding() -> None:
+    result, asset_id = _run({2.0: Decimal("10")})
+    report = result.report
+    position_value = result.state.portfolio.positions[asset_id].market_value
+
+    assert report is not None
+    assert report.exposure.long == position_value
+    assert report.exposure.short == Decimal("0.00")
+    assert report.exposure.gross == position_value
+    assert report.exposure.net == position_value
+    assert report.exposure.leverage > 0.0
+
+
+def test_turnover_reflects_the_notional_the_run_traded() -> None:
+    quiet, _ = _run({2.0: Decimal("1")})
+    busy, _ = _run({2.0: Decimal("10"), 4.0: Decimal("-4"), 6.0: Decimal("3")})
+
+    assert quiet.report is not None
+    assert busy.report is not None
+    assert busy.report.trades.turnover > quiet.report.trades.turnover
+
+
 def test_attribution_sees_every_trade_the_run_made() -> None:
     result, asset_id = _run({2.0: Decimal("10"), 4.0: Decimal("-10")})
     report = result.report

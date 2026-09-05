@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
 [![Version](https://img.shields.io/badge/Version-2.2.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-1589%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-1592%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -42,7 +42,7 @@ The framework is designed for researchers, quantitative developers, students, an
 |---------|--------|
 | Python | 3.12+ |
 | Version | 2.2.0 |
-| Tests | **1589 Passing** |
+| Tests | **1592 Passing** |
 | Static Typing | **Strict MyPy** (869 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
@@ -249,7 +249,7 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 1589 passing tests (1441 unit, 54 integration, 94 regression)
+- ✅ 1592 passing tests (1441 unit, 57 integration, 94 regression)
 - ✅ Strict MyPy type checking (869 source files)
 - ✅ Ruff linting and formatting
 - ✅ Source distribution validation
