@@ -61,6 +61,34 @@ that blocked it:
 One new package (`backtesting`), which is an integration package, not another
 standalone engine. See `CHANGELOG.md`.
 
+v2.3.0 — "Market Data + Broker/Live Execution" — closed both items v2.2
+deferred, and is a connectivity/convergence release rather than a feature one:
+
+- **One canonical market-data model.** `alphalab.market` is the domain model the
+  execution path consumes; `alphalab.data.feed` is the one wire record, which
+  `alphalab.marketdata.feed` and `alphalab.live.message` now re-export instead
+  of redefining. `data.Bar` and `market.Bar` both remain, deliberately: they sit
+  on opposite sides of a conversion (ADR-0011).
+- **An explicit normalization boundary.** `alphalab.market.normalization` states
+  its rules for precision, timestamps, symbol identity, and what happens to
+  data that is invalid, unreported, or stale.
+- **One canonical broker boundary.** `alphalab.broker` defines the vocabulary
+  and the adapter contract; `alphalab.brokers` routes those types instead of
+  redefining four of them. Reconciliation gives defined answers to duplicate
+  fills, out-of-order fills, unknown fills, overfills and the cancel/fill race.
+- **Four environments, one execution path.** Backtest, replay and paper produce
+  byte-identical fills, orders, cash, positions and equity curve.
+  `ExecutionRouting.EXTERNAL` is live's only genuine difference.
+- **The broker and market-data layers stopped being quadratic.** The 100k-order
+  PaperBroker benchmark went from 676.70s to 4.65s; market-data ingestion no
+  longer slows down as the universe widens.
+
+No new engine packages. See `CHANGELOG.md`, ADR-0011 and ADR-0012.
+
+**v2.3 does not add live trading.** It adds the adapter contract a live venue
+would be reached through. There is no connectivity to any real venue in this
+repository, and every vendor client is a stub.
+
 ---
 
 # Feature notes (delivered)
@@ -308,15 +336,16 @@ Enterprise capabilities
 The engine packages exist and are individually tested. The following integration
 and consolidation work has **not** been done:
 
-- **Market-data model convergence** (v2.3): the overlapping `data` / `marketdata`
-  / `feed` surfaces, and the separate `data.feed.Bar`, `market.bar.Bar` and
-  `marketdata.feed` Bar types. A backtest reads `alphalab.market` inputs only.
-- **`broker` / `brokers` consolidation and live broker connectivity into the
-  execution path** (v2.3).
+- **Live venue connectivity** (v2.4+): v2.3 built the adapter contract, the
+  routing gates, reconciliation and the fill-return path, and tested all of
+  them. What does not exist is a transport to any real venue. Every vendor
+  client in `alphalab.marketdata.*` and `alphalab.integrations.*` is a stub —
+  canned responses or `NotImplementedError`. An async live session loop,
+  order-state polling and reconnect scheduling all wait on that transport.
 - A single integrated runtime spanning *all* engines. Today `ExecutionPipeline`
-  (`alphalab.runtime`) and `alphalab.backtesting`, which drives it from a
-  dataset, are the wired-together paths; research, reporting, feature store and
-  the rest remain standalone libraries.
+  (`alphalab.runtime`), `alphalab.backtesting` and
+  `alphalab.runtime.session`, which drive it, are the wired-together paths;
+  research, reporting, feature store and the rest remain standalone libraries.
 - Resolution of `kernel` and `core/events` (currently unused by the execution path).
 - Strategies still do not see the marked portfolio: `StrategyContext` comes from
   the caller's `context_factory`.
@@ -325,8 +354,13 @@ and consolidation work has **not** been done:
 - `_trade_record` attribution in `execution_pipeline` still hard-codes
   `sector_id="UNCLASSIFIED"` / `holding_period_seconds=0.0` ("D3").
 
-Delivered since this list was written: mark-to-market position repricing (v2.1)
-and `alphalab.replay` integration with the execution path (v2.2).
+- `benchmark_workbench.py` fails on a tab-lifecycle assertion in
+  `alphalab.workbench`. Pre-existing at v2.2.0 and unrelated to the execution
+  path.
+
+Delivered since this list was written: mark-to-market position repricing (v2.1),
+`alphalab.replay` integration with the execution path (v2.2), and market-data /
+broker convergence with paper execution on the canonical path (v2.3).
 
 ---
 
@@ -351,7 +385,8 @@ Major releases introduce architectural milestones or breaking public API changes
 Minor releases may still make small, documented breaking changes to a narrow
 public API where correctness requires it: v2.2.0 changed
 `AllocationEngine.release_reservation` to take no amount, because the reservation
-ledger owns it.
+ledger owns it, and v2.3.0 changed `alphalab.brokers`' account, order and
+execution field names so both broker packages speak one vocabulary.
 
 Minor releases introduce new capabilities (v1.34.0–v1.46.0 each added one engine).
 
