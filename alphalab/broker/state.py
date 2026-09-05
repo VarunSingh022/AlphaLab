@@ -9,6 +9,8 @@ from alphalab.broker.events import BrokerEvent
 from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.order import BrokerOrder
 from alphalab.broker.position import BrokerPosition
+from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.persistent_map import PersistentMap
 
 __all__ = ["BrokerState", "ConnectionStatus"]
 
@@ -40,6 +42,15 @@ class ConnectionStatus(Enum):
 class BrokerState:
     """Deterministic snapshot of broker account, connection, and order state.
 
+    The keyed indexes are
+    :class:`~alphalab.common.persistent_map.PersistentMap` and ``events`` is an
+    :class:`~alphalab.common.append_log.AppendOnlyLog`. As ``dict`` and
+    ``tuple`` they were rebuilt on every transition, so a session's cost grew
+    with the square of the orders it had placed -- the same quadratic v2.1 and
+    v2.2 removed from the risk engine and the OMS. Now that paper and live
+    execution run through this state, it would have been the slowest part of a
+    long session.
+
     Attributes:
         broker_name: Identifier of the broker this state describes.
         connection_status: Current connectivity.
@@ -57,9 +68,9 @@ class BrokerState:
     broker_name: str
     connection_status: ConnectionStatus
     account: BrokerAccount
-    positions: Mapping[str, BrokerPosition] = field(default_factory=dict)
-    orders: Mapping[str, BrokerOrder] = field(default_factory=dict)
-    executions: Mapping[str, BrokerExecution] = field(default_factory=dict)
-    events: tuple[BrokerEvent, ...] = field(default_factory=tuple)
+    positions: PersistentMap[str, BrokerPosition] = field(default_factory=PersistentMap)
+    orders: PersistentMap[str, BrokerOrder] = field(default_factory=PersistentMap)
+    executions: PersistentMap[str, BrokerExecution] = field(default_factory=PersistentMap)
+    events: AppendOnlyLog[BrokerEvent] = field(default_factory=AppendOnlyLog)
     metadata: Mapping[str, str] = field(default_factory=dict)
     last_heartbeat: float = 0.0

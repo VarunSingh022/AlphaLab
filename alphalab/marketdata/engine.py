@@ -78,9 +78,10 @@ class MarketDataEngine:
         history = provider.request_history(symbol, tf, start, end)
         cache_key = f"{provider_id}:{symbol}:{tf.name}"
 
-        new_records = dict(state.cache.records)
-        new_records[cache_key] = CacheRecord(symbol, provider_id, history)
-        new_cache = replace(state.cache, records=new_records)
+        new_cache = replace(
+            state.cache,
+            records=state.cache.records.set(cache_key, CacheRecord(symbol, provider_id, history)),
+        )
 
         return replace(state, cache=new_cache)
 
@@ -88,37 +89,48 @@ class MarketDataEngine:
     def process_quote(
         state: MarketDataState, provider_id: str, quote: Quote, ts: float
     ) -> MarketDataState:
-        new_quotes = dict(state.quotes)
-        new_quotes[quote.symbol] = quote
+
         evt = QuoteReceived(MarketDataEngine._create_id(), ts, provider_id, quote.symbol)
-        return replace(state, quotes=new_quotes, events=(*state.events, evt))
+        return replace(
+            state,
+            quotes=state.quotes.set(quote.symbol, quote),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def process_trade(
         state: MarketDataState, provider_id: str, trade: Trade, ts: float
     ) -> MarketDataState:
-        new_trades = dict(state.trades)
-        new_trades[trade.symbol] = trade
+
         evt = TradeReceived(MarketDataEngine._create_id(), ts, provider_id, trade.symbol)
-        return replace(state, trades=new_trades, events=(*state.events, evt))
+        return replace(
+            state,
+            trades=state.trades.set(trade.symbol, trade),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def process_bar(
         state: MarketDataState, provider_id: str, bar: Bar, ts: float
     ) -> MarketDataState:
-        new_bars = dict(state.bars)
-        new_bars[bar.symbol] = bar
+
         evt = BarReceived(MarketDataEngine._create_id(), ts, provider_id, bar.symbol)
-        return replace(state, bars=new_bars, events=(*state.events, evt))
+        return replace(
+            state,
+            bars=state.bars.set(bar.symbol, bar),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def process_order_book(
         state: MarketDataState, provider_id: str, ob: OrderBook, ts: float
     ) -> MarketDataState:
-        new_obs = dict(state.order_books)
-        new_obs[ob.symbol] = ob
         evt = OrderBookUpdated(MarketDataEngine._create_id(), ts, provider_id, ob.symbol)
-        return replace(state, order_books=new_obs, events=(*state.events, evt))
+        return replace(
+            state,
+            order_books=state.order_books.set(ob.symbol, ob),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def latest_quote(state: MarketDataState, symbol: str) -> Quote | None:

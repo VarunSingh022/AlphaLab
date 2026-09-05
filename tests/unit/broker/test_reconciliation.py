@@ -18,6 +18,7 @@ from alphalab.broker.reconciliation import (
     reconcile,
 )
 from alphalab.broker.state import BrokerState, ConnectionStatus
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.enums import OrderStatus
 
 
@@ -62,7 +63,7 @@ def _state(*orders: BrokerOrder) -> BrokerState:
         broker_name="PAPER",
         connection_status=ConnectionStatus.CONNECTED,
         account=_account(),
-        orders={order.broker_order_id: order for order in orders},
+        orders=PersistentMap({order.broker_order_id: order for order in orders}),
     )
 
 
@@ -297,16 +298,18 @@ def test_position_quantities_are_compared_in_both_directions() -> None:
         "PAPER",
         ConnectionStatus.CONNECTED,
         _account(),
-        positions={
-            "AAPL": BrokerPosition(
-                "AAPL",
-                Decimal("100"),
-                Decimal("150"),
-                Decimal("15000"),
-                Decimal("0"),
-                Decimal("0"),
-            )
-        },
+        positions=PersistentMap(
+            {
+                "AAPL": BrokerPosition(
+                    "AAPL",
+                    Decimal("100"),
+                    Decimal("150"),
+                    Decimal("15000"),
+                    Decimal("0"),
+                    Decimal("0"),
+                )
+            }
+        ),
     )
     remote = (
         BrokerPosition(

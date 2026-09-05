@@ -1,8 +1,8 @@
 """Deterministic historical data caching."""
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.marketdata.feed import Bar
 
 
@@ -17,4 +17,4 @@ class CacheRecord:
 class MarketDataCache:
     """Immutable cache of historical lookups."""
 
-    records: Mapping[str, CacheRecord] = field(default_factory=dict)
+    records: PersistentMap[str, CacheRecord] = field(default_factory=PersistentMap)

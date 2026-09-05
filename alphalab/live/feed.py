@@ -54,9 +54,6 @@ class LiveFeed:
         state: LiveState, snapshot: MarketSnapshot, provider_id: str, tick_type: str
     ) -> LiveState:
         """Helper to commit snapshot updates and append telemetry metrics."""
-        new_snapshots = dict(state.snapshots)
-        new_snapshots[snapshot.symbol] = snapshot
-
         tick_evt = TickReceived(
             LiveFeed._create_id(), snapshot.timestamp, provider_id, snapshot.symbol, tick_type
         )
@@ -72,7 +69,7 @@ class LiveFeed:
 
         return replace(
             state,
-            snapshots=new_snapshots,
+            snapshots=state.snapshots.set(snapshot.symbol, snapshot),
             statistics=new_stats,
-            events=(*state.events, tick_evt, snap_evt),
+            events=state.events.extend((tick_evt, snap_evt)),
         )

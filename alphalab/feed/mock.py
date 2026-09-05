@@ -50,7 +50,7 @@ class MockFeed:
         new_state = replace(
             state,
             connection=new_conn,
-            events=(*state.events, event),
+            events=state.events.append(event),
         )
         return new_state, (event,)
 
@@ -69,7 +69,7 @@ class MockFeed:
         new_state = replace(
             state,
             connection=new_conn,
-            events=(*state.events, event),
+            events=state.events.append(event),
         )
         return new_state, (event,)
 
@@ -80,14 +80,12 @@ class MockFeed:
 
         event = FeedSubscribed(self._create_id(), timestamp, state.provider_id, symbol, feed_type)
 
-        sub = Subscription(symbol, feed_type, True, timestamp)
-        new_subs = dict(state.subscriptions)
-        new_subs[symbol] = sub
+        new_subs = state.subscriptions.set(symbol, Subscription(symbol, feed_type, True, timestamp))
 
         new_state = replace(
             state,
             subscriptions=new_subs,
-            events=(*state.events, event),
+            events=state.events.append(event),
         )
         return new_state, (event,)
 
@@ -99,13 +97,12 @@ class MockFeed:
         event = FeedUnsubscribed(self._create_id(), timestamp, state.provider_id, symbol)
 
         sub = state.subscriptions[symbol]
-        new_subs = dict(state.subscriptions)
-        new_subs[symbol] = replace(sub, active=False, timestamp=timestamp)
+        new_subs = state.subscriptions.set(symbol, replace(sub, active=False, timestamp=timestamp))
 
         new_state = replace(
             state,
             subscriptions=new_subs,
-            events=(*state.events, event),
+            events=state.events.append(event),
         )
         return new_state, (event,)
 
@@ -122,7 +119,7 @@ class MockFeed:
         new_state = replace(
             state,
             connection=new_conn,
-            events=(*state.events, event),
+            events=state.events.append(event),
         )
         return new_state, (event,)
 
@@ -151,7 +148,7 @@ class MockFeed:
         new_state = replace(
             state,
             statistics=new_stats,
-            events=(*state.events, event),
+            events=state.events.append(event),
         )
         return new_state, (event,)
 

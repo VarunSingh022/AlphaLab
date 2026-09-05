@@ -43,9 +43,6 @@ class OrderManager:
         # Keep connector-local SUBMITTED as a local staging state
         submitted_order = replace(order, status=OrderStatus.SUBMITTED, updated_at=timestamp)
 
-        new_orders = dict(state.orders)
-        new_orders[order.broker_order_id] = submitted_order
-
         evt = OrderSubmitted(
             OrderManager._create_id(),
             timestamp,
@@ -59,7 +56,12 @@ class OrderManager:
             total_orders_submitted=state.statistics.total_orders_submitted + 1,
         )
 
-        return replace(state, orders=new_orders, statistics=new_stats, events=(*state.events, evt))
+        return replace(
+            state,
+            orders=state.orders.set(order.broker_order_id, submitted_order),
+            statistics=new_stats,
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def cancel_order(
@@ -70,14 +72,15 @@ class OrderManager:
 
         cancelled_order = replace(order, status=CoreOrderStatus.CANCELLED, updated_at=timestamp)
 
-        new_orders = dict(state.orders)
-        new_orders[broker_order_id] = cancelled_order
-
         evt = OrderCancelled(
             OrderManager._create_id(), timestamp, broker_order_id, order.account_id
         )
 
-        return replace(state, orders=new_orders, events=(*state.events, evt))
+        return replace(
+            state,
+            orders=state.orders.set(broker_order_id, cancelled_order),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def process_execution(
@@ -162,18 +165,6 @@ class OrderManager:
         )
 
         # 4. Assemble State
-        new_orders = dict(state.orders)
-        new_orders[order.broker_order_id] = updated_order
-
-        new_accounts = dict(state.accounts)
-        new_accounts[account.account_id] = updated_account
-
-        new_positions = dict(state.positions)
-        new_positions[pos_key] = updated_position
-
-        new_executions = dict(state.executions)
-        new_executions[execution.execution_id] = execution
-
         exec_evt = ExecutionReceived(
             OrderManager._create_id(),
             timestamp,
@@ -201,10 +192,10 @@ class OrderManager:
 
         return replace(
             state,
-            orders=new_orders,
-            accounts=new_accounts,
-            positions=new_positions,
-            executions=new_executions,
+            orders=state.orders.set(order.broker_order_id, updated_order),
+            accounts=state.accounts.set(account.account_id, updated_account),
+            positions=state.positions.set(pos_key, updated_position),
+            executions=state.executions.set(execution.execution_id, execution),
             statistics=new_stats,
-            events=(*state.events, *events),
+            events=state.events.extend(events),
         )

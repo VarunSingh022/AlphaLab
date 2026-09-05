@@ -310,8 +310,8 @@ def apply_execution(
     return (
         replace(
             state,
-            orders={**state.orders, order.broker_order_id: updated},
-            executions={**state.executions, execution.execution_id: execution},
+            orders=state.orders.set(order.broker_order_id, updated),
+            executions=state.executions.set(execution.execution_id, execution),
         ),
         decision,
         current_log.record(decision),

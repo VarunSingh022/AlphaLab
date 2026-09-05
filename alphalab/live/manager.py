@@ -23,8 +23,7 @@ class SubscriptionManager:
         validate_subscription(state, subscription)
 
         sub_key = f"{subscription.provider_id}:{subscription.symbol}"
-        new_subs = dict(state.subscriptions)
-        new_subs[sub_key] = subscription
+        new_subs = state.subscriptions.set(sub_key, subscription)
 
         evt = SubscriptionCreated(
             SubscriptionManager._create_id(),
@@ -34,7 +33,7 @@ class SubscriptionManager:
             subscription.asset_class.name,
         )
 
-        return replace(state, subscriptions=new_subs, events=(*state.events, evt))
+        return replace(state, subscriptions=new_subs, events=state.events.append(evt))
 
     @staticmethod
     def unsubscribe(state: LiveState, provider_id: str, symbol: str, timestamp: float) -> LiveState:
@@ -46,9 +45,8 @@ class SubscriptionManager:
         target_sub = state.subscriptions[sub_key]
         inactive_sub = replace(target_sub, active=False)
 
-        new_subs = dict(state.subscriptions)
-        new_subs[sub_key] = inactive_sub
+        new_subs = state.subscriptions.set(sub_key, inactive_sub)
 
         evt = SubscriptionRemoved(SubscriptionManager._create_id(), timestamp, provider_id, symbol)
 
-        return replace(state, subscriptions=new_subs, events=(*state.events, evt))
+        return replace(state, subscriptions=new_subs, events=state.events.append(evt))

@@ -1,8 +1,9 @@
 """Global immutable state container for the Feed Layer."""
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.feed.connection import ConnectionSnapshot
 from alphalab.feed.events import FeedEvent
 from alphalab.feed.subscription import Subscription
@@ -19,11 +20,16 @@ class FeedStatistics:
 
 @dataclass(frozen=True, slots=True)
 class FeedState:
-    """Deterministic snapshot of feed connection and subscription states."""
+    """Deterministic snapshot of feed connection and subscription states.
+
+    Persistent containers, for the reason given on
+    :class:`~alphalab.live.state.LiveState`: a per-message tuple rebuild is
+    quadratic in the messages received.
+    """
 
     provider_id: str
     connection: ConnectionSnapshot
-    subscriptions: Mapping[str, Subscription] = field(default_factory=dict)
+    subscriptions: PersistentMap[str, Subscription] = field(default_factory=PersistentMap)
     statistics: FeedStatistics = field(default_factory=FeedStatistics)
-    metadata: Mapping[str, str] = field(default_factory=dict)
-    events: tuple[FeedEvent, ...] = field(default_factory=tuple)
+    metadata: PersistentMap[str, str] = field(default_factory=PersistentMap)
+    events: AppendOnlyLog[FeedEvent] = field(default_factory=AppendOnlyLog)

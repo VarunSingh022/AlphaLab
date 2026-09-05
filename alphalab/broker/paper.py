@@ -60,7 +60,7 @@ class PaperBroker:
 
         evt = BrokerConnected(self._generate_id(), timestamp, state.broker_name)
         new_state = replace(
-            state, connection_status=ConnectionStatus.CONNECTED, events=(*state.events, evt)
+            state, connection_status=ConnectionStatus.CONNECTED, events=state.events.append(evt)
         )
         return new_state, (evt,)
 
@@ -69,7 +69,7 @@ class PaperBroker:
     ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
         evt = BrokerDisconnected(self._generate_id(), timestamp, state.broker_name, reason)
         new_state = replace(
-            state, connection_status=ConnectionStatus.DISCONNECTED, events=(*state.events, evt)
+            state, connection_status=ConnectionStatus.DISCONNECTED, events=state.events.append(evt)
         )
         return new_state, (evt,)
 
@@ -77,7 +77,7 @@ class PaperBroker:
         self, state: BrokerState, timestamp: float
     ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
         evt = Heartbeat(self._generate_id(), timestamp, state.broker_name)
-        new_state = replace(state, events=(*state.events, evt), last_heartbeat=timestamp)
+        new_state = replace(state, events=state.events.append(evt), last_heartbeat=timestamp)
         return new_state, (evt,)
 
     def submit_order(
@@ -91,12 +91,9 @@ class PaperBroker:
         acc_evt = OrderAccepted(self._generate_id(), timestamp, order.broker_order_id)
 
         events: list[BrokerEvent] = [sub_evt, acc_evt]
-        new_orders = dict(state.orders)
 
         updated_order = replace(order, status=CoreOrderStatus.ACCEPTED, updated_at=timestamp)
-        new_orders[order.broker_order_id] = updated_order
-
-        temp_state = replace(state, orders=new_orders)
+        temp_state = replace(state, orders=state.orders.set(order.broker_order_id, updated_order))
 
         # Paper Broker simulates instant perfect fills for Market Orders
         if order.order_type == CoreOrderType.MARKET:
@@ -105,7 +102,7 @@ class PaperBroker:
             )
 
         # Limit orders rest in the book
-        return replace(temp_state, events=(*state.events, *events)), tuple(events)
+        return replace(temp_state, events=state.events.extend(events)), tuple(events)
 
     def cancel_order(
         self, state: BrokerState, broker_order_id: str, timestamp: float
@@ -115,11 +112,12 @@ class PaperBroker:
         order = state.orders[broker_order_id]
         updated_order = replace(order, status=CoreOrderStatus.CANCELLED, updated_at=timestamp)
 
-        new_orders = dict(state.orders)
-        new_orders[broker_order_id] = updated_order
-
         evt = OrderCancelled(self._generate_id(), timestamp, broker_order_id)
-        new_state = replace(state, orders=new_orders, events=(*state.events, evt))
+        new_state = replace(
+            state,
+            orders=state.orders.set(broker_order_id, updated_order),
+            events=state.events.append(evt),
+        )
 
         return new_state, (evt,)
 
@@ -136,11 +134,8 @@ class PaperBroker:
         order = state.orders[broker_order_id]
         updated_order = replace(order, quantity=new_quantity, price=new_price, updated_at=timestamp)
 
-        new_orders = dict(state.orders)
-        new_orders[broker_order_id] = updated_order
-
         # Simulated standard replacing behavior
-        new_state = replace(state, orders=new_orders)
+        new_state = replace(state, orders=state.orders.set(broker_order_id, updated_order))
         return new_state, ()
 
     def _simulate_fill(
@@ -189,11 +184,8 @@ class PaperBroker:
             updated_at=timestamp,
         )
 
-        new_orders = dict(state.orders)
-        new_orders[order.broker_order_id] = updated_order
-
-        new_executions = dict(state.executions)
-        new_executions[exec_id] = execution
+        new_orders = state.orders.set(order.broker_order_id, updated_order)
+        new_executions = state.executions.set(exec_id, execution)
 
         # 2. Update Account
         cost_impact = (fill_qty * fill_price) + commission
@@ -205,8 +197,7 @@ class PaperBroker:
         updated_account = replace(state.account, cash=new_cash)
 
         # 3. Update Position
-        new_positions = dict(state.positions)
-        current_pos = new_positions.get(
+        current_pos = state.positions.get(
             order.symbol,
             BrokerPosition(
                 order.symbol,
@@ -237,8 +228,6 @@ class PaperBroker:
             average_price=new_pos_avg.quantize(Decimal("0.0001")),
             realized_pnl=realized_pnl.quantize(Decimal("0.0001")),
         )
-        new_positions[order.symbol] = updated_position
-
         # Re-assemble
         events_out = (*existing_events, exec_evt)
         new_state = replace(
@@ -246,8 +235,8 @@ class PaperBroker:
             orders=new_orders,
             executions=new_executions,
             account=updated_account,
-            positions=new_positions,
-            events=(*state.events, *events_out),
+            positions=state.positions.set(order.symbol, updated_position),
+            events=state.events.extend(events_out),
         )
 
         return new_state, events_out
@@ -275,7 +264,7 @@ class PaperBroker:
             execution.fill_quantity,
             execution.fill_price,
         )
-        return replace(new_state, events=(*new_state.events, evt)), (evt,)
+        return replace(new_state, events=new_state.events.append(evt)), (evt,)
 
     def classify_execution(
         self, state: BrokerState, execution: BrokerExecution
@@ -305,7 +294,7 @@ class PaperBroker:
             execution.fill_quantity,
             execution.fill_price,
         )
-        return replace(new_state, events=(*new_state.events, evt)), decision, new_log
+        return replace(new_state, events=new_state.events.append(evt)), decision, new_log
 
     def order_status(self, state: BrokerState, broker_order_id: str) -> BrokerOrder | None:
         """The order as this venue currently holds it."""
