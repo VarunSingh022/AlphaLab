@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.4.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.5.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-1897%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-2008%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -29,6 +29,7 @@ AlphaLab ships three kinds of package:
 
 - **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable state snapshot. `alphalab.backtesting` drives that spine from a dataset, either straight through or through `alphalab.replay`'s cursor; both call the same step, so a backtest and a replay of one dataset produce identical orders, fills and P&L.
 - **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, strategy definitions and the deployment manager into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. It sits *above* the execution path, not inside it: a deployment names what should run, and running it is the execution path's job.
+- **State round-trip.** `capture` / `restore` turn `OMSState`, `PortfolioState` and `LifecycleState` into typed snapshots and back, through typed decoders that name the field when a payload is wrong. `alphalab.market.provider` feeds the execution path from a market-data provider's history rather than only from a stored dataset.
 - **Standalone engine libraries.** Most other packages (research, portfolio optimizer, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, enterprise, studio, workbench) are independent, deterministic, individually tested libraries. They share the engineering model but are **not** currently fused into a single runtime.
 
 The framework is designed for researchers, quantitative developers, students, and engineering teams building reproducible trading infrastructure.
@@ -37,41 +38,46 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.4.0**
+**Current Release:** **v2.5.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.4.0 |
-| Tests | **1897 Passing** |
-| Static Typing | **Strict MyPy** (905 source files) |
+| Version | 2.5.0 |
+| Tests | **2008 Passing** |
+| Static Typing | **Strict MyPy** (915 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-v2.4.0 — "Model + Strategy Lifecycle" — connects four packages that each implemented
-one stage of a lifecycle and never met: experiment tracking, the model registry, the
-research assistant and the deployment manager. `alphalab.lifecycle` adds the three
-things that were missing at the seams — a numbered, immutable **strategy version**;
-**validation evidence** extracted from the reports AlphaLab already produces; and a
-**promotion gate** that refuses a promotion no passing evidence stands behind. It also
-makes the deployment ledger the single source of truth for what is live, and removes
-the quadratic behaviour all three stateful lifecycle packages carried. Contains
-breaking changes confined to `alphalab.model_registry` and
-`alphalab.experiment_tracking` — see `CHANGELOG.md` and
-`docs/ADR/0013-model-and-strategy-lifecycle.md`.
+v2.5.0 — "State Round-Trip and the Live Data Path" — takes three capabilities that
+already existed, were already tested, and were unreachable, and makes them reachable.
+`capture` / `restore` give **typed round-trip** to `PortfolioState` and
+`LifecycleState` alongside `OMSState`, so the states AlphaLab writes can be read back
+as typed values rather than nested dictionaries. `alphalab.market.provider` connects a
+market-data provider to the execution path through the **normalization boundary v2.3
+built and nothing called**. The replay cursor's O(N²) — on a path v2.2 had wired into
+execution, and which the benchmark was written to avoid measuring — is gone. Two
+behaviours that had never been decided now are: what a session does with an
+**unordered source**, and what happens to a **partially filled order's remainder**.
+Contains breaking changes confined to simulated-execution bookkeeping — see
+`CHANGELOG.md` and `docs/ADR/0014-state-round-trip-and-the-live-data-path.md`.
 
 > **A deployment is a lifecycle fact, not an operation on a machine.** It records that
 > an environment *should* be running a strategy version. It starts no process, opens no
 > connection and reaches no venue.
 >
-> **AlphaLab does not support live trading.** v2.3 added the adapter *contract* a live
-> venue would be reached through, and tests both directions of it. There is no
-> connectivity to any real venue in this repository; every vendor client is a stub.
-> See `docs/ADR/0012-broker-boundary-and-environment-parity.md` for the precise
-> implemented / adapter-only / absent breakdown.
+> **AlphaLab does not support live trading.** No broker adapter reaches any venue: the
+> `alphalab.integrations` clients (Alpaca, IB, Zerodha) are canned-response stubs, and
+> v2.3 added the adapter *contract* rather than a transport.
+>
+> Market *data* is the exception, and v2.5 corrects three releases of documentation
+> that said otherwise: `alphalab.marketdata.binance` is a real REST client over a real
+> HTTP transport, and has been since v1.39.0. It has never been run against a live
+> endpoint from this environment, so treat it as unverified — but it is not a stub.
+> See `docs/ADR/0012-broker-boundary-and-environment-parity.md`.
 
 ---
 
@@ -268,8 +274,8 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 1897 passing tests (1630 unit, 90 integration, 177 regression)
-- ✅ Strict MyPy type checking (905 source files)
+- ✅ 2008 passing tests (1698 unit, 109 integration, 201 regression)
+- ✅ Strict MyPy type checking (915 source files)
 - ✅ Ruff linting and formatting
 - ✅ Source distribution validation
 - ✅ Wheel validation
@@ -334,13 +340,32 @@ projection; declared stage transitions refusing `PRODUCTION → STAGING` and the
 resurrection of an archived version that was never live; and the removal of the
 quadratic writes in all three stateful lifecycle registries.
 
+**v2.5.0** — state round-trip and the live data path: `capture` / `restore` for
+`PortfolioState` and `LifecycleState` joining `OMSState`, over typed decoders
+(`alphalab.persistence.decode`) that name the field they reject and refuse an
+unknown schema version; `PersistenceAdapter.snapshot_payload` giving
+`alphalab.persistence` its first production consumers;
+`alphalab.market.provider.ProviderHistorySource` connecting a provider adapter to
+`TradingSession` through the v2.3 normalization boundary; explicit
+`SessionConfig.ordering` semantics for unordered sources; terminal semantics for a
+partially filled simulated order's remainder, with its reservation released; and the
+removal of the replay cursor's O(N²), with the benchmark repointed at the API the
+integrated path actually uses.
+
 See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## Not yet addressed
 
-- Connectivity to a real venue. v2.3 built and tested the adapter contract, the
-  routing gates, reconciliation and the fill-return path; the transport does not
-  exist, and every vendor client is a stub
+- Connectivity to a real venue for **order execution**. v2.3 built and tested the
+  adapter contract, the routing gates, reconciliation and the fill-return path; no
+  broker transport exists, and the `integrations` broker clients are canned-response
+  stubs. (Market *data* is different — see the note above)
+- A **streaming** market-data source. v2.5's provider source reads a finite historical
+  range; polling, subscription and reconnect need a clock and a loop AlphaLab does not
+  have
+- Round-trip for `ExecutionPipelineState` and `SessionState`. They hold strategy
+  instances, a simulator, a sizing model and a fill policy, so restoring them means
+  reconstructing the whole run configuration
 - Artifact storage. `ArtifactRef` records where a model's bytes live and what they
   should hash to; AlphaLab never reads, writes or hashes them, and there is no
   object store

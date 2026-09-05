@@ -124,6 +124,44 @@ One new package (`lifecycle`), which is an integration package. See
 artifact — a location, a media type, a checksum, a size. AlphaLab never reads,
 writes or hashes those bytes, and there is no object store in this repository.
 
+v2.5.0 — "State Round-Trip and the Live Data Path" — takes three capabilities
+that already existed, were already tested, and were unreachable, and makes them
+reachable. It also decides two behaviours that had never been decided.
+
+- **States can be read back.** `capture` / `restore` give `PortfolioState` and
+  `LifecycleState` typed round-trip alongside `OMSState`. Before this, every
+  state serialized deterministically and exactly one could be reconstructed;
+  `deserialize()` returns `Any`. The contract is semantic equality —
+  `restore(capture(s)) == s` — applied identically to every state (ADR-0014).
+- **Decoding is typed and explicit.** `alphalab.persistence.decode` raises
+  `StateDecodeError` naming the field, refuses an unknown `schema_version`, and
+  is deliberately not a reflective object mapper.
+- **`alphalab.persistence` has production consumers**, for the first time.
+- **A market-data provider reaches the execution path.**
+  `alphalab.market.provider` normalizes a provider's historical bars into
+  canonical records and satisfies `MarketDataSource` — the link v2.3 was
+  missing, which left `normalize_wire_*` with no production caller at all.
+- **Unordered sources have defined semantics.** A regressing record raises under
+  `CHRONOLOGICAL` and is skipped-and-recorded under `UNORDERED`. Nothing is
+  buffered or reordered.
+- **A partially filled order terminates.** Its remainder is withdrawn and its
+  residual reservation released, applying the pipeline's own
+  one-order-per-event rule to the branch that had skipped it. Bookkeeping
+  changes; cash, positions, P&L and the equity curve do not.
+- **The replay cursor stopped being quadratic** — the last one on a wired path,
+  ×3.11 → ×2.01 per doubling — and the benchmark now measures the API the
+  integrated path uses instead of steering around it.
+
+Also corrects documentation that disagreed with the code: ADR-0012 called every
+vendor client a stub, and a real HTTP transport and Binance market-data client
+have existed since v1.39.0.
+
+No new engine packages. See `CHANGELOG.md` and ADR-0014.
+
+**v2.5 does not add live trading, streaming market data, or artifact storage.**
+The provider source reads a finite historical range; no broker adapter reaches
+any venue.
+
 ---
 
 # Feature notes (delivered)
@@ -371,12 +409,22 @@ Enterprise capabilities
 The engine packages exist and are individually tested. The following integration
 and consolidation work has **not** been done:
 
-- **Live venue connectivity** (v2.5+): v2.3 built the adapter contract, the
-  routing gates, reconciliation and the fill-return path, and tested all of
-  them. What does not exist is a transport to any real venue. Every vendor
-  client in `alphalab.marketdata.*` and `alphalab.integrations.*` is a stub —
-  canned responses or `NotImplementedError`. An async live session loop,
-  order-state polling and reconnect scheduling all wait on that transport.
+- **Live venue connectivity for order execution** (v2.6+): v2.3 built the
+  adapter contract, the routing gates, reconciliation and the fill-return path,
+  and tested all of them. What does not exist is a *broker* transport. The
+  `alphalab.integrations` clients (Alpaca, IB, Zerodha) return canned responses.
+  An async live session loop, order-state polling and reconnect scheduling all
+  wait on that transport. Market *data* is further along: `marketdata.binance` is
+  a real REST client over a real HTTP transport (since v1.39.0), and v2.5
+  connects a provider's history to a `TradingSession`.
+- **Streaming market data** (v2.6+): v2.5's provider source reads a finite
+  historical range and is re-iterable. Polling, subscription and reconnect need a
+  clock and a loop AlphaLab does not have, and a streaming source would also need
+  an answer to late arrivals beyond "skip and record".
+- **Round-trip for `ExecutionPipelineState` / `SessionState`** (v2.6+): they hold
+  `StrategyProtocol` instances, an `ExecutionSimulator`, a `SizingModel` and a
+  `FillPolicy`. Restoring them means reconstructing the whole run configuration,
+  which is a larger design than v2.5 should have absorbed (ADR-0014).
 - **Artifact storage** (v2.5+): `ArtifactRef` records where a model version's
   bytes live and what they should hash to. Nothing fetches, writes or verifies
   them, because there is no object store here and faking one would be the only
@@ -394,7 +442,11 @@ and consolidation work has **not** been done:
   another. The two are deliberately not joined: a deployment names what should
   run, and the execution path runs it. Research, reporting, feature store and
   the rest remain standalone libraries.
-- Resolution of `kernel` and `core/events` (currently unused by the execution path).
+- Resolution of `kernel` and `core/events` (both entirely unused: nothing outside
+  their own packages and tests imports either).
+- `alphalab.integrations` is a third broker surface that speaks none of the
+  canonical `alphalab.broker` types and is imported by nothing. v2.3 converged
+  `broker` and `brokers` and left it untouched.
 - Strategies still do not see the marked portfolio: `StrategyContext` comes from
   the caller's `context_factory`.
 - Multi-currency valuation (`PortfolioValuation` / `NAVCalculator` value the base
@@ -408,8 +460,9 @@ and consolidation work has **not** been done:
 
 Delivered since this list was written: mark-to-market position repricing (v2.1),
 `alphalab.replay` integration with the execution path (v2.2), market-data /
-broker convergence with paper execution on the canonical path (v2.3), and the
-model/strategy lifecycle composing PR-046 through PR-049 (v2.4).
+broker convergence with paper execution on the canonical path (v2.3), the
+model/strategy lifecycle composing PR-046 through PR-049 (v2.4), and typed state
+round-trip plus the provider→source link (v2.5).
 
 ---
 
@@ -435,9 +488,10 @@ Minor releases may still make small, documented breaking changes to a narrow
 public API where correctness requires it: v2.2.0 changed
 `AllocationEngine.release_reservation` to take no amount, because the reservation
 ledger owns it, v2.3.0 changed `alphalab.brokers`' account, order and execution
-field names so both broker packages speak one vocabulary, and v2.4.0 refused two
+field names so both broker packages speak one vocabulary, v2.4.0 refused two
 model-registry stage transitions that made rollback indistinguishable from
-promoting something old.
+promoting something old, and v2.5.0 gave a partially filled simulated order a
+terminal state instead of leaving it working forever.
 
 Minor releases introduce new capabilities (v1.34.0–v1.46.0 each added one engine).
 

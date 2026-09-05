@@ -8,6 +8,254 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.5.0] - 2026-09-05
+
+## Overview
+
+AlphaLab 2.5.0 is "State Round-Trip and the Live Data Path". It takes three
+capabilities that already existed, were already tested, and were unreachable,
+and makes them reachable — plus it decides two behaviours that had never been
+decided.
+
+Every AlphaLab state has serialized deterministically since v2.1. Exactly one
+could be read back. v2.3 built a market-data normalization boundary and an
+adapter protocol, and nothing in the repository joined them. The replay cursor
+carried an O(N²) on a path v2.2 had wired into execution, and the benchmark
+that nominally covered replay was written to avoid measuring it.
+
+No new engine packages. Two new modules (`alphalab.market.provider`,
+`alphalab.persistence.decode`), two new snapshot modules
+(`alphalab.portfolio.snapshot`, `alphalab.lifecycle.snapshot`).
+
+See `docs/ADR/0014-state-round-trip-and-the-live-data-path.md`.
+
+---
+
+## Added
+
+### Typed state round-trip — `capture` / `restore`
+
+- `alphalab.portfolio.snapshot` and `alphalab.lifecycle.snapshot` join
+  `alphalab.oms.snapshot`: `capture(state)` → serializable projection,
+  `from_primitives(payload)` → typed snapshot, `restore(snapshot)` → typed state.
+- The contract, applied identically to every state: `restore(capture(s)) == s`.
+  The restored value **compares equal**; it does not reproduce internal container
+  lineage, and nothing can observe the difference. That is the position the
+  repository already held — `oms.snapshot.restore` rebuilds the order book's
+  indices by replaying `add`, and its test asserts equality against a state whose
+  lineage is entirely different.
+- Every snapshot carries `schema_version` and refuses one it does not read.
+  There is no migration path in v2.5 because there is nothing to migrate from;
+  the field exists so the first schema change is a decision rather than a silent
+  misread.
+
+### Typed decoding — `alphalab.persistence.decode`
+
+- `require`, `as_decimal`, `as_optional_decimal`, `as_float`, `as_int`,
+  `as_bool`, `as_str`, `as_optional_str`, `as_mapping`, `as_sequence`,
+  `as_str_mapping`, `as_decimal_mapping`, `as_named_enum`, `as_value_enum`,
+  `require_schema_version`. Each raises the new `StateDecodeError` **naming the
+  field**.
+- Deliberately *not* a reflective object mapper. A domain package states field by
+  field what it expects, because that is where a wrong type or a missing key is
+  caught. The failure this repository already had once — v2.1's append-only logs
+  persisted as `"AppendOnlyLog([...])"` — came from a layer that accepted
+  anything.
+- Two enum encodings, two decoders, no guessing: a `StrEnum` is written as its
+  value, a plain `Enum` through `str()` as `"Cls.NAME"`. A bare `"STAGING"` is
+  refused, because accepting a form the encoder never writes is how a format
+  acquires two dialects.
+- `Decimal(str(value))`, the same conversion `market.normalization` uses, so a
+  price between cents comes back as the number that was written.
+
+### `PersistenceAdapter.snapshot_payload`
+
+- The read direction, so a stored `Snapshot` can reach a domain decoder. It stops
+  at primitives: the dependency runs domain → persistence and not back, or the
+  package would have to import half of AlphaLab to read anything.
+- `alphalab.persistence` now has production consumers for the first time. At
+  v2.4 nothing in `alphalab/` imported it.
+
+### The live data path — `alphalab.market.provider`
+
+- `ProviderHistorySource` turns a provider adapter's historical bars into
+  canonical `MarketRecord`s through `market.normalization`, and satisfies
+  `MarketDataSource`. This is the link v2.3 was missing: before it,
+  `normalize_wire_*` had no production caller and `SequenceSource` was the only
+  source in the repository.
+- `BarHistoryProvider` is deliberately narrower than any provider adapter's
+  surface — `request_history` is the whole contract — so a test double can be a
+  source without implementing connect, subscribe, quotes and books too.
+- `normalize_wire_bars` maps a sequence; every normalization rule stays where
+  v2.3 put it.
+- A **history** source: finite, closed range, re-iterable, deterministic record
+  ids on the `"<source_id>-<index>"` scheme `SequenceSource` and `MarketDataset`
+  already use. No polling, no subscription, no reconnect, no streaming.
+- Several symbols are interleaved by timestamp with an `asset_id` tie-break — a
+  merge of already-sorted inputs, not a reordering. `validate_ordering` runs over
+  the result either way.
+
+### Ordering semantics — `SessionConfig.ordering`
+
+- `CHRONOLOGICAL` (default): a record whose timestamp regresses **raises**. The
+  source broke the guarantee it declared.
+- `UNORDERED`: such a record is **skipped and recorded** on
+  `SessionState.skipped`, the machinery the staleness gate already established,
+  so an `UNORDERED` source cannot silently produce a run that merely looks
+  chronological.
+- A source declaring `UNORDERED` handed to a `CHRONOLOGICAL` session is refused
+  by `TradingSession.run` before any record is processed — a session that would
+  abort partway should not start.
+- Nothing is buffered, reordered or held back. `MarketEngine.publish_quote`
+  writes `latest_quotes` unconditionally and the pipeline marks the portfolio to
+  whatever it finds, so a late record rewrites valuation backwards; AlphaLab says
+  so rather than guessing.
+
+### Benchmarks
+
+- `benchmarks/benchmark_replay_engine.py` now measures `step_one_event` — the API
+  the integrated replay path uses — across three sizes, and keeps the batch drain
+  as a second figure rather than the only one.
+
+---
+
+## Changed
+
+### A partially filled simulated order withdraws its remainder
+
+The pipeline has always stated its rule in `_close_unfilled_order`: it mints a
+fresh order per market event and never re-works an existing one, so an unfilled
+order is withdrawn rather than left open. Every non-trading outcome was withdrawn
+under that rule. A partial fill was the one branch that skipped it, so the order
+stayed `PARTIALLY_FILLED` forever, holding the reservation for a quantity nothing
+would execute. `LiquidityCappedFill` (v2.2) makes partial fills routine.
+
+The remainder is now cancelled and its residual reservation released.
+`Order.cancel` is legal from `PARTIALLY_FILLED` and preserves `filled_quantity`
+and `average_fill_price`.
+
+**This changes bookkeeping, not economics.** No fill is created or destroyed, so
+cash, positions, realized and unrealized P&L, the equity curve, the accounting
+identity and every analytics figure are exactly what they were. See
+**Breaking changes**.
+
+---
+
+## Fixed
+
+### The replay cursor was the last quadratic on a wired path
+
+`ReplayState.system_events` was a tuple, and `step_one_event` appended one
+`ReplayAdvanced` per record by rebuilding it. `ReplayBacktest` drives that method
+once per record, so a replay of N records copied O(N²) elements — the same defect
+v2.1 removed from the risk engine, v2.2 from the OMS and v2.3 from the market and
+broker layers, left behind on the one path v2.2 had just wired into execution.
+
+It survived three releases because the benchmark measured the *other* API. Its
+own comment said it used the batch drain "to avoid astronomical tuple copying on
+O(1M) elements" — steering around the defect rather than measuring it.
+
+Measured, at N=2000/4000/8000 (linear is ~×2.00 per doubling):
+
+| | N=2,000 | N=4,000 | N=8,000 | Growth |
+| --- | --- | --- | --- | --- |
+| v2.4.0 | 0.0165s | 0.0513s | 0.1740s | **×3.11, ×3.39** |
+| v2.5.0 | 0.0089s | 0.0178s | 0.0355s | ×2.01, ×2.00 |
+
+4.9× faster at N=8,000 and no longer growing; throughput flat at ~225,000
+events/sec across all three sizes. Replay semantics are untouched: ordering,
+contents, cursor behaviour and backtest/replay parity are unchanged.
+
+### ADR-0012 said every vendor client was a stub
+
+It was wrong about Binance, from v2.3 until now. A real HTTP transport
+(`marketdata.transport.HttpTransport`, a genuine `urlopen`) and a real Binance
+market-data client parsing `/api/v3/klines`, `/bookTicker`, `/trades` and
+`/depth` have existed since **v1.39.0** (`5bfb6fa`), with twelve tests over
+realistic payloads. It has never been run against a live endpoint from this
+environment, so it is unverified — but it is not a stub.
+
+It remains true that **no broker adapter reaches any venue**. The `integrations`
+clients (Alpaca, IB, Zerodha) are canned-response stubs, and that is what
+"AlphaLab does not support live trading" means.
+
+### Documentation that disagreed with the code
+
+- `docs/README.md` declared "Version v2.1.0" and "`ExecutionPipeline` is the only
+  wired-together path" — three releases stale, and it did not mention
+  `alphalab.lifecycle` at all.
+- `docs/SYSTEM_DESIGN.md` listed `replay` as standalone and not invoked by
+  `ExecutionPipeline`, which has been false since v2.2 (ADR-0010).
+
+---
+
+## Breaking changes
+
+Confined to the simulated execution path's *bookkeeping*. No public name was
+removed and no module disappeared.
+
+### A partially filled order ends `CANCELLED`, not `PARTIALLY_FILLED`
+
+| | v2.4.0 | v2.5.0 |
+| --- | --- | --- |
+| Final order status | `PARTIALLY_FILLED` | `CANCELLED` |
+| `filled_quantity` / `average_fill_price` | preserved | preserved |
+| `remaining_quantity` | positive, never worked | positive, recorded on a closed order |
+| Membership | `active_orders` | `completed_orders` |
+| Residual reservation | held indefinitely | released |
+| Cash, positions, P&L, equity curve | — | **unchanged** |
+
+Code asserting that such an order stays `PARTIALLY_FILLED` after the event that
+filled it needs updating; five tests in this repository did.
+
+A seeded run now mints one more identifier than before, because withdrawing
+appends an `OrderCancelled` event. Quantities and money are unchanged, and
+comparisons *between* two runs — backtest/replay parity, the deterministic
+backtest regression — are unaffected.
+
+### `SessionConfig` and `SessionState` gained fields
+
+`SessionConfig.ordering` (defaults to `CHRONOLOGICAL`) and
+`SessionState.last_record_timestamp` (defaults to `None`). Both are appended with
+defaults, so positional construction is unaffected. A session fed records whose
+timestamps go backwards now raises where it previously processed them and marked
+the portfolio at a stale price.
+
+### `ReplayState.system_events` is an `AppendOnlyLog`
+
+It compares equal to the tuple it replaced, so `state.system_events == ()` still
+holds and iteration is unchanged. A caller annotating the field type sees a
+different one.
+
+---
+
+## Documentation
+
+- `docs/ADR/0014-state-round-trip-and-the-live-data-path.md` — new; records the
+  three design decisions and what was rejected.
+- `docs/ADR/0012` — vendor-adapter table corrected, with the correction marked as
+  such rather than quietly rewritten.
+- `docs/ARCHITECTURE.md` — Implementation Status to v2.5; new sections on state
+  round-trip, the live data path and partial-fill termination.
+- `docs/README.md`, `docs/SYSTEM_DESIGN.md` — stale claims corrected.
+- `README.md`, `ROADMAP.md` — v2.5 status and the remaining gaps.
+
+---
+
+## Quality gates
+
+Measured on the release commit, not carried over:
+
+| Gate | Result |
+| --- | --- |
+| `pytest -q` | **2008 passed** (1897 at v2.4.0) — 1698 unit, 109 integration, 201 regression |
+| `mypy .` (strict) | clean, 915 source files |
+| `ruff check .` | clean |
+| `ruff format --check .` | clean, 959 files |
+| `python -m build` + `twine check` | passing |
+
+---
+
 # [2.4.0] - 2026-09-05
 
 ## Overview
