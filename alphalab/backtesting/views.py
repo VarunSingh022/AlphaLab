@@ -34,8 +34,12 @@ def commission_paid(result: BacktestResult) -> Decimal:
     return result.valuation.commission_paid
 
 
-def equity_curve(result: BacktestResult) -> tuple[Decimal, ...]:
-    """Equity at every recorded snapshot, in order."""
+def equity_values(result: BacktestResult) -> tuple[Decimal, ...]:
+    """Equity at every recorded snapshot, in order.
+
+    ``BacktestResult.equity_curve`` carries the whole snapshots; this is the
+    equity series alone, for plotting or comparison.
+    """
     return tuple(snapshot.total_equity for snapshot in result.equity_curve)
 
 

@@ -46,7 +46,7 @@ See `docs/ADR/0010-unified-backtesting-and-replay.md`.
 - `BacktestConfig` — the execution-path config, the fill policy, the seed, and
   the analytics parameters, as one value.
 - Read-only views: `final_equity`, `final_cash`, `realized_pnl`,
-  `unrealized_pnl`, `commission_paid`, `equity_curve`, `submitted_orders`,
+  `unrealized_pnl`, `commission_paid`, `equity_values`, `submitted_orders`,
   `executed_fills`, `steps_with_fills`, `performance_report`.
 
 ### Replay on the execution path — `alphalab.backtesting.replay`

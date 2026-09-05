@@ -21,7 +21,7 @@ from alphalab.backtesting import (
     LiquidityCappedFill,
     MarketDataset,
     StaticFill,
-    equity_curve,
+    equity_values,
     steps_with_fills,
 )
 from alphalab.execution.commission import PerShareCommission
@@ -104,7 +104,7 @@ def test_every_record_produces_one_equity_point() -> None:
 
     result, _ = _run({2.0: Decimal("10")})
 
-    assert len(equity_curve(result)) == 6
+    assert len(equity_values(result)) == 6
     assert len(steps_with_fills(result)) == 1
 
 

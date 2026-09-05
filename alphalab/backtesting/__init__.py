@@ -46,7 +46,7 @@ from alphalab.backtesting.state import (
 )
 from alphalab.backtesting.views import (
     commission_paid,
-    equity_curve,
+    equity_values,
     executed_fills,
     final_cash,
     final_equity,
@@ -87,7 +87,7 @@ __all__ = [
     "UnsupportedRecordError",
     "advance",
     "commission_paid",
-    "equity_curve",
+    "equity_values",
     "executed_fills",
     "final_cash",
     "final_equity",
