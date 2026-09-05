@@ -404,14 +404,29 @@ Two properties come free and are relied on: iteration is in first-insertion
 order, so a state holding one serializes deterministically (`frozenset`
 iterated in hash order), and `orders()` returns orders in submission order.
 
+**The same defect existed twice.** Running the whole benchmark suite after the
+order-book fix showed `benchmarks_execution.py` taking 85s for 100k fills:
+`ExecutionEngine.execute` and `partial_fill` stored a report by rebuilding the
+whole `ExecutionState.reports` dict, so N fills copied O(N²) entries — on the
+same execution path, and paid by every fill a backtest produces.
+`ExecutionState.reports` is a `PersistentMap` for the same reason the order book
+is, and is still an immutable `Mapping` keyed by execution id that serializes as
+the JSON object it always did.
+
+States using the persistent containers: `OMSState.orders` (the `OrderBook`'s
+order index and its asset/strategy indices), `OMSState.active_orders` /
+`completed_orders`, `ExecutionState.reports`, and
+`AllocationState.reservations`.
+
 Measured on the development machine, full history retained:
 
 | Benchmark | v2.1 | v2.2 |
 | --- | --- | --- |
-| `benchmark_oms` (100k order lifecycles) | ~16 min | 7.5s |
-| `benchmark_oms` scaling (10k → 20k) | ~4.4x | 2.00x |
-| `benchmark_execution_pipeline` (4000 events) | 1.79s | 1.18s |
-| `benchmark_execution_pipeline` scaling (4x workload) | ~7.4x | ~4.7x |
+| `benchmark_oms` (100k order lifecycles) | 26.3 min | 6.7s |
+| `benchmark_oms` scaling (10k → 20k) | 4.70x | 2.06x |
+| `benchmarks_execution` (100k fills) | 85.3s | 1.55s |
+| `benchmark_execution_pipeline` (4000 events) | 1.79s | 1.03s |
+| `benchmark_execution_pipeline` scaling (4x workload) | ~7.4x | ~4.4x |
 
 **On the residual above 4.00x in the pipeline benchmark.** It is the cyclic
 garbage collector, not the pipeline. Orders, events and states are all container
@@ -432,6 +447,7 @@ fixed, and each has a regression test pinning it:
 | v2.1 limitation | v2.2 |
 | --- | --- |
 | OMS order book copies its whole order dict per stored order | persistent containers; linear (`tests/regression/test_oms_book_complexity.py`) |
+| (found while fixing the above) execution report index copies per stored report | persistent map; linear (`tests/regression/test_execution_reports_complexity.py`) |
 | Risk-rejected requests retain their allocation reservation | per-order ledger, released exactly once (`tests/regression/test_risk_reservation_leak.py`) |
 | `OMSState` cannot be JSON-serialized as a whole state | explicit snapshot projection, round-trips (`tests/regression/test_oms_state_snapshot.py`) |
 | Replay is not integrated with the real execution path | `alphalab.backtesting.replay`, parity tested (`tests/integration/test_backtest_replay_parity.py`) |

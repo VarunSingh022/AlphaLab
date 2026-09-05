@@ -113,14 +113,28 @@ rebuilt both order-id `frozenset`s — once per stored order, and the OMS stores
 order on submit and again on every lifecycle transition. Submitting N orders
 copied O(N²) entries. All five containers are now persistent.
 
-Measured on the development machine, full history retained:
+### The execution report index was quadratic too
+
+Found by running the whole benchmark suite after the order-book fix, which is
+the only reason it was found at all: `benchmarks_execution.py` took 85s for
+100k fills. `ExecutionEngine.execute` and `partial_fill` stored a report by
+rebuilding the whole `ExecutionState.reports` dict -- the same defect as the
+order book, on the same execution path, paid by every fill a backtest produces.
+`ExecutionState.reports` is now a `PersistentMap`; it is still an immutable
+`Mapping` keyed by execution id and still serializes as the JSON object it
+always did.
+
+### Measured
+
+On the development machine, full history retained:
 
 | Benchmark | v2.1 | v2.2 |
 | --- | --- | --- |
-| `benchmark_oms` (100k order lifecycles) | ~16 min | 7.5s |
-| `benchmark_oms` scaling (10k → 20k) | ~4.4x | 2.00x |
-| `benchmark_execution_pipeline` (4000 events) | 1.79s | 1.18s |
-| `benchmark_execution_pipeline` scaling (4x workload) | ~7.4x | ~4.7x |
+| `benchmark_oms` (100k order lifecycles) | 26.3 min | 6.7s |
+| `benchmark_oms` scaling (10k → 20k) | 4.70x | 2.06x |
+| `benchmarks_execution` (100k fills) | 85.3s | 1.55s |
+| `benchmark_execution_pipeline` (4000 events) | 1.79s | 1.03s |
+| `benchmark_execution_pipeline` scaling (4x workload) | ~7.4x | ~4.4x |
 
 The residual above 4.00x in the pipeline benchmark is the cyclic garbage
 collector walking a growing live heap, not an algorithmic term: with the
@@ -179,7 +193,7 @@ portfolio. It now drives the real path through `alphalab.backtesting.replay`.
 
 ## Tests
 
-1592 tests pass (1429 on v2.1.0). New:
+1599 tests pass (1429 on v2.1.0). New:
 
 | Area | File |
 | --- | --- |
@@ -190,6 +204,7 @@ portfolio. It now drives the real path through `alphalab.backtesting.replay`.
 | Dataset validation | `tests/unit/backtesting/test_dataset.py` |
 | Backtest loop | `tests/unit/backtesting/test_engine.py` |
 | OMS complexity | `tests/regression/test_oms_book_complexity.py` |
+| Execution report index complexity | `tests/regression/test_execution_reports_complexity.py` |
 | Reservation leak | `tests/regression/test_risk_reservation_leak.py` |
 | Whole-state OMS serialization | `tests/regression/test_oms_state_snapshot.py` |
 | Run-to-run determinism | `tests/regression/test_deterministic_backtest.py` |

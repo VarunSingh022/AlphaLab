@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
 [![Version](https://img.shields.io/badge/Version-2.2.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-1592%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-1599%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -42,8 +42,8 @@ The framework is designed for researchers, quantitative developers, students, an
 |---------|--------|
 | Python | 3.12+ |
 | Version | 2.2.0 |
-| Tests | **1592 Passing** |
-| Static Typing | **Strict MyPy** (869 source files) |
+| Tests | **1599 Passing** |
+| Static Typing | **Strict MyPy** (870 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
@@ -249,8 +249,8 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 1592 passing tests (1441 unit, 57 integration, 94 regression)
-- ✅ Strict MyPy type checking (869 source files)
+- ✅ 1599 passing tests (1441 unit, 57 integration, 101 regression)
+- ✅ Strict MyPy type checking (870 source files)
 - ✅ Ruff linting and formatting
 - ✅ Source distribution validation
 - ✅ Wheel validation
@@ -284,8 +284,9 @@ terminal-rejection execution invariants; O(1) amortized append-only histories
 **v2.2.0** — unified backtesting and replay: `alphalab.backtesting` composes
 `ExecutionPipeline` into a real backtest, and `alphalab.replay` drives the same
 path; fill policies (`ImmediateFill`, `StaticFill`, `LiquidityCappedFill`);
-persistent order-book containers (`common.PersistentMap` / `PersistentSet`)
-replacing the quadratic dict/frozenset copying; a per-order allocation
+persistent order-book and execution-report containers
+(`common.PersistentMap` / `PersistentSet`) replacing the quadratic
+dict/frozenset copying; a per-order allocation
 reservation ledger released exactly once; complete round-trippable `OMSState`
 snapshots; seeded, reproducible identifiers.
 See `CHANGELOG.md` and `ROADMAP.md`.

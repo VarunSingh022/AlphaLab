@@ -30,8 +30,7 @@ class ExecutionEngine:
         report: ExecutionReport,
     ) -> ExecutionState:
         """Applies a full fill execution report to the state."""
-        new_reports = dict(state.reports)
-        new_reports[report.execution_id] = report
+        new_reports = state.reports.set(report.execution_id, report)
 
         event = ExecutionCompleted(
             event_id=ExecutionEngine._create_event_id(),
@@ -56,8 +55,7 @@ class ExecutionEngine:
         remaining_quantity: Decimal,
     ) -> ExecutionState:
         """Applies a partial fill execution report to the state."""
-        new_reports = dict(state.reports)
-        new_reports[report.execution_id] = report
+        new_reports = state.reports.set(report.execution_id, report)
 
         event = ExecutionPartiallyFilled(
             event_id=ExecutionEngine._create_event_id(),

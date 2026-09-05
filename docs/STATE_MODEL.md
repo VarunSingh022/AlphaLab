@@ -98,8 +98,8 @@ Iteration is in first-insertion order, so a state holding one serializes
 deterministically.
 
 States using them: `OMSState.orders` (the `OrderBook`'s order index and its
-asset/strategy indices), `OMSState.active_orders` / `completed_orders`, and
-`AllocationState.reservations`.
+asset/strategy indices), `OMSState.active_orders` / `completed_orders`,
+`ExecutionState.reports`, and `AllocationState.reservations`.
 
 ## Serializable projections (v2.2)
 
