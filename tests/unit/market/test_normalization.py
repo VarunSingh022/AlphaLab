@@ -15,6 +15,7 @@ from alphalab.market.normalization import (
     DEFAULT_POLICY,
     NormalizationPolicy,
     SymbolMap,
+    UnresolvedIdentity,
     is_stale,
     normalize_wire_bar,
     normalize_wire_book,
@@ -103,7 +104,16 @@ def test_normalize_book_preserves_level_order_and_reports_no_order_count() -> No
 
 
 def test_symbol_map_rewrites_only_what_it_maps() -> None:
-    policy = NormalizationPolicy(symbols=SymbolMap({"AAPL.US": "AAPL"}))
+    """The unresolved mode still rewrites what it maps and passes the rest through.
+
+    This is the v2.6 identity rule, unchanged. v2.7 moved it behind the named
+    :class:`UnresolvedIdentity` mode rather than deleting it, because the wire ->
+    canonical lift has to stay testable without a registry. What the values
+    below cannot do is reach a fill -- ``core.Fill`` refuses a ticker -- which
+    is why ``ProviderHistorySource`` will not accept this mode. See ADR-0016.
+    """
+
+    policy = NormalizationPolicy(identity=UnresolvedIdentity(SymbolMap({"AAPL.US": "AAPL"})))
 
     mapped = normalize_wire_quote(WireQuote("AAPL.US", 1.0, 1.0, 2.0, 1.0, 1.0), policy)
     passthrough = normalize_wire_quote(WireQuote("MSFT", 1.0, 1.0, 2.0, 1.0, 1.0), policy)

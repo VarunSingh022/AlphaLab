@@ -38,29 +38,33 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.6.0**
+**Current Release:** **v2.7.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.6.0 |
-| Tests | **2122 Passing** |
-| Static Typing | **Strict MyPy** (915 source files) |
+| Version | 2.7.0 |
+| Tests | **2200 Passing** |
+| Static Typing | **Strict MyPy** (934 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-v2.6.0 — "Allocation Authority and Attribution Truth" — makes two production-path
-numbers true rather than plausible. Capital committed to orders that have not settled
-now counts against the budget: six externally routed events previously committed
-**5,400,000 against a 1,000,000 budget** with no position held and not one rejection
-recorded. And strategy attribution now names strategies that exist — `"ALLOC-NETTED"`,
-a constant the allocator stamped on every order it produced, is deleted, and realized
-P&L splits by each strategy's signed contribution to the netted order. Holding periods
-are measured rather than reported as zero, and sectors are reported as absent rather
-than as one placeholder bucket, because there is no security master to make them true.
+v2.7.0 — "Instrument Identity and Dataset Provenance" — makes two asserted things
+derived. A provider symbol now resolves to a canonical instrument through an
+authority instead of being passed through verbatim: until v2.7 the documented
+default path turned `"AAPL"` into an `asset_id`, carried it through market data,
+the strategy, allocation and risk, and was refused by `core.Fill` at the **last**
+stage, naming neither the provider nor the symbol. The only configuration that
+reached a fill was one where an operator hand-authored a UUID per instrument.
+And a run's evidence now names the data the run actually consumed rather than a
+dataset a caller claimed — `evidence_id` hashes that value, so the digest was
+only as trustworthy as a string somebody typed, and two runs over genuinely
+different data could be handed one identity, verify cleanly and pass the gate.
+`core.Fill` / `core.Trade` UUID validation is unchanged: v2.7 supplies a producer
+that can satisfy the existing invariant rather than relaxing it.
 
 > **A deployment is a lifecycle fact, not an operation on a machine.** It records that
 > an environment *should* be running a strategy version. It starts no process, opens no
@@ -127,6 +131,51 @@ Analytics  →  PerformanceReport (compiled on demand)
 ```
 
 The caller owns the event loop and feeds events in one at a time.
+
+## Instrument identity on the production path
+
+Everything reaching the execution path crosses `alphalab.market.normalization`,
+and as of v2.7 that boundary resolves identity through an authority rather than
+passing a provider symbol through:
+
+```text
+(provider, symbol)  →  InstrumentRegistry  →  canonical asset_id (deterministic UUID)
+```
+
+An `asset_id` is opaque and *derived*, not minted — `uuid5` over a canonical key
+(`asset_type`, `exchange`, `symbol`, `currency`) under a frozen namespace — so
+two independently configured environments agree on the identity of one
+instrument with no shared database. Registration is explicit: derivation alone
+would turn every typo into a new instrument.
+
+```python
+from alphalab.core.enums import AssetType
+from alphalab.instrument import InstrumentRecord, InstrumentRegistry, register_instrument
+from alphalab.market.normalization import NormalizationPolicy
+
+instruments = register_instrument(
+    InstrumentRegistry(),
+    InstrumentRecord(
+        "BTCUSDT", AssetType.CRYPTO, "BINANCE", "USDT", aliases={"binance": "BTCUSDT"}
+    ),
+)
+policy = NormalizationPolicy(
+    venue="BINANCE", currency="USDT", identity=instruments, provider="binance"
+)
+```
+
+**A production provider → execution path requires `InstrumentRegistry`-backed
+resolution.** An unregistered `(provider, symbol)` is refused at the boundary
+with `InstrumentResolutionError`, naming both — not carried onward to fail at the
+first fill.
+
+The second mode, `UnresolvedIdentity`, keeps the wire → canonical lift testable
+without a registry. **It is not a production execution configuration**: it yields
+provider symbols, which `core.Fill` and `core.Trade` refuse, and
+`ProviderHistorySource.of` rejects it before calling the provider. `DEFAULT_POLICY`
+uses this mode and is therefore a testing default.
+
+`core.Fill` / `core.Trade` UUID validation is unchanged. See ADR-0016.
 
 ## Standalone engine libraries
 
@@ -343,11 +392,23 @@ quadratic writes in all three stateful lifecycle registries.
 unknown schema version; `PersistenceAdapter.snapshot_payload` giving
 `alphalab.persistence` its first production consumers;
 `alphalab.market.provider.ProviderHistorySource` connecting a provider adapter to
-`TradingSession` through the v2.3 normalization boundary; explicit
+`TradingSession` through the v2.3 normalization boundary (as of v2.7 it requires
+`InstrumentRegistry`-backed identity resolution — see below); explicit
 `SessionConfig.ordering` semantics for unordered sources; terminal semantics for a
 partially filled simulated order's remainder, with its reservation released; and the
 removal of the replay cursor's O(N²), with the benchmark repointed at the API the
 integrated path actually uses.
+
+**v2.7.0** — instrument identity and dataset provenance: `alphalab.instrument`
+becomes the authority for what a provider symbol means, deriving a canonical
+`asset_id` deterministically (`uuid5` over a fixed key under a frozen namespace)
+so two independently configured environments agree with no shared database; an
+unregistered symbol is refused at the normalization boundary naming provider and
+symbol, instead of failing at the first fill; a run records the dataset or source
+it consumed (`BacktestResult.dataset_id`, `SessionState.source_id`); and
+`BACKTEST` evidence derives that identity from the run rather than accepting a
+caller's claim — with `evidence_id_for` byte-identical to v2.6, so evidence
+recorded then still verifies and still passes its policy.
 
 **v2.6.0** — allocation authority and attribution truth: the budget guard counts
 outstanding commitment, so `EXTERNAL` routing can no longer over-commit across

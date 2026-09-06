@@ -170,7 +170,7 @@ def verify_evidence_id(evidence: ValidationEvidence) -> bool:
 
 
 def evidence_from_backtest(
-    result: BacktestResult, subject: str, dataset_id: str, produced_at: float
+    result: BacktestResult, subject: str, produced_at: float
 ) -> ValidationEvidence:
     """Extracts evidence from a finished run through the execution path.
 
@@ -180,17 +180,38 @@ def evidence_from_backtest(
     recomputed here; a number that AlphaLab's analytics engine does not produce
     does not appear.
 
+    The dataset is **derived** from the run, not supplied. Until v2.7 this
+    function took a ``dataset_id`` argument and a caller could name any dataset
+    at all, including one the run never touched -- and ``evidence_id_for``
+    hashes that value, so the digest was only as trustworthy as a string
+    somebody typed. Two runs over genuinely different data could be given one
+    identity, verify cleanly, and pass the gate. The parameter is removed rather
+    than accepted and ignored: an argument that is silently discarded leaves a
+    caller believing they set something. See ADR-0017.
+
     Raises:
         LifecycleInputError: If the run compiled no report, which is what
-            ``BacktestConfig(compile_analytics=False)`` produces. Evidence
-            without measurements is not evidence, so this is refused rather
-            than recorded as an empty pass.
+            ``BacktestConfig(compile_analytics=False)`` produces, or if the run
+            names no dataset. Evidence without measurements is not evidence,
+            and neither is a measurement over data nobody can identify; both
+            are refused rather than recorded as an empty pass.
     """
     report = result.report
     if report is None:
         raise LifecycleInputError(
             "The backtest compiled no performance report, so there is nothing to "
             "record as evidence; run it with BacktestConfig(compile_analytics=True)."
+        )
+
+    dataset_id = result.dataset_id
+    if dataset_id is None:
+        raise LifecycleInputError(
+            "The backtest names no dataset, so there is nothing to record as the "
+            "data it was measured over. A run driven through BacktestEngine.run "
+            "carries its dataset identity; one driven by hand through "
+            "initialize/advance/finalize carries whatever identity finalize was "
+            "given, and None means it was given none. Inventing one here would be "
+            "a guess recorded as a fact."
         )
 
     metrics = {

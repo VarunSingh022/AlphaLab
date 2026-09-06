@@ -20,6 +20,7 @@ from alphalab.market.events import (
     TradeReceived,
 )
 from alphalab.market.exceptions import (
+    InstrumentResolutionError,
     MarketDataError,
     MarketValidationError,
     UnsupportedRecordError,
@@ -27,8 +28,11 @@ from alphalab.market.exceptions import (
 from alphalab.market.level import OrderBookLevel
 from alphalab.market.normalization import (
     DEFAULT_POLICY,
+    UNRESOLVED_IDENTITY,
+    IdentityResolution,
     NormalizationPolicy,
     SymbolMap,
+    UnresolvedIdentity,
     is_stale,
     normalize_wire_bar,
     normalize_wire_book,
@@ -73,10 +77,13 @@ from alphalab.market.views import (
 
 __all__ = [
     "DEFAULT_POLICY",
+    "UNRESOLVED_IDENTITY",
     "Bar",
     "BarClosed",
     "BarHistoryProvider",
     "BookUpdated",
+    "IdentityResolution",
+    "InstrumentResolutionError",
     "MarketDataError",
     "MarketDataSource",
     "MarketEngine",
@@ -99,6 +106,7 @@ __all__ = [
     "TickReceived",
     "TimeFrame",
     "TradeReceived",
+    "UnresolvedIdentity",
     "UnsupportedRecordError",
     "bars",
     "best_ask",

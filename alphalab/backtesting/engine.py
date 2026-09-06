@@ -117,8 +117,17 @@ def advance(
     )
 
 
-def finalize(state: BacktestState) -> BacktestResult:
-    """Compile analytics (if configured) and freeze the run into a result."""
+def finalize(state: BacktestState, dataset_id: str | None = None) -> BacktestResult:
+    """Compile analytics (if configured) and freeze the run into a result.
+
+    ``dataset_id`` names the data the run consumed. It is threaded here rather
+    than held on :class:`~alphalab.backtesting.config.BacktestConfig` because a
+    config that named a dataset could disagree with the dataset actually passed
+    to :meth:`BacktestEngine.run`, and one fact with two sources is how "what
+    was this measured over?" becomes unanswerable. A caller driving the loop by
+    hand supplies nothing and gets ``None``: an absence, not an invented
+    identity. See ADR-0017.
+    """
 
     pipeline = state.pipeline
     if state.config.compile_analytics:
@@ -135,6 +144,7 @@ def finalize(state: BacktestState) -> BacktestResult:
         steps=state.steps.to_tuple(),
         records_processed=state.processed,
         seed=state.config.seed,
+        dataset_id=dataset_id,
     )
 
 
@@ -158,10 +168,10 @@ class BacktestEngine:
         return advance(state, record, context_factory)
 
     @staticmethod
-    def finalize(state: BacktestState) -> BacktestResult:
+    def finalize(state: BacktestState, dataset_id: str | None = None) -> BacktestResult:
         """Compile analytics and freeze the run. See :func:`finalize`."""
 
-        return finalize(state)
+        return finalize(state, dataset_id)
 
     @staticmethod
     def run(
@@ -176,4 +186,4 @@ class BacktestEngine:
             state = initialize(config, strategy_state)
             for record in dataset.records:
                 state, _ = advance(state, record, context_factory)
-            return finalize(state)
+            return finalize(state, dataset.dataset_id)

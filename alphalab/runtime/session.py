@@ -182,6 +182,14 @@ class SessionState:
     #: funding instant, so the ordering check only ever compares record to
     #: record.
     last_record_timestamp: float | None = None
+    #: The stream this session read, or ``None`` when it was driven record by
+    #: record rather than from a source. Distinct from a backtest's
+    #: ``dataset_id``: a :class:`~alphalab.backtesting.dataset.MarketDataset` is
+    #: finite, ordered and validated, while a source may be live and may declare
+    #: ``UNORDERED``, so one identity cannot carry the other's guarantees. Until
+    #: v2.7 :meth:`TradingSession.run` read ``source_id`` only to compose an
+    #: error message and the session recorded nothing. See ADR-0017.
+    source_id: str | None = None
 
     @property
     def working_orders(self) -> tuple[OMSOrder, ...]:
@@ -326,7 +334,11 @@ class TradingSession:
 
         readings = iter(clock) if clock is not None else None
         with id_scope(config.seed):
-            state = TradingSession.initialize(config, strategy_state)
+            # The source is in scope exactly here, and nowhere later: `advance`
+            # takes one record at a time and never sees the stream it came from.
+            state = replace(
+                TradingSession.initialize(config, strategy_state), source_id=source.source_id
+            )
             for record in source.records():
                 now = next(readings, None) if readings is not None else None
                 state, _ = TradingSession.advance(state, record, context_factory, now)

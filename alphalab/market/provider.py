@@ -48,8 +48,9 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar
-from alphalab.market.exceptions import MarketValidationError
+from alphalab.market.exceptions import InstrumentResolutionError, MarketValidationError
 from alphalab.market.normalization import DEFAULT_POLICY, NormalizationPolicy, normalize_wire_bar
 from alphalab.market.record import MarketRecord, records_from_inputs
 from alphalab.market.source import OrderingGuarantee, validate_ordering
@@ -118,7 +119,7 @@ class ProviderHistorySource:
         start: float,
         end: float,
         source_id: str,
-        policy: NormalizationPolicy = DEFAULT_POLICY,
+        policy: NormalizationPolicy,
     ) -> ProviderHistorySource:
         """Fetch, normalize and identify a provider's bars for ``symbols``.
 
@@ -128,12 +129,34 @@ class ProviderHistorySource:
         provider response always produces the same record identities and two
         runs over one source are comparable record by record.
 
+        ``policy`` has no default. This is the admission boundary between a
+        provider and the execution path, and a policy that cannot produce
+        canonical identifiers is refused here -- before the provider is called,
+        so a misconfigured source costs no request. A defaulted parameter whose
+        default value is always refused would be a trap, so there is none.
+
         Raises:
+            InstrumentResolutionError: If ``policy`` does not resolve identity
+                through an
+                :class:`~alphalab.instrument.registry.InstrumentRegistry`. The
+                unresolved mode yields provider symbols, which cannot reach a
+                fill.
             MarketValidationError: If ``symbols`` is empty, if the provider
                 returned no bars at all, or if the normalized records are not
                 chronological -- a provider that returned history out of order
                 is a broken response, not something to quietly sort around.
         """
+
+        # Before anything else, and before the provider is called: a source that
+        # cannot name its instruments canonically is not a production source.
+        if not isinstance(policy.identity, InstrumentRegistry):
+            raise InstrumentResolutionError(
+                "ProviderHistorySource requires InstrumentRegistry-backed identity "
+                "resolution. This policy uses UnresolvedIdentity, which passes "
+                "provider symbols through unchanged and cannot produce an asset_id "
+                "that core.Fill / core.Trade will accept. Register the instruments "
+                "and supply an InstrumentRegistry."
+            )
 
         if not symbols:
             raise MarketValidationError("A provider source needs at least one symbol.")
