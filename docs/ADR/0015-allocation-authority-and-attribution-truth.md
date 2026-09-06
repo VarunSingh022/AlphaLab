@@ -83,8 +83,8 @@ and returns `(instrument, quantity)` pairs. The strategy is dropped there — on
 statement, before `NettingEngine` is ever reached. `allocate` then stamps every
 emitted request:
 
-```python
-strategy_id="ALLOC-NETTED",
+```
+strategy_id="ALLOC-NETTED",   # a keyword argument in the OrderRequest call
 ```
 
 `"ALLOC-NETTED"` is not a strategy. It is a constant, and it is applied to *every*
@@ -295,7 +295,7 @@ three.
 @dataclass(frozen=True, slots=True)
 class StrategyContribution:
     strategy_id: str
-    quantity: Decimal   # signed, in the asset's units
+    quantity: Decimal  # signed, in the asset's units
 ```
 
 `OrderRequest` gains `contributions: tuple[StrategyContribution, ...] = ()`,

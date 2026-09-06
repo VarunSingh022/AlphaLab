@@ -78,3 +78,22 @@ __all__ = [
     "validate_connection_attempt",
     "validate_registration",
 ]
+
+
+# Deprecated in v2.6, removed in v3.0.
+#
+# The adapters here return canned responses and none is wired to an endpoint;
+# `alphalab.broker` is the canonical adapter boundary (ADR-0012) and
+# `alphalab.brokers` the router over it. The warning is at import because
+# nothing on the execution path imports this package, so it reaches exactly the
+# callers who do -- and nobody else. It sits below the imports so that the
+# module's own exports are unaffected by it. See ADR-0015 decision 9.
+import warnings
+
+warnings.warn(
+    "alphalab.integrations is deprecated and will be removed in v3.0. "
+    "Use alphalab.broker for the adapter contract and alphalab.brokers for "
+    "routing.",
+    DeprecationWarning,
+    stacklevel=2,
+)
