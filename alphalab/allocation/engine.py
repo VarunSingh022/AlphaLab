@@ -126,15 +126,38 @@ class AllocationEngine:
             )
 
         # 5. Budget Application
-        available_cap = state.budget.available_global_capital
-        if total_notional > available_cap or total_notional > state.budget.maximum_exposure:
-            reason = "Requested notional exceeds global capital or exposure limits."
+        #
+        # Capital already committed to orders that have not settled counts
+        # against the budget. Before v2.6 only ``total_notional`` was compared,
+        # so the whole budget was re-offered on every market event no matter how
+        # much was already reserved. Under SIMULATED routing a reservation is
+        # consumed or released inside the event that created it, so this was
+        # invisible; under EXTERNAL routing the order stays working and its
+        # reservation stays held, and six events committed 5.4x the budget with
+        # no position held and no rejection recorded.
+        #
+        # ``CapitalBudget`` itself is untouched: it remains an immutable sizing
+        # parameter, and the commitment lives in ``notional_allocated``. See
+        # ADR-0015 decision 1 for why the budget is not made consumable.
+        outstanding = state.notional_allocated
+        committed = outstanding + total_notional
+        remaining = state.budget.available_global_capital - outstanding
+        if committed > state.budget.available_global_capital or (
+            committed > state.budget.maximum_exposure
+        ):
+            reason = (
+                "Requested notional plus outstanding commitment exceeds global "
+                "capital or exposure limits."
+            )
             events = events.append(
                 BudgetExceeded(
-                    AllocationEngine._create_id(), timestamp, reason, total_notional, available_cap
+                    AllocationEngine._create_id(), timestamp, reason, total_notional, remaining
                 )
             )
-            # Strict rejection mode: if batch breaches budget, drop batch.
+            # Strict rejection mode: if batch breaches budget, drop batch. The
+            # returned state differs from the input only by these events --
+            # history, reservations and notional_allocated are untouched, so a
+            # rejected allocation changes no prior reservation.
             return replace(state, events=events), ()
 
         # 6. Finalization
