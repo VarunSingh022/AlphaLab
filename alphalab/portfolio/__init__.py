@@ -34,6 +34,9 @@ from .exceptions import (
 from .exceptions import (
     InvalidTransactionError as InvalidTransactionError,
 )
+from .exceptions import (
+    MixedCurrencyValuationError as MixedCurrencyValuationError,
+)
 from .exposure import ExposureEngine as ExposureEngine
 from .ledger import TransactionLedger as TransactionLedger
 from .margin import MarginEngine as MarginEngine
@@ -60,6 +63,7 @@ __all__ = [
     "InvalidTransactionError",
     "MarginEngine",
     "MarketValueUpdated",
+    "MixedCurrencyValuationError",
     "NAVCalculator",
     "PnLEngine",
     "PortfolioEngine",

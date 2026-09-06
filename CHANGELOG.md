@@ -8,6 +8,131 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.8.0] - 2026-09-06
+
+**Currency Roles and Run Outcomes.**
+
+Three fields stood for several things at once, and nothing noticed when they
+disagreed. One configuration named two account currencies and silently switched
+off two risk limits. One valuation added two currencies together and labelled
+the result with one of them. One request could end without a fill and leave no
+reason behind, and its allocation ledger entry behind forever.
+
+## Added
+
+- `ExecutionPipelineState.unpriced_assets` — the assets a run declined to trade
+  for want of a price, keyed by `asset_id` so the size follows the distinct
+  instruments a run's strategies named rather than the event count. Surfaced as
+  read-only `unpriced_assets` properties on `BacktestResult`, `ReplayResult` and
+  `SessionState`, which read through to the pipeline state so none can disagree
+  with the run it describes. Not persisted.
+- `UnpricedAsset` and `UnpricedReason` (`alphalab.runtime`, re-exported from
+  `alphalab.backtesting`). `UnpricedAsset` keeps the reason, a sentence of
+  detail, the first and last market timestamp and an occurrence count.
+  `UnpricedReason` has exactly three members and no fourth for "unknown".
+- `ExecutionPipelineConfig.instruments: InstrumentRegistry | None` — optional,
+  read-only, and used for one thing: deciding whether a dropped request's
+  `asset_id` names a registered instrument. Only `record_for` is ever called.
+  The pipeline never resolves a provider symbol, never derives an `asset_id`
+  and never registers anything; ADR-0016 leaves resolution at the wire boundary
+  and this takes none of it back. `None` remains the default.
+- `MixedCurrencyValuationError` (`alphalab.portfolio`), and
+  `PortfolioValuation.assert_single_currency`.
+
+## Fixed
+
+- **A configuration could name two account currencies and say nothing.**
+  `ExecutionPipelineConfig.currency` funds the cash ledger and denominates every
+  `OrderInstruction`, `ExecutionReport` and `Position`; `Account.base_currency`
+  is what the risk resync and `NAVCalculator` read. Nothing checked that they
+  agreed. When they did not, cash landed under one and risk read the other, so
+  `risk.cash`, `buying_power`, `current_nav` and `peak_nav` were all zero:
+  `check_buying_power` refused every order, `check_leverage` returned early on a
+  non-positive NAV, and `check_margin` passed vacuously. Measured with
+  `currency="EUR"` against `base_currency="USD"` over six quotes — zero fills,
+  six risk rejections, full starting equity reported, and two risk limits
+  quietly not checking. Refused at the first statement of
+  `ExecutionPipeline.initialize`, before the portfolio exists, so nothing is
+  funded against a configuration that is about to be refused.
+- **A valuation could span two currencies and report one number.**
+  `PortfolioValuation.snapshot` read cash for the base currency alone, dropping
+  every other balance, while `long_value` and `short_value` summed every
+  position regardless of what it traded in. A book of 1000 USD and 500 EUR cash
+  against 1100 USD and 1100 EUR of positions returned `equity=3200.00` labelled
+  `"USD"` — a figure in no currency at all. Refused instead, on two conditions
+  because there were two independent errors: every position must declare the
+  base currency, and no other currency may hold a non-zero balance.
+- **An allocation contribution could outlive its request.**
+  `AllocationState.contributions` is retired by `_release_if_terminal`, which
+  was reached only from inside the per-report loop — so any request or order
+  ending without a report kept its entry forever. Four paths did: a request
+  dropped for want of a price and one refused by risk never reach the OMS at
+  all, while `NO_FILL` / `REJECTED` / `EXPIRED` and a withdrawn partial-fill
+  remainder reach a terminal OMS state without producing a report. Twenty events
+  on each path left twenty entries apiece, with no bound and no reader.
+  Contributions are now retired wherever a request's lifecycle ends, exactly
+  once, using the mechanism that already existed. Reservation release is
+  unchanged on every path, and post-trade attribution still reads contributions
+  at fill time.
+- **A run could produce no fills and not say why.** Of the ways a request can
+  end without a fill, every one but a dropped request left a reason: allocation
+  and risk record their rejections, an externally routed order stays open in the
+  OMS, and a non-trading execution closes its order with the status that ended
+  it. A dropped request emitted only an `AllocationReservationReleased`, which
+  is the identical event three other outcomes emit, and the reason lived on the
+  per-event result and was gone when the run finished. This is the ADR-0016
+  section 3 failure mode — a strategy naming an instrument the run never priced
+  — which ADR-0016 documented and deferred.
+
+## Changed
+
+- `LIFECYCLE_SNAPSHOT_SCHEMA` is the literal `1` rather than an alias of
+  `DEFAULT_SCHEMA_VERSION`, which is also the version of `CommonEvent` and
+  `BaseEvent`. **The value does not move**, so no payload reads or writes
+  differently; the lifecycle version is simply now independently settable. This
+  is the trap v2.6 removed from `PortfolioSnapshot` and left standing here, and
+  the prerequisite ADR-0018 names for the bump the governance release needs.
+
+## Unchanged, deliberately
+
+No breaking changes. No persisted type gains or loses a field, no schema version
+moves, and there is no migration. `evidence_id_for` is byte-identical, so
+evidence recorded under v2.6 and v2.7 still verifies and still passes its
+policy. `canonical_instrument_key`, the frozen instrument namespace and
+`asset_id` derivation are untouched, as are `Fill` / `Trade` validation,
+`ExecutionPipelineResult.unpriced_requests`, `BacktestStep`, the OMS snapshot
+format and every canonical market and execution model. No new dependency.
+
+`PortfolioValuation.portfolio_value`, `long_value`, `short_value` and
+`NAVCalculator.calculate` share the currency-blindness and are left exactly as
+they were, with their present behaviour pinned by a test. `NAVCalculator` runs
+on every market event through the risk resync, so guarding it is a hot-path
+decision that belongs with the release supplying an FX rate source.
+
+**This release does not add FX.** Refusing to aggregate two currencies is the
+absence of a rate, not a rule that foreign-currency instruments are invalid: the
+cash ledger is already keyed by currency and every position already declares its
+own, so a wholly-EUR book values in EUR exactly as it did.
+
+## Deferred, unchanged
+
+FX and true multi-currency valuation; instrument currency reaching `Position` /
+`CashLedger`; `Bar.currency`; `OMSSnapshot.schema_version` and the OMS
+history/events envelope; `AllocationState` persistence and session round-trip;
+governance actors and enterprise RBAC; richer persisted evidence provenance;
+`ResearchState` dataset identity; `StrategyContext` population; live transport,
+streaming and reconnect; sector classification; a dataset registry; an artifact
+store; and the removal of `integrations`, `kernel`, `core.events` or
+`CommonEvent`.
+
+The design decisions behind this release -- that listing exchange, market-data
+attribution and execution venue are three concepts and not one; that
+`ExecutionPipelineConfig.currency` was standing for account, trade and
+settlement currency at once; and that an unpriced request is a recorded outcome
+rather than an error -- are not yet written up as ADRs.
+
+---
+
 # [2.7.0] - 2026-09-06
 
 **Instrument Identity and Dataset Provenance.**

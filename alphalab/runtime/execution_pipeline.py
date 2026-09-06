@@ -22,6 +22,7 @@ from alphalab.analytics.attribution import TradeRecord
 from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
@@ -38,6 +39,7 @@ from alphalab.execution.policy import (
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
+from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar
 from alphalab.market.engine import MarketEngine
 from alphalab.market.events import (
@@ -69,6 +71,7 @@ from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.state import RiskState
+from alphalab.runtime.exceptions import RuntimeValidationError
 from alphalab.runtime.execution_adapters import canonical_execution_from_report
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
@@ -115,10 +118,34 @@ class ExecutionPipelineConfig:
         risk_limits: Limits applied by the risk engine.
         sizing_model: Sizing model used by allocation.
         simulator: Execution simulator used for deterministic fills.
-        venue: Execution venue label for generated instructions.
-        currency: Currency used for cash, execution reports, and portfolio fills.
+        venue: Execution venue label for generated instructions. This is the
+            venue an order *executes at*, and it is not the venue market data
+            was attributed to, nor the exchange an instrument is listed on. See
+            :class:`~alphalab.instrument.record.InstrumentRecord` for the
+            listing exchange and :class:`~alphalab.market.quote.Quote` for
+            market-data attribution; the three are distinct.
+        currency: The **settlement currency** of this pipeline -- what cash is
+            funded in, what an ``OrderInstruction`` and its
+            :class:`~alphalab.execution.report.ExecutionReport` are denominated
+            in, and therefore what every :class:`~alphalab.portfolio.position.Position`
+            is booked in. It must equal ``account.base_currency``, which risk
+            and NAV read; :meth:`ExecutionPipeline.initialize` refuses a config
+            where the two disagree. It is *not* the currency an instrument
+            trades in -- that is
+            :attr:`~alphalab.instrument.record.InstrumentRecord.currency`, and
+            it does not reach the execution path.
         routing: Where an accepted order executes. Defaults to ``SIMULATED``,
             which is what every environment before v2.3 did.
+        instruments: The registry the run's market data was resolved against, or
+            ``None``. **Read-only, and used for one thing**: when a request is
+            dropped for want of a price, deciding whether the ``asset_id`` names
+            a registered instrument at all. Only
+            :meth:`~alphalab.instrument.registry.InstrumentRegistry.record_for`
+            is ever called on it. The pipeline never resolves a provider symbol,
+            never derives an ``asset_id``, and never registers anything: ADR-0016
+            gives resolution to the wire boundary and this does not take any of
+            it back. Leaving it ``None`` is fully supported and changes nothing
+            except how precisely an unpriced asset can be described.
     """
 
     account: Account
@@ -131,6 +158,60 @@ class ExecutionPipelineConfig:
     venue: str = "SIM"
     currency: str = "USD"
     routing: ExecutionRouting = ExecutionRouting.SIMULATED
+    instruments: InstrumentRegistry | None = None
+
+
+class UnpricedReason(Enum):
+    """Why a request was dropped for want of a price.
+
+    Three members, and no fourth for "unknown": :attr:`NO_PRICE_OBSERVED` is not
+    a stand-in for an answer the pipeline failed to get, it is the complete
+    answer when no registry was configured to ask.
+    """
+
+    #: No :class:`~alphalab.instrument.registry.InstrumentRegistry` was
+    #: configured, so the run knows only that it never priced this asset. It
+    #: cannot say whether the identifier names a real instrument.
+    NO_PRICE_OBSERVED = auto()
+
+    #: A registry was configured and holds no instrument under this
+    #: ``asset_id``. This is the ADR-0016 section 3 failure mode -- a strategy
+    #: naming an instrument the registry does not have -- which until now
+    #: produced zero fills and no explanation.
+    NOT_REGISTERED = auto()
+
+    #: A registry was configured and does hold this instrument; the run simply
+    #: never saw a price for it. Widening the data window, not the registry, is
+    #: the fix.
+    REGISTERED_BUT_UNPRICED = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class UnpricedAsset:
+    """One asset the run declined to trade, and what it knows about why.
+
+    Aggregated per ``asset_id`` rather than logged per occurrence. The five
+    hundredth drop of one asset for one reason says nothing the first did not,
+    and a live session that is misconfigured drops one request per event
+    indefinitely -- so the count is kept and the repetition is not.
+
+    Attributes:
+        asset_id: The asset no price was observed for.
+        reason: What the run could establish about why.
+        detail: The same in a sentence, naming the instrument when a registry
+            supplied one. Descriptive; read ``reason`` to branch on.
+        first_timestamp: Market timestamp of the first drop.
+        last_timestamp: Market timestamp of the most recent drop. Equal to
+            ``first_timestamp`` after a single occurrence.
+        occurrences: How many requests were dropped, not how many events passed.
+    """
+
+    asset_id: str
+    reason: UnpricedReason
+    detail: str
+    first_timestamp: float
+    last_timestamp: float
+    occurrences: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +232,16 @@ class ExecutionPipelineState:
     trades: AppendOnlyLog[CoreTrade] = field(default_factory=AppendOnlyLog)
     trade_records: AppendOnlyLog[TradeRecord] = field(default_factory=AppendOnlyLog)
     portfolio_snapshots: AppendOnlyLog[PortfolioSnapshot] = field(default_factory=AppendOnlyLog)
+    #: Assets the run declined to trade for want of a price, keyed by
+    #: ``asset_id`` and never removed -- this records what happened, not what is
+    #: unpriced now. Of the ways a request can end without a fill, this was the
+    #: only one leaving no reason behind: allocation and risk rejections land in
+    #: their own event logs, and a non-trading execution leaves the order closed
+    #: in the OMS with its status, but a dropped request emitted only an
+    #: ``AllocationReservationReleased`` identical to the one three other
+    #: outcomes emit. Bounded by the distinct instruments the run's strategies
+    #: named, never by event count. Not persisted; nothing captures this state.
+    unpriced_assets: PersistentMap[str, UnpricedAsset] = field(default_factory=PersistentMap)
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +261,46 @@ class ExecutionPipelineResult:
     valuation: PortfolioValuationSnapshot | None = None
 
 
+def _require_one_account_currency(config: ExecutionPipelineConfig) -> None:
+    """Refuse a configuration that names two account currencies.
+
+    ``ExecutionPipelineConfig.currency`` funds the cash ledger and denominates
+    every fill; ``Account.base_currency`` is what
+    :func:`_sync_risk_from_portfolio` and
+    :class:`~alphalab.portfolio.nav.NAVCalculator` read. Two fields, one role --
+    and until v2.8 nothing checked that they agreed.
+
+    When they disagree the run does not fail; it goes quiet. Cash is deposited
+    under ``config.currency``, so ``cash.balance(account.base_currency)`` is
+    zero, so ``risk.cash``, ``buying_power``, ``current_nav`` and ``peak_nav``
+    are all zero. ``check_buying_power`` then refuses every order, while
+    ``check_leverage`` returns early on a non-positive NAV and ``check_margin``
+    passes vacuously against zero available margin. The run produces no fills,
+    reports its full starting equity, and two risk limits silently stop
+    checking.
+
+    Comparison is exact: no ``strip``, no ``upper``.
+    :class:`~alphalab.portfolio.cash.CashLedger` keys balances by the string it
+    is given, so ``"usd"`` and ``"USD"`` are already two separate balances --
+    normalizing here would let the check pass while the ledger still split.
+
+    Raises:
+        RuntimeValidationError: If the two currencies differ.
+    """
+
+    if config.currency != config.account.base_currency:
+        raise RuntimeValidationError(
+            f"ExecutionPipelineConfig.currency is {config.currency!r} and "
+            f"Account.base_currency is {config.account.base_currency!r}. These name "
+            "one thing -- the account's settlement currency -- and must agree. "
+            "Cash would be funded in "
+            f"{config.currency!r} while risk read {config.account.base_currency!r}, "
+            "leaving buying power and NAV at zero: every order would be rejected, "
+            "the leverage and margin checks would stop checking, and the run would "
+            "report its full starting equity while producing no fills."
+        )
+
+
 class ExecutionPipeline:
     """Pure functional facade for the real AlphaLab execution path."""
 
@@ -179,7 +310,16 @@ class ExecutionPipeline:
         strategy_state: StrategyRuntimeState,
         timestamp: float,
     ) -> ExecutionPipelineState:
-        """Create a fresh composite pipeline state."""
+        """Create a fresh composite pipeline state.
+
+        Raises:
+            RuntimeValidationError: If ``config.currency`` and
+                ``config.account.base_currency`` disagree. The check runs before
+                the portfolio exists, so nothing is funded against a refused
+                configuration.
+        """
+
+        _require_one_account_currency(config)
 
         portfolio = PortfolioState(account=config.account)
         portfolio = PortfolioEngine.apply_deposit(
@@ -393,7 +533,8 @@ def _process_requests(
         # than submitting an order the execution leg cannot price.
         if request.asset_id not in current.market_prices:
             unpriced.append(request)
-            current = _release_reservation(current, request.order_id, event.timestamp)
+            current = _record_unpriced(current, request.asset_id, event.timestamp)
+            current = _retire_dropped_request(current, request.order_id, event.timestamp)
             continue
         current, decision = _evaluate_risk(current, request, event.timestamp)
         decisions.append(decision)
@@ -402,7 +543,7 @@ def _process_requests(
             # Risk refused it, so it will never reach the OMS and never
             # execute: the capital it holds is freed here, at the point its
             # lifecycle ends, and exactly once.
-            current = _release_reservation(current, request.order_id, event.timestamp)
+            current = _retire_dropped_request(current, request.order_id, event.timestamp)
             continue
         current, order = _submit_and_accept_order(current, request, event.timestamp)
         if current.config.routing is ExecutionRouting.EXTERNAL:
@@ -414,14 +555,16 @@ def _process_requests(
         decision_out = _decide_fill(policy, order, event, current.market_prices[request.asset_id])
         current, new_reports = _execute_order(current, order, decision_out)
         # A rejected, expired or unfilled execution produces no report. The
-        # order never trades, so release its reserved allocation and close it
-        # out of the OMS instead of leaving it open forever awaiting a fill.
+        # order never trades, so close it out of the OMS instead of leaving it
+        # open forever awaiting a fill, and retire both ledgers it holds. The
+        # order is terminal by the time _release_if_terminal is asked, which is
+        # what lets that one function serve every terminal transition.
         if not new_reports and decision_out.status in _NON_TRADING_STATUSES:
             current = replace(
                 current,
                 oms=_close_unfilled_order(current.oms, order, decision_out.status, event.timestamp),
             )
-            current = _release_reservation(current, request.order_id, event.timestamp)
+            current = _release_if_terminal(current, order.order_id, event.timestamp)
 
         current, new_fills, new_trades = _apply_reports(current, order, new_reports)
         current = _withdraw_partial_remainder(current, request, order, event.timestamp)
@@ -449,6 +592,67 @@ def _process_requests(
         tuple(unpriced),
         valuation,
     )
+
+
+def _classify_unpriced(state: ExecutionPipelineState, asset_id: str) -> tuple[UnpricedReason, str]:
+    """What this run can honestly say about an asset it never priced.
+
+    Without a registry the run knows one thing: it saw no price. It says that
+    and stops, rather than reporting an absence it did not check.
+
+    With one it can separate the two cases that matter, because they call for
+    opposite fixes: an identifier naming nothing is a registry or strategy
+    problem, while a registered instrument the run never priced is a data-window
+    one. The registry is consulted through
+    :meth:`~alphalab.instrument.registry.InstrumentRegistry.record_for` and
+    nothing else -- one keyed lookup, on a path a healthy run never takes.
+    """
+
+    registry = state.config.instruments
+    if registry is None:
+        return (
+            UnpricedReason.NO_PRICE_OBSERVED,
+            f"No market price was observed for asset_id {asset_id!r} in this run. "
+            "No InstrumentRegistry is configured on the pipeline, so this run cannot "
+            "say whether that identifier names a registered instrument.",
+        )
+
+    record = registry.record_for(asset_id)
+    if record is None:
+        return (
+            UnpricedReason.NOT_REGISTERED,
+            f"asset_id {asset_id!r} is not a registered instrument. A strategy named "
+            "an instrument the registry does not hold, so nothing could ever price "
+            "it and no order for it can reach a fill. Register the instrument, or "
+            "resolve the identifier through the same registry the run's "
+            "NormalizationPolicy uses.",
+        )
+    return (
+        UnpricedReason.REGISTERED_BUT_UNPRICED,
+        f"asset_id {asset_id!r} is registered as {record.symbol} on {record.exchange} "
+        f"in {record.currency}, and this run observed no price for it. The instrument "
+        "exists; the market data did not cover it.",
+    )
+
+
+def _record_unpriced(
+    state: ExecutionPipelineState, asset_id: str, timestamp: float
+) -> ExecutionPipelineState:
+    """Record that a request for ``asset_id`` was dropped, or that it happened again.
+
+    The reason is settled once, on the first drop, and never recomputed: the
+    registry is immutable configuration, so its answer cannot change during a
+    run, and re-deriving it would put work on a path that a misconfigured run
+    takes on every event.
+    """
+
+    existing = state.unpriced_assets.get(asset_id)
+    if existing is None:
+        reason, detail = _classify_unpriced(state, asset_id)
+        entry = UnpricedAsset(asset_id, reason, detail, timestamp, timestamp, 1)
+    else:
+        entry = replace(existing, last_timestamp=timestamp, occurrences=existing.occurrences + 1)
+    return replace(state, unpriced_assets=state.unpriced_assets.set(asset_id, entry))
 
 
 def _evaluate_risk(
@@ -479,6 +683,43 @@ def _release_reservation(
     )
 
 
+def _retire_dropped_request(
+    state: ExecutionPipelineState, order_id: str, timestamp: float
+) -> ExecutionPipelineState:
+    """End the life of a request that will never become an order.
+
+    Allocation opens two ledger entries per emitted request: a reservation for
+    the capital it holds, and a contribution entry recording which strategies
+    asked for it. They have the same lifetime -- from the moment allocation
+    emits the request until that request's life ends -- and both must be retired
+    at that point.
+
+    Only one of them was. :func:`_release_if_terminal` retires both, but it
+    returns early unless the order is in the OMS book, and a request dropped for
+    want of a price or refused by risk never reaches the OMS. So the reservation
+    was freed and the contribution entry was immortal: forty such requests left
+    forty entries that nothing could ever delete, growing for as long as a
+    misconfigured run continued.
+
+    ``AllocationState.contributions`` documented its own lifetime as ending when
+    "that request's order reaches a terminal state", which quietly assumed every
+    request becomes an order. A request whose life ends before the OMS ends here
+    instead; one that ends *as* a terminal order ends in
+    :func:`_release_if_terminal`. Between them the invariant holds without a
+    gap: a contribution exists exactly as long as the request does.
+
+    Both retirements are idempotent -- ``_release_reservation`` checks
+    membership and ``retire_contributions`` returns unchanged for an absent key
+    -- so this is safe wherever a request's lifecycle ends, exactly once.
+    """
+
+    released = _release_reservation(state, order_id, timestamp)
+    return replace(
+        released,
+        allocation=AllocationEngine.retire_contributions(released.allocation, order_id),
+    )
+
+
 def _release_if_terminal(
     state: ExecutionPipelineState, order_id: OrderId, timestamp: float
 ) -> ExecutionPipelineState:
@@ -504,6 +745,23 @@ def _release_if_terminal(
     price divergence; the condition is the divergence itself, whatever caused it.
     An order that is still working keeps its reservation, because that capital is
     still committed. See ADR-0015.
+
+    It retires the contribution ledger too, and until v2.8 it was the only thing
+    that did -- which meant an order reaching a terminal state by any route
+    other than a report left its contributions behind forever. A ``NO_FILL``,
+    ``REJECTED`` or ``EXPIRED`` execution produces no report at all, so
+    :func:`_apply_reports`'s per-report loop never ran and never called this; a
+    partially filled order was cancelled by :func:`_withdraw_partial_remainder`,
+    which freed the reservation and nothing else. Measured on v2.7.0, twenty
+    events on each of those four paths left twenty entries apiece. Every
+    terminal transition now comes through here, so "terminal" has one meaning
+    and one consequence. The pre-OMS paths, where there is no order to be
+    terminal, are :func:`_retire_dropped_request`.
+
+    Both retirements are idempotent -- the reservation release checks
+    membership, ``retire_contributions`` returns unchanged for an absent key --
+    so calling this at more than one point in an order's life is safe and
+    retires exactly once.
     """
 
     if not state.oms.orders.contains(order_id):
@@ -678,9 +936,10 @@ def _withdraw_partial_remainder(
     against them indefinitely.
 
     The remainder is therefore cancelled, exactly as a never-filled order is, and
-    its residual reservation released. Nothing else changes: no fill is created
-    or destroyed, so cash, positions, realized and unrealized P&L, the equity
-    curve and every analytics figure are the same as before. ``Order.cancel``
+    the ledgers the now-terminal order still holds are retired. Nothing else
+    changes: no fill is created or destroyed, so cash, positions, realized and
+    unrealized P&L, the equity curve and every analytics figure are the same as
+    before. ``Order.cancel``
     preserves ``filled_quantity`` and ``average_fill_price``, so the fill that
     did happen is untouched. See ADR-0014.
     """
@@ -690,7 +949,7 @@ def _withdraw_partial_remainder(
         return state
 
     withdrawn = replace(state, oms=OMSEngine.cancel(state.oms, order.order_id, timestamp))
-    return _release_reservation(withdrawn, request.order_id, timestamp)
+    return _release_if_terminal(withdrawn, order.order_id, timestamp)
 
 
 def _close_unfilled_order(

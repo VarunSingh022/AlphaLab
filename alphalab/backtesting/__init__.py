@@ -64,6 +64,7 @@ from alphalab.execution.policy import (
     LiquidityContext,
     StaticFill,
 )
+from alphalab.runtime.execution_pipeline import UnpricedAsset, UnpricedReason
 
 __all__ = [
     "BacktestConfig",
@@ -84,6 +85,8 @@ __all__ = [
     "ReplayBacktest",
     "ReplayResult",
     "StaticFill",
+    "UnpricedAsset",
+    "UnpricedReason",
     "UnsupportedRecordError",
     "advance",
     "commission_paid",

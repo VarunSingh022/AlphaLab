@@ -15,7 +15,7 @@ from alphalab.core.trade import Trade as CoreTrade
 from alphalab.execution.report import ExecutionReport
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.valuation import PortfolioValuation, PortfolioValuationSnapshot
-from alphalab.runtime.execution_pipeline import ExecutionPipelineState
+from alphalab.runtime.execution_pipeline import ExecutionPipelineState, UnpricedAsset
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +117,23 @@ class BacktestResult:
         reports = self.state.analytics.reports
         return reports[-1] if reports else None
 
+    @property
+    def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:
+        """Assets this run declined to trade for want of a price, in first-drop order.
+
+        Read from the pipeline state rather than stored again, so a result
+        cannot come to disagree with the run it describes -- the same reason
+        :attr:`ReplayResult.dataset_id` reads through. Empty for a run that
+        priced everything its strategies named.
+
+        A run whose strategies named instruments it never priced produces no
+        fills. Until v2.8 the reason was visible only on the per-event
+        :class:`~alphalab.runtime.execution_pipeline.ExecutionPipelineResult`
+        and was gone by the time the run finished.
+        """
+
+        return tuple(self.state.unpriced_assets.values())
+
 
 @dataclass(frozen=True, slots=True)
 class ReplayResult:
@@ -136,3 +153,9 @@ class ReplayResult:
         """
 
         return self.backtest.dataset_id
+
+    @property
+    def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:
+        """What the replayed run declined to trade, read from the run it wraps."""
+
+        return self.backtest.unpriced_assets
