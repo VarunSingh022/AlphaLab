@@ -407,7 +407,7 @@ missing key gets caught.
 | String where an array belongs | Refused (a `str` is a `Sequence` in Python) |
 | Unknown event type / enum member | Refused, listing what was expected |
 | `"STAGING"` where `"ModelStage.STAGING"` is written | Refused — one encoding, one decoder |
-| Unknown `schema_version` | Refused. There is no migration path in v2.5 |
+| Unknown `schema_version` | Refused. There is no migration path (v2.6 refuses portfolio v1) |
 | Unread extra field | Ignored, and not carried into the restored state |
 
 ### Live objects are referenced, not reconstructed
@@ -582,8 +582,9 @@ sign: a short's `market_value` is negative, and its unrealized P&L is
 - **Analytics trade records attribute realized P&L to the fill that produced
   it.** `_trade_record` reads only the portfolio events of the current fill;
   v2.0.0 scanned the whole portfolio history in reverse and could credit an
-  opening fill with an earlier close's P&L. (`sector_id="UNCLASSIFIED"` and
-  `holding_period_seconds=0.0` are still hard-coded — "D3", deferred.)
+  opening fill with an earlier close's P&L. As of v2.6 the record also carries
+  real strategy contributions and a real holding period, and reports no sector
+  rather than a placeholder one.
 
 ## Allocation reservation lifecycle (v2.2)
 
@@ -602,7 +603,8 @@ released anything and the total over-reported for the rest of the run.
 | --- | --- |
 | allocation emits a request | reserve `quantity * price` under the request's order id |
 | a fill executes | consume up to the executed notional; drop the entry when exhausted |
-| a partial fill | consume what executed, leave the residual reserved — the order is still working |
+| a partial fill | consume what executed, leave the residual reserved — the order is still working. The pipeline then cancels the remainder and releases it (v2.5) |
+| the order reaches a terminal status | release whatever it still holds (v2.6) |
 | risk rejects, or no market price | release the whole reservation |
 | the venue rejects / expires / does not fill | release the whole reservation |
 
@@ -815,14 +817,18 @@ fixed, and each has a regression test pinning it:
   `BacktestEngine` populates it. Allocation sizes from market prices and its
   capital budget, not from the portfolio.
 - **`ExecutionPipeline` mints a fresh order per market event and never re-works
-  an existing one.** A partially filled order stays `PARTIALLY_FILLED` with its
-  residual reserved; it is not topped up on a later event. A participation-capped
-  strategy that wants to finish a large order must keep expressing the intent.
+  an existing one.** A partially filled order is cancelled at the end of its
+  execution opportunity (v2.5) and its residual reservation released; it is not
+  topped up on a later event. A participation-capped strategy that wants to
+  finish a large order must keep expressing the intent.
 - **Multi-currency valuation is not implemented.** `PortfolioValuation` and
   `NAVCalculator` value the base currency only; FX rates would be needed
   otherwise.
-- **`ExecutionPipeline._trade_record`** still hard-codes
-  `sector_id="UNCLASSIFIED"` and `holding_period_seconds=0.0` ("D3", deferred).
+- **Sector attribution is unavailable, and says so.** There is no security
+  master, so `TradeRecord.sector_id` is `None` on the execution path and
+  `pnl_by_sector` is empty rather than bucketed under a placeholder. A caller
+  who has sector data of their own still gets a real breakdown. A security
+  master is not in scope before v2.7.
 - **An unseeded run does not reproduce its identifiers.** `BacktestConfig.seed`
   defaults to `None`, which leaves identifiers on `uuid4`; only the economics
   reproduce. This is deliberate — the default is not silently made

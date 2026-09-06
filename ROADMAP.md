@@ -404,6 +404,30 @@ Enterprise capabilities
 
 ---
 
+v2.6.0 — "Allocation Authority and Attribution Truth" — makes two production-path
+numbers true rather than plausible, and is a correctness release with no new
+packages:
+
+- **Outstanding capital is enforced.** The budget guard now counts capital
+  already committed to unsettled orders. Six EXTERNAL-routed events previously
+  committed 5,400,000 against a 1,000,000 budget with no position held and no
+  rejection recorded.
+- **A terminal order holds no reservation.** A reservation is denominated at the
+  reference price and consumption at the execution price, so any fill priced
+  away from the reference stranded a residual on a `FILLED` order, without bound.
+- **Strategy attribution is real.** `"ALLOC-NETTED"` is deleted.
+  `StrategyContribution` carries who asked for a netted order and for how much,
+  and realized P&L splits by signed contribution.
+- **Holding periods are measured** from `Position.opened_at`, and **sectors are
+  reported as absent** rather than as one placeholder bucket.
+- The portfolio snapshot moves to schema 2 and refuses version 1. No migration
+  framework: a v1 payload does not record when a position opened.
+- `alphalab.integrations`, `alphalab.kernel`, `alphalab.core.events` and
+  `CommonEvent` are deprecated for removal in v3.0. Nothing is removed.
+
+See ADR-0015 and `CHANGELOG.md`.
+
+
 # Not yet addressed
 
 The engine packages exist and are individually tested. The following integration
@@ -443,16 +467,22 @@ and consolidation work has **not** been done:
   run, and the execution path runs it. Research, reporting, feature store and
   the rest remain standalone libraries.
 - Resolution of `kernel` and `core/events` (both entirely unused: nothing outside
-  their own packages and tests imports either).
+  their own packages and tests imports either). **Deprecated in v2.6, removed in
+  v3.0** — `kernel` warns at import, `core.events` deliberately does not, because
+  `alphalab.core` re-exports its symbols eagerly and a warning there would fire
+  on the canonical core package for every consumer (ADR-0015).
 - `alphalab.integrations` is a third broker surface that speaks none of the
   canonical `alphalab.broker` types and is imported by nothing. v2.3 converged
-  `broker` and `brokers` and left it untouched.
+  `broker` and `brokers` and left it untouched. **Deprecated in v2.6, removed in
+  v3.0.**
 - Strategies still do not see the marked portfolio: `StrategyContext` comes from
   the caller's `context_factory`.
 - Multi-currency valuation (`PortfolioValuation` / `NAVCalculator` value the base
   currency only).
-- `_trade_record` attribution in `execution_pipeline` still hard-codes
-  `sector_id="UNCLASSIFIED"` / `holding_period_seconds=0.0` ("D3").
+- Sector attribution needs a security master, which does not exist here. v2.6
+  stopped reporting `"UNCLASSIFIED"` and now reports no sector at all, so
+  `pnl_by_sector` is empty on the execution path. A security master is v2.7 work
+  at the earliest.
 
 - `benchmark_workbench.py` fails on a tab-lifecycle assertion in
   `alphalab.workbench`. Pre-existing at v2.2.0 and unrelated to the execution
@@ -461,8 +491,9 @@ and consolidation work has **not** been done:
 Delivered since this list was written: mark-to-market position repricing (v2.1),
 `alphalab.replay` integration with the execution path (v2.2), market-data /
 broker convergence with paper execution on the canonical path (v2.3), the
-model/strategy lifecycle composing PR-046 through PR-049 (v2.4), and typed state
-round-trip plus the provider→source link (v2.5).
+model/strategy lifecycle composing PR-046 through PR-049 (v2.4), typed state
+round-trip plus the provider→source link (v2.5), and allocation authority with
+attribution truth (v2.6).
 
 ---
 

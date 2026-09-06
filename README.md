@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
 [![Version](https://img.shields.io/badge/Version-2.5.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-2008%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-2122%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -38,13 +38,13 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.5.0**
+**Current Release:** **v2.6.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.5.0 |
-| Tests | **2008 Passing** |
+| Version | 2.6.0 |
+| Tests | **2122 Passing** |
 | Static Typing | **Strict MyPy** (915 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
@@ -52,18 +52,15 @@ The framework is designed for researchers, quantitative developers, students, an
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-v2.5.0 — "State Round-Trip and the Live Data Path" — takes three capabilities that
-already existed, were already tested, and were unreachable, and makes them reachable.
-`capture` / `restore` give **typed round-trip** to `PortfolioState` and
-`LifecycleState` alongside `OMSState`, so the states AlphaLab writes can be read back
-as typed values rather than nested dictionaries. `alphalab.market.provider` connects a
-market-data provider to the execution path through the **normalization boundary v2.3
-built and nothing called**. The replay cursor's O(N²) — on a path v2.2 had wired into
-execution, and which the benchmark was written to avoid measuring — is gone. Two
-behaviours that had never been decided now are: what a session does with an
-**unordered source**, and what happens to a **partially filled order's remainder**.
-Contains breaking changes confined to simulated-execution bookkeeping — see
-`CHANGELOG.md` and `docs/ADR/0014-state-round-trip-and-the-live-data-path.md`.
+v2.6.0 — "Allocation Authority and Attribution Truth" — makes two production-path
+numbers true rather than plausible. Capital committed to orders that have not settled
+now counts against the budget: six externally routed events previously committed
+**5,400,000 against a 1,000,000 budget** with no position held and not one rejection
+recorded. And strategy attribution now names strategies that exist — `"ALLOC-NETTED"`,
+a constant the allocator stamped on every order it produced, is deleted, and realized
+P&L splits by each strategy's signed contribution to the netted order. Holding periods
+are measured rather than reported as zero, and sectors are reported as absent rather
+than as one placeholder bucket, because there is no security master to make them true.
 
 > **A deployment is a lifecycle fact, not an operation on a machine.** It records that
 > an environment *should* be running a strategy version. It starts no process, opens no
@@ -274,7 +271,7 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 2008 passing tests (1698 unit, 109 integration, 201 regression)
+- ✅ 2122 passing tests (1698 unit, 109 integration, 315 regression)
 - ✅ Strict MyPy type checking (915 source files)
 - ✅ Ruff linting and formatting
 - ✅ Source distribution validation
@@ -352,6 +349,16 @@ partially filled simulated order's remainder, with its reservation released; and
 removal of the replay cursor's O(N²), with the benchmark repointed at the API the
 integrated path actually uses.
 
+**v2.6.0** — allocation authority and attribution truth: the budget guard counts
+outstanding commitment, so `EXTERNAL` routing can no longer over-commit across
+events; a terminal order releases whatever a fill priced away from the reference
+price left behind; `StrategyContribution` carries who asked for a netted order
+through to `TradeRecord`, and `pnl_by_strategy` splits by signed contribution;
+`Position.opened_at` makes holding periods real; `pnl_by_sector` is empty rather
+than fictional; the portfolio snapshot moves to schema 2 and refuses version 1
+without a migration framework; and `integrations`, `kernel`, `core.events` and
+`CommonEvent` are deprecated for v3.0 removal. See ADR-0015.
+
 See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## Not yet addressed
@@ -369,6 +376,9 @@ See `CHANGELOG.md` and `ROADMAP.md`.
 - Artifact storage. `ArtifactRef` records where a model's bytes live and what they
   should hash to; AlphaLab never reads, writes or hashes them, and there is no
   object store
+- A **security master**. Sector attribution needs one, so as of v2.6 the execution
+  path reports no sector at all and `pnl_by_sector` is empty. A caller who has
+  sector data of their own can still supply it
 - A single integrated runtime spanning *all* engines (`ExecutionPipeline`,
   `backtesting`, `runtime.session` and `lifecycle` are what is wired today, and
   the lifecycle is not joined to the execution path)
