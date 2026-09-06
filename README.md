@@ -38,33 +38,33 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.7.0**
+**Current Release:** **v2.8.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.7.0 |
-| Tests | **2200 Passing** |
-| Static Typing | **Strict MyPy** (934 source files) |
+| Version | 2.8.0 |
+| Tests | **2289 Passing** |
+| Static Typing | **Strict MyPy** (941 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-v2.7.0 — "Instrument Identity and Dataset Provenance" — makes two asserted things
-derived. A provider symbol now resolves to a canonical instrument through an
-authority instead of being passed through verbatim: until v2.7 the documented
-default path turned `"AAPL"` into an `asset_id`, carried it through market data,
-the strategy, allocation and risk, and was refused by `core.Fill` at the **last**
-stage, naming neither the provider nor the symbol. The only configuration that
-reached a fill was one where an operator hand-authored a UUID per instrument.
-And a run's evidence now names the data the run actually consumed rather than a
-dataset a caller claimed — `evidence_id` hashes that value, so the digest was
-only as trustworthy as a string somebody typed, and two runs over genuinely
-different data could be handed one identity, verify cleanly and pass the gate.
-`core.Fill` / `core.Trade` UUID validation is unchanged: v2.7 supplies a producer
-that can satisfy the existing invariant rather than relaxing it.
+v2.8.0 — "Currency Roles and Run Outcomes" — makes three fields mean one thing
+each. `ExecutionPipelineConfig.currency` funds the cash ledger while
+`Account.base_currency` is what risk reads, and nothing checked that they
+agreed: when they did not, cash landed under one and risk read the other, so
+buying power and NAV were **zero**, every order was refused, and the leverage
+and margin checks quietly stopped checking — a run that reported its full
+starting equity and produced no fills. A valuation could add USD and EUR
+together and label the total `"USD"`. And of all the ways a request can end
+without a fill, exactly one left no reason behind — the ADR-0016 §3 failure mode,
+where a strategy names an instrument the run never priced — while its allocation
+ledger entry outlived it without bound. **No FX is added**: refusing to
+aggregate two currencies is the absence of a rate, not a rule that
+foreign-currency instruments are invalid.
 
 > **A deployment is a lifecycle fact, not an operation on a machine.** It records that
 > an environment *should* be running a strategy version. It starts no process, opens no
@@ -399,6 +399,19 @@ partially filled simulated order's remainder, with its reservation released; and
 removal of the replay cursor's O(N²), with the benchmark repointed at the API the
 integrated path actually uses.
 
+**v2.8.0** — currency roles and run outcomes: `ExecutionPipeline.initialize`
+refuses a configuration whose `currency` and `Account.base_currency` disagree,
+which silently zeroed buying power and NAV and switched off the leverage and
+margin checks; `PortfolioValuation.snapshot` refuses a book spanning two
+currencies instead of adding them together under one label; a run records the
+assets it declined to trade for want of a price, aggregated per asset and
+surfaced on `BacktestResult`, `ReplayResult` and `SessionState`, optionally
+distinguishing an unregistered identifier from an unpriced instrument through a
+read-only `InstrumentRegistry` reference; an allocation contribution is retired
+wherever a request's lifecycle ends rather than only where an order produced a
+report; and `LIFECYCLE_SNAPSHOT_SCHEMA` becomes a literal without moving its
+value. No breaking changes, no schema movement, no migration, and no FX.
+
 **v2.7.0** — instrument identity and dataset provenance: `alphalab.instrument`
 becomes the authority for what a provider symbol means, deriving a canonical
 `asset_id` deterministically (`uuid5` over a fixed key under a frozen namespace)
@@ -447,7 +460,10 @@ See `CHANGELOG.md` and `ROADMAP.md`.
   wired to `alphalab.enterprise`'s RBAC or audit log
 - Strategies do not see the marked portfolio: `StrategyContext` comes from the
   caller's `context_factory`
-- Multi-currency valuation (`PortfolioValuation` values the base currency only)
+- Multi-currency valuation. As of v2.8 `PortfolioValuation.snapshot` refuses a
+  book it cannot express as one figure in one currency rather than returning a
+  wrong one; valuing across currencies needs an FX rate source that does not
+  exist here. Holding and booking in a foreign currency is supported
 
 ---
 

@@ -404,6 +404,51 @@ Enterprise capabilities
 
 ---
 
+v2.8.0 — "Currency Roles and Run Outcomes" — makes three fields mean one thing
+each, and is a correctness release with no new packages and no breaking changes:
+
+- **A configuration cannot name two account currencies.**
+  `ExecutionPipelineConfig.currency` funds the cash ledger and denominates every
+  fill; `Account.base_currency` is what the risk resync and `NAVCalculator`
+  read. When they disagreed, cash landed under one and risk read the other, so
+  buying power and NAV were zero: every order was refused, and the leverage and
+  margin checks stopped checking. Refused at the first statement of
+  `ExecutionPipeline.initialize`, before the portfolio is funded.
+- **A valuation cannot span two currencies.** `PortfolioValuation.snapshot` read
+  cash for one currency and summed positions across all of them, so a mixed book
+  returned a figure in no currency at all. It now refuses. **This is the absence
+  of an FX rate, not a rule that foreign-currency instruments are invalid** — the
+  cash ledger is already keyed by currency and every position declares its own.
+- **A run says why it produced no fills.** `unpriced_assets` records the assets a
+  run declined to trade, keyed by asset so a misconfigured session counts rather
+  than grows, and surfaced on `BacktestResult`, `ReplayResult` and
+  `SessionState`. An optional read-only `InstrumentRegistry` reference on the
+  pipeline config separates "not a registered instrument" from "registered but
+  never priced". This closes the ADR-0016 §3 failure mode, which that ADR
+  documented and deferred.
+- **An allocation contribution cannot outlive its request.** Four paths retired
+  the reservation and kept the contribution entry forever: unpriced and
+  risk-rejected requests never reach the OMS, and `NO_FILL` / `REJECTED` /
+  `EXPIRED` and a withdrawn partial-fill remainder reach a terminal OMS state
+  without producing a report, which is the only route that reached the retiring
+  code. Retirement now happens wherever a request's lifecycle ends.
+- `LIFECYCLE_SNAPSHOT_SCHEMA` is a literal rather than an alias of
+  `DEFAULT_SCHEMA_VERSION`. The value does not move; the constant is now
+  independently settable, which is what ADR-0018's bump needs.
+- A regression guard records that listing exchange, market-data attribution and
+  execution venue are three concepts, not one, and that none derives from
+  another. The archaeology proposed merging them; reading the code refuted it.
+
+**Deferred out of v2.8, deliberately:** an FX rate source and true
+multi-currency valuation; instrument currency reaching `Position` / `CashLedger`
+and a `currency` on `Bar`, both of which need the rate source first;
+`OMSSnapshot.schema_version` and the OMS history/events envelope, which belong
+with the next release that moves a persisted format; `AllocationState`
+persistence, which delivers nothing until session round-trip exists; and
+everything already deferred below.
+
+---
+
 v2.7.0 — "Instrument Identity and Dataset Provenance" — makes two asserted
 things derived, and is a correctness release plus one new package:
 
@@ -512,9 +557,17 @@ and consolidation work has **not** been done:
   `broker` and `brokers` and left it untouched. **Deprecated in v2.6, removed in
   v3.0.**
 - Strategies still do not see the marked portfolio: `StrategyContext` comes from
-  the caller's `context_factory`.
-- Multi-currency valuation (`PortfolioValuation` / `NAVCalculator` value the base
-  currency only).
+  the caller's `context_factory`, and six of its nine fields are protocols with
+  no members, which every caller satisfies with a bare object. Populating it
+  needs `alphalab.strategy` to depend on portfolio, market and risk views, which
+  the current layering forbids.
+- Multi-currency valuation. v2.8 made `PortfolioValuation.snapshot` refuse a book
+  it cannot express as one figure in one currency, rather than returning a wrong
+  one; `portfolio_value`, `long_value`, `short_value` and `NAVCalculator` are
+  deliberately unchanged and still currency-blind, with their behaviour pinned by
+  a test. Valuing across currencies needs an FX rate source that does not exist
+  here, and guarding `NAVCalculator` is a hot-path decision that belongs with it.
+  Holding and booking in a foreign currency is supported.
 - Sector attribution needs a security master that *classifies*, which still does
   not exist here. v2.6 stopped reporting `"UNCLASSIFIED"` and reports no sector
   at all; v2.7 delivered the **identity** half — `alphalab.instrument` resolves a
