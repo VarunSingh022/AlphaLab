@@ -19,7 +19,14 @@ def allocation_history(state: AllocationState) -> Sequence[OrderRequest]:
 
 
 def total_notional_allocated(state: AllocationState) -> Decimal:
-    """Returns the total absolute notional value allocated historically."""
+    """Capital currently committed to orders that have not settled.
+
+    This is an *outstanding* figure, not a historical one: it rises when a
+    request reserves and falls when the reservation is consumed by a fill or
+    released, so it is the total of :func:`open_reservations`, never a running
+    total of everything ever allocated. It is what the budget guard compares
+    against (ADR-0015 decision 1).
+    """
     return state.notional_allocated
 
 

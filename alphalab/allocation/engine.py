@@ -22,6 +22,7 @@ from alphalab.allocation.sizing import SizingModel
 from alphalab.allocation.state import AllocationState
 from alphalab.allocation.validation import validate_intent, validate_net_quantity
 from alphalab.common.ids import new_id
+from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side
 from alphalab.core.order_request import OrderRequest
 from alphalab.strategy.events import Intent
@@ -80,6 +81,7 @@ class AllocationEngine:
 
         # 3. Netting
         net_quantities = NettingEngine.net_quantities(sized_deltas)
+        contributions_by_asset = NettingEngine.contributions_by_asset(sized_deltas)
 
         # 4. Enforce constraints & Budget Pre-check
         total_notional = Decimal("0.00")
@@ -116,25 +118,54 @@ class AllocationEngine:
             orders.append(
                 OrderRequest(
                     order_id=AllocationEngine._create_id(),
-                    strategy_id="ALLOC-NETTED",
+                    # A netted order can represent several strategies, so it has
+                    # no single owner and says so. Until v2.6 this carried the
+                    # fabricated "ALLOC-NETTED", which the OMS then indexed as
+                    # though it were a strategy. Attribution reads
+                    # ``contributions``. See ADR-0015 decision 4.
+                    strategy_id="",
                     asset_id=asset_id,
                     side=side,
                     quantity=abs_qty,
                     price=price,
                     timestamp=timestamp,
+                    contributions=contributions_by_asset.get(asset_id, ()),
                 )
             )
 
         # 5. Budget Application
-        available_cap = state.budget.available_global_capital
-        if total_notional > available_cap or total_notional > state.budget.maximum_exposure:
-            reason = "Requested notional exceeds global capital or exposure limits."
+        #
+        # Capital already committed to orders that have not settled counts
+        # against the budget. Before v2.6 only ``total_notional`` was compared,
+        # so the whole budget was re-offered on every market event no matter how
+        # much was already reserved. Under SIMULATED routing a reservation is
+        # consumed or released inside the event that created it, so this was
+        # invisible; under EXTERNAL routing the order stays working and its
+        # reservation stays held, and six events committed 5.4x the budget with
+        # no position held and no rejection recorded.
+        #
+        # ``CapitalBudget`` itself is untouched: it remains an immutable sizing
+        # parameter, and the commitment lives in ``notional_allocated``. See
+        # ADR-0015 decision 1 for why the budget is not made consumable.
+        outstanding = state.notional_allocated
+        committed = outstanding + total_notional
+        remaining = state.budget.available_global_capital - outstanding
+        if committed > state.budget.available_global_capital or (
+            committed > state.budget.maximum_exposure
+        ):
+            reason = (
+                "Requested notional plus outstanding commitment exceeds global "
+                "capital or exposure limits."
+            )
             events = events.append(
                 BudgetExceeded(
-                    AllocationEngine._create_id(), timestamp, reason, total_notional, available_cap
+                    AllocationEngine._create_id(), timestamp, reason, total_notional, remaining
                 )
             )
-            # Strict rejection mode: if batch breaches budget, drop batch.
+            # Strict rejection mode: if batch breaches budget, drop batch. The
+            # returned state differs from the input only by these events --
+            # history, reservations and notional_allocated are untouched, so a
+            # rejected allocation changes no prior reservation.
             return replace(state, events=events), ()
 
         # 6. Finalization
@@ -147,8 +178,10 @@ class AllocationEngine:
         # Every emitted request reserves its own notional, so the capital held
         # against it can later be consumed or released by order id.
         reservations = state.reservations
+        contributions = state.contributions
         for order in orders:
             reservations = reservations.set(order.order_id, order.quantity * order.price)
+            contributions = contributions.set(order.order_id, order.contributions)
 
         new_state = replace(
             state,
@@ -156,6 +189,7 @@ class AllocationEngine:
             events=events,
             notional_allocated=state.notional_allocated + total_notional,
             reservations=reservations,
+            contributions=contributions,
         )
 
         return new_state, tuple(orders)
@@ -165,6 +199,34 @@ class AllocationEngine:
         """Capital still held against ``order_id``; zero if it holds none."""
 
         return state.reservations.get(order_id, Decimal("0.00"))
+
+    @staticmethod
+    def contributions_for(
+        state: AllocationState, order_id: str
+    ) -> tuple[StrategyContribution, ...]:
+        """Who asked for ``order_id``; empty once the order has been retired.
+
+        Read this *before* the order reaches a terminal state: post-trade
+        attribution needs it at fill time, and
+        :meth:`retire_contributions` drops it when the order's life ends.
+        """
+
+        return state.contributions.get(order_id, ())
+
+    @staticmethod
+    def retire_contributions(state: AllocationState, order_id: str) -> AllocationState:
+        """Drop the contribution ledger entry for an order whose life has ended.
+
+        Retiring on the *terminal transition* rather than on reservation
+        exhaustion is deliberate: a reservation can be exhausted by a fill while
+        the order is still working, and a contribution describes the order, not
+        the capital. Sharing the reservation's retirement point would also have
+        inherited its defect -- see ADR-0015 decision 5.
+        """
+
+        if order_id not in state.contributions:
+            return state
+        return replace(state, contributions=state.contributions.delete(order_id))
 
     @staticmethod
     def apply_execution(

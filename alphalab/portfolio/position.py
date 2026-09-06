@@ -18,6 +18,21 @@ from alphalab.portfolio.types import PositionSide
 __all__ = ["CURRENCY_QUANT", "PRICE_QUANT", "SHARE_QUANT", "Position"]
 
 
+class _KeepOpenedAt:
+    """Sentinel for "leave ``opened_at`` as it is".
+
+    A distinct type rather than a float, so that ``None`` stays available as a
+    real value meaning "unrecorded" and no legitimate timestamp can collide
+    with it.
+    """
+
+    __slots__ = ()
+
+
+#: The one instance of that sentinel.
+_KEEP_OPENED_AT = _KeepOpenedAt()
+
+
 @dataclass(frozen=True, slots=True)
 class Position:
     """
@@ -40,6 +55,18 @@ class Position:
     When a ``Position`` is constructed without an explicit ``cost_basis`` (as
     external callers and fixtures do), the basis is taken to be
     ``average_cost * |quantity|`` rounded to money.
+
+    ``opened_at`` is when the *current* exposure began, and is state rather than
+    something derived from the event log. A reversal emits ``PositionReduced``,
+    not ``PositionClosed`` followed by ``PositionOpened``, so a reader of the
+    log cannot tell a reversal from a partial reduction without replaying
+    running quantity and watching for a sign change. It is set when a flat
+    position takes on exposure, left alone by an increase or a partial
+    reduction -- the remaining quantity has been held since it opened -- and
+    replaced at a reversal, because the old leg closed and a new opposite one
+    opened at that instant. A closed position leaves ``positions`` entirely, so
+    its ``opened_at`` goes with it. ``None`` means unrecorded, which is what a
+    hand-constructed position reports. See ADR-0015 decision 6.
     """
 
     asset_id: str
@@ -50,6 +77,7 @@ class Position:
     currency: str
     last_updated: float
     cost_basis: Decimal | None = None
+    opened_at: float | None = None
 
     @property
     def side(self) -> PositionSide:
@@ -109,8 +137,15 @@ class Position:
         realized_total: Decimal,
         price: Decimal,
         timestamp: float,
+        opened_at: float | _KeepOpenedAt | None = _KEEP_OPENED_AT,
     ) -> Position:
-        """Rebuild the position from an exact quantity/basis pair."""
+        """Rebuild the position from an exact quantity/basis pair.
+
+        ``opened_at`` defaults to keeping whatever the position already had.
+        The two callers that pass it are the ones where the current exposure
+        genuinely begins now: opening from flat, and either direction of a
+        reversal.
+        """
 
         average = to_price(basis / abs(quantity)) if quantity != 0 else Decimal("0")
         return replace(
@@ -121,6 +156,7 @@ class Position:
             realized_pnl=realized_total,
             market_price=price,
             last_updated=timestamp,
+            opened_at=self.opened_at if isinstance(opened_at, _KeepOpenedAt) else opened_at,
         )
 
     def apply_fill(
@@ -150,8 +186,11 @@ class Position:
         total = notional(quantity, price)
 
         if self.side is PositionSide.FLAT:
+            # Exposure begins now.
             return (
-                self._rebased(quantity, total, self.realized_pnl, price, timestamp),
+                self._rebased(
+                    quantity, total, self.realized_pnl, price, timestamp, opened_at=timestamp
+                ),
                 ZERO_MONEY,
             )
 
@@ -256,6 +295,9 @@ class Position:
                 to_money(self.realized_pnl + realized),
                 price,
                 timestamp,
+                # The long closed and a short opened, in one fill. Carrying the
+                # long's open time onto the new short would be a false number.
+                opened_at=timestamp,
             ),
             realized,
         )
@@ -352,6 +394,7 @@ class Position:
                 to_money(self.realized_pnl + realized),
                 price,
                 timestamp,
+                opened_at=timestamp,
             ),
             realized,
         )

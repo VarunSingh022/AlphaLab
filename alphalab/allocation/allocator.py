@@ -17,11 +17,18 @@ class IntentAllocator:
         budget: CapitalBudget,
         market_prices: Mapping[str, Decimal],
         sizing_model: SizingModel,
-    ) -> list[tuple[str, Decimal]]:
-        """Applies the sizing model to derive raw deltas per intent."""
-        sized: list[tuple[str, Decimal]] = []
+    ) -> list[tuple[str, str, Decimal]]:
+        """Applies the sizing model to derive raw deltas per intent.
+
+        Returns ``(strategy_id, instrument, quantity)`` triples. Before v2.6 the
+        strategy was dropped here -- one statement before netting -- which is
+        where every downstream attribution number lost its subject. Keeping it
+        costs one tuple element and is what lets a netted order say which
+        strategies asked for it. See ADR-0015 decision 4.
+        """
+        sized: list[tuple[str, str, Decimal]] = []
         for intent in intents:
             price = market_prices.get(intent.instrument, Decimal("0.00"))
             qty = sizing_model.calculate(intent, budget, price)
-            sized.append((intent.instrument, qty))
+            sized.append((intent.strategy_id, intent.instrument, qty))
         return sized

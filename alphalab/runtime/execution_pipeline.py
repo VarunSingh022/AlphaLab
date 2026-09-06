@@ -22,6 +22,7 @@ from alphalab.analytics.attribution import TradeRecord
 from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.order_request import OrderRequest
@@ -392,7 +393,7 @@ def _process_requests(
         # than submitting an order the execution leg cannot price.
         if request.asset_id not in current.market_prices:
             unpriced.append(request)
-            current = _release_reservation(current, request, event.timestamp)
+            current = _release_reservation(current, request.order_id, event.timestamp)
             continue
         current, decision = _evaluate_risk(current, request, event.timestamp)
         decisions.append(decision)
@@ -401,7 +402,7 @@ def _process_requests(
             # Risk refused it, so it will never reach the OMS and never
             # execute: the capital it holds is freed here, at the point its
             # lifecycle ends, and exactly once.
-            current = _release_reservation(current, request, event.timestamp)
+            current = _release_reservation(current, request.order_id, event.timestamp)
             continue
         current, order = _submit_and_accept_order(current, request, event.timestamp)
         if current.config.routing is ExecutionRouting.EXTERNAL:
@@ -420,7 +421,7 @@ def _process_requests(
                 current,
                 oms=_close_unfilled_order(current.oms, order, decision_out.status, event.timestamp),
             )
-            current = _release_reservation(current, request, event.timestamp)
+            current = _release_reservation(current, request.order_id, event.timestamp)
 
         current, new_fills, new_trades = _apply_reports(current, order, new_reports)
         current = _withdraw_partial_remainder(current, request, order, event.timestamp)
@@ -458,22 +459,61 @@ def _evaluate_risk(
 
 
 def _release_reservation(
-    state: ExecutionPipelineState, request: OrderRequest, timestamp: float
+    state: ExecutionPipelineState, order_id: str, timestamp: float
 ) -> ExecutionPipelineState:
-    """Free the allocation capital a request holds, once its lifecycle ends.
+    """Free the allocation capital an order holds, once its lifecycle ends.
 
-    The allocation engine owns the amount; the pipeline owns the moment. A
-    request that never produced a request-level reservation (a batch dropped by
-    the budget check emits none) has nothing to release.
+    The allocation engine owns the amount; the pipeline owns the moment. The
+    membership check is what makes this idempotent, and every release point
+    depends on that: an order whose capital was already freed -- or which never
+    produced a request-level reservation, as a batch dropped by the budget check
+    does not -- has nothing to release, and asking the engine a second time
+    would raise :class:`~alphalab.allocation.exceptions.UnknownReservationError`.
     """
 
-    if request.order_id not in state.allocation.reservations:
+    if order_id not in state.allocation.reservations:
         return state
     return replace(
         state,
-        allocation=AllocationEngine.release_reservation(
-            state.allocation, request.order_id, timestamp
-        ),
+        allocation=AllocationEngine.release_reservation(state.allocation, order_id, timestamp),
+    )
+
+
+def _release_if_terminal(
+    state: ExecutionPipelineState, order_id: OrderId, timestamp: float
+) -> ExecutionPipelineState:
+    """Free whatever a *terminal* order still holds.
+
+    A reservation is denominated at the request's **reference** price, while
+    :meth:`~alphalab.allocation.engine.AllocationEngine.apply_execution` consumes
+    at the **execution** price. Those are different units of account, so a fill
+    priced away from the reference leaves a residual: ``min(reserved, executed)``
+    strands it when the fill was cheaper and silently discards the excess when it
+    was dearer.
+
+    Before v2.6 nothing freed that residual. A *partially* filled order is
+    withdrawn by :func:`_withdraw_partial_remainder`, but an order the venue
+    filled in full reaches ``FILLED`` -- terminal -- holding capital committed to
+    nothing, and every later event added more. It is released here, at the
+    terminal transition, which is the moment shared by both routings: a
+    simulated fill arrives through :func:`_process_requests` and a venue fill
+    through :meth:`ExecutionPipeline.apply_execution_report`, and both go through
+    :func:`_apply_reports`.
+
+    This is not slippage handling. Slippage is the most common *source* of a
+    price divergence; the condition is the divergence itself, whatever caused it.
+    An order that is still working keeps its reservation, because that capital is
+    still committed. See ADR-0015.
+    """
+
+    if not state.oms.orders.contains(order_id):
+        return state
+    if state.oms.orders.find(order_id).is_open:
+        return state
+    released = _release_reservation(state, str(order_id.value), timestamp)
+    return replace(
+        released,
+        allocation=AllocationEngine.retire_contributions(released.allocation, str(order_id.value)),
     )
 
 
@@ -556,6 +596,10 @@ def _apply_reports(
             current.allocation, report.order_id, executed_notional, report.timestamp
         )
         current = replace(current, allocation=allocation_state)
+        # If this report took the order terminal, whatever the reference price
+        # reserved but the execution price did not consume is capital committed
+        # to nothing. Free it here -- see _release_if_terminal.
+        current = _release_if_terminal(current, order.order_id, report.timestamp)
         fills.append(fill)
         trades.append(trade)
 
@@ -591,6 +635,11 @@ def _apply_report_to_portfolio(
 ) -> ExecutionPipelineState:
     signed_quantity = report.fill_quantity if side is OMSSide.BUY else -report.fill_quantity
     before = len(state.portfolio.events)
+    # Read both *before* the fill is applied. A closing fill removes the
+    # position, taking its ``opened_at`` with it, and the contribution ledger is
+    # retired once the order goes terminal -- so neither can be recovered after.
+    opened_at = _opened_at(state.portfolio, report.asset_id)
+    contributions = AllocationEngine.contributions_for(state.allocation, report.order_id)
     portfolio = PortfolioEngine.apply_fill(
         state.portfolio,
         report.asset_id,
@@ -601,7 +650,7 @@ def _apply_report_to_portfolio(
         report.currency,
     )
     risk = _sync_risk_from_portfolio(state.risk, portfolio)
-    record = _trade_record(report, portfolio.events[before:])
+    record = _trade_record(report, portfolio.events[before:], opened_at, contributions)
     return replace(
         state,
         portfolio=portfolio,
@@ -641,7 +690,7 @@ def _withdraw_partial_remainder(
         return state
 
     withdrawn = replace(state, oms=OMSEngine.cancel(state.oms, order.order_id, timestamp))
-    return _release_reservation(withdrawn, request, timestamp)
+    return _release_reservation(withdrawn, request.order_id, timestamp)
 
 
 def _close_unfilled_order(
@@ -700,30 +749,53 @@ def _canonical_execution(report: ExecutionReport, side: CoreSide) -> tuple[CoreF
     return canonical_execution_from_report(report, side)
 
 
-def _trade_record(report: ExecutionReport, fill_events: Sequence[PortfolioEvent]) -> TradeRecord:
+def _opened_at(portfolio: PortfolioState, asset_id: str) -> float | None:
+    """When the position this fill is about to touch began, if it exists."""
+
+    position = portfolio.positions.get(asset_id)
+    return None if position is None else position.opened_at
+
+
+def _trade_record(
+    report: ExecutionReport,
+    fill_events: Sequence[PortfolioEvent],
+    opened_at: float | None,
+    contributions: tuple[StrategyContribution, ...],
+) -> TradeRecord:
     """Build the analytics trade record for one execution report.
 
     ``fill_events`` are only the portfolio events this fill produced. Scanning
     the whole portfolio history instead would attribute an earlier close's
     realized P&L to an opening fill that realized nothing.
+
+    A fill that *reduced or closed* a position gets a holding period measured
+    from that position's ``opened_at``. A fill that opened or increased one gets
+    ``None``: it has held nothing, and the ``0.0`` this field carried until v2.6
+    was a measurement that was never made -- it made ``avg_holding_period`` a
+    mean of zeros. Sector is ``None`` for the same class of reason: AlphaLab has
+    no security master, and ``"UNCLASSIFIED"`` presented one fictional bucket as
+    though it were a breakdown.
     """
 
     realized = Decimal("0.00")
+    holding_period: float | None = None
     for evt in fill_events:
         # PositionReduced(timestamp, account_id, asset_id, reduced_quantity, price, realized_pnl)
         # PositionClosed(timestamp, account_id, asset_id, price, realized_pnl)
         if isinstance(evt, PositionReduced | PositionClosed):
             realized = evt.realized_pnl
+            if opened_at is not None:
+                holding_period = report.timestamp - opened_at
             break
 
     return TradeRecord(
         trade_id=report.execution_id,
-        strategy_id=report.strategy_id,
         asset_id=report.asset_id,
-        sector_id="UNCLASSIFIED",
+        sector_id=None,
         realized_pnl=realized,
         notional_value=report.fill_quantity * report.fill_price,
-        holding_period_seconds=0.0,
+        holding_period_seconds=holding_period,
+        contributions=contributions,
     )
 
 

@@ -28,6 +28,11 @@ from alphalab.analytics import (
     validate_returns,
     value_at_risk,
 )
+from alphalab.core.contribution import StrategyContribution
+
+#: A sole contributor. The quantity only sets the weight, and a single
+#: contribution always weighs 1 whatever its magnitude.
+ONE = Decimal("1")
 
 
 def test_validation_nan() -> None:
@@ -140,9 +145,33 @@ def test_trade_metrics() -> None:
 
 def test_attribution() -> None:
     trades = (
-        TradeRecord("T1", "STRAT1", "AAPL", "TECH", Decimal("100"), Decimal("1000"), 10.0),
-        TradeRecord("T2", "STRAT2", "AAPL", "TECH", Decimal("-50"), Decimal("1000"), 10.0),
-        TradeRecord("T3", "STRAT1", "MSFT", "TECH", Decimal("200"), Decimal("1000"), 10.0),
+        TradeRecord(
+            "T1",
+            "AAPL",
+            "TECH",
+            Decimal("100"),
+            Decimal("1000"),
+            10.0,
+            (StrategyContribution("STRAT1", ONE),),
+        ),
+        TradeRecord(
+            "T2",
+            "AAPL",
+            "TECH",
+            Decimal("-50"),
+            Decimal("1000"),
+            10.0,
+            (StrategyContribution("STRAT2", ONE),),
+        ),
+        TradeRecord(
+            "T3",
+            "MSFT",
+            "TECH",
+            Decimal("200"),
+            Decimal("1000"),
+            10.0,
+            (StrategyContribution("STRAT1", ONE),),
+        ),
     )
     attr = calculate_attribution(trades)
 
@@ -182,9 +211,33 @@ def test_engine_integration() -> None:
     )
 
     trades = (
-        TradeRecord("T1", "S1", "AAPL", "SEC1", Decimal("10.00"), Decimal("100"), 60.0),
-        TradeRecord("T2", "S1", "AAPL", "SEC1", Decimal("40.00"), Decimal("400"), 60.0),
-        TradeRecord("T3", "S1", "AAPL", "SEC1", Decimal("-60.00"), Decimal("600"), 60.0),
+        TradeRecord(
+            "T1",
+            "AAPL",
+            "SEC1",
+            Decimal("10.00"),
+            Decimal("100"),
+            60.0,
+            (StrategyContribution("S1", ONE),),
+        ),
+        TradeRecord(
+            "T2",
+            "AAPL",
+            "SEC1",
+            Decimal("40.00"),
+            Decimal("400"),
+            60.0,
+            (StrategyContribution("S1", ONE),),
+        ),
+        TradeRecord(
+            "T3",
+            "AAPL",
+            "SEC1",
+            Decimal("-60.00"),
+            Decimal("600"),
+            60.0,
+            (StrategyContribution("S1", ONE),),
+        ),
     )
 
     state = AnalyticsEngine.compile_report(state, snapshots, trades, 200.0)
@@ -204,8 +257,24 @@ def test_attribution_returns_plain_dicts() -> None:
     """AttributionMetrics fields are ordinary dicts (consistent with the rest of
     AlphaLab's frozen dataclasses) so the report can be serialized (D2)."""
     trades = (
-        TradeRecord("T1", "S1", "AAPL", "TECH", Decimal("100"), Decimal("1000"), 10.0),
-        TradeRecord("T2", "S1", "MSFT", "TECH", Decimal("-25"), Decimal("500"), 10.0),
+        TradeRecord(
+            "T1",
+            "AAPL",
+            "TECH",
+            Decimal("100"),
+            Decimal("1000"),
+            10.0,
+            (StrategyContribution("S1", ONE),),
+        ),
+        TradeRecord(
+            "T2",
+            "MSFT",
+            "TECH",
+            Decimal("-25"),
+            Decimal("500"),
+            10.0,
+            (StrategyContribution("S1", ONE),),
+        ),
     )
     attr = calculate_attribution(trades)
     assert type(attr.pnl_by_strategy) is dict
@@ -233,8 +302,24 @@ def test_performance_report_serializes_deterministically() -> None:
         ),
     )
     trades = (
-        TradeRecord("T1", "S1", "AAPL", "TECH", Decimal("30.00"), Decimal("300"), 60.0),
-        TradeRecord("T2", "S1", "MSFT", "FIN", Decimal("-10.00"), Decimal("200"), 60.0),
+        TradeRecord(
+            "T1",
+            "AAPL",
+            "TECH",
+            Decimal("30.00"),
+            Decimal("300"),
+            60.0,
+            (StrategyContribution("S1", ONE),),
+        ),
+        TradeRecord(
+            "T2",
+            "MSFT",
+            "FIN",
+            Decimal("-10.00"),
+            Decimal("200"),
+            60.0,
+            (StrategyContribution("S1", ONE),),
+        ),
     )
     state = AnalyticsEngine.compile_report(state, snapshots, trades, 200.0)
     report = state.reports[-1]

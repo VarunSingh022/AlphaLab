@@ -12,6 +12,7 @@ deliberately does not carry, and why, so a new field is a decision rather than a
 omission.
 """
 
+import inspect
 from dataclasses import fields
 
 from alphalab.lifecycle.snapshot import LifecycleSnapshot
@@ -19,6 +20,7 @@ from alphalab.lifecycle.state import LifecycleState
 from alphalab.oms.snapshot import OMSSnapshot
 from alphalab.oms.state import OMSState
 from alphalab.portfolio.engine import PortfolioState
+from alphalab.portfolio.position import Position
 from alphalab.portfolio.snapshot import PortfolioSnapshot
 
 
@@ -44,6 +46,26 @@ def test_the_portfolio_snapshot_covers_every_state_field() -> None:
         f"PortfolioState fields absent from PortfolioSnapshot: {sorted(missing)}. "
         "Add them to capture/restore/from_primitives, or state here why they are "
         "deliberately not persisted."
+    )
+
+
+def test_the_position_decoder_reads_every_position_field() -> None:
+    """The state-level guard above does not see inside ``positions``.
+
+    ``capture`` projects positions as whole objects, so a new ``Position`` field
+    reaches a payload automatically -- and is then silently dropped on the way
+    back unless ``_position`` is taught to read it. ``opened_at`` was the first
+    field to prove that gap, so the gap is now guarded rather than remembered.
+    """
+
+    from alphalab.portfolio.snapshot import _position
+
+    source = inspect.getsource(_position)
+    missing = [field.name for field in fields(Position) if f'"{field.name}"' not in source]
+
+    assert not missing, (
+        f"Position fields the snapshot decoder does not read: {sorted(missing)}. "
+        "Add them to _position, or the round trip will restore a default."
     )
 
 

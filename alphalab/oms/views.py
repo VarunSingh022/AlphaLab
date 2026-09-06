@@ -29,6 +29,11 @@ def orders_for_asset(state: OMSState, asset_id: str) -> Sequence[Order]:
 
 
 def orders_for_strategy(state: OMSState, strategy_id: str) -> Sequence[Order]:
+    """Orders declaring ``strategy_id`` as their single owning strategy.
+
+    An order that declares no owner is not indexed and is never returned; see
+    :meth:`~alphalab.oms.book.OrderBook.orders_for_strategy`.
+    """
     return state.orders.orders_for_strategy(strategy_id)
 
 

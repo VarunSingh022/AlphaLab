@@ -2,7 +2,7 @@
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.constants import DEFAULT_ENCODING, DEFAULT_SCHEMA_VERSION, PACKAGE_NAME
-from alphalab.common.events import BaseEvent, CommonEvent
+from alphalab.common.events import BaseEvent
 from alphalab.common.exceptions import (
     AlphaLabError,
     AlphaLabRegistryError,
@@ -72,3 +72,32 @@ __all__ = [
     "use_id_source",
     "utc_now",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Serve ``CommonEvent`` with a deprecation warning, on use rather than import.
+
+    ``CommonEvent`` is deprecated in v2.6 and removed in v3.0: it has no
+    consumer anywhere in this repository, and every subsystem event derives from
+    :class:`~alphalab.common.events.BaseEvent` instead.
+
+    The warning is deliberately *not* at module import. Nearly everything in
+    AlphaLab imports ``alphalab.common`` for ``BaseEvent``, so an import-time
+    warning would fire on every run to deprecate a symbol nobody uses -- which is
+    how people learn to filter DeprecationWarning. PEP 562 lets the warning
+    reach exactly the caller who touches the name. See ADR-0015 decision 9.
+    """
+
+    if name == "CommonEvent":
+        import warnings
+
+        from alphalab.common.events import CommonEvent
+
+        warnings.warn(
+            "alphalab.common.CommonEvent is deprecated and will be removed in "
+            "v3.0. Subsystem events derive from alphalab.common.events.BaseEvent.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return CommonEvent
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

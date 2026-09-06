@@ -31,6 +31,18 @@ class NettingCompleted(AllocationEvent):
 
 @dataclass(frozen=True, slots=True)
 class BudgetExceeded(AllocationEvent):
+    """A batch was refused because it did not fit the remaining budget.
+
+    Attributes:
+        reason: Why the batch was refused.
+        requested_notional: The batch's own notional.
+        available_budget: What was left to commit -- the configured budget
+            *minus* capital already committed to unsettled orders. It is not the
+            configured budget: reporting that would say a batch of 900,000 was
+            refused against 1,000,000, which reads as a contradiction rather
+            than an explanation.
+    """
+
     reason: str
     requested_notional: Decimal
     available_budget: Decimal

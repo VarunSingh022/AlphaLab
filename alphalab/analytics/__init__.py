@@ -1,6 +1,11 @@
 """AlphaLab Analytics & Performance Engine."""
 
-from alphalab.analytics.attribution import AttributionMetrics, TradeRecord, calculate_attribution
+from alphalab.analytics.attribution import (
+    AttributionMetrics,
+    TradeRecord,
+    calculate_attribution,
+    split_realized_pnl,
+)
 from alphalab.analytics.drawdown import DrawdownMetrics, calculate_drawdowns
 from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.events import AnalyticsEvent, ReportGenerated
@@ -64,6 +69,7 @@ __all__ = [
     "rolling_volatility",
     "sharpe_ratio",
     "sortino_ratio",
+    "split_realized_pnl",
     "total_reports_generated",
     "total_return",
     "validate_capital",

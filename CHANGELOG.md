@@ -8,6 +8,142 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.6.0] - 2026-09-06
+
+## Overview
+
+AlphaLab 2.6.0 is "Allocation Authority and Attribution Truth". It is a
+correctness release: no new engine packages, one new module
+(`alphalab.core.contribution`), and two production-path numbers that were
+plausible and wrong are now true.
+
+Capital committed to orders that have not settled did not count against the
+budget. Under `SIMULATED` routing that was invisible, because a reservation is
+consumed or released inside the event that created it. Under `EXTERNAL` routing
+— the routing ADR-0012 introduced for live — an accepted order stays working
+and keeps its reservation by design, and six market events committed **5,400,000
+against a 1,000,000 budget** with no position held and not one rejection
+recorded.
+
+Strategy identity was destroyed one statement before netting, and every emitted
+order was stamped with the constant `"ALLOC-NETTED"` — including an order from a
+single intent with no netting at all. Every strategy-level number the repository
+could produce was a statement about a strategy that does not exist.
+
+A third defect was found while verifying the first and is fixed with it: a
+reservation is denominated at the reference price while consumption is
+denominated at the execution price, so any fill priced away from the reference
+stranded a residual on a terminal order, without bound.
+
+See `docs/ADR/0015-allocation-authority-and-attribution-truth.md`.
+
+## Added
+
+- **`alphalab.core.contribution`** — `StrategyContribution(strategy_id,
+  quantity)`, carrying a strategy's signed pre-netting share of a netted order,
+  plus `contributions_from` for canonical aggregation. In `core` rather than
+  `allocation` because it is a field of `OrderRequest` (ADR-0008); re-exported
+  from `alphalab.allocation`.
+- **`OrderRequest.contributions`** and **`TradeRecord.contributions`**, ordered
+  by `strategy_id` so intent arrival order cannot change a request's value.
+- **`AllocationState.contributions`** — a per-order ledger parallel to
+  `reservations`, retired at the terminal OMS transition.
+- **`AllocationEngine.contributions_for` / `retire_contributions`**.
+- **`analytics.split_realized_pnl`** — signed weight `q_i / net_q`, with the
+  last share obtained by subtraction so the parts sum exactly.
+- **`Position.opened_at`** — when the current exposure began.
+- Deprecation notices for `alphalab.integrations`, `alphalab.kernel` and
+  `alphalab.common.CommonEvent`, all removed in v3.0.
+
+## Fixed
+
+- **Outstanding capital is enforced.** `AllocationEngine.allocate` compares
+  `notional_allocated + total_notional` against both `available_global_capital`
+  and `maximum_exposure`. Rejection stays whole-batch and atomic: `history`,
+  `reservations` and `notional_allocated` are byte-identical after a refusal.
+- **A terminal order releases whatever it still holds.** Released at the
+  terminal OMS transition through the existing membership-guarded helper, so it
+  is idempotent against every release point that already existed and covers both
+  routings — including a venue fill arriving through `apply_execution_report`
+  with no slippage model configured. Thirty round trips at a 1% adverse price
+  previously stranded 3,000 against a 1,000,000 budget in a run ending flat.
+- **`avg_holding_period` was a mean of zeros.** Holding periods are now measured
+  from `Position.opened_at` for fills that reduced or closed a position.
+
+## Changed — breaking
+
+- **`TradeRecord` shape.** `strategy_id: str` is replaced by `contributions`;
+  `sector_id` becomes `str | None`; `holding_period_seconds` becomes
+  `float | None`. Positional construction breaks. No alias is provided: an alias
+  would keep returning the wrong answer under a familiar name.
+- **`PORTFOLIO_SNAPSHOT_SCHEMA` is 2, and version 1 payloads are refused.** No
+  migration framework — a v1 payload does not record when a position opened, and
+  `last_updated` would report a holding period of roughly zero for a position
+  held a year. `DEFAULT_SCHEMA_VERSION`, `LIFECYCLE_SNAPSHOT_SCHEMA`,
+  `CommonEvent.schema_version` and `BaseEvent.schema_version` remain **1**; the
+  portfolio constant no longer aliases the shared one.
+- **`OrderRequest.strategy_id` is `""` for every allocation-produced request.**
+  `"ALLOC-NETTED"` is deleted. `oms.Order.strategy_id` and
+  `ExecutionReport.strategy_id` carry the same empty value, and an order
+  declaring no strategy is not entered in the OMS strategy index — so
+  `orders_for_strategy` no longer answers for a fiction. The index stays
+  single-valued and the query is neither renamed nor deprecated: it remains
+  correct for callers who supply a real strategy id.
+- **`pnl_by_sector` is empty for pipeline-produced reports.** There is no
+  security master; a caller who has sector data still gets a breakdown.
+- **`EXTERNAL` routing can now refuse an allocation** that would over-commit.
+  Backtest, replay and paper are behaviourally unchanged.
+- `IntentAllocator.size_intents` returns `(strategy_id, instrument, quantity)`
+  triples; `NettingEngine.net_quantities` takes them.
+
+## Deprecated
+
+| Surface | Mechanism | Removed |
+| --- | --- | --- |
+| `alphalab.integrations` | `DeprecationWarning` at import | v3.0 |
+| `alphalab.kernel` | `DeprecationWarning` at import | v3.0 |
+| `alphalab.common.CommonEvent` | `DeprecationWarning` on use (PEP 562) | v3.0 |
+| `alphalab.core.events` | documentation and ADR only — see below | v3.0 |
+| `alphalab.allocation.BudgetExceededError` | documented as never raised | v3.0 |
+
+`alphalab.core.events` deliberately emits **no** runtime warning.
+`alphalab.core` re-exports thirteen of its symbols eagerly, so an import-time
+warning there would fire on the canonical core package — which the whole
+execution path depends on — for every consumer on every run.
+
+## Documentation
+
+Seven verified contradictions corrected (D-1…D-7): ADR-0014's claim that every
+snapshot envelope carries `schema_version` (`OMSSnapshot` does not);
+`ARCHITECTURE.md`'s stale partial-fill limitation, which the same document
+contradicted; the allocation ledger table; `total_notional_allocated`'s
+"historically" (it is outstanding, and falls); `OrderRequest.strategy_id`'s
+claim that the sentinel applied only to cross-strategy netting; `TradeRecord`'s
+"round-trip trade" (one record is produced per fill); and `BudgetExceededError`,
+exported and raised nowhere.
+
+## Not in scope
+
+Unchanged and explicitly excluded: real broker transport, streaming market data,
+an async live runtime, reconnect scheduling, order-state polling, multi-currency
+valuation, artifact storage, Enterprise RBAC enforcement, dataset provenance, a
+security master, a universal runtime, lifecycle → execution integration, and the
+removal of `integrations`, `kernel`, `core.events` or `CommonEvent`. The
+duplicate `ExecutionReceived` in `alphalab.broker` and `alphalab.brokers` is
+**not** collapsed: they declare the same four fields in opposite order and are
+both constructed positionally, so collapsing them would silently swap price and
+quantity at one call site. Recorded in ADR-0015 for v3.0.
+
+## Quality
+
+| Gate | Result |
+| --- | --- |
+| `pytest -q` | **2122 passed** (2008 at v2.5.0) — 1698 unit, 109 integration, 315 regression |
+| `mypy .` (strict) | clean, 924 source files |
+| `ruff check .` / `ruff format --check .` | clean |
+
+---
+
 # [2.5.0] - 2026-09-05
 
 ## Overview

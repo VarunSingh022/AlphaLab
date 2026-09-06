@@ -8,9 +8,10 @@ crossed the allocation -> risk boundary. Both engines now share this one type,
 whose ``side`` is the canonical :class:`alphalab.core.enums.Side`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
+from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side
 
 
@@ -20,8 +21,16 @@ class OrderRequest:
 
     Attributes:
         order_id: Unique identifier for the proposed order.
-        strategy_id: Owning strategy identifier (``"ALLOC-NETTED"`` for a request
-            produced by cross-strategy netting).
+        strategy_id: Owning strategy identifier, or ``""`` when the request has
+            no single owner. Allocation emits ``""`` for every request it
+            produces, because a netted order can represent several strategies
+            and one identifier cannot describe it. Read ``contributions`` for
+            attribution; this field exists for callers who construct a request
+            themselves and do have one owner. Until v2.6 allocation stamped the
+            fabricated ``"ALLOC-NETTED"`` here.
+        contributions: Which strategies asked for this order and for how much,
+            signed and pre-netting, ordered by ``strategy_id``. Empty for a
+            request that did not come from allocation.
         asset_id: Asset the order targets.
         side: Canonical execution direction.
         quantity: Absolute (non-signed) order quantity.
@@ -37,6 +46,7 @@ class OrderRequest:
     quantity: Decimal
     price: Decimal
     timestamp: float = 0.0
+    contributions: tuple[StrategyContribution, ...] = field(default_factory=tuple)
 
     @property
     def notional_value(self) -> Decimal:

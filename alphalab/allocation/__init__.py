@@ -38,6 +38,7 @@ from alphalab.allocation.views import (
     reserved_for_order,
     total_notional_allocated,
 )
+from alphalab.core.contribution import StrategyContribution, contributions_from
 from alphalab.core.order_request import OrderRequest
 
 __all__ = [
@@ -62,10 +63,12 @@ __all__ = [
     "NettingEngine",
     "OrderRequest",
     "SizingModel",
+    "StrategyContribution",
     "TargetWeightSizing",
     "UnknownReservationError",
     "VolatilityTargetSizing",
     "allocation_history",
+    "contributions_from",
     "current_budget",
     "open_reservations",
     "recent_orders_for_asset",
