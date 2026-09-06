@@ -28,9 +28,12 @@ from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import ReplayBacktest
 from alphalab.backtesting.state import BacktestStep
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.core.enums import AssetType
+from alphalab.instrument import InstrumentRecord, InstrumentRegistry, register_instrument
 from alphalab.market.source import SequenceSource
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipeline,
+    ExecutionPipelineConfig,
     ExecutionPipelineResult,
     UnpricedAsset,
     UnpricedReason,
@@ -338,3 +341,112 @@ def test_no_snapshot_carries_the_unpriced_aggregate() -> None:
     for snapshot in (LifecycleSnapshot, OMSSnapshot, PortfolioSnapshot):
         names = {field.name for field in snapshot.__dataclass_fields__.values()}
         assert "unpriced_assets" not in names, f"{snapshot.__name__} must not carry it"
+
+
+# --------------------------------------------------------------------------- #
+# The optional registry reference, and the line it does not cross
+# --------------------------------------------------------------------------- #
+
+
+def test_no_registry_is_configured_by_default() -> None:
+    assert pipeline_config(str(uuid4())).instruments is None
+
+
+def test_without_a_registry_the_run_reports_only_what_it_saw() -> None:
+    """No fabricated classification: it says it saw no price, and stops."""
+
+    never = str(uuid4())
+    state, _, _, _ = _drive(1, target=never)
+
+    entry = state.unpriced_assets[never]
+    assert entry.reason is UnpricedReason.NO_PRICE_OBSERVED
+    assert "cannot say whether" in entry.detail
+
+
+def _with_registry(registry: InstrumentRegistry, named: str):  # type: ignore[no-untyped-def]
+    strategy_id, priced = str(uuid4()), str(uuid4())
+    plan = {2.0: Decimal("1")}
+    asset_for = {2.0: named}
+    config = replace(pipeline_config(strategy_id), instruments=registry)
+    state = ExecutionPipeline.initialize(
+        config, _running(strategy_id, priced, plan, asset_for), 1.0
+    )
+    return ExecutionPipeline.process_quote(
+        state, quote(priced, 2.0, Decimal("100")), context_factory
+    ).state
+
+
+def test_a_registry_separates_an_unknown_identifier_from_an_unpriced_instrument() -> None:
+    """The two cases call for opposite fixes, so the run distinguishes them."""
+
+    sap = InstrumentRecord("SAP", AssetType.EQUITY, "XETR", "EUR")
+    registry = register_instrument(InstrumentRegistry(), sap)
+    unknown = str(uuid4())
+
+    known_state = _with_registry(registry, sap.asset_id)
+    unknown_state = _with_registry(registry, unknown)
+
+    known = known_state.unpriced_assets[sap.asset_id]
+    assert known.reason is UnpricedReason.REGISTERED_BUT_UNPRICED
+    assert "SAP" in known.detail and "XETR" in known.detail and "EUR" in known.detail
+
+    missing = unknown_state.unpriced_assets[unknown]
+    assert missing.reason is UnpricedReason.NOT_REGISTERED
+    assert "not a registered instrument" in missing.detail
+
+
+def test_the_registry_never_changes_what_a_run_trades() -> None:
+    """Identical fills with and without it: the reference is diagnostic only."""
+
+    strategy_id, asset_id = str(uuid4()), str(uuid4())
+    plan = {2.0 + index: Decimal("1") for index in range(3)}
+    registry = register_instrument(
+        InstrumentRegistry(), InstrumentRecord("AAPL", AssetType.EQUITY, "XNAS", "USD")
+    )
+
+    def run(instruments: InstrumentRegistry | None) -> tuple[tuple[str, ...], int]:
+        config = replace(pipeline_config(strategy_id), instruments=instruments)
+        state = ExecutionPipeline.initialize(config, _running(strategy_id, asset_id, plan), 1.0)
+        for index in range(3):
+            state = ExecutionPipeline.process_quote(
+                state, quote(asset_id, 2.0 + index, Decimal("100")), context_factory
+            ).state
+        return tuple(fill.asset_id for fill in state.fills), len(state.fills)
+
+    assert run(None) == run(registry)
+
+
+def test_the_pipeline_only_ever_reads_the_registry() -> None:
+    """ADR-0016 keeps resolution at the wire boundary; this must not take it back."""
+
+    import inspect
+
+    from alphalab.runtime import broker_routing, execution_pipeline, session
+
+    source = "".join(
+        inspect.getsource(module) for module in (execution_pipeline, session, broker_routing)
+    )
+    for forbidden in (
+        ".resolve(",
+        "derive_asset_id",
+        "canonical_instrument_key",
+        "register_instrument",
+        "register_alias",
+        ".by_provider",
+    ):
+        assert forbidden not in source, f"the pipeline must not call {forbidden}"
+
+    assert "record_for" in source, "the one method it is allowed to call"
+
+
+def test_the_registry_reference_reaches_no_snapshot() -> None:
+    """``ExecutionPipelineConfig`` was never serializable and still is not."""
+
+    from alphalab.lifecycle.snapshot import LifecycleSnapshot
+    from alphalab.oms.snapshot import OMSSnapshot
+    from alphalab.portfolio.snapshot import PortfolioSnapshot
+
+    for snapshot in (LifecycleSnapshot, OMSSnapshot, PortfolioSnapshot):
+        names = {field.name for field in snapshot.__dataclass_fields__.values()}
+        assert "instruments" not in names
+    assert not hasattr(ExecutionPipelineConfig, "__serializable__")

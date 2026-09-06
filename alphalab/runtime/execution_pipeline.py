@@ -39,6 +39,7 @@ from alphalab.execution.policy import (
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
+from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar
 from alphalab.market.engine import MarketEngine
 from alphalab.market.events import (
@@ -135,6 +136,16 @@ class ExecutionPipelineConfig:
             it does not reach the execution path.
         routing: Where an accepted order executes. Defaults to ``SIMULATED``,
             which is what every environment before v2.3 did.
+        instruments: The registry the run's market data was resolved against, or
+            ``None``. **Read-only, and used for one thing**: when a request is
+            dropped for want of a price, deciding whether the ``asset_id`` names
+            a registered instrument at all. Only
+            :meth:`~alphalab.instrument.registry.InstrumentRegistry.record_for`
+            is ever called on it. The pipeline never resolves a provider symbol,
+            never derives an ``asset_id``, and never registers anything: ADR-0016
+            gives resolution to the wire boundary and this does not take any of
+            it back. Leaving it ``None`` is fully supported and changes nothing
+            except how precisely an unpriced asset can be described.
     """
 
     account: Account
@@ -147,6 +158,7 @@ class ExecutionPipelineConfig:
     venue: str = "SIM"
     currency: str = "USD"
     routing: ExecutionRouting = ExecutionRouting.SIMULATED
+    instruments: InstrumentRegistry | None = None
 
 
 class UnpricedReason(Enum):
@@ -585,13 +597,39 @@ def _classify_unpriced(state: ExecutionPipelineState, asset_id: str) -> tuple[Un
 
     Without a registry the run knows one thing: it saw no price. It says that
     and stops, rather than reporting an absence it did not check.
+
+    With one it can separate the two cases that matter, because they call for
+    opposite fixes: an identifier naming nothing is a registry or strategy
+    problem, while a registered instrument the run never priced is a data-window
+    one. The registry is consulted through
+    :meth:`~alphalab.instrument.registry.InstrumentRegistry.record_for` and
+    nothing else -- one keyed lookup, on a path a healthy run never takes.
     """
 
+    registry = state.config.instruments
+    if registry is None:
+        return (
+            UnpricedReason.NO_PRICE_OBSERVED,
+            f"No market price was observed for asset_id {asset_id!r} in this run. "
+            "No InstrumentRegistry is configured on the pipeline, so this run cannot "
+            "say whether that identifier names a registered instrument.",
+        )
+
+    record = registry.record_for(asset_id)
+    if record is None:
+        return (
+            UnpricedReason.NOT_REGISTERED,
+            f"asset_id {asset_id!r} is not a registered instrument. A strategy named "
+            "an instrument the registry does not hold, so nothing could ever price "
+            "it and no order for it can reach a fill. Register the instrument, or "
+            "resolve the identifier through the same registry the run's "
+            "NormalizationPolicy uses.",
+        )
     return (
-        UnpricedReason.NO_PRICE_OBSERVED,
-        f"No market price was observed for asset_id {asset_id!r} in this run. "
-        "No InstrumentRegistry is configured on the pipeline, so this run cannot "
-        "say whether that identifier names a registered instrument.",
+        UnpricedReason.REGISTERED_BUT_UNPRICED,
+        f"asset_id {asset_id!r} is registered as {record.symbol} on {record.exchange} "
+        f"in {record.currency}, and this run observed no price for it. The instrument "
+        "exists; the market data did not cover it.",
     )
 
 
