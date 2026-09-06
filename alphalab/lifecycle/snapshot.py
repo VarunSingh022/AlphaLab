@@ -38,7 +38,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.deployment_manager.packaging import ReleasePackage
 from alphalab.deployment_manager.releases import DeploymentManager, DeploymentRecord
@@ -84,8 +83,16 @@ __all__ = [
     "restore",
 ]
 
-#: Schema version this module reads and writes. See ADR-0014.
-LIFECYCLE_SNAPSHOT_SCHEMA = DEFAULT_SCHEMA_VERSION
+#: Schema version this module reads and writes. See ADR-0014 and ADR-0017.
+#:
+#: A literal, not ``DEFAULT_SCHEMA_VERSION``, which it aliased until v2.8. That
+#: constant is also the version of ``CommonEvent`` and ``BaseEvent``, so a bump
+#: of it would have versioned every event in the system as a side effect of a
+#: lifecycle change -- the trap v2.6 removed from ``PortfolioSnapshot`` and left
+#: standing here. The value is unchanged and no payload reads or writes
+#: differently; what changes is that this version is now independently settable,
+#: which is what the next bump needs.
+LIFECYCLE_SNAPSHOT_SCHEMA = 1
 
 _SUBSYSTEM = "lifecycle"
 
