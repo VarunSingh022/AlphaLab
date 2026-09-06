@@ -38,8 +38,7 @@ class MemoryStorage:
             self._create_id(), timestamp, snapshot.snapshot_id, snapshot.subsystem, byte_size
         )
 
-        new_snapshots = dict(state.store.snapshots)
-        new_snapshots[snapshot.snapshot_id] = snapshot
+        new_snapshots = state.store.snapshots.set(snapshot.snapshot_id, snapshot)
 
         new_store = replace(state.store, snapshots=new_snapshots)
         new_stats = replace(
@@ -49,7 +48,7 @@ class MemoryStorage:
         )
 
         new_state = replace(
-            state, store=new_store, statistics=new_stats, events=(*state.events, evt)
+            state, store=new_store, statistics=new_stats, events=state.events.append(evt)
         )
         return new_state, (evt,)
 
@@ -61,7 +60,7 @@ class MemoryStorage:
         snapshot = state.store.snapshots[snapshot_id]
         evt = SnapshotLoaded(self._create_id(), timestamp, snapshot_id)
 
-        new_state = replace(state, events=(*state.events, evt))
+        new_state = replace(state, events=state.events.append(evt))
         return new_state, snapshot, (evt,)
 
     def append_event(
@@ -74,8 +73,8 @@ class MemoryStorage:
             self._create_id(), timestamp, event.event_id, event.event_type, byte_size
         )
 
-        new_events = (*state.store.events, event)
-        new_event_ids = frozenset(state.store.event_ids | {event.event_id})
+        new_events = state.store.events.append(event)
+        new_event_ids = state.store.event_ids.add(event.event_id)
 
         new_store = replace(state.store, events=new_events, event_ids=new_event_ids)
         new_stats = replace(
@@ -85,7 +84,7 @@ class MemoryStorage:
         )
 
         new_state = replace(
-            state, store=new_store, statistics=new_stats, events=(*state.events, sys_evt)
+            state, store=new_store, statistics=new_stats, events=state.events.append(sys_evt)
         )
         return new_state, (sys_evt,)
 
@@ -95,7 +94,7 @@ class MemoryStorage:
         events = state.store.events
         evt = EventsLoaded(self._create_id(), timestamp, len(events))
 
-        new_state = replace(state, events=(*state.events, evt))
+        new_state = replace(state, events=state.events.append(evt))
         return new_state, events, (evt,)
 
     def clear(
@@ -107,7 +106,7 @@ class MemoryStorage:
         new_stats = PersistenceStatistics()
 
         new_state = replace(
-            state, store=new_store, statistics=new_stats, events=(*state.events, evt)
+            state, store=new_store, statistics=new_stats, events=state.events.append(evt)
         )
         return new_state, (evt,)
 
