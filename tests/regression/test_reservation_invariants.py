@@ -280,14 +280,6 @@ def _phase_partial_fill() -> ExecutionPipelineState:
     ).state
 
 
-#: Defect A': a terminal order retains the residual of a fill priced away from
-#: the reference. Strict, so closing the defect *must* delete these marks.
-_A_PRIME = pytest.mark.xfail(
-    strict=True,
-    reason="A': a terminal order retains a reservation when the fill price "
-    "diverges from the reference price. Closed in v2.6 phase 2.",
-)
-
 #: The nine phases, with the terminal-or-open OMS status each one ends in.
 _PHASES = (
     pytest.param("fresh initialize", _phase_fresh, (), id="fresh initialize"),
@@ -302,7 +294,6 @@ _PHASES = (
         _phase_adverse_divergence,
         ("FILLED",),
         id="full fill, adverse price divergence",
-        marks=_A_PRIME,
     ),
     pytest.param(
         "EXTERNAL working order",
@@ -315,7 +306,6 @@ _PHASES = (
         _phase_external_divergent_fill,
         ("FILLED",),
         id="EXTERNAL broker fill, divergent price",
-        marks=_A_PRIME,
     ),
     pytest.param("risk rejection", _phase_risk_rejected, (), id="risk rejection"),
     pytest.param("unpriced request", _phase_unpriced, (), id="unpriced request"),

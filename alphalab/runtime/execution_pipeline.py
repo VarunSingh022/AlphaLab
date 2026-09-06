@@ -392,7 +392,7 @@ def _process_requests(
         # than submitting an order the execution leg cannot price.
         if request.asset_id not in current.market_prices:
             unpriced.append(request)
-            current = _release_reservation(current, request, event.timestamp)
+            current = _release_reservation(current, request.order_id, event.timestamp)
             continue
         current, decision = _evaluate_risk(current, request, event.timestamp)
         decisions.append(decision)
@@ -401,7 +401,7 @@ def _process_requests(
             # Risk refused it, so it will never reach the OMS and never
             # execute: the capital it holds is freed here, at the point its
             # lifecycle ends, and exactly once.
-            current = _release_reservation(current, request, event.timestamp)
+            current = _release_reservation(current, request.order_id, event.timestamp)
             continue
         current, order = _submit_and_accept_order(current, request, event.timestamp)
         if current.config.routing is ExecutionRouting.EXTERNAL:
@@ -420,7 +420,7 @@ def _process_requests(
                 current,
                 oms=_close_unfilled_order(current.oms, order, decision_out.status, event.timestamp),
             )
-            current = _release_reservation(current, request, event.timestamp)
+            current = _release_reservation(current, request.order_id, event.timestamp)
 
         current, new_fills, new_trades = _apply_reports(current, order, new_reports)
         current = _withdraw_partial_remainder(current, request, order, event.timestamp)
@@ -458,23 +458,58 @@ def _evaluate_risk(
 
 
 def _release_reservation(
-    state: ExecutionPipelineState, request: OrderRequest, timestamp: float
+    state: ExecutionPipelineState, order_id: str, timestamp: float
 ) -> ExecutionPipelineState:
-    """Free the allocation capital a request holds, once its lifecycle ends.
+    """Free the allocation capital an order holds, once its lifecycle ends.
 
-    The allocation engine owns the amount; the pipeline owns the moment. A
-    request that never produced a request-level reservation (a batch dropped by
-    the budget check emits none) has nothing to release.
+    The allocation engine owns the amount; the pipeline owns the moment. The
+    membership check is what makes this idempotent, and every release point
+    depends on that: an order whose capital was already freed -- or which never
+    produced a request-level reservation, as a batch dropped by the budget check
+    does not -- has nothing to release, and asking the engine a second time
+    would raise :class:`~alphalab.allocation.exceptions.UnknownReservationError`.
     """
 
-    if request.order_id not in state.allocation.reservations:
+    if order_id not in state.allocation.reservations:
         return state
     return replace(
         state,
-        allocation=AllocationEngine.release_reservation(
-            state.allocation, request.order_id, timestamp
-        ),
+        allocation=AllocationEngine.release_reservation(state.allocation, order_id, timestamp),
     )
+
+
+def _release_if_terminal(
+    state: ExecutionPipelineState, order_id: OrderId, timestamp: float
+) -> ExecutionPipelineState:
+    """Free whatever a *terminal* order still holds.
+
+    A reservation is denominated at the request's **reference** price, while
+    :meth:`~alphalab.allocation.engine.AllocationEngine.apply_execution` consumes
+    at the **execution** price. Those are different units of account, so a fill
+    priced away from the reference leaves a residual: ``min(reserved, executed)``
+    strands it when the fill was cheaper and silently discards the excess when it
+    was dearer.
+
+    Before v2.6 nothing freed that residual. A *partially* filled order is
+    withdrawn by :func:`_withdraw_partial_remainder`, but an order the venue
+    filled in full reaches ``FILLED`` -- terminal -- holding capital committed to
+    nothing, and every later event added more. It is released here, at the
+    terminal transition, which is the moment shared by both routings: a
+    simulated fill arrives through :func:`_process_requests` and a venue fill
+    through :meth:`ExecutionPipeline.apply_execution_report`, and both go through
+    :func:`_apply_reports`.
+
+    This is not slippage handling. Slippage is the most common *source* of a
+    price divergence; the condition is the divergence itself, whatever caused it.
+    An order that is still working keeps its reservation, because that capital is
+    still committed. See ADR-0015.
+    """
+
+    if not state.oms.orders.contains(order_id):
+        return state
+    if state.oms.orders.find(order_id).is_open:
+        return state
+    return _release_reservation(state, str(order_id.value), timestamp)
 
 
 def _decide_fill(
@@ -556,6 +591,10 @@ def _apply_reports(
             current.allocation, report.order_id, executed_notional, report.timestamp
         )
         current = replace(current, allocation=allocation_state)
+        # If this report took the order terminal, whatever the reference price
+        # reserved but the execution price did not consume is capital committed
+        # to nothing. Free it here -- see _release_if_terminal.
+        current = _release_if_terminal(current, order.order_id, report.timestamp)
         fills.append(fill)
         trades.append(trade)
 
@@ -641,7 +680,7 @@ def _withdraw_partial_remainder(
         return state
 
     withdrawn = replace(state, oms=OMSEngine.cancel(state.oms, order.order_id, timestamp))
-    return _release_reservation(withdrawn, request, timestamp)
+    return _release_reservation(withdrawn, request.order_id, timestamp)
 
 
 def _close_unfilled_order(
