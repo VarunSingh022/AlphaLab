@@ -522,7 +522,7 @@ def _process_requests(
         if request.asset_id not in current.market_prices:
             unpriced.append(request)
             current = _record_unpriced(current, request.asset_id, event.timestamp)
-            current = _release_reservation(current, request.order_id, event.timestamp)
+            current = _retire_dropped_request(current, request.order_id, event.timestamp)
             continue
         current, decision = _evaluate_risk(current, request, event.timestamp)
         decisions.append(decision)
@@ -531,7 +531,7 @@ def _process_requests(
             # Risk refused it, so it will never reach the OMS and never
             # execute: the capital it holds is freed here, at the point its
             # lifecycle ends, and exactly once.
-            current = _release_reservation(current, request.order_id, event.timestamp)
+            current = _retire_dropped_request(current, request.order_id, event.timestamp)
             continue
         current, order = _submit_and_accept_order(current, request, event.timestamp)
         if current.config.routing is ExecutionRouting.EXTERNAL:
@@ -640,6 +640,39 @@ def _release_reservation(
     return replace(
         state,
         allocation=AllocationEngine.release_reservation(state.allocation, order_id, timestamp),
+    )
+
+
+def _retire_dropped_request(
+    state: ExecutionPipelineState, order_id: str, timestamp: float
+) -> ExecutionPipelineState:
+    """End the life of a request that will never become an order.
+
+    Allocation opens two ledger entries per emitted request: a reservation for
+    the capital it holds, and a contribution entry recording which strategies
+    asked for it. They have the same lifetime -- from the moment allocation
+    emits the request until that request's life ends -- and both must be retired
+    at that point.
+
+    Only one of them was. :func:`_release_if_terminal` retires both, but it
+    returns early unless the order is in the OMS book, and a request dropped for
+    want of a price or refused by risk never reaches the OMS. So the reservation
+    was freed and the contribution entry was immortal: forty such requests left
+    forty entries that nothing could ever delete, growing for as long as a
+    misconfigured run continued.
+
+    ``AllocationState.contributions`` documented its own lifetime as ending when
+    "that request's order reaches a terminal state", which quietly assumed every
+    request becomes an order. A request whose life ends before the OMS ends here
+    instead. Both retirements are idempotent -- ``_release_reservation`` checks
+    membership and ``retire_contributions`` returns unchanged for an absent key
+    -- so this is safe wherever a request's lifecycle ends, exactly once.
+    """
+
+    released = _release_reservation(state, order_id, timestamp)
+    return replace(
+        released,
+        allocation=AllocationEngine.retire_contributions(released.allocation, order_id),
     )
 
 
