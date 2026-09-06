@@ -69,6 +69,7 @@ from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.state import RiskState
+from alphalab.runtime.exceptions import RuntimeValidationError
 from alphalab.runtime.execution_adapters import canonical_execution_from_report
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
@@ -115,8 +116,22 @@ class ExecutionPipelineConfig:
         risk_limits: Limits applied by the risk engine.
         sizing_model: Sizing model used by allocation.
         simulator: Execution simulator used for deterministic fills.
-        venue: Execution venue label for generated instructions.
-        currency: Currency used for cash, execution reports, and portfolio fills.
+        venue: Execution venue label for generated instructions. This is the
+            venue an order *executes at*, and it is not the venue market data
+            was attributed to, nor the exchange an instrument is listed on. See
+            :class:`~alphalab.instrument.record.InstrumentRecord` for the
+            listing exchange and :class:`~alphalab.market.quote.Quote` for
+            market-data attribution; the three are distinct.
+        currency: The **settlement currency** of this pipeline -- what cash is
+            funded in, what an ``OrderInstruction`` and its
+            :class:`~alphalab.execution.report.ExecutionReport` are denominated
+            in, and therefore what every :class:`~alphalab.portfolio.position.Position`
+            is booked in. It must equal ``account.base_currency``, which risk
+            and NAV read; :meth:`ExecutionPipeline.initialize` refuses a config
+            where the two disagree. It is *not* the currency an instrument
+            trades in -- that is
+            :attr:`~alphalab.instrument.record.InstrumentRecord.currency`, and
+            it does not reach the execution path.
         routing: Where an accepted order executes. Defaults to ``SIMULATED``,
             which is what every environment before v2.3 did.
     """
@@ -170,6 +185,46 @@ class ExecutionPipelineResult:
     valuation: PortfolioValuationSnapshot | None = None
 
 
+def _require_one_account_currency(config: ExecutionPipelineConfig) -> None:
+    """Refuse a configuration that names two account currencies.
+
+    ``ExecutionPipelineConfig.currency`` funds the cash ledger and denominates
+    every fill; ``Account.base_currency`` is what
+    :func:`_sync_risk_from_portfolio` and
+    :class:`~alphalab.portfolio.nav.NAVCalculator` read. Two fields, one role --
+    and until v2.8 nothing checked that they agreed.
+
+    When they disagree the run does not fail; it goes quiet. Cash is deposited
+    under ``config.currency``, so ``cash.balance(account.base_currency)`` is
+    zero, so ``risk.cash``, ``buying_power``, ``current_nav`` and ``peak_nav``
+    are all zero. ``check_buying_power`` then refuses every order, while
+    ``check_leverage`` returns early on a non-positive NAV and ``check_margin``
+    passes vacuously against zero available margin. The run produces no fills,
+    reports its full starting equity, and two risk limits silently stop
+    checking.
+
+    Comparison is exact: no ``strip``, no ``upper``.
+    :class:`~alphalab.portfolio.cash.CashLedger` keys balances by the string it
+    is given, so ``"usd"`` and ``"USD"`` are already two separate balances --
+    normalizing here would let the check pass while the ledger still split.
+
+    Raises:
+        RuntimeValidationError: If the two currencies differ.
+    """
+
+    if config.currency != config.account.base_currency:
+        raise RuntimeValidationError(
+            f"ExecutionPipelineConfig.currency is {config.currency!r} and "
+            f"Account.base_currency is {config.account.base_currency!r}. These name "
+            "one thing -- the account's settlement currency -- and must agree. "
+            "Cash would be funded in "
+            f"{config.currency!r} while risk read {config.account.base_currency!r}, "
+            "leaving buying power and NAV at zero: every order would be rejected, "
+            "the leverage and margin checks would stop checking, and the run would "
+            "report its full starting equity while producing no fills."
+        )
+
+
 class ExecutionPipeline:
     """Pure functional facade for the real AlphaLab execution path."""
 
@@ -179,7 +234,16 @@ class ExecutionPipeline:
         strategy_state: StrategyRuntimeState,
         timestamp: float,
     ) -> ExecutionPipelineState:
-        """Create a fresh composite pipeline state."""
+        """Create a fresh composite pipeline state.
+
+        Raises:
+            RuntimeValidationError: If ``config.currency`` and
+                ``config.account.base_currency`` disagree. The check runs before
+                the portfolio exists, so nothing is funded against a refused
+                configuration.
+        """
+
+        _require_one_account_currency(config)
 
         portfolio = PortfolioState(account=config.account)
         portfolio = PortfolioEngine.apply_deposit(
