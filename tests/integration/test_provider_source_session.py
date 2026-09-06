@@ -28,9 +28,15 @@ from typing import Any
 
 import pytest
 
+from alphalab.core.enums import AssetType
+from alphalab.instrument import (
+    InstrumentRecord,
+    InstrumentRegistry,
+    register_instrument,
+)
 from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.exceptions import MarketValidationError
-from alphalab.market.normalization import NormalizationPolicy, SymbolMap
+from alphalab.market.normalization import NormalizationPolicy
 from alphalab.market.provider import ProviderHistorySource
 from alphalab.market.source import MarketDataSource, OrderingGuarantee, SequenceSource
 from alphalab.marketdata.binance.adapter import binanceAdapter
@@ -50,13 +56,29 @@ from tests.integration.harness import (
 )
 
 BASE_URL = "https://api.binance.com"
-ASSET = "b1f4c2d0-5a3e-4c7f-9d21-8e6a0b5c1d33"
 STRATEGY = "3c7d9e21-4f5a-4b18-8c2e-1a9d7f0b6e45"
+
+#: The instrument the provider's ``"BTCUSDT"`` denotes. Until v2.7 this file
+#: hand-authored a UUID and mapped the symbol onto it with a ``SymbolMap``,
+#: because that was the only configuration that could reach a fill -- there was
+#: no authority to ask. The registry is now that authority, and ``ASSET`` is
+#: *derived* from the declaration rather than invented. See ADR-0016.
+BTCUSDT = InstrumentRecord(
+    symbol="BTCUSDT",
+    asset_type=AssetType.CRYPTO,
+    exchange="BINANCE",
+    currency="USDT",
+    aliases={"binance": "BTCUSDT"},
+)
+ASSET = BTCUSDT.asset_id
+INSTRUMENTS = register_instrument(InstrumentRegistry(), BTCUSDT)
+
 POLICY = NormalizationPolicy(
     venue="BINANCE",
     currency="USDT",
     timeframe=TimeFrame.M1,
-    symbols=SymbolMap({"BTCUSDT": ASSET}),
+    identity=INSTRUMENTS,
+    provider="binance",
 )
 
 #: Four one-minute klines in Binance's documented array-of-arrays shape.
@@ -164,7 +186,9 @@ def test_a_provider_response_becomes_canonical_records() -> None:
     records = list(source.records())
 
     assert len(records) == 4
-    assert all(record.asset_id == ASSET for record in records), "SymbolMap was not applied"
+    assert all(record.asset_id == ASSET for record in records), (
+        "the registry did not resolve the provider symbol"
+    )
     assert [record.timestamp for record in records] == [
         1_700_000_000.0,
         1_700_000_060.0,

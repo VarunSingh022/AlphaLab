@@ -27,9 +27,12 @@ Timestamps     Unix seconds as ``float``, passed through unchanged. Must be
 Prices/sizes   ``Decimal`` via ``str``. Never quantized here -- the venue's
                own precision is preserved and rounding stays a downstream
                decision.
-Identity       The provider ``symbol`` becomes ``asset_id`` verbatim by
-               default. A :class:`SymbolMap` can rewrite it when a venue's
-               symbol is not AlphaLab's asset id.
+Identity       Resolved through the policy's :data:`IdentityResolution`.
+               An :class:`~alphalab.instrument.registry.InstrumentRegistry`
+               resolves ``(provider, symbol)`` to a canonical ``asset_id`` and
+               refuses an unregistered pair; :class:`UnresolvedIdentity` passes
+               the provider symbol through and cannot reach a fill. See
+               ADR-0016.
 Venue/currency Not present on the wire; supplied by the
                :class:`NormalizationPolicy` doing the lifting.
 Bar timeframe  Not present on the wire; supplied by the policy. ``vwap`` and
@@ -73,8 +76,9 @@ from alphalab.data.feed import OrderBook as WireOrderBook
 from alphalab.data.feed import OrderBookLevel as WireOrderBookLevel
 from alphalab.data.feed import Quote as WireQuote
 from alphalab.data.feed import Trade as WireTrade
+from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar, TimeFrame
-from alphalab.market.exceptions import MarketValidationError
+from alphalab.market.exceptions import InstrumentResolutionError, MarketValidationError
 from alphalab.market.level import OrderBookLevel
 from alphalab.market.quote import Quote
 from alphalab.market.snapshot import OrderBookSnapshot
@@ -88,8 +92,11 @@ from alphalab.market.validation import (
 
 __all__ = [
     "DEFAULT_POLICY",
+    "UNRESOLVED_IDENTITY",
+    "IdentityResolution",
     "NormalizationPolicy",
     "SymbolMap",
+    "UnresolvedIdentity",
     "is_stale",
     "normalize_wire_bar",
     "normalize_wire_book",
@@ -117,8 +124,10 @@ def to_decimal(value: float | str | Decimal) -> Decimal:
 class SymbolMap:
     """Provider symbol -> AlphaLab ``asset_id``.
 
-    Unmapped symbols pass through unchanged, which is the common case: most
-    venues and AlphaLab already agree on the ticker.
+    Unmapped symbols pass through unchanged. This is the v2.6 identity rule, and
+    it is retained only inside :class:`UnresolvedIdentity`: a value it produces
+    is a provider symbol, which :class:`alphalab.core.Fill` refuses. It is not a
+    resolution authority -- see :class:`~alphalab.instrument.registry.InstrumentRegistry`.
     """
 
     mapping: Mapping[str, str] = field(default_factory=dict)
@@ -130,6 +139,40 @@ class SymbolMap:
 
 
 @dataclass(frozen=True, slots=True)
+class UnresolvedIdentity:
+    """Identity mode that does not resolve: the v2.6 passthrough, named.
+
+    A utility for testing the wire -> canonical lift in isolation, where the
+    concerns being exercised -- ``Decimal`` precision, venue and currency
+    injection, unreported ``vwap``, book-level ordering -- have nothing to do
+    with identity and should not require a registry to reach.
+
+    **It is not an identity path to a fill.** The values it produces are
+    provider symbols, and :class:`alphalab.core.Fill` and
+    :class:`alphalab.core.Trade` refuse them. It cannot be the identity mode of
+    a production :class:`~alphalab.market.provider.ProviderHistorySource`, which
+    refuses it before calling the provider. A caller who assembles records from
+    this mode by hand and feeds them to a session is outside the supported
+    configuration and will fail at the first fill -- which is exactly what v2.6
+    did, undocumented.
+
+    It is a distinct type rather than an absent field on purpose: an absent
+    value silently selecting the unsafe behaviour is the shape of the defect
+    ADR-0016 removes.
+    """
+
+    symbols: SymbolMap = field(default_factory=SymbolMap)
+
+
+#: The two ways a policy can answer "what instrument is this symbol?". There is
+#: no third, and there is no ``None``: a policy always says which mode it is in.
+IdentityResolution = InstrumentRegistry | UnresolvedIdentity
+
+#: The unresolved mode. Shared because it holds nothing instance-specific.
+UNRESOLVED_IDENTITY = UnresolvedIdentity()
+
+
+@dataclass(frozen=True, slots=True)
 class NormalizationPolicy:
     """What the wire shape cannot say, and this venue's answer for it.
 
@@ -137,22 +180,63 @@ class NormalizationPolicy:
         venue: Venue recorded on canonical quotes and ticks.
         currency: Currency recorded on canonical quotes and ticks.
         timeframe: Timeframe recorded on canonical bars.
-        symbols: Provider-symbol to ``asset_id`` mapping.
+        identity: How a provider symbol becomes an ``asset_id``. An
+            :class:`~alphalab.instrument.registry.InstrumentRegistry` resolves
+            it and refuses an unregistered pair; :class:`UnresolvedIdentity`
+            passes it through and cannot reach a fill.
+        provider: Whose symbol space ``identity`` resolves against. Required
+            when ``identity`` is a registry -- a registry-backed policy that
+            named no provider would resolve every symbol against the empty
+            provider and refuse all of them, reporting a registration problem
+            for what is really a configuration one. Unused, and left blank, in
+            the unresolved mode.
     """
 
     venue: str = "UNKNOWN"
     currency: str = "USD"
     timeframe: TimeFrame = TimeFrame.M1
-    symbols: SymbolMap = field(default_factory=SymbolMap)
+    identity: IdentityResolution = UNRESOLVED_IDENTITY
+    provider: str = ""
+
+    def __post_init__(self) -> None:
+        if isinstance(self.identity, InstrumentRegistry) and not self.provider.strip():
+            raise MarketValidationError(
+                "A registry-backed NormalizationPolicy must name the provider whose "
+                "symbols it resolves; every symbol would otherwise be looked up "
+                "against the empty provider and refused."
+            )
 
     def asset_id(self, symbol: str) -> str:
-        """The asset id this policy assigns to a provider ``symbol``."""
+        """The asset id this policy assigns to a provider ``symbol``.
 
-        return self.symbols.asset_id(symbol)
+        Raises:
+            InstrumentResolutionError: If the policy resolves against a registry
+                and ``symbol`` is not registered for its provider. The refusal
+                happens here, at the wire boundary, rather than travelling to
+                the execution adapter as an unusable identifier.
+        """
+
+        if isinstance(self.identity, UnresolvedIdentity):
+            return self.identity.symbols.asset_id(symbol)
+
+        resolved = self.identity.resolve(self.provider, symbol)
+        if resolved is None:
+            raise InstrumentResolutionError(
+                f"Provider {self.provider!r} symbol {symbol!r} is not a registered "
+                "instrument. Register it with the InstrumentRegistry before "
+                "normalizing its records; an unregistered symbol has no canonical "
+                "asset_id, and passing it through would fail later at the fill."
+            )
+        return resolved
 
 
 #: Policy used when a caller supplies none. Names the venue ``"UNKNOWN"`` rather
 #: than guessing one, so an unattributed record stays visibly unattributed.
+#:
+#: Its identity mode is :data:`UNRESOLVED_IDENTITY`, so by ADR-0016 this is
+#: **not a production execution configuration**: it produces provider symbols,
+#: not canonical ids, and :meth:`~alphalab.market.provider.ProviderHistorySource.of`
+#: refuses it.
 DEFAULT_POLICY = NormalizationPolicy()
 
 

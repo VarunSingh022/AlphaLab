@@ -183,13 +183,15 @@ and requires a new ADR.
 ### N2 — Key construction
 
 ```python
-canonical_instrument_key = "\n".join([
-    "alphalab.instrument.v1",           # scheme tag -- fixed literal, first line
-    f"asset_type={asset_type}",
-    f"exchange={exchange}",
-    f"symbol={symbol}",
-    f"currency={currency}",
-])
+canonical_instrument_key = "\n".join(
+    [
+        "alphalab.instrument.v1",  # scheme tag -- fixed literal, first line
+        f"asset_type={asset_type}",
+        f"exchange={exchange}",
+        f"symbol={symbol}",
+        f"currency={currency}",
+    ]
+)
 asset_id = str(uuid5(ALPHALAB_INSTRUMENT_NAMESPACE, canonical_instrument_key))
 ```
 
