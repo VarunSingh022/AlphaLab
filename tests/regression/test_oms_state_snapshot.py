@@ -76,12 +76,15 @@ def test_the_whole_oms_state_serializes() -> None:
 
     decoded = json.loads(serialize(state))
 
+    # ``schema_version`` joined the five projected fields in v2.9; see ADR-0023
+    # and tests/regression/test_oms_snapshot_schema.py for the version contract.
     assert set(decoded) == {
         "orders",
         "active_orders",
         "completed_orders",
         "history",
         "events",
+        "schema_version",
     }
 
 

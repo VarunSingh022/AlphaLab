@@ -31,6 +31,28 @@ the payload with ``alphalab.persistence.deserialize`` and pass it through
     payload = serialize(state)  # str
     restored = restore(from_primitives(deserialize(payload)))
     assert restored == state
+
+Schema version
+--------------
+Every payload :func:`capture` produces carries ``schema_version``, and
+:func:`from_primitives` refuses a version it does not read -- the rule ADR-0014
+set for every snapshot envelope, which this one was the last to adopt.
+
+There is one bounded exception, and it is a decision rather than a default.
+Payloads written between v2.2 and v2.8 through the public recipe above carry no
+version at all, and unlike the portfolio's refused version 1 they are missing no
+data: every field this decoder reads is present. Such a payload is therefore
+still readable, but *only* when its top-level keys are exactly
+:data:`LEGACY_UNVERSIONED_V0_KEYS`. That is a total structural match, not a
+subset test and not "a missing version means 1": a payload one key short, one
+key long, or otherwise unversioned is refused, because nothing but a pre-v2.9
+writer produces that exact shape. See ADR-0023.
+
+Reading a legacy payload does not make it version 1. It classifies it as
+``LEGACY_UNVERSIONED_V0`` and decodes it into the current :class:`OMSSnapshot`,
+which -- like every in-memory snapshot -- carries the current constant. Capturing
+and serializing that state again writes ``schema_version`` explicitly, which is
+the whole of the migration.
 """
 
 from __future__ import annotations
@@ -38,7 +60,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from alphalab.common.append_log import AppendOnlyLog
@@ -60,8 +82,12 @@ from alphalab.oms.exceptions import OMSError
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order
 from alphalab.oms.state import OMSState
+from alphalab.persistence.decode import require_schema_version
+from alphalab.persistence.exceptions import StateDecodeError
 
 __all__ = [
+    "LEGACY_UNVERSIONED_V0_KEYS",
+    "OMS_SNAPSHOT_SCHEMA",
     "OMSEventRecord",
     "OMSSnapshot",
     "SnapshotDecodeError",
@@ -73,6 +99,29 @@ __all__ = [
 
 class SnapshotDecodeError(OMSError):
     """Raised when a snapshot payload cannot be read back into OMS types."""
+
+
+#: Schema version this module reads and writes. See ADR-0023.
+#:
+#: Version 1 is the first *declared* OMS snapshot shape, not the first shape:
+#: the projection has been stable since v2.2 and no field is added here. It is a
+#: module-local literal rather than ``DEFAULT_SCHEMA_VERSION`` for the reason
+#: v2.6 gave for the portfolio and v2.8 for the lifecycle -- that constant also
+#: versions ``CommonEvent`` and ``BaseEvent``, so bumping it would version every
+#: event in the system as a side effect of one subsystem's change.
+OMS_SNAPSHOT_SCHEMA: Final = 1
+
+_SUBSYSTEM: Final = "oms"
+
+#: The exact top-level key set of a pre-v2.9, unversioned OMS payload.
+#:
+#: Recognition is a *total* match against this set, never a subset test. Nothing
+#: but a writer older than v2.9 produces exactly these five keys and no
+#: ``schema_version``, because every later writer adds one -- which is what makes
+#: the match evidence of origin rather than a guess.
+LEGACY_UNVERSIONED_V0_KEYS: Final[frozenset[str]] = frozenset(
+    {"orders", "active_orders", "completed_orders", "history", "events"}
+)
 
 
 #: Every OMS event type, by the tag written into a snapshot.
@@ -108,6 +157,7 @@ class OMSSnapshot:
     completed_orders: tuple[OrderId, ...]
     history: tuple[OMSEventRecord, ...]
     events: tuple[OMSEventRecord, ...]
+    schema_version: int = OMS_SNAPSHOT_SCHEMA
 
 
 # ---------------------------------------------------------------------------
@@ -245,11 +295,67 @@ def _sequence(payload: Mapping[str, Any], key: str) -> Sequence[Any]:
     return value
 
 
+def _require_readable_shape(payload: Mapping[str, Any]) -> None:
+    """Refuse a payload this build cannot read, before any field is decoded.
+
+    Exactly two shapes are readable, and they are recognised by two different
+    questions rather than by one falling back to the other:
+
+    * a payload that **declares** a version is checked against
+      ``OMS_SNAPSHOT_SCHEMA`` by the shared
+      :func:`~alphalab.persistence.decode.require_schema_version`, so an
+      unreadable, non-integer, zero or future version is refused by the same
+      rule the portfolio and lifecycle snapshots use;
+    * a payload that declares **no** version is readable only if its top-level
+      keys are exactly :data:`LEGACY_UNVERSIONED_V0_KEYS`.
+
+    Nothing here assigns a version to a payload that lacks one. The absence of
+    ``schema_version`` is never treated as ``1``; it sends the payload to a
+    structural test it either passes whole or fails. See ADR-0023.
+
+    Raises:
+        SnapshotDecodeError: If the declared version is not readable, or the
+            payload is unversioned and is not the exact legacy shape.
+    """
+
+    if "schema_version" in payload:
+        try:
+            require_schema_version(payload, OMS_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+        except StateDecodeError as exc:
+            # The rule is shared; the error type is this module's, because
+            # SnapshotDecodeError is what every OMS decode failure raises and
+            # what callers catch.
+            raise SnapshotDecodeError(str(exc)) from exc
+        return
+
+    if frozenset(payload) == LEGACY_UNVERSIONED_V0_KEYS:
+        return
+
+    unexpected = sorted(frozenset(payload) - LEGACY_UNVERSIONED_V0_KEYS)
+    absent = sorted(LEGACY_UNVERSIONED_V0_KEYS - frozenset(payload))
+    raise SnapshotDecodeError(
+        f"{_SUBSYSTEM} snapshot declares no schema_version and is not the "
+        f"pre-v2.9 payload shape: it is missing {absent} and carries "
+        f"{unexpected} that shape does not. An unversioned payload is read only "
+        "when it matches that shape exactly; a missing schema_version is not "
+        f"read as version {OMS_SNAPSHOT_SCHEMA}."
+    )
+
+
 def from_primitives(payload: Mapping[str, Any]) -> OMSSnapshot:
-    """Decode a JSON-decoded snapshot payload back into :class:`OMSSnapshot`."""
+    """Decode a JSON-decoded snapshot payload back into :class:`OMSSnapshot`.
+
+    Raises:
+        SnapshotDecodeError: If the payload is not an object, declares a schema
+            version this build does not read, is an unversioned payload that is
+            not the exact pre-v2.9 shape, is missing a field, or holds a value
+            of the wrong type. The message names what did not match.
+    """
 
     if not isinstance(payload, Mapping):
         raise SnapshotDecodeError(f"Snapshot payload is not an object: {payload!r}")
+
+    _require_readable_shape(payload)
 
     return OMSSnapshot(
         orders=tuple(_order(order) for order in _sequence(payload, "orders")),
@@ -263,4 +369,5 @@ def from_primitives(payload: Mapping[str, Any]) -> OMSSnapshot:
             OMSEventRecord(str(record["event_type"]), _event(record))
             for record in _sequence(payload, "events")
         ),
+        schema_version=OMS_SNAPSHOT_SCHEMA,
     )
