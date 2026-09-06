@@ -8,6 +8,114 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.7.0] - 2026-09-06
+
+**Instrument Identity and Dataset Provenance.**
+
+Two things that were asserted are now derived. A provider symbol becomes a
+canonical instrument identity through an authority instead of being passed
+through verbatim, and a run's evidence names the data the run actually consumed
+instead of the data a caller claimed. Both were defects the repository
+documented about itself.
+
+## Added
+
+- `alphalab.instrument` — the authority for what a provider symbol means.
+  `InstrumentRegistry` owns `(provider, symbol) -> asset_id` and
+  `asset_id -> InstrumentRecord`. A canonical `asset_id` is *derived*, not
+  minted: `uuid5` over a fixed canonical key, under the frozen namespace
+  `1935bdfa-e8c0-5611-ae10-607c3a67c19b`. Two independently configured
+  environments therefore agree on the identity of one instrument with no shared
+  database. Registration is still required — derivation alone would turn every
+  typo into a new instrument. Registering the same record twice is a no-op;
+  registering different content under an identifier the registry already holds,
+  or pointing one provider symbol at a second instrument, is refused.
+- `NormalizationPolicy.identity` — an explicit two-mode identity resolution,
+  either an `InstrumentRegistry` or a named `UnresolvedIdentity`. It is never
+  `None`: an absent value silently selecting the unsafe behaviour is the shape
+  of the defect this release removes.
+- `InstrumentResolutionError` (`alphalab.market.exceptions`) — raised at the
+  wire boundary, naming the provider and the symbol.
+- `BacktestResult.dataset_id` and `SessionState.source_id` — a finished run
+  names the data it consumed. Both default to `None`, which is an honest
+  absence rather than an invented identity.
+- `ReplayResult.dataset_id` — reads through to the run it wraps, so a replay
+  cannot disagree with its own backtest.
+
+## Fixed
+
+- **The documented provider path could not reach a fill (F-1).**
+  `market.normalization` turned a provider symbol into an `asset_id` verbatim;
+  every stage from `Quote` to `ExecutionReport` carried `asset_id` as an
+  unconstrained `str`; and `core.Fill` refused anything that was not a UUID. The
+  identity was wrong from the first record and nothing objected until the last,
+  so market data, the strategy, allocation and risk all succeeded and the run
+  died at the execution -> core adapter naming neither the provider nor the
+  symbol. The only configuration that reached a fill was one where an operator
+  hand-authored a UUID per instrument. Refusal now happens where the identity is
+  created, and a registered instrument reaches a fill through the real path.
+- **Evidence claimed a dataset instead of recording one.**
+  `evidence_from_backtest` took a `dataset_id` argument, and `evidence_id_for`
+  hashes that value — so the digest was only as trustworthy as a string somebody
+  typed, and two runs over genuinely different data could be handed one identity,
+  verify cleanly and pass the gate. `BACKTEST` evidence now derives the dataset
+  from the run, and a run that names none is refused rather than recorded with a
+  fabricated `""`.
+
+## Changed — breaking
+
+- **B1.** `NormalizationPolicy.symbols` is removed. A `SymbolMap` now lives on
+  the identity mode: `NormalizationPolicy(symbols=SymbolMap({...}))` becomes
+  `NormalizationPolicy(identity=UnresolvedIdentity(SymbolMap({...})))`. Two
+  fields answering "what instrument is this symbol?" would be two sources of
+  truth for one question.
+- **B2.** `ProviderHistorySource.of` no longer defaults its `policy` argument.
+  A defaulted parameter whose default value is always refused is a trap.
+- **B3.** `evidence_from_backtest(result, subject, produced_at)` — the
+  `dataset_id` parameter is removed, not accepted and ignored. An argument that
+  is silently discarded leaves a caller believing they set something.
+- **B4.** `DEFAULT_POLICY` is not a production execution configuration. Its
+  identity mode is `UnresolvedIdentity`, which yields provider symbols, and
+  `ProviderHistorySource.of` refuses it before calling the provider.
+
+## Unchanged, deliberately
+
+- `core.Fill` and `core.Trade` UUID validation. This release supplies a producer
+  that can satisfy the existing invariant; it does not relax it.
+- `evidence_id_for`, `ValidationEvidence`, `build_evidence`,
+  `verify_evidence_id` and `evidence_from_research` are byte-identical to
+  v2.6.0. Because the digest did not move, evidence recorded under v2.6 still
+  verifies and still passes the policy it was promoted under — so this release
+  needs no schema bump, no migration and no dual verification.
+- `LIFECYCLE_SNAPSHOT_SCHEMA` remains 1 and `PORTFOLIO_SNAPSHOT_SCHEMA` remains
+  2. No persisted type gained a field.
+- `Intent` is unchanged and unvalidated, and `alphalab.strategy` acquires no
+  dependency on `alphalab.instrument` or `alphalab.market`. The consistency
+  guarantee is conditional on a strategy resolving through the canonical API;
+  nothing intercepts an `Intent` that does not.
+
+## Not in this release
+
+Carried forward and explicitly **not** delivered: sector classification and a
+security-master classification source (`InstrumentRecord.sector` is declared and
+left `None`, and `pnl_by_sector` is still empty on the execution path);
+governance actors and enterprise RBAC enforcement (ADR-0018 is written and
+deferred); richer persisted provenance on evidence — source, time coverage,
+normalization policy, provider identity; a dataset registry or uniqueness
+guarantee; an artifact or object store; per-environment promotion policy;
+code/version identity on runs; multi-currency valuation; live venue transport;
+and the removal of `alphalab.integrations`, `alphalab.kernel` or
+`alphalab.core.events`.
+
+## Architecture decisions
+
+- **ADR-0016** — Instrument Identity and Resolution Authority (Accepted).
+- **ADR-0017** — Dataset Identity and Evidence Derivation (Accepted).
+- **ADR-0018** — Governance Actors Across the Lifecycle / Enterprise Boundary
+  (Proposed, deferred from v2.7).
+
+---
+
 # [2.6.0] - 2026-09-06
 
 ## Overview

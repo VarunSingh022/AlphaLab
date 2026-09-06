@@ -404,6 +404,40 @@ Enterprise capabilities
 
 ---
 
+v2.7.0 — "Instrument Identity and Dataset Provenance" — makes two asserted
+things derived, and is a correctness release plus one new package:
+
+- **A provider symbol resolves to a canonical instrument.** `alphalab.instrument`
+  is the authority: `InstrumentRegistry` owns `(provider, symbol) -> asset_id`,
+  and an `asset_id` is derived deterministically (`uuid5` over a fixed canonical
+  key under a frozen namespace) rather than minted, so two independently
+  configured environments agree with no shared database.
+- **The documented provider path can reach a fill.** Normalization previously
+  passed a provider symbol through as an `asset_id`, which `core.Fill` refused
+  at the last stage — after market data, strategy, allocation and risk had all
+  succeeded. Refusal now happens where the identity is created, naming the
+  provider and the symbol. `Fill` / `Trade` UUID validation is unchanged.
+- **A run names the data it consumed.** `BacktestResult.dataset_id` and
+  `SessionState.source_id`. A hand-driven run records `None` — an absence, not
+  an invented identity.
+- **BACKTEST evidence derives its dataset** from the run instead of accepting a
+  caller's claim. `evidence_id_for` is byte-identical to v2.6, so evidence
+  recorded under v2.6 still verifies and still passes its policy: no schema
+  bump, no migration, no dual verification.
+- Four breaking changes, all declared in `CHANGELOG.md`: `NormalizationPolicy.symbols`
+  removed, `ProviderHistorySource.of` policy now required, `evidence_from_backtest`
+  loses `dataset_id`, and `DEFAULT_POLICY` is refused as a production source.
+
+**Deferred out of v2.7, deliberately:** sector classification and a
+security-master classification source; governance actors and enterprise RBAC
+enforcement (ADR-0018 is written and deferred, and needs a lifecycle schema
+decision); richer persisted provenance on evidence (source, time coverage,
+normalization policy, provider identity), which would either enter the digest or
+sit outside it untamper-evident; a dataset registry or uniqueness guarantee; and
+per-environment promotion policy.
+
+---
+
 v2.6.0 — "Allocation Authority and Attribution Truth" — makes two production-path
 numbers true rather than plausible, and is a correctness release with no new
 packages:
@@ -456,7 +490,9 @@ and consolidation work has **not** been done:
 - **Approval workflow** (v2.5+): a promotion is exactly the kind of auditable
   privileged action `alphalab.enterprise` models with RBAC and an audit log, but
   the two are not connected. `ValidationPolicy` states thresholds; it does not
-  state who may apply one.
+  state who may apply one. **ADR-0018** writes the intended seam and defers it:
+  recording an actor touches two persisted lifecycle records, which forces a
+  lifecycle schema decision v2.7 deliberately avoided.
 - **Per-environment promotion policy** (v2.5+): a strategy version has one stage
   across all environments, and `PRODUCTION` means "live somewhere". A policy
   that differs between `paper` and `live-eu` is not expressible.
@@ -479,10 +515,14 @@ and consolidation work has **not** been done:
   the caller's `context_factory`.
 - Multi-currency valuation (`PortfolioValuation` / `NAVCalculator` value the base
   currency only).
-- Sector attribution needs a security master, which does not exist here. v2.6
-  stopped reporting `"UNCLASSIFIED"` and now reports no sector at all, so
-  `pnl_by_sector` is empty on the execution path. A security master is v2.7 work
-  at the earliest.
+- Sector attribution needs a security master that *classifies*, which still does
+  not exist here. v2.6 stopped reporting `"UNCLASSIFIED"` and reports no sector
+  at all; v2.7 delivered the **identity** half — `alphalab.instrument` resolves a
+  provider symbol to a canonical instrument, and `InstrumentRecord.sector` is
+  declared and deliberately left `None`, outside the identity key so a later
+  classification cannot re-identify an instrument. `pnl_by_sector` is still empty
+  on the execution path. Classification needs a data source AlphaLab does not
+  have, and remains deferred.
 
 - `benchmark_workbench.py` fails on a tab-lifecycle assertion in
   `alphalab.workbench`. Pre-existing at v2.2.0 and unrelated to the execution
@@ -492,8 +532,9 @@ Delivered since this list was written: mark-to-market position repricing (v2.1),
 `alphalab.replay` integration with the execution path (v2.2), market-data /
 broker convergence with paper execution on the canonical path (v2.3), the
 model/strategy lifecycle composing PR-046 through PR-049 (v2.4), typed state
-round-trip plus the provider→source link (v2.5), and allocation authority with
-attribution truth (v2.6).
+round-trip plus the provider→source link (v2.5), allocation authority with
+attribution truth (v2.6), and instrument identity with dataset provenance
+(v2.7).
 
 ---
 

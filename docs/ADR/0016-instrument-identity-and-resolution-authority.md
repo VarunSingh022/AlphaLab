@@ -334,10 +334,23 @@ Changed:
 NormalizationPolicy
   + identity: IdentityResolution = UNRESOLVED_IDENTITY
   + provider: str = ""
+  - symbols: SymbolMap                     # REMOVED -- moved onto UnresolvedIdentity
 
 ProviderHistorySource.of
   ~ policy: NormalizationPolicy            # default removed; now required
 ```
+
+`NormalizationPolicy.symbols` is **removed**, not retained alongside `identity`.
+`SymbolMap` still exists and is still exported; it now lives on the
+`UnresolvedIdentity` mode, so a v2.6 policy is rewritten as::
+
+    NormalizationPolicy(symbols=SymbolMap({...}))                     # v2.6
+    NormalizationPolicy(identity=UnresolvedIdentity(SymbolMap({...})))  # v2.7
+
+Keeping both fields would leave two answers to "what instrument is this symbol?"
+on one policy, which is the ambiguity this ADR exists to remove. This is a
+breaking change to a public constructor and is recorded as such in
+`CHANGELOG.md`; §15 states the blast radius.
 
 Unchanged, explicitly: `Quote`, `Bar`, `Tick`, `OrderBookSnapshot`,
 `MarketRecord`, `OrderRequest`, `oms.order.Order`, `OrderInstruction`,

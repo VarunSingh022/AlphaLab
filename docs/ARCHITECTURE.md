@@ -187,13 +187,38 @@ Everything reaching the execution path crosses this boundary.
 | Precision | `Decimal(str(value))`, never `Decimal(value)`. `Decimal(0.1)` keeps the float's binary expansion; going through `str` keeps the number the provider wrote. This is what makes normalization deterministic. |
 | Quantization | None. The venue's precision is preserved; rounding is a downstream decision. |
 | Timestamps | Unix seconds as `float`, passed through. Must be strictly positive. |
-| Identity | Provider `symbol` → `asset_id` verbatim, unless a `SymbolMap` rewrites it. |
+| Identity | `(provider, symbol)` → `InstrumentRegistry` → a canonical, deterministic UUID `asset_id`. The registry is the production identity authority; an unregistered pair is refused here with `InstrumentResolutionError`, naming the provider and the symbol, rather than travelling on as an unusable identifier. See ADR-0016. |
 | Venue / currency / timeframe | Not on the wire. Supplied by an explicit `NormalizationPolicy`, which names an unattributed venue `"UNKNOWN"` rather than guessing. |
 | vwap, trade count, order counts | Not reported by a wire record. Set to zero and documented as *unreported*, not measured. |
 | Trade direction | Not represented. A wire trade carries no aggressor flag, and none is inferred. |
 | Book levels | Passed through in provider order; sequence is supplied by the caller, because `MarketEngine.publish_book` refuses a non-advancing sequence. |
 | Invalid data | Raises `MarketValidationError` at the boundary, not deeper in the path. |
 | Stale data | Not an error. `is_stale` / `reject_stale` let the caller decide, because how old is too old is a strategy property. |
+
+#### Identity resolution — `alphalab.instrument`
+
+An `asset_id` is opaque, UUID-shaped and *derived*, not minted: `uuid5` over a
+canonical key (`asset_type`, `exchange`, `symbol`, `currency`) under a frozen
+namespace. Two independently configured environments therefore agree on the
+identity of one instrument with no shared database. Registration is still
+required — derivation alone would turn every typo into a new instrument.
+
+A `NormalizationPolicy` resolves identity in one of exactly two named modes.
+There is no third, and there is no `None`.
+
+| Mode | Behaviour | Permitted use |
+| --- | --- | --- |
+| `InstrumentRegistry` | Resolves `(provider, symbol)`; refuses an unregistered pair | The only mode permitted on any path that can reach a `Fill` or `Trade` |
+| `UnresolvedIdentity` | Passes the provider symbol through, optionally via a `SymbolMap` | Low-level testing of the wire → canonical lift **only** |
+
+`UnresolvedIdentity` is **not a production execution configuration**: the values
+it produces are provider symbols, which `core.Fill` and `core.Trade` refuse.
+`ProviderHistorySource.of` rejects it before calling the provider, so a
+misconfigured source costs no request. `DEFAULT_POLICY` uses this mode and is
+therefore a testing default, not a production one.
+
+`core.Fill` / `core.Trade` UUID validation is **unchanged**. ADR-0016 supplies a
+producer that can satisfy the existing invariant; it does not relax it.
 
 ### The market-data adapter boundary — `alphalab.market.source`
 
