@@ -41,6 +41,8 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineResult,
     ExecutionPipelineState,
     ExecutionRouting,
+    UnpricedAsset,
+    UnpricedReason,
 )
 from alphalab.runtime.lifecycle import RuntimeStatus
 from alphalab.runtime.metrics import RuntimeMetrics
@@ -100,6 +102,8 @@ __all__ = [
     "SkippedRecord",
     "SupervisorState",
     "TradingSession",
+    "UnpricedAsset",
+    "UnpricedReason",
     "apply_broker_execution",
     "create_runtime",
     "dispatcher_statistics",

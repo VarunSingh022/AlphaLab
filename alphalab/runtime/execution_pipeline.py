@@ -22,6 +22,7 @@ from alphalab.analytics.attribution import TradeRecord
 from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
@@ -148,6 +149,59 @@ class ExecutionPipelineConfig:
     routing: ExecutionRouting = ExecutionRouting.SIMULATED
 
 
+class UnpricedReason(Enum):
+    """Why a request was dropped for want of a price.
+
+    Three members, and no fourth for "unknown": :attr:`NO_PRICE_OBSERVED` is not
+    a stand-in for an answer the pipeline failed to get, it is the complete
+    answer when no registry was configured to ask.
+    """
+
+    #: No :class:`~alphalab.instrument.registry.InstrumentRegistry` was
+    #: configured, so the run knows only that it never priced this asset. It
+    #: cannot say whether the identifier names a real instrument.
+    NO_PRICE_OBSERVED = auto()
+
+    #: A registry was configured and holds no instrument under this
+    #: ``asset_id``. This is the ADR-0016 section 3 failure mode -- a strategy
+    #: naming an instrument the registry does not have -- which until now
+    #: produced zero fills and no explanation.
+    NOT_REGISTERED = auto()
+
+    #: A registry was configured and does hold this instrument; the run simply
+    #: never saw a price for it. Widening the data window, not the registry, is
+    #: the fix.
+    REGISTERED_BUT_UNPRICED = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class UnpricedAsset:
+    """One asset the run declined to trade, and what it knows about why.
+
+    Aggregated per ``asset_id`` rather than logged per occurrence. The five
+    hundredth drop of one asset for one reason says nothing the first did not,
+    and a live session that is misconfigured drops one request per event
+    indefinitely -- so the count is kept and the repetition is not.
+
+    Attributes:
+        asset_id: The asset no price was observed for.
+        reason: What the run could establish about why.
+        detail: The same in a sentence, naming the instrument when a registry
+            supplied one. Descriptive; read ``reason`` to branch on.
+        first_timestamp: Market timestamp of the first drop.
+        last_timestamp: Market timestamp of the most recent drop. Equal to
+            ``first_timestamp`` after a single occurrence.
+        occurrences: How many requests were dropped, not how many events passed.
+    """
+
+    asset_id: str
+    reason: UnpricedReason
+    detail: str
+    first_timestamp: float
+    last_timestamp: float
+    occurrences: int
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionPipelineState:
     """Immutable snapshot of all subsystems in the execution path."""
@@ -166,6 +220,16 @@ class ExecutionPipelineState:
     trades: AppendOnlyLog[CoreTrade] = field(default_factory=AppendOnlyLog)
     trade_records: AppendOnlyLog[TradeRecord] = field(default_factory=AppendOnlyLog)
     portfolio_snapshots: AppendOnlyLog[PortfolioSnapshot] = field(default_factory=AppendOnlyLog)
+    #: Assets the run declined to trade for want of a price, keyed by
+    #: ``asset_id`` and never removed -- this records what happened, not what is
+    #: unpriced now. Of the ways a request can end without a fill, this was the
+    #: only one leaving no reason behind: allocation and risk rejections land in
+    #: their own event logs, and a non-trading execution leaves the order closed
+    #: in the OMS with its status, but a dropped request emitted only an
+    #: ``AllocationReservationReleased`` identical to the one three other
+    #: outcomes emit. Bounded by the distinct instruments the run's strategies
+    #: named, never by event count. Not persisted; nothing captures this state.
+    unpriced_assets: PersistentMap[str, UnpricedAsset] = field(default_factory=PersistentMap)
 
 
 @dataclass(frozen=True, slots=True)
@@ -457,6 +521,7 @@ def _process_requests(
         # than submitting an order the execution leg cannot price.
         if request.asset_id not in current.market_prices:
             unpriced.append(request)
+            current = _record_unpriced(current, request.asset_id, event.timestamp)
             current = _release_reservation(current, request.order_id, event.timestamp)
             continue
         current, decision = _evaluate_risk(current, request, event.timestamp)
@@ -513,6 +578,41 @@ def _process_requests(
         tuple(unpriced),
         valuation,
     )
+
+
+def _classify_unpriced(state: ExecutionPipelineState, asset_id: str) -> tuple[UnpricedReason, str]:
+    """What this run can honestly say about an asset it never priced.
+
+    Without a registry the run knows one thing: it saw no price. It says that
+    and stops, rather than reporting an absence it did not check.
+    """
+
+    return (
+        UnpricedReason.NO_PRICE_OBSERVED,
+        f"No market price was observed for asset_id {asset_id!r} in this run. "
+        "No InstrumentRegistry is configured on the pipeline, so this run cannot "
+        "say whether that identifier names a registered instrument.",
+    )
+
+
+def _record_unpriced(
+    state: ExecutionPipelineState, asset_id: str, timestamp: float
+) -> ExecutionPipelineState:
+    """Record that a request for ``asset_id`` was dropped, or that it happened again.
+
+    The reason is settled once, on the first drop, and never recomputed: the
+    registry is immutable configuration, so its answer cannot change during a
+    run, and re-deriving it would put work on a path that a misconfigured run
+    takes on every event.
+    """
+
+    existing = state.unpriced_assets.get(asset_id)
+    if existing is None:
+        reason, detail = _classify_unpriced(state, asset_id)
+        entry = UnpricedAsset(asset_id, reason, detail, timestamp, timestamp, 1)
+    else:
+        entry = replace(existing, last_timestamp=timestamp, occurrences=existing.occurrences + 1)
+    return replace(state, unpriced_assets=state.unpriced_assets.set(asset_id, entry))
 
 
 def _evaluate_risk(

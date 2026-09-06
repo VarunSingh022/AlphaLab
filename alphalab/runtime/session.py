@@ -80,6 +80,7 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineResult,
     ExecutionPipelineState,
     ExecutionRouting,
+    UnpricedAsset,
 )
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
@@ -200,6 +201,23 @@ class SessionState:
         """
 
         return tuple(self.pipeline.oms.orders.open_orders())
+
+    @property
+    def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:
+        """Assets this session declined to trade for want of a price.
+
+        Read from the pipeline rather than stored again, so a session and its
+        run cannot disagree. Distinct from :attr:`skipped`, which is about
+        *records* the session declined to process at all: an unpriced asset's
+        records were processed normally, and it is the strategy's order for
+        something the session never priced that was dropped.
+
+        Aggregated per asset, so a session left running against a misconfigured
+        strategy records the asset once and counts, rather than growing a log
+        for as long as it runs.
+        """
+
+        return tuple(self.pipeline.unpriced_assets.values())
 
 
 def _out_of_order(
