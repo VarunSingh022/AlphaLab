@@ -555,14 +555,16 @@ def _process_requests(
         decision_out = _decide_fill(policy, order, event, current.market_prices[request.asset_id])
         current, new_reports = _execute_order(current, order, decision_out)
         # A rejected, expired or unfilled execution produces no report. The
-        # order never trades, so release its reserved allocation and close it
-        # out of the OMS instead of leaving it open forever awaiting a fill.
+        # order never trades, so close it out of the OMS instead of leaving it
+        # open forever awaiting a fill, and retire both ledgers it holds. The
+        # order is terminal by the time _release_if_terminal is asked, which is
+        # what lets that one function serve every terminal transition.
         if not new_reports and decision_out.status in _NON_TRADING_STATUSES:
             current = replace(
                 current,
                 oms=_close_unfilled_order(current.oms, order, decision_out.status, event.timestamp),
             )
-            current = _release_reservation(current, request.order_id, event.timestamp)
+            current = _release_if_terminal(current, order.order_id, event.timestamp)
 
         current, new_fills, new_trades = _apply_reports(current, order, new_reports)
         current = _withdraw_partial_remainder(current, request, order, event.timestamp)
@@ -702,7 +704,11 @@ def _retire_dropped_request(
     ``AllocationState.contributions`` documented its own lifetime as ending when
     "that request's order reaches a terminal state", which quietly assumed every
     request becomes an order. A request whose life ends before the OMS ends here
-    instead. Both retirements are idempotent -- ``_release_reservation`` checks
+    instead; one that ends *as* a terminal order ends in
+    :func:`_release_if_terminal`. Between them the invariant holds without a
+    gap: a contribution exists exactly as long as the request does.
+
+    Both retirements are idempotent -- ``_release_reservation`` checks
     membership and ``retire_contributions`` returns unchanged for an absent key
     -- so this is safe wherever a request's lifecycle ends, exactly once.
     """
@@ -739,6 +745,23 @@ def _release_if_terminal(
     price divergence; the condition is the divergence itself, whatever caused it.
     An order that is still working keeps its reservation, because that capital is
     still committed. See ADR-0015.
+
+    It retires the contribution ledger too, and until v2.8 it was the only thing
+    that did -- which meant an order reaching a terminal state by any route
+    other than a report left its contributions behind forever. A ``NO_FILL``,
+    ``REJECTED`` or ``EXPIRED`` execution produces no report at all, so
+    :func:`_apply_reports`'s per-report loop never ran and never called this; a
+    partially filled order was cancelled by :func:`_withdraw_partial_remainder`,
+    which freed the reservation and nothing else. Measured on v2.7.0, twenty
+    events on each of those four paths left twenty entries apiece. Every
+    terminal transition now comes through here, so "terminal" has one meaning
+    and one consequence. The pre-OMS paths, where there is no order to be
+    terminal, are :func:`_retire_dropped_request`.
+
+    Both retirements are idempotent -- the reservation release checks
+    membership, ``retire_contributions`` returns unchanged for an absent key --
+    so calling this at more than one point in an order's life is safe and
+    retires exactly once.
     """
 
     if not state.oms.orders.contains(order_id):
@@ -913,9 +936,10 @@ def _withdraw_partial_remainder(
     against them indefinitely.
 
     The remainder is therefore cancelled, exactly as a never-filled order is, and
-    its residual reservation released. Nothing else changes: no fill is created
-    or destroyed, so cash, positions, realized and unrealized P&L, the equity
-    curve and every analytics figure are the same as before. ``Order.cancel``
+    the ledgers the now-terminal order still holds are retired. Nothing else
+    changes: no fill is created or destroyed, so cash, positions, realized and
+    unrealized P&L, the equity curve and every analytics figure are the same as
+    before. ``Order.cancel``
     preserves ``filled_quantity`` and ``average_fill_price``, so the fill that
     did happen is untouched. See ADR-0014.
     """
@@ -925,7 +949,7 @@ def _withdraw_partial_remainder(
         return state
 
     withdrawn = replace(state, oms=OMSEngine.cancel(state.oms, order.order_id, timestamp))
-    return _release_reservation(withdrawn, request.order_id, timestamp)
+    return _release_if_terminal(withdrawn, order.order_id, timestamp)
 
 
 def _close_unfilled_order(
