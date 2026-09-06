@@ -118,7 +118,7 @@ class ReplayBacktest:
                 replayed += 1
 
             return ReplayResult(
-                backtest=finalize(state),
+                backtest=finalize(state, dataset.dataset_id),
                 replay_status=replay.status.name,
                 records_replayed=replayed,
                 last_record=last,

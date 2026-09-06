@@ -51,13 +51,30 @@ class BacktestState:
 
 @dataclass(frozen=True, slots=True)
 class BacktestResult:
-    """The finished run: its final state plus read-only views over it."""
+    """The finished run: its final state plus read-only views over it.
+
+    Attributes:
+        config: The configuration the run was driven with.
+        state: Final execution-path state -- portfolio, orders, fills, analytics.
+        steps: What each dataset record produced, in order.
+        records_processed: How many records the run consumed.
+        seed: The identifier seed, if the run was seeded.
+        dataset_id: The dataset this run consumed, or ``None`` when the caller
+            drove ``initialize``/``advance``/``finalize`` by hand and named no
+            dataset. Until v2.7 the identity was discarded at this boundary:
+            :meth:`~alphalab.backtesting.engine.BacktestEngine.run` had the
+            dataset in scope and the result did not record it, which is why
+            :class:`~alphalab.lifecycle.evidence.ValidationEvidence` has to take
+            ``dataset_id`` from a caller who merely asserts it. ``None`` is an
+            honest absence and not a default identity -- see ADR-0017.
+    """
 
     config: BacktestConfig
     state: ExecutionPipelineState
     steps: tuple[BacktestStep, ...]
     records_processed: int
     seed: int | None
+    dataset_id: str | None = None
 
     @property
     def orders(self) -> tuple[OMSOrder, ...]:
@@ -109,3 +126,13 @@ class ReplayResult:
     replay_status: str
     records_replayed: int
     last_record: MarketRecord | None
+
+    @property
+    def dataset_id(self) -> str | None:
+        """The dataset this replay consumed.
+
+        Read from the run it wraps rather than stored again, so a replay cannot
+        come to disagree with its own backtest about what it replayed.
+        """
+
+        return self.backtest.dataset_id
