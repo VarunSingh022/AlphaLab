@@ -38,7 +38,6 @@ from decimal import Decimal
 from typing import Any
 
 from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
 from alphalab.persistence.decode import (
     as_decimal,
     as_decimal_mapping,
@@ -80,8 +79,22 @@ __all__ = [
     "restore",
 ]
 
-#: Schema version this module reads and writes. See ADR-0014.
-PORTFOLIO_SNAPSHOT_SCHEMA = DEFAULT_SCHEMA_VERSION
+#: Schema version this module reads and writes. See ADR-0014 and ADR-0015.
+#:
+#: Version 2 adds ``Position.opened_at``. This is deliberately a portfolio-local
+#: constant rather than ``DEFAULT_SCHEMA_VERSION``, which it aliased until v2.6:
+#: that constant is also the version of the lifecycle snapshot,
+#: ``CommonEvent`` and ``BaseEvent``, so bumping it would have versioned every
+#: event in the system as a side effect of adding one field to a position.
+#:
+#: Version 1 payloads are refused rather than migrated. A v1 payload does not
+#: record when a position opened, and no honest value can be invented for it --
+#: ``last_updated`` is the last mark-to-market time, which for a position marked
+#: on every event would report a holding period of roughly zero for a position
+#: held for a year. ADR-0014 said the version field exists "so that the first
+#: schema change is a decision rather than a silent misread"; refusing is the
+#: decision that cannot misread.
+PORTFOLIO_SNAPSHOT_SCHEMA = 2
 
 _SUBSYSTEM = "portfolio"
 
@@ -216,7 +229,16 @@ def _position(value: Any, index: int) -> Position:
         currency=as_str(require(payload, "currency"), f"{where}.currency"),
         last_updated=as_float(require(payload, "last_updated"), f"{where}.last_updated"),
         cost_basis=as_optional_decimal(require(payload, "cost_basis"), f"{where}.cost_basis"),
+        opened_at=_optional_float(require(payload, "opened_at"), f"{where}.opened_at"),
     )
+
+
+def _optional_float(value: Any, field_name: str) -> float | None:
+    """A float, or ``None`` for a position whose open time was never recorded."""
+
+    if value is None:
+        return None
+    return as_float(value, field_name)
 
 
 def _transaction(value: Any, index: int) -> Transaction:

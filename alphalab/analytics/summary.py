@@ -20,11 +20,17 @@ class TradeMetrics:
 
 def calculate_trade_metrics(
     profits: tuple[Decimal, ...],
-    holding_periods: tuple[float, ...],
+    holding_periods: tuple[float | None, ...],
     total_traded_notional: Decimal,
     average_equity: Decimal,
 ) -> TradeMetrics:
-    """Computes comprehensive trade efficiency and expectancy metrics."""
+    """Computes comprehensive trade efficiency and expectancy metrics.
+
+    ``holding_periods`` may contain ``None`` for a fill that opened or increased
+    a position: it held nothing, so it has no holding period to average. Those
+    entries are excluded rather than counted as zero, which is what made
+    ``avg_holding_period`` a mean of zeros before v2.6.
+    """
     if not profits:
         return TradeMetrics(0.0, 0.0, Decimal("0"), Decimal("0"), 0.0, Decimal("0"), 0.0, 0.0)
 
@@ -47,7 +53,8 @@ def calculate_trade_metrics(
         profit_factor = float(gross_profit / gross_loss)
 
     expectancy = (Decimal(str(win_rate)) * avg_win) + (Decimal(str(loss_rate)) * avg_loss)
-    avg_hold = sum(holding_periods) / len(holding_periods) if holding_periods else 0.0
+    measured = tuple(period for period in holding_periods if period is not None)
+    avg_hold = sum(measured) / len(measured) if measured else 0.0
 
     turnover = (
         float(total_traded_notional / average_equity) if average_equity > Decimal("0") else 0.0

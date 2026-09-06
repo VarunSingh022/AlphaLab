@@ -22,6 +22,7 @@ from alphalab.analytics.attribution import TradeRecord
 from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.order_request import OrderRequest
@@ -509,7 +510,11 @@ def _release_if_terminal(
         return state
     if state.oms.orders.find(order_id).is_open:
         return state
-    return _release_reservation(state, str(order_id.value), timestamp)
+    released = _release_reservation(state, str(order_id.value), timestamp)
+    return replace(
+        released,
+        allocation=AllocationEngine.retire_contributions(released.allocation, str(order_id.value)),
+    )
 
 
 def _decide_fill(
@@ -630,6 +635,11 @@ def _apply_report_to_portfolio(
 ) -> ExecutionPipelineState:
     signed_quantity = report.fill_quantity if side is OMSSide.BUY else -report.fill_quantity
     before = len(state.portfolio.events)
+    # Read both *before* the fill is applied. A closing fill removes the
+    # position, taking its ``opened_at`` with it, and the contribution ledger is
+    # retired once the order goes terminal -- so neither can be recovered after.
+    opened_at = _opened_at(state.portfolio, report.asset_id)
+    contributions = AllocationEngine.contributions_for(state.allocation, report.order_id)
     portfolio = PortfolioEngine.apply_fill(
         state.portfolio,
         report.asset_id,
@@ -640,7 +650,7 @@ def _apply_report_to_portfolio(
         report.currency,
     )
     risk = _sync_risk_from_portfolio(state.risk, portfolio)
-    record = _trade_record(report, portfolio.events[before:])
+    record = _trade_record(report, portfolio.events[before:], opened_at, contributions)
     return replace(
         state,
         portfolio=portfolio,
@@ -739,30 +749,53 @@ def _canonical_execution(report: ExecutionReport, side: CoreSide) -> tuple[CoreF
     return canonical_execution_from_report(report, side)
 
 
-def _trade_record(report: ExecutionReport, fill_events: Sequence[PortfolioEvent]) -> TradeRecord:
+def _opened_at(portfolio: PortfolioState, asset_id: str) -> float | None:
+    """When the position this fill is about to touch began, if it exists."""
+
+    position = portfolio.positions.get(asset_id)
+    return None if position is None else position.opened_at
+
+
+def _trade_record(
+    report: ExecutionReport,
+    fill_events: Sequence[PortfolioEvent],
+    opened_at: float | None,
+    contributions: tuple[StrategyContribution, ...],
+) -> TradeRecord:
     """Build the analytics trade record for one execution report.
 
     ``fill_events`` are only the portfolio events this fill produced. Scanning
     the whole portfolio history instead would attribute an earlier close's
     realized P&L to an opening fill that realized nothing.
+
+    A fill that *reduced or closed* a position gets a holding period measured
+    from that position's ``opened_at``. A fill that opened or increased one gets
+    ``None``: it has held nothing, and the ``0.0`` this field carried until v2.6
+    was a measurement that was never made -- it made ``avg_holding_period`` a
+    mean of zeros. Sector is ``None`` for the same class of reason: AlphaLab has
+    no security master, and ``"UNCLASSIFIED"`` presented one fictional bucket as
+    though it were a breakdown.
     """
 
     realized = Decimal("0.00")
+    holding_period: float | None = None
     for evt in fill_events:
         # PositionReduced(timestamp, account_id, asset_id, reduced_quantity, price, realized_pnl)
         # PositionClosed(timestamp, account_id, asset_id, price, realized_pnl)
         if isinstance(evt, PositionReduced | PositionClosed):
             realized = evt.realized_pnl
+            if opened_at is not None:
+                holding_period = report.timestamp - opened_at
             break
 
     return TradeRecord(
         trade_id=report.execution_id,
-        strategy_id=report.strategy_id,
         asset_id=report.asset_id,
-        sector_id="UNCLASSIFIED",
+        sector_id=None,
         realized_pnl=realized,
         notional_value=report.fill_quantity * report.fill_price,
-        holding_period_seconds=0.0,
+        holding_period_seconds=holding_period,
+        contributions=contributions,
     )
 
 

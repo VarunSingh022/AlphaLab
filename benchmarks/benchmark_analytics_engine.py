@@ -8,6 +8,7 @@ from alphalab.analytics import (
     PortfolioSnapshot,
     TradeRecord,
 )
+from alphalab.core.contribution import StrategyContribution
 
 
 def run_benchmark() -> None:
@@ -34,12 +35,12 @@ def run_benchmark() -> None:
     trades = tuple(
         TradeRecord(
             trade_id=f"T{i}",
-            strategy_id="STRAT-1",
             asset_id="AAPL",
             sector_id="TECH",
             realized_pnl=Decimal("10.00") if i % 2 == 0 else Decimal("-5.00"),
             notional_value=Decimal("1000.00"),
             holding_period_seconds=3600.0,
+            contributions=(StrategyContribution("STRAT-1", Decimal("1")),),
         )
         for i in range(N_TRADES)
     )
