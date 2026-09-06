@@ -294,7 +294,7 @@ def main() -> None:
     # Step 4 : Evidence from the real run, judged against a stated policy
     # ------------------------------------------------------------------
 
-    evidence = evidence_from_backtest(result, str(strategy), "DS-LIFECYCLE", 6.0)
+    evidence = evidence_from_backtest(result, str(strategy), 6.0)
     state = record_evidence(state, evidence)
     outcome = validate_strategy_version(state, *_ref(strategy), POLICY, evidence.evidence_id)
 
@@ -353,7 +353,7 @@ def main() -> None:
     state, second = register_strategy(
         state, STRATEGY_LINE, second_definition, 9.0, model=model, run_id=run_id
     )
-    second_evidence = evidence_from_backtest(_run(MIDS), str(second), "DS-LIFECYCLE", 10.0)
+    second_evidence = evidence_from_backtest(_run(MIDS), str(second), 10.0)
     state = record_evidence(state, second_evidence)
     state = promote_strategy_version(
         state, *_ref(second), POLICY, second_evidence.evidence_id, 11.0

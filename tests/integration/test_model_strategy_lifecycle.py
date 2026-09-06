@@ -165,7 +165,7 @@ def _lifecycle_through_promotion(
     )
 
     # 5. Evidence from the real run, and the promotion it justifies.
-    evidence = evidence_from_backtest(result, str(strategy), "DS", 6.0)
+    evidence = evidence_from_backtest(result, str(strategy), 6.0)
     state = record_evidence(state, evidence)
     state = promote_strategy_version(
         state, strategy.name, strategy.version, POLICY, evidence.evidence_id, 7.0
@@ -224,7 +224,7 @@ def test_the_whole_lifecycle_runs_end_to_end() -> None:
         model=model,
         run_id=strategy.run_id,
     )
-    second_evidence = evidence_from_backtest(result, str(second), "DS", 10.0)
+    second_evidence = evidence_from_backtest(result, str(second), 10.0)
     state = record_evidence(state, second_evidence)
     state = promote_strategy_version(
         state, second.name, second.version, POLICY, second_evidence.evidence_id, 11.0
@@ -276,16 +276,16 @@ def test_evidence_from_the_same_run_has_the_same_id() -> None:
     """Evidence identity is a digest of the measurement, so two extractions of
     one run agree without any coordination."""
     result = _backtest()
-    first = evidence_from_backtest(result, "ma-crossover@1", "DS", 6.0)
-    second = evidence_from_backtest(result, "ma-crossover@1", "DS", 6.0)
+    first = evidence_from_backtest(result, "ma-crossover@1", 6.0)
+    second = evidence_from_backtest(result, "ma-crossover@1", 6.0)
 
     assert first.evidence_id == second.evidence_id
 
 
 def test_a_different_seed_produces_different_evidence() -> None:
     """The seed is part of what the evidence attests, so it is part of its id."""
-    seeded = evidence_from_backtest(_backtest(20240), "ma-crossover@1", "DS", 6.0)
-    other = evidence_from_backtest(_backtest(999), "ma-crossover@1", "DS", 6.0)
+    seeded = evidence_from_backtest(_backtest(20240), "ma-crossover@1", 6.0)
+    other = evidence_from_backtest(_backtest(999), "ma-crossover@1", 6.0)
 
     assert seeded.evidence_id != other.evidence_id
 
@@ -368,7 +368,7 @@ def test_a_run_that_compiled_no_analytics_cannot_stand_as_evidence() -> None:
     from alphalab.lifecycle import LifecycleInputError
 
     with pytest.raises(LifecycleInputError, match="compiled no performance report"):
-        evidence_from_backtest(result, "ma-crossover@1", "DS", 6.0)
+        evidence_from_backtest(result, "ma-crossover@1", 6.0)
 
 
 def test_a_losing_run_does_not_pass_a_policy_that_asks_for_a_gain() -> None:
@@ -387,7 +387,7 @@ def test_a_losing_run_does_not_pass_a_policy_that_asks_for_a_gain() -> None:
     losing = {3.0: Decimal("100"), 6.0: Decimal("-100")}
     config, dataset, strategy_state = scripted_run(losing, MIDS, PIPELINE_STRATEGY_ID, ASSET)
     result = BacktestEngine.run(config, dataset, strategy_state, context_factory)
-    evidence = evidence_from_backtest(result, str(strategy), "DS", 6.0)
+    evidence = evidence_from_backtest(result, str(strategy), 6.0)
     state = record_evidence(state, evidence)
 
     assert evidence.metrics["total_return"] < 0.0

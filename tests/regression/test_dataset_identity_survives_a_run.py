@@ -254,19 +254,22 @@ def test_neither_identity_enters_any_persisted_snapshot() -> None:
     assert PORTFOLIO_SNAPSHOT_SCHEMA == 2, "unchanged since v2.6"
 
 
-def test_evidence_is_untouched_by_m2() -> None:
-    """M3 derives evidence from the run. This phase does not, and must not look like it does.
+def test_the_evidence_layer_gains_no_field_from_run_provenance() -> None:
+    """Carrying an identity on a run must not widen what evidence records.
 
     Note the name collision this pins down. ``ValidationEvidence.source_id``
     already exists and means the *report* a measurement was extracted from -- a
     ``PerformanceReport.report_id`` or a ``ResearchState.research_id``. It has
     nothing to do with ``SessionState.source_id``, which names a market-data
-    stream. M2 adds the latter and must not disturb the former.
+    stream. The two must not be merged.
+
+    M3 (``tests/regression/test_evidence_derives_dataset_identity.py``) makes
+    ``evidence_from_backtest`` read ``dataset_id`` off the run this phase
+    started recording. It adds no field either, which is what keeps
+    ``evidence_id_for`` frozen and v2.6 evidence verifiable.
     """
 
-    import inspect
-
-    from alphalab.lifecycle.evidence import ValidationEvidence, evidence_from_backtest
+    from alphalab.lifecycle.evidence import ValidationEvidence
 
     assert {f.name for f in fields(ValidationEvidence)} == {
         "evidence_id",
@@ -277,7 +280,4 @@ def test_evidence_is_untouched_by_m2() -> None:
         "seed",
         "produced_at",
         "source_id",
-    }, "M2 must add no field to ValidationEvidence"
-    assert "dataset_id" in inspect.signature(evidence_from_backtest).parameters, (
-        "M3 removes this parameter; M2 must leave it alone"
-    )
+    }, "run provenance must add no field to ValidationEvidence"
