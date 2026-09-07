@@ -22,6 +22,7 @@ from alphalab.analytics.attribution import TradeRecord
 from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.ids import IdStreamPosition, current_id_position
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side as CoreSide
@@ -252,6 +253,16 @@ class ExecutionPipelineState:
     #: outcomes emit. Bounded by the distinct instruments the run's strategies
     #: named, never by event count. Not persisted; nothing captures this state.
     unpriced_assets: PersistentMap[str, UnpricedAsset] = field(default_factory=PersistentMap)
+    #: How far this run's identifier stream had advanced when the last transition
+    #: finished. Refreshed by every method that returns a state and mints
+    #: identifiers, so the state -- not the ambient
+    #: :class:`~alphalab.common.ids.DeterministicIdSource` -- is what says where
+    #: the stream is. A run that stops here and rebuilds its source with
+    #: :func:`~alphalab.common.ids.id_source_for` continues the stream instead of
+    #: restarting it, which is what stops a continued run re-minting identifiers
+    #: it has already used. ``seed=None`` for an unseeded run, which has no
+    #: cursor and needs none. See ADR-0022.
+    id_position: IdStreamPosition = field(default_factory=IdStreamPosition)
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +360,9 @@ class ExecutionPipeline:
             portfolio=portfolio,
             analytics=AnalyticsEngine.initialize(),
             portfolio_snapshots=AppendOnlyLog((snapshot,)),
+            # Funding the portfolio mints identifiers, so a state is never handed
+            # back without saying where the stream stands.
+            id_position=current_id_position(),
         )
 
     @staticmethod
@@ -533,7 +547,10 @@ class ExecutionPipeline:
         if report.execution_id in state.execution.reports:
             return state, (), ()
 
-        return _apply_reports(_record_venue_execution(state, order, report), order, (report,))
+        applied, fills, trades = _apply_reports(
+            _record_venue_execution(state, order, report), order, (report,)
+        )
+        return replace(applied, id_position=current_id_position()), fills, trades
 
     @staticmethod
     def apply_terminal_outcome(
@@ -621,7 +638,8 @@ class ExecutionPipeline:
         terminated = replace(
             state, oms=_terminate_order(state.oms, order, outcome, reason, timestamp)
         )
-        return _release_if_terminal(terminated, order.order_id, timestamp)
+        released = _release_if_terminal(terminated, order.order_id, timestamp)
+        return replace(released, id_position=current_id_position())
 
     @staticmethod
     def compile_analytics(
@@ -640,7 +658,7 @@ class ExecutionPipeline:
             years_elapsed,
             risk_free_rate,
         )
-        return replace(state, analytics=analytics)
+        return replace(state, analytics=analytics, id_position=current_id_position())
 
 
 def _process_requests(
@@ -706,7 +724,16 @@ def _process_requests(
         trades.extend(new_trades)
 
     snapshot = _portfolio_snapshot(current.portfolio, current.config.currency, event.timestamp)
-    current = replace(current, portfolio_snapshots=current.portfolio_snapshots.append(snapshot))
+    # The step boundary, and the only place the position is refreshed for an
+    # event: every environment reaches here through process_record,
+    # process_market_event or process_quote, and none of them refreshes it
+    # earlier -- a position read halfway through a step would describe neither
+    # the state before it nor the state after.
+    current = replace(
+        current,
+        portfolio_snapshots=current.portfolio_snapshots.append(snapshot),
+        id_position=current_id_position(),
+    )
     valuation = PortfolioValuation.snapshot(
         current.portfolio, event.timestamp, current.config.currency
     )
