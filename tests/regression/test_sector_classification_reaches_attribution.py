@@ -660,7 +660,9 @@ def test_the_runtime_reads_the_registry_through_record_for_and_nothing_else() ->
     assert ".resolve(" not in source
     assert "register_instrument" not in source
     assert "classify_instrument" not in source
-    assert source.count("record_for(") == 2, "one for the unpriced path, one for the sector"
+    # One for the unpriced path, one in `_sector_of` -- the single rule both the
+    # fill reader and the exposure reader go through.
+    assert source.count("record_for(") == 2
 
 
 def test_sector_resolution_is_a_keyed_lookup_and_never_a_scan() -> None:
@@ -695,6 +697,163 @@ def test_an_unclassified_asset_costs_one_lookup_and_returns_none() -> None:
     assert _sector_for(state, _PLAIN_APPLE.asset_id) is None
     assert _sector_for(state, "not-an-asset") is None
     assert _sector_for(replace(state, config=replace(state.config, instruments=None)), "x") is None
+
+
+# --------------------------------------------------------------------------- #
+# H. Exposure by sector -- the second consumer that was never populated
+# --------------------------------------------------------------------------- #
+
+
+def _two_sector_book(registry: InstrumentRegistry | None) -> ExecutionPipelineState:
+    """A run holding one long and one short, in two different sectors.
+
+    ``asset_for`` redirects the intent at each timestamp, so one scripted
+    strategy opens a position in each asset. The final event marks both without
+    trading, so the exposure under test is the one a *marked* book produces.
+    """
+
+    config = pipeline_config(_STRATEGY)
+    if registry is not None:
+        config = replace(config, instruments=registry)
+
+    plan = {2.0: Decimal("10"), 3.0: Decimal("-4"), 4.0: Decimal("0")}
+    asset_for = {2.0: _APPLE.asset_id, 3.0: _JPM.asset_id}
+    state = ExecutionPipeline.initialize(
+        config,
+        running_strategy_state(
+            _STRATEGY, ScriptedStrategy(_STRATEGY, _APPLE.asset_id, plan, asset_for)
+        ),
+        1.0,
+    )
+    for timestamp, asset_id in ((2.0, _APPLE.asset_id), (3.0, _JPM.asset_id)):
+        state = ExecutionPipeline.process_quote(
+            state, quote(asset_id, timestamp, PRICE), context_factory
+        ).state
+    # One more event: no intent, so the book is only re-marked.
+    return ExecutionPipeline.process_quote(
+        state, quote(_APPLE.asset_id, 5.0, PRICE), context_factory
+    ).state
+
+
+def test_sector_exposure_buckets_the_marked_positions() -> None:
+    state = _two_sector_book(registry_of(_APPLE, _JPM))
+    exposure = state.risk.exposure
+
+    assert set(exposure.sector_exposure) == {"Technology", "Financials"}
+    assert exposure.sector_exposure["Technology"] == Decimal("1000.00")
+    assert exposure.sector_exposure["Financials"] == Decimal("-400.00")
+
+
+def test_sector_exposure_is_signed_and_sums_to_net_exposure() -> None:
+    """Signed, matching ``asset_exposure`` and ``net_exposure`` -- not gross."""
+
+    exposure = _two_sector_book(registry_of(_APPLE, _JPM)).risk.exposure
+
+    assert sum(exposure.sector_exposure.values()) == exposure.net_exposure
+    assert sum(exposure.sector_exposure.values()) != exposure.gross_exposure
+
+
+def test_two_assets_in_one_sector_share_one_exposure_bucket() -> None:
+    exposure = _two_sector_book(registry_of(_APPLE, equity("JPM", "Technology"))).risk.exposure
+
+    assert set(exposure.sector_exposure) == {"Technology"}
+    assert exposure.sector_exposure["Technology"] == Decimal("600.00")
+
+
+def test_an_unclassified_position_is_absent_from_sector_exposure_not_zeroed() -> None:
+    exposure = _two_sector_book(registry_of(_APPLE, equity("JPM"))).risk.exposure
+
+    assert set(exposure.sector_exposure) == {"Technology"}
+    assert len(exposure.asset_exposure) == 2, "it is still counted by asset"
+
+
+def test_an_unregistered_position_is_absent_from_sector_exposure() -> None:
+    exposure = _two_sector_book(registry_of(_APPLE)).risk.exposure
+
+    assert set(exposure.sector_exposure) == {"Technology"}
+    assert len(exposure.asset_exposure) == 2
+
+
+def test_sector_exposure_is_empty_when_no_registry_is_configured() -> None:
+    exposure = _two_sector_book(None).risk.exposure
+
+    assert exposure.sector_exposure == {}
+    assert len(exposure.asset_exposure) == 2
+
+
+def test_the_other_exposure_figures_are_untouched_by_the_sector_pass() -> None:
+    """The single-pass rewrite must not move a number that already existed."""
+
+    classified = _two_sector_book(registry_of(_APPLE, _JPM)).risk.exposure
+    control = _two_sector_book(None).risk.exposure
+
+    assert classified.gross_exposure == control.gross_exposure
+    assert classified.net_exposure == control.net_exposure
+    assert classified.long_exposure == control.long_exposure
+    assert classified.short_exposure == control.short_exposure
+    assert dict(classified.asset_exposure) == dict(control.asset_exposure)
+
+
+def test_a_closed_position_leaves_its_sector_bucket() -> None:
+    """Exposure describes the book now, not what the run ever held."""
+
+    registry = registry_of(_APPLE)
+    state = _run(_ROUND_TRIP, registry, _APPLE.asset_id)
+
+    assert state.portfolio.positions == {}
+    assert state.risk.exposure.sector_exposure == {}
+
+
+def test_populating_sector_exposure_draws_no_additional_identifier() -> None:
+    def _draws(registry: InstrumentRegistry | None) -> int:
+        with id_scope(31337):
+            _two_sector_book(registry)
+            return current_id_position().draws
+
+    assert _draws(registry_of(_APPLE, _JPM)) == _draws(None)
+
+
+def test_sector_exposure_survives_a_round_trip_without_moving_the_schema() -> None:
+    state = _two_sector_book(registry_of(_APPLE, _JPM))
+    objects = RuntimeObjects(
+        sizing_model=state.config.sizing_model,
+        simulator=state.config.simulator,
+        strategies={_STRATEGY: state.strategy.strategies[_STRATEGY].instance},
+        instruments=state.config.instruments,
+    )
+    payload = deserialize(serialize(capture_pipeline(state)))
+    restored = restore_pipeline(pipeline_from_primitives(payload), objects)
+
+    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 2
+    assert payload["risk"]["exposure"]["sector_exposure"] == {
+        "Technology": "1000.00",
+        "Financials": "-400.00",
+    }
+    assert dict(restored.risk.exposure.sector_exposure) == dict(state.risk.exposure.sector_exposure)
+    assert restored == state
+
+
+def test_the_exposure_payload_gained_no_key() -> None:
+    state = _two_sector_book(registry_of(_APPLE, _JPM))
+    payload = deserialize(serialize(capture_pipeline(state)))
+
+    assert set(payload["risk"]["exposure"]) == {
+        "gross_exposure",
+        "net_exposure",
+        "long_exposure",
+        "short_exposure",
+        "asset_exposure",
+        "sector_exposure",
+    }
+
+
+def test_risk_limits_still_read_no_sector() -> None:
+    """Exposure by sector is visibility. Enforcement was not extended."""
+
+    from alphalab.risk import checks, limits
+
+    for module in (checks, limits):
+        assert "sector" not in inspect.getsource(module)
 
 
 def test_the_simulator_and_registry_are_independent_configuration() -> None:

@@ -420,7 +420,9 @@ class ExecutionPipeline:
         portfolio = PortfolioEngine.apply_deposit(
             portfolio, config.starting_cash, config.currency, timestamp
         )
-        risk = _sync_risk_from_portfolio(RiskEngine.reset(config.risk_limits), portfolio)
+        risk = _sync_risk_from_portfolio(
+            RiskEngine.reset(config.risk_limits), portfolio, config.instruments
+        )
         snapshot = _portfolio_snapshot(portfolio, config.currency, timestamp)
 
         return ExecutionPipelineState(
@@ -546,7 +548,7 @@ class ExecutionPipeline:
         portfolio = PortfolioEngine.update_market_prices(
             state.portfolio, market_prices, event.timestamp
         )
-        risk = _sync_risk_from_portfolio(state.risk, portfolio)
+        risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments)
 
         # Assembled from the marked locals above, after marking and after the
         # risk resync, and before dispatch. The order is the guarantee: reading
@@ -1191,7 +1193,7 @@ def _apply_report_to_portfolio(
         report.timestamp,
         report.currency,
     )
-    risk = _sync_risk_from_portfolio(state.risk, portfolio)
+    risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments)
     record = _trade_record(report, portfolio.events[before:], opened_at, contributions, sector)
     return replace(
         state,
@@ -1318,6 +1320,19 @@ def _opened_at(portfolio: PortfolioState, asset_id: str) -> float | None:
     return None if position is None else position.opened_at
 
 
+def _sector_of(registry: InstrumentRegistry, asset_id: str) -> str | None:
+    """What ``registry`` classifies ``asset_id`` as, in one keyed lookup.
+
+    The single rule both readers share -- :func:`_sector_for` on the fill path
+    and :func:`_risk_exposure` on the position path -- so the two cannot come to
+    disagree about what an unregistered or unclassified asset means. Never
+    scans; ``record_for`` is a ``PersistentMap`` lookup.
+    """
+
+    record = registry.record_for(asset_id)
+    return None if record is None else record.sector
+
+
 def _sector_for(state: ExecutionPipelineState, asset_id: str) -> str | None:
     """The sector this run's registry classifies ``asset_id`` as, right now.
 
@@ -1339,10 +1354,7 @@ def _sector_for(state: ExecutionPipelineState, asset_id: str) -> str | None:
     """
 
     registry = state.config.instruments
-    if registry is None:
-        return None
-    record = registry.record_for(asset_id)
-    return None if record is None else record.sector
+    return None if registry is None else _sector_of(registry, asset_id)
 
 
 def _trade_record(
@@ -1436,12 +1448,22 @@ def _portfolio_snapshot(
     )
 
 
-def _sync_risk_from_portfolio(risk: RiskState, portfolio: PortfolioState) -> RiskState:
+def _sync_risk_from_portfolio(
+    risk: RiskState, portfolio: PortfolioState, instruments: InstrumentRegistry | None
+) -> RiskState:
+    """Refresh the risk state from a marked book.
+
+    ``instruments`` is threaded rather than defaulted so that no call site can
+    silently stop reporting sector exposure by forgetting it. It is read only by
+    :func:`_risk_exposure`, and only to classify; nothing here resolves,
+    registers or classifies anything.
+    """
+
     cash = portfolio.cash.balance(portfolio.account.base_currency)
     nav = NAVCalculator.calculate(
         portfolio.cash, portfolio.positions, portfolio.account.base_currency
     )
-    exposure = _risk_exposure(portfolio)
+    exposure = _risk_exposure(portfolio, instruments)
 
     # Delegate exposure and margin updates to the RiskEngine so that
     # risk events and history are produced consistently with other
@@ -1462,14 +1484,51 @@ def _sync_risk_from_portfolio(risk: RiskState, portfolio: PortfolioState) -> Ris
     )
 
 
-def _risk_exposure(portfolio: PortfolioState) -> ExposureStatus:
-    asset_exposure = {k: p.market_value for k, p in portfolio.positions.items()}
-    long_exposure = sum((v for v in asset_exposure.values() if v > 0), Decimal("0.00"))
-    short_exposure = sum((v for v in asset_exposure.values() if v < 0), Decimal("0.00"))
+def _risk_exposure(
+    portfolio: PortfolioState, instruments: InstrumentRegistry | None
+) -> ExposureStatus:
+    """Exposure by asset and, when the run classifies its instruments, by sector.
+
+    :attr:`~alphalab.risk.exposure.ExposureStatus.sector_exposure` has been
+    declared, typed, persisted and decoded since before v2.6 and populated by
+    nothing at all. It is filled here, in the **same pass** that builds
+    ``asset_exposure`` -- this runs on the per-event path and again on the
+    per-fill path, so a second traversal is not free enough to spend.
+
+    Bucketed on **signed** market value, matching ``asset_exposure`` and
+    ``net_exposure`` rather than ``gross_exposure``: the sectors therefore sum
+    to the net exposure of the classified positions. An unclassified position is
+    omitted rather than bucketed under a placeholder, for the reason a trade
+    with no sector is omitted from ``pnl_by_sector`` -- an absent breakdown
+    beats a fictional one (ADR-0027 decision 8).
+
+    A run with no registry pays one ``is not None`` comparison per position and
+    nothing else, and gets an empty mapping -- which is what every run produced
+    before v2.11.
+    """
+
+    asset_exposure: dict[str, Decimal] = {}
+    sector_exposure: dict[str, Decimal] = {}
+    long_exposure = Decimal("0.00")
+    short_exposure = Decimal("0.00")
+
+    for asset_id, position in portfolio.positions.items():
+        value = position.market_value
+        asset_exposure[asset_id] = value
+        if value > 0:
+            long_exposure += value
+        elif value < 0:
+            short_exposure += value
+        if instruments is not None:
+            sector = _sector_of(instruments, asset_id)
+            if sector is not None:
+                sector_exposure[sector] = sector_exposure.get(sector, Decimal("0.00")) + value
+
     return ExposureStatus(
         gross_exposure=long_exposure + abs(short_exposure),
         net_exposure=long_exposure + short_exposure,
         long_exposure=long_exposure,
         short_exposure=short_exposure,
         asset_exposure=asset_exposure,
+        sector_exposure=sector_exposure,
     )
