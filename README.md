@@ -38,19 +38,50 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.9.0**
+**Current Release:** **v2.11.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.10.0 |
-| Tests | **2818 Passing** |
-| Static Typing | **Strict MyPy** (894 source files) |
+| Version | 2.11.0 |
+| Tests | **2926 Passing** |
+| Static Typing | **Strict MyPy** (896 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+v2.11.0 — "The Security Master" — makes the instrument registry authoritative
+for runs that *work*, not only for runs that fail.
+
+`InstrumentRecord.sector` has existed since v2.7, outside the identity key by
+ADR-0016 N5 so that a later classification could never re-identify an instrument
+and orphan its fills. It was also unwritable: `register_instrument` refuses a
+record whose content differs from one already held, so a field documented as
+mutable was in practice immutable. `classify_instrument` is that write — keyed
+by `asset_id`, sector only, `None` to unclassify, copy-on-write and `O(1)`, and
+structurally incapable of touching an identity field.
+
+The pipeline reads it **once per fill**, in `_apply_report_to_portfolio`, and
+freezes the answer onto that fill's `TradeRecord.sector_id`. That site is the
+one a simulated fill and a venue fill share, so backtest, replay, paper and live
+agree on the sector by construction. `pnl_by_sector` produces a real breakdown
+for the first time, and `ExposureStatus.sector_exposure` — declared, persisted
+and decoded since before v2.6, populated by nothing — is filled from the same
+authority, on signed market value, in the pass that already walked the
+positions.
+
+Two facts, two owners, two tenses: the registry says what an instrument **is**
+classified as; a trade record says what it **was** classified as when the fill
+happened. A later reclassification cannot rewrite a completed run, and a run
+reclassified mid-run correctly splits across both sectors.
+
+**No schema constant moves** — all seven stay where v2.10 left them — no
+identifier is drawn, `alphalab.analytics` is untouched because the consumer was
+already correct, and a run configured with no registry is byte-identical to
+v2.10.0. AlphaLab still ships no classification data: the operator declares a
+sector the way they already declare an instrument. See ADR-0027.
 
 v2.10.0 — "The Strategy Boundary" — closes both halves of the one surface v2.9
 could not: what a strategy tells the runtime about itself, and what the runtime
@@ -516,9 +547,12 @@ See `CHANGELOG.md` and `ROADMAP.md`.
 - Artifact storage. `ArtifactRef` records where a model's bytes live and what they
   should hash to; AlphaLab never reads, writes or hashes them, and there is no
   object store
-- A **security master**. Sector attribution needs one, so as of v2.6 the execution
-  path reports no sector at all and `pnl_by_sector` is empty. A caller who has
-  sector data of their own can still supply it
+- **Classification data.** v2.11 supplies the security master's *mechanism* —
+  `classify_instrument` writes a sector and the execution path reads it onto
+  every fill — but AlphaLab ships no taxonomy and no reference-data feed, so a
+  sector breakdown requires an operator who declares one. Sector is also the
+  only dimension: industry, country, issuer and rating are each a separate
+  decision
 - A single integrated runtime spanning *all* engines (`ExecutionPipeline`,
   `backtesting`, `runtime.session` and `lifecycle` are what is wired today, and
   the lifecycle is not joined to the execution path)

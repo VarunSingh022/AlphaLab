@@ -264,7 +264,10 @@ class ExecutionPipelineState:
     #: in the OMS with its status, but a dropped request emitted only an
     #: ``AllocationReservationReleased`` identical to the one three other
     #: outcomes emit. Bounded by the distinct instruments the run's strategies
-    #: named, never by event count. Not persisted; nothing captures this state.
+    #: named, never by event count. Captured and restored by
+    #: :mod:`alphalab.runtime.snapshot` since v2.9, so a continued run does not
+    #: forget what it declined to trade -- this comment claimed the opposite
+    #: until v2.11, and the code always did the right thing.
     unpriced_assets: PersistentMap[str, UnpricedAsset] = field(default_factory=PersistentMap)
     #: How far this run's identifier stream had advanced when the last transition
     #: finished. Refreshed by every method that returns a state and mints

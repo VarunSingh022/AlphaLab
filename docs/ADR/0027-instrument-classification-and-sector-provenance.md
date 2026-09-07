@@ -2,12 +2,28 @@
 
 ## Status
 
-Proposed — for v2.11.0.
+**Accepted and implemented in v2.11.0.** `alphalab.instrument` ships
+`classify_instrument`, `classify_instruments` and `normalize_sector_label`;
+`ExecutionPipeline._apply_report_to_portfolio` resolves the sector through
+`_sector_for` and freezes it onto `TradeRecord.sector_id`; and `_risk_exposure`
+populates `ExposureStatus.sector_exposure` from the same authority.
+
+The `SHOULD` in decision 8 shipped: its performance gate passed on every
+measure, interleaved against v2.10.0 on one machine with 14 samples per cell —
+1k best −0.47%, 1k median −0.28%, 4k best −0.74%, 4k median −0.68%, scaling
+4.124 → 4.113, all inside the 3% tolerance and all in the faster direction.
+Folding the existing dict comprehension and two `sum()` generators into the
+single pass this decision required made the path measurably faster rather than
+slower. A run configured with `instruments=None` is **byte-identical** to
+v2.10.0: the same serialized pipeline payload, the same 97 identifier draws over
+the probe workload, and the same exposure figures.
 
 Written before the implementation, for the reason ADR-0025 and ADR-0026 were:
 the decision that matters — *who owns a classification, and what a completed run
 remembers about it* — is cheap to settle now and expensive to change once
-attribution reports depend on it.
+attribution reports depend on it. No decision text below changed during
+implementation; the only addition is decision 3's residual paragraph, which
+records a boundary the first draft left implicit.
 
 Completes the deferral **ADR-0016** N5 was written to make safe, and supersedes
 one clause of that ADR's testing invariant 9. Depends on **ADR-0016** for the
