@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.5.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.9.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-2122%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-2681%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -29,7 +29,7 @@ AlphaLab ships three kinds of package:
 
 - **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable state snapshot. `alphalab.backtesting` drives that spine from a dataset, either straight through or through `alphalab.replay`'s cursor; both call the same step, so a backtest and a replay of one dataset produce identical orders, fills and P&L.
 - **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, strategy definitions and the deployment manager into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. It sits *above* the execution path, not inside it: a deployment names what should run, and running it is the execution path's job.
-- **State round-trip.** `capture` / `restore` turn `OMSState`, `PortfolioState` and `LifecycleState` into typed snapshots and back, through typed decoders that name the field when a payload is wrong. `alphalab.market.provider` feeds the execution path from a market-data provider's history rather than only from a stored dataset.
+- **State round-trip.** `capture` / `restore` turn `OMSState`, `PortfolioState`, `LifecycleState`, `AllocationState` and — as of v2.9 — `ExecutionPipelineState`, `SessionState` and `BacktestState` into typed snapshots and back, through typed decoders that name the field when a payload is wrong. A snapshot records live objects (strategy instances, the simulator, the sizing model, the fill policy) by type and requires the caller to supply them back, raising rather than substituting. `TradingSession.resume` / `BacktestEngine.resume` continue a restored run on the identifier stream it left off on. `alphalab.market.provider` feeds the execution path from a market-data provider's history rather than only from a stored dataset.
 - **Standalone engine libraries.** Most other packages (research, portfolio optimizer, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, enterprise, studio, workbench) are independent, deterministic, individually tested libraries. They share the engineering model but are **not** currently fused into a single runtime.
 
 The framework is designed for researchers, quantitative developers, students, and engineering teams building reproducible trading infrastructure.
@@ -38,33 +38,38 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.8.0**
+**Current Release:** **v2.9.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.8.0 |
-| Tests | **2289 Passing** |
-| Static Typing | **Strict MyPy** (941 source files) |
+| Version | 2.9.0 |
+| Tests | **2681 Passing** |
+| Static Typing | **Strict MyPy** (953 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-v2.8.0 — "Currency Roles and Run Outcomes" — makes three fields mean one thing
-each. `ExecutionPipelineConfig.currency` funds the cash ledger while
-`Account.base_currency` is what risk reads, and nothing checked that they
-agreed: when they did not, cash landed under one and risk read the other, so
-buying power and NAV were **zero**, every order was refused, and the leverage
-and margin checks quietly stopped checking — a run that reported its full
-starting equity and produced no fills. A valuation could add USD and EUR
-together and label the total `"USD"`. And of all the ways a request can end
-without a fill, exactly one left no reason behind — the ADR-0016 §3 failure mode,
-where a strategy names an instrument the run never priced — while its allocation
-ledger entry outlived it without bound. **No FX is added**: refusing to
-aggregate two currencies is the absence of a rate, not a rule that
-foreign-currency instruments are invalid.
+v2.9.0 — "Durable Run State" — lets a run stop and continue. Every *quantity*
+already survived a round trip — cash, positions, realized P&L, reservations,
+contributions, risk NAV — but nothing recorded where the identifier stream had
+reached, so a run that stopped and resumed rebuilt its generator at zero and
+re-minted identifiers it had already used: up to **4 duplicates** in a
+41-identifier workload, against zero for a run that never stopped, with nothing
+raising at any layer. `capture` / `restore` now cover `ExecutionPipelineState`,
+`SessionState` and `BacktestState` alongside the portfolio, the OMS and a new
+allocation snapshot; a venue fill delivered twice is applied once; a working
+external order the venue has ended can be ended here; `OMSState` payloads
+declare a schema version and one bounded legacy shape; `alphalab.persistence`
+appends in linear time (32,000 appends: **14.0 s → 0.24 s**); and `restore`
+re-runs the construction-time validations `initialize` enforces, so v2.8's
+currency invariant holds on both paths into a pipeline state. **No live trading
+is added.** The equivalence guarantee is conditional and says so: a seeded run,
+the same records in the same order, the same supplied runtime objects, and
+strategy-internal state the caller restores — `StrategyProtocol` declares no
+state hook, and v2.9 does not pretend otherwise.
 
 > **A deployment is a lifecycle fact, not an operation on a machine.** It records that
 > an environment *should* be running a strategy version. It starts no process, opens no
@@ -399,6 +404,24 @@ partially filled simulated order's remainder, with its reservation released; and
 removal of the replay cursor's O(N²), with the benchmark repointed at the API the
 integrated path actually uses.
 
+**v2.9.0** — durable run state: `capture` / `restore` / `from_primitives` for
+`ExecutionPipelineState` (`PIPELINE_SNAPSHOT_SCHEMA`), `SessionState`
+(`SESSION_SNAPSHOT_SCHEMA`), `BacktestState` (`BACKTEST_SNAPSHOT_SCHEMA`) and
+`AllocationState` (`ALLOCATION_SNAPSHOT_SCHEMA`), with live objects recorded by
+type and required back from the caller rather than reconstructed;
+`IdStreamPosition` giving the deterministic identifier stream the cursor it
+never had, so a continued run no longer re-mints identifiers it already used;
+`TradingSession.resume` / `BacktestEngine.resume` opening the scope a restored
+position implies; a duplicate `execution_id` applied once rather than twice;
+`ExecutionPipeline.apply_terminal_outcome` ending a restored external working
+order and retiring its reservation and contribution; `OMS_SNAPSHOT_SCHEMA = 1`
+with a bounded exact-five-key legacy shape and no generic "missing means
+version 1"; `alphalab.persistence` migrated to `AppendOnlyLog` / `PersistentMap`
+/ `PersistentSet`, turning a quadratic append linear; and `restore` re-running
+every construction-time validation `initialize` enforces. No breaking changes,
+no migration, no venue transport, and `PORTFOLIO_SNAPSHOT_SCHEMA` /
+`LIFECYCLE_SNAPSHOT_SCHEMA` do not move.
+
 **v2.8.0** — currency roles and run outcomes: `ExecutionPipeline.initialize`
 refuses a configuration whose `currency` and `Account.base_currency` disagree,
 which silently zeroed buying power and NAV and switched off the leverage and
@@ -444,9 +467,13 @@ See `CHANGELOG.md` and `ROADMAP.md`.
 - A **streaming** market-data source. v2.5's provider source reads a finite historical
   range; polling, subscription and reconnect need a clock and a loop AlphaLab does not
   have
-- Round-trip for `ExecutionPipelineState` and `SessionState`. They hold strategy
-  instances, a simulator, a sizing model and a fill policy, so restoring them means
-  reconstructing the whole run configuration
+- Capture of **strategy-internal** state. v2.9 round-trips
+  `ExecutionPipelineState`, `SessionState` and `BacktestState`, recording the
+  strategy instance, simulator, sizing model and fill policy by type and
+  requiring the caller to supply them back. `StrategyProtocol` declares no
+  state-serialization hook, so a strategy holding a rolling window or counter in
+  Python attributes holds state AlphaLab cannot capture; restoring it is the
+  caller's job until a `StrategyStateProtocol` exists
 - Artifact storage. `ArtifactRef` records where a model's bytes live and what they
   should hash to; AlphaLab never reads, writes or hashes them, and there is no
   object store

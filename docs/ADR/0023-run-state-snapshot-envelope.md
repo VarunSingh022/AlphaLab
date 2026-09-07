@@ -2,8 +2,15 @@
 
 ## Status
 
-Accepted (v2.9.0). Implementation follows in the same release; no code
-implements this decision at the time of writing.
+Accepted in v2.9.0 and implemented in the same release, across **three**
+snapshot modules rather than the two this ADR originally sketched:
+`alphalab.runtime.snapshot` (`PIPELINE_SNAPSHOT_SCHEMA = 1`),
+`alphalab.runtime.session_snapshot` (`SESSION_SNAPSHOT_SCHEMA = 1`) and
+`alphalab.backtesting.snapshot` (`BACKTEST_SNAPSHOT_SCHEMA = 1`), alongside the
+new `alphalab.allocation.snapshot` (`ALLOCATION_SNAPSHOT_SCHEMA = 1`) and the
+now-versioned `alphalab.oms.snapshot` (`OMS_SNAPSHOT_SCHEMA = 1`). Decision 1
+records the shipped shape and why the single `RunSnapshot` it first described
+could not be written. No other decision changed.
 
 Applies ADR-0014's round-trip contract — "restore reconstructs semantics, not
 structure", and "live objects are referenced, not reconstructed" — to the
@@ -55,18 +62,27 @@ caller to supply it back. That answer has simply never been applied here.
 
 # Decision
 
-## 1. Two envelopes, not one
+## 1. A stable core envelope, and a run envelope in each owning package
 
 ```text
-RunSnapshot                      # SESSION_SNAPSHOT_SCHEMA = 1
-  schema_version
+SessionSnapshot                  # SESSION_SNAPSHOT_SCHEMA = 1
+  schema_version                 #   alphalab.runtime.session_snapshot
   pipeline: PipelineSnapshot
+  mode, seed, start_timestamp, max_market_data_age_seconds, ordering
+  fill_policy_type
+  processed, current_timestamp, last_record_timestamp, source_id
+  skipped[]
+
+BacktestSnapshot                 # BACKTEST_SNAPSHOT_SCHEMA = 1
+  schema_version                 #   alphalab.backtesting.snapshot
+  pipeline: PipelineSnapshot
+  seed, start_timestamp, years_elapsed, risk_free_rate, compile_analytics
+  fill_policy_type
   processed, current_timestamp
-  session:  last_record_timestamp, source_id, skipped[]
-  backtest: steps[]
+  steps[]
 
 PipelineSnapshot                 # PIPELINE_SNAPSHOT_SCHEMA = 1
-  schema_version
+  schema_version                 #   alphalab.runtime.snapshot
   id_position   { seed, draws }              # ADR-0022, data not a reference
   config        { account, starting_cash, budget, allocation_constraints,
                   risk_limits, venue, currency, routing,
@@ -87,13 +103,39 @@ PipelineSnapshot                 # PIPELINE_SNAPSHOT_SCHEMA = 1
   unpriced_assets {}
 ```
 
-The split is deliberate. `ExecutionPipelineState` is the stable core and is not
-expected to change shape. `SessionState` and `BacktestState` are the layer a
-future integrated-runtime release is expected to reshape. A single envelope
-would therefore need a version bump one release later — adjacent-release schema
-churn, which is precisely what a version field is supposed to prevent rather
-than schedule. Two envelopes confine the churn to the layer that will actually
-move.
+**Why the core is separate from the run layer.** `ExecutionPipelineState` is the
+stable core and is not expected to change shape. `SessionState` and
+`BacktestState` are the layer a future integrated-runtime release is expected to
+reshape. A single envelope would therefore need a version bump one release later
+— adjacent-release schema churn, which is precisely what a version field is
+supposed to prevent rather than schedule. Separating them confines the churn to
+the layer that will actually move.
+
+**Why there are two run envelopes and not one.** This ADR first described a
+single `RunSnapshot` carrying both a session's and a backtest's bookkeeping. It
+cannot be written, because the dependency between the two packages runs one way:
+
+```text
+alphalab.backtesting -> alphalab.runtime          exists
+alphalab.runtime     -> alphalab.backtesting      does not exist
+```
+
+One shared module holding both states would have to import `SessionState` from
+`alphalab.runtime` and `BacktestState` from `alphalab.backtesting`, and whichever
+package owned that module would then import the other — closing an import cycle
+the layering has never had. Inventing a third package to hold it would move the
+snapshot away from the state it projects, which is the opposite of how portfolio,
+OMS and allocation are arranged.
+
+Splitting the run layer costs nothing the single envelope was buying. The two
+states share only `pipeline`, `seed`, `start_timestamp`, `fill_policy_type`,
+`processed` and `current_timestamp`; the pipeline core they both nest is one
+implementation in one module, and each envelope imports the value decoders that
+already exist rather than repeating them, because a second implementation of one
+decoding contract is how two readers come to disagree about the same payload.
+Each state is captured by the package that owns it, exactly as portfolio, OMS and
+allocation already are, and the two run constants now move independently — which
+is what this decision's reasoning wanted in the first place.
 
 ## 2. Which states get their own schema constant, and which do not
 
@@ -104,7 +146,8 @@ move.
 | OMS | existing snapshot, now versioned | `OMS_SNAPSHOT_SCHEMA` = 1 |
 | Allocation | **new snapshot** | `ALLOCATION_SNAPSHOT_SCHEMA` = 1 |
 | Pipeline | **new envelope** | `PIPELINE_SNAPSHOT_SCHEMA` = 1 |
-| Run / session | **new envelope** | `SESSION_SNAPSHOT_SCHEMA` = 1 |
+| Session | **new envelope** | `SESSION_SNAPSHOT_SCHEMA` = 1 |
+| Backtest | **new envelope** | `BACKTEST_SNAPSHOT_SCHEMA` = 1 |
 | Market, Risk, Execution, Analytics, Strategy | inline in the pipeline envelope | **none** |
 
 Allocation is first-class because ADR-0021's ledgers are load-bearing:
@@ -121,7 +164,7 @@ Recorded as a type name, required from the caller on restore:
 
 - `config.sizing_model`, `config.simulator`, `config.instruments` (when non-null)
 - each `StrategyState.instance`
-- `fill_policy`, on the run envelope
+- `fill_policy`, on each run envelope
 
 Restore **raises** when a required object is missing, and **raises** when a
 supplied object's type does not match the recorded one. It never substitutes
@@ -246,12 +289,14 @@ be closed before v3.0.
 
 ```text
 + PipelineSnapshot         capture / restore / from_primitives
-+ RunSnapshot              capture / restore / from_primitives
++ SessionSnapshot          capture / restore / from_primitives
++ BacktestSnapshot         capture / restore / from_primitives
 + AllocationSnapshot       capture / restore / from_primitives
 + OMS_SNAPSHOT_SCHEMA        = 1     # new field on an existing payload
 + ALLOCATION_SNAPSHOT_SCHEMA = 1
 + PIPELINE_SNAPSHOT_SCHEMA   = 1
 + SESSION_SNAPSHOT_SCHEMA    = 1
++ BACKTEST_SNAPSHOT_SCHEMA   = 1
 + LEGACY_UNVERSIONED_V0 key set for standalone OMS decoding
 + a resume entry point composing restore with a fast-forwarded id source
 
@@ -273,7 +318,7 @@ invariants** → return state. Nothing partial is returned by a refused restore.
 
 # Persistence semantics
 
-One coordinated schema release. Four constants are introduced or added; two
+One coordinated schema release. Five constants are introduced or added; two
 existing constants do not move. Only OMS carries a legacy path, because it is
 the only payload with a documented public history; every other constant is new
 in v2.9 and has nothing to be compatible with.
@@ -288,7 +333,8 @@ every method signature untouched. It needs no ADR of its own.
 
 # Testing invariants
 
-1. `restore(capture(s), objects) == s` for pipeline, run and allocation state.
+1. `restore(capture(s), objects) == s` for pipeline, session, backtest and
+   allocation state.
 2. Adding a field to a captured state fails a test until its snapshot names it
    or declares why not — the existing field-coverage guard, extended.
 3. A missing supplied object raises, naming it; a wrong type raises, naming
@@ -338,9 +384,10 @@ Benefits. A run can stop and continue without losing state or duplicating
 identifiers. ADR-0014's contract finally covers the execution path. ADR-0021's
 ledgers become durable. The v2.8 currency invariant holds on both paths into a
 pipeline state, not just the first. Two envelopes keep the next release's
-expected reshape from bumping the stable core.
+expected reshape from bumping the stable core, and each run environment's
+constant moves without touching the other's.
 
-Costs. Six schema constants now exist where two did. The OMS legacy branch is a
+Costs. Seven schema constants now exist where two did. The OMS legacy branch is a
 permanent compatibility commitment, deliberately taken. The equivalence contract
 is conditional, and one of its preconditions — restored strategy-internal state —
 is the caller's responsibility with no supporting protocol until a later
@@ -354,7 +401,9 @@ release.
 session layer is expected to be reshaped by the integrated-runtime work, which
 would bump the whole envelope one release later and version the stable pipeline
 core as a side effect — the same mistake ADR-0015 avoided when it declined to
-bump a shared constant for one subsystem's change.
+bump a shared constant for one subsystem's change. Implementation then found a
+second, harder reason: one module holding both run states closes an import cycle
+between `alphalab.runtime` and `alphalab.backtesting` (decision 1).
 
 **A snapshot module per subsystem.** Most consistent with the portfolio/OMS/
 lifecycle precedent. Rejected for the five states with no standalone consumer:
@@ -382,7 +431,7 @@ the second dialect `as_named_enum` warns against.
 
 # Release impact
 
-Minor-version feature. Additive across three new snapshot surfaces and four new
+Minor-version feature. Additive across four new snapshot surfaces and five new
 schema constants, with one bounded legacy-compatibility rule on an existing
 public decoder. No existing schema constant moves; `PersistenceProtocol` is
 unchanged.

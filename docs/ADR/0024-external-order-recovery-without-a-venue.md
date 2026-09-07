@@ -2,8 +2,12 @@
 
 ## Status
 
-Accepted (v2.9.0). Implementation follows in the same release; no code
-implements this decision at the time of writing.
+Accepted and implemented in v2.9.0.
+`ExecutionPipeline.apply_terminal_outcome` closes a restored external working
+order against `CANCELLED`, `REJECTED` or `EXPIRED`, retiring exactly its own
+reservation and contribution; `apply_execution_report` refuses to apply an
+`execution_id` it has already applied. `BrokerState` and `ExternalOrderMap`
+remain unpersisted, and no transport, credential or venue call was added.
 
 Completes ADR-0021, which unified the meaning of a terminal transition for
 simulated routing and explicitly left the externally routed path without one.

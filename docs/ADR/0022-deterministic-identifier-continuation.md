@@ -2,8 +2,13 @@
 
 ## Status
 
-Accepted (v2.9.0). Implementation follows in the same release; no code
-implements this decision at the time of writing.
+Accepted and implemented in v2.9.0. `alphalab.common.ids` ships
+`IdStreamPosition`, the `DeterministicIdSource` draw counter,
+`current_id_position` and `id_source_for`; `ExecutionPipelineState.id_position`
+carries the cursor and `ExecutionPipeline` refreshes it at each step boundary;
+`TradingSession.resume` and `BacktestEngine.resume` install the reconstructed
+source. `new_id`, `use_id_source`, `id_scope`, `derive_asset_id` and every
+`new_id()` call site are unchanged, as decision 3 requires.
 
 Extends ADR-0003, which established deterministic replay, and ADR-0014, whose
 round-trip contract this release finally applies to the execution path. Depends

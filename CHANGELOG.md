@@ -8,6 +8,208 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.9.0] - 2026-09-07
+
+**Durable Run State.**
+
+A run could not stop and continue. Every *quantity* already survived a round
+trip -- cash, realized P&L, commission, positions, reservations, contributions,
+`notional_allocated`, risk NAV, open orders -- but nothing recorded where the
+identifier stream had reached, so a run that stopped and resumed re-entered
+`id_scope`, built a fresh source positioned at zero, and drew identifiers it had
+already used. Nothing raised at any layer. Around that defect sat four more:
+nothing captured the composite state the execution path threads, the OMS payload
+declared no schema version, a venue fill delivered twice was applied twice, an
+externally routed order a venue had already ended could not be ended here, and
+appending to `alphalab.persistence` was quadratic. This release closes all of
+them.
+
+## Added
+
+- `alphalab.runtime.snapshot` -- `capture` / `restore` / `from_primitives` for
+  `ExecutionPipelineState` under `PIPELINE_SNAPSHOT_SCHEMA = 1`. This is the
+  state every environment threads: a backtest, a replay, a paper run and a live
+  session all advance the same value through the same step, and until now
+  nothing captured it. Eleven of its fifteen fields already serialized as they
+  stood; the obstacle was never the state model but that four values are not
+  data and no contract said what to do about them. The envelope nests the
+  portfolio, OMS and allocation snapshots rather than decoding their contents a
+  second time, and carries market, risk, execution, analytics and the strategy
+  runtime inline under its own version.
+- `alphalab.runtime.session_snapshot` (`SESSION_SNAPSHOT_SCHEMA = 1`) and
+  `alphalab.backtesting.snapshot` (`BACKTEST_SNAPSHOT_SCHEMA = 1`) -- the run
+  bookkeeping around that core, one envelope per owning package. Two rather than
+  one because the dependency runs one way: `alphalab.backtesting` imports
+  `alphalab.runtime` and never the reverse, so a single shared module would close
+  an import cycle. Each nests the pipeline snapshot, and each carries the
+  pipeline configuration exactly once, because `state.config.pipeline` and
+  `state.pipeline.config` are the same object and two copies could disagree.
+- `alphalab.allocation.snapshot` -- `ALLOCATION_SNAPSHOT_SCHEMA = 1` for the two
+  ledgers that decide whether a restored run's committed capital and its
+  attribution are correct. First-class rather than inline because ADR-0021 made
+  their lifetime exact and ADR-0024 gave a restored working order a way to end,
+  and neither guarantee survives a round trip the ledgers do not.
+- `TradingSession.resume(state)` and `BacktestEngine.resume(state)` -- context
+  managers that open the identifier scope a restored stream position implies.
+  `restore` reconstructs state and does nothing else; `resume` is where
+  continuation begins. The boundary is *between* `advance` calls: a run that
+  processed N records resumes at record N+1 and replays nothing.
+- `alphalab.common.ids.IdStreamPosition` -- `(seed, draws)`, the fact the repository
+  never held. `DeterministicIdSource` counts what it mints, `current_id_position`
+  reads the ambient cursor, `ExecutionPipelineState.id_position` stores it at each
+  step boundary, and `id_source_for` rebuilds a source that has reached it. The
+  position is two integers rather than a serialized generator state: it is
+  readable, cross-checkable against the state it accompanies, and pins no
+  generator implementation into the persisted format. Restore is therefore
+  O(draws) -- roughly a microsecond per replayed draw, so a run that minted a
+  million identifiers resumes in about a second, paid once.
+- `ExecutionPipeline.apply_terminal_outcome(state, order_id, outcome, timestamp)`
+  -- the route home for an externally routed working order the venue has ended
+  as `CANCELLED`, `REJECTED` or `EXPIRED`. The caller supplies the outcome
+  because the venue is the authority for what happened and the pipeline never
+  infers it. `OMSEngine` moves the order and emits its event and
+  `_release_if_terminal` retires both ledgers, exactly as they do for every other
+  terminal transition. **No venue is contacted, no `BrokerState` is built, and
+  `broker.reconciliation` is not consulted.**
+- `OMS_SNAPSHOT_SCHEMA = 1` and `LEGACY_UNVERSIONED_V0_KEYS`
+  (`alphalab.oms.snapshot`). `OMSSnapshot` was the last round-trip snapshot
+  without a version field.
+- `RuntimeObjects`, `SessionObjects` and `BacktestObjects` -- the live objects a
+  snapshot records by type and requires the caller to supply back: the sizing
+  model, the execution simulator, the optional instrument registry, each strategy
+  instance, and the fill policy.
+
+## Fixed
+
+- **A continued run re-minted identifiers it had already used.** A seed says
+  where a stream starts; nothing said where it had reached. Measured on v2.8.0,
+  sweeping every restore point across a workload producing 41 identifiers found
+  up to **4 duplicates** -- a later `fill_id` landing on a UUID an earlier
+  `execution_id` already held -- against **zero** for the uninterrupted control
+  over the same workload, so the restart caused them and not the workload.
+  Nothing raised: two distinct facts in one run came to share an identifier and
+  every layer accepted it. The same sweep on v2.9 over a 16-record seeded
+  workload split at all 15 boundaries produces 257 identifiers and no duplicate,
+  identical position for position to a run that never stopped.
+- **A venue fill delivered twice was applied twice.**
+  `ExecutionPipeline.apply_execution_report` is the seam a real venue arrives
+  through, and `_apply_reports` never wrote to `ExecutionState`. The simulated
+  path recorded a report because `ExecutionEngine.simulate` runs first; the venue
+  path recorded nothing, so the `reports` map -- keyed by execution id, which is
+  exactly the ledger a duplicate check reads -- stayed empty on the one path
+  where redelivery happens. Measured on v2.8.0 for a partial fill: cash
+  999,600 -> 999,200, position 4 -> 8, `filled_quantity` 4 -> 8, two pipeline
+  fills for one venue execution. A *full* fill was caught only incidentally, by
+  the OMS refusing to fill an order already `FILLED`. A repeated `execution_id`
+  is now a no-op returning the state unchanged -- the rule
+  `alphalab.broker.reconciliation` already stated for `DUPLICATE`, "a no-op
+  rather than an error because a reconnect makes it routine", enforced over the
+  pipeline's own ledger without importing the broker.
+- **A working external order could not be ended.** Under `EXTERNAL` routing an
+  accepted order is left working for a broker adapter and its reservation and
+  contribution stay held, correctly. A venue fill had a route home through
+  `apply_execution_report`; a rejection, cancellation or expiry had none, so the
+  pipeline's whole public surface was seven methods and not one of them
+  terminated an order. Measured on v2.8.0, six externally routed events left six
+  open orders holding six reservations, six contributions and 3,000 of committed
+  notional with no way to retire any of it. ADR-0021 recorded this as a known
+  boundary; it is now closed.
+- **Appending to `alphalab.persistence` was quadratic.**
+  `MemoryStorage.append_event` rebuilt three containers per call -- the stored-event
+  tuple, the `frozenset` of event ids and the system-event tuple -- and
+  `save_snapshot` rebuilt the snapshot dict per save. Measured on v2.8.0, 32,000
+  appends took **14.0 s** and each doubling cost ~4.5x the previous, so
+  `benchmarks/benchmark_persistence.py`'s 100,000-event workload did not finish.
+  The four fields now use `AppendOnlyLog`, `PersistentMap` and `PersistentSet` --
+  the same containers v2.1 gave the engine histories and v2.2 gave the OMS order
+  book, applied to the one package that missed them. The same 32,000 appends take
+  **0.24 s**, the worst doubling is **2.02x**, and the 100,000-event benchmark
+  completes in 1.97 s. `PersistenceProtocol` and every method signature are
+  unchanged.
+- **A restored state could hold a configuration `initialize` would have
+  refused.** `_require_one_account_currency` -- v2.8's guarantee that
+  `ExecutionPipelineConfig.currency` and `Account.base_currency` agree -- is
+  called at exactly one site, inside `ExecutionPipeline.initialize`, and restore
+  does not go through `initialize`. `restore` now re-runs every construction-time
+  validation `initialize` enforces before returning a state, raising the same
+  error with the same message. The rule is general, so a validation added to
+  `initialize` later is covered.
+
+## Changed
+
+- **`OMSState` payloads now carry `schema_version`.** A stored payload of any
+  vintage previously decoded as current, so the first schema change would have
+  been a silent misread rather than a decision. `capture` never emits an
+  unversioned payload. An unversioned payload is read **only** when its top-level
+  key set is exactly `{orders, active_orders, completed_orders, history,
+  events}`: the legacy shape with a key missing is refused, with an extra key is
+  refused, any other unversioned shape is refused, and `schema_version >= 2` is
+  refused. **A missing `schema_version` is never read as version 1.** It is sent
+  to a total structural match a payload either passes whole or fails.
+  Compatibility rather than a break because, unlike the portfolio's refused
+  version 1, a pre-v2.9 OMS payload is missing no data at all -- every field the
+  decoder reads is present -- and `alphalab.oms`'s module docstring teaches the
+  JSON round trip as a public recipe, so those payloads exist by invitation.
+- The regression guard on whole-state OMS serialization asserts a six-key
+  payload where it asserted five. It is the same exact-set equality, not a
+  loosened assertion.
+- Execution-path throughput is unchanged within measurement noise: -0.38% at
+  1,000 events and -1.15% at 4,000, against a 3% release tolerance. The OMS,
+  replay and portfolio benchmarks are flat.
+
+## Unchanged, deliberately
+
+No breaking changes. `PersistenceProtocol`, `PORTFOLIO_SNAPSHOT_SCHEMA` (2) and
+`LIFECYCLE_SNAPSHOT_SCHEMA` (1) do not move, and there is no migration
+framework. `new_id`, `use_id_source`, `id_scope`, `derive_asset_id`, the frozen
+instrument namespace and **every `new_id()` call site** are untouched: the
+`ContextVar` was always a delivery mechanism and the defect was a missing state
+field. `BrokerState` and `ExternalOrderMap` are not persisted -- a belief about a
+venue is not durable state, and reconstructing one from a snapshot would assert
+something AlphaLab cannot verify.
+
+**This release does not add live trading.** No broker transport, credential or
+venue call is introduced; `apply_terminal_outcome` is told what happened and
+never asks.
+
+**The equivalence contract is conditional and says so.** For a *seeded* run,
+given the same records in the same order, the same supplied runtime objects, and
+strategy-internal state restored by the caller, capture -> serialize ->
+deserialize -> restore -> continue equals uninterrupted execution across
+ADR-0023's Class-1 state and every deterministic identifier. `StrategyProtocol`
+declares ten hooks and **no state-serialization hook**, so a strategy holding a
+rolling window in Python attributes holds state AlphaLab cannot capture; the
+fourth precondition is the caller's and a test names that expectation rather
+than leaving it implicit. An **unseeded** run restores and continues with
+quantities guaranteed and identifiers regenerated: `uuid4` cannot match a prior
+run and cannot collide, and this carve-out is explicit rather than implied.
+
+## Deferred, unchanged
+
+`StrategyStateProtocol` and `StrategyContext` completion; unifying `SessionState`
+and `BacktestState` or removing the parallel runtime mechanism; promoting the
+four cross-package private decoders (`_order`, `_report`, `_fill`,
+`_require_object`) to a public or shared surface; schema constants for market,
+risk, execution, analytics or strategy state; a migration framework or
+version-translation layer; broker transport, streaming market data and reconnect;
+artifact storage; a security master and sector attribution; an FX rate source and
+true multi-currency valuation; the approval workflow over `alphalab.enterprise`'s
+RBAC and audit log; unifying `OMSState` and `BrokerState` authority; and the
+removal of `integrations`, `kernel`, `core.events` or `CommonEvent`.
+
+## Architecture decisions
+
+Six ADRs are written to disk. **ADR-0019**, **ADR-0020** and **ADR-0021** record
+decisions taken and shipped during v2.8 that were never written down; their
+substance is not reopened. **ADR-0022** (deterministic identifier continuation),
+**ADR-0023** (the run-state snapshot envelope) and **ADR-0024** (external order
+recovery without a venue) are this release's decisions, and their status lines
+now record the shipped implementation. ADR-0023's decision 1 records that the
+run layer shipped as two envelopes rather than the single `RunSnapshot` it first
+sketched, and why.
+
+---
+
 # [2.8.0] - 2026-09-06
 
 **Currency Roles and Run Outcomes.**
