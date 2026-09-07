@@ -151,6 +151,17 @@ keep compatible forever.
 a degenerate label, and conflating the two would put "is this unclassified?"
 inside a string function.
 
+**The rule binds the classification path, and not `InstrumentRecord`'s
+constructor.** A caller who constructs a record directly with `sector=""` still
+gets one, exactly as they did before v2.11, and a fill against it would record
+`""`. That residual is stated rather than closed: `InstrumentRecord` is the type
+ADR-0016 froze and its constructor's acceptance is not this release's to change,
+and the failure is visible — an `""` heading in a breakdown is self-evidently
+wrong, unlike the silent divergences this codebase reserves refusals for.
+`classify_instrument` is the supported way to say what an instrument is, and it
+refuses. This is the same shape of residual ADR-0025 decision 13 records for a
+strategy whose own `capture_state` has side effects.
+
 **Case is preserved and never folded.** AlphaLab owns no sector taxonomy and so
 has no canonical form to fold into; upper-casing `"Consumer Discretionary"`
 would present the operator with a label they did not write. The precedent is

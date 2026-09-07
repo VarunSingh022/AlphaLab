@@ -38,19 +38,37 @@ second instrument, raises. This follows
 :func:`alphalab.lifecycle.promotion.record_evidence`, and for the same reason:
 silently replacing an identity is how two runs come to disagree about what they
 traded, long after either could be re-read.
+
+Registration and classification are different questions
+-------------------------------------------------------
+That refusal is about *identity*, and until v2.11 it also blocked the one thing
+ADR-0016 N5 said should be possible: changing a ``sector``. A record differing
+only in its classification is different content, so ``register_instrument``
+refused it, and a field documented as mutable was in practice immutable.
+
+:func:`classify_instrument` is the answer, and it is a separate function rather
+than a relaxation of the refusal. Relaxing it would make the rule depend on
+*which* field differs, and would leave accidental content drift
+indistinguishable from a deliberate reclassification. A separate function names
+the intent, cannot reach an identity field, and leaves the refusal exactly as
+strict as it was -- re-registering a stale, unclassified record over a
+classified one is still refused, so a stale declaration cannot silently
+un-classify an instrument. See ADR-0027.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
-from alphalab.instrument.record import InstrumentRecord
+from alphalab.instrument.record import InstrumentRecord, normalize_sector_label
 
 __all__ = [
     "InstrumentRegistry",
+    "classify_instrument",
+    "classify_instruments",
     "get_instrument",
     "register_alias",
     "register_instrument",
@@ -206,3 +224,78 @@ def register_alias(
 
     get_instrument(registry, asset_id)
     return _with_alias(registry, provider, symbol, asset_id)
+
+
+def classify_instrument(
+    registry: InstrumentRegistry, asset_id: str, sector: str | None
+) -> InstrumentRegistry:
+    """Declare what sector an already-registered instrument belongs to.
+
+    The write ADR-0016 N5 kept the identity key clear for. ``sector`` is
+    descriptive and mutable, so reclassifying is allowed, silently, with no
+    refusal and no event -- and it cannot re-identify the instrument, because
+    the identity is derived from ``asset_type``, ``exchange``, ``symbol`` and
+    ``currency`` alone and none of them is reachable from this signature.
+    ``asset_id``, ``canonical_key``, every alias and every provider resolution
+    are byte-identical afterwards.
+
+    Keyed by ``asset_id`` rather than by an
+    :class:`~alphalab.instrument.record.InstrumentRecord`, because a record
+    would admit one whose identity fields disagree with the registered
+    instrument's -- a question with no good answer.
+
+    ``sector=None`` unclassifies, and is a first-class operation rather than an
+    error: an instrument whose classification has been withdrawn is
+    unclassified, which is what ``None`` has always meant.
+
+    Passing the label already in effect -- compared *after*
+    :func:`~alphalab.instrument.record.normalize_sector_label`, so surrounding
+    whitespace does not make a second classification -- returns the **same
+    registry object** and writes nothing, matching
+    :func:`register_instrument`'s no-op for an identical record.
+
+    Copy-on-write, through the same :class:`PersistentMap` every other write
+    here uses: ``set`` appends to the key's version chain and rebuilds nothing,
+    so this is O(1), the registry it came from stays valid and unchanged, and
+    ``N`` classifications cost ``O(N)``.
+
+    Mints no identifier and emits no event.
+
+    Args:
+        registry: The registry to classify within.
+        asset_id: The instrument to classify. Must already be registered.
+        sector: The sector label, or ``None`` to unclassify.
+
+    Returns:
+        A registry in which ``asset_id`` carries ``sector``; the same object
+        when that was already true.
+
+    Raises:
+        InstrumentInputError: If ``asset_id`` is not registered, or ``sector``
+            is not a label :func:`normalize_sector_label` accepts.
+    """
+
+    record = get_instrument(registry, asset_id)
+    label = None if sector is None else normalize_sector_label(sector)
+    if record.sector == label:
+        return registry
+
+    return replace(
+        registry, instruments=registry.instruments.set(asset_id, replace(record, sector=label))
+    )
+
+
+def classify_instruments(
+    registry: InstrumentRegistry, classifications: Mapping[str, str | None]
+) -> InstrumentRegistry:
+    """Classify several instruments, in the mapping's iteration order.
+
+    The plural of :func:`classify_instrument`, mirroring
+    :func:`register_instruments`. Nothing partial survives a refusal: the
+    entries are applied to successive values and the offending one raises before
+    any later entry is reached, so the caller's own registry is untouched.
+    """
+
+    for asset_id, sector in classifications.items():
+        registry = classify_instrument(registry, asset_id, sector)
+    return registry
