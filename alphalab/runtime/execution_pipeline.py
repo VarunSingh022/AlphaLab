@@ -487,9 +487,43 @@ class ExecutionPipeline:
         analytics trade record are identical whether the fill was simulated or
         real. Duplicating that logic for live trading is precisely the mistake
         this method exists to prevent.
+
+        Applying a report is **idempotent in its** ``execution_id``. A venue
+        redelivers fills after a reconnect, delivers them out of order, and
+        delivers them again for orders it is unsure about;
+        :mod:`alphalab.broker.reconciliation` calls that "the normal behaviour of
+        a network" and answers a repeated ``execution_id`` with a no-op rather
+        than an error, "because a reconnect makes it routine". Until v2.9 this
+        method did not, and it could not: it applied the economics without ever
+        recording the report, so :class:`~alphalab.execution.state.ExecutionState`
+        -- whose ``reports`` map is keyed by execution id and is exactly the
+        ledger such a check reads -- stayed empty on this path while a simulated
+        fill populated it. One report delivered twice therefore charged cash
+        twice and doubled the position. A full fill was caught incidentally,
+        because the second application asked the OMS to fill an order already
+        ``FILLED``; a *partial* fill was not caught at all, and simply applied
+        again.
+
+        The identity is the ``execution_id`` and nothing else. Two reports that
+        agree on order, price, quantity and timestamp but differ in
+        ``execution_id`` are two executions and both apply -- which is what a
+        legitimate sequence of partial fills looks like.
+
+        The simulated path needs no such guard and does not get one: its reports
+        are recorded by :meth:`~alphalab.execution.engine.ExecutionEngine.simulate`
+        before the economics are applied, and the simulator mints a fresh
+        execution id per event, so it cannot redeliver.
+
+        Returns:
+            The next state and the fills and trades this report produced. A
+            report whose ``execution_id`` has already been applied returns the
+            state unchanged and no fills or trades.
         """
 
-        return _apply_reports(state, order, (report,))
+        if report.execution_id in state.execution.reports:
+            return state, (), ()
+
+        return _apply_reports(_record_venue_execution(state, order, report), order, (report,))
 
     @staticmethod
     def compile_analytics(
@@ -870,6 +904,38 @@ def _apply_reports(
         tuple(fills),
         tuple(trades),
     )
+
+
+def _record_venue_execution(
+    state: ExecutionPipelineState, order: OMSOrder, report: ExecutionReport
+) -> ExecutionPipelineState:
+    """Record a report that did not come from the simulator in the execution state.
+
+    The simulated path records through
+    :meth:`~alphalab.execution.engine.ExecutionEngine.execute` and
+    :meth:`~alphalab.execution.engine.ExecutionEngine.partial_fill`, which store
+    the report by execution id, append it to the history and emit the matching
+    lifecycle event. A venue fill goes through the same two functions, so the
+    ledger, the history and the event are identical whichever way the fill
+    arrived -- the property this seam exists to guarantee, and the one place it
+    was not being kept.
+
+    ``remaining_quantity`` on a partial fill is what is left of the instruction
+    after it, which is what the simulated path passes: there the instruction is
+    sized at ``order.remaining_quantity``, so the venue equivalent is that
+    quantity less the fill. This seam takes fills --
+    :func:`~alphalab.runtime.broker_routing.execution_report_from_broker`
+    produces only ``FULL_FILL`` and ``PARTIAL_FILL`` -- and a partial fill is the
+    only one of those that leaves a remainder.
+    """
+
+    if report.status is FillStatus.PARTIAL_FILL:
+        execution = ExecutionEngine.partial_fill(
+            state.execution, report, order.remaining_quantity - report.fill_quantity
+        )
+    else:
+        execution = ExecutionEngine.execute(state.execution, report)
+    return replace(state, execution=execution)
 
 
 def _apply_report_to_oms(
