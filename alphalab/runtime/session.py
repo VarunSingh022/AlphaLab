@@ -62,11 +62,12 @@ disconnected feed turns into real orders at prices that no longer exist.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 
 from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.ids import id_scope
+from alphalab.common.ids import id_scope, id_source_for, use_id_source
 from alphalab.execution.policy import FillPolicy, ImmediateFill
 from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.normalization import is_stale
@@ -259,6 +260,32 @@ class TradingSession:
             ),
             current_timestamp=config.start_timestamp,
         )
+
+    @staticmethod
+    def resume(state: SessionState) -> AbstractContextManager[None]:
+        """The scope a restored session continues in.
+
+        The counterpart of the ``id_scope`` :meth:`run` opens. ``run`` starts a
+        stream from a seed; a resumed session continues one, so the source is
+        rebuilt from the position the restored pipeline carries rather than from
+        the seed alone -- which is what stops a continued run re-minting
+        identifiers it has already used. An unseeded run resumes on ``uuid4``,
+        exactly as it ran.
+
+        Restoring state and continuing execution stay separate:
+        :func:`alphalab.runtime.session_snapshot.restore` installs nothing, and
+        this installs nothing but the source. Advance the records the session has
+        not seen inside the block::
+
+            with TradingSession.resume(restored):
+                for record in remaining:
+                    restored, _ = TradingSession.advance(restored, record, factory)
+
+        The boundary is between :meth:`advance` calls. A session that processed N
+        records resumes at record N+1; nothing is replayed.
+        """
+
+        return use_id_source(id_source_for(state.pipeline.id_position))
 
     @staticmethod
     def advance(

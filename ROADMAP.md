@@ -404,6 +404,69 @@ Enterprise capabilities
 
 ---
 
+v2.9.0 — "Durable Run State" — lets a run stop and continue, and is a
+correctness release with no new packages and no breaking changes:
+
+- **A continued run no longer re-mints identifiers it has already used.** A seed
+  said where the deterministic stream started; nothing said where it had
+  reached, so a resumed run rebuilt its generator at zero. Measured on v2.8.0,
+  sweeping every restore point across a workload producing 41 identifiers found
+  up to 4 duplicates — a later `fill_id` on a UUID an earlier `execution_id`
+  already held — against zero for the uninterrupted control. Nothing raised.
+  `IdStreamPosition` is `(seed, draws)` and lives on `ExecutionPipelineState`:
+  two readable integers rather than a serialized generator state, so nothing in
+  the persisted format is pinned to one PRNG implementation. Every `new_id()`
+  call site, the `ContextVar` and `derive_asset_id` are untouched.
+- **The execution path round-trips.** `PipelineSnapshot` captures
+  `ExecutionPipelineState`; `SessionSnapshot` and `BacktestSnapshot` capture the
+  run bookkeeping around it, one per owning package because
+  `alphalab.backtesting` imports `alphalab.runtime` and never the reverse, so a
+  single shared module would close an import cycle. `AllocationState` gets a
+  versioned snapshot of its own, because ADR-0021's ledgers decide whether a
+  restored run's committed capital and attribution are correct. Live objects are
+  recorded by type and required back from the caller, raising on a missing or
+  mistyped one and never substituting — ADR-0014's rule, finally applied to the
+  execution path.
+- **A venue fill delivered twice is applied once.** `_apply_reports` never wrote
+  to `ExecutionState`, so the `reports` map a duplicate check reads stayed empty
+  on the one path where redelivery happens. Measured on v2.8.0 for a partial
+  fill: cash 999,600 → 999,200, position 4 → 8, two pipeline fills for one venue
+  execution. A repeated `execution_id` now returns the state unchanged, the rule
+  `broker.reconciliation` already stated for `DUPLICATE`.
+- **A working external order can be ended.** Under `EXTERNAL` routing a venue
+  fill had a route home and a rejection, cancellation or expiry had none:
+  measured on v2.8.0, six externally routed events left six open orders holding
+  six reservations, six contributions and 3,000 of committed notional with no
+  way to retire any of it. `apply_terminal_outcome` is that route. The caller
+  supplies the outcome; no venue is contacted and no `BrokerState` is built.
+- **`OMSState` payloads declare a schema version.** `OMS_SNAPSHOT_SCHEMA = 1`,
+  with exactly one bounded legacy path: an unversioned payload is read only when
+  its top-level keys match `LEGACY_UNVERSIONED_V0` exactly. A missing
+  `schema_version` is never read as version 1.
+- **`alphalab.persistence` appends in linear time.** Three containers were
+  rebuilt per append and the snapshot index per save. Measured on v2.8.0, 32,000
+  appends took 14.0 s at ~4.5x per doubling and the 100,000-event benchmark did
+  not finish; it is now 0.24 s at 2.02x per doubling, and the benchmark
+  completes in 1.97 s. This applies the v2.1/v2.2 container pattern to the one
+  package that missed it; `PersistenceProtocol` is unchanged.
+- **`restore` re-runs every construction-time validation `initialize` enforces.**
+  `_require_one_account_currency` had exactly one call site and restore did not
+  go through it, so a snapshot could rebuild a state `initialize` would have
+  refused. ADR-0019's guarantee now holds on both paths into a pipeline state.
+- Six ADRs are written to disk: **ADR-0019**–**ADR-0021** record decisions taken
+  and shipped during v2.8 without being written down, and **ADR-0022**–**ADR-0024**
+  are this release's.
+
+**Deferred out of v2.9, deliberately:** a `StrategyStateProtocol` and any capture
+of strategy-internal state, which is the one precondition of the equivalence
+contract the caller must satisfy itself; `StrategyContext` completion; unifying
+`SessionState` and `BacktestState` or removing the parallel runtime mechanism;
+promoting the four cross-package private decoders to a shared public surface;
+schema constants for market, risk, execution, analytics or strategy state; a
+migration framework; and everything already deferred below.
+
+---
+
 v2.8.0 — "Currency Roles and Run Outcomes" — makes three fields mean one thing
 each, and is a correctness release with no new packages and no breaking changes:
 
@@ -524,10 +587,17 @@ and consolidation work has **not** been done:
   historical range and is re-iterable. Polling, subscription and reconnect need a
   clock and a loop AlphaLab does not have, and a streaming source would also need
   an answer to late arrivals beyond "skip and record".
-- **Round-trip for `ExecutionPipelineState` / `SessionState`** (v2.6+): they hold
-  `StrategyProtocol` instances, an `ExecutionSimulator`, a `SizingModel` and a
-  `FillPolicy`. Restoring them means reconstructing the whole run configuration,
-  which is a larger design than v2.5 should have absorbed (ADR-0014).
+- **Capture of strategy-internal state** (v2.10+): v2.9 delivered the round trip
+  for `ExecutionPipelineState`, `SessionState` and `BacktestState`, recording the
+  strategy instance, simulator, sizing model and fill policy by type and
+  requiring the caller to supply them back (ADR-0014, ADR-0023). What remains is
+  the state a strategy keeps in its own Python attributes: `StrategyProtocol`
+  declares ten hooks and no state-serialization hook, so a rolling window or
+  counter is state AlphaLab cannot capture. v2.9 does not pretend otherwise —
+  the equivalence contract states restored strategy-internal state as a
+  precondition and a test names the expected divergence when it is unmet. A
+  `StrategyStateProtocol` is deferred with `StrategyContext` completion, and both
+  must close before v3.0.
 - **Artifact storage** (v2.5+): `ArtifactRef` records where a model version's
   bytes live and what they should hash to. Nothing fetches, writes or verifies
   them, because there is no object store here and faking one would be the only
@@ -586,8 +656,9 @@ Delivered since this list was written: mark-to-market position repricing (v2.1),
 broker convergence with paper execution on the canonical path (v2.3), the
 model/strategy lifecycle composing PR-046 through PR-049 (v2.4), typed state
 round-trip plus the provider→source link (v2.5), allocation authority with
-attribution truth (v2.6), and instrument identity with dataset provenance
-(v2.7).
+attribution truth (v2.6), instrument identity with dataset provenance (v2.7),
+currency roles and run outcomes (v2.8), and durable run state with deterministic
+identifier continuation (v2.9).
 
 ---
 

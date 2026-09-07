@@ -27,12 +27,13 @@ the replay cursor, which is why the two paths cannot diverge.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import replace
 
 from alphalab.backtesting.config import BacktestConfig
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
 from alphalab.backtesting.state import BacktestResult, BacktestState, BacktestStep
-from alphalab.common.ids import id_scope, id_source
+from alphalab.common.ids import id_scope, id_source, id_source_for, use_id_source
 from alphalab.market.state import MarketState
 from alphalab.runtime.execution_pipeline import (
     ContextFactory,
@@ -156,6 +157,18 @@ class BacktestEngine:
         """Fund the portfolio and build the state a run starts from."""
 
         return initialize(config, strategy_state)
+
+    @staticmethod
+    def resume(state: BacktestState) -> AbstractContextManager[None]:
+        """The scope a restored run continues in.
+
+        The counterpart of the ``id_scope`` :meth:`run` opens: ``run`` starts a
+        stream from a seed, a resumed run continues one. See
+        :meth:`alphalab.runtime.session.TradingSession.resume`, which is the same
+        contract for a session.
+        """
+
+        return use_id_source(id_source_for(state.pipeline.id_position))
 
     @staticmethod
     def advance(

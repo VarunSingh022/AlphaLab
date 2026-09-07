@@ -22,6 +22,7 @@ from alphalab.analytics.attribution import TradeRecord
 from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.ids import IdStreamPosition, current_id_position
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side as CoreSide
@@ -83,6 +84,16 @@ ContextFactory = Callable[[str], StrategyContext]
 #: Execution outcomes that produce no report: the order never trades, so its
 #: reservation is released and its OMS order is closed out.
 _NON_TRADING_STATUSES = (FillStatus.REJECTED, FillStatus.EXPIRED, FillStatus.NO_FILL)
+
+#: The terminal outcomes a caller may report for an order that never completed.
+#:
+#: Deliberately the three :class:`~alphalab.core.enums.OrderStatus` members that
+#: end an order without it trading, and not
+#: :class:`~alphalab.execution.fill.FillStatus`: a venue reporting that an order
+#: is dead is describing the *order*, not a fill it did not make. ``FILLED`` and
+#: ``PARTIALLY_FILLED`` are reached by applying an execution report, never by
+#: assertion, which is why they are not here.
+_TERMINAL_OUTCOMES = (OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.EXPIRED)
 
 
 class ExecutionRouting(Enum):
@@ -242,6 +253,16 @@ class ExecutionPipelineState:
     #: outcomes emit. Bounded by the distinct instruments the run's strategies
     #: named, never by event count. Not persisted; nothing captures this state.
     unpriced_assets: PersistentMap[str, UnpricedAsset] = field(default_factory=PersistentMap)
+    #: How far this run's identifier stream had advanced when the last transition
+    #: finished. Refreshed by every method that returns a state and mints
+    #: identifiers, so the state -- not the ambient
+    #: :class:`~alphalab.common.ids.DeterministicIdSource` -- is what says where
+    #: the stream is. A run that stops here and rebuilds its source with
+    #: :func:`~alphalab.common.ids.id_source_for` continues the stream instead of
+    #: restarting it, which is what stops a continued run re-minting identifiers
+    #: it has already used. ``seed=None`` for an unseeded run, which has no
+    #: cursor and needs none. See ADR-0022.
+    id_position: IdStreamPosition = field(default_factory=IdStreamPosition)
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,6 +360,9 @@ class ExecutionPipeline:
             portfolio=portfolio,
             analytics=AnalyticsEngine.initialize(),
             portfolio_snapshots=AppendOnlyLog((snapshot,)),
+            # Funding the portfolio mints identifiers, so a state is never handed
+            # back without saying where the stream stands.
+            id_position=current_id_position(),
         )
 
     @staticmethod
@@ -487,9 +511,135 @@ class ExecutionPipeline:
         analytics trade record are identical whether the fill was simulated or
         real. Duplicating that logic for live trading is precisely the mistake
         this method exists to prevent.
+
+        Applying a report is **idempotent in its** ``execution_id``. A venue
+        redelivers fills after a reconnect, delivers them out of order, and
+        delivers them again for orders it is unsure about;
+        :mod:`alphalab.broker.reconciliation` calls that "the normal behaviour of
+        a network" and answers a repeated ``execution_id`` with a no-op rather
+        than an error, "because a reconnect makes it routine". Until v2.9 this
+        method did not, and it could not: it applied the economics without ever
+        recording the report, so :class:`~alphalab.execution.state.ExecutionState`
+        -- whose ``reports`` map is keyed by execution id and is exactly the
+        ledger such a check reads -- stayed empty on this path while a simulated
+        fill populated it. One report delivered twice therefore charged cash
+        twice and doubled the position. A full fill was caught incidentally,
+        because the second application asked the OMS to fill an order already
+        ``FILLED``; a *partial* fill was not caught at all, and simply applied
+        again.
+
+        The identity is the ``execution_id`` and nothing else. Two reports that
+        agree on order, price, quantity and timestamp but differ in
+        ``execution_id`` are two executions and both apply -- which is what a
+        legitimate sequence of partial fills looks like.
+
+        The simulated path needs no such guard and does not get one: its reports
+        are recorded by :meth:`~alphalab.execution.engine.ExecutionEngine.simulate`
+        before the economics are applied, and the simulator mints a fresh
+        execution id per event, so it cannot redeliver.
+
+        Returns:
+            The next state and the fills and trades this report produced. A
+            report whose ``execution_id`` has already been applied returns the
+            state unchanged and no fills or trades.
         """
 
-        return _apply_reports(state, order, (report,))
+        if report.execution_id in state.execution.reports:
+            return state, (), ()
+
+        applied, fills, trades = _apply_reports(
+            _record_venue_execution(state, order, report), order, (report,)
+        )
+        return replace(applied, id_position=current_id_position()), fills, trades
+
+    @staticmethod
+    def apply_terminal_outcome(
+        state: ExecutionPipelineState,
+        order: OMSOrder,
+        outcome: OrderStatus,
+        timestamp: float,
+        reason: str = "",
+    ) -> ExecutionPipelineState:
+        """End a working order the venue has reported dead, and free what it held.
+
+        The counterpart to :meth:`apply_execution_report`, for the outcome that
+        is not a fill. Under :attr:`ExecutionRouting.EXTERNAL` an accepted order
+        is left working for a broker adapter to route, and its reservation and
+        contribution stay held -- correctly, because the order is live and that
+        capital is committed. Until now nothing could end such an order: a venue
+        *fill* had a route home and a venue rejection, cancellation or expiry had
+        none, so a working order and both its allocation ledgers were held
+        indefinitely. That is the gap this closes.
+
+        The caller supplies the outcome; the pipeline never infers it. Nothing
+        here contacts a venue, builds a ``BrokerState``, or consults
+        :mod:`alphalab.broker.reconciliation` -- the venue is the authority for
+        what happened, and this is only the state transition that follows from
+        being told. It is therefore independent of transport, and of routing: it
+        works on any working order, and checks no routing mode.
+
+        The transition itself is the existing one.
+        :class:`~alphalab.oms.engine.OMSEngine` moves the order and emits its
+        lifecycle event, which also moves it between the active and completed
+        sets, and :func:`_release_if_terminal` retires the reservation and the
+        contribution exactly as it does for every other terminal transition. No
+        second terminal state machine is introduced and no new event type is
+        added.
+
+        A partial fill already applied is untouched. ``Order.cancel`` preserves
+        ``filled_quantity`` and ``average_fill_price``, so cancelling a partially
+        filled order closes only the quantity still working. **Cancellation is
+        not an implicit fill**: no fill, trade or portfolio effect is produced
+        here at all.
+
+        ``reason`` is recorded only for ``REJECTED``, because
+        :class:`~alphalab.oms.events.OrderRejected` is the only one of the three
+        events that carries the field. Giving ``OrderCancelled`` and
+        ``OrderExpired`` one would change the OMS event shape, and OMS events are
+        part of the snapshot payload whose schema v2.9 has just declared -- so a
+        reason that cannot be recorded is dropped rather than the payload
+        changed. An empty ``reason`` is passed through as empty: a caller who
+        said nothing is recorded as having said nothing, not given an invented
+        explanation.
+
+        Args:
+            state: The pipeline state holding the working order.
+            order: The order the venue reported on.
+            outcome: ``CANCELLED``, ``REJECTED`` or ``EXPIRED``.
+            timestamp: When the outcome is recorded.
+            reason: Why the venue refused it. Recorded for ``REJECTED`` only.
+
+        Returns:
+            The state with the order terminal and both allocation ledgers
+            retired.
+
+        Raises:
+            RuntimeValidationError: If ``outcome`` is not one of the three
+                terminal outcomes. A status that is reached by trading is not
+                something a caller may assert.
+            UnknownOrderError: If the order is not in the book.
+            InvalidTransitionError: If the order cannot make the transition --
+                it is already terminal, or it is partially filled and the
+                outcome is ``REJECTED``, which ``Order.reject`` refuses because
+                an order that has already traded cannot be rejected. Both rules
+                are the OMS lifecycle's own and are preserved rather than
+                relaxed here.
+        """
+
+        if outcome not in _TERMINAL_OUTCOMES:
+            permitted = ", ".join(status.name for status in _TERMINAL_OUTCOMES)
+            raise RuntimeValidationError(
+                f"{outcome} is not a terminal outcome a caller may report. "
+                f"Permitted outcomes are {permitted}. A status reached by trading "
+                "is applied from an execution report, not asserted -- see "
+                "ExecutionPipeline.apply_execution_report."
+            )
+
+        terminated = replace(
+            state, oms=_terminate_order(state.oms, order, outcome, reason, timestamp)
+        )
+        released = _release_if_terminal(terminated, order.order_id, timestamp)
+        return replace(released, id_position=current_id_position())
 
     @staticmethod
     def compile_analytics(
@@ -508,7 +658,7 @@ class ExecutionPipeline:
             years_elapsed,
             risk_free_rate,
         )
-        return replace(state, analytics=analytics)
+        return replace(state, analytics=analytics, id_position=current_id_position())
 
 
 def _process_requests(
@@ -574,7 +724,16 @@ def _process_requests(
         trades.extend(new_trades)
 
     snapshot = _portfolio_snapshot(current.portfolio, current.config.currency, event.timestamp)
-    current = replace(current, portfolio_snapshots=current.portfolio_snapshots.append(snapshot))
+    # The step boundary, and the only place the position is refreshed for an
+    # event: every environment reaches here through process_record,
+    # process_market_event or process_quote, and none of them refreshes it
+    # earlier -- a position read halfway through a step would describe neither
+    # the state before it nor the state after.
+    current = replace(
+        current,
+        portfolio_snapshots=current.portfolio_snapshots.append(snapshot),
+        id_position=current_id_position(),
+    )
     valuation = PortfolioValuation.snapshot(
         current.portfolio, event.timestamp, current.config.currency
     )
@@ -872,6 +1031,38 @@ def _apply_reports(
     )
 
 
+def _record_venue_execution(
+    state: ExecutionPipelineState, order: OMSOrder, report: ExecutionReport
+) -> ExecutionPipelineState:
+    """Record a report that did not come from the simulator in the execution state.
+
+    The simulated path records through
+    :meth:`~alphalab.execution.engine.ExecutionEngine.execute` and
+    :meth:`~alphalab.execution.engine.ExecutionEngine.partial_fill`, which store
+    the report by execution id, append it to the history and emit the matching
+    lifecycle event. A venue fill goes through the same two functions, so the
+    ledger, the history and the event are identical whichever way the fill
+    arrived -- the property this seam exists to guarantee, and the one place it
+    was not being kept.
+
+    ``remaining_quantity`` on a partial fill is what is left of the instruction
+    after it, which is what the simulated path passes: there the instruction is
+    sized at ``order.remaining_quantity``, so the venue equivalent is that
+    quantity less the fill. This seam takes fills --
+    :func:`~alphalab.runtime.broker_routing.execution_report_from_broker`
+    produces only ``FULL_FILL`` and ``PARTIAL_FILL`` -- and a partial fill is the
+    only one of those that leaves a remainder.
+    """
+
+    if report.status is FillStatus.PARTIAL_FILL:
+        execution = ExecutionEngine.partial_fill(
+            state.execution, report, order.remaining_quantity - report.fill_quantity
+        )
+    else:
+        execution = ExecutionEngine.execute(state.execution, report)
+    return replace(state, execution=execution)
+
+
 def _apply_report_to_oms(
     state: ExecutionPipelineState, order_id: OrderId, report: ExecutionReport
 ) -> ExecutionPipelineState:
@@ -969,6 +1160,25 @@ def _close_unfilled_order(
     if fill_status is FillStatus.NO_FILL:
         return OMSEngine.cancel(oms, order.order_id, timestamp)
     return OMSEngine.reject(oms, order.order_id, "Rejected by execution venue", timestamp)
+
+
+def _terminate_order(
+    oms: OMSState, order: OMSOrder, outcome: OrderStatus, reason: str, timestamp: float
+) -> OMSState:
+    """Make one working order terminal through the OMS's own transitions.
+
+    The sibling of :func:`_close_unfilled_order`, which answers the same
+    question for the simulated path. The two differ only in the vocabulary they
+    are asked in -- a ``FillStatus`` there, because the simulator reports what a
+    fill did, and an ``OrderStatus`` here, because a venue reports what the order
+    became -- and they dispatch to the same three engine calls.
+    """
+
+    if outcome is OrderStatus.CANCELLED:
+        return OMSEngine.cancel(oms, order.order_id, timestamp)
+    if outcome is OrderStatus.EXPIRED:
+        return OMSEngine.expire(oms, order.order_id, timestamp)
+    return OMSEngine.reject(oms, order.order_id, reason, timestamp)
 
 
 def _oms_order(request: OrderRequest) -> OMSOrder:
