@@ -118,8 +118,15 @@ increased; the snapshot boundary is made clean.
 it with the existing `use_id_source`. A `resume` entry point composes the two,
 mirroring what `run` does with `id_scope`.
 
-Measured fast-forward cost: 79 ns per draw, 7.6–22 draws per market event. A run
-of 1,000,000 events resumes in **0.553 s**; 100,000 events in 0.055 s.
+Measured fast-forward cost: ~1.03 µs per replayed draw, 7.6–22 draws per market
+event. A run of 1,000,000 events resumes in **1.03 s**; 100,000 events in 0.10 s.
+
+*(Corrected in v2.9 implementation. This ADR first quoted 79 ns per draw and
+0.553 s at a million events, which measured the generator draw alone. Replaying a
+draw means calling the source, which also rebuilds the identifier string, so the
+real figure is about thirteen times larger. It remains sub-second on a run that
+minted a million identifiers, paid once on resume, so the decision is unchanged;
+only the number was wrong.)*
 
 ## 5. The position is durable state, not a referenced live object
 
@@ -245,7 +252,7 @@ by construction rather than by check. The persisted position is 28 bytes,
 human-readable, and cross-checkable against the state that accompanies it. The
 existing ambient design is preserved and no call site moves.
 
-Costs. Restore is O(draws) rather than O(1) — 0.553 s at a million events, which
+Costs. Restore is O(draws) rather than O(1) — 1.03 s at a million events, which
 is accepted. The position must be refreshed at every step, which is one ambient
 read per step in one place. Determinism is guaranteed relative to a specific ID
 algorithm, and changing that algorithm becomes a versioned decision rather than
@@ -257,7 +264,7 @@ a free one.
 
 **Serialize the generator's internal state.** The measured alternative: a
 7,369-byte payload of 625 integers, restoring in constant time rather than
-0.553 s at a million events. Rejected despite the better cost profile. The
+1.03 s at a million events. Rejected despite the better cost profile. The
 payload is opaque — nobody can read it, and nothing can cross-check it against
 the state it accompanies — and it pins the persisted format to one generator
 implementation permanently. "Two integers, verifiable" beats "625 integers,
