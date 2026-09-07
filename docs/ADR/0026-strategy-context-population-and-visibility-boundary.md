@@ -2,9 +2,19 @@
 
 ## Status
 
-**Proposed for v2.10.0. Not implemented.** `alphalab/strategy/context.py` is
-unchanged, `ExecutionPipeline` is unchanged, and no test for any of this exists
-yet. Written before the implementation for the same reason ADR-0025 was: the
+**Accepted and implemented in v2.10.0.** `alphalab.runtime.context_views` ships
+`PortfolioView`, `OrderView`, `OrderShare`, `RiskView`, `MarketView` and
+`order_shares_by_strategy`; `ExecutionPipeline.process_market_event` assembles
+them from the marked locals and overlays them onto the caller's factory result;
+`StrategyEngine.process_event` builds a context only for a running strategy.
+All four decision-2 fields ship, including both `SHOULD` fields, because both
+turned out to be reference assembly over state the pipeline already held.
+
+`alphalab/strategy/context.py` is unchanged — see the note under *Data model
+changes*, which is the one place the implementation departed from this ADR's
+original prose.
+
+Written before the implementation for the same reason ADR-0025 was: the
 decision that matters — *what a strategy is allowed to see, and who assembles
 it* — is cheap to settle now and expensive to change once strategy authors
 depend on it.
@@ -40,7 +50,7 @@ benchmarks, two examples and eight test modules — passes `object()` or `None`
 for `portfolio`, `market`, `risk_view`, `orders`, `history` and `universe`.
 `tests/integration/harness.py:92` is representative:
 
-```python
+```text
 def context_factory(strategy_id: str) -> StrategyContext:
     return StrategyContext(
         portfolio=object(), market=object(), clock=_Clock(), logger=_Logger(),
@@ -252,7 +262,7 @@ construction site keeps working with no edit.
 
 **The pipeline overlays its fields onto the context the caller built:**
 
-```python
+```text
 context = replace(context_factory(strategy_id), **pipeline_owned)
 ```
 
@@ -390,9 +400,33 @@ feature unobservable in exactly the cases where it failed.
   AllocationState                  # UNCHANGED -- read, never extended
 ```
 
-`StrategyContext`'s field *names* and arity do not change. What changes is what
-those fields hold, and the empty marker protocols gain the methods their views
-actually expose.
+`StrategyContext`'s field *names*, arity and **field types** do not change.
+What changes is what those fields hold at runtime.
+
+**The supporting marker protocols stay intentionally minimal, and did not gain
+the views' methods.** This ADR's first draft said they would; the implementation
+deliberately did not do it, and this records why rather than leaving the
+omission to be rediscovered.
+
+Giving `PortfolioSnapshotProtocol`, `OrderFacadeProtocol`, `RiskViewProtocol`
+and `MarketViewProtocol` real signatures means naming `Position`, `Order`,
+`MarginStatus`, `ExposureStatus`, `RiskLimits`, `Quote`, `Tick` and `Bar` in
+`alphalab/strategy/context.py`. `alphalab.strategy` imports `alphalab.common`
+and itself, and nothing else — it is a strict leaf, and typed protocol members
+would make it depend on `portfolio`, `oms`, `risk` and `market` at once. That is
+a dependency change no decision here authorises, and it is a larger commitment
+than the typing convenience it buys.
+
+So the concrete, domain-facing read-only views live **outside** the strategy
+package, in `alphalab.runtime.context_views`, where those domain types are
+already in scope. A strategy author who wants full static typing annotates
+against the view classes directly; the runtime behaviour, the public API and
+every guarantee in decisions 1-10 are identical either way.
+
+This is an implementation choice that preserves the leaf invariant, not an
+accidental omission. Revisiting it means deciding whether `alphalab.strategy`
+may depend on four domain packages — a question for its own decision, not a
+detail of this one.
 
 ---
 

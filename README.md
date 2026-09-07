@@ -43,16 +43,44 @@ The framework is designed for researchers, quantitative developers, students, an
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.9.0 |
-| Tests | **2681 Passing** |
-| Static Typing | **Strict MyPy** (953 source files) |
+| Version | 2.10.0 |
+| Tests | **2818 Passing** |
+| Static Typing | **Strict MyPy** (894 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-v2.9.0 — "Durable Run State" — lets a run stop and continue. Every *quantity*
+v2.10.0 — "The Strategy Boundary" — closes both halves of the one surface v2.9
+could not: what a strategy tells the runtime about itself, and what the runtime
+tells a strategy about the world.
+
+`StrategyStateProtocol` lets a strategy declare durable internal state and
+supply a two-sided codec for it, so a run that stops and continues restores a
+**fresh** strategy instance's memory and reproduces an uninterrupted run exactly
+— the one precondition v2.9's equivalence guarantee stated and no protocol could
+express. The codec is two-sided because the shared encoder writes a `Decimal`
+and a `str` identically and no generic decoder can tell them apart afterwards;
+capture puts the state through that encoder immediately, so an unencodable value
+is refused where it was produced rather than at some later `serialize`.
+`PIPELINE_SNAPSHOT_SCHEMA` moves to **2** and reads version 1 as "no strategy was
+asked"; `SESSION_` and `BACKTEST_SNAPSHOT_SCHEMA` do not move.
+
+`StrategyContext` is populated by the pipeline for the first time since it was
+written. A strategy now sees the **marked** portfolio — the book as of the event
+being dispatched, after mark-to-market and the risk resync — its own **live
+order shares**, risk headroom and a market view. Order attribution comes from
+the allocation contribution ledger rather than `OrderBook.orders_for_strategy`,
+which answers nothing for a netted order: two strategies whose intents net into
+one `BUY 100` each see their own share and neither claims sole ownership. The
+caller's `context_factory` keeps its signature and its `clock`, `logger` and
+`config`; the pipeline overlays only what it owns. `history` and `universe`
+remain deferred and say so.
+
+**No live trading is added**, and no schema outside the pipeline envelope moves.
+
+v2.9.0 — "Durable Run State" — let a run stop and continue. Every *quantity*
 already survived a round trip — cash, positions, realized P&L, reservations,
 contributions, risk NAV — but nothing recorded where the identifier stream had
 reached, so a run that stopped and resumed rebuilt its generator at zero and
@@ -65,11 +93,10 @@ external order the venue has ended can be ended here; `OMSState` payloads
 declare a schema version and one bounded legacy shape; `alphalab.persistence`
 appends in linear time (32,000 appends: **14.0 s → 0.24 s**); and `restore`
 re-runs the construction-time validations `initialize` enforces, so v2.8's
-currency invariant holds on both paths into a pipeline state. **No live trading
-is added.** The equivalence guarantee is conditional and says so: a seeded run,
-the same records in the same order, the same supplied runtime objects, and
-strategy-internal state the caller restores — `StrategyProtocol` declares no
-state hook, and v2.9 does not pretend otherwise.
+currency invariant holds on both paths into a pipeline state. Its equivalence
+guarantee was conditional on strategy-internal state the caller restored, which
+`StrategyProtocol` gave no way to express; **v2.10 closes that precondition for
+a strategy that declares its state**, and leaves it stated for one that does not.
 
 > **A deployment is a lifecycle fact, not an operation on a machine.** It records that
 > an environment *should* be running a strategy version. It starts no process, opens no
@@ -404,6 +431,25 @@ partially filled simulated order's remainder, with its reservation released; and
 removal of the replay cursor's O(N²), with the benchmark repointed at the API the
 integrated path actually uses.
 
+**v2.10.0** — the strategy boundary: `StrategyStateProtocol`, a second and
+separate protocol a strategy satisfies to declare durable internal state, with a
+required two-sided codec (`strategy_state_version` / `capture_state` /
+`restore_state`) whose encode side is validated and normalized through the
+existing `DeterministicEncoder` at capture rather than at some later
+`serialize`; `PIPELINE_SNAPSHOT_SCHEMA = 2` carrying a three-valued
+`StrategyRecord.state` — absent means a version-1 payload nobody asked, `null`
+means declared none, an object means declared — with version 1 still readable
+and four reconciliation mismatches refusing the whole restore; deterministic
+continuation into a **fresh** strategy instance at every record boundary, adding
+no identifier draws; `StrategyContext` populated by the pipeline from the marked
+portfolio and resynced risk locals, with strategy-scoped live order **shares**
+read from the allocation contribution ledger rather than the OMS strategy index,
+read-only risk and market views, and construction only for a running strategy;
+the caller's `context_factory` signature, `clock`, `logger` and `config`
+preserved. No breaking changes, no migration, no venue transport, and
+`SESSION_`, `BACKTEST_`, `ALLOCATION_`, `OMS_`, `PORTFOLIO_` and
+`LIFECYCLE_SNAPSHOT_SCHEMA` do not move.
+
 **v2.9.0** — durable run state: `capture` / `restore` / `from_primitives` for
 `ExecutionPipelineState` (`PIPELINE_SNAPSHOT_SCHEMA`), `SessionState`
 (`SESSION_SNAPSHOT_SCHEMA`), `BacktestState` (`BACKTEST_SNAPSHOT_SCHEMA`) and
@@ -467,13 +513,6 @@ See `CHANGELOG.md` and `ROADMAP.md`.
 - A **streaming** market-data source. v2.5's provider source reads a finite historical
   range; polling, subscription and reconnect need a clock and a loop AlphaLab does not
   have
-- Capture of **strategy-internal** state. v2.9 round-trips
-  `ExecutionPipelineState`, `SessionState` and `BacktestState`, recording the
-  strategy instance, simulator, sizing model and fill policy by type and
-  requiring the caller to supply them back. `StrategyProtocol` declares no
-  state-serialization hook, so a strategy holding a rolling window or counter in
-  Python attributes holds state AlphaLab cannot capture; restoring it is the
-  caller's job until a `StrategyStateProtocol` exists
 - Artifact storage. `ArtifactRef` records where a model's bytes live and what they
   should hash to; AlphaLab never reads, writes or hashes them, and there is no
   object store
@@ -485,8 +524,14 @@ See `CHANGELOG.md` and `ROADMAP.md`.
   the lifecycle is not joined to the execution path)
 - Approval workflow. A promotion is an auditable privileged action, but it is not
   wired to `alphalab.enterprise`'s RBAC or audit log
-- Strategies do not see the marked portfolio: `StrategyContext` comes from the
-  caller's `context_factory`
+- `StrategyContext.history` and `.universe`. v2.10 populates the marked
+  portfolio, the strategy's live order shares, risk headroom and a market view;
+  a clock-bounded historical accessor needs a look-ahead guard enforced at
+  construction, and universe membership needs a decision about whether it is
+  configuration, registry state or a risk control
+- Allocation visibility inside `StrategyContext`. Reservations and contributions
+  are post-intent facts; showing a strategy the capital its own intent will
+  reserve invites it to pre-size, duplicating the allocation engine's authority
 - Multi-currency valuation. As of v2.8 `PortfolioValuation.snapshot` refuses a
   book it cannot express as one figure in one currency rather than returning a
   wrong one; valuing across currencies needs an FX rate source that does not

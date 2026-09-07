@@ -2,11 +2,22 @@
 
 ## Status
 
-**Proposed for v2.10.0. Not implemented.** Every other ADR on disk was written
-at or after the release that implemented it; this one is written before, because
-its central decision — what a strategy is permitted to hand across the
-serialization boundary — is expensive to change once payloads exist. Nothing in
-`alphalab` changes until this is accepted.
+**Accepted and implemented in v2.10.0.** `alphalab.strategy.protocol` ships
+`StrategyStateProtocol`; `alphalab.runtime.snapshot` ships the declaration
+check, the capture-time encoder validation, `StrategyStateRecord`, the
+three-valued `StrategyRecord.state`, `NOT_ASKED`, `READABLE_PIPELINE_SCHEMAS`
+and `PIPELINE_SNAPSHOT_SCHEMA = 2`. `StrategyProtocol`, `StrategyState`,
+`DeterministicEncoder` and every other schema constant are unchanged, as
+decisions 8 and 12 require.
+
+Unusually for this repository, the decision was written *before* the
+implementation, because its central question — what a strategy is permitted to
+hand across the serialization boundary — is expensive to change once payloads
+exist. The implementation that followed changed none of it. One thing the
+implementation added that the decision only implied: decision 3's encoder check
+happens *at capture*, so an unencodable state can never reach a snapshot that
+looks valid in memory, and the same step normalizes the payload to the
+JSON-decoded primitives decision 3 promises `restore_state` receives.
 
 Closes the one precondition ADR-0023 decision 8 left open. Applies ADR-0014's
 rule — "live objects are referenced, not reconstructed" — to the state a
