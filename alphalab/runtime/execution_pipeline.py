@@ -84,6 +84,16 @@ ContextFactory = Callable[[str], StrategyContext]
 #: reservation is released and its OMS order is closed out.
 _NON_TRADING_STATUSES = (FillStatus.REJECTED, FillStatus.EXPIRED, FillStatus.NO_FILL)
 
+#: The terminal outcomes a caller may report for an order that never completed.
+#:
+#: Deliberately the three :class:`~alphalab.core.enums.OrderStatus` members that
+#: end an order without it trading, and not
+#: :class:`~alphalab.execution.fill.FillStatus`: a venue reporting that an order
+#: is dead is describing the *order*, not a fill it did not make. ``FILLED`` and
+#: ``PARTIALLY_FILLED`` are reached by applying an execution report, never by
+#: assertion, which is why they are not here.
+_TERMINAL_OUTCOMES = (OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.EXPIRED)
+
 
 class ExecutionRouting(Enum):
     """Where an accepted order executes -- the one thing environments differ in.
@@ -524,6 +534,94 @@ class ExecutionPipeline:
             return state, (), ()
 
         return _apply_reports(_record_venue_execution(state, order, report), order, (report,))
+
+    @staticmethod
+    def apply_terminal_outcome(
+        state: ExecutionPipelineState,
+        order: OMSOrder,
+        outcome: OrderStatus,
+        timestamp: float,
+        reason: str = "",
+    ) -> ExecutionPipelineState:
+        """End a working order the venue has reported dead, and free what it held.
+
+        The counterpart to :meth:`apply_execution_report`, for the outcome that
+        is not a fill. Under :attr:`ExecutionRouting.EXTERNAL` an accepted order
+        is left working for a broker adapter to route, and its reservation and
+        contribution stay held -- correctly, because the order is live and that
+        capital is committed. Until now nothing could end such an order: a venue
+        *fill* had a route home and a venue rejection, cancellation or expiry had
+        none, so a working order and both its allocation ledgers were held
+        indefinitely. That is the gap this closes.
+
+        The caller supplies the outcome; the pipeline never infers it. Nothing
+        here contacts a venue, builds a ``BrokerState``, or consults
+        :mod:`alphalab.broker.reconciliation` -- the venue is the authority for
+        what happened, and this is only the state transition that follows from
+        being told. It is therefore independent of transport, and of routing: it
+        works on any working order, and checks no routing mode.
+
+        The transition itself is the existing one.
+        :class:`~alphalab.oms.engine.OMSEngine` moves the order and emits its
+        lifecycle event, which also moves it between the active and completed
+        sets, and :func:`_release_if_terminal` retires the reservation and the
+        contribution exactly as it does for every other terminal transition. No
+        second terminal state machine is introduced and no new event type is
+        added.
+
+        A partial fill already applied is untouched. ``Order.cancel`` preserves
+        ``filled_quantity`` and ``average_fill_price``, so cancelling a partially
+        filled order closes only the quantity still working. **Cancellation is
+        not an implicit fill**: no fill, trade or portfolio effect is produced
+        here at all.
+
+        ``reason`` is recorded only for ``REJECTED``, because
+        :class:`~alphalab.oms.events.OrderRejected` is the only one of the three
+        events that carries the field. Giving ``OrderCancelled`` and
+        ``OrderExpired`` one would change the OMS event shape, and OMS events are
+        part of the snapshot payload whose schema v2.9 has just declared -- so a
+        reason that cannot be recorded is dropped rather than the payload
+        changed. An empty ``reason`` is passed through as empty: a caller who
+        said nothing is recorded as having said nothing, not given an invented
+        explanation.
+
+        Args:
+            state: The pipeline state holding the working order.
+            order: The order the venue reported on.
+            outcome: ``CANCELLED``, ``REJECTED`` or ``EXPIRED``.
+            timestamp: When the outcome is recorded.
+            reason: Why the venue refused it. Recorded for ``REJECTED`` only.
+
+        Returns:
+            The state with the order terminal and both allocation ledgers
+            retired.
+
+        Raises:
+            RuntimeValidationError: If ``outcome`` is not one of the three
+                terminal outcomes. A status that is reached by trading is not
+                something a caller may assert.
+            UnknownOrderError: If the order is not in the book.
+            InvalidTransitionError: If the order cannot make the transition --
+                it is already terminal, or it is partially filled and the
+                outcome is ``REJECTED``, which ``Order.reject`` refuses because
+                an order that has already traded cannot be rejected. Both rules
+                are the OMS lifecycle's own and are preserved rather than
+                relaxed here.
+        """
+
+        if outcome not in _TERMINAL_OUTCOMES:
+            permitted = ", ".join(status.name for status in _TERMINAL_OUTCOMES)
+            raise RuntimeValidationError(
+                f"{outcome} is not a terminal outcome a caller may report. "
+                f"Permitted outcomes are {permitted}. A status reached by trading "
+                "is applied from an execution report, not asserted -- see "
+                "ExecutionPipeline.apply_execution_report."
+            )
+
+        terminated = replace(
+            state, oms=_terminate_order(state.oms, order, outcome, reason, timestamp)
+        )
+        return _release_if_terminal(terminated, order.order_id, timestamp)
 
     @staticmethod
     def compile_analytics(
@@ -1035,6 +1133,25 @@ def _close_unfilled_order(
     if fill_status is FillStatus.NO_FILL:
         return OMSEngine.cancel(oms, order.order_id, timestamp)
     return OMSEngine.reject(oms, order.order_id, "Rejected by execution venue", timestamp)
+
+
+def _terminate_order(
+    oms: OMSState, order: OMSOrder, outcome: OrderStatus, reason: str, timestamp: float
+) -> OMSState:
+    """Make one working order terminal through the OMS's own transitions.
+
+    The sibling of :func:`_close_unfilled_order`, which answers the same
+    question for the simulated path. The two differ only in the vocabulary they
+    are asked in -- a ``FillStatus`` there, because the simulator reports what a
+    fill did, and an ``OrderStatus`` here, because a venue reports what the order
+    became -- and they dispatch to the same three engine calls.
+    """
+
+    if outcome is OrderStatus.CANCELLED:
+        return OMSEngine.cancel(oms, order.order_id, timestamp)
+    if outcome is OrderStatus.EXPIRED:
+        return OMSEngine.expire(oms, order.order_id, timestamp)
+    return OMSEngine.reject(oms, order.order_id, reason, timestamp)
 
 
 def _oms_order(request: OrderRequest) -> OMSOrder:
