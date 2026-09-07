@@ -27,7 +27,7 @@ from alphalab.strategy.exceptions import (
     InvalidTransitionError,
     StrategyRuntimeError,
 )
-from alphalab.strategy.protocol import BaseStrategy, StrategyProtocol
+from alphalab.strategy.protocol import BaseStrategy, StrategyProtocol, StrategyStateProtocol
 from alphalab.strategy.runtime import create_runtime, register_strategy
 from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
 from alphalab.strategy.supervisor import RuntimeSupervisor
@@ -60,6 +60,7 @@ __all__ = [
     "StrategyRuntimeError",
     "StrategyRuntimeEvent",
     "StrategyState",
+    "StrategyStateProtocol",
     "TimerEvent",
     "UniverseProtocol",
     "active_strategies",
