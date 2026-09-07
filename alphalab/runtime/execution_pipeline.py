@@ -156,15 +156,20 @@ class ExecutionPipelineConfig:
         routing: Where an accepted order executes. Defaults to ``SIMULATED``,
             which is what every environment before v2.3 did.
         instruments: The registry the run's market data was resolved against, or
-            ``None``. **Read-only, and used for one thing**: when a request is
-            dropped for want of a price, deciding whether the ``asset_id`` names
-            a registered instrument at all. Only
-            :meth:`~alphalab.instrument.registry.InstrumentRegistry.record_for`
-            is ever called on it. The pipeline never resolves a provider symbol,
-            never derives an ``asset_id``, and never registers anything: ADR-0016
-            gives resolution to the wire boundary and this does not take any of
-            it back. Leaving it ``None`` is fully supported and changes nothing
-            except how precisely an unpriced asset can be described.
+            ``None``. **Read-only, and used for exactly two things**: when a
+            request is dropped for want of a price, deciding whether the
+            ``asset_id`` names a registered instrument at all; and, since v2.11,
+            reading the sector a fill's asset is classified as, which is frozen
+            onto that fill's :class:`~alphalab.analytics.attribution.TradeRecord`
+            (ADR-0027). Both are
+            :meth:`~alphalab.instrument.registry.InstrumentRegistry.record_for`,
+            which remains the only method ever called on it. The pipeline never
+            resolves a provider symbol, never derives an ``asset_id``, never
+            registers anything and never classifies anything: ADR-0016 gives
+            resolution to the wire boundary and classification to the operator,
+            and this takes neither back. Leaving it ``None`` is fully supported
+            and changes nothing except how precisely an unpriced asset can be
+            described and whether a run can report P&L by sector.
     """
 
     account: Account
@@ -1173,6 +1178,10 @@ def _apply_report_to_portfolio(
     # retired once the order goes terminal -- so neither can be recovered after.
     opened_at = _opened_at(state.portfolio, report.asset_id)
     contributions = AllocationEngine.contributions_for(state.allocation, report.order_id)
+    # Read here, on the one path both a simulated and a venue fill take, so
+    # sector parity across the four environments is structural rather than a
+    # convention two call sites have to keep. See ADR-0027 decision 6.
+    sector = _sector_for(state, report.asset_id)
     portfolio = PortfolioEngine.apply_fill(
         state.portfolio,
         report.asset_id,
@@ -1183,7 +1192,7 @@ def _apply_report_to_portfolio(
         report.currency,
     )
     risk = _sync_risk_from_portfolio(state.risk, portfolio)
-    record = _trade_record(report, portfolio.events[before:], opened_at, contributions)
+    record = _trade_record(report, portfolio.events[before:], opened_at, contributions, sector)
     return replace(
         state,
         portfolio=portfolio,
@@ -1309,13 +1318,46 @@ def _opened_at(portfolio: PortfolioState, asset_id: str) -> float | None:
     return None if position is None else position.opened_at
 
 
+def _sector_for(state: ExecutionPipelineState, asset_id: str) -> str | None:
+    """The sector this run's registry classifies ``asset_id`` as, right now.
+
+    One keyed lookup on a registry the pipeline already holds, taken on the
+    **fill** path rather than the event path: fills are strictly rarer than
+    events, the fact is only needed when a fill exists, and the sector has to be
+    frozen as of the fill anyway (ADR-0027 decision 5). Nothing is scanned and
+    no identifier is minted.
+
+    ``None`` is the answer in three different situations -- no registry was
+    configured, the asset is not registered, the instrument is registered but
+    unclassified -- and they are deliberately **not** distinguished. Unlike
+    :class:`UnpricedReason`, where three cases call for opposite fixes and the
+    run otherwise produced nothing with no explanation, the only question a
+    consumer asks here is whether a sector is known, and the absence is already
+    visible as an empty breakdown. Recording a reason would add a field to
+    :class:`~alphalab.analytics.attribution.TradeRecord`, and therefore to the
+    snapshot payload, for observability nobody needs.
+    """
+
+    registry = state.config.instruments
+    if registry is None:
+        return None
+    record = registry.record_for(asset_id)
+    return None if record is None else record.sector
+
+
 def _trade_record(
     report: ExecutionReport,
     fill_events: Sequence[PortfolioEvent],
     opened_at: float | None,
     contributions: tuple[StrategyContribution, ...],
+    sector: str | None,
 ) -> TradeRecord:
     """Build the analytics trade record for one execution report.
+
+    A pure formatter: every fact it records is handed to it. ``sector`` is
+    resolved by :func:`_sector_for` at the call site, which is what keeps this
+    function free of the pipeline state and keeps the registry read at one
+    place.
 
     ``fill_events`` are only the portfolio events this fill produced. Scanning
     the whole portfolio history instead would attribute an earlier close's
@@ -1325,9 +1367,13 @@ def _trade_record(
     from that position's ``opened_at``. A fill that opened or increased one gets
     ``None``: it has held nothing, and the ``0.0`` this field carried until v2.6
     was a measurement that was never made -- it made ``avg_holding_period`` a
-    mean of zeros. Sector is ``None`` for the same class of reason: AlphaLab has
-    no security master, and ``"UNCLASSIFIED"`` presented one fictional bucket as
-    though it were a breakdown.
+    mean of zeros.
+
+    ``sector`` is the classification **as of this fill**, and it is copied here
+    rather than referenced, which is what stops a later reclassification from
+    rewriting a completed run's attribution (ADR-0027 decision 5). ``None``
+    remains an honest absence; ``"UNCLASSIFIED"`` presented one fictional bucket
+    as though it were a breakdown and is not coming back.
     """
 
     realized = Decimal("0.00")
@@ -1344,7 +1390,7 @@ def _trade_record(
     return TradeRecord(
         trade_id=report.execution_id,
         asset_id=report.asset_id,
-        sector_id=None,
+        sector_id=sector,
         realized_pnl=realized,
         notional_value=report.fill_quantity * report.fill_price,
         holding_period_seconds=holding_period,

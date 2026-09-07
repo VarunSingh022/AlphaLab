@@ -1,11 +1,18 @@
 """``Position.opened_at``, the holding period derived from it, and absent sectors.
 
 ``holding_period_seconds`` was hard-coded ``0.0`` and ``sector_id``
-``"UNCLASSIFIED"``. They failed differently and are fixed differently: the
+``"UNCLASSIFIED"``. They failed differently and were fixed differently: the
 holding period is *derivable* from state the portfolio engine already had, while
-no security master exists anywhere in this repository, so a sector is not
-knowable at all. One becomes a measurement; the other becomes an explicit
+in v2.6 no security master existed anywhere in this repository, so a sector was
+not knowable at all. One became a measurement; the other became an explicit
 absence.
+
+v2.11 supplies the missing authority -- an operator classifies an instrument
+through :func:`alphalab.instrument.registry.classify_instrument`, and the
+pipeline freezes that classification onto each fill (ADR-0027). The absence rule
+is unchanged and is what the tests below still pin: a run with no registry, or
+one whose asset is unregistered or unclassified, reports ``None`` and an empty
+breakdown rather than a fictional bucket.
 
 ``opened_at`` is state rather than something read back from the event log,
 because a reversal emits ``PositionReduced`` -- not ``PositionClosed`` followed
@@ -13,6 +20,7 @@ by ``PositionOpened`` -- so the log cannot distinguish a reversal from a partial
 reduction without replaying running quantity and watching for a sign change.
 """
 
+from dataclasses import replace
 from decimal import Decimal
 from uuid import uuid4
 
@@ -24,8 +32,10 @@ from alphalab.runtime.execution_pipeline import ExecutionPipeline
 from tests.integration.harness import (
     ScriptedStrategy,
     context_factory,
+    equity,
     pipeline_config,
     quote,
+    registry_of,
     running_strategy_state,
 )
 
@@ -202,9 +212,43 @@ def test_the_average_is_zero_when_nothing_measured_one() -> None:
 
 
 def test_the_pipeline_reports_no_sector_at_all() -> None:
+    """Unchanged by v2.11, and still exactly right: this run configures no registry.
+
+    v2.11 lets a registry classify an instrument and reads that classification
+    onto each fill, but ``pipeline_config`` leaves ``instruments`` at ``None``,
+    which is the configuration this test has always described. ADR-0016's
+    invariant 9 is superseded only for the case where a registry *is* configured
+    and *does* classify the asset -- see
+    ``tests/regression/test_sector_classification_reaches_attribution.py`` and
+    :func:`test_the_pipeline_reports_a_sector_when_the_registry_declares_one`
+    below.
+    """
+
     records = _records({2.0: Decimal("10"), 11.0: Decimal("-10")})
 
     assert all(record.sector_id is None for record in records)
+
+
+def test_the_pipeline_reports_a_sector_when_the_registry_declares_one() -> None:
+    """The other half of the same rule, added in v2.11. See ADR-0027."""
+
+    apple = equity("AAPL", "Technology")
+    strategy_id = "MOMENTUM"
+    plan = {2.0: Decimal("10"), 11.0: Decimal("-10")}
+    config = replace(
+        pipeline_config(strategy_id, Decimal("1000000")), instruments=registry_of(apple)
+    )
+    state = ExecutionPipeline.initialize(
+        config,
+        running_strategy_state(strategy_id, ScriptedStrategy(strategy_id, apple.asset_id, plan)),
+        1.0,
+    )
+    for timestamp in sorted(plan):
+        state = ExecutionPipeline.process_quote(
+            state, quote(apple.asset_id, timestamp, PRICE), context_factory
+        ).state
+
+    assert [record.sector_id for record in state.trade_records] == ["Technology", "Technology"]
 
 
 def test_an_absent_sector_produces_an_empty_breakdown_not_a_bucket() -> None:
