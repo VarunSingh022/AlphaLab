@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.9.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.11.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-2681%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-2926%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -45,7 +45,7 @@ The framework is designed for researchers, quantitative developers, students, an
 | Python | 3.12+ |
 | Version | 2.11.0 |
 | Tests | **2926 Passing** |
-| Static Typing | **Strict MyPy** (896 source files) |
+| Static Typing | **Strict MyPy** (958 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
@@ -240,6 +240,13 @@ uses this mode and is therefore a testing default.
 
 `core.Fill` / `core.Trade` UUID validation is unchanged. See ADR-0016.
 
+As of v2.11 the registry is read a second time, on the **fill** path rather than
+the wire boundary: `ExecutionPipeline` asks it what sector the filled asset is
+classified as and freezes that answer onto the fill's `TradeRecord.sector_id`.
+Only `record_for` is ever called — the pipeline still resolves no provider
+symbol, derives no `asset_id` and classifies nothing. Configuring no registry
+remains fully supported and simply leaves the sector `None`. See ADR-0027.
+
 ## Standalone engine libraries
 
 Everything below is importable, deterministic, and independently tested, but is
@@ -347,9 +354,11 @@ alphalab/
 ├── portfolio/       Cash ledger, positions, NAV, realized P&L
 ├── analytics/       Performance report, attribution
 ├── market/          In-memory market state and events
+├── instrument/      Canonical instrument identity, registry, classification
 ├── common/          Shared version, events, serialization, constants
 ├── backtesting/     Dataset → execution path → analytics (backtest + replay)
 ├── replay/          Deterministic replay cursor (drives backtesting)
+├── lifecycle/       Research → model → strategy version → promotion → deployment
 ├── research/  portfolio_optimizer/  reporting/               Standalone engines
 ├── feature_store/  factor_library/  alt_data/                 Standalone engines
 ├── ml/  deep_learning/  reinforcement_learning/               Standalone engines
@@ -383,8 +392,8 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 2122 passing tests (1698 unit, 109 integration, 315 regression)
-- ✅ Strict MyPy type checking (915 source files)
+- ✅ 2926 passing tests (1782 unit, 109 integration, 1035 regression)
+- ✅ Strict MyPy type checking (958 source files)
 - ✅ Ruff linting and formatting
 - ✅ Source distribution validation
 - ✅ Wheel validation
@@ -423,6 +432,7 @@ persistent order-book and execution-report containers
 dict/frozenset copying; a per-order allocation
 reservation ledger released exactly once; complete round-trippable `OMSState`
 snapshots; seeded, reproducible identifiers.
+
 **v2.3.0** — market data and broker/live execution: one canonical market-data
 model (`alphalab.market`) over one canonical wire record, with an explicit
 normalization boundary (`market.normalization`) and adapter contract
@@ -462,24 +472,39 @@ partially filled simulated order's remainder, with its reservation released; and
 removal of the replay cursor's O(N²), with the benchmark repointed at the API the
 integrated path actually uses.
 
-**v2.10.0** — the strategy boundary: `StrategyStateProtocol`, a second and
-separate protocol a strategy satisfies to declare durable internal state, with a
-required two-sided codec (`strategy_state_version` / `capture_state` /
-`restore_state`) whose encode side is validated and normalized through the
-existing `DeterministicEncoder` at capture rather than at some later
-`serialize`; `PIPELINE_SNAPSHOT_SCHEMA = 2` carrying a three-valued
-`StrategyRecord.state` — absent means a version-1 payload nobody asked, `null`
-means declared none, an object means declared — with version 1 still readable
-and four reconciliation mismatches refusing the whole restore; deterministic
-continuation into a **fresh** strategy instance at every record boundary, adding
-no identifier draws; `StrategyContext` populated by the pipeline from the marked
-portfolio and resynced risk locals, with strategy-scoped live order **shares**
-read from the allocation contribution ledger rather than the OMS strategy index,
-read-only risk and market views, and construction only for a running strategy;
-the caller's `context_factory` signature, `clock`, `logger` and `config`
-preserved. No breaking changes, no migration, no venue transport, and
-`SESSION_`, `BACKTEST_`, `ALLOCATION_`, `OMS_`, `PORTFOLIO_` and
-`LIFECYCLE_SNAPSHOT_SCHEMA` do not move.
+**v2.6.0** — allocation authority and attribution truth: the budget guard counts
+outstanding commitment, so `EXTERNAL` routing can no longer over-commit across
+events; a terminal order releases whatever a fill priced away from the reference
+price left behind; `StrategyContribution` carries who asked for a netted order
+through to `TradeRecord`, and `pnl_by_strategy` splits by signed contribution;
+`Position.opened_at` makes holding periods real; `pnl_by_sector` is empty rather
+than fictional; the portfolio snapshot moves to schema 2 and refuses version 1
+without a migration framework; and `integrations`, `kernel`, `core.events` and
+`CommonEvent` are deprecated for v3.0 removal. See ADR-0015.
+
+**v2.7.0** — instrument identity and dataset provenance: `alphalab.instrument`
+becomes the authority for what a provider symbol means, deriving a canonical
+`asset_id` deterministically (`uuid5` over a fixed key under a frozen namespace)
+so two independently configured environments agree with no shared database; an
+unregistered symbol is refused at the normalization boundary naming provider and
+symbol, instead of failing at the first fill; a run records the dataset or source
+it consumed (`BacktestResult.dataset_id`, `SessionState.source_id`); and
+`BACKTEST` evidence derives that identity from the run rather than accepting a
+caller's claim — with `evidence_id_for` byte-identical to v2.6, so evidence
+recorded then still verifies and still passes its policy.
+
+**v2.8.0** — currency roles and run outcomes: `ExecutionPipeline.initialize`
+refuses a configuration whose `currency` and `Account.base_currency` disagree,
+which silently zeroed buying power and NAV and switched off the leverage and
+margin checks; `PortfolioValuation.snapshot` refuses a book spanning two
+currencies instead of adding them together under one label; a run records the
+assets it declined to trade for want of a price, aggregated per asset and
+surfaced on `BacktestResult`, `ReplayResult` and `SessionState`, optionally
+distinguishing an unregistered identifier from an unpriced instrument through a
+read-only `InstrumentRegistry` reference; an allocation contribution is retired
+wherever a request's lifecycle ends rather than only where an order produced a
+report; and `LIFECYCLE_SNAPSHOT_SCHEMA` becomes a literal without moving its
+value. No breaking changes, no schema movement, no migration, and no FX.
 
 **v2.9.0** — durable run state: `capture` / `restore` / `from_primitives` for
 `ExecutionPipelineState` (`PIPELINE_SNAPSHOT_SCHEMA`), `SessionState`
@@ -499,39 +524,47 @@ every construction-time validation `initialize` enforces. No breaking changes,
 no migration, no venue transport, and `PORTFOLIO_SNAPSHOT_SCHEMA` /
 `LIFECYCLE_SNAPSHOT_SCHEMA` do not move.
 
-**v2.8.0** — currency roles and run outcomes: `ExecutionPipeline.initialize`
-refuses a configuration whose `currency` and `Account.base_currency` disagree,
-which silently zeroed buying power and NAV and switched off the leverage and
-margin checks; `PortfolioValuation.snapshot` refuses a book spanning two
-currencies instead of adding them together under one label; a run records the
-assets it declined to trade for want of a price, aggregated per asset and
-surfaced on `BacktestResult`, `ReplayResult` and `SessionState`, optionally
-distinguishing an unregistered identifier from an unpriced instrument through a
-read-only `InstrumentRegistry` reference; an allocation contribution is retired
-wherever a request's lifecycle ends rather than only where an order produced a
-report; and `LIFECYCLE_SNAPSHOT_SCHEMA` becomes a literal without moving its
-value. No breaking changes, no schema movement, no migration, and no FX.
+**v2.10.0** — the strategy boundary: `StrategyStateProtocol`, a second and
+separate protocol a strategy satisfies to declare durable internal state, with a
+required two-sided codec (`strategy_state_version` / `capture_state` /
+`restore_state`) whose encode side is validated and normalized through the
+existing `DeterministicEncoder` at capture rather than at some later
+`serialize`; `PIPELINE_SNAPSHOT_SCHEMA = 2` carrying a three-valued
+`StrategyRecord.state` — absent means a version-1 payload nobody asked, `null`
+means declared none, an object means declared — with version 1 still readable
+and four reconciliation mismatches refusing the whole restore; deterministic
+continuation into a **fresh** strategy instance at every record boundary, adding
+no identifier draws; `StrategyContext` populated by the pipeline from the marked
+portfolio and resynced risk locals, with strategy-scoped live order **shares**
+read from the allocation contribution ledger rather than the OMS strategy index,
+read-only risk and market views, and construction only for a running strategy;
+the caller's `context_factory` signature, `clock`, `logger` and `config`
+preserved. No breaking changes, no migration, no venue transport, and
+`SESSION_`, `BACKTEST_`, `ALLOCATION_`, `OMS_`, `PORTFOLIO_` and
+`LIFECYCLE_SNAPSHOT_SCHEMA` do not move.
 
-**v2.7.0** — instrument identity and dataset provenance: `alphalab.instrument`
-becomes the authority for what a provider symbol means, deriving a canonical
-`asset_id` deterministically (`uuid5` over a fixed key under a frozen namespace)
-so two independently configured environments agree with no shared database; an
-unregistered symbol is refused at the normalization boundary naming provider and
-symbol, instead of failing at the first fill; a run records the dataset or source
-it consumed (`BacktestResult.dataset_id`, `SessionState.source_id`); and
-`BACKTEST` evidence derives that identity from the run rather than accepting a
-caller's claim — with `evidence_id_for` byte-identical to v2.6, so evidence
-recorded then still verifies and still passes its policy.
-
-**v2.6.0** — allocation authority and attribution truth: the budget guard counts
-outstanding commitment, so `EXTERNAL` routing can no longer over-commit across
-events; a terminal order releases whatever a fill priced away from the reference
-price left behind; `StrategyContribution` carries who asked for a netted order
-through to `TradeRecord`, and `pnl_by_strategy` splits by signed contribution;
-`Position.opened_at` makes holding periods real; `pnl_by_sector` is empty rather
-than fictional; the portfolio snapshot moves to schema 2 and refuses version 1
-without a migration framework; and `integrations`, `kernel`, `core.events` and
-`CommonEvent` are deprecated for v3.0 removal. See ADR-0015.
+**v2.11.0** — instrument classification and sector provenance:
+`classify_instrument` / `classify_instruments` give `InstrumentRegistry` the
+write ADR-0016 N5 kept the identity key clear for, keyed by `asset_id` and
+writing `sector` alone — `None` unclassifies, the label already in effect
+returns the same registry object, and the write is copy-on-write and `O(1)`;
+`sector` stays outside the canonical key, so a reclassification cannot
+re-identify an instrument or orphan its fills, and the classification API
+exposes no identity field; `normalize_sector_label` refuses a blank,
+whitespace-only, control-character or non-string label while permitting internal
+whitespace and non-ASCII and preserving case, because a sector derives no
+identifier; `ExecutionPipeline` reads the registry once per **fill**, on the one
+path a simulated fill and a venue fill share, and freezes the answer onto
+`TradeRecord.sector_id`, so a later reclassification never rewrites a completed
+run and a run reclassified mid-run splits across both sectors; `pnl_by_sector`
+produces a real breakdown for the first time and `ExposureStatus.sector_exposure`
+is populated on signed market value, both from the same authority, with
+`alphalab.analytics` untouched because the consumer was already correct. No
+breaking changes, no migration, no venue transport; all seven snapshot schema
+constants hold, identifier draw counts are unchanged, and a run configured with
+no registry is byte-identical to v2.10.0. **AlphaLab ships no taxonomy or
+reference data** — the operator declares a sector the way they already declare an
+instrument — and sector is the only classification dimension. See ADR-0027.
 
 See `CHANGELOG.md` and `ROADMAP.md`.
 
@@ -597,7 +630,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v2.4.0**
+**AlphaLab v2.11.0**
 
 Building deterministic infrastructure for quantitative research.
 
