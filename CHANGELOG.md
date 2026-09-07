@@ -8,6 +8,194 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.10.0] - 2026-09-07
+
+**The Strategy Boundary.**
+
+v2.9 shipped a durable-continuation guarantee with four preconditions. Three
+were the caller's and could be met. The fourth — "strategy-internal state
+restored by the caller" — could be met by nobody, because `StrategyProtocol`
+declared ten hooks and no way to express it: a strategy holding a rolling
+window, a counter or a fitted model held state that was captured by nothing,
+restored by nothing and, worst of all, **detected by nothing**. Restore
+succeeded, every Class-1 value compared equal, and the run diverged on the next
+event with nothing raising. The opposite direction was as empty:
+`StrategyContext` had existed since v0.10.0 with nine fields, and every
+construction site in the repository passed `object()` for six of them, so a
+strategy could observe the event handed to its hook and nothing else — not its
+position, not its cash, not its own orders, not the price it was about to be
+marked at. This release closes both.
+
+## Added
+
+- `alphalab.strategy.protocol.StrategyStateProtocol` -- a **second, separate**
+  protocol a strategy satisfies to declare durable internal state, with three
+  members: `strategy_state_version`, `capture_state` and `restore_state`.
+  Separate so that `StrategyProtocol` is unchanged and every existing strategy
+  keeps compiling and keeps its current, conditional guarantee. Declaration is
+  structural and opt-in; nothing introspects attributes to guess at state, and
+  `BaseStrategy` deliberately provides no defaults, because inheriting a no-op
+  `capture_state` would make every strategy claim state it does not have.
+- **A required two-sided codec.** Both directions or neither: a strategy
+  defining an encode and no decode is refused at capture rather than read as
+  declaring nothing. The reason is measurable rather than stylistic -- the
+  shared encoder writes `Decimal("1.25")` and `"1.25"` identically, and a
+  `tuple` as a `list`, so no generic decoder can recover the type afterwards.
+  "Restrict strategy state to values the encoder supports" specifies the write
+  direction, which already worked, and leaves the read direction unspecified,
+  which is the one that was broken.
+- `StrategyStateRecord`, `NOT_ASKED` and `READABLE_PIPELINE_SCHEMAS` in
+  `alphalab.runtime.snapshot`, and a **three-valued** `StrategyRecord.state`:
+  the field absent means a version-1 payload whose writer never asked, `null`
+  means the strategy declared none, and an object means it declared. `{}` and
+  `null` never collapse.
+- `alphalab.runtime.context_views` -- `PortfolioView`, `OrderView`,
+  `OrderShare`, `RiskView`, `MarketView` and `order_shares_by_strategy`. Every
+  view is a reference to state the pipeline already holds; nothing is copied and
+  no view owns a fact.
+- **A strategy sees the marked portfolio.** `ExecutionPipeline` assembles the
+  context from the marked-portfolio and resynced-risk locals that already
+  existed two lines above the dispatch that could not see them, never from the
+  pre-mark `state.portfolio` -- reading those would show a strategy a book
+  marked at the previous event's prices while risk evaluated its order against
+  these. Risk headroom and a market view ship alongside, both being reference
+  assembly over state already on the pipeline.
+- **Strategy-scoped live order shares.** A strategy sees its *share* of an
+  order, never sole ownership: two strategies whose intents net into one
+  `BUY 100` see 60 and 40, and `OrderShare.is_sole_contributor` is `False` for
+  both. The view covers live orders only, because ADR-0021 retires a
+  contribution when its order reaches a terminal state.
+
+## Changed
+
+- `PIPELINE_SNAPSHOT_SCHEMA` moves **1 -> 2**, for one field per strategy
+  record. `SESSION_SNAPSHOT_SCHEMA`, `BACKTEST_SNAPSHOT_SCHEMA`,
+  `ALLOCATION_SNAPSHOT_SCHEMA`, `OMS_SNAPSHOT_SCHEMA`,
+  `PORTFOLIO_SNAPSHOT_SCHEMA` and `LIFECYCLE_SNAPSHOT_SCHEMA` do **not** move.
+  That is ADR-0023's envelope split working as designed, exercised for the first
+  time: the run envelopes nest the pipeline payload and its decoder validates its
+  own version.
+- **Version-1 pipeline payloads stay readable**, and restore every strategy as
+  "not asked". That is the OMS precedent rather than the portfolio's: a v1
+  payload is missing nothing, and "no strategy state was captured" is an
+  accurate reading of it rather than an invented value. One bounded exception --
+  a *declaring* instance against a v1 payload is refused, because starting it
+  empty would invent the one fact that decides whether the continuation is
+  correct.
+- **Capture validates and normalizes strategy state at capture time.** The value
+  goes through the existing `DeterministicEncoder` immediately, so an
+  unencodable state can never reach a `PipelineSnapshot` that looks valid in
+  memory and fails at an unrelated `serialize` later. The same step leaves the
+  record carrying JSON-decoded primitives, so `restore_state` receives one shape
+  whether the snapshot travelled through JSON or not -- without it the in-memory
+  path handed back `Decimal` and `tuple` while the JSON path handed back `str`
+  and `list`, and a codec written against one would break on the other.
+- `StrategyEngine.process_event` builds a context **only for a running
+  strategy**. It previously built one for every registered strategy and
+  `Dispatcher` discarded it a moment later, which was free while a context held
+  placeholders. Dispatch semantics are unchanged and `Dispatcher` keeps its own
+  guard.
+- `ExecutionPipeline.process_market_event` overlays the pipeline-owned context
+  fields onto the caller's factory result. `ContextFactory` keeps its signature,
+  every existing construction site keeps working, and `clock`, `logger` and
+  `config` pass through as the caller's own objects -- which is what keeps
+  `alphalab.reinforcement_learning`'s `_PendingDecision` channel working
+  untouched. A pipeline-owned field always wins, so no caller can install a
+  second source of truth.
+
+## Fixed
+
+- Four reconciliation mismatches now refuse the **whole** restore, naming the
+  strategy, with the original exception chained: a declaring instance against a
+  version-1 payload, a declaring instance against a recorded `null`, a
+  non-declaring instance against a payload carrying state, and a strategy's own
+  decode raising. Nothing partial is returned; restoring the other strategies and
+  skipping one would produce a state that is internally consistent, compares
+  equal on every Class-1 value, and is wrong.
+
+## Unchanged, deliberately
+
+`StrategyProtocol` (ten hooks, none added, none revived), `StrategyState`,
+`StrategyContext`'s field names, arity and types, `ContextFactory`'s signature,
+`DeterministicEncoder` (no branch was added for strategy state; a strategy type
+with no JSON form uses `__serializable__`, which already existed),
+`PersistenceProtocol`, `SessionState`, `BacktestState`, `PersistentMap`, and
+`alphalab.strategy` as a strict leaf importing only `alphalab.common` and
+itself.
+
+`StrategyRecord.config` keeps its v2.9 semantics exactly -- still `Any`, still
+`config=require(payload, "config")`. Its JSON round-trip lossiness is
+pre-existing, is a property of the shared encoder and of JSON rather than of
+anything decided here, and ADR-0025 decision 4 records that a separate decision
+is required before it changes.
+
+**No live trading is added.** No broker transport, no streaming source, no venue
+connectivity. Nothing in this release reaches a market.
+
+## Deferred, unchanged
+
+`StrategyContext.history` and `.universe`; allocation visibility through the
+context; mutable runtime services in any context field; reviving `on_fill`,
+`on_order` or `on_timer`, which would require a second strategy dispatch per
+event and change intent ordering and every parity baseline; unifying
+`SessionState` and `BacktestState`; promoting the four cross-package private
+decoders; broker transport, streaming market data and reconnect; artifact
+storage; a security master and sector attribution; an FX rate source and true
+multi-currency valuation; the approval workflow over `alphalab.enterprise`'s
+RBAC and audit log; and the removal of `integrations`, `kernel`, `core.events`
+or `CommonEvent`.
+
+## Verification
+
+2818 tests pass. Independent certification -- probes written outside the
+repository rather than reruns of the shipped suite -- exercised a
+counter/deque/`Decimal`/nested-mapping/`__serializable__` strategy through
+capture, JSON, restore into a **fresh** instance and continuation at every
+record boundary of single- and multi-strategy datasets, and found Class-1 state,
+declared strategy state, identifier sequences and behaviour identical to the
+uninterrupted control in every case. Capture, restore and context assembly draw
+**zero** identifiers, dispatch no strategy and mutate no state. Cross-engine
+parity was measured rather than inferred: `BacktestEngine.run` and
+`TradingSession(mode=BACKTEST)` agree on Class-1 state, strategy state,
+processed count and identifier position, backtest equals replay equals paper,
+and live differs only in routing.
+
+The negative case is retained rather than removed: a stateful strategy that
+declines to declare state **still diverges** across a fresh restore, and a test
+names that expectation. That is the documented behaviour of a non-declaring
+strategy, not a defect.
+
+Attribution is `O(1)` when the contribution ledger is empty -- flat across 100,
+500 and 2,000 historical orders -- and linear in live contributions at roughly
+2.3 microseconds each. Context assembly is `O(1)` with respect to portfolio and
+order-book size, and strategy-state capture scales with the size of the declared
+state rather than with run length.
+
+Pipeline throughput is materially equivalent to v2.9.0. Measured back to back on
+one machine, v2.9.0 itself runs at roughly 3,466-3,479 events/sec with
+1k -> 4k scaling of about 4.58-4.64x under current conditions, and this release
+measures within run-to-run noise of that. The `<= 4.5x` scaling figure quoted
+during v2.10 planning was taken when the machine was in a faster state and is
+**not** met by the v2.9.0 release either; it is recorded here as a threshold that
+needs recalibrating rather than as a target this release achieved.
+
+## Architecture decisions
+
+Two ADRs are written to disk, both drafted before their implementation and both
+now recording what shipped. **ADR-0025** settles strategy-state ownership and
+the capture contract -- the two-sided codec, the per-strategy version
+independent of `PIPELINE_SNAPSHOT_SCHEMA`, the version-1 compatibility rule, the
+failure taxonomy, and the explicit exclusion of `StrategyRecord.config`.
+**ADR-0026** settles `StrategyContext` population and the visibility boundary --
+what is populated and what stays empty, contribution-based order attribution,
+the read-only boundary, and the factory overlay. ADR-0026's *Data model changes*
+records the one place the implementation departed from its first draft: the
+supporting marker protocols stay intentionally minimal rather than gaining the
+views' methods, because typed members would make `alphalab.strategy` depend on
+four domain packages, and the concrete views live outside that package instead.
+
+---
+
 # [2.9.0] - 2026-09-07
 
 **Durable Run State.**

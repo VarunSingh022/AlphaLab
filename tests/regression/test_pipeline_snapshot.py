@@ -194,8 +194,10 @@ def test_the_state_under_test_exercises_every_durable_field() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_constant_is_one() -> None:
-    assert PIPELINE_SNAPSHOT_SCHEMA == 1
+def test_the_schema_constant_is_two() -> None:
+    """v2.10 moved it once, for the strategy-state field. See ADR-0025 decision 8."""
+
+    assert PIPELINE_SNAPSHOT_SCHEMA == 2
 
 
 def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
@@ -206,7 +208,7 @@ def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
     source = inspect.getsource(pipeline_snapshot)
 
     assert not hasattr(pipeline_snapshot, "DEFAULT_SCHEMA_VERSION")
-    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 1" in source
+    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 2" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -214,7 +216,7 @@ def test_capture_declares_the_version() -> None:
     state, _, _ = _state()
 
     assert capture(state).schema_version == PIPELINE_SNAPSHOT_SCHEMA
-    assert _payload(state)["schema_version"] == 1
+    assert _payload(state)["schema_version"] == 2
 
 
 def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
@@ -228,7 +230,7 @@ def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
         from_primitives(payload)
 
 
-@pytest.mark.parametrize("version", [2, 3, 99, 0, -1])
+@pytest.mark.parametrize("version", [3, 99, 0, -1])
 def test_an_unreadable_version_is_refused_naming_it(version: int) -> None:
     state, _, _ = _state()
     payload = _payload(state)
@@ -251,7 +253,7 @@ def test_a_malformed_version_is_refused(version: object) -> None:
 def test_the_refusal_names_the_pipeline_subsystem() -> None:
     state, _, _ = _state()
     payload = _payload(state)
-    payload["schema_version"] = 2
+    payload["schema_version"] = 3
 
     with pytest.raises(StateDecodeError) as excinfo:
         from_primitives(payload)
@@ -970,6 +972,44 @@ def test_every_strategy_state_field_is_carried_or_supplied() -> None:
     assert not missing, f"StrategyState fields absent from StrategyRecord: {sorted(missing)}"
     assert "instance_type" in carried
     assert "instance" not in carried
+
+
+def test_the_strategy_record_carries_what_the_strategy_declared() -> None:
+    """Schema 2's one addition, guarded the way every other field is."""
+
+    from alphalab.runtime.snapshot import StrategyRecord
+
+    assert "state" in {field.name for field in fields(StrategyRecord)}
+
+
+def test_the_strategy_state_decoder_reads_every_field_of_its_record() -> None:
+    """The state-level guard above does not see inside ``state``.
+
+    ``capture`` projects a declared state as a whole ``StrategyStateRecord``, so
+    a new field on it reaches a payload automatically -- and is then silently
+    dropped on the way back unless ``_strategy_state_record`` is taught to read
+    it. The same gap ``opened_at`` proved for ``Position``.
+    """
+
+    import inspect
+
+    from alphalab.runtime.snapshot import StrategyStateRecord, _strategy_state_record
+
+    source = inspect.getsource(_strategy_state_record)
+    missing = [f.name for f in fields(StrategyStateRecord) if f'"{f.name}"' not in source]
+
+    assert not missing, (
+        f"StrategyStateRecord fields the decoder does not read: {sorted(missing)}. "
+        "Add them to _strategy_state_record, or the round trip restores a default."
+    )
+
+
+def test_the_strategy_record_decoder_reads_the_state_field() -> None:
+    import inspect
+
+    from alphalab.runtime.snapshot import _strategy_record
+
+    assert '"state"' in inspect.getsource(_strategy_record)
 
 
 def test_no_session_or_run_snapshot_exists_yet() -> None:

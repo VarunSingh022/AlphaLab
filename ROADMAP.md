@@ -404,6 +404,62 @@ Enterprise capabilities
 
 ---
 
+v2.10.0 — "The Strategy Boundary" — closes both halves of the surface v2.9
+deferred, and is an additive release with no new packages and no breaking
+changes:
+
+- **A strategy can declare durable internal state, and a fresh instance gets it
+  back.** `StrategyStateProtocol` is a second, separate protocol
+  (`strategy_state_version` / `capture_state` / `restore_state`);
+  `StrategyProtocol` is unchanged and every existing strategy keeps its current
+  guarantee. The codec is two-sided and both directions are required, because
+  the shared encoder writes a `Decimal` and a `str` identically and no generic
+  decoder can recover the type afterwards — "return something encodable" is only
+  half a contract. A half-declared codec is refused at capture rather than read
+  as no codec.
+- **An unencodable state is refused where it was produced.** Capture puts the
+  value through the existing `DeterministicEncoder` immediately, so it can never
+  reach a snapshot that looks valid in memory and fails at some later
+  `serialize`. The same step normalizes the payload to JSON-decoded primitives,
+  so `restore_state` receives one shape whether the snapshot travelled through
+  JSON or not. No encoder branch was added; a strategy type with no JSON form
+  uses `__serializable__`, which already existed.
+- **`PIPELINE_SNAPSHOT_SCHEMA` moves 1 → 2**, for one field per strategy record.
+  A version-1 payload stays readable and means "no strategy was asked" — the OMS
+  precedent, since it is missing nothing. `SESSION_`, `BACKTEST_`,
+  `ALLOCATION_`, `OMS_`, `PORTFOLIO_` and `LIFECYCLE_SNAPSHOT_SCHEMA` do not
+  move, which is ADR-0023's envelope split working as designed and exercised for
+  the first time.
+- **A strategy sees the marked portfolio.** `StrategyContext` had nine fields
+  since v0.10.0 and every construction site passed `object()` for six of them.
+  The pipeline now assembles the portfolio, order, risk and market fields from
+  the marked and resynced locals that already existed two lines above the
+  dispatch that could not see them.
+- **Order attribution comes from the allocation contribution ledger.**
+  `OrderBook.orders_for_strategy` answers nothing for a netted order, because
+  ADR-0015 leaves one unattributed on purpose. Two strategies whose intents net
+  into one `BUY 100` each see their own share, and neither claims sole
+  ownership. The view covers live orders only, because ADR-0021 retires a
+  contribution at terminal state.
+- **The caller's `context_factory` is unchanged.** Its signature, and its
+  `clock`, `logger` and `config`, survive; the pipeline overlays only what it
+  owns, and a pipeline-owned field always wins so no caller can install a second
+  source of truth. Contexts are built only for running strategies.
+- Two ADRs are written to disk: **ADR-0025** (strategy state ownership and the
+  capture contract) and **ADR-0026** (`StrategyContext` population and the
+  visibility boundary). Both were written before their implementation, and both
+  status lines now record what shipped.
+
+**Deferred out of v2.10, deliberately:** `StrategyContext.history` and
+`.universe`; allocation visibility through the context; mutable runtime services
+in any context field; reviving the `on_fill` / `on_order` / `on_timer` hooks,
+which would require a second strategy dispatch per event; unifying `SessionState`
+and `BacktestState`; redefining `StrategyRecord.config` semantics, which remain
+exactly as v2.9 left them (ADR-0025 decision 4); promoting the four cross-package
+private decoders; and everything already deferred below.
+
+---
+
 v2.9.0 — "Durable Run State" — lets a run stop and continue, and is a
 correctness release with no new packages and no breaking changes:
 
@@ -587,17 +643,18 @@ and consolidation work has **not** been done:
   historical range and is re-iterable. Polling, subscription and reconnect need a
   clock and a loop AlphaLab does not have, and a streaming source would also need
   an answer to late arrivals beyond "skip and record".
-- **Capture of strategy-internal state** (v2.10+): v2.9 delivered the round trip
-  for `ExecutionPipelineState`, `SessionState` and `BacktestState`, recording the
-  strategy instance, simulator, sizing model and fill policy by type and
-  requiring the caller to supply them back (ADR-0014, ADR-0023). What remains is
-  the state a strategy keeps in its own Python attributes: `StrategyProtocol`
-  declares ten hooks and no state-serialization hook, so a rolling window or
-  counter is state AlphaLab cannot capture. v2.9 does not pretend otherwise —
-  the equivalence contract states restored strategy-internal state as a
-  precondition and a test names the expected divergence when it is unmet. A
-  `StrategyStateProtocol` is deferred with `StrategyContext` completion, and both
-  must close before v3.0.
+- **`StrategyContext.history` and `.universe`** (v2.11+): v2.10 populates the
+  marked portfolio, the strategy's live order shares, risk headroom and a market
+  view (ADR-0026 decision 2). A clock-bounded historical accessor needs its
+  bound enforced at construction plus a look-ahead regression suite, and
+  universe membership needs a decision about whether it is configuration,
+  instrument-registry state or a risk control. Both stay empty and say so rather
+  than being populated approximately.
+- **Allocation visibility inside `StrategyContext`** (v2.11+): reservations and
+  contributions are *post*-intent facts. Showing a strategy the capital its own
+  intent will later reserve invites it to pre-size, duplicating the allocation
+  engine's authority (ADR-0015). The contribution ledger is read for attribution
+  only, and no allocation decision is exposed.
 - **Artifact storage** (v2.5+): `ArtifactRef` records where a model version's
   bytes live and what they should hash to. Nothing fetches, writes or verifies
   them, because there is no object store here and faking one would be the only

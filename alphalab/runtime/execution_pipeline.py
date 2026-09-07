@@ -72,6 +72,14 @@ from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.state import RiskState
+from alphalab.runtime.context_views import (
+    MarketView,
+    OrderShare,
+    OrderView,
+    PortfolioView,
+    RiskView,
+    order_shares_by_strategy,
+)
 from alphalab.runtime.exceptions import RuntimeValidationError
 from alphalab.runtime.execution_adapters import canonical_execution_from_report
 from alphalab.strategy.context import StrategyContext
@@ -282,6 +290,67 @@ class ExecutionPipelineResult:
     valuation: PortfolioValuationSnapshot | None = None
 
 
+def _populate_context(
+    context_factory: ContextFactory,
+    *,
+    portfolio: PortfolioState,
+    risk: RiskState,
+    market: MarketState,
+    market_prices: Mapping[str, Decimal],
+    shares: Mapping[str, tuple[OrderShare, ...]],
+) -> ContextFactory:
+    """Wrap a caller's factory so the pipeline owns what only it can know.
+
+    The caller's :data:`ContextFactory` signature is unchanged and every
+    existing factory keeps working: this calls it, then overlays the four fields
+    the pipeline is authoritative for. ``clock``, ``logger`` and ``config`` are
+    passed through exactly as supplied -- which is what keeps
+    :mod:`alphalab.reinforcement_learning`'s ``_PendingDecision`` channel, which
+    rides on ``config``, working untouched.
+
+    **Pipeline-owned fields always win.** A caller that supplies a ``portfolio``
+    has it replaced rather than merged, because a caller-installable portfolio
+    is the second source of truth ADR-0026 decision 1 exists to prevent, and a
+    test could otherwise pass against a fabricated book.
+
+    Each context costs a ``replace`` and four references. The per-strategy order
+    slice was computed once for the whole event by
+    :func:`~alphalab.runtime.context_views.order_shares_by_strategy`; nothing
+    here scans, copies or recomputes.
+
+    Raises:
+        RuntimeValidationError: If the caller's factory does not return a
+            :class:`~alphalab.strategy.context.StrategyContext`. Substituting one
+            would hand the strategy a context whose provenance nobody can state,
+            which is the failure ADR-0026 decision 10 refuses.
+    """
+
+    portfolio_view = PortfolioView(portfolio)
+    risk_view = RiskView(risk)
+    market_view = MarketView(market, market_prices)
+
+    def populate(strategy_id: str) -> StrategyContext:
+        supplied = context_factory(strategy_id)
+        if not isinstance(supplied, StrategyContext):
+            raise RuntimeValidationError(
+                f"The context factory returned {type(supplied).__name__} for strategy "
+                f"{strategy_id!r}, not a StrategyContext. The pipeline overlays the "
+                "portfolio, orders, risk and market it owns onto the context a caller "
+                "builds, and it cannot overlay them onto something else. Nothing is "
+                "substituted: a strategy is never handed a context this pipeline "
+                "cannot vouch for."
+            )
+        return replace(
+            supplied,
+            portfolio=portfolio_view,
+            orders=OrderView(shares.get(strategy_id, ())),
+            risk_view=risk_view,
+            market=market_view,
+        )
+
+    return populate
+
+
 def _require_one_account_currency(config: ExecutionPipelineConfig) -> None:
     """Refuse a configuration that names two account currencies.
 
@@ -451,10 +520,13 @@ class ExecutionPipeline:
            P&L and NAV reflect the market as of this event *before* anything is
            decided on it, and the risk state is resynced from the marked book so
            risk evaluates against the current valuation.
-           Note that the strategy does *not* see the marked portfolio: its
-           context comes from the caller's ``context_factory``, which this
-           pipeline does not populate. Allocation sizes from market prices and
-           its capital budget, not from the portfolio.
+           The strategy *does* see that marked portfolio, as of v2.10: its
+           context is the caller's ``context_factory`` result with the
+           pipeline-owned fields overlaid from the marked locals below, never
+           from ``state.portfolio`` or ``state.risk``, which are still the
+           pre-mark values. See :func:`_populate_context` and ADR-0026.
+           Allocation still sizes from market prices and its capital budget,
+           not from the portfolio.
         3. Strategy, allocation, risk, OMS, execution and portfolio run.
         4. One portfolio snapshot is recorded for the event, after every fill
            it produced has been applied.
@@ -471,8 +543,20 @@ class ExecutionPipeline:
         )
         risk = _sync_risk_from_portfolio(state.risk, portfolio)
 
+        # Assembled from the marked locals above, after marking and after the
+        # risk resync, and before dispatch. The order is the guarantee: reading
+        # ``state.portfolio`` here would show the strategy a book marked at the
+        # previous event's prices while risk evaluated its order against these.
+        populated = _populate_context(
+            context_factory,
+            portfolio=portfolio,
+            risk=risk,
+            market=state.market,
+            market_prices=market_prices,
+            shares=order_shares_by_strategy(state.oms, state.allocation),
+        )
         strategy, intents = StrategyEngine.process_event(
-            state.strategy, event, context_factory, event.timestamp
+            state.strategy, event, populated, event.timestamp
         )
         allocation, requests = AllocationEngine.allocate(
             state.allocation,

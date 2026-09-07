@@ -98,6 +98,7 @@ from alphalab.analytics.summary import TradeMetrics
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import IdStreamPosition
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.common.serialization import to_serializable
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side
 from alphalab.core.fill import Fill as CoreFill
@@ -149,9 +150,9 @@ from alphalab.persistence.decode import (
     as_str,
     as_value_enum,
     require,
-    require_schema_version,
 )
-from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.exceptions import SerializationError, StateDecodeError
+from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.snapshot import PortfolioSnapshot
 from alphalab.portfolio.snapshot import capture as capture_portfolio
@@ -197,12 +198,14 @@ from alphalab.strategy.events import (
     StrategyRuntimeEvent,
     TimerEvent,
 )
-from alphalab.strategy.protocol import StrategyProtocol
+from alphalab.strategy.protocol import StrategyProtocol, StrategyStateProtocol
 from alphalab.strategy.state import LifecycleState, StrategyState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
 __all__ = [
+    "NOT_ASKED",
     "PIPELINE_SNAPSHOT_SCHEMA",
+    "READABLE_PIPELINE_SCHEMAS",
     "AnalyticsEventRecord",
     "ExecutionEventRecord",
     "MarketEventRecord",
@@ -211,20 +214,71 @@ __all__ = [
     "RuntimeObjects",
     "StrategyEventRecord",
     "StrategyRecord",
+    "StrategyStateRecord",
     "capture",
     "from_primitives",
     "restore",
 ]
 
-#: Schema version this module reads and writes. See ADR-0023.
+#: Schema version this module writes. See ADR-0023, and ADR-0025 decision 8 for
+#: the move to 2.
 #:
 #: A module-local literal rather than ``DEFAULT_SCHEMA_VERSION``, for the reason
 #: v2.6 gave for the portfolio and v2.8 for the lifecycle: that constant also
 #: versions ``CommonEvent`` and ``BaseEvent``, so bumping it would version every
 #: event in the system as a side effect of one subsystem's change.
-PIPELINE_SNAPSHOT_SCHEMA: Final = 1
+#:
+#: Version 2 adds one field to each strategy record: what that strategy said
+#: when it was asked for its state. Nothing else about the envelope changed, and
+#: ``SESSION_SNAPSHOT_SCHEMA`` and ``BACKTEST_SNAPSHOT_SCHEMA`` do **not** move
+#: with it -- they nest this payload and this decoder validates its own version,
+#: which is the churn confinement ADR-0023 decision 1 separated the envelopes to
+#: buy.
+PIPELINE_SNAPSHOT_SCHEMA: Final = 2
+
+#: The versions :func:`from_primitives` reads, and the only ones.
+#:
+#: A v2.9 payload (version 1) is missing nothing: it records every field its
+#: writer knew about, and "this run captured no strategy state" is an accurate
+#: reading of it rather than an invented value. That is the OMS precedent, not
+#: the portfolio's -- the portfolio refused version 1 because a v1 payload
+#: genuinely lacked ``Position.opened_at`` and no honest value could be
+#: substituted. See ADR-0025 decision 9.
+#:
+#: This is *not* a migration framework and *not* a generic "missing means
+#: current" rule: a payload declaring no version is still refused, and version 3
+#: is still refused.
+READABLE_PIPELINE_SCHEMAS: Final = (1, 2)
 
 _SUBSYSTEM: Final = "pipeline"
+
+
+class _NotAsked:
+    """The type of :data:`NOT_ASKED`. Deliberately not serializable."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostic only
+        return "NOT_ASKED"
+
+
+#: What a strategy record carries when the payload's writer never asked.
+#:
+#: Three states must stay distinguishable, and two of them are not ``None``:
+#:
+#: ==================================  ==========================  ============
+#: ``StrategyRecord.state``            JSON                        Means
+#: ==================================  ==========================  ============
+#: :data:`NOT_ASKED`                   key absent (version 1)      not asked
+#: ``None``                            ``null``                    declared none
+#: :class:`StrategyStateRecord`        ``{"payload":…,"version":…}``  declared
+#: ==================================  ==========================  ============
+#:
+#: :func:`capture` never produces this: a version-2 capture always asks. It
+#: arises only from decoding a version-1 payload, and it has no version-2
+#: representation -- which is why it has no serializable projection and the
+#: encoder refuses it rather than inventing one.
+NOT_ASKED: Final = _NotAsked()
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +386,24 @@ class ConfigRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class StrategyStateRecord:
+    """What one declaring strategy said when it was asked for its state.
+
+    ``payload`` is the value the strategy's own ``capture_state`` returned, and
+    is not decoded by this module: reconstructing it is the strategy's job, and
+    the reason the codec is two-sided (ADR-0025 decision 3). ``version`` is the
+    strategy author's own integer, carried and handed back, never interpreted.
+
+    A ``payload`` of ``None`` here is still a *declared* state -- the record's
+    existence is what says the strategy declared. "Declared nothing" is the
+    absence of this record, not a record holding nothing.
+    """
+
+    payload: Any
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
 class StrategyRecord:
     """One registered strategy's durable metadata, without its instance.
 
@@ -340,6 +412,12 @@ class StrategyRecord:
     ``frozenset`` has no deterministic JSON form. ``config`` is carried as the
     value the encoder wrote: a configuration the encoder cannot write is refused
     at capture, by the encoder, as it is for every other state in the repository.
+    Its semantics are unchanged by schema 2 (ADR-0025 decision 4).
+
+    ``state`` is the schema-2 addition and is three-valued -- see
+    :data:`NOT_ASKED`. It defaults to :data:`NOT_ASKED` so that a record built
+    without it reads as "nobody asked", which is the only safe default: it makes
+    a declaring strategy's restore refuse rather than silently start empty.
     """
 
     strategy_id: str
@@ -348,6 +426,7 @@ class StrategyRecord:
     subscriptions: tuple[str, ...]
     last_error: str | None
     instance_type: str
+    state: StrategyStateRecord | _NotAsked | None = NOT_ASKED
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,6 +551,138 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
     )
 
 
+#: The members a strategy defines to declare that it owns durable state, taken
+#: from the protocol itself so the two cannot drift. Defining all of them is
+#: :class:`~alphalab.strategy.protocol.StrategyStateProtocol`; defining some is
+#: refused (ADR-0025 decision 3).
+_STATE_MEMBERS: Final = tuple(
+    sorted(StrategyStateProtocol.__protocol_attrs__)  # type: ignore[attr-defined]
+)
+
+
+def _defines(instance: object, name: str) -> bool:
+    """Whether ``name`` is defined on ``instance``'s class or one of its bases.
+
+    Deliberately a lookup through ``__mro__`` rather than ``getattr``: declaring
+    durable state is a property of a strategy *class*, not something an instance
+    acquires at runtime, and a class with a ``__getattr__`` catch-all would
+    otherwise answer yes to everything and be asked for state it does not have.
+    Stricter than ``isinstance`` against the protocol, and in the safe
+    direction.
+    """
+
+    for klass in type(instance).__mro__:
+        if name in klass.__dict__:
+            # First hit wins, as attribute lookup does, and it must be callable:
+            # a subclass setting the name to ``None`` is removing the member, not
+            # defining it.
+            return callable(klass.__dict__[name])
+    return False
+
+
+def _declares_state(instance: object, strategy_id: str) -> bool:
+    """Whether ``instance`` declares durable state, refusing a partial codec.
+
+    Structural, and it agrees with ``isinstance(instance, StrategyStateProtocol)``
+    for every class-defined strategy. The partial case is the reason this is a
+    function rather than an ``isinstance`` call: ``isinstance`` answers ``False``
+    for a strategy that defines ``capture_state`` and no ``restore_state``,
+    silently treating a half-written codec as no codec -- and the run would then
+    continue from a payload whose state was never captured.
+
+    Raises:
+        SerializationError: If some but not all members are defined.
+    """
+
+    present = tuple(name for name in _STATE_MEMBERS if _defines(instance, name))
+    if len(present) == len(_STATE_MEMBERS):
+        return True
+    if not present:
+        return False
+
+    missing = sorted(set(_STATE_MEMBERS) - set(present))
+    raise SerializationError(
+        f"Strategy {strategy_id!r} ({_type_name(instance)}) defines {sorted(present)} "
+        f"but not {missing}. A strategy that owns durable state supplies both "
+        "directions of its codec and its version; declaring one without the "
+        "others writes a payload nothing can read back. Define the missing "
+        "members, or none of them. See ADR-0025 decision 3."
+    )
+
+
+def _capture_state(instance: object, strategy_id: str) -> StrategyStateRecord | None:
+    """Ask one strategy for its state, or record that it declared none.
+
+    A pure read of the instance. Nothing here mints an identifier, mutates the
+    strategy or emits an event -- and a strategy whose own ``capture_state``
+    does is outside what this module can police, which is the residual ADR-0025
+    decision 13 states.
+
+    **The state is put through the existing encoder here, not later.** Two
+    things follow from that, and both are the point:
+
+    * A state the encoder cannot write is refused *at capture*, so an
+      unencodable value can never reach a :class:`PipelineSnapshot` that looks
+      valid in memory and fails at some unrelated ``serialize`` call later.
+      ADR-0025 decision 3 says the encoder raises at capture; this is what makes
+      that literally true rather than eventually true.
+    * The record carries the **JSON-decoded primitives**, which is what
+      ADR-0025 decision 3 promises ``restore_state`` receives. Without this
+      normalization the in-memory path would hand a strategy its ``Decimal`` and
+      ``tuple`` back while the JSON path handed it ``str`` and ``list``, so a
+      codec written against one shape would break on the other -- a divergence
+      between two paths into the same contract.
+
+    No encoder branch is added and nothing is reflected over: this is the same
+    :func:`~alphalab.persistence.serializer.serialize` every other state uses,
+    and a strategy type with no JSON form declares its projection through
+    ``__serializable__``, which that encoder already honours.
+
+    Raises:
+        SerializationError: If the codec is partial, if the version is not an
+            integer, if the strategy's own ``capture_state`` raises, or if the
+            state it returns is one the encoder refuses to write.
+    """
+
+    if not _declares_state(instance, strategy_id):
+        return None
+
+    try:
+        version = instance.strategy_state_version()  # type: ignore[attr-defined]
+        raw = instance.capture_state()  # type: ignore[attr-defined]
+    except Exception as exc:
+        raise SerializationError(
+            f"Strategy {strategy_id!r} ({_type_name(instance)}) raised while "
+            f"describing its state: {exc!r}. A strategy that cannot describe "
+            "its state must not produce a snapshot claiming it did."
+        ) from exc
+
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise SerializationError(
+            f"Strategy {strategy_id!r} ({_type_name(instance)}) returned "
+            f"{version!r} from strategy_state_version(), which is not an integer."
+        )
+
+    try:
+        # ``to_serializable`` first, exactly as the real encoding path reaches
+        # this value: ``serialize`` applies that conversion through the
+        # enclosing dataclass, and it is the step that honours
+        # ``__serializable__``. Validating the bare value without it would
+        # refuse a custom type that encodes perfectly well in place.
+        payload = deserialize(serialize(to_serializable(raw)))
+    except SerializationError as exc:
+        raise SerializationError(
+            f"Strategy {strategy_id!r} ({_type_name(instance)}) returned state the "
+            f"encoder cannot write: {exc}. Return a value the encoder accepts -- a "
+            "Decimal, a dataclass, an Enum, a UUID, a JSON native, or a mapping or "
+            "sequence of those -- or give the type a '__serializable__' projection, "
+            "which is the extension point that already exists. No encoder branch is "
+            "added for strategy state."
+        ) from exc
+
+    return StrategyStateRecord(payload=payload, version=version)
+
+
 def _capture_strategies(state: StrategyRuntimeState) -> tuple[StrategyRecord, ...]:
     return tuple(
         StrategyRecord(
@@ -481,6 +692,7 @@ def _capture_strategies(state: StrategyRuntimeState) -> tuple[StrategyRecord, ..
             subscriptions=tuple(sorted(strategy.subscriptions)),
             last_error=strategy.last_error,
             instance_type=_type_name(strategy.instance),
+            state=_capture_state(strategy.instance, strategy_id),
         )
         for strategy_id, strategy in state.strategies.items()
     )
@@ -601,26 +813,93 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
     )
 
 
+def _restore_state(record: StrategyRecord, instance: object) -> None:
+    """Reconcile what the payload records against what the instance declares.
+
+    Four mismatches, each refusing the **whole** restore rather than this one
+    strategy (ADR-0025 decision 11). Restoring the others and skipping this one
+    would produce a state that is internally consistent, compares equal on every
+    Class-1 value, and is wrong -- the failure mode the release exists to
+    remove.
+
+    Nothing is ever substituted: no fresh state, no empty mapping, no default.
+
+    Raises:
+        StateDecodeError: On any of the four mismatches, or when the strategy's
+            own ``restore_state`` raises. The message names the strategy, and
+            the original exception is chained.
+    """
+
+    strategy_id = record.strategy_id
+    declares = _declares_state(instance, strategy_id)
+
+    if isinstance(record.state, _NotAsked):
+        if declares:
+            raise StateDecodeError(
+                f"Strategy {strategy_id!r} ({_type_name(instance)}) declares durable "
+                f"state, but this payload is schema version 1 and was written before "
+                "strategy state could be captured. It cannot say whether the strategy "
+                "had state, and starting it empty would invent the one fact that "
+                "decides whether the continuation is correct. Continue this run with a "
+                "strategy that declares no state, or resume from a schema "
+                f"{PIPELINE_SNAPSHOT_SCHEMA} payload."
+            )
+        return
+
+    if record.state is None:
+        if declares:
+            raise StateDecodeError(
+                f"Strategy {strategy_id!r} ({_type_name(instance)}) declares durable "
+                "state, but the payload records that it declared none. One of the two "
+                "is wrong and this module cannot tell which, so it refuses rather than "
+                "restoring a strategy whose memory the payload never held."
+            )
+        return
+
+    if not declares:
+        raise StateDecodeError(
+            f"Strategy {strategy_id!r} ({_type_name(instance)}) does not declare durable "
+            "state, but the payload carries state for it. The supplied instance cannot "
+            "consume it, and discarding it would silently lose exactly what was "
+            "captured. Supply an instance that declares state, or a payload that "
+            "carries none."
+        )
+
+    try:
+        instance.restore_state(  # type: ignore[attr-defined]
+            record.state.payload, record.state.version
+        )
+    except Exception as exc:
+        raise StateDecodeError(
+            f"Strategy {strategy_id!r} ({_type_name(instance)}) raised while restoring "
+            f"its state at version {record.state.version}: {exc!r}. The whole restore is "
+            "refused; nothing partial is returned."
+        ) from exc
+
+
 def _restore_strategies(
     records: tuple[StrategyRecord, ...],
     events: tuple[StrategyEventRecord, ...],
     objects: RuntimeObjects,
 ) -> StrategyRuntimeState:
-    strategies = {
-        record.strategy_id: StrategyState(
+    strategies = {}
+    for record in records:
+        instance = _require_object(
+            objects.strategies.get(record.strategy_id),
+            record.instance_type,
+            f"strategy instance for {record.strategy_id!r}",
+        )
+        # Reconciled before any state is built, so a refusal returns nothing
+        # partial -- the boundary rule every other decoder here keeps.
+        _restore_state(record, instance)
+        strategies[record.strategy_id] = StrategyState(
             strategy_id=record.strategy_id,
             status=record.status,
-            instance=_require_object(
-                objects.strategies.get(record.strategy_id),
-                record.instance_type,
-                f"strategy instance for {record.strategy_id!r}",
-            ),
+            instance=instance,
             config=record.config,
             subscriptions=frozenset(record.subscriptions),
             last_error=record.last_error,
         )
-        for record in records
-    }
     return StrategyRuntimeState(
         strategies=strategies, events=tuple(record.event for record in events)
     )
@@ -1209,8 +1488,47 @@ def _config(value: Any) -> ConfigRecord:
     )
 
 
-def _strategy_record(value: Any, where: str) -> StrategyRecord:
+def _strategy_state_record(value: Any, where: str) -> StrategyStateRecord:
+    """Decode one declared state: the strategy's payload, and its own version.
+
+    ``payload`` is required to be present and is taken exactly as written --
+    this module does not decode it, because only the strategy knows what it
+    means. ``version`` is validated as an integer, because this module does
+    carry it and a non-integer version is a malformed payload rather than a
+    strategy's business.
+    """
+
     payload = as_mapping(value, where)
+    return StrategyStateRecord(
+        payload=require(payload, "payload"),
+        version=as_int(require(payload, "version"), f"{where}.version"),
+    )
+
+
+def _strategy_record(value: Any, where: str, version: int) -> StrategyRecord:
+    """Decode one strategy record, at the envelope version that carried it.
+
+    ``version`` decides whether ``state`` is expected at all: a schema-1 payload
+    has no such field and must not carry one, and a schema-2 payload must always
+    have it -- present and ``null`` for a strategy that declared none. That is
+    ``require``'s existing rule, that a missing field is never filled in with a
+    default, applied to the one field whose absence means something.
+    """
+
+    payload = as_mapping(value, where)
+    if version < PIPELINE_SNAPSHOT_SCHEMA:
+        if "state" in payload:
+            raise StateDecodeError(
+                f"{where} declares schema version {version} and carries 'state', "
+                f"which was introduced at version {PIPELINE_SNAPSHOT_SCHEMA}. A "
+                "payload that says it predates a field and then carries it is "
+                "malformed; it is not read as the later version."
+            )
+        state: StrategyStateRecord | _NotAsked | None = NOT_ASKED
+    else:
+        raw = require(payload, "state")
+        state = None if raw is None else _strategy_state_record(raw, f"{where}.state")
+
     return StrategyRecord(
         strategy_id=as_str(require(payload, "strategy_id"), f"{where}.strategy_id"),
         status=as_named_enum(LifecycleState, require(payload, "status"), f"{where}.status"),
@@ -1223,7 +1541,34 @@ def _strategy_record(value: Any, where: str) -> StrategyRecord:
         ),
         last_error=as_optional_str(require(payload, "last_error"), f"{where}.last_error"),
         instance_type=as_str(require(payload, "instance_type"), f"{where}.instance_type"),
+        state=state,
     )
+
+
+def _require_readable_version(payload: Mapping[str, Any]) -> int:
+    """Return the declared version, or refuse a payload this build cannot read.
+
+    Two readable versions rather than one, and the shared
+    :func:`~alphalab.persistence.decode.require_schema_version` enforces exactly
+    one -- so the rule is spelled here, keeping its message shape. A payload
+    declaring no version is still refused: there is no unversioned pipeline
+    payload in existence, because the constant was introduced with the module in
+    v2.9, so there is no legacy shape to recognise and none is inferred.
+    """
+
+    version = require(payload, "schema_version")
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise StateDecodeError(
+            f"{_SUBSYSTEM} snapshot schema_version is not an integer: {version!r}"
+        )
+    if version not in READABLE_PIPELINE_SCHEMAS:
+        readable = ", ".join(str(item) for item in READABLE_PIPELINE_SCHEMAS)
+        raise StateDecodeError(
+            f"{_SUBSYSTEM} snapshot declares schema version {version}, and this build "
+            f"reads versions {readable}. There is no migration path; read it with the "
+            "build that wrote it."
+        )
+    return version
 
 
 def _market(value: Any) -> MarketRecord:
@@ -1334,12 +1679,15 @@ def from_primitives(payload: Mapping[str, Any]) -> PipelineSnapshot:
     """
 
     payload = as_mapping(payload, "pipeline snapshot")
-    require_schema_version(payload, PIPELINE_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    version = _require_readable_version(payload)
 
     return PipelineSnapshot(
         config=_config(require(payload, "config")),
         market=_market(require(payload, "market")),
-        strategy=_sequence_of(require(payload, "strategy"), "strategy", _strategy_record),
+        strategy=tuple(
+            _strategy_record(item, f"strategy[{index}]", version)
+            for index, item in enumerate(as_sequence(require(payload, "strategy"), "strategy"))
+        ),
         strategy_events=tuple(
             StrategyEventRecord(
                 *_event(
