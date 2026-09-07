@@ -12,6 +12,15 @@ and ADR-0012 for the broker boundary. ADR-0015 listed "a security master" among
 the things not in its scope; this ADR supplies the identity half of that, and
 deliberately not the classification half.
 
+**Amended by ADR-0027 (v2.11.0)**, which supplies the classification half. Two
+statements below are superseded and nothing else is: testing invariant 9's
+second clause — "`TradeRecord.sector_id` remains `None`" — now holds only when
+no configured registry classifies the asset; and the non-goal "Sector
+classification data, or any sector value" is superseded for the *mechanism*
+alone, and remains in force for shipping any taxonomy or reference data. N5's
+exclusion of `sector` from the identity key is unchanged and is what ADR-0027
+relies on.
+
 ---
 
 # Context

@@ -404,6 +404,58 @@ Enterprise capabilities
 
 ---
 
+v2.11.0 — "The Security Master" — completes the deferral ADR-0016 N5 was written
+to make safe, and is an additive release with no new packages, no breaking
+changes and no schema movement:
+
+- **An instrument can be classified, and reclassified.**
+  `classify_instrument(registry, asset_id, sector)` and its plural write
+  `InstrumentRecord.sector`, which ADR-0016 documented as mutable and
+  `register_instrument` made immutable by refusing any record whose content
+  differed. Keyed by `asset_id` rather than by a record; `sector=None`
+  unclassifies; the label already in effect returns the same registry object and
+  writes nothing; copy-on-write through `PersistentMap.set`, so a classification
+  is `O(1)` and `N` cost `O(N)`.
+- **It cannot re-identify an instrument**, guaranteed three ways: `sector` is
+  outside the canonical key, the signature exposes no identity field, and
+  `dataclasses.replace` refuses `asset_id` outright because that field is
+  `init=False`. All three are pinned by tests, including a re-derivation of
+  ADR-0016's golden identifier from a classified record.
+- **A sector label is validated, and not like a key field.**
+  `normalize_sector_label` strips surrounding whitespace and refuses an empty,
+  whitespace-only, control-character or non-string label — but permits internal
+  whitespace and non-ASCII, because a sector derives no identifier and
+  `"Consumer Discretionary"` is a real name. Case is preserved on ADR-0019's
+  precedent that a label used as a map key is compared exactly.
+- **The pipeline reads it once per fill**, in `_apply_report_to_portfolio`, and
+  freezes it onto `TradeRecord.sector_id`. That site is reached from the
+  simulated path and from `apply_execution_report`, so backtest, replay, paper
+  and live agree on the sector structurally rather than by convention.
+- **`pnl_by_sector` produces a real breakdown**, and
+  `ExposureStatus.sector_exposure` — declared, persisted and decoded since
+  before v2.6 and populated by nothing — is filled from the same authority, on
+  signed market value, inside the pass that already walked the positions.
+  `alphalab.analytics` is untouched: the consumer was already correct.
+- **Reclassification never rewrites history.** The registry says what an
+  instrument *is* classified as; a trade record says what it *was* classified as
+  when the fill happened. A run reclassified mid-run correctly splits across both
+  sectors, and restoring a snapshot with a differently classified registry leaves
+  every completed record alone.
+- **No schema constant moves** — `PIPELINE` stays 2, `SESSION`, `BACKTEST`,
+  `ALLOCATION`, `OMS` and `LIFECYCLE` stay 1, `PORTFOLIO` stays 2 — no identifier
+  is drawn, and a run configured with no registry is byte-identical to v2.10.0:
+  the same serialized payload, the same identifier draws, the same exposure
+  figures.
+
+**Deferred out of v2.11, deliberately:** any taxonomy or reference data;
+classification dimensions other than sector; a canonical or case-folded sector
+vocabulary; distinguishing *why* a sector is unknown; sector-based risk limits;
+persisting the registry; `InstrumentRecord.currency` reaching `Position.currency`
+and the FX work that depends on it; and everything already deferred below. See
+ADR-0027.
+
+---
+
 v2.10.0 — "The Strategy Boundary" — closes both halves of the surface v2.9
 deferred, and is an additive release with no new packages and no breaking
 changes:
@@ -695,14 +747,17 @@ and consolidation work has **not** been done:
   a test. Valuing across currencies needs an FX rate source that does not exist
   here, and guarding `NAVCalculator` is a hot-path decision that belongs with it.
   Holding and booking in a foreign currency is supported.
-- Sector attribution needs a security master that *classifies*, which still does
-  not exist here. v2.6 stopped reporting `"UNCLASSIFIED"` and reports no sector
-  at all; v2.7 delivered the **identity** half — `alphalab.instrument` resolves a
-  provider symbol to a canonical instrument, and `InstrumentRecord.sector` is
-  declared and deliberately left `None`, outside the identity key so a later
-  classification cannot re-identify an instrument. `pnl_by_sector` is still empty
-  on the execution path. Classification needs a data source AlphaLab does not
-  have, and remains deferred.
+- **Classification data, and dimensions other than sector** (v2.11+). The
+  security master's *mechanism* is delivered: v2.7 gave the identity half, and
+  v2.11 gives the classification half — `classify_instrument` writes a sector
+  without touching an `asset_id`, the pipeline reads it once per fill onto
+  `TradeRecord.sector_id`, and `pnl_by_sector` and `ExposureStatus.sector_exposure`
+  are populated for the first time. What is still absent is the *data*: AlphaLab
+  ships no taxonomy and no reference-data feed, so a breakdown requires an
+  operator who declares one. Industry, sub-industry, country, region, issuer and
+  credit rating are each a separate decision with their own consumers, and none
+  is expressible today. Sector-based **risk limits** are also not in scope:
+  `sector_exposure` is visibility, and no check reads a sector.
 
 - `benchmark_workbench.py` fails on a tab-lifecycle assertion in
   `alphalab.workbench`. Pre-existing at v2.2.0 and unrelated to the execution
@@ -714,8 +769,10 @@ broker convergence with paper execution on the canonical path (v2.3), the
 model/strategy lifecycle composing PR-046 through PR-049 (v2.4), typed state
 round-trip plus the provider→source link (v2.5), allocation authority with
 attribution truth (v2.6), instrument identity with dataset provenance (v2.7),
-currency roles and run outcomes (v2.8), and durable run state with deterministic
-identifier continuation (v2.9).
+currency roles and run outcomes (v2.8), durable run state with deterministic
+identifier continuation (v2.9), the strategy boundary — durable strategy state
+and a populated `StrategyContext` (v2.10), and instrument classification with
+sector provenance (v2.11).
 
 ---
 

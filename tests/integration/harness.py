@@ -15,8 +15,11 @@ from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.backtesting.config import BacktestConfig
 from alphalab.backtesting.dataset import MarketDataset
+from alphalab.core.enums import AssetType
 from alphalab.execution.policy import FillPolicy, ImmediateFill
 from alphalab.execution.simulator import ExecutionSimulator
+from alphalab.instrument.record import InstrumentRecord
+from alphalab.instrument.registry import InstrumentRegistry, register_instruments
 from alphalab.market.quote import Quote
 from alphalab.portfolio.account import Account
 from alphalab.risk.limits import (
@@ -148,6 +151,22 @@ def pipeline_config(
         risk_limits=risk_limits if risk_limits is not None else permissive_risk_limits(),
         simulator=simulator if simulator is not None else ExecutionSimulator(),
     )
+
+
+def equity(symbol: str, sector: str | None = None) -> InstrumentRecord:
+    """One declared US equity, optionally classified at declaration.
+
+    The ``asset_id`` is derived, so a test can register the instrument and drive
+    a strategy at the same identifier without hand-writing a UUID.
+    """
+
+    return InstrumentRecord(symbol, AssetType.EQUITY, "XNAS", "USD", sector=sector)
+
+
+def registry_of(*records: InstrumentRecord) -> InstrumentRegistry:
+    """A registry holding exactly ``records``, in the order given."""
+
+    return register_instruments(InstrumentRegistry(), records)
 
 
 def quote(asset_id: str, timestamp: float, mid: Decimal, spread: Decimal = Decimal("0")) -> Quote:

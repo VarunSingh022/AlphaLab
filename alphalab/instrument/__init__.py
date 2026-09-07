@@ -25,6 +25,15 @@ strategy, execution, OMS or lifecycle module, and nothing in those layers is
 imported in reverse -- :mod:`alphalab.market` depends on this package, not the
 other way round.
 
+Classification
+--------------
+:func:`classify_instrument` declares what sector a registered instrument belongs
+to, and is the only way ``InstrumentRecord.sector`` is written. It cannot change
+an identity: ``sector`` is outside the canonical key by ADR-0016 N5, and the
+signature exposes no identity field. Reclassifying is allowed and is O(1); what
+a *run* recorded is frozen onto each ``TradeRecord.sector_id`` at fill time and
+is never rewritten by a later classification. See ADR-0027.
+
 Resolution is a pure lookup here. Refusing an unregistered ``(provider,
 symbol)`` belongs to the wire boundary, which is why
 :meth:`InstrumentRegistry.resolve` answers ``None`` and
@@ -52,9 +61,15 @@ from alphalab.instrument.identity import (
     canonical_instrument_key,
     derive_asset_id,
 )
-from alphalab.instrument.record import InstrumentRecord, normalize_key_field
+from alphalab.instrument.record import (
+    InstrumentRecord,
+    normalize_key_field,
+    normalize_sector_label,
+)
 from alphalab.instrument.registry import (
     InstrumentRegistry,
+    classify_instrument,
+    classify_instruments,
     get_instrument,
     register_alias,
     register_instrument,
@@ -70,9 +85,12 @@ __all__ = [
     "InstrumentRegistrationError",
     "InstrumentRegistry",
     "canonical_instrument_key",
+    "classify_instrument",
+    "classify_instruments",
     "derive_asset_id",
     "get_instrument",
     "normalize_key_field",
+    "normalize_sector_label",
     "register_alias",
     "register_instrument",
     "register_instruments",

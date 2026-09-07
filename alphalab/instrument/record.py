@@ -31,8 +31,11 @@ What is *not* in the key
 ``sector`` is descriptive and mutable: a reclassification would silently
 re-identify the instrument and orphan every fill ever recorded against it.
 Keeping it out of the key is what lets sector classification arrive later
-without being a breaking change. It is declared here and left ``None``; nothing
-in v2.7 populates it.
+without being a breaking change. That later arrived in v2.11:
+:func:`~alphalab.instrument.registry.classify_instrument` writes this field, and
+:func:`normalize_sector_label` says what may be written. The exclusion is
+unchanged and is what makes reclassification safe -- see ADR-0016 N5 and
+ADR-0027.
 
 ``aliases`` are lookup keys into the registry, not identity inputs -- adding a
 second provider's spelling of an instrument must not change what that instrument
@@ -49,7 +52,7 @@ from alphalab.core.enums import AssetType
 from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.identity import canonical_instrument_key, derive_asset_id
 
-__all__ = ["InstrumentRecord", "normalize_key_field"]
+__all__ = ["InstrumentRecord", "normalize_key_field", "normalize_sector_label"]
 
 
 def normalize_key_field(value: str, field_name: str) -> str:
@@ -103,6 +106,72 @@ def normalize_key_field(value: str, field_name: str) -> str:
     return stripped.upper()
 
 
+def normalize_sector_label(value: str, field_name: str = "sector") -> str:
+    """Normalize and validate one sector label. See ADR-0027 decision 3.
+
+    Deliberately **not** :func:`normalize_key_field`. That function refuses
+    internal whitespace and non-ASCII so that identity derivation cannot depend
+    on a caller's spacing or on Unicode normalization form. A sector derives no
+    identifier, so neither rule buys anything here -- and both would refuse
+    ``"Consumer Discretionary"``, which is a real sector name.
+
+    What is refused, and why:
+
+    * **Empty or whitespace-only.** ``None`` already means unclassified, and a
+      ``""`` bucket in a report is indistinguishable from an absent one. Pass
+      ``None`` to :func:`~alphalab.instrument.registry.classify_instrument`
+      instead; it never reaches this function.
+    * **Control characters that survive the strip.** Refused rather than
+      escaped, following :func:`normalize_key_field`: a newline inside a report
+      heading or a JSON key is corruption, and an escaping scheme is a second
+      thing to keep compatible forever. A *trailing* newline or tab is
+      surrounding whitespace and is stripped, exactly as ``normalize_key_field``
+      strips it; an internal one, or any non-whitespace control character, is
+      refused.
+    * **A non-string.** Same rule, same reason, as ``normalize_key_field``.
+
+    Case is preserved and never folded. AlphaLab owns no sector taxonomy, so it
+    has no canonical form to fold into, and upper-casing would hand the operator
+    a label they did not write. The precedent is ADR-0019's currency rule, which
+    compares exactly because :class:`~alphalab.portfolio.cash.CashLedger` keys
+    balances by the string it is given: normalizing at one site while the map it
+    keys still splits at another is worse than not normalizing. ``"tech"`` and
+    ``"TECH"`` are therefore two buckets, which is the operator's own registry
+    being inconsistent and is visible there.
+
+    Args:
+        value: Raw sector label as declared by the caller.
+        field_name: Name used in error messages.
+
+    Returns:
+        The label, stripped of surrounding whitespace and otherwise verbatim.
+
+    Raises:
+        InstrumentInputError: If the value is not a string, is empty or
+            whitespace-only, or contains a control character.
+    """
+
+    if not isinstance(value, str):
+        raise InstrumentInputError(f"{field_name} must be a string, got {type(value).__name__}.")
+
+    stripped = value.strip()
+    if not stripped:
+        raise InstrumentInputError(
+            f"{field_name} cannot be empty. An unclassified instrument is declared "
+            "with None, not with an empty label: an empty bucket in a breakdown "
+            "cannot be told apart from an absent one."
+        )
+
+    if not stripped.isprintable():
+        raise InstrumentInputError(
+            f"{field_name} {value!r} contains a control character. These are refused "
+            "rather than escaped, so a sector can be used as a report heading and a "
+            "JSON key without an escaping scheme."
+        )
+
+    return stripped
+
+
 @dataclass(frozen=True, slots=True)
 class InstrumentRecord:
     """One declared instrument, and the canonical identity derived from it.
@@ -119,10 +188,14 @@ class InstrumentRecord:
         asset_type: What kind of instrument this is.
         exchange: Listing venue, conventionally a MIC such as ``"XNAS"``.
         currency: Currency the instrument trades in, ISO 4217.
-        sector: Sector the instrument belongs to, or ``None`` when unknown.
-            AlphaLab has no security master that classifies instruments, so this
-            is ``None`` for everything v2.7 can construct. It is deliberately
-            not part of the identity key -- see the module docstring.
+        sector: Sector the instrument belongs to, or ``None`` when unclassified.
+            AlphaLab ships no classification data, so the operator declares this
+            the way they declare the instrument itself -- here, or afterwards
+            through :func:`~alphalab.instrument.registry.classify_instrument`.
+            Validated by :func:`normalize_sector_label` only on that path; a
+            record constructed directly carries whatever it is given, exactly as
+            it did before v2.11. It is deliberately not part of the identity key
+            -- see the module docstring.
         aliases: Provider name -> that provider's symbol for this instrument.
             Verbatim, not normalized, and not part of the identity key.
         asset_id: The derived canonical identifier. UUIDv5, and therefore

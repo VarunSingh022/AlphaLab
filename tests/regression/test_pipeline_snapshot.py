@@ -1012,14 +1012,32 @@ def test_the_strategy_record_decoder_reads_the_state_field() -> None:
     assert '"state"' in inspect.getsource(_strategy_record)
 
 
-def test_no_session_or_run_snapshot_exists_yet() -> None:
-    """Step 7 is the pipeline envelope; the run envelope is later work."""
+def test_the_run_envelopes_live_outside_the_state_modules_they_project() -> None:
+    """ADR-0023 decision 1: two envelopes, each in its owning package's own module.
 
+    Named for what it checks. It was written mid-v2.9 as
+    ``test_no_session_or_run_snapshot_exists_yet``, and by the end of that same
+    release both envelopes existed -- in ``alphalab.runtime.session_snapshot``
+    and ``alphalab.backtesting.snapshot``, which is why the assertions below kept
+    passing and stopped meaning what their name said. What they actually pin is
+    still worth pinning: ``session.py`` and ``backtesting/state.py`` define the
+    states, and neither grows a projection of itself, so a snapshot cannot drift
+    away from the module that owns its schema constant.
+    """
+
+    import alphalab.backtesting.snapshot as backtest_snapshot
     import alphalab.backtesting.state as backtest_module
     import alphalab.runtime.session as session_module
+    import alphalab.runtime.session_snapshot as session_snapshot
 
     for module in (session_module, backtest_module):
         assert not hasattr(module, "RunSnapshot")
         assert not hasattr(module, "SESSION_SNAPSHOT_SCHEMA")
         assert not hasattr(module, "capture")
         assert not hasattr(module, "restore")
+
+    # And the envelopes are where ADR-0023 put them, one per owning package.
+    for module in (session_snapshot, backtest_snapshot):
+        assert hasattr(module, "capture")
+        assert hasattr(module, "restore")
+        assert hasattr(module, "from_primitives")

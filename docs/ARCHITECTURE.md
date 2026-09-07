@@ -608,8 +608,9 @@ sign: a short's `market_value` is negative, and its unrealized P&L is
   it.** `_trade_record` reads only the portfolio events of the current fill;
   v2.0.0 scanned the whole portfolio history in reverse and could credit an
   opening fill with an earlier close's P&L. As of v2.6 the record also carries
-  real strategy contributions and a real holding period, and reports no sector
-  rather than a placeholder one.
+  real strategy contributions and a real holding period. As of v2.11 it carries
+  the sector the run's registry classified the asset as, read once per fill and
+  frozen onto the record, or `None` — never a placeholder.
 
 ## Allocation reservation lifecycle (v2.2)
 
@@ -849,11 +850,15 @@ fixed, and each has a regression test pinning it:
 - **Multi-currency valuation is not implemented.** `PortfolioValuation` and
   `NAVCalculator` value the base currency only; FX rates would be needed
   otherwise.
-- **Sector attribution is unavailable, and says so.** There is no security
-  master, so `TradeRecord.sector_id` is `None` on the execution path and
-  `pnl_by_sector` is empty rather than bucketed under a placeholder. A caller
-  who has sector data of their own still gets a real breakdown. A security
-  master is not in scope before v2.7.
+- **Sector attribution is available from v2.11, and still says so when it is
+  not.** `classify_instrument` writes `InstrumentRecord.sector` without touching
+  the identity key, and the pipeline reads it once per fill onto
+  `TradeRecord.sector_id`, so `pnl_by_sector` and `ExposureStatus.sector_exposure`
+  are real for a run whose registry classifies its instruments. Absent a
+  registry, an unregistered asset, or an unclassified instrument, `sector_id` is
+  `None` and the breakdown is empty rather than bucketed under a placeholder —
+  the v2.6 rule, unchanged. AlphaLab still ships no classification data. See
+  ADR-0027.
 - **An unseeded run does not reproduce its identifiers.** `BacktestConfig.seed`
   defaults to `None`, which leaves identifiers on `uuid4`; only the economics
   reproduce. This is deliberate — the default is not silently made

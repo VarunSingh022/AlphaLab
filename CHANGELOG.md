@@ -8,6 +8,177 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.11.0] - 2026-09-07
+
+**The Security Master.**
+
+ADR-0016 N5 excluded `sector` from the canonical instrument key in v2.7, so that
+classification could arrive later without re-identifying an instrument and
+orphaning every fill recorded against it. Four releases later the field was
+still populated by nothing — and, less obviously, still *writable* by nothing:
+`register_instrument` refuses a record whose content differs from one it already
+holds, and `InstrumentRecord.__eq__` does not ignore `sector`, so a field
+documented as mutable raised on every attempt to change it.
+
+Downstream of that, two consumers had been finished and left empty.
+`AttributionMetrics.pnl_by_sector` has bucketed correctly since v2.6 — and
+refused a `"UNCLASSIFIED"` placeholder — while receiving `sector_id=None` from
+every pipeline fill ever produced, because `_trade_record` hardcoded it.
+`ExposureStatus.sector_exposure` has been declared, typed, persisted and decoded
+for longer than that and was never given a value at all. Meanwhile the registry
+that could answer both was already threaded through the whole execution path on
+`ExecutionPipelineConfig.instruments`, and was read from exactly one place:
+`_classify_unpriced`, a route a healthy run never takes. The authority was
+configured and consulted only when something had gone wrong.
+
+## Added
+
+- `alphalab.instrument.registry.classify_instrument(registry, asset_id, sector)`
+  and `classify_instruments(registry, classifications)` — the write ADR-0016 N5
+  kept the identity key clear for. Module-level functions rather than registry
+  methods, because every write in that package is a function and the registry's
+  own methods are pure reads. Keyed by `asset_id` rather than by an
+  `InstrumentRecord`, which would admit one whose identity fields disagree with
+  the registry's — a question with no good answer.
+- `alphalab.instrument.record.normalize_sector_label(value, field_name="sector")`
+  — strips surrounding whitespace and refuses an empty, whitespace-only,
+  control-character or non-string label, while **permitting** internal
+  whitespace and non-ASCII.
+- **Sector reaches the run.** `ExecutionPipeline` resolves the classification
+  once per fill in `_apply_report_to_portfolio` and freezes it onto that fill's
+  `TradeRecord.sector_id`. `pnl_by_sector` produces a real breakdown for the
+  first time.
+- **Exposure by sector.** `ExposureStatus.sector_exposure` is filled from the
+  same authority, on **signed** market value so the buckets sum to
+  `net_exposure` over the classified positions, inside the pass that already
+  walked them.
+
+## Changed
+
+- `_risk_exposure` is one pass rather than three. It previously built
+  `asset_exposure` with a dict comprehension and then ran two `sum()` generators
+  over the result; it now accumulates all four figures and the sector buckets in
+  a single traversal. Every existing figure is unchanged, exactly — a
+  no-registry run's serialized payload is byte-identical to v2.10.0's.
+- `_sync_risk_from_portfolio` and `_risk_exposure` take the registry rather than
+  defaulting it, so no call site can silently stop reporting. Both are private.
+- `_trade_record` takes `sector` as an argument and stays a pure formatter with
+  no access to pipeline state.
+- `ExecutionPipelineConfig.instruments` is documented as read for two things
+  rather than one. `record_for` remains the only method ever called on it: the
+  pipeline still never resolves a provider symbol, derives an `asset_id`,
+  registers anything, or classifies anything.
+
+## Fixed
+
+- **A field ADR-0016 called mutable could not be changed.** Reclassifying an
+  instrument raised `InstrumentRegistrationError`. `classify_instrument` is a
+  separate function rather than a relaxation of that refusal: relaxing it would
+  make the rule depend on *which* field differs and leave accidental content
+  drift indistinguishable from a deliberate reclassification. Re-registering a
+  stale, unclassified record over a classified one is still refused.
+- Three documentation defects found during v2.11 archaeology, all pre-existing:
+  `ExecutionPipelineState.unpriced_assets` said "Not persisted; nothing captures
+  this state" while `alphalab.runtime.snapshot` has captured and restored it
+  since v2.9; the v2.9 changelog gave `apply_terminal_outcome` a signature it
+  never had; and `test_no_session_or_run_snapshot_exists_yet` was written
+  mid-v2.9 and had been vacuously true since the end of that same release. The
+  test keeps its assertions, which are still worth pinning, and is renamed for
+  what it actually checks.
+
+## Unchanged, deliberately
+
+`alphalab.analytics.attribution` — not opened. The consumer was already correct:
+it buckets by `sector_id` when present, omits the trade when it is `None`, and
+refuses a placeholder bucket. Touching a working consumer to make a supplier's
+change look larger is the unnecessary refactor this release refuses.
+
+Instrument identity derivation, `canonical_instrument_key`,
+`ALPHALAB_INSTRUMENT_NAMESPACE`, `INSTRUMENT_KEY_SCHEME`, alias storage and
+resolution, `register_instrument`'s refusal, `InstrumentRecord`'s constructor,
+`RiskLimits` and every risk check — no check reads a sector, because
+`sector_exposure` is visibility and not enforcement.
+
+**No schema constant moves.** `PIPELINE_SNAPSHOT_SCHEMA` stays 2,
+`SESSION_`, `BACKTEST_`, `ALLOCATION_`, `OMS_` and `LIFECYCLE_SNAPSHOT_SCHEMA`
+stay 1, `PORTFOLIO_SNAPSHOT_SCHEMA` stays 2. `TradeRecord.sector_id` and
+`ExposureStatus.sector_exposure` are existing persisted fields with existing
+decoders; their values change and their shape does not.
+
+**No exception class is added.** `InstrumentRegistrationError` means a
+registration would replace one identity with another, and classification
+provably cannot: the signature cannot express it, and `dataclasses.replace`
+refuses `asset_id` outright because that field is `init=False`.
+
+**No live trading is added.** No broker transport, no streaming source, no venue
+connectivity.
+
+## Deferred, unchanged
+
+Any taxonomy or classification dataset — AlphaLab ships no reference data, so a
+breakdown requires an operator who declares one; classification dimensions other
+than sector; a canonical or case-folded sector vocabulary; distinguishing *why*
+a sector is unknown, in the manner of `UnpricedReason`; sector-based risk limits;
+persisting the `InstrumentRegistry`, or checking on `restore` that a supplied
+registry classifies as the captured run did; `InstrumentRecord.currency` reaching
+`Position.currency`, and the FX rate source and multi-currency valuation that
+depend on it; `StrategyContext.history` and `.universe`; broker transport,
+streaming market data and reconnect; artifact storage; the approval workflow over
+`alphalab.enterprise`'s RBAC and audit log; and the removal of `integrations`,
+`kernel`, `core.events` or `CommonEvent`.
+
+## Verification
+
+2926 tests pass, up from 2818. Strict mypy is clean over 896 source files, Ruff
+lint and format are clean, and the wheel and sdist build and validate.
+
+**Identity stability is pinned three ways**, because that is the guarantee
+ADR-0016 N5 exists to protect: `sector` is outside the key, the classification
+signature exposes no identity field, and `dataclasses.replace(record,
+asset_id=...)` raises. ADR-0016's golden identifier
+`2b670078-27a6-57c2-b359-4e64d8809ea2` is re-derived from a *classified* record.
+
+**A run with `instruments=None` is byte-identical to v2.10.0** — measured, not
+asserted. The v2.10.0 tree was extracted and run beside the candidate on one
+machine over a seeded four-fill workload: the serialized pipeline payload matches
+byte for byte, the identifier stream reaches the same 97 draws, and every
+exposure figure is equal.
+
+**The performance gate for `sector_exposure` passed on every measure.**
+Interleaved against v2.10.0, 14 samples per cell: 1k best −0.47%, 1k median
+−0.28%, 4k best −0.74%, 4k median −0.68%, scaling 4.124 → 4.113. All inside the
+3% tolerance and all in the faster direction, because the single-pass rewrite
+removed two traversals the old implementation made. The classified path itself
+costs nothing measurable against a registry-configured-but-unclassified control:
++0.07% at 1k, −0.21% at 4k.
+
+Simulated and venue fills agree on the sector **structurally**: both reach
+`_apply_report_to_portfolio`, which is the only place the registry is read for a
+fill, and a test drives `apply_execution_report` to prove it. Backtest, replay
+and paper agree on every sector.
+
+Reclassification is `O(1)` and shares structure: 200 successive classifications
+of one instrument leave the `PersistentMap` store object identical and the
+registry the same size.
+
+## Architecture decisions
+
+**ADR-0027** settles instrument classification and the sector provenance
+boundary: the classification API and why it is keyed by `asset_id`, the sector
+label rule and why it is not `normalize_key_field`, reclassification semantics,
+the two-tenses provenance model, the single fill-path integration point, and the
+compatibility position. Written before the implementation; its status line now
+records what shipped. The one addition made during implementation is decision 3's
+residual paragraph, which states that the label rule binds the classification
+path and not `InstrumentRecord`'s constructor.
+
+**ADR-0016** gains a status amendment naming exactly which two of its statements
+this supersedes — testing invariant 9's second clause, conditionally, and the
+non-goal on sector values, for the mechanism only — and which one it relies on:
+N5's exclusion of `sector` from the identity key, unchanged.
+
+---
+
 # [2.10.0] - 2026-09-07
 
 **The Strategy Boundary.**
@@ -251,7 +422,7 @@ them.
   generator implementation into the persisted format. Restore is therefore
   O(draws) -- roughly a microsecond per replayed draw, so a run that minted a
   million identifiers resumes in about a second, paid once.
-- `ExecutionPipeline.apply_terminal_outcome(state, order_id, outcome, timestamp)`
+- `ExecutionPipeline.apply_terminal_outcome(state, order, outcome, timestamp, reason="")`
   -- the route home for an externally routed working order the venue has ended
   as `CANCELLED`, `REJECTED` or `EXPIRED`. The caller supplies the outcome
   because the venue is the authority for what happened and the pipeline never
