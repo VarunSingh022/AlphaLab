@@ -41,6 +41,7 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineResult,
     ExecutionPipelineState,
     ExecutionRouting,
+    SettlementRefusal,
     UnpricedAsset,
     UnpricedReason,
 )
@@ -99,6 +100,7 @@ __all__ = [
     "RuntimeValidationError",
     "SessionConfig",
     "SessionState",
+    "SettlementRefusal",
     "SkippedRecord",
     "SupervisorState",
     "TradingSession",

@@ -65,7 +65,11 @@ from alphalab.portfolio.account import Account
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
 from alphalab.portfolio.nav import NAVCalculator
-from alphalab.portfolio.valuation import PortfolioValuation, PortfolioValuationSnapshot
+from alphalab.portfolio.valuation import (
+    PortfolioValuation,
+    PortfolioValuationSnapshot,
+    assert_single_currency_book,
+)
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.engine import RiskEngine
 from alphalab.risk.exposure import ExposureStatus
@@ -239,6 +243,46 @@ class UnpricedAsset:
 
 
 @dataclass(frozen=True, slots=True)
+class SettlementRefusal:
+    """One request refused because the instrument does not settle here.
+
+    A pipeline settles in exactly one currency -- ``ExecutionPipelineConfig.currency``,
+    which :func:`_require_one_account_currency` already requires to equal
+    ``Account.base_currency``. An instrument trades in whatever
+    :attr:`~alphalab.instrument.record.InstrumentRecord.currency` declares, and
+    that is an *identity* input, so it is immutable and cannot be reclassified.
+    When the two disagree the run cannot trade the instrument: booking it in the
+    settlement currency would label a position with a currency the instrument
+    does not trade in, and booking it honestly would make the book mixed, which
+    the very next portfolio snapshot refuses. See ADR-0028.
+
+    **This is not a missing rate.** ``MixedCurrencyValuationError`` is about the
+    absence of FX; this is about a pipeline that settles in one currency being
+    pointed at an instrument that trades in another. The fix is to run a pipeline
+    that settles in the instrument's currency, not to supply a rate.
+
+    Reported per occurrence on :class:`ExecutionPipelineResult`, and deliberately
+    not accumulated onto :class:`ExecutionPipelineState`: an aggregated, durable
+    record in the manner of :class:`UnpricedAsset` would add a field to the state
+    and move the snapshot schema for observability the result already carries.
+    That belongs with the release that moves the schema anyway (ADR-0028).
+
+    Attributes:
+        asset_id: The instrument the request named.
+        instrument_currency: What the registry says it trades in.
+        settlement_currency: What this pipeline settles in.
+        detail: The same in a sentence, naming the instrument and the fix.
+        timestamp: Market timestamp of the event whose request was refused.
+    """
+
+    asset_id: str
+    instrument_currency: str
+    settlement_currency: str
+    detail: str
+    timestamp: float
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionPipelineState:
     """Immutable snapshot of all subsystems in the execution path."""
 
@@ -296,6 +340,12 @@ class ExecutionPipelineResult:
     trades: tuple[CoreTrade, ...]
     unpriced_requests: tuple[OrderRequest, ...] = field(default_factory=tuple)
     valuation: PortfolioValuationSnapshot | None = None
+    #: Requests refused because the instrument does not settle in this
+    #: pipeline's currency. Appended after ``valuation`` rather than beside
+    #: ``unpriced_requests`` so that positional construction of this result
+    #: keeps working. Derived and never persisted: no snapshot carries an
+    #: ``ExecutionPipelineResult``. See :class:`SettlementRefusal` and ADR-0028.
+    settlement_refusals: tuple[SettlementRefusal, ...] = field(default_factory=tuple)
 
 
 def _populate_context(
@@ -768,6 +818,7 @@ def _process_requests(
     fills: list[CoreFill] = []
     trades: list[CoreTrade] = []
     unpriced: list[OrderRequest] = []
+    refusals: list[SettlementRefusal] = []
     current = state
 
     for request in requests:
@@ -778,6 +829,23 @@ def _process_requests(
         if request.asset_id not in current.market_prices:
             unpriced.append(request)
             current = _record_unpriced(current, request.asset_id, event.timestamp)
+            current = _retire_dropped_request(current, request.order_id, event.timestamp)
+            continue
+        # Seam 1 of ADR-0028, and deliberately *after* the price check: an
+        # instrument that is both foreign and unpriced is still reported as
+        # unpriced, because the run genuinely never priced it and the
+        # classification that was already there is not reinterpreted.
+        #
+        # Dropped rather than raised. The pipeline is about to create this
+        # order and may equally decline to, and this is the point where
+        # _retire_dropped_request already frees both allocation ledgers -- so
+        # no reservation leaks and no contribution is orphaned. Raising would
+        # kill a live session over one misconfigured instrument. The venue
+        # side, where the fill has already happened and cannot be declined,
+        # raises instead: see _require_settlement_currency.
+        refusal = _settlement_refusal(current, request.asset_id, event.timestamp)
+        if refusal is not None:
+            refusals.append(refusal)
             current = _retire_dropped_request(current, request.order_id, event.timestamp)
             continue
         current, decision = _evaluate_risk(current, request, event.timestamp)
@@ -844,6 +912,7 @@ def _process_requests(
         tuple(trades),
         tuple(unpriced),
         valuation,
+        tuple(refusals),
     )
 
 
@@ -1173,9 +1242,67 @@ def _apply_report_to_oms(
     return replace(state, oms=oms)
 
 
+def _require_settlement_currency(state: ExecutionPipelineState, report: ExecutionReport) -> None:
+    """Refuse a report denominated in something this pipeline does not settle.
+
+    Seam 2 of ADR-0028, and the counterpart to :func:`_settlement_refusal`. They
+    answer different questions: Seam 1 asks whether this run may *trade* an
+    instrument, and needs the registry to answer; this asks whether a report is
+    denominated in what the pipeline *settles*, and needs nothing but the
+    configuration. Neither subsumes the other -- with only this check a foreign
+    instrument would still slip through, because its report carries the
+    settlement currency; with only Seam 1 a venue fill would still slip through,
+    because it never passes through :func:`_process_requests`.
+
+    **This raises where Seam 1 drops**, and the asymmetry is the one
+    :func:`_close_unfilled_order` and :func:`_terminate_order` already draw. The
+    pipeline decides what the simulator does and may decline to create an order;
+    a venue *reports* what already happened, and a fill that has occurred cannot
+    be declined. Its only honest answers are to book it -- making the book mixed,
+    which the next valuation refuses anyway -- or to refuse and say so. Every
+    state here is immutable, so a caller that is refused still holds exactly the
+    state it passed in.
+
+    The simulated path cannot reach this refusal. :func:`_instruction` builds
+    every ``OrderInstruction`` with ``state.config.currency`` and
+    :meth:`~alphalab.execution.simulator.ExecutionSimulator.simulate_fill` copies
+    it onto the report, so the two are the same string by construction. Here it
+    costs one comparison per fill and functions as a structural invariant. The
+    live path is where it does work: ``RoutingConfig.currency`` is a fifth
+    currency site that ADR-0019 did not name and nothing checked, and a venue
+    fill stamped with a mismatched one used to be booked silently.
+
+    Raises:
+        RuntimeValidationError: If the report is denominated in a currency this
+            pipeline does not settle in. Deliberately the same class
+            :func:`_require_one_account_currency` raises: one category of fault
+            -- a call into the pipeline naming two currencies where it settles
+            one -- gets one name.
+    """
+
+    if report.currency == state.config.currency:
+        return
+
+    raise RuntimeValidationError(
+        f"Execution report {report.execution_id} for asset {report.asset_id} is "
+        f"denominated in {report.currency!r}, and this pipeline settles in "
+        f"{state.config.currency!r}. Applying it would book a position and move "
+        f"cash in {report.currency!r}, leaving a book holding two currencies that "
+        "no valuation can express as one figure -- the next portfolio snapshot "
+        "would raise. Nothing has been applied and the state you passed in is "
+        "unchanged. A venue fill reaches this path through "
+        "RoutingConfig.currency, which defaults to 'USD' and is not the "
+        "pipeline's settlement currency unless it is set to it."
+    )
+
+
 def _apply_report_to_portfolio(
     state: ExecutionPipelineState, report: ExecutionReport, side: OMSSide
 ) -> ExecutionPipelineState:
+    # Seam 2 of ADR-0028, before anything is read or applied, on the one path a
+    # simulated fill and a venue fill both take -- the site ADR-0027 decision 6
+    # chose for sector, and for the same parity reason.
+    _require_settlement_currency(state, report)
     signed_quantity = report.fill_quantity if side is OMSSide.BUY else -report.fill_quantity
     before = len(state.portfolio.events)
     # Read both *before* the fill is applied. A closing fill removes the
@@ -1334,6 +1461,88 @@ def _sector_of(registry: InstrumentRegistry, asset_id: str) -> str | None:
 
     record = registry.record_for(asset_id)
     return None if record is None else record.sector
+
+
+def _currency_of(registry: InstrumentRegistry, asset_id: str) -> str | None:
+    """What ``registry`` says ``asset_id`` trades in, in one keyed lookup.
+
+    The exact sibling of :func:`_sector_of`, and deliberately so: same shape,
+    same ``None``-for-absent rule, same single ``record_for`` call on a
+    ``PersistentMap``. Never scans, and mints no identifier.
+
+    The two differ in one way that matters, and it makes currency the easier
+    case. A sector is descriptive and mutable, so ADR-0027 had to freeze it onto
+    each fill to stop a reclassification rewriting a finished run. A currency is
+    one of the four fields ``asset_id`` is *derived* from (ADR-0016): changing it
+    derives a different identifier, so it names a different instrument, and the
+    registry's classification write exposes no identity field to reach it with.
+    The answer here is therefore already frozen by identity, which is why
+    nothing is copied onto :class:`~alphalab.analytics.attribution.TradeRecord`.
+
+    ``None`` means the registry does not hold this ``asset_id``. That is not a
+    settlement fault and must not be reported as one:
+    :attr:`UnpricedReason.NOT_REGISTERED` already owns "a strategy named an
+    instrument the registry does not hold", and one fault reported twice under
+    two names is worse than the fault.
+    """
+
+    record = registry.record_for(asset_id)
+    return None if record is None else record.currency
+
+
+def _settlement_refusal(
+    state: ExecutionPipelineState, asset_id: str, timestamp: float
+) -> SettlementRefusal | None:
+    """Whether this run may trade ``asset_id``, and why not.
+
+    Seam 1 of ADR-0028, and the only place the authority is exercised. One
+    ``record_for`` lookup on the happy path, taken per *request* rather than per
+    event or per fill: per event would pay for instruments the run never names,
+    and per fill would be too late -- an order would already exist, holding a
+    reservation and a contribution entry.
+
+    Returns ``None`` -- meaning "trade it" -- in three situations that are
+    deliberately not distinguished, because a run that may trade an instrument
+    has no use for the reason:
+
+    * no registry is configured, so this run has no currency authority and books
+      in its settlement currency exactly as it did before v2.12;
+    * the registry does not hold the asset, which is
+      :attr:`UnpricedReason.NOT_REGISTERED`'s question, not this one;
+    * the instrument settles here.
+
+    The second ``record_for`` below is on the refusal path only, which a healthy
+    run never takes, and it buys a message that names the instrument rather than
+    only its identifier.
+    """
+
+    registry = state.config.instruments
+    if registry is None:
+        return None
+
+    settlement = state.config.currency
+    currency = _currency_of(registry, asset_id)
+    if currency is None or currency == settlement:
+        return None
+
+    record = registry.record_for(asset_id)
+    named = (
+        f"{record.symbol} on {record.exchange}" if record is not None else f"asset_id {asset_id!r}"
+    )
+    return SettlementRefusal(
+        asset_id=asset_id,
+        instrument_currency=currency,
+        settlement_currency=settlement,
+        detail=(
+            f"{named} trades in {currency!r} and this pipeline settles in "
+            f"{settlement!r}, so it cannot be traded here. The request was dropped "
+            "before it reached the OMS and the capital it held was released. "
+            f"Run a pipeline whose currency and Account.base_currency are {currency!r} "
+            "to trade this instrument, or trade an instrument that settles in "
+            f"{settlement!r}. This is a settlement boundary, not a missing FX rate."
+        ),
+        timestamp=timestamp,
+    )
 
 
 def _sector_for(state: ExecutionPipelineState, asset_id: str) -> str | None:
@@ -1508,14 +1717,36 @@ def _risk_exposure(
     A run with no registry pays one ``is not None`` comparison per position and
     nothing else, and gets an empty mapping -- which is what every run produced
     before v2.11.
+
+    Every figure here aggregates market values across positions and is reported
+    against the account's base currency, so this is a valuation in the sense the
+    module docstring of :mod:`alphalab.portfolio.valuation` defines, and it
+    refuses a mixed book. ``sector_exposure`` is the newest such aggregation in
+    the tree and was blind from the day it was written: v2.11 bucketed signed
+    market value by sector with no regard for what each position traded in, so a
+    mixed book produced sector totals summed across currencies. The check folds
+    into the pass this function already makes -- one string comparison per
+    position, the same shape as the ``instruments is not None`` test beside it --
+    and delegates the message to the one rule that owns it. See ADR-0028
+    decision 7.
+
+    Raises:
+        MixedCurrencyValuationError: If the book holds positions or non-zero cash
+            in any currency other than the account's base currency.
     """
 
+    base_currency = portfolio.account.base_currency
     asset_exposure: dict[str, Decimal] = {}
     sector_exposure: dict[str, Decimal] = {}
     long_exposure = Decimal("0.00")
     short_exposure = Decimal("0.00")
 
     for asset_id, position in portfolio.positions.items():
+        if position.currency != base_currency:
+            # Always raises: a foreign position guarantees the predicate's first
+            # condition fails. Delegated rather than raised here so that one
+            # rule owns the message and the two cannot come to disagree.
+            assert_single_currency_book(portfolio.cash, portfolio.positions, base_currency)
         value = position.market_value
         asset_exposure[asset_id] = value
         if value > 0:

@@ -660,9 +660,12 @@ def test_the_runtime_reads_the_registry_through_record_for_and_nothing_else() ->
     assert ".resolve(" not in source
     assert "register_instrument" not in source
     assert "classify_instrument" not in source
-    # One for the unpriced path, one in `_sector_of` -- the single rule both the
-    # fill reader and the exposure reader go through.
-    assert source.count("record_for(") == 2
+    # Four keyed reads, and no fifth. One for the unpriced path; one in
+    # `_sector_of`, the single rule both the fill reader and the exposure reader
+    # go through; one in `_currency_of`, its v2.12 sibling (ADR-0028); and one on
+    # `_settlement_refusal`'s cold path, which a healthy run never takes and
+    # which buys a message naming the instrument rather than only its id.
+    assert source.count("record_for(") == 4
 
 
 def test_sector_resolution_is_a_keyed_lookup_and_never_a_scan() -> None:
