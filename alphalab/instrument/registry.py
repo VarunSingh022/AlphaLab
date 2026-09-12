@@ -62,17 +62,25 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.instrument.classification import (
+    OPERATOR,
+    ClassificationHistory,
+    SectorClassification,
+)
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
 from alphalab.instrument.record import InstrumentRecord, normalize_sector_label
 
 __all__ = [
     "InstrumentRegistry",
+    "classification_history",
+    "classification_of",
     "classify_instrument",
     "classify_instruments",
     "get_instrument",
     "register_alias",
     "register_instrument",
     "register_instruments",
+    "sector_as_of",
 ]
 
 
@@ -90,10 +98,22 @@ class InstrumentRegistry:
         by_provider: provider name -> that provider's symbol -> ``asset_id``.
             Indexed by the question the normalization path actually asks, so
             resolution is O(1) rather than a scan of every instrument.
+        classifications: ``asset_id`` -> every classification that instrument
+            has been given, append-only, with the source and effective date of
+            each. New in v2.15 and **additive**: an instrument classified before
+            this existed, or constructed with a ``sector`` directly, simply has
+            no history, and every reader of
+            :attr:`~alphalab.instrument.record.InstrumentRecord.sector` is
+            unaffected. The label in effect stays on the record, where the
+            pipeline reads it in O(1); this answers the audit question beside
+            it. See ADR-0031.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
     by_provider: PersistentMap[str, PersistentMap[str, str]] = field(default_factory=PersistentMap)
+    classifications: PersistentMap[str, ClassificationHistory] = field(
+        default_factory=PersistentMap
+    )
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -103,6 +123,8 @@ class InstrumentRegistry:
             object.__setattr__(self, "instruments", PersistentMap(self.instruments))
         if not isinstance(self.by_provider, PersistentMap):
             object.__setattr__(self, "by_provider", PersistentMap(self.by_provider))
+        if not isinstance(self.classifications, PersistentMap):
+            object.__setattr__(self, "classifications", PersistentMap(self.classifications))
 
     def resolve(self, provider: str, symbol: str) -> str | None:
         """The ``asset_id`` ``provider`` means by ``symbol``, or ``None``.
@@ -227,7 +249,11 @@ def register_alias(
 
 
 def classify_instrument(
-    registry: InstrumentRegistry, asset_id: str, sector: str | None
+    registry: InstrumentRegistry,
+    asset_id: str,
+    sector: str | None,
+    source: str = OPERATOR,
+    as_of: float | None = None,
 ) -> InstrumentRegistry:
     """Declare what sector an already-registered instrument belongs to.
 
@@ -250,52 +276,153 @@ def classify_instrument(
 
     Passing the label already in effect -- compared *after*
     :func:`~alphalab.instrument.record.normalize_sector_label`, so surrounding
-    whitespace does not make a second classification -- returns the **same
-    registry object** and writes nothing, matching
-    :func:`register_instrument`'s no-op for an identical record.
+    whitespace does not make a second classification -- writes no new *label*.
+    Since v2.15 it still records the act when it carries new provenance: the
+    same sector re-declared by a second source, or with a different effective
+    date, is a real event an audit needs. Re-declaring a label from the same
+    source with the same date is a true no-op and returns the **same registry
+    object**, matching :func:`register_instrument`'s no-op for an identical
+    record.
 
     Copy-on-write, through the same :class:`PersistentMap` every other write
     here uses: ``set`` appends to the key's version chain and rebuilds nothing,
     so this is O(1), the registry it came from stays valid and unchanged, and
     ``N`` classifications cost ``O(N)``.
 
-    Mints no identifier and emits no event.
+    Mints no identifier and emits no event. ``as_of`` is caller-supplied and no
+    clock is read -- a registry that stamped itself with the wall clock would
+    not be reproducible across two processes building it from one declaration
+    file.
 
     Args:
         registry: The registry to classify within.
         asset_id: The instrument to classify. Must already be registered.
         sector: The sector label, or ``None`` to unclassify.
+        source: Who this classification came from -- a vendor, a file, an
+            analyst. Defaults to
+            :data:`~alphalab.instrument.classification.OPERATOR`, which is the
+            accurate answer when the caller names nobody: this registry's
+            operator declared it.
+        as_of: Unix timestamp the classification takes effect from, or ``None``
+            when no effective date is declared. See
+            :class:`~alphalab.instrument.classification.SectorClassification`.
 
     Returns:
-        A registry in which ``asset_id`` carries ``sector``; the same object
-        when that was already true.
+        A registry in which ``asset_id`` carries ``sector`` and whose history
+        records who said so; the same object when nothing at all changed.
 
     Raises:
-        InstrumentInputError: If ``asset_id`` is not registered, or ``sector``
-            is not a label :func:`normalize_sector_label` accepts.
+        InstrumentInputError: If ``asset_id`` is not registered, if ``sector``
+            is not a label :func:`normalize_sector_label` accepts, or if
+            ``source`` / ``as_of`` is invalid.
     """
 
     record = get_instrument(registry, asset_id)
     label = None if sector is None else normalize_sector_label(sector)
-    if record.sector == label:
+    declaration = SectorClassification(sector=label, source=source, as_of=as_of)
+
+    history = registry.classifications.get(asset_id, ClassificationHistory())
+    unchanged = record.sector == label
+    if unchanged and history.current == declaration:
+        return registry
+    if unchanged and label is None and not history:
+        # Withdrawing a classification that was never given. There is nothing to
+        # withdraw and no earlier provenance to supersede, so nothing happened --
+        # recording an act here would put a "sector removed" entry in the audit
+        # trail of an instrument that never had one. The v2.11 no-op, preserved.
         return registry
 
+    updated = replace(
+        registry,
+        classifications=registry.classifications.set(asset_id, history.append(declaration)),
+    )
+    if record.sector == label:
+        # New provenance for a label already in effect. The record is untouched
+        # because nothing about the instrument changed -- only what is known
+        # about how its classification came to be.
+        return updated
+
     return replace(
-        registry, instruments=registry.instruments.set(asset_id, replace(record, sector=label))
+        updated, instruments=updated.instruments.set(asset_id, replace(record, sector=label))
     )
 
 
 def classify_instruments(
-    registry: InstrumentRegistry, classifications: Mapping[str, str | None]
+    registry: InstrumentRegistry,
+    classifications: Mapping[str, str | None],
+    source: str = OPERATOR,
+    as_of: float | None = None,
 ) -> InstrumentRegistry:
     """Classify several instruments, in the mapping's iteration order.
 
     The plural of :func:`classify_instrument`, mirroring
-    :func:`register_instruments`. Nothing partial survives a refusal: the
-    entries are applied to successive values and the offending one raises before
-    any later entry is reached, so the caller's own registry is untouched.
+    :func:`register_instruments`. ``source`` and ``as_of`` apply to every entry,
+    which is what a vendor file being loaded actually looks like. Nothing
+    partial survives a refusal: the entries are applied to successive values and
+    the offending one raises before any later entry is reached, so the caller's
+    own registry is untouched.
     """
 
     for asset_id, sector in classifications.items():
-        registry = classify_instrument(registry, asset_id, sector)
+        registry = classify_instrument(registry, asset_id, sector, source, as_of)
     return registry
+
+
+def classification_of(registry: InstrumentRegistry, asset_id: str) -> SectorClassification | None:
+    """The classification currently in effect, with its provenance.
+
+    ``None`` when the instrument has never been classified *through this
+    registry* -- which includes an instrument whose ``sector`` was set by
+    constructing an :class:`~alphalab.instrument.record.InstrumentRecord`
+    directly. That is an honest absence rather than a fabricated attribution:
+    nobody recorded where such a label came from, and inventing
+    :data:`~alphalab.instrument.classification.OPERATOR` for it would claim
+    provenance this registry does not have. Read
+    :attr:`~alphalab.instrument.record.InstrumentRecord.sector` for the label
+    itself, which is present either way.
+
+    Raises:
+        InstrumentInputError: If ``asset_id`` is not registered.
+    """
+
+    get_instrument(registry, asset_id)
+    history = registry.classifications.get(asset_id)
+    return None if history is None else history.current
+
+
+def classification_history(registry: InstrumentRegistry, asset_id: str) -> ClassificationHistory:
+    """Every classification this instrument has been given, oldest first.
+
+    Empty for an instrument never classified through this registry. The log is
+    append-only, so a correction appears as a new entry and the entry it
+    corrected is still readable -- which is what makes a reclassification
+    auditable rather than silent.
+
+    Raises:
+        InstrumentInputError: If ``asset_id`` is not registered.
+    """
+
+    get_instrument(registry, asset_id)
+    return registry.classifications.get(asset_id, ClassificationHistory())
+
+
+def sector_as_of(registry: InstrumentRegistry, asset_id: str, timestamp: float) -> str | None:
+    """The sector this instrument was classified as at ``timestamp``.
+
+    The registry's answer to a historical question, and deliberately **not**
+    what portfolio attribution reads. A run's own attribution is frozen onto
+    :class:`~alphalab.analytics.attribution.TradeRecord` at fill time (ADR-0027
+    decision 5) and is never resolved back through a registry -- that is what
+    makes reclassification unable to rewrite a finished run's P&L. This answers
+    the different question of what the *reference data* said at an instant,
+    which is what a data-quality review or a restated report asks.
+
+    ``None`` when the instrument had no classification then, whether because it
+    had not been classified yet or because its classification had been
+    withdrawn.
+
+    Raises:
+        InstrumentInputError: If ``asset_id`` is not registered.
+    """
+
+    return classification_history(registry, asset_id).sector_at(timestamp)

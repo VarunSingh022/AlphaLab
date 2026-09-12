@@ -66,9 +66,12 @@ Deliberate limits
 -----------------
 A deployment here is a lifecycle fact, not an operation on a machine: it records
 that an environment should be running a strategy version. It starts no process,
-opens no connection, and reaches no venue -- AlphaLab has no transport to any
-venue (ADR-0012). The registry references artifacts and stores no bytes; there
-is no object store here.
+opens no connection, and reaches no venue. That is a statement about what a
+*deployment* is and is unchanged by v2.15 adding a venue transport
+(ADR-0012, ADR-0031): making a release active still records a fact and sends
+nothing. Artifact bytes are held from v2.15 by
+:mod:`alphalab.model_registry.artifact_store`; this package references artifacts
+and stores none of them itself.
 
 The lifecycle sits *above* :class:`~alphalab.runtime.execution_pipeline.ExecutionPipeline`
 and is not wired into it. A deployment names what should run; running it is the

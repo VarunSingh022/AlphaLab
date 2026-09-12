@@ -56,8 +56,6 @@ class DummyContextBuilder:
             risk_view=None,
             config=None,
             orders=None,
-            history=None,
-            universe=None,
         )
 
 

@@ -51,14 +51,23 @@ Two consequences, both stated rather than worked around:
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from types import MappingProxyType
 from uuid import UUID
 
 from alphalab.allocation.state import AllocationState
+from alphalab.instrument.record import InstrumentRecord
+from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar
+from alphalab.market.events import (
+    BarClosed,
+    MarketEvent,
+    QuoteReceived,
+    TickReceived,
+    TradeReceived,
+)
 from alphalab.market.quote import Quote
 from alphalab.market.state import MarketState
 from alphalab.market.tick import Tick
@@ -74,11 +83,13 @@ from alphalab.risk.margin import MarginStatus
 from alphalab.risk.state import RiskState
 
 __all__ = [
+    "HistoryView",
     "MarketView",
     "OrderShare",
     "OrderView",
     "PortfolioView",
     "RiskView",
+    "UniverseView",
     "order_shares_by_strategy",
 ]
 
@@ -408,3 +419,255 @@ class MarketView:
         """Assets the run has priced, in sorted order for determinism."""
 
         return tuple(sorted(self._prices))
+
+
+# ---------------------------------------------------------------------------
+# History
+# ---------------------------------------------------------------------------
+
+
+def _quote_of(event: MarketEvent) -> Quote | None:
+    """The quote this event carries, or ``None`` if it carries none."""
+
+    return event.quote if isinstance(event, QuoteReceived) else None
+
+
+def _bar_of(event: MarketEvent) -> Bar | None:
+    """The bar this event carries, or ``None`` if it carries none."""
+
+    return event.bar if isinstance(event, BarClosed) else None
+
+
+def _tick_of(event: MarketEvent) -> Tick | None:
+    """The trade print this event carries, or ``None`` if it carries none.
+
+    ``TickReceived`` and ``TradeReceived`` carry the same payload and both mean
+    a trade printed, so one accessor answers for both and a caller's ``limit``
+    bounds the combined result rather than each type separately.
+    """
+
+    return event.tick if isinstance(event, TickReceived | TradeReceived) else None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryView:
+    """What the run has already seen, bounded so a strategy cannot see ahead.
+
+    ADR-0026 deferred this field with a precise reason: it "requires a
+    clock-bounded accessor whose bound is enforced at construction, plus a
+    look-ahead regression suite". Both are here.
+
+    Look-ahead safety, twice over
+    -----------------------------
+    The guarantee rests on a structural fact first and a check second, and the
+    structural one is what makes it trustworthy:
+
+    * :attr:`~alphalab.market.state.MarketState.history` is an
+      :class:`~alphalab.common.append_log.AppendOnlyLog` of events that have
+      *already been published*. The context is assembled after publishing the
+      current event and before dispatching it, so a future event is not merely
+      filtered out -- it does not exist in the log yet. There is nothing to leak.
+    * Every accessor nevertheless refuses an event later than :attr:`as_of`. A
+      view is only as good as its weakest guarantee, and a filter that can be
+      tested is better than an invariant that can only be argued.
+
+    :attr:`as_of` is the **event's** timestamp, taken from the record being
+    dispatched, and never a wall clock. That is what makes a backtest and a live
+    session bound history identically, and it is the authoritative time semantic
+    in the context: ``clock`` stays the caller's (ADR-0026 decision 2), because
+    what needs to be right here is the look-ahead bound, not who owns a clock.
+
+    Cost, and where it falls
+    ------------------------
+    **Constructing this is O(1)** -- two references, no scan, no copy -- which is
+    what ADR-0026 decision 7 requires of a context, and a strategy that never
+    asks for history pays nothing at all.
+
+    Reading it costs what it returns. Each accessor walks the log *backwards*
+    and stops as soon as it has ``limit`` matches, so ``bars(asset, 20)`` is O(20)
+    in the common case rather than O(history). Asking without a limit walks the
+    whole log, and a strategy doing that on every event makes its own run
+    quadratic in its own length -- a real cost, stated here rather than hidden,
+    and avoided by passing a limit.
+
+    Nothing is indexed per asset. An index would be a second structure for the
+    market engine to keep true, paid for on every publish by every run, to speed
+    up a call many strategies never make.
+    """
+
+    _market: MarketState
+    #: The instant this view is bounded at: the timestamp of the event being
+    #: dispatched. Nothing at or before it is hidden; nothing after it is
+    #: reachable.
+    as_of: float
+
+    def _collect[T: Quote | Bar | Tick](
+        self, pick: Callable[[MarketEvent], T | None], asset_id: str, limit: int | None
+    ) -> tuple[T, ...]:
+        """Backwards over the log, collecting matches until ``limit`` is reached.
+
+        ``pick`` names both the event type and the payload to take from it, so
+        the walk stays one loop and each accessor stays typed in its own payload.
+
+        Returned oldest-first, because that is the order an indicator consumes.
+        The reversal is over what was collected, not over the log.
+        """
+
+        collected: list[T] = []
+        for event in reversed(self._market.history):
+            payload = pick(event)
+            if payload is None or payload.asset_id != asset_id:
+                continue
+            # The look-ahead bound. Belt-and-braces beside the structural fact
+            # that the log holds only already-published events -- see the class
+            # docstring.
+            if payload.timestamp > self.as_of:
+                continue
+            collected.append(payload)
+            if limit is not None and len(collected) >= limit:
+                break
+        collected.reverse()
+        return tuple(collected)
+
+    def quotes(self, asset_id: str, limit: int | None = None) -> tuple[Quote, ...]:
+        """Quotes seen for ``asset_id`` up to :attr:`as_of`, oldest first.
+
+        ``limit`` keeps the most recent ``limit`` of them, which is the shape an
+        indicator wants and the one that does not walk the whole run.
+        """
+
+        return self._collect(_quote_of, asset_id, limit)
+
+    def bars(self, asset_id: str, limit: int | None = None) -> tuple[Bar, ...]:
+        """Bars closed for ``asset_id`` up to :attr:`as_of`, oldest first."""
+
+        return self._collect(_bar_of, asset_id, limit)
+
+    def ticks(self, asset_id: str, limit: int | None = None) -> tuple[Tick, ...]:
+        """Trade prints seen for ``asset_id`` up to :attr:`as_of`, oldest first.
+
+        Covers both :class:`~alphalab.market.events.TickReceived` and
+        :class:`~alphalab.market.events.TradeReceived`, which carry the same
+        payload and both mean "a trade printed". One walk, not two, so the
+        ``limit`` bounds the whole result rather than each event type
+        separately.
+        """
+
+        return self._collect(_tick_of, asset_id, limit)
+
+    def __len__(self) -> int:
+        """How many events are visible at :attr:`as_of`.
+
+        Walks the log, and is here so a strategy can ask "has anything happened
+        yet" without asking for the events themselves.
+        """
+
+        return sum(1 for event in self._market.history if event.timestamp <= self.as_of)
+
+    def __bool__(self) -> bool:
+        return len(self) > 0
+
+
+# ---------------------------------------------------------------------------
+# Universe
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class UniverseView:
+    """The instruments this run may trade, as its registry declares them.
+
+    ADR-0026 deferred this field because it "requires deciding whether
+    membership is configuration, instrument-registry state, or a risk control. A
+    semantic decision, not a wiring one."
+
+    **The decision is the instrument registry**, and the reason is that the
+    alternatives would each invent an authority AlphaLab already has. ADR-0016
+    makes :class:`~alphalab.instrument.registry.InstrumentRegistry` the authority
+    on what an instrument *is*; it is already on
+    :attr:`~alphalab.runtime.execution_pipeline.ExecutionPipelineConfig.instruments`,
+    already read-only, and already the thing that decides whether an asset id
+    names a real instrument. A separate universe list would be a second place to
+    declare membership and a second thing to keep true, and a risk control would
+    make "what exists" depend on "what is currently permitted".
+
+    What an empty universe means
+    ----------------------------
+    ``instruments`` is optional and a run without one is fully supported. Such a
+    run's universe is **empty**, and :attr:`configured` says why: the registry is
+    absent, not the registry is empty. Substituting the assets the run happens to
+    have priced would answer a different question -- "what have I seen a price
+    for" is :attr:`~MarketView.assets`, and giving it this name would make two
+    concepts one word.
+
+    Cost
+    ----
+    Constructing this is O(1): it holds a reference to the registry the config
+    already carries and copies nothing. :meth:`__contains__`,
+    :meth:`instrument` and :meth:`sector` are keyed lookups.
+    """
+
+    _registry: InstrumentRegistry | None
+
+    @property
+    def configured(self) -> bool:
+        """Whether this run has an instrument registry at all.
+
+        Distinguishes "no universe was declared" from "the declared universe is
+        empty", which are different facts and would otherwise both read as zero
+        instruments.
+        """
+
+        return self._registry is not None
+
+    @property
+    def assets(self) -> tuple[str, ...]:
+        """Every registered ``asset_id``, in registration order."""
+
+        if self._registry is None:
+            return ()
+        return tuple(self._registry.instruments)
+
+    def __contains__(self, asset_id: object) -> bool:
+        """Whether ``asset_id`` names an instrument this run's registry declares."""
+
+        if self._registry is None or not isinstance(asset_id, str):
+            return False
+        return self._registry.record_for(asset_id) is not None
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.assets)
+
+    def __len__(self) -> int:
+        return 0 if self._registry is None else len(self._registry.instruments)
+
+    def __bool__(self) -> bool:
+        return len(self) > 0
+
+    def instrument(self, asset_id: str) -> InstrumentRecord | None:
+        """What ``asset_id`` is -- symbol, type, exchange, currency, sector.
+
+        ``None`` when unregistered, or when the run has no registry. The
+        registry's own
+        :meth:`~alphalab.instrument.registry.InstrumentRegistry.record_for`,
+        which answers ``None`` rather than raising, so a strategy asking about an
+        instrument it does not have is not an error.
+        """
+
+        return None if self._registry is None else self._registry.record_for(asset_id)
+
+    def sector(self, asset_id: str) -> str | None:
+        """The sector ``asset_id`` is currently classified as, or ``None``.
+
+        The security master reaching the strategy boundary. ``None`` covers
+        unregistered, unclassified and no-registry alike -- the v2.6 "absent, not
+        fabricated" rule, and the same absence
+        :attr:`~alphalab.analytics.attribution.TradeRecord.sector_id` records.
+
+        This is the **present** classification, which is the only one a strategy
+        deciding what to do now can act on. What a finished run *recorded* is
+        frozen per fill and is not reachable from here; see ADR-0027 decision 5.
+        """
+
+        record = self.instrument(asset_id)
+        return None if record is None else record.sector

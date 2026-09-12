@@ -28,6 +28,7 @@ there to catch a return to quadratic scaling, not to police constant factors.
 """
 
 import time
+from collections.abc import Callable
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
@@ -43,6 +44,27 @@ from alphalab.model_registry import (
     promote,
     register_model,
 )
+
+
+def _best_of(measure: Callable[[int], float], count: int, repeats: int = 3) -> float:
+    """The fastest of ``repeats`` measurements of ``measure(count)``.
+
+    Every timing assertion below compares a small run against a large one, and a
+    single sample of either can be inflated by a garbage collection or by the
+    scheduler taking the core away -- neither of which says anything about
+    complexity. Taking the minimum is the standard answer (it is what ``timeit``
+    documents): noise only ever makes a measurement *slower*, so the fastest
+    sample is the closest one to the work actually being measured.
+
+    This changes no threshold and weakens nothing. A quadratic implementation
+    costs 14x across the two doublings these tests use and still fails the 8x
+    bar decisively; what it removes is the linear implementation failing
+    intermittently, which was observed for ``_log_distinct_metrics`` -- whose
+    small sample is around four milliseconds, small enough for one collection to
+    double it.
+    """
+
+    return min(measure(count) for _ in range(repeats))
 
 
 def _log_metrics(count: int) -> float:
@@ -156,8 +178,8 @@ def test_a_write_is_invisible_to_the_value_before_it() -> None:
 
 
 def test_logging_metrics_stays_linear_in_the_history_already_logged() -> None:
-    small = _log_metrics(2_000)
-    large = _log_metrics(8_000)
+    small = _best_of(_log_metrics, 2_000)
+    large = _best_of(_log_metrics, 8_000)
 
     assert large < small * 8.0, (
         f"Logging 8,000 values took {large:.3f}s against {small:.3f}s for 2,000; "
@@ -166,8 +188,8 @@ def test_logging_metrics_stays_linear_in_the_history_already_logged() -> None:
 
 
 def test_starting_runs_stays_linear_in_the_runs_already_started() -> None:
-    small = _start_runs(2_000)
-    large = _start_runs(8_000)
+    small = _best_of(_start_runs, 2_000)
+    large = _best_of(_start_runs, 8_000)
 
     assert large < small * 8.0, (
         f"Starting 8,000 runs took {large:.3f}s against {small:.3f}s for 2,000; "
@@ -176,8 +198,8 @@ def test_starting_runs_stays_linear_in_the_runs_already_started() -> None:
 
 
 def test_registering_versions_stays_linear_in_the_versions_already_registered() -> None:
-    small = _register_versions(2_000)
-    large = _register_versions(8_000)
+    small = _best_of(_register_versions, 2_000)
+    large = _best_of(_register_versions, 8_000)
 
     assert large < small * 8.0, (
         f"Registering 8,000 versions took {large:.3f}s against {small:.3f}s for 2,000; "
@@ -191,8 +213,8 @@ def test_registering_names_stays_linear_in_the_names_already_registered() -> Non
     This is the one an early v2.4 draft regressed, by validating every entry of
     the name mapping on every write.
     """
-    small = _register_names(2_000)
-    large = _register_names(8_000)
+    small = _best_of(_register_names, 2_000)
+    large = _best_of(_register_names, 8_000)
 
     assert large < small * 8.0, (
         f"Registering 8,000 model names took {large:.3f}s against {small:.3f}s for "
@@ -201,8 +223,8 @@ def test_registering_names_stays_linear_in_the_names_already_registered() -> Non
 
 
 def test_promotion_stays_linear_in_the_versions_and_transitions_before_it() -> None:
-    small = _promote(1_000)
-    large = _promote(4_000)
+    small = _best_of(_promote, 1_000)
+    large = _best_of(_promote, 4_000)
 
     assert large < small * 8.0, (
         f"Promoting 4,000 versions took {large:.3f}s against {small:.3f}s for 1,000; "
@@ -211,8 +233,8 @@ def test_promotion_stays_linear_in_the_versions_and_transitions_before_it() -> N
 
 
 def test_deployment_stays_linear_in_the_ledger_before_it() -> None:
-    small = _deploy(1_000)
-    large = _deploy(4_000)
+    small = _best_of(_deploy, 1_000)
+    large = _best_of(_deploy, 4_000)
 
     assert large < small * 8.0, (
         f"Deploying 4,000 releases took {large:.3f}s against {small:.3f}s for 1,000; "
@@ -237,8 +259,8 @@ def test_logging_distinct_metrics_stays_linear_in_the_names_already_logged() -> 
     a draft that made it a dict, to buy back a constant factor on the read side,
     scaled at 3.8x per doubling here.
     """
-    small = _log_distinct_metrics(1_000)
-    large = _log_distinct_metrics(4_000)
+    small = _best_of(_log_distinct_metrics, 1_000)
+    large = _best_of(_log_distinct_metrics, 4_000)
 
     assert large < small * 8.0, (
         f"Logging 4,000 distinct metric names took {large:.3f}s against {small:.3f}s "

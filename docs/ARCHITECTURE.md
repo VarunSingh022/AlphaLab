@@ -288,7 +288,7 @@ Two pre-trade gates: an order is never sent on a connection that is not
 again. The client order id is *derived* from the OMS order id, so a retry after
 a lost response addresses the same order rather than creating a second one.
 
-### What "live" does and does not mean here
+### What "live" does and does not mean here (updated v2.15)
 
 | | Status |
 | --- | --- |
@@ -296,14 +296,30 @@ a lost response addresses the same order rather than creating a second one.
 | Canonical broker vocabulary and `BrokerProtocol` | **Implemented** |
 | `PaperBroker` | **Implemented** — a simulation, and the reference adapter |
 | Routing, fill return, reconciliation, pre-trade gates | **Implemented and tested** |
-| A live session driving a real venue | **Not implemented.** No connectivity to any real venue exists in this repository |
+| **A transport that reaches a venue** | **Implemented (v2.15).** `alphalab.broker.transport.HttpVenueTransport` — authenticated JSON-over-HTTP with HMAC request signing, on the standard library |
+| **A `BrokerProtocol` adapter over it** | **Implemented (v2.15).** `alphalab.broker.venue.RestVenueBroker` — submit, acknowledge, reject, cancel, replace, poll fills, reconcile, recover |
+| **A streaming market-data source** | **Implemented (v2.15).** `alphalab.market.stream.StreamingSource` over `alphalab.marketdata.websocket`, an RFC 6455 client |
+| Verification against a commercial venue | **Not done, and cannot be here.** This environment has no network egress and holds no vendor credentials |
 | Vendor adapters (Alpaca, IB, Zerodha, Binance, Databento, NSE, Polygon, Yahoo) | **Stubs** — canned responses or `NotImplementedError`. None is wired to an endpoint |
+| A supervised live *process* | **Not implemented.** A live driver over `RunEngine` is what ADR-0030 anticipates; assembling one into a managed process is v2.16 |
 
-**AlphaLab does not support live trading.** It supports the adapter contract a
-live venue would be reached through. An adapter and its transport must come
-from outside this repository.
+**What changed in v2.15, precisely.** AlphaLab now contains a genuine venue
+transport and a genuine streaming client, and both are exercised end to end over
+real sockets against local servers that speak the protocols — the venue server
+verifies the signature, the timestamp window and the idempotency key; the
+market-data server computes the WebSocket accept token and sends real frames.
+An order produced by the execution path reaches a venue, and a fill it reports
+becomes a canonical `Fill` through `apply_execution_report`, the same function a
+simulated fill takes.
 
-See ADR-0012.
+**What is still true.** The transports are **written to protocol, not verified
+against a vendor**, and both say so in their own docstrings. Pointing one at a
+named venue additionally requires that venue's request shapes, which differ per
+venue and belong to an adapter. Nothing here makes AlphaLab a turnkey live
+trading system, and the honest summary is that the *connectivity* exists and the
+*vendor integration* does not.
+
+See ADR-0012 and ADR-0031.
 
 ## The model and strategy lifecycle: `alphalab.lifecycle` (v2.4)
 
@@ -378,13 +394,36 @@ deployment that happened.
 | Failures reported | All of them, in policy order — never just the first |
 | What a pass claims | The stated thresholds were met. **Not** statistical significance, out-of-sample validity, or a multiple-testing correction |
 
-### Artifacts
+### Artifacts (updated v2.15)
 
-`ArtifactRef` records a location, media type, checksum and size.
-**AlphaLab never reads, writes or hashes those bytes**; there is no object store
-here. `ModelVersion.__serializable__` projects a version to metadata plus that
+`ArtifactRef` records a location, media type, checksum and size, and
+`ModelVersion.__serializable__` projects a version to metadata plus that
 reference, so a registry snapshot is metadata and references by construction
 rather than a stringified model object.
+
+Until v2.15 the sentence here read "**AlphaLab never reads, writes or hashes
+those bytes**; there is no object store here", and the `checksum` field was a
+place for a number nobody computed.
+`alphalab.model_registry.artifact_store` is the store that was missing:
+
+```
+bytes -> ArtifactStore.put -> ArtifactRef -> ArtifactStore.get -> verified bytes
+```
+
+**Identity is the content.** An artifact is addressed by the SHA-256 of its
+bytes, so storing identical bytes twice is one artifact, two environments that
+never shared a database agree on the identity, and a reference cannot name bytes
+that hash to something else — verification is a tautology the store checks
+rather than a claim it trusts. The URI is `alphalab-artifact:sha256:<hex>` and
+never a filesystem path, so a reference written into a registry snapshot on one
+machine says nothing about where that machine keeps its files.
+
+`FileArtifactStore` is the real backend and `MemoryArtifactStore` the
+deterministic double a caller constructs **by name** — the shape
+`persistence.run_store` and `marketdata.transport` established. It is **not** a
+second persistence owner: `RunStateStore` owns run state addressed by
+`(run_id, sequence)` and holding a `str`; this owns artifact bytes addressed by
+content. Neither can answer the other's question. See ADR-0031.
 
 ### What a deployment is not
 
@@ -461,6 +500,27 @@ API, no second provider.
 
 It is a **history** source: a finite, closed range of bars, re-iterable, with
 deterministic record ids. No polling, no subscription, no reconnect.
+
+**v2.15 adds the other one.** `alphalab.market.stream.StreamingSource` is the
+continuous counterpart -- it connects, subscribes, and yields records as a venue
+pushes them, for as long as the caller reads:
+
+```
+websocket frame     marketdata.websocket.WebSocketConnection  (RFC 6455)
+  -> JSON message   market.stream
+  -> wire record    data.feed.Quote / Trade / Bar     (float, provider symbol)
+  -> normalization  market.normalization              (Decimal, asset_id)
+  -> MarketRecord   market.record
+  -> StreamingSource                                  (a MarketDataSource)
+  -> RunEngine.advance                                the canonical run step
+```
+
+Every stage but the first two already existed. That is the point: a streaming
+source that normalized differently from a historical one would make live and
+backtest results incomparable for a reason that has nothing to do with the
+market. `TradingSession.run` drives it with the loop it drives a stored dataset
+with, because `MarketDataSource.records()` already returns an iterator and a
+generator pulling a socket satisfies it unchanged.
 
 ### Ordering
 
@@ -850,6 +910,24 @@ fixed, and each has a regression test pinning it:
 - **Multi-currency valuation is not implemented.** `PortfolioValuation` and
   `NAVCalculator` value the base currency only; FX rates would be needed
   otherwise.
+- **Streaming market data arrived in v2.15.** `alphalab.market.stream.StreamingSource`
+  is a `MarketDataSource` over a real WebSocket connection, with subscription,
+  sequence deduplication, gap counting, heartbeat-based liveness detection,
+  reconnect-and-resubscribe and graceful shutdown. It declares `UNORDERED`,
+  because a venue can reorder and ADR-0014's answer to that is unchanged: a run
+  over it sets `RunConfig.ordering` to `UNORDERED` and a regressing record is
+  skipped and recorded rather than marking the portfolio backwards. See
+  ADR-0031.
+- **Artifact bytes are held from v2.15.** See the Artifacts section above;
+  `ArtifactRef.checksum` is now computed, and a changed artifact is detectable.
+- **Classification carries provenance from v2.15.** `classify_instrument`
+  records a `source` and an `as_of`, and every act is kept in an append-only
+  `ClassificationHistory`, so a reclassification is auditable rather than
+  silent. `alphalab.instrument.snapshot` makes that trail durable. See ADR-0031.
+- **The strategy context is complete from v2.15.** `history` and `universe`,
+  deferred by ADR-0026, are populated: history is bounded at the dispatched
+  event's timestamp and universe membership is the instrument registry. See
+  ADR-0031.
 - **Sector attribution is available from v2.11, and still says so when it is
   not.** `classify_instrument` writes `InstrumentRecord.sector` without touching
   the identity key, and the pipeline reads it once per fill onto

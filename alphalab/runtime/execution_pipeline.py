@@ -77,11 +77,13 @@ from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.state import RiskState
 from alphalab.runtime.context_views import (
+    HistoryView,
     MarketView,
     OrderShare,
     OrderView,
     PortfolioView,
     RiskView,
+    UniverseView,
     order_shares_by_strategy,
 )
 from alphalab.runtime.exceptions import RuntimeValidationError
@@ -356,15 +358,22 @@ def _populate_context(
     market: MarketState,
     market_prices: Mapping[str, Decimal],
     shares: Mapping[str, tuple[OrderShare, ...]],
+    instruments: InstrumentRegistry | None,
+    as_of: float,
 ) -> ContextFactory:
     """Wrap a caller's factory so the pipeline owns what only it can know.
 
     The caller's :data:`ContextFactory` signature is unchanged and every
-    existing factory keeps working: this calls it, then overlays the four fields
+    existing factory keeps working: this calls it, then overlays the six fields
     the pipeline is authoritative for. ``clock``, ``logger`` and ``config`` are
     passed through exactly as supplied -- which is what keeps
     :mod:`alphalab.reinforcement_learning`'s ``_PendingDecision`` channel, which
     rides on ``config``, working untouched.
+
+    ``history`` and ``universe`` joined the overlay in v2.15, completing the
+    boundary ADR-0026 deferred them from. Both are references to state already in
+    scope -- the market engine's event log and the config's registry -- so
+    neither changes what this function costs.
 
     **Pipeline-owned fields always win.** A caller that supplies a ``portfolio``
     has it replaced rather than merged, because a caller-installable portfolio
@@ -386,6 +395,8 @@ def _populate_context(
     portfolio_view = PortfolioView(portfolio)
     risk_view = RiskView(risk)
     market_view = MarketView(market, market_prices)
+    history_view = HistoryView(market, as_of)
+    universe_view = UniverseView(instruments)
 
     def populate(strategy_id: str) -> StrategyContext:
         supplied = context_factory(strategy_id)
@@ -404,6 +415,8 @@ def _populate_context(
             orders=OrderView(shares.get(strategy_id, ())),
             risk_view=risk_view,
             market=market_view,
+            history=history_view,
+            universe=universe_view,
         )
 
     return populate
@@ -614,6 +627,11 @@ class ExecutionPipeline:
             market=state.market,
             market_prices=market_prices,
             shares=order_shares_by_strategy(state.oms, state.allocation),
+            instruments=state.config.instruments,
+            # The look-ahead bound: this event's own timestamp, never a wall
+            # clock. A strategy sees everything up to and including the event it
+            # is being dispatched, and nothing after it.
+            as_of=event.timestamp,
         )
         strategy, intents = StrategyEngine.process_event(
             state.strategy, event, populated, event.timestamp

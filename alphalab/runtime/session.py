@@ -49,15 +49,24 @@ simulated, expressed by
 What is real, and what is a contract
 ------------------------------------
 
-Backtest, replay and paper run end to end today. **Live does not**, and this
-module does not pretend otherwise: a live session produces working orders and
-stops, because AlphaLab contains no connectivity to any real venue.
-:mod:`alphalab.runtime.broker_routing` implements and tests both directions of
-the broker mapping, and :class:`~alphalab.broker.paper.PaperBroker` is the only
-adapter that exists -- a simulation. Driving a real venue means supplying an
-adapter, and the transport for it, from outside this repository. Under ADR-0030
-that is a *third driver* alongside this one and the backtest's, not a change to
-the runtime it would drive.
+Backtest, replay and paper run end to end today. **A live session driven by
+this module still produces working orders and stops** -- it reads a source and
+advances the run, and routing an accepted order is the caller's next step, not
+something this loop does.
+
+What changed in v2.15 is what that caller now has to route *with*. Until v2.14
+the answer was "nothing in this repository":
+:class:`~alphalab.broker.paper.PaperBroker` was the only adapter and is a
+simulation. :class:`~alphalab.broker.venue.RestVenueBroker` over
+:class:`~alphalab.broker.transport.HttpVenueTransport` is a real one, and
+:mod:`alphalab.runtime.broker_routing` carries orders out to it and fills back
+through the same functions it always did.
+
+Two things remain true. The transport is written to protocol and **has not been
+verified against any commercial venue** (see its docstring), and a *live driver*
+-- a loop that routes working orders and applies returning executions as it goes
+-- is under ADR-0030 a third driver alongside this one and the backtest's, and
+is not this module. See ADR-0031.
 
 Stale market data
 -----------------

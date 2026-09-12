@@ -33,11 +33,13 @@ from alphalab.market.quote import Quote
 from alphalab.market.record import MarketRecord
 from alphalab.persistence import deserialize, serialize
 from alphalab.runtime.context_views import (
+    HistoryView,
     MarketView,
     OrderShare,
     OrderView,
     PortfolioView,
     RiskView,
+    UniverseView,
     order_shares_by_strategy,
 )
 from alphalab.runtime.exceptions import RuntimeValidationError
@@ -50,7 +52,7 @@ from alphalab.runtime.snapshot import RuntimeObjects
 from alphalab.runtime.snapshot import capture as capture_pipeline
 from alphalab.runtime.snapshot import from_primitives as pipeline_from_primitives
 from alphalab.runtime.snapshot import restore as restore_pipeline
-from alphalab.strategy.context import StrategyContext
+from alphalab.strategy.context import NoHistory, NoUniverse, StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
@@ -376,8 +378,6 @@ def _placeholder_factory(strategy_id: str) -> StrategyContext:
         risk_view=object(),
         config=_CONFIG,
         orders=object(),
-        history=object(),
-        universe=object(),
     )
 
 
@@ -421,12 +421,29 @@ def test_a_caller_supplied_portfolio_cannot_win() -> None:
     assert isinstance(_pf(watcher.last), PortfolioView)
 
 
-def test_deferred_fields_keep_the_callers_placeholder_and_are_honestly_empty() -> None:
+def test_the_formerly_deferred_fields_are_now_supplied_by_the_pipeline() -> None:
+    """ADR-0026 deferred `history` and `universe` and this test pinned the
+    deferral: both were `object()`, supplied by the caller and meaning nothing.
+    v2.15 closes it, so the assertion now names what the pipeline overlays."""
+
     watcher = Observer(MOM)
     _drive((MOM, watcher), factory=_placeholder_factory)
 
-    assert type(watcher.last.history) is object, "history is deferred, and says so"
-    assert type(watcher.last.universe) is object, "universe is deferred, and says so"
+    assert isinstance(watcher.last.history, HistoryView), "history is populated"
+    assert isinstance(watcher.last.universe, UniverseView), "universe is populated"
+    assert type(watcher.last.history) is not object
+    assert type(watcher.last.universe) is not object
+
+
+def test_a_context_built_by_hand_declares_that_it_supplies_neither() -> None:
+    """The default is a stated absence, not an empty view pretending to be real."""
+
+    context = _placeholder_factory(MOM)
+
+    assert isinstance(context.history, NoHistory)
+    assert isinstance(context.universe, NoUniverse)
+    assert context.history.available is False, "no history, not an empty history"
+    assert context.universe.configured is False
 
 
 def test_the_reinforcement_learning_consumer_still_reaches_its_agent() -> None:

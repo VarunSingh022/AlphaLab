@@ -78,18 +78,27 @@ class ModelStage(Enum):
 class ArtifactRef:
     """A reference to the bytes a model version was trained into.
 
-    AlphaLab stores no artifact bytes and implements no object store. A registry
-    entry says *where* an artifact is and *what it should hash to*; fetching it
-    is the caller's job, and so is putting it there. Recording the reference is
-    still worth doing: it is what lets a deployment name an exact artifact, and
-    what lets a later reader detect that the file behind a version changed.
+    A registry entry says *where* an artifact is and *what it should hash to*.
+    Through v2.14 that was all it could say -- "AlphaLab stores no artifact bytes
+    and implements no object store", so the ``checksum`` field was a place for a
+    number nobody computed and the promise below could not be kept.
+
+    :mod:`alphalab.model_registry.artifact_store` keeps it. ``put`` holds the
+    bytes and **derives every field of this reference from them**; ``get``
+    verifies the digest before returning anything. A reference this store
+    produced therefore names an exact artifact and does let a later reader detect
+    that the file behind a version changed. A reference from anywhere else is
+    still just a record -- fetching those bytes remains the caller's job, and
+    putting them there does too. See ADR-0031.
 
     Attributes:
         uri: Location of the artifact, opaque to AlphaLab -- a path, an
             ``s3://`` URL, a content-addressed id.
         media_type: How the bytes are encoded, e.g. ``"application/json"``.
-        checksum: Digest of the artifact's bytes, if the producer computed one.
-            AlphaLab never computes it, because it never reads the bytes.
+        checksum: Digest of the artifact's bytes.
+            :class:`~alphalab.model_registry.artifact_store.ArtifactStore`
+            computes it from the bytes it stores; for a reference built by hand
+            it is whatever the producer supplied, and may be empty.
         size_bytes: Artifact size, if known.
     """
 

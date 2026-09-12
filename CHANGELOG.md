@@ -8,6 +8,256 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.15.0] - 2026-09-13
+
+**Real Execution, Streaming Market Data, Artifact Storage, and the Two
+Completed Boundaries.**
+
+Five capabilities had a contract and nothing behind it. Each of them is now
+implemented, and each landed on a boundary that already existed rather than
+beside one.
+
+The repository said so itself, in five places:
+
+* `ARCHITECTURE.md`: "**AlphaLab does not support live trading.** It supports
+  the adapter contract a live venue would be reached through." Routing,
+  reconciliation, pre-trade gates and idempotent submission were all real and
+  tested. There was no way to reach a venue.
+* `market/provider.py`: "It is a **history** source ... It does not poll,
+  subscribe, reconnect or stream." `binanceClient.subscribe` was a documented
+  no-op. There was no socket anywhere on the canonical path.
+* `ArtifactRef`: "**AlphaLab never reads, writes or hashes those bytes**; there
+  is no object store here." The `checksum` field was a place for a number nobody
+  computed, on a type whose docstring promised it "lets a later reader detect
+  that the file behind a version changed".
+* `classify_instrument`: a reclassification happened "silently, with no refusal
+  and no event", so the registry could say *what* an instrument was classified
+  as and never *who said so, from what source, or as of when*.
+* `HistoryAccessorProtocol` and `UniverseProtocol` declared **no methods at
+  all**, and every construction site in the repository passed `object()`.
+
+See **ADR-0031**.
+
+## Added
+
+- **One TLS policy, for every outbound connection.** `alphalab.common.tls` —
+  `MINIMUM_TLS_VERSION` and `tls_context()`. Three call sites reach somebody
+  else's server over TLS (the WebSocket feed, the venue transport, the provider
+  REST client) and all three share this definition, because a security floor
+  written down three times is a floor that can drift.
+
+  It exists because `ssl.create_default_context()` **does not pin a protocol
+  floor**: it sets neither `OP_NO_TLSv1` nor `OP_NO_TLSv1_1`, and
+  `minimum_version` comes back as whatever the host's OpenSSL build and
+  `openssl.cnf` impose. On one machine that is TLS 1.2; on a host with a
+  permissive crypto policy the same code negotiates TLS 1.0, which RFC 8996
+  deprecated. A guarantee that holds because of how a machine happens to be
+  configured is not a guarantee the code has — the same reason
+  `UnresolvedIdentity` is refused at the source boundary rather than trusted to
+  be configured correctly.
+
+  Certificate verification (`CERT_REQUIRED`) and hostname checking
+  (`check_hostname=True`) are `create_default_context`'s and are preserved
+  exactly. The floor is TLS 1.2 rather than 1.3 because 1.3 is not yet universal
+  at trading venues, and refusing a 1.2-only venue would be a functional break
+  rather than a security gain. No ceiling is set, so 1.3 is used whenever the
+  peer offers it. There is deliberately **no parameter that lowers the floor**
+  and no retry-on-older-protocol fallback, which is the downgrade an attacker
+  would try to provoke.
+
+  It lives in `common` because it belongs to neither `broker` nor `marketdata`,
+  and importing it across would have added a `broker → marketdata` dependency
+  for a security constant. The package graph is unchanged: `common → []`,
+  `broker → [common, core]`, `marketdata → [common, data]`, no cycles.
+- **A venue transport.** `alphalab.broker.transport` — `VenueTransport`,
+  `HttpVenueTransport` (authenticated JSON-over-HTTP with HMAC-SHA256 request
+  signing, standard library only), `VenueResponse` and `VenueCredentials`.
+  Deliberately a *separate* seam from `marketdata.transport`, which is
+  unauthenticated and GET-only: order submission needs a body, a method that is
+  not GET, a signature, and the status code. **The status code is the
+  load-bearing part** — a venue refusing an order (`4xx`) and a venue being
+  unreachable (a socket error) are different facts, and only the absence of an
+  answer raises. An `https://` venue is reached with an **explicit** TLS
+  context, so an order submission never inherits its security properties from a
+  machine's configuration.
+- **A real broker adapter.** `alphalab.broker.venue.RestVenueBroker`, a full
+  `BrokerProtocol`: submit, acknowledge, reject, cancel, replace, order status,
+  fill polling, account, positions, connect/heartbeat/disconnect, and recovery
+  by reading an order back after a lost response. `runtime.broker_routing`
+  routes to it without knowing which adapter it has, and its fills reach the
+  portfolio through `apply_execution_report` — the function a simulated fill
+  takes.
+- **A WebSocket client.** `alphalab.marketdata.websocket` — RFC 6455 over the
+  standard library, with `wss://` connections made through the shared TLS
+  policy: opening handshake with the accept token **verified** rather
+  than merely required, all three payload-length forms, client-side masking,
+  continuation reassembly, ping/pong, and the closing handshake.
+- **A streaming market-data source.** `alphalab.market.stream.StreamingSource`,
+  which **is a `MarketDataSource` and nothing more** — `records()` already
+  returned an iterator, so a generator pulling a live socket satisfies it with
+  no new abstraction and `TradingSession.run` needed no change. Connection,
+  subscription, incremental events, per-symbol sequence deduplication, gap
+  counting, malformed-message handling, staleness, heartbeat-based liveness
+  detection, reconnect-and-resubscribe, bounded frame buffering and graceful
+  shutdown.
+- **Artifact storage.** `alphalab.model_registry.artifact_store` —
+  `ArtifactStore`, `FileArtifactStore` (atomic writes, sharded, digest verified
+  before anything is returned) and `MemoryArtifactStore` (the deterministic
+  double, constructed **by name**). **Identity is the content**: an artifact is
+  addressed by the SHA-256 of its bytes, so storing identical bytes twice is one
+  artifact, two environments agree with no shared database, and a reference
+  cannot name bytes that hash to something else. It produces
+  `model_registry`'s own `ArtifactRef` — no second reference type.
+- **Classification provenance.** `alphalab.instrument.classification` —
+  `SectorClassification` (label, `source`, `as_of`) and an append-only
+  `ClassificationHistory` per instrument. `classify_instrument` and
+  `classify_instruments` gained optional `source` and `as_of`;
+  `classification_of`, `classification_history` and `sector_as_of` read them.
+  **Append-only, because overwriting is mutable historical attribution** — a
+  correction is a new fact, and the entry it corrects stays readable.
+- **A durable security master.** `alphalab.instrument.snapshot` —
+  `capture` / `restore` / `from_primitives` for the registry. This supersedes
+  ADR-0027's "persisting the `InstrumentRegistry`" non-goal, and **only** that
+  entry: the premise changed, because the classification history is a record of
+  a *sequence of acts* and is not re-derivable from a declaration file.
+  `asset_id` is re-derived on restore, never read, so a snapshot cannot assert
+  an identity.
+- **`StrategyContext.history`.** `runtime.context_views.HistoryView` — a
+  clock-bounded accessor over the market engine's event log, with `as_of` taken
+  from the **event** and never a wall clock. Look-ahead safety rests on a
+  structural fact (the log holds only already-published events) *and* an
+  enforced filter. Constructing it is O(1); reading walks backwards and stops at
+  `limit`.
+- **`StrategyContext.universe`.** `runtime.context_views.UniverseView` —
+  membership is the **instrument registry**, answering ADR-0026's deferred
+  semantic question. A run without one has an empty universe and `configured`
+  says why; the priced assets are a different question and keep their own name.
+  `universe.sector()` is where the security master reaches the strategy.
+
+## Changed
+
+- `_populate_context` overlays **six** fields instead of four. Both additions
+  are references to state already in scope, measured at nothing across the
+  execution, backtesting and runtime benchmarks against v2.14.
+- `StrategyContext.history` and `.universe` gained defaults (`NoHistory`,
+  `NoUniverse`), so a caller building a context by hand omits them rather than
+  fabricating a placeholder — and gets a value that **says** it supplies nothing
+  instead of one that quietly looks empty. Every construction site in the
+  repository was updated.
+- `HistoryAccessorProtocol` and `UniverseProtocol` declare real methods.
+- **`pyproject.toml`, `alphalab.common.version` and the metadata test all said
+  `2.13.0`**, and are now `2.15.0`. v2.14.0 shipped without a version bump; this
+  corrects it rather than carrying it forward.
+
+## Fixed
+
+- **`HttpTransport.get` inherited its TLS floor from the host.** The provider
+  REST client behind `ProviderHistorySource` called `urllib.request.urlopen`
+  without an explicit `context=`, so market-data fetches took whatever minimum
+  protocol the machine's OpenSSL allowed — pre-existing since v1.39.0. It now
+  uses `alphalab.common.tls`. No static analyser could have found this: urllib
+  builds the context internally, so there is no `SSLContext` construction in
+  AlphaLab's dataflow to flag. The repo-wide regression guard found it.
+- `StreamingSource` caught `TypeError`/`ValueError` but not `KeyError`, so a
+  venue message *missing* a field would propagate out of the generator and kill
+  a live session holding positions. Now counted as malformed like every other
+  unusable message.
+- Recording provenance initially made `classify_instrument(reg, id, None)` on an
+  *unclassified* instrument stop being a no-op, putting a "sector withdrawn"
+  entry in the audit trail of an instrument that never had one. The v2.11 no-op
+  is preserved explicitly.
+- `test_lifecycle_registry_complexity.py`'s seven timing assertions took a
+  single sample each, and the smallest was ~4ms — small enough for one garbage
+  collection to tip its ratio past the bar. They now measure best-of-3. **No
+  threshold changed**: a deliberately quadratic implementation still measures
+  13.9x against the 8.0x bar. Measured directly, the path under test is flat at
+  ~4µs/item from 1,000 to 32,000 names.
+
+## Explicitly not in this release
+
+- Verification against any commercial venue. This environment has no network
+  egress and holds no vendor credentials; both transports say so in their own
+  docstrings. The protocol is proven against local servers that verify
+  signatures, timestamp windows, idempotency keys and WebSocket accept tokens.
+  **The connectivity exists; the vendor integration does not.**
+- Any named vendor's request shapes. The `alphalab.integrations` clients
+  (Alpaca, IB, Zerodha) remain canned-response stubs.
+- Allocation visibility in the strategy context — ADR-0026 refuses it
+  permanently, and adding it to complete a checklist would duplicate
+  `AllocationEngine`'s authority.
+- Overlaying `StrategyContext.clock`, which ADR-0026 recorded as the caller's.
+- Methods on `MarketViewProtocol`, `PortfolioSnapshotProtocol`,
+  `RiskViewProtocol` or `OrderFacadeProtocol`. They remain method-less as v2.10
+  left them; the two that were *blocking a capability* are the two that changed.
+- Removal of the deprecated `alphalab.production` and legacy `persistence`
+  modules. Those are v3.0's.
+- A supervised live *process*. A live driver over `RunEngine` is what ADR-0030
+  anticipates; assembling one is not this release.
+
+## Verification
+
+`ruff check`, `ruff format --check`, `mypy .` (987 files, strict) and
+`python -m build` all clean. **3,580 tests pass** against v2.14.0's 3,335,
+stable over consecutive full-suite runs. All 13 examples run. Execution,
+backtesting and runtime benchmarks are within run-to-run noise of v2.14.0.
+
+35 of those tests are TLS regression guards
+(`tests/regression/test_websocket_tls_policy.py`,
+`tests/regression/test_venue_transport_tls_policy.py`), including two repo-wide
+AST checks — every `SSLContext` must pin a `minimum_version`, and every
+`urlopen` must pass an explicit `context`. Each guard was verified to **fail
+when its fix is removed**, and the load-bearing ones monkeypatch the *ambient*
+default to something weak and assert the floor holds anyway, which is what
+distinguishes a real fix from one that merely looks right on a well-configured
+machine.
+
+---
+
+# [2.14.0] - 2026-09-12
+
+**Run Runtime Unification.**
+
+*This entry was reconstructed in v2.15 from the v2.14.0 tag, ADR-0030 and the
+release diff. v2.14.0 shipped without a changelog entry and without a version
+bump — both are recorded here rather than left as a gap in the history.*
+
+The run layer was implemented twice. `TradingSession.resume` and
+`BacktestEngine.resume` were character-identical, and two owners of one
+determinism contract is a contract that can drift. See **ADR-0030**.
+
+## Added
+
+- **`alphalab.runtime.run`** — `RunEngine` over `RunState`, the canonical owner
+  of a record-driven run: the cursor, what it declined to act on, what each
+  record produced, and the identifier scope a stopped run continues in.
+  `RunConfig`, `RunStep` and `SkippedRecord` come with it.
+- **`alphalab.runtime.run_snapshot`** — `RUN_SNAPSHOT_SCHEMA = 1`, `RunSnapshot`,
+  `RunObjects` and the `capture` / `restore` / `from_primitives` trio, replacing
+  the two per-driver snapshot modules.
+
+## Changed
+
+- A **driver** is now anything that decides which record comes next and what
+  clock reading judges it. `TradingSession`, `BacktestEngine` and
+  `ReplayBacktest` are the three, and they hold no run state of their own.
+- `RunState.source_id` gives a backtest's dataset identity a home on the
+  captured state, which it previously lacked.
+
+## Removed
+
+- `SessionState`, `SessionConfig`, `BacktestState`, `BacktestConfig` and
+  `BacktestStep`; `runtime.session_snapshot`, `backtesting.snapshot` and
+  `backtesting.config`; `SESSION_SNAPSHOT_SCHEMA` and
+  `BACKTEST_SNAPSHOT_SCHEMA`.
+
+## Deprecated
+
+- **`alphalab.production`** — removed in v3.0. It names itself after a runtime
+  it does not run and records a durability it does not provide; measured at
+  v2.13 it had zero production importers.
+
+---
+
 # [2.13.0] - 2026-09-12
 
 **Durable Run State + the Run-State Store.**

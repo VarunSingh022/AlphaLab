@@ -26,13 +26,21 @@ model, no live-only fill model, and no live-only portfolio accounting.
 What is implemented, and what is not
 ------------------------------------
 
-Implemented and tested here: the mapping in both directions, the pre-trade
-gates, and idempotent submission. Not implemented anywhere in AlphaLab: a
-transport to any real venue. There is no vendor connectivity in this
-repository, so "live" means this contract driven by an adapter someone else
-supplies -- :class:`~alphalab.broker.paper.PaperBroker` is the only adapter
-that exists, and it is a simulation. See ``docs/ARCHITECTURE.md`` for the
-distinction between implemented, adapter-only, and future work.
+Implemented and tested here, and unchanged since v2.3: the mapping in both
+directions, the pre-trade gates, and idempotent submission.
+
+Until v2.14 this section read "Not implemented anywhere in AlphaLab: a transport
+to any real venue", and that is no longer true.
+:class:`~alphalab.broker.venue.RestVenueBroker` over
+:class:`~alphalab.broker.transport.HttpVenueTransport` reaches a venue over
+authenticated HTTP, and because it is a
+:class:`~alphalab.broker.protocol.BrokerProtocol` the functions below route to
+it without knowing which adapter they have --
+:class:`~alphalab.broker.paper.PaperBroker` remains the reference simulation.
+
+What is still *not* implemented: verification against any commercial venue, and
+any named vendor's request shapes. See ``docs/ARCHITECTURE.md`` for the
+distinction between implemented, adapter-only, and future work, and ADR-0031.
 
 Pre-trade gates
 ---------------

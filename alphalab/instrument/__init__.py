@@ -25,6 +25,15 @@ strategy, execution, OMS or lifecycle module, and nothing in those layers is
 imported in reverse -- :mod:`alphalab.market` depends on this package, not the
 other way round.
 
+One module is outside that statement and is deliberately not imported here:
+:mod:`alphalab.instrument.snapshot` depends on the codec spine in
+:mod:`alphalab.persistence`, exactly as every other subsystem's snapshot module
+does. Keeping it out of this ``__init__`` means importing
+``alphalab.instrument`` -- which :mod:`alphalab.market` does, on the hot
+normalization path -- still pulls in nothing but ``common`` and ``core``. Import
+it directly when you need it, the way ``alphalab.portfolio.snapshot`` and
+``alphalab.allocation.snapshot`` are imported.
+
 Classification
 --------------
 :func:`classify_instrument` declares what sector a registered instrument belongs
@@ -50,6 +59,11 @@ naming an instrument the run never priced produces no orders -- which is the
 v2.6 behaviour, and detecting it is not v2.7 work.
 """
 
+from alphalab.instrument.classification import (
+    OPERATOR,
+    ClassificationHistory,
+    SectorClassification,
+)
 from alphalab.instrument.exceptions import (
     InstrumentError,
     InstrumentInputError,
@@ -68,23 +82,31 @@ from alphalab.instrument.record import (
 )
 from alphalab.instrument.registry import (
     InstrumentRegistry,
+    classification_history,
+    classification_of,
     classify_instrument,
     classify_instruments,
     get_instrument,
     register_alias,
     register_instrument,
     register_instruments,
+    sector_as_of,
 )
 
 __all__ = [
     "ALPHALAB_INSTRUMENT_NAMESPACE",
     "INSTRUMENT_KEY_SCHEME",
+    "OPERATOR",
+    "ClassificationHistory",
     "InstrumentError",
     "InstrumentInputError",
     "InstrumentRecord",
     "InstrumentRegistrationError",
     "InstrumentRegistry",
+    "SectorClassification",
     "canonical_instrument_key",
+    "classification_history",
+    "classification_of",
     "classify_instrument",
     "classify_instruments",
     "derive_asset_id",
@@ -94,4 +116,5 @@ __all__ = [
     "register_alias",
     "register_instrument",
     "register_instruments",
+    "sector_as_of",
 ]
