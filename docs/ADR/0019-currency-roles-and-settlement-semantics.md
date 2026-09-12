@@ -15,6 +15,15 @@ Extends ADR-0016, which made the listing exchange one of the four fields
 on the broker boundary. ADR-0020 records the valuation consequence of the
 currency half of this decision.
 
+**Amended by ADR-0028 (v2.12.0).** Decision 2's last line — that the trading
+currency "does not reach the execution path" — no longer holds. It now reaches
+it as an *authority*: `InstrumentRegistry.record_for(asset_id).currency` decides
+whether a run may trade an instrument at all. Everything else here stands
+unchanged, including the three named roles, the exact comparison, and decision
+3's guarantee that a foreign-currency instrument may be held and booked. ADR-0028
+also closes a hole this decision left open: `RoutingConfig.currency` is a fifth
+currency site that decision 2 did not name and nothing checked.
+
 ---
 
 # Context
@@ -89,7 +98,15 @@ stopped — rather than only reporting a mismatch.
 | **Trading currency** | `InstrumentRecord.currency` | instrument identity (ADR-0016) |
 
 The first two must agree and are checked. The third is a different fact about a
-different object and **does not reach the execution path**.
+different object and, as of v2.8, does not reach the execution path.
+
+> **Superseded in part by ADR-0028 (v2.12.0).** The trading currency now reaches
+> the execution path as an authority over what a run may trade: a request for an
+> instrument whose currency is not the settlement currency is refused before the
+> OMS. It still does not *denominate* anything — `Position.currency` follows the
+> settlement currency, and equals the instrument's currency because the refusal
+> makes them equal. A fifth role, `RoutingConfig.currency`, is named and
+> constrained there too.
 
 ## 3. A non-base-currency instrument may be held and booked
 
@@ -211,7 +228,9 @@ its full starting equity.
 - Any change to `asset_id` derivation, its four inputs, or the instrument
   namespace.
 - Extending the currency check to `NAVCalculator`, `portfolio_value`,
-  `long_value` or `short_value`.
+  `long_value` or `short_value`. *(Settled by ADR-0028 decision 7: `NAVCalculator`
+  and `portfolio_value` refuse a mixed book; `long_value` and `short_value` are
+  component sums that name no currency and deliberately do not.)*
 - Normalizing or case-folding currency codes anywhere.
 - Deriving a canonical record's `venue` from an instrument's `exchange`.
 - Restricting foreign-currency instruments from being held or booked.

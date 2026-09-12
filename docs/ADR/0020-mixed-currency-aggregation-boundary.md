@@ -12,6 +12,14 @@ Depends on ADR-0019, which separated the account, settlement and trading
 currency roles. This ADR records what happens when a book nonetheless holds more
 than one currency: the valuation refuses rather than inventing a rate.
 
+**Decision 5 is discharged by ADR-0028 (v2.12.0)**, which is not the release
+that supplies a rate source. `NAVCalculator.calculate`, `PortfolioValuation.portfolio_value`
+and `_risk_exposure` — including the `sector_exposure` v2.11 added — now refuse a
+mixed book through the same rule this ADR established. `long_value` and
+`short_value` do not, and ADR-0028 decision 7 records why: they name no base
+currency, so they make no currency claim and cannot be told what to refuse
+against. The refusal itself, its two conditions and its message are unchanged.
+
 ---
 
 # Context
@@ -96,6 +104,14 @@ own; holding and booking in a foreign currency is supported. Only *aggregating*
 two currencies into one number is not.
 
 ## 5. The rule is confined to `snapshot`, deliberately
+
+> **Discharged by ADR-0028 (v2.12.0).** The deferral below was to "the release
+> that supplies the rate source". That release has not arrived, and the deferral
+> was closed earlier on measurement instead: the guard costs approximately two
+> per cent of the risk resync, and once ADR-0028's two seams hold, no pipeline
+> run can produce the mixed book it refuses. `portfolio_value`, `NAVCalculator`
+> and `_risk_exposure` now refuse; `long_value` and `short_value` remain
+> unguarded on purpose, as component sums that name no currency.
 
 `portfolio_value`, `long_value`, `short_value` and `NAVCalculator` share the same
 currency-blindness and are **left exactly as they were**.
@@ -182,7 +198,8 @@ wrong.
 - An FX rate source, provider, or conversion of any kind.
 - Rate caching, triangulation, or a reference-currency hierarchy.
 - Extending the refusal to `portfolio_value`, `long_value`, `short_value` or
-  `NAVCalculator`.
+  `NAVCalculator`. *(Done for the first and last by ADR-0028; declined for the
+  middle two, with reasons.)*
 - Preventing foreign-currency instruments from being held, booked or traded.
 - Per-currency sub-valuations returned as a breakdown.
 
@@ -196,7 +213,9 @@ missing rate from an invalid instrument. Single-currency books — every book
 AlphaLab is used for today — are unaffected.
 
 Costs. Four valuation helpers remain currency-blind, which is a real and named
-inconsistency carried deliberately until a rate source exists. A caller with a
+inconsistency carried deliberately until a rate source exists. *(Closed by
+ADR-0028 for two of them; the other two are reclassified as component sums that
+make no currency claim.)* A caller with a
 genuinely multi-currency book gets an exception rather than a breakdown, and has
 no supported way to obtain one.
 
