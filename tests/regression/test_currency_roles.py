@@ -32,13 +32,13 @@ from uuid import uuid4
 
 import pytest
 
-from alphalab.backtesting.config import BacktestConfig
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.engine import PortfolioEngine
 from alphalab.runtime.exceptions import RuntimeValidationError
 from alphalab.runtime.execution_pipeline import ExecutionPipeline, ExecutionPipelineConfig
-from alphalab.runtime.session import ExecutionMode, SessionConfig, TradingSession
+from alphalab.runtime.run import ExecutionMode, RunConfig
+from alphalab.runtime.session import TradingSession
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 from tests.integration.harness import (
     ScriptedStrategy,
@@ -221,10 +221,10 @@ def test_the_mismatch_v2_7_accepted_would_have_traded_nothing() -> None:
 
 @pytest.mark.parametrize("mode", list(ExecutionMode))
 def test_every_execution_mode_is_refused_the_same_way(mode: ExecutionMode) -> None:
-    """The check is in ``initialize``, below ``SessionConfig``, so all four share it."""
+    """The check is in ``initialize``, below ``RunConfig``, so all four share it."""
 
     strategy_id, asset_id, config = _parts()
-    session = SessionConfig(pipeline=replace(config, currency="EUR"), mode=mode)
+    session = RunConfig(pipeline=replace(config, currency="EUR"), mode=mode)
 
     with pytest.raises(RuntimeValidationError):
         TradingSession.initialize(session, _running(strategy_id, asset_id))
@@ -232,7 +232,7 @@ def test_every_execution_mode_is_refused_the_same_way(mode: ExecutionMode) -> No
 
 def test_a_backtest_is_refused_at_the_same_boundary() -> None:
     strategy_id, asset_id, config = _parts()
-    backtest = BacktestConfig(pipeline=replace(config, currency="EUR"))
+    backtest = RunConfig(mode=ExecutionMode.BACKTEST, pipeline=replace(config, currency="EUR"))
 
     with pytest.raises(RuntimeValidationError):
         BacktestEngine.initialize(backtest, _running(strategy_id, asset_id))

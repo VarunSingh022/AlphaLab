@@ -93,8 +93,9 @@ untouched. Nothing is removed in v2.13.
 
 **No FX, no multi-currency valuation, no `ArtifactStore` or artifact bytes, no
 cloud storage, no streaming, no live venue transport, no governance/RBAC
-implementation, and no runtime rewrite.** Runtime unification remains the next
-architectural seam. See ADR-0029.
+implementation, and no runtime rewrite.** Runtime unification was the next
+architectural seam at the time; **v2.14 closed it** — see ADR-0030. See
+ADR-0029.
 
 v2.11.0 — "The Security Master" — makes the instrument registry authoritative
 for runs that *work*, not only for runs that fail.
@@ -675,9 +676,11 @@ See `CHANGELOG.md` and `ROADMAP.md`.
   sector breakdown requires an operator who declares one. Sector is also the
   only dimension: industry, country, issuer and rating are each a separate
   decision
-- A single integrated runtime spanning *all* engines (`ExecutionPipeline`,
-  `backtesting`, `runtime.session` and `lifecycle` are what is wired today, and
-  the lifecycle is not joined to the execution path)
+- A single integrated runtime spanning *all* engines. The **run** layer is one
+  owner as of v2.14 — `RunEngine`/`RunState` over `ExecutionPipeline`, with
+  `TradingSession`, `BacktestEngine` and `ReplayBacktest` as drivers (ADR-0030)
+  — but `alphalab.lifecycle` is deliberately not joined to it, and research,
+  reporting, feature store and the rest remain standalone libraries
 - Approval workflow. A promotion is an auditable privileged action, but it is not
   wired to `alphalab.enterprise`'s RBAC or audit log
 - `StrategyContext.history` and `.universe`. v2.10 populates the marked

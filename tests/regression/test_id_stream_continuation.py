@@ -525,10 +525,9 @@ def test_no_second_owner_of_the_stream_position() -> None:
 
     import dataclasses
 
-    from alphalab.backtesting.state import BacktestState
-    from alphalab.runtime.session import SessionState
+    from alphalab.runtime.run import RunState
 
-    for state in (SessionState, BacktestState):
+    for state in (RunState, RunState):
         names = {field.name for field in dataclasses.fields(state)}
         assert "id_position" not in names, f"{state.__name__} must not hold a second cursor"
 

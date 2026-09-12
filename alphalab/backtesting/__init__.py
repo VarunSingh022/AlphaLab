@@ -12,11 +12,16 @@ Two drivers, one loop:
 * :class:`~alphalab.backtesting.replay.ReplayBacktest` walks the same dataset
   through :mod:`alphalab.replay`'s cursor.
 
-Both call :func:`~alphalab.backtesting.engine.advance` for every record, so they
-share order, fill and accounting semantics by construction.
+Both hand every record to :meth:`~alphalab.runtime.run.RunEngine.advance`, so
+they share order, fill and accounting semantics by construction.
+
+As of v2.14 neither owns run state. A run is a
+:class:`~alphalab.runtime.run.RunState` configured by a
+:class:`~alphalab.runtime.run.RunConfig`, and these are drivers over it --
+``BacktestConfig``, ``BacktestState`` and ``BacktestStep`` are gone, and
+``BacktestStep`` is :class:`~alphalab.runtime.run.RunStep`. See ADR-0030.
 """
 
-from alphalab.backtesting.config import BacktestConfig
 from alphalab.backtesting.dataset import (
     MarketDataset,
     MarketInput,
@@ -38,12 +43,7 @@ from alphalab.backtesting.exceptions import (
     UnsupportedRecordError,
 )
 from alphalab.backtesting.replay import ReplayBacktest, session_for
-from alphalab.backtesting.state import (
-    BacktestResult,
-    BacktestState,
-    BacktestStep,
-    ReplayResult,
-)
+from alphalab.backtesting.state import BacktestResult, ReplayResult
 from alphalab.backtesting.views import (
     commission_paid,
     equity_values,
@@ -65,15 +65,14 @@ from alphalab.execution.policy import (
     StaticFill,
 )
 from alphalab.runtime.execution_pipeline import UnpricedAsset, UnpricedReason
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunState, RunStep
 
 __all__ = [
-    "BacktestConfig",
     "BacktestEngine",
     "BacktestError",
     "BacktestResult",
-    "BacktestState",
-    "BacktestStep",
     "DatasetValidationError",
+    "ExecutionMode",
     "FillDecision",
     "FillPolicy",
     "ImmediateFill",
@@ -84,6 +83,9 @@ __all__ = [
     "MarketRecord",
     "ReplayBacktest",
     "ReplayResult",
+    "RunConfig",
+    "RunState",
+    "RunStep",
     "StaticFill",
     "UnpricedAsset",
     "UnpricedReason",

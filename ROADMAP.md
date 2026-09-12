@@ -483,11 +483,14 @@ is engine event logs no engine *decision* reads but which ADR-0023's Class 1
 includes; incremental or event-sourced checkpoints; and any removal of a
 deprecated package. See ADR-0029.
 
-**Runtime unification remains the next architectural seam.** ADR-0023 decision 1
-records that `SessionState` and `BacktestState` are the layer a future
-integrated-runtime release is expected to reshape, and split the snapshot
-envelopes so that reshape can move their two constants without versioning the
-stable pipeline core. v2.13's store is built so that reshape cannot reach it.
+**Runtime unification was the next architectural seam, and v2.14 closed it.**
+ADR-0023 decision 1 recorded that `SessionState` and `BacktestState` were the
+layer a future integrated-runtime release was expected to reshape, and split the
+snapshot envelopes so that reshape could move their two constants without
+versioning the stable pipeline core. v2.13's store was built so that reshape
+could not reach it. ADR-0030 performed it: both states became one `RunState`
+behind a single `RUN_SNAPSHOT_SCHEMA = 1`, `PIPELINE_SNAPSHOT_SCHEMA` stayed at
+2, and `alphalab/persistence/` changed no line of code.
 
 ---
 
@@ -814,12 +817,13 @@ and consolidation work has **not** been done:
 - **Per-environment promotion policy** (v2.5+): a strategy version has one stage
   across all environments, and `PRODUCTION` means "live somewhere". A policy
   that differs between `paper` and `live-eu` is not expressible.
-- A single integrated runtime spanning *all* engines. Today `ExecutionPipeline`
-  (`alphalab.runtime`), `alphalab.backtesting` and `alphalab.runtime.session`,
-  which drive it, are one wired-together path, and `alphalab.lifecycle` is
-  another. The two are deliberately not joined: a deployment names what should
-  run, and the execution path runs it. Research, reporting, feature store and
-  the rest remain standalone libraries.
+- A single integrated runtime spanning *all* engines. The **run** layer is one
+  owner as of v2.14: `RunEngine`/`RunState` (`alphalab.runtime.run`) over
+  `ExecutionPipeline`, with `TradingSession`, `BacktestEngine` and
+  `ReplayBacktest` reduced to drivers (ADR-0030). `alphalab.lifecycle` remains a
+  separate wired path and is deliberately not joined: a deployment names what
+  should run, and the execution path runs it. Research, reporting, feature store
+  and the rest remain standalone libraries.
 - Resolution of `kernel` and `core/events` (both entirely unused: nothing outside
   their own packages and tests imports either). **Deprecated in v2.6, removed in
   v3.0** — `kernel` warns at import, `core.events` deliberately does not, because

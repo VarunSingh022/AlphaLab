@@ -9,7 +9,6 @@ from decimal import Decimal
 
 import pytest
 
-from alphalab.backtesting.config import BacktestConfig
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.broker import BrokerEngine, PaperBroker
@@ -26,12 +25,8 @@ from alphalab.runtime.broker_routing import (
     route_order,
 )
 from alphalab.runtime.execution_pipeline import ExecutionRouting
-from alphalab.runtime.session import (
-    ExecutionMode,
-    SessionConfig,
-    SessionState,
-    TradingSession,
-)
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunState
+from alphalab.runtime.session import TradingSession
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 from tests.integration.harness import (
     ScriptedStrategy,
@@ -61,9 +56,9 @@ def _strategy_state() -> StrategyRuntimeState:
 
 def _session_config(
     mode: ExecutionMode, max_market_data_age_seconds: float | None = None
-) -> SessionConfig:
-    backtest: BacktestConfig = backtest_config(_STRATEGY)
-    return SessionConfig(
+) -> RunConfig:
+    backtest: RunConfig = backtest_config(_STRATEGY)
+    return RunConfig(
         pipeline=backtest.pipeline,
         mode=mode,
         fill_policy=backtest.fill_policy,
@@ -216,7 +211,7 @@ def test_the_mode_decides_routing_even_if_the_config_disagrees() -> None:
 # --- routing an order to a venue ---------------------------------------------
 
 
-def _live_session_with_a_working_order() -> SessionState:
+def _live_session_with_a_working_order() -> RunState:
     return TradingSession.run(
         _session_config(ExecutionMode.LIVE),
         SequenceSource.from_records("L", _dataset().records),

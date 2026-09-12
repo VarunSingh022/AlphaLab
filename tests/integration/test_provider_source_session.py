@@ -45,7 +45,8 @@ from alphalab.marketdata.timeframe import Timeframe
 from alphalab.marketdata.transport import StaticTransport
 from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.portfolio.snapshot import capture, from_primitives, restore
-from alphalab.runtime.session import SessionConfig, SessionState, TradingSession
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunState
+from alphalab.runtime.session import TradingSession
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
@@ -146,9 +147,10 @@ class _BuyFirstBar(BaseStrategy):
         )
 
 
-def _session_config(**overrides: Any) -> SessionConfig:
-    return SessionConfig(
+def _session_config(**overrides: Any) -> RunConfig:
+    return RunConfig(
         pipeline=pipeline_config(STRATEGY),
+        mode=ExecutionMode.PAPER,
         start_timestamp=1_699_999_999.0,
         **overrides,
     )
@@ -167,7 +169,7 @@ def _first_bar(source: ProviderHistorySource) -> Bar:
     return payload
 
 
-def _run(source: MarketDataSource, **overrides: Any) -> SessionState:
+def _run(source: MarketDataSource, **overrides: Any) -> RunState:
     return TradingSession.run(
         _session_config(**overrides),
         source,

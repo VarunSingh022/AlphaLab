@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline` and the packages that drive it — `alphalab.backtesting` and `alphalab.runtime.session` — and, separately, `alphalab.lifecycle`, actually wire a group of them together. See the **Implementation Status (v2.5)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting` and `alphalab.backtesting.replay` — and, separately, `alphalab.lifecycle`, actually wire a group of them together. See the **Implementation Status (v2.5)** section below.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 
@@ -21,7 +21,7 @@ There are **two** wired-together paths, and they are deliberately not joined:
 
 | Path | Package | Answers |
 | --- | --- | --- |
-| Execution | `runtime.ExecutionPipeline`, driven by `backtesting` and `runtime.session` | what happens to one market event |
+| Execution | `runtime.ExecutionPipeline`, owned per run by `runtime.run.RunEngine`, driven by `runtime.session`, `backtesting` and `backtesting.replay` | what happens to one market event |
 | Lifecycle | `alphalab.lifecycle` | which strategy version an environment should be running, and why |
 
 A deployment names what should run; running it is the execution path's job. The
@@ -126,7 +126,7 @@ runs of one workload agreed on every number and disagreed on every identity.
 
 `alphalab.common.ids` now routes all of them through one `new_id()`, and
 `use_id_source(source)` scopes where that source is for the duration of a block.
-`BacktestConfig.seed` installs a `DeterministicIdSource` for the run and is
+`RunConfig.seed` installs a `DeterministicIdSource` for the run and is
 recorded on the result. With a seed, repeated runs are identical field for
 field — orders, fills, positions, cash, realized and unrealized P&L, analytics.
 Without one, identifiers stay on `uuid4` and only the economics reproduce.
@@ -407,7 +407,7 @@ typed values again.
 | `PortfolioState` | ✅ v2.5 | cash, positions, ledger, typed event history |
 | `LifecycleState` | ✅ v2.5 | model objects supplied by the caller — see below |
 | `ExecutionPipelineState` | ❌ | holds `StrategyProtocol` instances, an `ExecutionSimulator`, a `SizingModel` |
-| `SessionState` | ❌ | same blocker, through `config` and `pipeline` |
+| `RunState` | ❌ | same blocker, through `config` and `pipeline` |
 
 ### The contract
 
@@ -468,10 +468,10 @@ deterministic record ids. No polling, no subscription, no reconnect.
 the pipeline marks the portfolio to whatever it finds, so a late record rewrites
 valuation backwards. AlphaLab does not reorder market data; it says so:
 
-| `SessionConfig.ordering` | A record whose timestamp regresses |
+| `RunConfig.ordering` | A record whose timestamp regresses |
 | --- | --- |
 | `CHRONOLOGICAL` (default) | **Raises.** The source broke the guarantee it declared |
-| `UNORDERED` | **Skipped and recorded** on `SessionState.skipped`, with the reason |
+| `UNORDERED` | **Skipped and recorded** on `RunState.skipped`, with the reason |
 
 A source declaring `UNORDERED` handed to a `CHRONOLOGICAL` session is refused by
 `TradingSession.run` before any record is processed. Nothing is buffered or
@@ -859,7 +859,7 @@ fixed, and each has a regression test pinning it:
   `None` and the breakdown is empty rather than bucketed under a placeholder —
   the v2.6 rule, unchanged. AlphaLab still ships no classification data. See
   ADR-0027.
-- **An unseeded run does not reproduce its identifiers.** `BacktestConfig.seed`
+- **An unseeded run does not reproduce its identifiers.** `RunConfig.seed`
   defaults to `None`, which leaves identifiers on `uuid4`; only the economics
   reproduce. This is deliberate — the default is not silently made
   deterministic — and the source of nondeterminism is visible on the config.

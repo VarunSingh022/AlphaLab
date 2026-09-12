@@ -1,28 +1,32 @@
-"""The unified backtest loop.
+"""The backtest driver: a dataset, and the result it reports.
 
-This is the one place a dataset is turned into a run. It composes the existing
-engines rather than replacing any of them: every record is published to the
-market engine and then handed to
-:meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.process_market_event`,
-which is the same call the rest of AlphaLab's execution path makes. There is no
-backtest-only order model, no backtest-only fill model, and -- most importantly
--- no backtest-only portfolio accounting: cash, positions, realized and
-unrealized P&L come from :class:`~alphalab.portfolio.engine.PortfolioEngine`,
-exactly once per fill.
+This is the one place a dataset is turned into a run. It composes no engines of
+its own and holds no state: every record goes to
+:meth:`~alphalab.runtime.run.RunEngine.advance`, which is the canonical run step
+every environment takes, and the state it threads is
+:class:`~alphalab.runtime.run.RunState`. There is no backtest-only order model,
+no backtest-only fill model, and -- most importantly -- no backtest-only
+portfolio accounting: cash, positions, realized and unrealized P&L come from
+:class:`~alphalab.portfolio.engine.PortfolioEngine`, exactly once per fill.
 
 ::
 
     MarketDataset
-      -> MarketEngine.publish_*        -> MarketEvent
-      -> ExecutionPipeline.process_market_event
-           -> mark to market -> risk resync
-           -> StrategyEngine -> AllocationEngine -> RiskEngine
-           -> OMSEngine -> ExecutionEngine (FillPolicy) -> PortfolioEngine
-      -> AnalyticsEngine.compile_report
+      -> RunEngine.advance                     (the canonical step)
+           -> ExecutionPipeline.process_record
+                -> mark to market -> risk resync
+                -> StrategyEngine -> AllocationEngine -> RiskEngine
+                -> OMSEngine -> ExecutionEngine (FillPolicy) -> PortfolioEngine
+      -> RunEngine.finalize                    (AnalyticsEngine.compile_report)
+      -> BacktestResult                        (a projection, not a copy)
 
-:func:`advance` is the canonical step. :class:`BacktestEngine` drives it from a
-dataset; :mod:`alphalab.backtesting.replay` drives the very same function from
-the replay cursor, which is why the two paths cannot diverge.
+:mod:`alphalab.backtesting.replay` drives the very same function from the replay
+cursor, and :class:`~alphalab.runtime.session.TradingSession` drives it from a
+market-data source, which is why the three paths cannot diverge.
+
+Until v2.14 this module owned ``BacktestState`` and ``BacktestConfig``, and
+:mod:`alphalab.runtime.session` owned a near-identical pair. ADR-0030 gives the
+run one owner; what is left here is a driver.
 """
 
 from __future__ import annotations
@@ -30,16 +34,12 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from dataclasses import replace
 
-from alphalab.backtesting.config import BacktestConfig
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
-from alphalab.backtesting.state import BacktestResult, BacktestState, BacktestStep
-from alphalab.common.ids import id_scope, id_source, id_source_for, use_id_source
+from alphalab.backtesting.state import BacktestResult
+from alphalab.common.ids import id_scope, id_source
 from alphalab.market.state import MarketState
-from alphalab.runtime.execution_pipeline import (
-    ContextFactory,
-    ExecutionPipeline,
-    ExecutionPipelineResult,
-)
+from alphalab.runtime.execution_pipeline import ContextFactory, ExecutionPipelineResult
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunEngine, RunState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
 __all__ = [
@@ -53,150 +53,114 @@ __all__ = [
 ]
 
 # ``id_scope`` and ``id_source`` are defined in :mod:`alphalab.common.ids` as of
-# v2.3 and re-exported here unchanged. They moved so that a session outside this
+# v2.3 and re-exported here unchanged. They moved so that a driver outside this
 # package -- :mod:`alphalab.runtime.session` -- can mint reproducible
 # identifiers without importing the backtesting engine, which imports it.
+#
+# Deriving an id source from a pipeline's *stream position* is a different
+# thing and has exactly one implementation:
+# :meth:`~alphalab.runtime.run.RunEngine.resume`. See ADR-0030.
 
 
 def publish(market: MarketState, record: MarketRecord) -> MarketState:
     """Publish one dataset record to the market engine.
 
-    Delegates to :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.publish_record`,
-    which every environment publishes through.
+    Delegates to :meth:`~alphalab.runtime.run.RunEngine.publish_record`, which
+    every environment publishes through.
     """
 
-    return ExecutionPipeline.publish_record(market, record)
+    return RunEngine.publish_record(market, record)
 
 
-def initialize(config: BacktestConfig, strategy_state: StrategyRuntimeState) -> BacktestState:
+def initialize(config: RunConfig, strategy_state: StrategyRuntimeState) -> RunState:
     """Fund the portfolio and build the state a run starts from."""
 
-    return BacktestState(
-        config=config,
-        pipeline=ExecutionPipeline.initialize(
-            config.pipeline, strategy_state, config.start_timestamp
-        ),
-        current_timestamp=config.start_timestamp,
-    )
+    return RunEngine.initialize(config, strategy_state)
 
 
 def advance(
-    state: BacktestState,
+    state: RunState,
     record: MarketRecord,
     context_factory: ContextFactory,
-) -> tuple[BacktestState, ExecutionPipelineResult]:
-    """Move one dataset record through the whole execution path, and record it.
+) -> tuple[RunState, ExecutionPipelineResult | None]:
+    """Move one dataset record through the whole execution path.
 
-    The run-level wrapper around
-    :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.process_record`,
-    which is the canonical step every environment takes. What this adds is the
-    run's own bookkeeping -- which record it was, and what it produced.
+    See :meth:`~alphalab.runtime.run.RunEngine.advance`. A dataset is validated
+    chronological on construction and carries no wall clock, so no reading is
+    passed and no record is ever stale.
     """
 
-    result = ExecutionPipeline.process_record(
-        state.pipeline, record, context_factory, state.config.fill_policy
-    )
-
-    step = BacktestStep(
-        index=state.processed,
-        event_id=record.event_id,
-        timestamp=record.timestamp,
-        orders=result.oms_orders,
-        reports=result.execution_reports,
-        fills=result.fills,
-        equity=result.state.portfolio_snapshots[-1].total_equity,
-    )
-    return (
-        replace(
-            state,
-            pipeline=result.state,
-            processed=state.processed + 1,
-            current_timestamp=record.timestamp,
-            steps=state.steps.append(step),
-        ),
-        result,
-    )
+    return RunEngine.advance(state, record, context_factory)
 
 
-def finalize(state: BacktestState, dataset_id: str | None = None) -> BacktestResult:
+def finalize(state: RunState) -> BacktestResult:
     """Compile analytics (if configured) and freeze the run into a result.
 
-    ``dataset_id`` names the data the run consumed. It is threaded here rather
-    than held on :class:`~alphalab.backtesting.config.BacktestConfig` because a
-    config that named a dataset could disagree with the dataset actually passed
-    to :meth:`BacktestEngine.run`, and one fact with two sources is how "what
-    was this measured over?" becomes unanswerable. A caller driving the loop by
-    hand supplies nothing and gets ``None``: an absence, not an invented
-    identity. See ADR-0017.
+    The dataset the run consumed is *not* an argument. It is
+    :attr:`~alphalab.runtime.run.RunState.source_id`, set by whichever driver
+    started the run and carried by the run snapshot, so a run that stopped and
+    continued in another process still knows what it was measured over. Until
+    v2.14 this function took a ``dataset_id`` and a result could name a dataset
+    the state had no record of -- one fact with two sources, which is how "what
+    was this measured over?" becomes unanswerable. See ADR-0017 and ADR-0030.
     """
 
-    pipeline = state.pipeline
-    if state.config.compile_analytics:
-        pipeline = ExecutionPipeline.compile_analytics(
-            pipeline,
-            state.current_timestamp,
-            state.config.years_elapsed,
-            state.config.risk_free_rate,
-        )
-
-    return BacktestResult(
-        config=state.config,
-        state=pipeline,
-        steps=state.steps.to_tuple(),
-        records_processed=state.processed,
-        seed=state.config.seed,
-        dataset_id=dataset_id,
-    )
+    return BacktestResult(run=RunEngine.finalize(state))
 
 
 class BacktestEngine:
-    """Runs a dataset through the execution path, deterministically."""
+    """Runs a dataset through the canonical run step, deterministically."""
 
     @staticmethod
-    def initialize(config: BacktestConfig, strategy_state: StrategyRuntimeState) -> BacktestState:
+    def initialize(config: RunConfig, strategy_state: StrategyRuntimeState) -> RunState:
         """Fund the portfolio and build the state a run starts from."""
 
         return initialize(config, strategy_state)
 
     @staticmethod
-    def resume(state: BacktestState) -> AbstractContextManager[None]:
+    def resume(state: RunState) -> AbstractContextManager[None]:
         """The scope a restored run continues in.
 
-        The counterpart of the ``id_scope`` :meth:`run` opens: ``run`` starts a
-        stream from a seed, a resumed run continues one. See
-        :meth:`alphalab.runtime.session.TradingSession.resume`, which is the same
-        contract for a session.
+        See :meth:`~alphalab.runtime.run.RunEngine.resume`, which is the only
+        implementation of this contract in AlphaLab.
         """
 
-        return use_id_source(id_source_for(state.pipeline.id_position))
+        return RunEngine.resume(state)
 
     @staticmethod
     def advance(
-        state: BacktestState,
+        state: RunState,
         record: MarketRecord,
         context_factory: ContextFactory,
-    ) -> tuple[BacktestState, ExecutionPipelineResult]:
+    ) -> tuple[RunState, ExecutionPipelineResult | None]:
         """Move one record through the path. See :func:`advance`."""
 
         return advance(state, record, context_factory)
 
     @staticmethod
-    def finalize(state: BacktestState, dataset_id: str | None = None) -> BacktestResult:
+    def finalize(state: RunState) -> BacktestResult:
         """Compile analytics and freeze the run. See :func:`finalize`."""
 
-        return finalize(state, dataset_id)
+        return finalize(state)
 
     @staticmethod
     def run(
-        config: BacktestConfig,
+        config: RunConfig,
         dataset: MarketDataset,
         strategy_state: StrategyRuntimeState,
         context_factory: ContextFactory,
     ) -> BacktestResult:
-        """Run ``dataset`` end to end and return the finished result."""
+        """Run ``dataset`` end to end and return the finished result.
+
+        The run records the dataset it consumed as its ``source_id``, and
+        declares :attr:`~alphalab.runtime.run.ExecutionMode.BACKTEST`.
+        """
 
         with id_scope(config.seed):
-            state = initialize(config, strategy_state)
+            state = replace(
+                initialize(replace(config, mode=ExecutionMode.BACKTEST), strategy_state),
+                source_id=dataset.dataset_id,
+            )
             for record in dataset.records:
                 state, _ = advance(state, record, context_factory)
-            return finalize(state, dataset.dataset_id)
+            return finalize(state)

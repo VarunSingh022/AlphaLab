@@ -191,7 +191,7 @@ def evidence_from_backtest(
 
     Raises:
         LifecycleInputError: If the run compiled no report, which is what
-            ``BacktestConfig(compile_analytics=False)`` produces, or if the run
+            ``RunConfig(compile_analytics=False)`` produces, or if the run
             names no dataset. Evidence without measurements is not evidence,
             and neither is a measurement over data nobody can identify; both
             are refused rather than recorded as an empty pass.
@@ -200,7 +200,7 @@ def evidence_from_backtest(
     if report is None:
         raise LifecycleInputError(
             "The backtest compiled no performance report, so there is nothing to "
-            "record as evidence; run it with BacktestConfig(compile_analytics=True)."
+            "record as evidence; run it with RunConfig(compile_analytics=True)."
         )
 
     dataset_id = result.dataset_id

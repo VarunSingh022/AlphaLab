@@ -581,9 +581,10 @@ the thing it references.
 
 **Typed store methods — `save_session(state)`, `save_backtest(state)`.** More
 convenient at the call site, and self-documenting. Rejected under D2: runtime
-unification is expected to reshape exactly those two states, and a store naming
+unification was expected to reshape exactly those two states, and a store naming
 them would have to be redesigned by that release. Payload-agnosticism is what
-makes this boundary survivable at v3.0.
+makes this boundary survivable at v3.0 — and v2.14 confirmed it, retiring both
+states without touching this module.
 
 **Let the store fall back to memory when a path is unavailable.** Rejected under
 D3. It reports success for a run that was not saved, which is worse than the
@@ -625,7 +626,7 @@ append-per-event surface; and the encoder's projection check was ~60% of
 `serialize`, which the type-lookup removed for a byte-identical payload at
 3.70x (698.0ms -> 188.8ms on an 800-event snapshot).
 
-## The seam this leaves for v3.0
+## The seam this leaves for v3.0 — closed in v2.14, as predicted
 
 ADR-0023 decision 1 records that `SessionState` and `BacktestState` are the layer
 a future integrated-runtime release is expected to reshape. This boundary is
@@ -634,3 +635,12 @@ a `str`, and is addressed by an identity the caller supplies. Runtime unificatio
 moves `SESSION_SNAPSHOT_SCHEMA` and `BACKTEST_SNAPSHOT_SCHEMA` without changing
 one line of `run_store.py`. That is the property this release was scoped to
 protect, and it is why nothing here is a bridge.
+
+**v2.14 performed that reshape and the prediction held exactly.** ADR-0030
+merged both states into one `RunState` behind a single `RUN_SNAPSHOT_SCHEMA = 1`,
+retired both old constants, and changed **no code in `alphalab/persistence/`** —
+verified as an empty `git diff` over the package and asserted by a regression
+test that walks `run_store.py`'s AST and finds no domain type bound or called
+there. Decision 2's payload-agnosticism is what made that possible; a store with
+`save_session` and `save_backtest` methods would have been redesigned by that
+release.

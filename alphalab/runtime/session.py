@@ -1,10 +1,18 @@
-"""One loop, four environments.
+"""The session driver: a market-data source, a clock, and nothing else.
 
 A trading session reads market records from a
-:class:`~alphalab.market.source.MarketDataSource` and moves each one through
-:meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.process_record` --
-the canonical step. That is the whole loop, and it is the same loop
-:mod:`alphalab.backtesting` runs, because it is the same function.
+:class:`~alphalab.market.source.MarketDataSource` and hands each one to
+:meth:`~alphalab.runtime.run.RunEngine.advance` -- the canonical run step. That
+is the whole loop, and it is the same loop :mod:`alphalab.backtesting` runs,
+because as of v2.14 it is the same function on the same state.
+
+**This module owns no state.** Until v2.14 it owned ``SessionState`` and
+``SessionConfig``, and :mod:`alphalab.backtesting` owned a near-identical pair;
+the two ``resume`` implementations were character-identical. ADR-0030 gives the
+run one owner -- :class:`~alphalab.runtime.run.RunEngine` over
+:class:`~alphalab.runtime.run.RunState` -- and leaves a driver with the two
+things that genuinely differ between environments: where records come from, and
+what clock judges them.
 
 The parity matrix
 -----------------
@@ -22,6 +30,7 @@ OMS order lifecycle          same      same      same      same
 Fill                         canonical canonical canonical canonical
 Portfolio accounting         same      same      same      same
 Analytics                    same      same      same      same
+Run state                    RunState  RunState  RunState  RunState
 ---------------------------- --------- --------- --------- ---------
 Record source                dataset   cursor    live      live
 Clock                        record ts record ts wall      wall
@@ -46,7 +55,9 @@ stops, because AlphaLab contains no connectivity to any real venue.
 :mod:`alphalab.runtime.broker_routing` implements and tests both directions of
 the broker mapping, and :class:`~alphalab.broker.paper.PaperBroker` is the only
 adapter that exists -- a simulation. Driving a real venue means supplying an
-adapter, and the transport for it, from outside this repository.
+adapter, and the transport for it, from outside this repository. Under ADR-0030
+that is a *third driver* alongside this one and the backtest's, not a change to
+the runtime it would drive.
 
 Stale market data
 -----------------
@@ -63,291 +74,76 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
-from dataclasses import dataclass, field, replace
-from enum import Enum, auto
+from dataclasses import replace
 
-from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.ids import id_scope, id_source_for, use_id_source
-from alphalab.execution.policy import FillPolicy, ImmediateFill
+from alphalab.common.ids import id_scope
 from alphalab.market.exceptions import MarketValidationError
-from alphalab.market.normalization import is_stale
 from alphalab.market.record import MarketRecord
 from alphalab.market.source import MarketDataSource, OrderingGuarantee
-from alphalab.oms.order import Order as OMSOrder
-from alphalab.runtime.execution_pipeline import (
-    ContextFactory,
-    ExecutionPipeline,
-    ExecutionPipelineConfig,
-    ExecutionPipelineResult,
-    ExecutionPipelineState,
-    ExecutionRouting,
-    UnpricedAsset,
-)
+
+# ``ExecutionMode`` is defined beside ``RunConfig``, the only thing that reads
+# it, and re-exported here unchanged -- the pattern ``backtesting.dataset`` uses
+# for ``MarketRecord`` and ``backtesting.engine`` for ``id_scope``. Defining it
+# here instead would close an import cycle: this module imports ``RunEngine``.
+from alphalab.runtime.execution_pipeline import ContextFactory, ExecutionPipelineResult
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunEngine, RunState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
-__all__ = [
-    "ExecutionMode",
-    "SessionConfig",
-    "SessionState",
-    "SkippedRecord",
-    "TradingSession",
-]
-
-
-class ExecutionMode(Enum):
-    """Which of the four environments a session is running."""
-
-    BACKTEST = auto()
-    REPLAY = auto()
-    PAPER = auto()
-    LIVE = auto()
-
-    @property
-    def routing(self) -> ExecutionRouting:
-        """Where an accepted order executes in this mode."""
-
-        return (
-            ExecutionRouting.EXTERNAL if self is ExecutionMode.LIVE else ExecutionRouting.SIMULATED
-        )
-
-    @property
-    def is_realtime(self) -> bool:
-        """Whether records arrive against a moving wall clock.
-
-        The only thing this changes is whether staleness is a meaningful
-        question. It does not change how anything executes.
-        """
-
-        return self in {ExecutionMode.PAPER, ExecutionMode.LIVE}
-
-
-@dataclass(frozen=True, slots=True)
-class SkippedRecord:
-    """A record the session declined to act on, and why."""
-
-    record: MarketRecord
-    reason: str
-
-
-@dataclass(frozen=True, slots=True)
-class SessionConfig:
-    """What a session needs beyond the execution path's own configuration.
-
-    Attributes:
-        pipeline: Execution-path configuration threaded through every record.
-        mode: Which environment this is.
-        fill_policy: How a simulated venue answers each order. Ignored when
-            ``mode`` routes externally, because then no fill is simulated.
-        seed: Seed for the run's identifier stream. ``None`` leaves identifiers
-            on ``uuid4``.
-        start_timestamp: Instant the portfolio is funded, before any record.
-        max_market_data_age_seconds: Oldest record the session will act on,
-            measured against the clock passed to :meth:`TradingSession.advance`.
-            ``None`` disables the gate, which is correct for historical runs.
-        ordering: What this session will accept from its records. The default
-            requires timestamps never to go backwards, and a record that
-            regresses raises. Set it to ``UNORDERED`` to have such a record
-            skipped and recorded instead. See ADR-0014.
-    """
-
-    pipeline: ExecutionPipelineConfig
-    mode: ExecutionMode = ExecutionMode.PAPER
-    fill_policy: FillPolicy = field(default_factory=ImmediateFill)
-    seed: int | None = None
-    start_timestamp: float = 0.0
-    max_market_data_age_seconds: float | None = None
-    ordering: OrderingGuarantee = OrderingGuarantee.CHRONOLOGICAL
-
-    def __post_init__(self) -> None:
-        # The mode decides routing; a config that disagreed with its own mode
-        # would execute one way and describe itself another.
-        if self.pipeline.routing is not self.mode.routing:
-            object.__setattr__(self, "pipeline", replace(self.pipeline, routing=self.mode.routing))
-
-
-@dataclass(frozen=True, slots=True)
-class SessionState:
-    """Immutable snapshot of a session in progress.
-
-    The session owns no accounting of its own: cash, positions, orders and
-    fills all live on ``pipeline``. What this adds is the session's own
-    bookkeeping -- how far it has read, and what it declined to act on.
-    """
-
-    config: SessionConfig
-    pipeline: ExecutionPipelineState
-    processed: int = 0
-    current_timestamp: float = 0.0
-    skipped: AppendOnlyLog[SkippedRecord] = field(default_factory=AppendOnlyLog)
-    #: Timestamp of the newest record actually processed, or ``None`` before the
-    #: first one. Kept apart from ``current_timestamp``, which starts at the
-    #: funding instant, so the ordering check only ever compares record to
-    #: record.
-    last_record_timestamp: float | None = None
-    #: The stream this session read, or ``None`` when it was driven record by
-    #: record rather than from a source. Distinct from a backtest's
-    #: ``dataset_id``: a :class:`~alphalab.backtesting.dataset.MarketDataset` is
-    #: finite, ordered and validated, while a source may be live and may declare
-    #: ``UNORDERED``, so one identity cannot carry the other's guarantees. Until
-    #: v2.7 :meth:`TradingSession.run` read ``source_id`` only to compose an
-    #: error message and the session recorded nothing. See ADR-0017.
-    source_id: str | None = None
-
-    @property
-    def working_orders(self) -> tuple[OMSOrder, ...]:
-        """Orders still open in the OMS.
-
-        In a live session these are the orders awaiting routing, or already
-        routed and awaiting fills -- see :mod:`alphalab.runtime.broker_routing`.
-        """
-
-        return tuple(self.pipeline.oms.orders.open_orders())
-
-    @property
-    def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:
-        """Assets this session declined to trade for want of a price.
-
-        Read from the pipeline rather than stored again, so a session and its
-        run cannot disagree. Distinct from :attr:`skipped`, which is about
-        *records* the session declined to process at all: an unpriced asset's
-        records were processed normally, and it is the strategy's order for
-        something the session never priced that was dropped.
-
-        Aggregated per asset, so a session left running against a misconfigured
-        strategy records the asset once and counts, rather than growing a log
-        for as long as it runs.
-        """
-
-        return tuple(self.pipeline.unpriced_assets.values())
-
-
-def _out_of_order(
-    state: SessionState, record: MarketRecord, previous: float
-) -> tuple[SessionState, ExecutionPipelineResult | None]:
-    """Answer a record whose timestamp went backwards.
-
-    The market engine writes ``latest_quotes[asset_id]`` unconditionally and the
-    pipeline marks the portfolio to whatever it finds there, so acting on an
-    older record rewrites valuation backwards and nothing downstream notices.
-    Neither answer here is a reorder: the record is refused or it is dropped,
-    and nothing is buffered or held back.
-    """
-
-    detail = (
-        f"Record {record.event_id!r} is timestamped {record.timestamp}, which is "
-        f"before the last record processed at {previous}."
-    )
-    if state.config.ordering is OrderingGuarantee.CHRONOLOGICAL:
-        raise MarketValidationError(
-            f"{detail} This session requires chronological records, so its source "
-            "broke the guarantee it declared. Set SessionConfig.ordering to "
-            "UNORDERED to skip such records instead."
-        )
-    return replace(state, skipped=state.skipped.append(SkippedRecord(record, detail))), None
+__all__ = ["ExecutionMode", "TradingSession"]
 
 
 class TradingSession:
-    """Drives a market-data source through the canonical execution path."""
+    """Drives a market-data source through the canonical run step.
+
+    Stateless: every method delegates to
+    :class:`~alphalab.runtime.run.RunEngine` and returns a
+    :class:`~alphalab.runtime.run.RunState`. What this driver adds is the source
+    and the clock.
+    """
 
     @staticmethod
-    def initialize(config: SessionConfig, strategy_state: StrategyRuntimeState) -> SessionState:
+    def initialize(config: RunConfig, strategy_state: StrategyRuntimeState) -> RunState:
         """Fund the portfolio and build the state a session starts from."""
 
-        return SessionState(
-            config=config,
-            pipeline=ExecutionPipeline.initialize(
-                config.pipeline, strategy_state, config.start_timestamp
-            ),
-            current_timestamp=config.start_timestamp,
-        )
+        return RunEngine.initialize(config, strategy_state)
 
     @staticmethod
-    def resume(state: SessionState) -> AbstractContextManager[None]:
+    def resume(state: RunState) -> AbstractContextManager[None]:
         """The scope a restored session continues in.
 
-        The counterpart of the ``id_scope`` :meth:`run` opens. ``run`` starts a
-        stream from a seed; a resumed session continues one, so the source is
-        rebuilt from the position the restored pipeline carries rather than from
-        the seed alone -- which is what stops a continued run re-minting
-        identifiers it has already used. An unseeded run resumes on ``uuid4``,
-        exactly as it ran.
-
-        Restoring state and continuing execution stay separate:
-        :func:`alphalab.runtime.session_snapshot.restore` installs nothing, and
-        this installs nothing but the source. Advance the records the session has
-        not seen inside the block::
-
-            with TradingSession.resume(restored):
-                for record in remaining:
-                    restored, _ = TradingSession.advance(restored, record, factory)
-
-        The boundary is between :meth:`advance` calls. A session that processed N
-        records resumes at record N+1; nothing is replayed.
+        See :meth:`~alphalab.runtime.run.RunEngine.resume`, which is the only
+        implementation of this contract in AlphaLab.
         """
 
-        return use_id_source(id_source_for(state.pipeline.id_position))
+        return RunEngine.resume(state)
 
     @staticmethod
     def advance(
-        state: SessionState,
+        state: RunState,
         record: MarketRecord,
         context_factory: ContextFactory,
         now: float | None = None,
-    ) -> tuple[SessionState, ExecutionPipelineResult | None]:
+    ) -> tuple[RunState, ExecutionPipelineResult | None]:
         """Move one record through the execution path, unless it is too old.
 
         ``now`` is the session's clock. It defaults to the record's own
         timestamp, under which no record is ever stale -- the right answer for a
         historical run. A live session passes its real clock.
 
-        Returns the next state and the pipeline result, or ``None`` when the
-        record was skipped -- because it was stale, or because its timestamp
-        went backwards and the session tolerates that.
-
-        Raises:
-            MarketValidationError: If the record's timestamp regresses and
-                ``config.ordering`` is ``CHRONOLOGICAL``. Acting on it would
-                mark the portfolio at a price the market has already moved past,
-                and the market engine's ``latest_*`` index would silently take
-                the older quote as current. See ADR-0014.
+        See :meth:`~alphalab.runtime.run.RunEngine.advance` for the gates and
+        their order.
         """
 
-        clock = record.timestamp if now is None else now
-        limit = state.config.max_market_data_age_seconds
-        if limit is not None and is_stale(record.timestamp, clock, limit):
-            skipped = SkippedRecord(
-                record,
-                f"Market data timestamped {record.timestamp} is older than the "
-                f"{limit}s limit at {clock}.",
-            )
-            return replace(state, skipped=state.skipped.append(skipped)), None
-
-        previous = state.last_record_timestamp
-        if previous is not None and record.timestamp < previous:
-            return _out_of_order(state, record, previous)
-
-        result = ExecutionPipeline.process_record(
-            state.pipeline, record, context_factory, state.config.fill_policy
-        )
-        return (
-            replace(
-                state,
-                pipeline=result.state,
-                processed=state.processed + 1,
-                current_timestamp=record.timestamp,
-                last_record_timestamp=record.timestamp,
-            ),
-            result,
-        )
+        return RunEngine.advance(state, record, context_factory, now)
 
     @staticmethod
     def run(
-        config: SessionConfig,
+        config: RunConfig,
         source: MarketDataSource,
         strategy_state: StrategyRuntimeState,
         context_factory: ContextFactory,
         clock: Iterable[float] | None = None,
-    ) -> SessionState:
+    ) -> RunState:
         """Read ``source`` to exhaustion through the execution path.
 
         ``clock`` supplies one reading per record for the staleness gate. Omit
@@ -356,12 +152,12 @@ class TradingSession:
 
         Raises:
             MarketValidationError: If the source declares ``UNORDERED`` and the
-                session's config requires ``CHRONOLOGICAL``. The mismatch is
-                refused here, before any record is processed, rather than at
-                whichever record happens to arrive out of order -- a session
-                that would abort partway through a run should not start it. Set
-                ``SessionConfig.ordering`` to ``UNORDERED`` to accept the source
-                and have regressing records skipped and recorded.
+                run's config requires ``CHRONOLOGICAL``. The mismatch is refused
+                here, before any record is processed, rather than at whichever
+                record happens to arrive out of order -- a session that would
+                abort partway through a run should not start it. Set
+                ``RunConfig.ordering`` to ``UNORDERED`` to accept the source and
+                have regressing records skipped and recorded.
         """
 
         if (
@@ -370,10 +166,10 @@ class TradingSession:
         ):
             raise MarketValidationError(
                 f"Source {source.source_id!r} declares UNORDERED records and this "
-                "session requires CHRONOLOGICAL ones. AlphaLab does not reorder market "
+                "run requires CHRONOLOGICAL ones. AlphaLab does not reorder market "
                 "data: the market engine takes the newest record it is given as "
                 "current, so a record arriving late would mark the portfolio "
-                "backwards. Set SessionConfig.ordering to UNORDERED to skip and record "
+                "backwards. Set RunConfig.ordering to UNORDERED to skip and record "
                 "such records instead."
             )
 
@@ -382,9 +178,9 @@ class TradingSession:
             # The source is in scope exactly here, and nowhere later: `advance`
             # takes one record at a time and never sees the stream it came from.
             state = replace(
-                TradingSession.initialize(config, strategy_state), source_id=source.source_id
+                RunEngine.initialize(config, strategy_state), source_id=source.source_id
             )
             for record in source.records():
                 now = next(readings, None) if readings is not None else None
-                state, _ = TradingSession.advance(state, record, context_factory, now)
+                state, _ = RunEngine.advance(state, record, context_factory, now)
             return state

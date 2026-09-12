@@ -23,11 +23,12 @@ from uuid import uuid4
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.backtesting import (
-    BacktestConfig,
     BacktestEngine,
     BacktestResult,
+    ExecutionMode,
     MarketDataset,
     ReplayBacktest,
+    RunConfig,
 )
 from alphalab.market.quote import Quote
 from alphalab.portfolio.account import Account
@@ -118,9 +119,10 @@ def _running_state(strategy_id: str, asset_id: str) -> RuntimeState:
     return replace(state, strategies={strategy_id: strategy_state})
 
 
-def _config(strategy_id: str) -> BacktestConfig:
+def _config(strategy_id: str) -> RunConfig:
     huge = Decimal("1000000000")
-    return BacktestConfig(
+    return RunConfig(
+        mode=ExecutionMode.BACKTEST,
         pipeline=ExecutionPipelineConfig(
             account=Account("acct-bench", "USD", "Backtest Benchmark Account", 1.0),
             starting_cash=START_CASH,

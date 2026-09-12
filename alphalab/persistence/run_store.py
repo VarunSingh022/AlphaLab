@@ -23,19 +23,21 @@ The store knows nothing about what it stores
 parse any snapshot type, and it never decodes a payload. Two things follow, and
 both are the point (ADR-0029 decision 2):
 
-* A future release that reshapes ``SessionState`` and ``BacktestState`` -- which
-  ADR-0023 decision 1 says is expected, and split the envelopes to allow --
-  cannot reach this protocol, because there is nothing here for it to reach. A
-  store with ``save_session`` and ``save_backtest`` methods would have to be
-  redesigned by that release.
+* The release that reshaped ``SessionState`` and ``BacktestState`` -- which
+  ADR-0023 decision 1 anticipated, and split the envelopes to allow -- could not
+  reach this protocol, because there was nothing here for it to reach. v2.14
+  merged both into :class:`~alphalab.runtime.run.RunState` behind one
+  ``RUN_SNAPSHOT_SCHEMA`` and changed no line of this module. A store with
+  ``save_session`` and ``save_backtest`` methods would have been redesigned by
+  that release; ADR-0029 decision 2 was written for it, and it held.
 * A nested pipeline, OMS or portfolio version failure still surfaces from the
   decoder that owns it, with that decoder's own error type, exactly as it does
   when no store is involved.
 
 Turning a payload back into typed values is the owning snapshot module's
 ``from_primitives``; continuing a run is
-:meth:`~alphalab.runtime.session.TradingSession.resume` plus ``advance``. This
-module calls neither, and imports neither.
+:meth:`~alphalab.runtime.run.RunEngine.resume` plus ``advance``. This module
+calls neither, and imports neither.
 
 Nothing here mints an identifier
 --------------------------------

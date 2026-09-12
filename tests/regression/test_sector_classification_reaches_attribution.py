@@ -29,7 +29,6 @@ from alphalab.allocation.snapshot import ALLOCATION_SNAPSHOT_SCHEMA
 from alphalab.analytics.attribution import calculate_attribution
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import ReplayBacktest
-from alphalab.backtesting.snapshot import BACKTEST_SNAPSHOT_SCHEMA
 from alphalab.broker.execution import BrokerExecution
 from alphalab.common.ids import current_id_position, id_scope
 from alphalab.execution.simulator import ExecutionSimulator
@@ -53,12 +52,9 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineState,
     ExecutionRouting,
 )
-from alphalab.runtime.session import (
-    ExecutionMode,
-    SessionConfig,
-    TradingSession,
-)
-from alphalab.runtime.session_snapshot import SESSION_SNAPSHOT_SCHEMA
+from alphalab.runtime.run import ExecutionMode, RunConfig
+from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
+from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import (
     PIPELINE_SNAPSHOT_SCHEMA,
     RuntimeObjects,
@@ -266,7 +262,7 @@ def _live_session_with_a_working_order() -> Any:
     """A live session whose accepted order is left working for a venue."""
 
     backtest = backtest_config(_STRATEGY)
-    config = SessionConfig(
+    config = RunConfig(
         pipeline=replace(backtest.pipeline, instruments=registry_of(_APPLE)),
         mode=ExecutionMode.LIVE,
         fill_policy=backtest.fill_policy,
@@ -494,8 +490,8 @@ def test_a_run_with_no_registry_is_unchanged_in_every_field() -> None:
     ("constant", "expected"),
     [
         (PIPELINE_SNAPSHOT_SCHEMA, 2),
-        (SESSION_SNAPSHOT_SCHEMA, 1),
-        (BACKTEST_SNAPSHOT_SCHEMA, 1),
+        (RUN_SNAPSHOT_SCHEMA, 1),
+        (RUN_SNAPSHOT_SCHEMA, 1),
         (ALLOCATION_SNAPSHOT_SCHEMA, 1),
         (OMS_SNAPSHOT_SCHEMA, 1),
         (PORTFOLIO_SNAPSHOT_SCHEMA, 2),
@@ -585,7 +581,7 @@ def test_backtest_replay_and_paper_agree_on_every_sector() -> None:
 
     session_base = _config()
     session = TradingSession.run(
-        SessionConfig(
+        RunConfig(
             pipeline=session_base.pipeline,
             mode=ExecutionMode.PAPER,
             fill_policy=session_base.fill_policy,

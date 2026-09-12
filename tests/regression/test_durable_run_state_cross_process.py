@@ -84,9 +84,10 @@ from alphalab.persistence import (
     deserialize,
     serialize,
 )
-from alphalab.runtime.session import ExecutionMode, SessionConfig, SessionState, TradingSession
-from alphalab.runtime.session_snapshot import SessionObjects
-from alphalab.runtime.session_snapshot import capture as capture_session
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunState
+from alphalab.runtime.run_snapshot import RunObjects
+from alphalab.runtime.run_snapshot import capture as capture_run
+from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import RuntimeObjects
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
@@ -197,7 +198,7 @@ def build_records(asset_id: str, specs: Sequence[Mapping[str, Any]]) -> list[Mar
     ]
 
 
-def build_session_objects(strategy_id: str, strategy: CountingStrategy) -> SessionObjects:
+def build_session_objects(strategy_id: str, strategy: CountingStrategy) -> RunObjects:
     """The live objects a restore requires, built fresh from their classes.
 
     ``pipeline_config`` is called only to *source* a sizing model, a simulator and
@@ -207,7 +208,7 @@ def build_session_objects(strategy_id: str, strategy: CountingStrategy) -> Sessi
     """
 
     config = pipeline_config(strategy_id)
-    return SessionObjects(
+    return RunObjects(
         pipeline=RuntimeObjects(
             sizing_model=config.sizing_model,
             simulator=config.simulator,
@@ -218,8 +219,8 @@ def build_session_objects(strategy_id: str, strategy: CountingStrategy) -> Sessi
     )
 
 
-def _session_config(strategy_id: str) -> SessionConfig:
-    return SessionConfig(
+def _session_config(strategy_id: str) -> RunConfig:
+    return RunConfig(
         pipeline=pipeline_config(strategy_id),
         mode=ExecutionMode.BACKTEST,
         fill_policy=ImmediateFill(),
@@ -228,7 +229,7 @@ def _session_config(strategy_id: str) -> SessionConfig:
     )
 
 
-def _drive(state: SessionState, records: Iterable[MarketRecord]) -> SessionState:
+def _drive(state: RunState, records: Iterable[MarketRecord]) -> RunState:
     for record in records:
         state, _ = TradingSession.advance(state, record, context_factory)
     return state
@@ -242,7 +243,7 @@ def _control_payload() -> str:
     with id_scope(SEED):
         state = TradingSession.initialize(config, running_strategy_state(STRATEGY_ID, strategy))
         state = _drive(state, build_records(ASSET_ID, record_specs()))
-    return serialize(capture_session(state))
+    return serialize(capture_run(state))
 
 
 # ---------------------------------------------------------------------------
@@ -261,9 +262,9 @@ sys.path.insert(0, sys.argv[2])
 
 from alphalab.persistence import FileRunStateStore, RunStateRef, deserialize, serialize
 from alphalab.runtime.session import TradingSession
-from alphalab.runtime.session_snapshot import capture as capture_session
-from alphalab.runtime.session_snapshot import from_primitives as session_from_primitives
-from alphalab.runtime.session_snapshot import restore as restore_session
+from alphalab.runtime.run_snapshot import capture as capture_run
+from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
+from alphalab.runtime.run_snapshot import restore as restore_run
 from tests.integration.harness import context_factory
 from tests.regression.test_durable_run_state_cross_process import (
     CountingStrategy,
@@ -280,7 +281,7 @@ payload = store.get(RunStateRef(spec["run_id"], spec["sequence"]))
 strategy = CountingStrategy(spec["strategy_id"], spec["asset_id"])
 objects = build_session_objects(spec["strategy_id"], strategy)
 
-restored = restore_session(session_from_primitives(deserialize(payload)), objects)
+restored = restore_run(run_from_primitives(deserialize(payload)), objects)
 
 # The state came back with the strategy's memory in it, not at zero.
 observed_after_restore = strategy.capture_state()["seen"]
@@ -289,7 +290,7 @@ with TradingSession.resume(restored):
     for record in build_records(spec["asset_id"], spec["remaining"]):
         restored, _ = TradingSession.advance(restored, record, context_factory)
 
-final = serialize(capture_session(restored))
+final = serialize(capture_run(restored))
 store.put(spec["run_id"], spec["final_sequence"], final)
 
 print(
@@ -350,7 +351,7 @@ def crossing(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
         partial = TradingSession.initialize(config, running_strategy_state(STRATEGY_ID, strategy))
         partial = _drive(partial, build_records(ASSET_ID, specs[:N]))
 
-    checkpoint = serialize(capture_session(partial))
+    checkpoint = serialize(capture_run(partial))
     ref = store.put(RUN_ID, 0, checkpoint)
 
     spec_file = tmp_path / "spec.json"
@@ -511,10 +512,42 @@ def test_each_class_one_subtree_is_identical(crossing: dict[str, Any], subtree: 
 
 
 @pytest.mark.parametrize(
-    "field", ["processed", "current_timestamp", "last_record_timestamp", "skipped", "source_id"]
+    "field",
+    [
+        "processed",
+        "current_timestamp",
+        "last_record_timestamp",
+        "source_id",
+        "steps",
+        "skipped",
+    ],
 )
-def test_each_session_bookkeeping_field_is_identical(crossing: dict[str, Any], field: str) -> None:
+def test_each_run_bookkeeping_field_is_identical(crossing: dict[str, Any], field: str) -> None:
+    """Every ``RunState`` field outside ``config`` and ``pipeline``, named one by one.
+
+    Byte identity above already covers these; this is the localization layer, so
+    it has to enumerate the whole set rather than the five a session happened to
+    have before v2.14. ``steps`` joined it when the two run states became one:
+    a session records a ``RunStep`` per record now, exactly as a backtest always
+    did.
+    """
+
     assert deserialize(crossing["continued"])[field] == deserialize(crossing["control"])[field]
+
+
+def test_the_localization_list_covers_every_run_bookkeeping_field() -> None:
+    """A field added to ``RunState`` joins the list above, or fails here."""
+
+    import dataclasses
+
+    from alphalab.runtime.run import RunState
+
+    named = set(test_each_run_bookkeeping_field_is_identical.pytestmark[0].args[1])
+    bookkeeping = {f.name for f in dataclasses.fields(RunState)} - {"config", "pipeline"}
+
+    assert named == bookkeeping, (
+        f"RunState bookkeeping fields not localized: {sorted(bookkeeping - named)}"
+    )
 
 
 def test_cash_and_positions_are_identical(crossing: dict[str, Any]) -> None:
@@ -626,7 +659,7 @@ def test_the_child_read_a_state_written_by_a_process_that_had_exited(
 def test_the_crossing_moved_no_schema(crossing: dict[str, Any]) -> None:
     continued = deserialize(crossing["continued"])
 
-    assert continued["schema_version"] == 1, "SESSION_SNAPSHOT_SCHEMA"
+    assert continued["schema_version"] == 1, "RUN_SNAPSHOT_SCHEMA"
     assert continued["pipeline"]["schema_version"] == 2, "PIPELINE_SNAPSHOT_SCHEMA"
     assert continued["pipeline"]["oms"]["schema_version"] == 1
     assert continued["pipeline"]["portfolio"]["schema_version"] == 2

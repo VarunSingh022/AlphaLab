@@ -683,4 +683,4 @@ def test_no_pipeline_or_session_snapshot_exists_yet() -> None:
     assert not hasattr(pipeline_module, "PIPELINE_SNAPSHOT_SCHEMA")
     assert not hasattr(pipeline_module, "capture")
     assert not hasattr(session_module, "RunSnapshot")
-    assert not hasattr(session_module, "SESSION_SNAPSHOT_SCHEMA")
+    assert not hasattr(session_module, "RUN_SNAPSHOT_SCHEMA")
