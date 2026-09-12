@@ -152,12 +152,29 @@ as its own docstring anticipated.
 ## Performance
 
 Gate: ≤3% at 1,000 and 4,000 events against v2.11.0, back to back, identifier
-draws identical, scaling no worse. Measured (median of 7, 50-position book):
-**+0.39%** at 1,000 events and **+0.10%** at 4,000; scaling 4.320× → 4.308×. At
-larger books, where the guards are `O(positions)`: **−0.24%** at 200 positions
-and **+0.46%** at 1,000. An optional single-pass `NAVCalculator` rewrite was
-measured and **deferred**: the gate passes with margin, so it would be an
-optimisation outside the release's theme carrying its own byte-identity risk.
+draws identical, scaling no worse.
+
+A first pass compared a fresh v2.12 run against a v2.11 number measured earlier
+in the session and reported +0.39% at 1,000 events; repeating it minutes later
+on identical code gave +3.18%. The swing is the machine, not the change — within
+a single tree, run-to-run spread is 2.6% at 1,000 events and 5.1% at 4,000 —
+so the figures below come from a properly interleaved A/B instead: one fresh
+process per sample, trees alternating and reversing order each round, nine
+rounds of five timed runs each, in a separate `v2.11.0` checkout whose module
+provenance is asserted by path.
+
+| | v2.11.0 | v2.12.0 | on medians | on minima |
+| --- | --- | --- | --- | --- |
+| 1,000 events | 321.8 ms | 324.1 ms | **+0.72%** | +1.01% |
+| 4,000 events | 1369.3 ms | 1371.6 ms | **+0.17%** | +0.92% |
+
+Both inside the gate, and both smaller than the noise floor of a single
+measurement — which is the reason the gate says "back to back". At larger books,
+where the guards are `O(positions)`: −0.24% at 200 positions and +0.46% at 1,000.
+
+An optional single-pass `NAVCalculator` rewrite was measured and **deferred**:
+the gate passes with margin, so it would be an optimisation outside the
+release's theme carrying its own byte-identity risk.
 
 An optional early settlement check inside `route_order` was also deferred, for a
 reason found in the signature: it takes a `BrokerState`, a `BrokerProtocol`, an
