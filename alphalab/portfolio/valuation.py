@@ -25,14 +25,42 @@ absence of FX, not a rule that foreign-currency instruments are invalid.**
 holding and booking in a foreign currency is supported today; only aggregating
 two currencies into one figure is not. See ADR-0019.
 
-The check is deliberately confined to :meth:`~PortfolioValuation.snapshot`.
-:meth:`~PortfolioValuation.portfolio_value`,
-:meth:`~PortfolioValuation.long_value`, :meth:`~PortfolioValuation.short_value`
-and :class:`~alphalab.portfolio.nav.NAVCalculator` share the same
-currency-blindness and are left exactly as they were: extending the rule to them
-belongs with the release that supplies the rate source, where their callers --
-the risk resync runs one of them on every market event -- can be considered
-together rather than one at a time.
+Which helpers refuse, and which do not
+--------------------------------------
+
+Until v2.12 the check was confined to :meth:`~PortfolioValuation.snapshot` and
+its siblings were left currency-blind, deferred to "the release that supplies
+the rate source" (ADR-0020 decision 5). That release has not arrived, and the
+deferral was closed earlier instead, on measurement. What sorts the helpers is
+not whether they *could* produce a wrong figure but **what each one claims**:
+
+=========================================  ==========================  ========
+Kind                                       Helpers                     Refuses
+=========================================  ==========================  ========
+Aggregates across positions **and** names  ``snapshot``,               **Yes**
+a base currency -- so it is a valuation,   ``portfolio_value``,
+and a valuation in a currency the book     ``NAVCalculator.calculate``,
+is not in is the v2.7 defect.              ``_risk_exposure``
+Aggregates and names no currency -- a      ``long_value``,             No
+component of a valuation, not one. It      ``short_value``,
+returns an unlabelled sum and cannot be    ``asset_values``,
+told what to refuse against, because a     ``ExposureEngine.*``
+``Mapping[str, Position]`` carries no
+account.
+Names a currency but aggregates nothing    ``cash_value``,             No
+-- a keyed lookup returns what it was      ``CashLedger.balance``
+asked for.
+=========================================  ==========================  ========
+
+``long_value`` and ``short_value`` are therefore components, and their one
+production caller is :meth:`~PortfolioValuation.snapshot`, which calls them
+*after* :func:`assert_single_currency` and is the thing that attaches a currency
+label. Guarding them was measured at +1.78% end-to-end against a 0.27% noise
+floor -- ``snapshot`` runs twice per market event, and each guard would add a
+traversal of a book the assertion has already proven homogeneous. See ADR-0028
+decision 7, which pins this table in
+``tests/regression/test_currency_authority.py`` so a later reclassification is
+deliberate.
 """
 
 from collections.abc import Mapping
@@ -50,7 +78,53 @@ __all__ = [
     "PortfolioValuation",
     "PortfolioValuationSnapshot",
     "assert_single_currency",
+    "assert_single_currency_book",
 ]
+
+
+def assert_single_currency_book(
+    cash: CashLedger, positions: Mapping[str, Position], base_currency: str
+) -> None:
+    """*The* rule: refuse a book that is not one figure in ``base_currency``.
+
+    Written over the two components rather than over a
+    :class:`~alphalab.portfolio.engine.PortfolioState` so that every caller can
+    reach it. :func:`assert_single_currency` has a state and delegates here;
+    :meth:`NAVCalculator.calculate <alphalab.portfolio.nav.NAVCalculator.calculate>`
+    and :meth:`PortfolioValuation.portfolio_value` have a ledger and a mapping
+    and call it directly. One implementation, one message, one place to change
+    -- which is what stops the rule drifting into two rules that disagree about
+    what a mixed book is (ADR-0028 decision 6).
+
+    See :func:`assert_single_currency` for the two conditions and why each
+    exists; they are stated once, there.
+
+    Raises:
+        MixedCurrencyValuationError: If either condition fails.
+    """
+
+    foreign_positions = sorted(
+        {position.currency for position in positions.values()} - {base_currency}
+    )
+    foreign_cash = sorted(
+        currency
+        for currency, amount in cash.balances.items()
+        if currency != base_currency and amount != ZERO_MONEY
+    )
+    if not foreign_positions and not foreign_cash:
+        return
+
+    raise MixedCurrencyValuationError(
+        f"This portfolio cannot be valued as one figure in {base_currency!r}: "
+        f"positions denominated in {foreign_positions} would be summed into a "
+        f"total they are not in, and cash held in {foreign_cash} would be dropped "
+        "from it. AlphaLab has no FX rate source, so there is no honest single "
+        "number to return. This is the absence of a rate, not a rule that "
+        "foreign-currency instruments are invalid: the cash ledger and every "
+        "position already carry their own currency, and holding them is "
+        "supported. Value each currency separately, or supply a base currency "
+        "the whole book is denominated in."
+    )
 
 
 def assert_single_currency(state: PortfolioState, base_currency: str) -> None:
@@ -80,28 +154,7 @@ def assert_single_currency(state: PortfolioState, base_currency: str) -> None:
             names the base currency and both sets of offenders.
     """
 
-    foreign_positions = sorted(
-        {position.currency for position in state.positions.values()} - {base_currency}
-    )
-    foreign_cash = sorted(
-        currency
-        for currency, amount in state.cash.balances.items()
-        if currency != base_currency and amount != ZERO_MONEY
-    )
-    if not foreign_positions and not foreign_cash:
-        return
-
-    raise MixedCurrencyValuationError(
-        f"This portfolio cannot be valued as one figure in {base_currency!r}: "
-        f"positions denominated in {foreign_positions} would be summed into a "
-        f"total they are not in, and cash held in {foreign_cash} would be dropped "
-        "from it. AlphaLab has no FX rate source, so there is no honest single "
-        "number to return. This is the absence of a rate, not a rule that "
-        "foreign-currency instruments are invalid: the cash ledger and every "
-        "position already carry their own currency, and holding them is "
-        "supported. Value each currency separately, or supply a base currency "
-        "the whole book is denominated in."
-    )
+    assert_single_currency_book(state.cash, state.positions, base_currency)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,18 +193,34 @@ class PortfolioValuation:
 
     @staticmethod
     def cash_value(cash_ledger: CashLedger, base_currency: str = "USD") -> Decimal:
-        # Simplification: assumes base currency. A multi-ccy engine requires FX rates here.
+        # A keyed lookup, not an aggregation: it returns the balance in the one
+        # currency it was asked for and claims nothing about any other, so there
+        # is no mixed book for it to refuse. See the module docstring.
         return cash_ledger.balance(base_currency)
 
     @staticmethod
     def long_value(positions: Mapping[str, Position]) -> Decimal:
-        """Summed market value of long positions; zero or positive."""
+        """Summed market value of long positions; zero or positive.
+
+        A **component of a valuation, not a valuation.** It names no currency,
+        returns an unlabelled sum, and deliberately does not refuse a mixed book
+        -- it has no base currency to refuse against, because a
+        ``Mapping[str, Position]`` carries no account. The caller that attaches
+        a currency label is :meth:`snapshot`, and that is where the refusal
+        lives. Summing positions in two currencies here is meaningless, and it
+        is the caller's business to have established that they are not. See the
+        module docstring and ADR-0028 decision 7.
+        """
 
         return sum((p.market_value for p in positions.values() if p.quantity > 0), Decimal("0.00"))
 
     @staticmethod
     def short_value(positions: Mapping[str, Position]) -> Decimal:
-        """Summed market value of short positions; zero or negative."""
+        """Summed market value of short positions; zero or negative.
+
+        A component, on the same terms as :meth:`long_value`: no currency named,
+        none claimed, and no refusal.
+        """
 
         return sum((p.market_value for p in positions.values() if p.quantity < 0), Decimal("0.00"))
 
@@ -159,6 +228,20 @@ class PortfolioValuation:
     def portfolio_value(
         cash_ledger: CashLedger, positions: Mapping[str, Position], base_currency: str = "USD"
     ) -> Decimal:
+        """Total value of cash and positions, expressed in ``base_currency``.
+
+        Names a currency and aggregates across positions, so it is a valuation
+        and it refuses a book it cannot express -- through the same rule
+        :meth:`snapshot` uses, and before anything is computed, so a refused
+        call returns no partial figure. Until v2.12 it summed every position
+        regardless of currency and labelled the result with ``base_currency``.
+
+        Raises:
+            MixedCurrencyValuationError: If the book holds positions or non-zero
+                cash in any other currency.
+        """
+
+        assert_single_currency_book(cash_ledger, positions, base_currency)
         cash_val = PortfolioValuation.cash_value(cash_ledger, base_currency)
         pos_val = sum(PortfolioValuation.asset_values(positions).values(), Decimal("0.00"))
         return cash_val + pos_val

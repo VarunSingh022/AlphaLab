@@ -22,6 +22,14 @@ valuation now refuses instead of inventing one.
 invalid.** ``CashLedger`` is keyed by currency and ``Position`` declares its
 own, so a wholly-EUR book values perfectly well in EUR -- that case is asserted
 below alongside the refusals, because the distinction is the whole point.
+
+v2.8 confined the refusal to ``snapshot`` and left four helpers blind, deferring
+them to "the release that supplies the rate source" (ADR-0020 decision 5). v2.12
+closed that deferral earlier, on measurement, and sorted the four rather than
+guarding them all: ``portfolio_value`` and ``NAVCalculator.calculate`` aggregate
+*and* name a base currency, so they are valuations and they refuse; ``long_value``
+and ``short_value`` name none, so they are components of a valuation and do not.
+Both halves are pinned below. See ADR-0028 decision 7.
 """
 
 from decimal import Decimal
@@ -33,7 +41,11 @@ from alphalab.portfolio.cash import CashLedger
 from alphalab.portfolio.engine import PortfolioState
 from alphalab.portfolio.exceptions import MixedCurrencyValuationError
 from alphalab.portfolio.position import Position
-from alphalab.portfolio.valuation import PortfolioValuation, assert_single_currency
+from alphalab.portfolio.valuation import (
+    PortfolioValuation,
+    assert_single_currency,
+    assert_single_currency_book,
+)
 
 ZERO = Decimal("0.00")
 
@@ -278,7 +290,7 @@ def test_the_check_runs_before_any_figure_is_computed() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The predicate is reusable, and the siblings are deliberately untouched
+# The predicate is reusable, and the siblings were closed in v2.12
 # --------------------------------------------------------------------------- #
 
 
@@ -291,12 +303,45 @@ def test_the_predicate_is_callable_on_its_own() -> None:
         assert_single_currency(mixed, "USD")
 
 
-def test_the_currency_blind_siblings_are_unchanged_in_this_release() -> None:
-    """Extending the rule to these belongs with the release that supplies a rate.
+def test_the_predicate_has_one_implementation() -> None:
+    """``assert_single_currency`` delegates; it does not restate the rule.
 
-    ``NAVCalculator.calculate`` runs on every market event through the risk
-    resync, so guarding it is a hot-path decision with its own callers to weigh.
-    Pinning the current behaviour here makes a later change deliberate.
+    ADR-0028 decision 6. Two implementations of "what a mixed book is" would
+    eventually disagree, and the helpers closed in v2.12 reach the rule through
+    a ledger and a mapping rather than through a ``PortfolioState``.
+    """
+
+    import inspect
+
+    body = inspect.getsource(assert_single_currency).split('"""')[-1]
+
+    assert "assert_single_currency_book(state.cash, state.positions, base_currency)" in body
+    assert "MixedCurrencyValuationError" not in body, "no second implementation of the rule"
+
+
+def test_the_state_form_and_the_component_form_agree() -> None:
+    mixed = _state(
+        balances={"USD": Decimal("1000.00")},
+        positions={"a": _position("a", "USD"), "b": _position("b", "EUR")},
+    )
+
+    with pytest.raises(MixedCurrencyValuationError) as from_state:
+        assert_single_currency(mixed, "USD")
+    with pytest.raises(MixedCurrencyValuationError) as from_components:
+        assert_single_currency_book(mixed.cash, mixed.positions, "USD")
+
+    assert str(from_state.value) == str(from_components.value)
+
+
+def test_the_currency_claiming_siblings_refuse_a_mixed_book() -> None:
+    """v2.12 closes ADR-0020 decision 5, earlier than it expected.
+
+    This test replaces ``test_the_currency_blind_siblings_are_unchanged_in_this_release``,
+    which pinned ``3200.00`` -- the v2.7 figure in no currency at all -- so that
+    removing it would have to be deliberate. It is. Each helper below aggregates
+    across positions *and* names a base currency, so each is a valuation, and a
+    valuation in a currency the book is not in is the defect this suite exists
+    to remove. See ADR-0028 decision 7.
     """
 
     from alphalab.portfolio.nav import NAVCalculator
@@ -306,11 +351,98 @@ def test_the_currency_blind_siblings_are_unchanged_in_this_release() -> None:
         positions={"a": _position("a", "USD"), "b": _position("b", "EUR")},
     )
 
-    assert PortfolioValuation.portfolio_value(mixed.cash, mixed.positions, "USD") == Decimal(
-        "3200.00"
+    with pytest.raises(MixedCurrencyValuationError):
+        PortfolioValuation.portfolio_value(mixed.cash, mixed.positions, "USD")
+    with pytest.raises(MixedCurrencyValuationError):
+        NAVCalculator.calculate(mixed.cash, mixed.positions, "USD")
+
+
+def test_the_claiming_siblings_are_numerically_unchanged_for_one_currency() -> None:
+    """Closing them changed what they refuse, not what they compute."""
+
+    from alphalab.portfolio.nav import NAVCalculator
+
+    single = _state(
+        balances={"USD": Decimal("1000.00")},
+        positions={"a": _position("a", "USD"), "b": _position("b", "USD", "-4")},
     )
-    assert NAVCalculator.calculate(mixed.cash, mixed.positions, "USD") == Decimal("3200.00")
+
+    assert PortfolioValuation.portfolio_value(single.cash, single.positions, "USD") == Decimal(
+        "1660.00"
+    )
+    assert NAVCalculator.calculate(single.cash, single.positions, "USD") == Decimal("1660.00")
+
+
+def test_the_component_siblings_name_no_currency_and_do_not_refuse() -> None:
+    """``long_value`` and ``short_value`` are components, not valuations.
+
+    ADR-0028 decision 7, and the one open question the design lock asked to be
+    settled from the code. They take no base currency, return an unlabelled sum,
+    and cannot be told what to refuse against: a ``Mapping[str, Position]``
+    carries no account. Their only production caller is ``snapshot``, which
+    calls them after ``assert_single_currency`` and is the thing that attaches a
+    currency label.
+
+    Pinned so that reclassifying either one is deliberate rather than incidental.
+    """
+
+    import inspect
+
+    mixed = _state(
+        balances={"USD": Decimal("1000.00")},
+        positions={"a": _position("a", "USD"), "b": _position("b", "EUR")},
+    )
+
+    # No base-currency parameter, so no currency claim, so nothing to refuse.
+    for helper in (PortfolioValuation.long_value, PortfolioValuation.short_value):
+        assert list(inspect.signature(helper).parameters) == ["positions"]
+
     assert PortfolioValuation.long_value(mixed.positions) == Decimal("2200.00")
+    assert PortfolioValuation.short_value(mixed.positions) == ZERO
+
+
+def test_the_three_way_helper_rule_holds_across_the_module() -> None:
+    """Every helper that names a base currency and aggregates, refuses.
+
+    The rule stated in ``alphalab.portfolio.valuation``'s module docstring,
+    checked against the signatures rather than against a hand-kept list, so a
+    new helper cannot quietly join the wrong group.
+    """
+
+    import inspect
+
+    from alphalab.portfolio.nav import NAVCalculator
+
+    aggregating_and_claiming = (
+        PortfolioValuation.portfolio_value,
+        NAVCalculator.calculate,
+    )
+    aggregating_only = (
+        PortfolioValuation.long_value,
+        PortfolioValuation.short_value,
+        PortfolioValuation.asset_values,
+    )
+    lookup_only = (PortfolioValuation.cash_value,)
+
+    mixed = _state(
+        balances={"USD": Decimal("1000.00")},
+        positions={"a": _position("a", "USD"), "b": _position("b", "EUR")},
+    )
+
+    for helper in aggregating_and_claiming:
+        params = inspect.signature(helper).parameters
+        assert "base_currency" in params and "positions" in params
+        with pytest.raises(MixedCurrencyValuationError):
+            helper(mixed.cash, mixed.positions, "USD")
+
+    for component in aggregating_only:
+        assert "base_currency" not in inspect.signature(component).parameters
+        component(mixed.positions)  # returns; makes no currency claim
+
+    for lookup in lookup_only:
+        params = inspect.signature(lookup).parameters
+        assert "base_currency" in params and "positions" not in params
+        assert lookup(mixed.cash, "USD") == Decimal("1000.00")
 
 
 def test_a_single_currency_valuation_is_numerically_what_it_always_was() -> None:
