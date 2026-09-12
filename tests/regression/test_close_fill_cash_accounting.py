@@ -87,8 +87,6 @@ def _context_factory(strategy_id: str) -> StrategyContext:
         risk_view=object(),
         config={},
         orders=object(),
-        history=object(),
-        universe=object(),
     )
 
 

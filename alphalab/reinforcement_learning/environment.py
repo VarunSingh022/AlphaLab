@@ -130,8 +130,6 @@ def _make_context_factory(pending: _PendingDecision) -> ContextFactory:
             risk_view=object(),
             config=pending,
             orders=object(),
-            history=object(),
-            universe=object(),
         )
 
     return factory

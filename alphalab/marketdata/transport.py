@@ -14,6 +14,8 @@ from typing import Protocol
 from urllib import request as urllib_request
 from urllib.parse import urlencode
 
+from alphalab.common.tls import tls_context
+
 
 class Transport(Protocol):
     """Minimal HTTP GET interface a market data client depends on."""
@@ -31,6 +33,12 @@ class HttpTransport:
     cannot currently be, exercised against a live endpoint from within this
     environment. Treat it as unverified until run against a real endpoint
     somewhere with network access.
+
+    An ``https://`` endpoint is reached with
+    :func:`~alphalab.common.tls.tls_context` -- certificate and hostname
+    verified, TLS 1.2 pinned as the floor rather than inherited from the host's
+    OpenSSL. That is the same policy the venue transport and the WebSocket
+    client use, defined once. See ADR-0031.
     """
 
     timeout_seconds: float = 10.0
@@ -38,7 +46,14 @@ class HttpTransport:
     def get(self, url: str, params: Mapping[str, str]) -> bytes:
         query = urlencode(params)
         full_url = f"{url}?{query}" if query else url
-        with urllib_request.urlopen(full_url, timeout=self.timeout_seconds) as response:
+        # `context` is explicit for the reason `alphalab.common.tls` gives: left
+        # to itself urlopen inherits the host's TLS floor, which on a permissive
+        # machine admits TLS 1.0. Supplied for `http://` too, where urllib does
+        # not use it -- branching on the scheme would be a decision about which
+        # requests deserve a secure context.
+        with urllib_request.urlopen(
+            full_url, timeout=self.timeout_seconds, context=tls_context()
+        ) as response:
             body: bytes = response.read()
             return body
 

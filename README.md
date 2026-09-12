@@ -178,15 +178,28 @@ a strategy that declares its state**, and leaves it stated for one that does not
 > an environment *should* be running a strategy version. It starts no process, opens no
 > connection and reaches no venue.
 >
-> **AlphaLab does not support live trading.** No broker adapter reaches any venue: the
-> `alphalab.integrations` clients (Alpaca, IB, Zerodha) are canned-response stubs, and
-> v2.3 added the adapter *contract* rather than a transport.
+> **Connectivity exists from v2.15; vendor integration does not.** This replaces the
+> flat "AlphaLab does not support live trading" this section carried through v2.14,
+> which stopped being accurate and would have been the most misleading sentence in the
+> repository if left.
 >
-> Market *data* is the exception, and v2.5 corrects three releases of documentation
-> that said otherwise: `alphalab.marketdata.binance` is a real REST client over a real
-> HTTP transport, and has been since v1.39.0. It has never been run against a live
-> endpoint from this environment, so treat it as unverified — but it is not a stub.
-> See `docs/ADR/0012-broker-boundary-and-environment-parity.md`.
+> What v2.15 adds is real: `alphalab.broker.transport.HttpVenueTransport` signs and
+> sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker` is a
+> full `BrokerProtocol` over it, and `alphalab.market.stream.StreamingSource` consumes
+> a push feed through an RFC 6455 WebSocket client. All of it is exercised end to end
+> over real sockets against local servers that verify signatures, timestamp windows,
+> idempotency keys and WebSocket accept tokens.
+>
+> What v2.15 does **not** add: verification against any commercial venue — this
+> environment has no network egress and holds no vendor credentials — and any named
+> vendor's request shapes. The `alphalab.integrations` clients (Alpaca, IB, Zerodha)
+> remain canned-response stubs. Read the transports as written-to-protocol and
+> unverified-against-a-vendor, which is what their own docstrings say.
+>
+> Market *data* history has been real since v1.39.0: `alphalab.marketdata.binance` is a
+> real REST client over a real HTTP transport, unverified from this environment for the
+> same reason. See `docs/ADR/0012-broker-boundary-and-environment-parity.md` and
+> `docs/ADR/0031-real-transport-streaming-artifacts-and-the-completed-boundaries.md`.
 
 ---
 
@@ -660,22 +673,26 @@ See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## Not yet addressed
 
-- Connectivity to a real venue for **order execution**. v2.3 built and tested the
-  adapter contract, the routing gates, reconciliation and the fill-return path; no
-  broker transport exists, and the `integrations` broker clients are canned-response
-  stubs. (Market *data* is different — see the note above)
-- A **streaming** market-data source. v2.5's provider source reads a finite historical
-  range; polling, subscription and reconnect need a clock and a loop AlphaLab does not
-  have
-- Artifact storage. `ArtifactRef` records where a model's bytes live and what they
-  should hash to; AlphaLab never reads, writes or hashes them, and there is no
-  object store
+- **Vendor integration and live verification.** v2.15 added a real venue transport
+  (`HttpVenueTransport`, HMAC-signed) and a real adapter over it (`RestVenueBroker`),
+  so the connectivity gap this list carried through v2.14 is closed. What is *not*
+  closed: nothing here has been verified against a commercial venue — this
+  environment has no network egress and holds no vendor credentials — and no named
+  vendor's request shapes are implemented. The `integrations` broker clients remain
+  canned-response stubs
+- **A live driver.** `TradingSession` reads a source and advances the run; routing
+  working orders and applying returning executions as the run proceeds is the
+  caller's loop. Under ADR-0030 that is a third driver alongside the session and the
+  backtest, and v2.15 did not write it
 - **Classification data.** v2.11 supplies the security master's *mechanism* —
   `classify_instrument` writes a sector and the execution path reads it onto
   every fill — but AlphaLab ships no taxonomy and no reference-data feed, so a
-  sector breakdown requires an operator who declares one. Sector is also the
-  only dimension: industry, country, issuer and rating are each a separate
-  decision
+  sector breakdown requires an operator who declares one. v2.15 adds the
+  provenance the mechanism lacked — a classification records its `source` and
+  `as_of`, corrections are appended rather than overwritten, and the registry is
+  durable — but it ships no more reference data than v2.11 did. Sector is also
+  still the only dimension: industry, country, issuer and rating are each a
+  separate decision
 - A single integrated runtime spanning *all* engines. The **run** layer is one
   owner as of v2.14 — `RunEngine`/`RunState` over `ExecutionPipeline`, with
   `TradingSession`, `BacktestEngine` and `ReplayBacktest` as drivers (ADR-0030)
@@ -683,11 +700,6 @@ See `CHANGELOG.md` and `ROADMAP.md`.
   reporting, feature store and the rest remain standalone libraries
 - Approval workflow. A promotion is an auditable privileged action, but it is not
   wired to `alphalab.enterprise`'s RBAC or audit log
-- `StrategyContext.history` and `.universe`. v2.10 populates the marked
-  portfolio, the strategy's live order shares, risk headroom and a market view;
-  a clock-bounded historical accessor needs a look-ahead guard enforced at
-  construction, and universe membership needs a decision about whether it is
-  configuration, registry state or a risk control
 - Allocation visibility inside `StrategyContext`. Reservations and contributions
   are post-intent facts; showing a strategy the capital its own intent will
   reserve invites it to pre-size, duplicating the allocation engine's authority

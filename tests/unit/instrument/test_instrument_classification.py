@@ -68,12 +68,26 @@ def test_classification_is_keyed_by_asset_id_and_touches_no_other_instrument() -
 
 
 def test_the_api_is_keyed_by_asset_id_and_not_by_a_record() -> None:
-    """A record would admit one whose identity fields disagree with the registry's."""
+    """A record would admit one whose identity fields disagree with the registry's.
 
-    parameters = list(inspect.signature(classify_instrument).parameters)
+    The first three parameters are pinned in order, and every parameter is
+    checked for not being a record. v2.15 appended optional ``source`` and
+    ``as_of``; that is additive and does not touch what this test is about, so
+    the assertion states the property rather than the exact arity.
+    """
 
-    assert parameters == ["registry", "asset_id", "sector"]
-    assert inspect.signature(classify_instrument).parameters["asset_id"].annotation == "str"
+    signature = inspect.signature(classify_instrument)
+    parameters = list(signature.parameters)
+
+    assert parameters[:3] == ["registry", "asset_id", "sector"]
+    assert signature.parameters["asset_id"].annotation == "str"
+    assert not any("record" in name.lower() for name in parameters), (
+        "classification is keyed by asset_id; a record parameter would admit one "
+        "whose identity fields disagree with the registered instrument's"
+    )
+    assert all(
+        signature.parameters[name].default is not inspect.Parameter.empty for name in parameters[3:]
+    ), "anything added beyond the original three must be optional"
 
 
 def test_classifying_an_unregistered_asset_id_is_refused_naming_it() -> None:
