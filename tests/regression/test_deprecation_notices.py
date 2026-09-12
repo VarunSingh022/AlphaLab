@@ -23,13 +23,54 @@ import warnings
 
 import pytest
 
-#: Target -> the release that removes it. Nothing is removed in v2.6.
+#: Target -> the release that removes it. Nothing is removed when it is listed.
 REMOVAL_RELEASE = {
     "alphalab.integrations": "v3.0",
     "alphalab.kernel": "v3.0",
     "alphalab.common.CommonEvent": "v3.0",
     "alphalab.core.events": "v3.0",
+    # v2.13, ADR-0029: the original nine-module store, replaced by RunStateStore.
+    # Same mechanism as CommonEvent and for the same reason -- this package has
+    # production importers of its codec spine, so the notice cannot be at import.
+    "alphalab.persistence.store": "v3.0",
 }
+
+#: The names ADR-0029 decision 6 deprecates, and the module still defining each.
+DEPRECATED_STORE_NAMES = (
+    "EventAppended",
+    "EventsLoaded",
+    "MemoryStorage",
+    "MemoryStoreData",
+    "PersistenceAdapter",
+    "PersistenceEngine",
+    "PersistenceProtocol",
+    "PersistenceState",
+    "PersistenceStatistics",
+    "PersistenceSystemEvent",
+    "Snapshot",
+    "SnapshotLoaded",
+    "SnapshotSaved",
+    "StorageCleared",
+    "StoredEvent",
+    "event_count",
+    "latest_snapshot",
+    "snapshot_count",
+    "storage_statistics",
+    "validate_event_append",
+    "validate_snapshot_load",
+    "validate_snapshot_save",
+)
+
+#: The codec spine, which is canonical and must stay silent.
+CODEC_SPINE_NAMES = (
+    "serialize",
+    "deserialize",
+    "require",
+    "require_schema_version",
+    "as_mapping",
+    "StateDecodeError",
+    "SerializationError",
+)
 
 
 def _warnings_on_import(module: str) -> list[str]:
@@ -132,6 +173,7 @@ def test_an_unknown_attribute_still_raises_attribute_error() -> None:
         "alphalab.common",
         "alphalab.core",
         "alphalab.core.events",
+        "alphalab.persistence",
         "alphalab.allocation",
         "alphalab.oms",
         "alphalab.portfolio",
@@ -172,6 +214,90 @@ def test_a_clean_interpreter_importing_core_is_silent() -> None:
     assert "ok" in result.stdout
 
 
+# ---------------------------------------------------------------------------
+# v2.13: the original persistence store (ADR-0029 decision 6)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", DEPRECATED_STORE_NAMES)
+def test_a_deprecated_store_name_warns_on_attribute_access(name: str) -> None:
+    import alphalab.persistence
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        getattr(alphalab.persistence, name)
+
+    matching = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert len(matching) == 1, f"{name} warned {len(matching)} times"
+    message = str(matching[0].message)
+    assert name in message
+    assert REMOVAL_RELEASE["alphalab.persistence.store"] in message, "name the removal release"
+    assert "RunStateStore" in message, "a notice must name the replacement"
+
+
+@pytest.mark.parametrize("name", CODEC_SPINE_NAMES)
+def test_the_codec_spine_never_warns(name: str) -> None:
+    """The reason the notice is PEP 562 and not at import.
+
+    Every snapshot module in the repository imports one of these. A warning on
+    this package's import would fire across the whole execution path to
+    deprecate names that path never touches.
+    """
+
+    import alphalab.persistence
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        getattr(alphalab.persistence, name)
+
+    assert not [w for w in caught if issubclass(w.category, DeprecationWarning)]
+
+
+def test_importing_a_deprecated_store_module_directly_is_silent() -> None:
+    """The notice guards the package surface, as ``alphalab.common.events`` is unguarded."""
+
+    offenders = _warnings_on_import("alphalab.persistence.storage")
+
+    assert not offenders, f"the submodule warned: {offenders}"
+
+
+def test_a_deprecated_store_name_is_the_object_it_always_was() -> None:
+    """Deprecated, not aliased and not shimmed."""
+
+    import alphalab.persistence
+    from alphalab.persistence.storage import MemoryStorage as Direct
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        served = alphalab.persistence.MemoryStorage
+
+    assert served is Direct
+
+
+def test_an_unknown_persistence_attribute_still_raises_attribute_error() -> None:
+    """The PEP 562 hook must not swallow ordinary typos."""
+
+    import alphalab.persistence
+
+    with pytest.raises(AttributeError, match="no attribute 'MemoryStorge'"):
+        alphalab.persistence.MemoryStorge  # noqa: B018
+
+
+def test_the_new_store_boundary_is_not_deprecated() -> None:
+    """``RunStateStore`` is a replacement, not a renamed ``PersistenceProtocol``."""
+
+    import alphalab.persistence
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert alphalab.persistence.RunStateStore is not None
+        assert alphalab.persistence.FileRunStateStore is not None
+        assert alphalab.persistence.MemoryRunStateStore is not None
+        assert alphalab.persistence.RunStateRef is not None
+
+    assert not [w for w in caught if issubclass(w.category, DeprecationWarning)]
+
+
 def test_nothing_is_actually_removed_in_this_release() -> None:
     """A deprecation notice is a notice, not a removal."""
 
@@ -182,3 +308,11 @@ def test_nothing_is_actually_removed_in_this_release() -> None:
 
     assert alphalab.kernel.StateStore is not None
     assert alphalab.integrations.__all__
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import alphalab.persistence
+
+        assert alphalab.persistence.MemoryStorage is not None
+        assert alphalab.persistence.PersistenceProtocol is not None
+        assert alphalab.persistence.PersistenceEngine.initialize("still-here") is not None

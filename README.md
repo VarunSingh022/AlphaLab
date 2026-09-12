@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.11.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-2.13.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-2926%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-3190%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -29,7 +29,7 @@ AlphaLab ships three kinds of package:
 
 - **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable state snapshot. `alphalab.backtesting` drives that spine from a dataset, either straight through or through `alphalab.replay`'s cursor; both call the same step, so a backtest and a replay of one dataset produce identical orders, fills and P&L.
 - **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, strategy definitions and the deployment manager into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. It sits *above* the execution path, not inside it: a deployment names what should run, and running it is the execution path's job.
-- **State round-trip.** `capture` / `restore` turn `OMSState`, `PortfolioState`, `LifecycleState`, `AllocationState` and — as of v2.9 — `ExecutionPipelineState`, `SessionState` and `BacktestState` into typed snapshots and back, through typed decoders that name the field when a payload is wrong. A snapshot records live objects (strategy instances, the simulator, the sizing model, the fill policy) by type and requires the caller to supply them back, raising rather than substituting. `TradingSession.resume` / `BacktestEngine.resume` continue a restored run on the identifier stream it left off on. `alphalab.market.provider` feeds the execution path from a market-data provider's history rather than only from a stored dataset.
+- **State round-trip, and somewhere to put it.** `capture` / `restore` turn `OMSState`, `PortfolioState`, `LifecycleState`, `AllocationState` and — as of v2.9 — `ExecutionPipelineState`, `SessionState` and `BacktestState` into typed snapshots and back, through typed decoders that name the field when a payload is wrong. A snapshot records live objects (strategy instances, the simulator, the sizing model, the fill policy) by type and requires the caller to supply them back, raising rather than substituting. `TradingSession.resume` / `BacktestEngine.resume` continue a restored run on the identifier stream it left off on. As of **v2.13**, `alphalab.persistence.RunStateStore` stores those payloads durably — `FileRunStateStore` on the local filesystem, `MemoryRunStateStore` as an explicitly named test double — so a run can stop in one process and finish in another, byte-identically. `alphalab.market.provider` feeds the execution path from a market-data provider's history rather than only from a stored dataset.
 - **Standalone engine libraries.** Most other packages (research, portfolio optimizer, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, enterprise, studio, workbench) are independent, deterministic, individually tested libraries. They share the engineering model but are **not** currently fused into a single runtime.
 
 The framework is designed for researchers, quantitative developers, students, and engineering teams building reproducible trading infrastructure.
@@ -38,19 +38,63 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.11.0**
+**Current Release:** **v2.13.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.11.0 |
-| Tests | **2926 Passing** |
-| Static Typing | **Strict MyPy** (958 source files) |
+| Version | 2.13.0 |
+| Tests | **3190 Passing** |
+| Static Typing | **Strict MyPy** (903 source files) |
 | Linting | **Ruff Clean** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+v2.13.0 — "Durable Run State" — gives a captured run somewhere to go.
+
+`capture` / `restore` have covered `ExecutionPipelineState`, `SessionState` and
+`BacktestState` since v2.9, and v2.10 closed the last precondition with
+`StrategyStateProtocol`. A run could be described completely and rebuilt exactly
+— and could not be **put anywhere**. There were zero filesystem calls in the
+package; `MemoryStorage` was the only `PersistenceProtocol` implementation and
+lost everything on exit; and nothing in production imported the snapshot modules
+at all. The one object claiming to own recovery, `production.Checkpoint` with
+`RecoveryEngine`, held six opaque strings and restored nothing.
+
+`alphalab.persistence.RunStateStore` is the one owner of durable run state:
+four methods over `(run_id, sequence) → payload`. It is **payload-agnostic** —
+it moves a `str`, imports no snapshot type and never decodes one — which is what
+keeps it correct through the runtime unification ADR-0023 anticipates.
+`FileRunStateStore` is the real local backend: standard library only, atomic
+temp-file-and-rename writes, a digest verified **before any decoder runs**, and a
+root that must already exist. `MemoryRunStateStore` is an explicitly named test
+double a caller constructs by hand — never a fallback, and the file store never
+degrades into it. `RunStateRef(run_id, sequence)` is an **identity, not a
+location**: it renders `run_id@sequence` and carries no path, so a second backend
+would change no caller.
+
+The run identity is **yours**: an opaque string supplied at `put`, never written
+into any captured state, which is why no snapshot schema moves. And persistence
+**draws no identifier** from the run's stream — the deprecated store took one per
+operation, and the two it took were the run's own next two — so a mid-run
+checkpoint leaves a seeded run reproducible.
+
+Proven rather than asserted: a seeded run of five records, stored to disk,
+continued in a **separate interpreter** over six more, produces a final
+serialized payload **byte-identical** to a run that never stopped. Storage is an
+explicit caller action between completed steps; nothing on the execution path
+calls it, and there is no append-per-event API.
+
+The original nine-module persistence store is **deprecated, removed in v3.0**,
+with the codec spine (`serializer`, `decode`, `exceptions`) canonical and
+untouched. Nothing is removed in v2.13.
+
+**No FX, no multi-currency valuation, no `ArtifactStore` or artifact bytes, no
+cloud storage, no streaming, no live venue transport, no governance/RBAC
+implementation, and no runtime rewrite.** Runtime unification remains the next
+architectural seam. See ADR-0029.
 
 v2.11.0 — "The Security Master" — makes the instrument registry authoritative
 for runs that *work*, not only for runs that fail.
@@ -595,6 +639,21 @@ refusals, no migration, no new identifier draw; all seven snapshot schema
 constants hold and a single-currency run is byte-identical to v2.11.0. **No FX
 rate source, no conversion, and no multi-currency aggregation** — a mixed book is
 still refused, not valued. See ADR-0028.
+
+**v2.13.0** — durable run state and the run-state store:
+`alphalab.persistence.RunStateStore` over `(run_id, sequence) → payload`, with
+`FileRunStateStore` (stdlib, atomic writes, digest verified before decode, no
+fallback) and the explicitly named `MemoryRunStateStore`; `RunStateRef` as an
+identity rendering `run_id@sequence` and carrying no backend location;
+`RUN_STATE_ENVELOPE_SCHEMA = 1` as the only new constant, with all eight existing
+schema constants unmoved; a caller-supplied opaque `run_id` that is never written
+into captured state; zero identifiers drawn from the run's stream on any path;
+cross-process continuation proven byte-identical against an uninterrupted run;
+`__serializable__` resolved on the type for a 3.70× faster, byte-identical
+encode; the nine-module placeholder store deprecated for v3.0 removal with the
+codec spine canonical; and `production.Checkpoint` / `RecoveryEngine` documented
+as the bookkeeping they are. No FX, no artifact storage, no streaming, no live
+transport, no governance implementation, no runtime rewrite. See ADR-0029.
 
 See `CHANGELOG.md` and `ROADMAP.md`.
 

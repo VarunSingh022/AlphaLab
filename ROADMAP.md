@@ -404,6 +404,93 @@ Enterprise capabilities
 
 ---
 
+v2.13.0 — "Durable Run State" — gives a captured run somewhere to go, and is an
+additive release with no new packages, no breaking changes and no movement of any
+existing schema constant:
+
+- **Durability has one owner.** `alphalab.persistence.RunStateStore` — four
+  methods over `(run_id, sequence) -> payload`: `put`, `get`, `latest`,
+  `list_runs`. Before it there were **zero filesystem calls** in `alphalab`,
+  `MemoryStorage` was the only `PersistenceProtocol` implementation and lost
+  everything on exit, and no production module imported `runtime.snapshot`,
+  `runtime.session_snapshot` or `backtesting.snapshot` at all.
+- **The store is payload-agnostic.** It moves a `str`, imports no snapshot,
+  runtime, session, backtesting, portfolio, OMS or strategy module, and never
+  decodes what it holds. That is deliberate and load-bearing: it is what keeps
+  the boundary correct through the runtime unification ADR-0023 anticipates.
+- **One real backend, one named double, no fallback.** `FileRunStateStore` is
+  standard library only, writes atomically through a temporary file and
+  `os.replace`, records a SHA-256 digest and **verifies it before any decoder
+  runs**, and requires a root that already exists and is writable — a missing
+  root, a file, or an unwritable directory each raise. `MemoryRunStateStore` is
+  an explicitly named test double a caller constructs by hand; nothing selects it
+  automatically and the file store never degrades into it. This is the
+  `Transport` / `HttpTransport` / `StaticTransport` shape, applied to
+  persistence.
+- **`RunStateRef` is an identity, not a location.** `RunStateRef(run_id,
+  sequence)` renders `run_id@sequence` on the separator
+  `alphalab.lifecycle.identity` already uses, and carries no URI, path, checksum
+  or byte size. A backend's addressing stays inside that backend, so a second
+  backend would change no caller. Deliberately *not* shaped like `ArtifactRef`,
+  which describes bytes AlphaLab never holds.
+- **The run identity is the caller's.** An opaque string supplied at `put`,
+  following ADR-0017's treatment of `dataset_id`. It is **never written into any
+  captured state**, which is what keeps every snapshot schema still.
+- **Persistence draws no identifier from the run's stream.** A full `put` / `get`
+  cycle inside `id_scope` advances `draws` by **exactly zero** — both backends,
+  every method in isolation, and the refusal paths too. The deprecated store took
+  one per operation, and the two it took were the run's own next two identifiers;
+  `load_snapshot` drew as well, so reading a run back would have moved its
+  stream.
+- **Cross-process continuation is proven, not asserted.** A seeded run processes
+  five of eleven records, captures, serializes and stores; a **separate
+  interpreter** — a fresh `sys.executable`, told everything in JSON and nothing by
+  pickle — restores against newly constructed runtime objects, resumes, and
+  processes the remaining six. The final serialized payload is **byte-identical**
+  to an uninterrupted run. The workload's strategy trades on the parity of a
+  counter it owns, so a child that lost the strategy state would fail loudly.
+- **Storage is an explicit caller action between completed steps.** No store
+  symbol appears anywhere in `alphalab.runtime`, `alphalab.backtesting`,
+  `alphalab.strategy` or `alphalab.replay`, and there is no append-per-event API.
+  One capture plus serialize of a 1,600-event run costs 1.43s against 0.40s for
+  the run itself, so per-event capture would make a run quadratic in its own
+  length. A run that never persists is bit-for-bit the v2.12 run.
+- **The encoder got 3.70x faster for a byte-identical payload.** Resolving
+  `__serializable__` on the type rather than through a `runtime_checkable`
+  protocol check removed ~60% of `serialize`: 698.0 ms -> 188.8 ms on an
+  800-event snapshot. Every snapshot in the repository benefits.
+- **No schema constant moves.** `PIPELINE` stays 2, `SESSION`, `BACKTEST`,
+  `ALLOCATION`, `OMS` and `LIFECYCLE` stay 1, `PORTFOLIO` stays 2,
+  `DEFAULT_SCHEMA_VERSION` stays 1. Only `RUN_STATE_ENVELOPE_SCHEMA = 1` is new,
+  and it versions the store's own wrapper and nothing inside it.
+- **The original nine-module store is deprecated, removed in v3.0.** Measured at
+  v2.12 it had zero production importers. The codec spine — `serializer`,
+  `decode`, `exceptions` — is canonical and untouched, which is why the notice is
+  a PEP 562 hook on the package rather than an import-time warning that would
+  fire on the whole execution path. **Nothing is removed in v2.13.**
+- **`production.Checkpoint` and `RecoveryEngine` now say what they do.**
+  Documentation only: their state fields are opaque strings the package never
+  decodes, and `recover` restores nothing.
+
+**Deferred out of v2.13, deliberately:** artifact byte storage and any
+`ArtifactStore` — nothing in the tree produces artifact bytes, and `ArtifactRef`
+is unchanged and unmoved; cloud or vendor storage backends; FX and multi-currency
+valuation; streaming; live venue transport; governance/RBAC; replay
+resumability, since `ReplayState` has no snapshot and the replay cursor drives a
+second identifier stream; recording live-object *parameters* rather than class
+names, which would move the pipeline schema; trimming the payload, of which 75.2%
+is engine event logs no engine *decision* reads but which ADR-0023's Class 1
+includes; incremental or event-sourced checkpoints; and any removal of a
+deprecated package. See ADR-0029.
+
+**Runtime unification remains the next architectural seam.** ADR-0023 decision 1
+records that `SessionState` and `BacktestState` are the layer a future
+integrated-runtime release is expected to reshape, and split the snapshot
+envelopes so that reshape can move their two constants without versioning the
+stable pipeline core. v2.13's store is built so that reshape cannot reach it.
+
+---
+
 v2.11.0 — "The Security Master" — completes the deferral ADR-0016 N5 was written
 to make safe, and is an additive release with no new packages, no breaking
 changes and no schema movement:
@@ -710,7 +797,14 @@ and consolidation work has **not** been done:
 - **Artifact storage** (v2.5+): `ArtifactRef` records where a model version's
   bytes live and what they should hash to. Nothing fetches, writes or verifies
   them, because there is no object store here and faking one would be the only
-  untestable part of the lifecycle.
+  untestable part of the lifecycle. v2.13 added a durable store for **run state**
+  and deliberately did not generalise it: `RunStateStore` holds a payload string
+  a caller already has, while an artifact store would need a producer of artifact
+  bytes, and none exists — `reporting.export_json`, `export_csv` and
+  `export_markdown` all return `str` and no caller writes them anywhere. The two
+  references are also different in kind, which is why `RunStateRef` is not shaped
+  like `ArtifactRef`: one identifies bytes AlphaLab holds, the other addresses
+  bytes it never sees (ADR-0029).
 - **Approval workflow** (v2.5+): a promotion is exactly the kind of auditable
   privileged action `alphalab.enterprise` models with RBAC and an audit log, but
   the two are not connected. `ValidationPolicy` states thresholds; it does not
@@ -784,8 +878,8 @@ attribution truth (v2.6), instrument identity with dataset provenance (v2.7),
 currency roles and run outcomes (v2.8), durable run state with deterministic
 identifier continuation (v2.9), the strategy boundary — durable strategy state
 and a populated `StrategyContext` (v2.10), instrument classification with sector
-provenance (v2.11), and the currency authority with the settlement boundary
-(v2.12).
+provenance (v2.11), the currency authority with the settlement boundary
+(v2.12), and the run-state store with the durability boundary (v2.13).
 
 ---
 

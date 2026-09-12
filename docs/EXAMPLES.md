@@ -10,10 +10,12 @@ Examples are intended to be read sequentially by new users and used as reference
 
 > Examples `01`–`10` were written for v1.0.0 and exercise the **standalone**
 > engine APIs. `11_unified_backtest.py` (v2.2) drives the integrated execution
-> path end to end. None are part of the automated test suite, though all eleven
-> run. For the integrated market-to-analytics path see `alphalab.backtesting`,
-> `alphalab.runtime.ExecutionPipeline`, and their tests under
-> `tests/integration/` and `tests/regression/`.
+> path end to end, `12_model_lifecycle.py` (v2.4) drives the model and strategy
+> lifecycle, and `13_durable_run_state.py` (v2.13) stops a run, stores it, and
+> finishes it in a different process. None are part of the automated test suite,
+> though all thirteen run. For the integrated market-to-analytics path see
+> `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
+> under `tests/integration/` and `tests/regression/`.
 
 ---
 
@@ -34,6 +36,8 @@ The `examples/` directory contains:
 | `09_workbench.py` | Workbench workspace |
 | `10_complete_pipeline.py` | Multi-engine walkthrough |
 | `11_unified_backtest.py` | Dataset → orders → fills → P&L → analytics, plus replay parity |
+| `12_model_lifecycle.py` | Research candidate → deployment → rollback |
+| `13_durable_run_state.py` | Stop a run, store it, continue it in another process |
 
 ---
 

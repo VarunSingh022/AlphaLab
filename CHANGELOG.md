@@ -8,6 +8,211 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.13.0] - 2026-09-12
+
+**Durable Run State + the Run-State Store.**
+
+`capture` / `restore` have covered `ExecutionPipelineState`, `SessionState` and
+`BacktestState` since v2.9, and `StrategyStateProtocol` closed the last
+precondition in v2.10. A run could be described completely and rebuilt exactly.
+It could not be **put anywhere**.
+
+Measured at v2.12: zero filesystem calls in `alphalab` — the one I/O call in the
+package is `urllib.urlopen`, in `marketdata/transport.py`. `MemoryStorage` was
+the only `PersistenceProtocol` implementation, held everything in memory, had no
+run identity, no sequence, and no decoder for its own `PersistenceState`. And no
+production module imported `runtime.snapshot`, `runtime.session_snapshot` or
+`backtesting.snapshot` at all: their only callers were tests. The one object in
+the tree that claimed to own recovery — `production.Checkpoint` with
+`RecoveryEngine` — held six opaque caller-supplied strings and restored nothing.
+
+The gap was not serialization, not schema, and not a missing restore boundary.
+**Durability had no owner.**
+
+There was also a defect underneath it. `MemoryStorage._create_id()` calls
+`new_id()`, which reads the ambient identifier source, so every storage
+operation drew from whatever stream was installed. Inside a run's `id_scope`
+that is the *run's* stream: one `save_snapshot` plus one `append_event` advanced
+`draws` **0 → 2**, and the two identifiers it took were the run's own next two —
+stamped onto a `SnapshotSaved` and an `EventAppended` while the run skipped to
+its fourth and fifth. `load_snapshot` drew as well, so a durable store built on
+that protocol could not have *read a run back* without changing it.
+
+The shape of the answer was already in the repository. `marketdata/transport.py`
+diagnosed the same class of problem — "silently fake data with no seam to ever
+make it real" — and answered it with a narrow `Transport` protocol, a real
+`HttpTransport`, and a `StaticTransport` a caller constructs by name. This is
+that shape, applied to persistence. See **ADR-0029**.
+
+## Added
+
+- **`RunStateStore`** — the one owner of durable run state, in
+  `alphalab.persistence`. Four methods over `(run_id, sequence) → payload`:
+  `put`, `get`, `latest`, `list_runs`. **Payload-agnostic**: it moves a `str`,
+  imports no snapshot, runtime, session, backtesting, portfolio, OMS or strategy
+  module, and never decodes what it holds. There is no `delete`, no `append`, no
+  query language and no transaction, because nothing here needs one.
+- **`FileRunStateStore`** — the real local backend. Standard library only, so
+  `dependencies = []` stays true. Writes atomically (temporary file in the
+  destination directory, `fsync`, then `os.replace`), records a SHA-256 digest
+  and **verifies it before any decoder runs**. The root must already exist and be
+  writable; a missing root, a root that is a file, and an unwritable root each
+  **raise**. It never falls back to memory.
+- **`MemoryRunStateStore`** — an explicitly named deterministic double, the
+  `StaticTransport` of this boundary. Same contract, same refusals, same
+  ordering. A caller constructs it by name; nothing selects it automatically and
+  `FileRunStateStore` never degrades into it.
+- **`RunStateRef(run_id, sequence)`** — an **identity, not a location**. Renders
+  `run_id@sequence` on the separator `alphalab.lifecycle.identity` already uses,
+  and refuses an empty `run_id`, a `run_id` containing `"@"`, a non-integer
+  sequence and a negative one. It carries no URI, no path, no checksum and no
+  byte size: a backend's addressing stays inside that backend, so a second
+  backend would change no caller. Deliberately *not* shaped like `ArtifactRef`,
+  which describes bytes AlphaLab never holds.
+- **`RUN_STATE_ENVELOPE_SCHEMA = 1`** — the only new schema constant. A
+  module-local literal, versioning what the store records *about* a payload and
+  nothing inside it.
+- **`examples/13_durable_run_state.py`** — a run stopping after five records,
+  crossing to a separate interpreter, finishing six more, and comparing
+  byte-identical against a run that never stopped.
+- **ADR-0029**, *The Run-State Store and the Durability Boundary*.
+
+## Changed
+
+- **Persistence draws no identifier from the run's stream.** A complete
+  `put` / `get` cycle inside `id_scope` advances `draws` by **exactly zero** —
+  on both backends, on every method in isolation, and on the refusal paths where
+  a stray identifier would otherwise hide. Neither store module calls `new_id`,
+  and a structural test keeps it that way. This is what makes a mid-run
+  checkpoint safe in a seeded run.
+- **`alphalab.common.serialization` resolves `__serializable__` on the type**
+  rather than through a `runtime_checkable` protocol check. Profiled on a
+  1,600-event snapshot, that one `isinstance` was ~60% of `serialize`:
+  1,827,034 calls into `inspect._shadowed_dict` and 557,008 protocol checks,
+  against 0.19s actually spent encoding JSON. Measured against the pre-change
+  implementation kept verbatim as an oracle: **698.0 ms → 188.8 ms, 3.70×, for a
+  byte-identical 6,706,275-byte payload.** Every snapshot in the repository is
+  faster — portfolio, OMS, allocation, lifecycle, pipeline, session, backtest.
+  The one behavioural difference is recorded rather than glossed: a
+  `__serializable__` set on an *instance* is no longer consulted, only one
+  declared on a class. Dunder lookup conventionally goes through the type, and
+  all seven declarations here are `def` at class scope.
+- **`production.Checkpoint` and `RecoveryEngine` now say what they do.**
+  Documentation only — no behaviour change, nothing removed, nothing aliased.
+  Their state fields are opaque strings this package never decodes, `recover`
+  restores nothing, and the docstrings now name `RunStateStore` as the boundary
+  that does.
+
+## Deprecated
+
+- **The original nine-module persistence store** — `protocol`, `storage`,
+  `state`, `engine`, `adapter`, `snapshot`, `views`, `validation`, `events` —
+  is deprecated, and **removed in v3.0**. Measured at v2.12 it had **zero**
+  production importers.
+- **The codec spine remains canonical and is untouched**: `serializer`,
+  `decode` and `exceptions` are imported by all seven snapshot modules and are
+  not deprecated.
+- The notice fires on **use of a deprecated name through the package**, not on
+  importing the package, through the PEP 562 mechanism
+  `alphalab.common.CommonEvent` already uses and for the same reason: an
+  import-time warning here would fire on every consumer of `serialize` and
+  `decode` — that is, on the whole execution path — to deprecate names that path
+  never touches. `from alphalab.persistence.storage import MemoryStorage` stays
+  silent.
+- **Nothing is removed in v2.13.** These modules keep their behaviour, their
+  signatures and their tests for the whole of v2.x. `RunStateStore` is not a
+  renamed `PersistenceProtocol`: it has different addressing, a different unit
+  of storage and a different identifier contract.
+
+## Fixed
+
+- Nothing. No defect in shipped behaviour was corrected by this release. The
+  identifier consumption described above is a property of the deprecated store,
+  which is characterized rather than repaired — see
+  `tests/regression/test_persistence_draws_from_the_run_stream.py`.
+
+## Compatibility
+
+**No existing schema constant moves.** `PIPELINE_SNAPSHOT_SCHEMA` stays 2;
+`SESSION_SNAPSHOT_SCHEMA`, `BACKTEST_SNAPSHOT_SCHEMA`,
+`ALLOCATION_SNAPSHOT_SCHEMA`, `OMS_SNAPSHOT_SCHEMA` and
+`LIFECYCLE_SNAPSHOT_SCHEMA` stay 1; `PORTFOLIO_SNAPSHOT_SCHEMA` stays 2;
+`DEFAULT_SCHEMA_VERSION` stays 1. Only `RUN_STATE_ENVELOPE_SCHEMA = 1` is new,
+and it is new, so it has nothing to be compatible with — no legacy shape, no
+migration, no "missing means 1".
+
+A v2.12 serialized payload is byte-for-byte what the store holds: the envelope
+wraps, and never rewrites, re-encodes or reorders. **The run identity is not
+persisted in any captured state** — it is supplied by the caller at `put`, which
+is what keeps every snapshot schema still. `ArtifactRef` is unchanged and not
+moved. `capture` / `restore` ownership is unchanged: the module that owns a state
+still owns its projection, and no state class grew a method.
+
+## Verified
+
+- **Cross-process continuation.** A seeded run processes five of eleven records,
+  captures, serializes and stores; a **separate interpreter** — a fresh
+  `sys.executable`, not a fork, told everything in JSON and nothing by pickle —
+  reads it back, restores against newly constructed runtime objects, resumes and
+  processes the remaining six. The final serialized payload is **byte-identical**
+  to an uninterrupted eleven-record run. ADR-0023's Class-1 comparison and the
+  identifier list are asserted alongside it as failure localization, not as a
+  replacement for the oracle.
+- **The strategy's memory crosses too.** The workload's strategy trades on the
+  parity of a counter it owns, so a child that restored the payload but not the
+  strategy state would trade the wrong records and fail loudly rather than pass
+  quietly.
+- 3,190 tests, `mypy --strict` over 903 source files, `ruff` clean, wheel and
+  sdist built and `twine check`ed.
+
+## Explicitly not in this release
+
+**No FX and no multi-currency valuation** — valuing across currencies still needs
+a rate source that does not exist here, and v2.12's refusals stand.
+**No `ArtifactStore` and no artifact-byte backend** — nothing in the tree
+produces artifact bytes; `reporting.export_json`, `export_csv` and
+`export_markdown` all return `str`. `ArtifactRef` continues to record where bytes
+live without AlphaLab ever reading them.
+**No cloud or vendor-specific storage.** **No streaming.** **No live venue
+transport.** **No governance/RBAC implementation** — ADR-0018's actor record
+stays deferred, because it moves a persisted lifecycle schema and is batched with
+ADR-0017's evidence provenance. **No broad runtime rewrite** — the archaeology
+established that the final persistence boundary does not require one, and
+`ExecutionPipeline`, `TradingSession` and `BacktestEngine` are untouched.
+
+Also deferred, deliberately: replay resumability (`ReplayState` has no snapshot
+and the replay cursor drives a second identifier stream); recording live-object
+*parameters* rather than class names, which would move the pipeline schema;
+trimming the payload, of which 75.2% is engine event logs that no engine
+*decision* reads but which ADR-0023's Class 1 includes; and incremental or
+event-sourced checkpoints.
+
+**Runtime unification remains the next architectural seam.** ADR-0023 decision 1
+records that `SessionState` and `BacktestState` are the layer a future
+integrated-runtime release is expected to reshape, and split the snapshot
+envelopes so that reshape can move their two constants without versioning the
+stable pipeline core. This store is built so that reshape cannot reach it: it
+names neither state, holds only a `str`, and is addressed by an identity the
+caller supplies.
+
+## Performance
+
+Persistence is an explicit caller action **between completed steps**, never
+per event, and v2.13 adds no work to the execution path — no store symbol appears
+anywhere in `alphalab.runtime`, `alphalab.backtesting`, `alphalab.strategy` or
+`alphalab.replay`, and there is deliberately no append-per-event API. The reason
+is measured: one capture plus serialize of a 1,600-event run costs 1.43s against
+0.40s for the run itself and produces 13.4MB, so capturing per event would make a
+run quadratic in its own length. A run that never persists is bit-for-bit the
+v2.12 run.
+
+Checkpoint cost is unchanged as a design position and is linear in state size —
+2.9×–3.9× the run that produced it, across 100 to 6,400 events. v2.13 makes
+persistence real without making it cheap; the `_convert` change reduces the
+constant by 3.70× on every payload.
+
+---
+
 # [2.12.0] - 2026-09-12
 
 **The Currency Authority.**

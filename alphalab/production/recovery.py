@@ -1,4 +1,20 @@
-"""Deterministic failure recovery leveraging checkpoints."""
+"""Records that a recovery was attempted. Restores no state.
+
+**Nothing here reads a checkpoint's contents.** :meth:`RecoveryEngine.recover`
+requires that at least one :class:`~alphalab.production.checkpoint.Checkpoint`
+has been recorded, names the most recent one in a ``RecoveryCompleted`` event,
+sets ``is_running`` back to ``True`` and increments a counter. No portfolio, no
+order book, no position and no runtime state is rebuilt, because this package
+holds none of them -- a ``Checkpoint``'s state fields are opaque strings it never
+decodes.
+
+Restoring an actual run means reading its payload back through
+:class:`~alphalab.persistence.run_store.RunStateStore` and handing it to the
+``from_primitives`` / ``restore`` pair of the module that captured it, then
+continuing with ``TradingSession.resume`` or ``BacktestEngine.resume``. That
+path exists as of v2.13 and is proven byte-identical across a process boundary;
+see ADR-0029.
+"""
 
 from dataclasses import replace
 
