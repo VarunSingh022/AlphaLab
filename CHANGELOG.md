@@ -8,6 +8,165 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.12.0] - 2026-09-12
+
+**The Currency Authority.**
+
+ADR-0016 made currency one of the four fields `asset_id` is derived from, so the
+registry has held an authoritative, immutable answer for every registered
+instrument since v2.7: changing a currency derives a different identifier, and
+the classification write cannot reach it. The execution path never asked.
+`_instruction` stamped `ExecutionPipelineConfig.currency` onto every
+`OrderInstruction`, `ExecutionReport.currency` copied it, and
+`_apply_report_to_portfolio` booked `Position.currency` from it. A
+EUR-registered instrument traded on a USD pipeline produced:
+
+```text
+InstrumentRecord("SAP", EQUITY, "XETR", "EUR")   # the registry's answer
+ExecutionReport.currency = "USD"                 # from the config
+Position.currency        = "USD"                 # a position in no currency
+```
+
+No error, no warning, nothing downstream able to tell. ADR-0019 recorded that as
+intended, and at the time it was — v2.7 had only just introduced the registry
+and nothing on the execution path read it. v2.11 changed that: it threaded the
+registry onto the pipeline and read it on the fill path for sector. The distance
+between "this run does not know the instrument's currency" and "this run knows
+it and ignores it" is the whole of this release.
+
+Two further facts, each verified rather than inferred. `RoutingConfig.currency`
+is a **fifth** currency site — ADR-0019 named three, `NormalizationPolicy` is a
+fourth — defaulting to `"USD"` and compared to nothing, so a live sell against a
+mismatched routing config booked a foreign position and foreign cash silently,
+leaving a book whose next valuation raised mid-run. And a mixed book was already
+fatal one event later: `_process_requests` snapshots the portfolio at the end of
+every event, so funding a second currency onto a running pipeline raises
+`MixedCurrencyValuationError` out of `process_quote` immediately.
+
+## Added
+
+- **`SettlementRefusal`**, reported on `ExecutionPipelineResult.settlement_refusals`
+  — one per refused request, naming the instrument, its currency, this
+  pipeline's settlement currency, and the fix. Derived and never persisted: no
+  snapshot carries an `ExecutionPipelineResult`, and the field is appended after
+  `valuation` so positional construction keeps working. An aggregated durable
+  record in the manner of `UnpricedAsset` would move the pipeline schema, and is
+  deferred to the release that moves it anyway.
+- **`assert_single_currency_book(cash, positions, base_currency)`** — the one
+  implementation of the mixed-book rule, written over the two components so that
+  callers holding a ledger and a mapping reach the same rule and the same
+  message as callers holding a `PortfolioState`. `assert_single_currency` keeps
+  its signature and delegates.
+- **ADR-0028**, *Currency Authority and the Settlement Boundary*.
+
+## Changed
+
+- **The instrument's currency decides what a run may trade.** Two seams, because
+  there are two questions. **Seam 1**, in `_process_requests`, asks whether this
+  run may *trade* an instrument, needs the registry to answer, and **drops** the
+  request before the OMS — retiring both allocation ledgers through the existing
+  `_retire_dropped_request`, so no reservation leaks and no contribution is
+  orphaned. **Seam 2**, in `_apply_report_to_portfolio`, asks whether a report is
+  denominated in what the pipeline *settles*, needs no registry, and **raises**
+  `RuntimeValidationError`. Neither subsumes the other: with only Seam 2 a
+  foreign instrument still slips through carrying the settlement currency, and
+  with only Seam 1 a venue report never passes a check at all.
+- **The dispositions differ because the vocabularies do.** The pipeline may
+  decline to create an order; it may not decline a fill that already happened at
+  a venue. This is the distinction `_close_unfilled_order` and `_terminate_order`
+  already draw. Raising at Seam 1 would kill a live session over one instrument;
+  dropping at Seam 2 would discard a real execution.
+- **Seam 1 runs after the existing unpriced check**, so an instrument that is
+  both foreign and unpriced is still reported as `REGISTERED_BUT_UNPRICED`.
+- **`RoutingConfig.currency` is constrained** at Seam 2. The field and
+  `execution_report_from_broker`'s signature are unchanged; the default `"USD"`
+  is now a loud refusal on a non-USD pipeline rather than silent corruption.
+- **`NAVCalculator.calculate`, `PortfolioValuation.portfolio_value` and
+  `_risk_exposure` refuse a mixed book**, discharging ADR-0020 decision 5 —
+  earlier than it expected, on measurement rather than on a rate source. That
+  also closes `sector_exposure`, which v2.11 added and which bucketed signed
+  market value with no regard for what each position traded in.
+  `_risk_exposure`'s check folds into the pass it already makes.
+- **`long_value` and `short_value` deliberately do not refuse.** They name no
+  base currency, return an unlabelled sum, and cannot be told what to refuse
+  against — a `Mapping[str, Position]` carries no account. They are components
+  of a valuation, not valuations, and their only production caller is `snapshot`,
+  which guards first and is the thing that attaches the label. The three-way rule
+  — aggregates *and* names a currency, aggregates only, or looks up only — is the
+  one the code already followed; v2.12 names it, documents it, and pins it
+  against the signatures.
+- **Corrected documentation.** "Holding and booking in a foreign currency is
+  supported" described `PortfolioEngine` used standalone and was carried as
+  though it described a pipeline run, which it never did. A stale ROADMAP bullet
+  claiming strategies still do not see the marked portfolio — contradicted by
+  v2.10 and by the entry above it — is marked done.
+
+## Not changed
+
+`STRICT_MATCH` is the only settlement rule and there is **no policy object**: a
+permissive mode could only book honestly, making the book mixed so the next
+snapshot raises, or convert, which is FX. `_instruction` still reads
+`config.currency`, because under STRICT_MATCH that *is* the instrument's
+currency for anything that trades — `Position.currency` follows
+`InstrumentRecord.currency` by an equality the refusal enforces, not by a second
+registry read. Nothing is added to `TradeRecord`, `OrderRequest` or `oms.Order`:
+currency is an identity input and is already frozen by identity, unlike sector.
+`PortfolioEngine` is not narrowed and still books any currency it is given.
+`_currency_of` mirrors `_sector_of` exactly — one keyed `record_for`, no scan, no
+identifier draw — and the authority is **opt-in**: a run with `instruments=None`
+behaves exactly as v2.11.
+
+**No FX rate source, no conversion, no triangulation, no multi-currency
+aggregation.** A mixed book is still refused, not valued. `CURRENCY_QUANT` stays
+`0.01`. No per-currency breakdown was added to `PortfolioValuationSnapshot`:
+under STRICT_MATCH a pipeline book holds one currency and a mixed book is
+refused before any figure is computed, so it could only ever restate `equity`.
+
+## Compatibility
+
+Two deliberate behavioural breaks, both correctness fixes: a run that silently
+mis-booked a foreign instrument now drops the request, and a venue report
+disagreeing with settlement is refused. Every position the first removes was
+mislabelled; every book the second prevents was one whose next valuation would
+have raised.
+
+Measured against v2.11.0 in a separate checkout, with module provenance asserted
+by path:
+
+- all seven snapshot schema constants unchanged — `PIPELINE=2` `READABLE=(1,2)`,
+  `SESSION=1`, `BACKTEST=1`, `PORTFOLIO=2`, `OMS=1`, `ALLOCATION=1`;
+- a v2.11 payload restores and re-captures byte-identically;
+- a single-currency run is byte-identical: same fills, same equity, same
+  `sector_exposure`, same serialized snapshot SHA-256;
+- identifier draws identical — 10,001 at 1,000 events and 40,001 at 4,000;
+- `asset_id` derivation and `canonical_key` unchanged;
+- no migration, and no migration framework.
+
+Before implementation, instrumenting `_apply_report_to_portfolio` across the
+whole v2.11 suite found **zero** fills where a configured registry's instrument
+currency differed from the report currency: no existing test trades a foreign
+instrument on a registry-configured pipeline.
+`test_the_currency_blind_siblings_are_unchanged_in_this_release` is rewritten,
+as its own docstring anticipated.
+
+## Performance
+
+Gate: ≤3% at 1,000 and 4,000 events against v2.11.0, back to back, identifier
+draws identical, scaling no worse. Measured (median of 7, 50-position book):
+**+0.39%** at 1,000 events and **+0.10%** at 4,000; scaling 4.320× → 4.308×. At
+larger books, where the guards are `O(positions)`: **−0.24%** at 200 positions
+and **+0.46%** at 1,000. An optional single-pass `NAVCalculator` rewrite was
+measured and **deferred**: the gate passes with margin, so it would be an
+optimisation outside the release's theme carrying its own byte-identity risk.
+
+An optional early settlement check inside `route_order` was also deferred, for a
+reason found in the signature: it takes a `BrokerState`, a `BrokerProtocol`, an
+`OMSOrder`, a timestamp, a mapping and a `RoutingConfig`, and none of them
+carries the settlement currency. Giving it one means a new parameter on a public
+broker-boundary function, for a check Seam 2 already makes and no caller can skip.
+
+---
+
 # [2.11.0] - 2026-09-07
 
 **The Security Master.**

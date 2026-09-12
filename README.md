@@ -566,6 +566,36 @@ no registry is byte-identical to v2.10.0. **AlphaLab ships no taxonomy or
 reference data** — the operator declares a sector the way they already declare an
 instrument — and sector is the only classification dimension. See ADR-0027.
 
+**v2.12.0** — the currency authority: `InstrumentRecord.currency` decides what a
+run may trade. A EUR-registered instrument traded on a USD pipeline used to
+produce `Position.currency == "USD"` — a position labelled with a currency the
+instrument does not trade in, silently — because `_instruction` stamped
+`ExecutionPipelineConfig.currency` onto every instruction and nothing consulted
+the registry. Two seams close it, answering different questions: `_process_requests`
+asks whether this run may *trade* an instrument, needs the registry, and **drops**
+the request before the OMS, retiring both allocation ledgers and reporting a
+`SettlementRefusal` on `ExecutionPipelineResult`; `_apply_report_to_portfolio`
+asks whether a report is denominated in what the pipeline *settles*, needs no
+registry, and **raises** `RuntimeValidationError`, because a venue fill has
+already happened and cannot be declined. The second closes `RoutingConfig.currency`,
+a fifth currency site ADR-0019 did not name and nothing compared to anything, and
+through which a live sell used to mix a book silently. `STRICT_MATCH` is the only
+rule and there is no policy object: a permissive mode could only book honestly —
+making the book mixed, which the next snapshot refuses — or convert, which is FX.
+`assert_single_currency_book` becomes the one implementation of the mixed-book
+rule, and `NAVCalculator.calculate`, `PortfolioValuation.portfolio_value` and
+`_risk_exposure`/`sector_exposure` now refuse a book they cannot express,
+discharging ADR-0020 decision 5 earlier than it expected — on measurement rather
+than on a rate source. `long_value` and `short_value` deliberately do **not**:
+they name no base currency, so they are components of a valuation rather than
+valuations. `_currency_of` mirrors `_sector_of` — one keyed `record_for`, no scan,
+no identifier — and the authority is **opt-in**: a run with `instruments=None`
+behaves exactly as v2.11. No breaking changes beyond two deliberate correctness
+refusals, no migration, no new identifier draw; all seven snapshot schema
+constants hold and a single-currency run is byte-identical to v2.11.0. **No FX
+rate source, no conversion, and no multi-currency aggregation** — a mixed book is
+still refused, not valued. See ADR-0028.
+
 See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## Not yet addressed
@@ -599,10 +629,18 @@ See `CHANGELOG.md` and `ROADMAP.md`.
 - Allocation visibility inside `StrategyContext`. Reservations and contributions
   are post-intent facts; showing a strategy the capital its own intent will
   reserve invites it to pre-size, duplicating the allocation engine's authority
-- Multi-currency valuation. As of v2.8 `PortfolioValuation.snapshot` refuses a
-  book it cannot express as one figure in one currency rather than returning a
-  wrong one; valuing across currencies needs an FX rate source that does not
-  exist here. Holding and booking in a foreign currency is supported
+- Multi-currency valuation. `PortfolioValuation.snapshot` has refused a book it
+  cannot express as one figure since v2.8, and as of v2.12 so do
+  `NAVCalculator.calculate`, `portfolio_value` and `_risk_exposure`; valuing
+  *across* currencies needs an FX rate source that does not exist here. A run
+  settles in exactly one currency, which v2.12 makes explicit: a pipeline whose
+  settlement currency is EUR trades EUR instruments end to end, and one whose
+  settlement currency is USD refuses them rather than mis-booking them.
+  `PortfolioEngine` and `CashLedger` remain multi-currency and a wholly foreign
+  book still values in its own currency, but **a pipeline run cannot hold two
+  currencies at once** — a second one makes the next portfolio snapshot raise.
+  Earlier releases described the engine's capability as though it were the
+  pipeline's; it never was
 
 ---
 

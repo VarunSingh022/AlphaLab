@@ -695,7 +695,7 @@ and consolidation work has **not** been done:
   historical range and is re-iterable. Polling, subscription and reconnect need a
   clock and a loop AlphaLab does not have, and a streaming source would also need
   an answer to late arrivals beyond "skip and record".
-- **`StrategyContext.history` and `.universe`** (v2.11+): v2.10 populates the
+- **`StrategyContext.history` and `.universe`** (v2.12+): v2.10 populates the
   marked portfolio, the strategy's live order shares, risk headroom and a market
   view (ADR-0026 decision 2). A clock-bounded historical accessor needs its
   bound enforced at construction plus a look-ahead regression suite, and
@@ -735,18 +735,30 @@ and consolidation work has **not** been done:
   canonical `alphalab.broker` types and is imported by nothing. v2.3 converged
   `broker` and `brokers` and left it untouched. **Deprecated in v2.6, removed in
   v3.0.**
-- Strategies still do not see the marked portfolio: `StrategyContext` comes from
-  the caller's `context_factory`, and six of its nine fields are protocols with
-  no members, which every caller satisfies with a bare object. Populating it
-  needs `alphalab.strategy` to depend on portfolio, market and risk views, which
-  the current layering forbids.
+- ~~Strategies still do not see the marked portfolio.~~ **Done in v2.10**
+  (ADR-0026): the pipeline overlays the marked portfolio, the strategy's live
+  order shares, and read-only risk and market views onto the context the
+  caller's factory returns. This bullet contradicted the `StrategyContext` entry
+  above it from v2.10 until v2.12, when it was noticed and corrected. Two of the
+  nine fields — `history` and `universe` — genuinely remain unpopulated, and are
+  tracked there.
 - Multi-currency valuation. v2.8 made `PortfolioValuation.snapshot` refuse a book
   it cannot express as one figure in one currency, rather than returning a wrong
-  one; `portfolio_value`, `long_value`, `short_value` and `NAVCalculator` are
-  deliberately unchanged and still currency-blind, with their behaviour pinned by
-  a test. Valuing across currencies needs an FX rate source that does not exist
-  here, and guarding `NAVCalculator` is a hot-path decision that belongs with it.
-  Holding and booking in a foreign currency is supported.
+  one. v2.12 closed the rest of that gap without supplying a rate:
+  `NAVCalculator`, `portfolio_value` and `_risk_exposure`/`sector_exposure` now
+  refuse a book they cannot express, and `long_value` / `short_value` are
+  reclassified as component sums that name no currency and therefore make no
+  currency claim. What is still absent is FX itself — valuing *across*
+  currencies needs a rate source that does not exist here.
+
+  v2.12 also corrected a claim this list carried for four releases. A *pipeline
+  run* settles in exactly one currency and always did: a second currency in the
+  book makes the next portfolio snapshot raise, mid-event. `PortfolioEngine` and
+  `CashLedger` are multi-currency and a wholly foreign book values in its own
+  currency, so an EUR-settling pipeline trades EUR instruments end to end — but
+  that is the engine's capability and the single-currency pipeline's, not a
+  pipeline holding two at once. A USD pipeline now refuses a EUR instrument
+  instead of booking it as USD.
 - **Classification data, and dimensions other than sector** (v2.11+). The
   security master's *mechanism* is delivered: v2.7 gave the identity half, and
   v2.11 gives the classification half — `classify_instrument` writes a sector
@@ -771,8 +783,9 @@ round-trip plus the provider→source link (v2.5), allocation authority with
 attribution truth (v2.6), instrument identity with dataset provenance (v2.7),
 currency roles and run outcomes (v2.8), durable run state with deterministic
 identifier continuation (v2.9), the strategy boundary — durable strategy state
-and a populated `StrategyContext` (v2.10), and instrument classification with
-sector provenance (v2.11).
+and a populated `StrategyContext` (v2.10), instrument classification with sector
+provenance (v2.11), and the currency authority with the settlement boundary
+(v2.12).
 
 ---
 

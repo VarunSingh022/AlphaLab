@@ -229,14 +229,18 @@ The value is constrained at Seam 2, where the report meets the portfolio, rather
 than at `RoutingConfig` construction: a `RoutingConfig` is built standalone and
 has no access to the pipeline it will be used with.
 
-`route_order` additionally refuses to send an order when the routing currency
-disagrees, through the existing `RoutingRefusal` vocabulary. That is an earlier
-and better-located failure for the ordinary path, not a second rule: it reuses
-the same comparison and cannot be relied on, because a report can reach
-`apply_execution_report` without it.
+An earlier refusal inside `route_order` was considered and **deferred**, for a
+reason found in the signature rather than in principle: `route_order` takes a
+`BrokerState`, a `BrokerProtocol`, an `OMSOrder`, a timestamp, a mapping and a
+`RoutingConfig`, and none of them carries the pipeline's settlement currency. It
+is a broker-boundary function that deliberately knows nothing about the
+pipeline, and giving it that knowledge means a new parameter on a public
+function — a larger change than the earlier error location is worth, for a check
+Seam 2 already makes and which cannot be skipped by any caller.
 
-The default `"USD"` is now a trap for a non-USD pipeline, and Seam 2 turns that
-trap from silent book corruption into an immediate refusal.
+The default `"USD"` is therefore a trap for a non-USD pipeline, and Seam 2 turns
+that trap from silent book corruption into an immediate refusal at the first
+venue fill.
 
 ## 9. `PortfolioEngine` is not narrowed
 
@@ -277,7 +281,7 @@ rate is not what makes it refuse.
 | Seam 1, authority | `_process_requests` |
 | Seam 2, integrity | `_apply_report_to_portfolio` |
 | The mixed-book rule | `alphalab.portfolio.valuation.assert_single_currency_book` |
-| Routing currency | `RoutingConfig`, constrained at Seam 2 and refused early by `route_order` |
+| Routing currency | `RoutingConfig`, constrained at Seam 2 |
 | An FX rate source | **Nothing. No owner exists, and none is invented here.** |
 
 ---
@@ -288,7 +292,6 @@ rate is not what makes it refuse.
 + alphalab.portfolio.valuation.assert_single_currency_book(cash, positions, base)
 + alphalab.runtime.execution_pipeline.SettlementRefusal
 + ExecutionPipelineResult.settlement_refusals      # appended last; derived, never persisted
-+ RoutingRefusal.SETTLEMENT_CURRENCY               # a new member of an existing enum
 
 ExecutionPipelineConfig          # UNCHANGED
 Account / InstrumentRecord       # UNCHANGED
@@ -413,6 +416,9 @@ later change deliberate."
   which ADR-0019 rejected for reasons that still hold.
 - Making `ExecutionPipelineConfig.instruments` mandatory, or threading it
   automatically from a `NormalizationPolicy`.
+- An earlier settlement check inside `route_order`, which would need a new
+  parameter on a public broker-boundary function to reach the settlement
+  currency at all.
 - Narrowing `PortfolioEngine`.
 - A durable settlement-refusal state field.
 - Any change to instrument identity, the namespace, the scheme tag, aliases,
