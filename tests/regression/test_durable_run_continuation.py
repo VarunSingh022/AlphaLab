@@ -34,17 +34,7 @@ from typing import Any
 import pytest
 
 from alphalab.allocation.sizing import EqualWeightSizing
-from alphalab.backtesting.config import BacktestConfig
 from alphalab.backtesting.engine import BacktestEngine
-from alphalab.backtesting.snapshot import (
-    BACKTEST_SNAPSHOT_SCHEMA,
-    BacktestObjects,
-    BacktestSnapshot,
-)
-from alphalab.backtesting.snapshot import capture as capture_backtest
-from alphalab.backtesting.snapshot import from_primitives as backtest_from_primitives
-from alphalab.backtesting.snapshot import restore as restore_backtest
-from alphalab.backtesting.state import BacktestState
 from alphalab.common.ids import IdStreamPosition, current_id_position, id_scope
 from alphalab.execution.fill import FillStatus
 from alphalab.execution.policy import ImmediateFill, LiquidityCappedFill
@@ -58,20 +48,16 @@ from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.portfolio.account import Account
 from alphalab.runtime.exceptions import RuntimeValidationError
 from alphalab.runtime.execution_pipeline import ExecutionPipeline, ExecutionRouting
-from alphalab.runtime.session import (
-    ExecutionMode,
-    SessionConfig,
-    SessionState,
-    TradingSession,
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunState
+from alphalab.runtime.run_snapshot import (
+    RUN_SNAPSHOT_SCHEMA,
+    RunObjects,
+    RunSnapshot,
 )
-from alphalab.runtime.session_snapshot import (
-    SESSION_SNAPSHOT_SCHEMA,
-    SessionObjects,
-    SessionSnapshot,
-)
-from alphalab.runtime.session_snapshot import capture as capture_session
-from alphalab.runtime.session_snapshot import from_primitives as session_from_primitives
-from alphalab.runtime.session_snapshot import restore as restore_session
+from alphalab.runtime.run_snapshot import capture as capture_run
+from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
+from alphalab.runtime.run_snapshot import restore as restore_run
+from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import RuntimeObjects
 from alphalab.strategy.state import LifecycleState
 from tests.integration.harness import (
@@ -113,9 +99,9 @@ def _plan(count: int = TOTAL) -> dict[float, Decimal]:
     }
 
 
-def _session(seed: int | None = SEED) -> tuple[SessionConfig, ScriptedStrategy]:
+def _session(seed: int | None = SEED) -> tuple[RunConfig, ScriptedStrategy]:
     strategy = ScriptedStrategy(STRATEGY_ID, ASSET_ID, _plan())
-    config = SessionConfig(
+    config = RunConfig(
         pipeline=pipeline_config(STRATEGY_ID),
         mode=ExecutionMode.BACKTEST,
         fill_policy=ImmediateFill(),
@@ -125,8 +111,8 @@ def _session(seed: int | None = SEED) -> tuple[SessionConfig, ScriptedStrategy]:
     return config, strategy
 
 
-def _objects(config: SessionConfig, strategy: ScriptedStrategy) -> SessionObjects:
-    return SessionObjects(
+def _objects(config: RunConfig, strategy: ScriptedStrategy) -> RunObjects:
+    return RunObjects(
         pipeline=RuntimeObjects(
             sizing_model=config.pipeline.sizing_model,
             simulator=config.pipeline.simulator,
@@ -137,13 +123,13 @@ def _objects(config: SessionConfig, strategy: ScriptedStrategy) -> SessionObject
     )
 
 
-def _drive(state: SessionState, records: list[MarketRecord]) -> SessionState:
+def _drive(state: RunState, records: list[MarketRecord]) -> RunState:
     for record in records:
         state, _ = TradingSession.advance(state, record, context_factory)
     return state
 
 
-def _uninterrupted(seed: int | None = SEED) -> SessionState:
+def _uninterrupted(seed: int | None = SEED) -> RunState:
     config, strategy = _session(seed)
     with id_scope(seed):
         return _drive(
@@ -152,7 +138,7 @@ def _uninterrupted(seed: int | None = SEED) -> SessionState:
         )
 
 
-def _split(boundary: int = N, seed: int | None = SEED) -> SessionState:
+def _split(boundary: int = N, seed: int | None = SEED) -> RunState:
     """Run to ``boundary``, capture, JSON round-trip, restore, resume, finish."""
 
     config, strategy = _session(seed)
@@ -163,16 +149,14 @@ def _split(boundary: int = N, seed: int | None = SEED) -> SessionState:
             records[:boundary],
         )
 
-    payload = serialize(capture_session(partial))
-    restored = restore_session(
-        session_from_primitives(deserialize(payload)), _objects(config, strategy)
-    )
+    payload = serialize(capture_run(partial))
+    restored = restore_run(run_from_primitives(deserialize(payload)), _objects(config, strategy))
 
     with TradingSession.resume(restored):
         return _drive(restored, records[boundary:])
 
 
-def _identifiers(state: SessionState) -> list[str]:
+def _identifiers(state: RunState) -> list[str]:
     pipeline = state.pipeline
     return [
         *(str(order.order_id.value) for order in pipeline.oms.orders.orders()),
@@ -186,7 +170,7 @@ def _identifiers(state: SessionState) -> list[str]:
     ]
 
 
-def _class_one(state: SessionState) -> dict[str, Any]:
+def _class_one(state: RunState) -> dict[str, Any]:
     """ADR-0023's Class-1 state: everything that must be identical."""
 
     p = state.pipeline
@@ -237,8 +221,9 @@ def _class_one(state: SessionState) -> dict[str, Any]:
         "processed": state.processed,
         "current_timestamp": state.current_timestamp,
         "last_record_timestamp": state.last_record_timestamp,
-        "skipped": state.skipped.to_tuple(),
         "source_id": state.source_id,
+        "steps": state.steps.to_tuple(),
+        "skipped": state.skipped.to_tuple(),
     }
 
 
@@ -321,7 +306,7 @@ def test_an_unseeded_run_round_trips_without_claiming_identifier_continuity() ->
 
 @pytest.mark.parametrize(
     ("constant", "expected"),
-    [(SESSION_SNAPSHOT_SCHEMA, 1), (BACKTEST_SNAPSHOT_SCHEMA, 1)],
+    [(RUN_SNAPSHOT_SCHEMA, 1), (RUN_SNAPSHOT_SCHEMA, 1)],
 )
 def test_the_schema_constants_are_one(constant: int, expected: int) -> None:
     assert constant == expected
@@ -329,12 +314,9 @@ def test_the_schema_constants_are_one(constant: int, expected: int) -> None:
 
 @pytest.mark.parametrize(
     ("module", "name"),
-    [
-        ("alphalab.runtime.session_snapshot", "SESSION_SNAPSHOT_SCHEMA"),
-        ("alphalab.backtesting.snapshot", "BACKTEST_SNAPSHOT_SCHEMA"),
-    ],
+    [("alphalab.runtime.run_snapshot", "RUN_SNAPSHOT_SCHEMA")],
 )
-def test_the_constants_are_not_aliases_of_the_shared_default(module: str, name: str) -> None:
+def test_the_constant_is_not_an_alias_of_the_shared_default(module: str, name: str) -> None:
     import importlib
     import inspect
 
@@ -348,9 +330,9 @@ def test_the_constants_are_not_aliases_of_the_shared_default(module: str, name: 
 
 def test_session_capture_declares_the_version() -> None:
     state = _uninterrupted()
-    payload = deserialize(serialize(capture_session(state)))
+    payload = deserialize(serialize(capture_run(state)))
 
-    assert capture_session(state).schema_version == SESSION_SNAPSHOT_SCHEMA
+    assert capture_run(state).schema_version == RUN_SNAPSHOT_SCHEMA
     assert payload["schema_version"] == 1
     # The nested core moved to 2 in v2.10 and this envelope did not: the whole
     # point of ADR-0023 decision 1's split, exercised for the first time.
@@ -358,59 +340,59 @@ def test_session_capture_declares_the_version() -> None:
 
 
 def test_a_missing_session_version_is_refused_with_no_legacy_path() -> None:
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     del payload["schema_version"]
 
     with pytest.raises(StateDecodeError, match="missing 'schema_version'"):
-        session_from_primitives(payload)
+        run_from_primitives(payload)
 
 
 @pytest.mark.parametrize("version", [2, 99, 0, -1])
 def test_an_unreadable_session_version_is_refused(version: int) -> None:
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     payload["schema_version"] = version
 
     with pytest.raises(StateDecodeError, match=f"declares schema version {version}"):
-        session_from_primitives(payload)
+        run_from_primitives(payload)
 
 
 @pytest.mark.parametrize("version", ["1", 1.0, True, None])
 def test_a_malformed_session_version_is_refused(version: object) -> None:
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     payload["schema_version"] = version
 
     with pytest.raises(StateDecodeError, match="schema_version is not an integer"):
-        session_from_primitives(payload)
+        run_from_primitives(payload)
 
 
-def test_the_refusal_names_the_session_subsystem() -> None:
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+def test_the_refusal_names_the_run_subsystem() -> None:
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     payload["schema_version"] = 2
 
     with pytest.raises(StateDecodeError) as excinfo:
-        session_from_primitives(payload)
+        run_from_primitives(payload)
 
-    assert str(excinfo.value).startswith("session snapshot")
+    assert str(excinfo.value).startswith("run snapshot")
 
 
 def test_a_nested_pipeline_failure_arrives_through_the_pipeline_decoder() -> None:
     """Not normalized into a generic session error."""
 
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     payload["pipeline"]["schema_version"] = 3
 
     with pytest.raises(StateDecodeError, match="pipeline snapshot declares schema version 3"):
-        session_from_primitives(payload)
+        run_from_primitives(payload)
 
 
 def test_a_nested_oms_failure_keeps_its_own_error_type() -> None:
     from alphalab.oms.snapshot import SnapshotDecodeError
 
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     payload["pipeline"]["oms"]["schema_version"] = 2
 
     with pytest.raises(SnapshotDecodeError, match="oms snapshot declares schema version 2"):
-        session_from_primitives(payload)
+        run_from_primitives(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -427,9 +409,9 @@ def test_a_session_round_trips_in_memory_and_across_json() -> None:
         )
     objects = _objects(config, strategy)
 
-    assert restore_session(capture_session(state), objects) == state
-    payload = serialize(capture_session(state))
-    assert restore_session(session_from_primitives(deserialize(payload)), objects) == state
+    assert restore_run(capture_run(state), objects) == state
+    payload = serialize(capture_run(state))
+    assert restore_run(run_from_primitives(deserialize(payload)), objects) == state
 
 
 def test_session_serialization_is_deterministic_and_stable() -> None:
@@ -440,17 +422,18 @@ def test_session_serialization_is_deterministic_and_stable() -> None:
             _records(),
         )
     objects = _objects(config, strategy)
-    payload = serialize(capture_session(state))
-    restored = restore_session(session_from_primitives(deserialize(payload)), objects)
+    payload = serialize(capture_run(state))
+    restored = restore_run(run_from_primitives(deserialize(payload)), objects)
 
-    assert payload == serialize(capture_session(state))
-    assert capture_session(restored) == capture_session(state)
-    assert serialize(capture_session(restored)) == payload
+    assert payload == serialize(capture_run(state))
+    assert capture_run(restored) == capture_run(state)
+    assert serialize(capture_run(restored)) == payload
 
 
-def _backtest() -> tuple[BacktestState, BacktestObjects, BacktestConfig, ScriptedStrategy]:
+def _backtest() -> tuple[RunState, RunObjects, RunConfig, ScriptedStrategy]:
     strategy = ScriptedStrategy(STRATEGY_ID, ASSET_ID, _plan())
-    config = BacktestConfig(
+    config = RunConfig(
+        mode=ExecutionMode.BACKTEST,
         pipeline=pipeline_config(STRATEGY_ID),
         fill_policy=ImmediateFill(),
         seed=SEED,
@@ -460,7 +443,7 @@ def _backtest() -> tuple[BacktestState, BacktestObjects, BacktestConfig, Scripte
         state = BacktestEngine.initialize(config, running_strategy_state(STRATEGY_ID, strategy))
         for record in _records():
             state, _ = BacktestEngine.advance(state, record, context_factory)
-    objects = BacktestObjects(
+    objects = RunObjects(
         pipeline=RuntimeObjects(
             config.pipeline.sizing_model,
             config.pipeline.simulator,
@@ -475,15 +458,15 @@ def _backtest() -> tuple[BacktestState, BacktestObjects, BacktestConfig, Scripte
 def test_a_backtest_round_trips_in_memory_and_across_json() -> None:
     state, objects, _, _ = _backtest()
 
-    assert restore_backtest(capture_backtest(state), objects) == state
-    payload = serialize(capture_backtest(state))
-    assert restore_backtest(backtest_from_primitives(deserialize(payload)), objects) == state
+    assert restore_run(capture_run(state), objects) == state
+    payload = serialize(capture_run(state))
+    assert restore_run(run_from_primitives(deserialize(payload)), objects) == state
 
 
 def test_the_backtest_step_history_survives_intact() -> None:
     state, objects, _, _ = _backtest()
-    payload = serialize(capture_backtest(state))
-    restored = restore_backtest(backtest_from_primitives(deserialize(payload)), objects)
+    payload = serialize(capture_run(state))
+    restored = restore_run(run_from_primitives(deserialize(payload)), objects)
 
     assert len(restored.steps) == TOTAL
     assert restored.steps.to_tuple() == state.steps.to_tuple()
@@ -497,7 +480,8 @@ def test_a_backtest_resumes_the_same_way_a_session_does() -> None:
     """Both engines drive the same canonical step, so both resume."""
 
     strategy_a = ScriptedStrategy(STRATEGY_ID, ASSET_ID, _plan())
-    config = BacktestConfig(
+    config = RunConfig(
+        mode=ExecutionMode.BACKTEST,
         pipeline=pipeline_config(STRATEGY_ID),
         fill_policy=ImmediateFill(),
         seed=SEED,
@@ -515,7 +499,7 @@ def test_a_backtest_resumes_the_same_way_a_session_does() -> None:
         for record in records[:N]:
             partial, _ = BacktestEngine.advance(partial, record, context_factory)
 
-    objects = BacktestObjects(
+    objects = RunObjects(
         pipeline=RuntimeObjects(
             config.pipeline.sizing_model,
             config.pipeline.simulator,
@@ -524,8 +508,8 @@ def test_a_backtest_resumes_the_same_way_a_session_does() -> None:
         ),
         fill_policy=config.fill_policy,
     )
-    restored = restore_backtest(
-        backtest_from_primitives(deserialize(serialize(capture_backtest(partial)))), objects
+    restored = restore_run(
+        run_from_primitives(deserialize(serialize(capture_run(partial)))), objects
     )
     with BacktestEngine.resume(restored):
         for record in records[N:]:
@@ -553,7 +537,7 @@ def test_resume_installs_the_source_the_restored_position_implies() -> None:
             TradingSession.initialize(config, running_strategy_state(STRATEGY_ID, strategy)),
             records[:N],
         )
-    restored = restore_session(capture_session(partial), _objects(config, strategy))
+    restored = restore_run(capture_run(partial), _objects(config, strategy))
 
     assert current_id_position() == IdStreamPosition(None, 0), "nothing installed yet"
     with TradingSession.resume(restored):
@@ -565,7 +549,7 @@ def test_resume_of_an_unseeded_run_installs_no_deterministic_source() -> None:
     config, strategy = _session(seed=None)
     with id_scope(None):
         state = TradingSession.initialize(config, running_strategy_state(STRATEGY_ID, strategy))
-    restored = restore_session(capture_session(state), _objects(config, strategy))
+    restored = restore_run(capture_run(state), _objects(config, strategy))
 
     with TradingSession.resume(restored):
         assert current_id_position() == IdStreamPosition(None, 0)
@@ -578,12 +562,12 @@ def test_restore_itself_installs_nothing_and_mints_nothing() -> None:
             TradingSession.initialize(config, running_strategy_state(STRATEGY_ID, strategy)),
             _records(),
         )
-    payload = serialize(capture_session(state))
+    payload = serialize(capture_run(state))
     objects = _objects(config, strategy)
 
     with id_scope(SEED):
         before = current_id_position()
-        restored = restore_session(session_from_primitives(deserialize(payload)), objects)
+        restored = restore_run(run_from_primitives(deserialize(payload)), objects)
         after = current_id_position()
 
     assert before == after == IdStreamPosition(SEED, 0)
@@ -595,21 +579,21 @@ def test_restore_itself_installs_nothing_and_mints_nothing() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _snapshot_and_objects() -> tuple[SessionSnapshot, SessionObjects]:
+def _snapshot_and_objects() -> tuple[RunSnapshot, RunObjects]:
     config, strategy = _session()
     with id_scope(SEED):
         state = _drive(
             TradingSession.initialize(config, running_strategy_state(STRATEGY_ID, strategy)),
             _records(3),
         )
-    payload = serialize(capture_session(state))
-    return session_from_primitives(deserialize(payload)), _objects(config, strategy)
+    payload = serialize(capture_run(state))
+    return run_from_primitives(deserialize(payload)), _objects(config, strategy)
 
 
 def test_the_correct_objects_resume_successfully() -> None:
     snapshot, objects = _snapshot_and_objects()
 
-    assert restore_session(snapshot, objects).processed == 3
+    assert restore_run(snapshot, objects).processed == 3
 
 
 @pytest.mark.parametrize(
@@ -623,7 +607,7 @@ def test_a_missing_or_wrong_fill_policy_is_refused(overrides: dict[str, Any], ma
     snapshot, objects = _snapshot_and_objects()
 
     with pytest.raises(StateDecodeError, match=match):
-        restore_session(snapshot, replace(objects, **overrides))
+        restore_run(snapshot, replace(objects, **overrides))
 
 
 @pytest.mark.parametrize(
@@ -641,27 +625,25 @@ def test_a_missing_or_wrong_pipeline_object_is_refused_through_the_session(
     snapshot, objects = _snapshot_and_objects()
 
     with pytest.raises(StateDecodeError, match=match):
-        restore_session(snapshot, replace(objects, pipeline=replace(objects.pipeline, **overrides)))
+        restore_run(snapshot, replace(objects, pipeline=replace(objects.pipeline, **overrides)))
 
 
 def test_no_module_constructs_anything_from_a_recorded_type_name() -> None:
     import ast
     import inspect
 
-    from alphalab.backtesting import snapshot as backtest_snapshot
-    from alphalab.runtime import session_snapshot
+    from alphalab.runtime import run_snapshot
 
-    for module in (session_snapshot, backtest_snapshot):
-        source = inspect.getsource(module)
-        called = {
-            node.func.id
-            for node in ast.walk(ast.parse(source))
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-        }
-        assert "__import__" not in called
-        assert "eval" not in called
-        assert "getattr" not in called
-        assert "importlib" not in source
+    source = inspect.getsource(run_snapshot)
+    called = {
+        node.func.id
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "__import__" not in called
+    assert "eval" not in called
+    assert "getattr" not in called
+    assert "importlib" not in source
 
 
 # ---------------------------------------------------------------------------
@@ -673,7 +655,7 @@ def test_a_restored_session_is_refused_when_its_currencies_disagree() -> None:
     """The pipeline's own restore re-applies it; the session does not bypass it."""
 
     _, objects = _snapshot_and_objects()
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     payload["pipeline"]["config"]["account"]["base_currency"] = "EUR"
 
     config, strategy = _session()
@@ -684,7 +666,7 @@ def test_a_restored_session_is_refused_when_its_currencies_disagree() -> None:
         )
 
     with pytest.raises(RuntimeValidationError) as from_restore:
-        restore_session(session_from_primitives(payload), objects)
+        restore_run(run_from_primitives(payload), objects)
 
     assert str(from_restore.value) == str(from_initialize.value)
 
@@ -694,11 +676,11 @@ def test_a_restored_session_is_refused_when_its_currencies_disagree() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _live_session() -> tuple[SessionState, SessionObjects, tuple[Any, ...]]:
+def _live_session() -> tuple[RunState, RunObjects, tuple[Any, ...]]:
     """A live-routed session holding working external orders."""
 
     strategy = ScriptedStrategy(STRATEGY_ID, ASSET_ID, {2.0: Decimal("10"), 3.0: Decimal("6")})
-    config = SessionConfig(
+    config = RunConfig(
         pipeline=replace(pipeline_config(STRATEGY_ID), routing=ExecutionRouting.EXTERNAL),
         mode=ExecutionMode.LIVE,
         fill_policy=ImmediateFill(),
@@ -713,8 +695,8 @@ def _live_session() -> tuple[SessionState, SessionObjects, tuple[Any, ...]]:
 
 def test_a_working_external_order_survives_a_session_round_trip_and_terminalizes() -> None:
     state, objects, orders = _live_session()
-    payload = serialize(capture_session(state))
-    restored = restore_session(session_from_primitives(deserialize(payload)), objects)
+    payload = serialize(capture_run(state))
+    restored = restore_run(run_from_primitives(deserialize(payload)), objects)
 
     target = orders[0]
     key = str(target.order_id.value)
@@ -757,8 +739,8 @@ def test_a_duplicate_execution_is_still_a_no_op_after_a_session_round_trip() -> 
     applied, _, _ = ExecutionPipeline.apply_execution_report(state.pipeline, orders[0], report)
     state = replace(state, pipeline=applied)
 
-    payload = serialize(capture_session(state))
-    restored = restore_session(session_from_primitives(deserialize(payload)), objects)
+    payload = serialize(capture_run(state))
+    restored = restore_run(run_from_primitives(deserialize(payload)), objects)
 
     assert report.execution_id in restored.pipeline.execution.reports
 
@@ -788,10 +770,8 @@ def test_a_failed_strategy_stays_failed_across_a_restore() -> None:
         ),
     )
 
-    payload = serialize(capture_session(state))
-    restored = restore_session(
-        session_from_primitives(deserialize(payload)), _objects(config, strategy)
-    )
+    payload = serialize(capture_run(state))
+    restored = restore_run(run_from_primitives(deserialize(payload)), _objects(config, strategy))
     decoded = restored.pipeline.strategy.strategies[STRATEGY_ID]
 
     assert decoded.status is LifecycleState.FAILED
@@ -801,7 +781,7 @@ def test_a_failed_strategy_stays_failed_across_a_restore() -> None:
 
 def test_skipped_records_survive_and_continuation_stays_at_the_boundary() -> None:
     strategy = ScriptedStrategy(STRATEGY_ID, ASSET_ID, _plan())
-    config = SessionConfig(
+    config = RunConfig(
         pipeline=pipeline_config(STRATEGY_ID),
         mode=ExecutionMode.PAPER,
         fill_policy=ImmediateFill(),
@@ -825,10 +805,8 @@ def test_skipped_records_survive_and_continuation_stays_at_the_boundary() -> Non
     assert state.skipped[0].record.event_id == "REC-BACKWARDS"
     processed_before = state.processed
 
-    payload = serialize(capture_session(state))
-    restored = restore_session(
-        session_from_primitives(deserialize(payload)), _objects(config, strategy)
-    )
+    payload = serialize(capture_run(state))
+    restored = restore_run(run_from_primitives(deserialize(payload)), _objects(config, strategy))
 
     assert restored.skipped.to_tuple() == state.skipped.to_tuple()
     assert restored.processed == processed_before == 2
@@ -849,7 +827,7 @@ def test_a_chronological_session_still_refuses_a_regressing_record_after_restore
             TradingSession.initialize(config, running_strategy_state(STRATEGY_ID, strategy)),
             _records(3),
         )
-    restored = restore_session(capture_session(state), _objects(config, strategy))
+    restored = restore_run(capture_run(state), _objects(config, strategy))
     backwards = MarketRecord(
         event_id="OLD",
         timestamp=1.5,
@@ -873,15 +851,15 @@ def test_the_restored_session_is_independent_of_the_captured_one() -> None:
             TradingSession.initialize(config, running_strategy_state(STRATEGY_ID, strategy)),
             records[:N],
         )
-    before = capture_session(original)
-    restored = restore_session(capture_session(original), _objects(config, strategy))
+    before = capture_run(original)
+    restored = restore_run(capture_run(original), _objects(config, strategy))
 
     with TradingSession.resume(restored):
         advanced = _drive(restored, records[N:])
 
     assert advanced.processed == TOTAL
     assert original.processed == N, "the captured state is untouched"
-    assert capture_session(original) == before
+    assert capture_run(original) == before
 
 
 # ---------------------------------------------------------------------------
@@ -890,8 +868,8 @@ def test_the_restored_session_is_independent_of_the_captured_one() -> None:
 
 
 def test_a_non_object_session_payload_is_refused() -> None:
-    with pytest.raises(StateDecodeError, match="session snapshot is not an object"):
-        session_from_primitives([])  # type: ignore[arg-type]
+    with pytest.raises(StateDecodeError, match="run snapshot is not an object"):
+        run_from_primitives([])  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -912,11 +890,11 @@ def test_a_non_object_session_payload_is_refused() -> None:
     ],
 )
 def test_a_missing_session_field_is_refused_naming_it(key: str) -> None:
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     del payload[key]
 
     with pytest.raises(StateDecodeError, match=f"missing '{key}'"):
-        session_from_primitives(payload)
+        run_from_primitives(payload)
 
 
 @pytest.mark.parametrize(
@@ -930,16 +908,16 @@ def test_a_missing_session_field_is_refused_naming_it(key: str) -> None:
     ],
 )
 def test_a_wrongly_typed_session_field_is_refused(key: str, value: Any, match: str) -> None:
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     payload[key] = value
 
     with pytest.raises(StateDecodeError, match=match):
-        session_from_primitives(payload)
+        run_from_primitives(payload)
 
 
 def test_a_malformed_skipped_record_is_refused() -> None:
     strategy = ScriptedStrategy(STRATEGY_ID, ASSET_ID, {})
-    config = SessionConfig(
+    config = RunConfig(
         pipeline=pipeline_config(STRATEGY_ID),
         mode=ExecutionMode.PAPER,
         fill_policy=ImmediateFill(),
@@ -952,29 +930,29 @@ def test_a_malformed_skipped_record_is_refused() -> None:
         state, _ = TradingSession.advance(state, _records(1)[0], context_factory, now=100.0)
 
     assert len(state.skipped) == 1
-    payload = dict(deserialize(serialize(capture_session(state))))
+    payload = dict(deserialize(serialize(capture_run(state))))
     payload["skipped"][0]["payload_type"] = "Teleport"
 
     with pytest.raises(StateDecodeError, match="not a market payload"):
-        session_from_primitives(payload)
+        run_from_primitives(payload)
 
 
 def test_a_missing_backtest_field_is_refused_naming_it() -> None:
     state, _, _, _ = _backtest()
-    payload = dict(deserialize(serialize(capture_backtest(state))))
+    payload = dict(deserialize(serialize(capture_run(state))))
     del payload["steps"]
 
     with pytest.raises(StateDecodeError, match="missing 'steps'"):
-        backtest_from_primitives(payload)
+        run_from_primitives(payload)
 
 
 def test_a_malformed_backtest_step_is_refused() -> None:
     state, _, _, _ = _backtest()
-    payload = dict(deserialize(serialize(capture_backtest(state))))
+    payload = dict(deserialize(serialize(capture_run(state))))
     payload["steps"][0]["equity"] = "lots"
 
     with pytest.raises(StateDecodeError, match="equity is not a decimal"):
-        backtest_from_primitives(payload)
+        run_from_primitives(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -983,49 +961,47 @@ def test_a_malformed_backtest_step_is_refused() -> None:
 
 
 def test_the_session_snapshot_covers_every_session_state_field() -> None:
-    carried = {field.name for field in fields(SessionSnapshot)} | {
-        # SessionConfig is flattened: its pipeline half is the nested pipeline
+    carried = {field.name for field in fields(RunSnapshot)} | {
+        # RunConfig is flattened: its pipeline half is the nested pipeline
         # snapshot's config, and its own fields are carried individually.
         "config",
     }
-    missing = {field.name for field in fields(SessionState)} - carried
+    missing = {field.name for field in fields(RunState)} - carried
 
-    assert not missing, f"SessionState fields absent from SessionSnapshot: {sorted(missing)}"
+    assert not missing, f"RunState fields absent from RunSnapshot: {sorted(missing)}"
 
 
 def test_every_session_config_field_is_carried_or_supplied() -> None:
-    carried = {field.name for field in fields(SessionSnapshot)}
+    carried = {field.name for field in fields(RunSnapshot)}
     missing = (
-        {field.name for field in fields(SessionConfig)}
+        {field.name for field in fields(RunConfig)}
         - carried
         - {"pipeline", "fill_policy"}  # nested snapshot's config; supplied object
     )
 
-    assert not missing, f"SessionConfig fields absent from SessionSnapshot: {sorted(missing)}"
+    assert not missing, f"RunConfig fields absent from RunSnapshot: {sorted(missing)}"
     assert "fill_policy_type" in carried
 
 
 def test_the_backtest_snapshot_covers_every_backtest_state_field() -> None:
-    carried = {field.name for field in fields(BacktestSnapshot)} | {"config"}
-    missing = {field.name for field in fields(BacktestState)} - carried
+    carried = {field.name for field in fields(RunSnapshot)} | {"config"}
+    missing = {field.name for field in fields(RunState)} - carried
 
-    assert not missing, f"BacktestState fields absent from BacktestSnapshot: {sorted(missing)}"
+    assert not missing, f"RunState fields absent from RunSnapshot: {sorted(missing)}"
 
 
 def test_every_backtest_config_field_is_carried_or_supplied() -> None:
-    carried = {field.name for field in fields(BacktestSnapshot)}
-    missing = (
-        {field.name for field in fields(BacktestConfig)} - carried - {"pipeline", "fill_policy"}
-    )
+    carried = {field.name for field in fields(RunSnapshot)}
+    missing = {field.name for field in fields(RunConfig)} - carried - {"pipeline", "fill_policy"}
 
-    assert not missing, f"BacktestConfig fields absent from BacktestSnapshot: {sorted(missing)}"
+    assert not missing, f"RunConfig fields absent from RunSnapshot: {sorted(missing)}"
     assert "fill_policy_type" in carried
 
 
 def test_the_pipeline_configuration_is_carried_exactly_once() -> None:
     """Two copies could disagree about the run's own configuration."""
 
-    payload = dict(deserialize(serialize(capture_session(_uninterrupted()))))
+    payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
 
     assert "config" in payload["pipeline"]
     assert "pipeline_config" not in payload

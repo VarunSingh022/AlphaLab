@@ -52,7 +52,7 @@ from typing import Any
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
-from alphalab.backtesting import BacktestConfig, BacktestEngine, MarketDataset
+from alphalab.backtesting import BacktestEngine, ExecutionMode, MarketDataset, RunConfig
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.experiment_tracking import complete_run, log_metrics, start_run
 from alphalab.lifecycle import (
@@ -167,9 +167,10 @@ def _running_instance() -> RuntimeState:
     return replace(state, strategies={INSTANCE_ID: running})
 
 
-def _backtest_config() -> BacktestConfig:
+def _backtest_config() -> RunConfig:
     huge = Decimal("100000000")
-    return BacktestConfig(
+    return RunConfig(
+        mode=ExecutionMode.BACKTEST,
         pipeline=ExecutionPipelineConfig(
             account=Account("acct-lifecycle", "USD", "Lifecycle Example", 0.0),
             starting_cash=START_CASH,

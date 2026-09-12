@@ -38,7 +38,7 @@ from alphalab.portfolio.types import TransactionType
 #: Transaction ids come from ``new_id()``, so a portfolio built twice agrees on
 #: every quantity and disagrees on every transaction id. Seeding the fixture is
 #: what lets these tests compare two independently built states -- the same
-#: mechanism ``BacktestConfig.seed`` uses.
+#: mechanism ``RunConfig.seed`` uses.
 _SEED = 20250905
 
 

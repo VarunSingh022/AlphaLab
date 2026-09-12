@@ -25,7 +25,7 @@ The runtime asks at exactly two points, both between completed pipeline steps:
 runs per event, and neither adds a strategy dispatch.
 
 `PIPELINE_SNAPSHOT_SCHEMA` moved 1 -> 2 for the one new field.
-`SESSION_SNAPSHOT_SCHEMA` and `BACKTEST_SNAPSHOT_SCHEMA` did not move, which is
+`RUN_SNAPSHOT_SCHEMA` and `RUN_SNAPSHOT_SCHEMA` did not move, which is
 ADR-0023 decision 1's envelope split working as designed, and is asserted here.
 """
 
@@ -39,26 +39,17 @@ from typing import Any
 import pytest
 
 from alphalab.backtesting.engine import BacktestEngine
-from alphalab.backtesting.snapshot import BACKTEST_SNAPSHOT_SCHEMA, BacktestObjects
-from alphalab.backtesting.snapshot import capture as capture_backtest
-from alphalab.backtesting.snapshot import from_primitives as backtest_from_primitives
-from alphalab.backtesting.snapshot import restore as restore_backtest
-from alphalab.backtesting.state import BacktestState
 from alphalab.common.ids import IdStreamPosition, current_id_position, id_scope
 from alphalab.execution.policy import ImmediateFill
 from alphalab.market.record import MarketRecord
 from alphalab.persistence import deserialize, serialize
 from alphalab.persistence.exceptions import SerializationError, StateDecodeError
-from alphalab.runtime.session import (
-    ExecutionMode,
-    SessionConfig,
-    SessionState,
-    TradingSession,
-)
-from alphalab.runtime.session_snapshot import SESSION_SNAPSHOT_SCHEMA, SessionObjects
-from alphalab.runtime.session_snapshot import capture as capture_session
-from alphalab.runtime.session_snapshot import from_primitives as session_from_primitives
-from alphalab.runtime.session_snapshot import restore as restore_session
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunState
+from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA, RunObjects
+from alphalab.runtime.run_snapshot import capture as capture_run
+from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
+from alphalab.runtime.run_snapshot import restore as restore_run
+from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import (
     NOT_ASKED,
     PIPELINE_SNAPSHOT_SCHEMA,
@@ -293,8 +284,8 @@ def _records(count: int = TOTAL) -> list[MarketRecord]:
     ]
 
 
-def _config() -> SessionConfig:
-    return SessionConfig(
+def _config() -> RunConfig:
+    return RunConfig(
         pipeline=pipeline_config(STRATEGY_ID),
         mode=ExecutionMode.BACKTEST,
         fill_policy=ImmediateFill(),
@@ -303,8 +294,8 @@ def _config() -> SessionConfig:
     )
 
 
-def _objects(config: SessionConfig, strategy: object) -> SessionObjects:
-    return SessionObjects(
+def _objects(config: RunConfig, strategy: object) -> RunObjects:
+    return RunObjects(
         pipeline=RuntimeObjects(
             sizing_model=config.pipeline.sizing_model,
             simulator=config.pipeline.simulator,
@@ -315,20 +306,20 @@ def _objects(config: SessionConfig, strategy: object) -> SessionObjects:
     )
 
 
-def _drive(state: SessionState, records: list[MarketRecord]) -> SessionState:
+def _drive(state: RunState, records: list[MarketRecord]) -> RunState:
     for record in records:
         state, _ = TradingSession.advance(state, record, context_factory)
     return state
 
 
-def _start(config: SessionConfig, strategy: object) -> SessionState:
+def _start(config: RunConfig, strategy: object) -> RunState:
     return TradingSession.initialize(
         config,
         running_strategy_state(STRATEGY_ID, strategy),  # type: ignore[arg-type]
     )
 
 
-def _uninterrupted(count: int = TOTAL, factory: Any = CountingStrategy) -> SessionState:
+def _uninterrupted(count: int = TOTAL, factory: Any = CountingStrategy) -> RunState:
     config = _config()
     with id_scope(SEED):
         return _drive(_start(config, factory(STRATEGY_ID, ASSET_ID)), _records(count))
@@ -340,7 +331,7 @@ def _split(
     fresh: bool = True,
     factory: Any = CountingStrategy,
     seed: int | None = SEED,
-) -> SessionState:
+) -> RunState:
     """Run to ``boundary``, round-trip through the snapshot path, resume."""
 
     config = replace(_config(), seed=seed)
@@ -350,17 +341,15 @@ def _split(
     with id_scope(seed):
         partial = _drive(_start(config, warm), records[:boundary])
 
-    payload = serialize(capture_session(partial))
+    payload = serialize(capture_run(partial))
     supplied = factory(STRATEGY_ID, ASSET_ID) if fresh else warm
-    restored = restore_session(
-        session_from_primitives(deserialize(payload)), _objects(config, supplied)
-    )
+    restored = restore_run(run_from_primitives(deserialize(payload)), _objects(config, supplied))
 
     with TradingSession.resume(restored):
         return _drive(restored, records[boundary:])
 
 
-def _acted_on(state: SessionState) -> tuple[float, ...]:
+def _acted_on(state: RunState) -> tuple[float, ...]:
     """Market timestamps at which the strategy's intents became orders.
 
     Read from the OMS order book -- what the run *did* -- never from the
@@ -370,7 +359,7 @@ def _acted_on(state: SessionState) -> tuple[float, ...]:
     return tuple(order.created_at for order in state.pipeline.oms.orders.orders())
 
 
-def _declared_state(state: SessionState) -> Mapping[str, Any]:
+def _declared_state(state: RunState) -> Mapping[str, Any]:
     """Each declaring strategy's state, asked for the same way capture asks."""
 
     return {
@@ -380,7 +369,7 @@ def _declared_state(state: SessionState) -> Mapping[str, Any]:
     }
 
 
-def _pipeline_payload(state: SessionState) -> dict[str, Any]:
+def _pipeline_payload(state: RunState) -> dict[str, Any]:
     return dict(deserialize(serialize(capture_pipeline(state.pipeline))))
 
 
@@ -506,11 +495,11 @@ def test_the_session_round_trips_and_the_session_schema_did_not_move() -> None:
     with id_scope(SEED):
         state = _drive(_start(config, strategy), _records())
 
-    payload = dict(deserialize(serialize(capture_session(state))))
+    payload = dict(deserialize(serialize(capture_run(state))))
 
-    assert payload["schema_version"] == SESSION_SNAPSHOT_SCHEMA == 1
+    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 1
     assert payload["pipeline"]["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 2
-    assert restore_session(session_from_primitives(payload), _objects(config, strategy)) == state
+    assert restore_run(run_from_primitives(payload), _objects(config, strategy)) == state
 
 
 def test_the_backtest_round_trips_and_the_backtest_schema_did_not_move() -> None:
@@ -523,8 +512,8 @@ def test_the_backtest_round_trips_and_the_backtest_schema_did_not_move() -> None
         for record in dataset.records:
             state, _ = BacktestEngine.advance(state, record, context_factory)
 
-    payload = dict(deserialize(serialize(capture_backtest(state))))
-    objects = BacktestObjects(
+    payload = dict(deserialize(serialize(capture_run(state))))
+    objects = RunObjects(
         pipeline=RuntimeObjects(
             sizing_model=config.pipeline.sizing_model,
             simulator=config.pipeline.simulator,
@@ -534,17 +523,17 @@ def test_the_backtest_round_trips_and_the_backtest_schema_did_not_move() -> None
         fill_policy=config.fill_policy,
     )
 
-    assert payload["schema_version"] == BACKTEST_SNAPSHOT_SCHEMA == 1
+    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 1
     assert payload["pipeline"]["schema_version"] == 2
-    assert restore_backtest(backtest_from_primitives(payload), objects) == state
+    assert restore_run(run_from_primitives(payload), objects) == state
 
 
 def test_a_fresh_instance_resumes_a_backtest_too() -> None:
     dataset = dataset_of_quotes(ASSET_ID, [Decimal(100 + index) for index in range(TOTAL)])
     config = backtest_config(STRATEGY_ID, seed=SEED)
 
-    def objects_for(strategy: object) -> BacktestObjects:
-        return BacktestObjects(
+    def objects_for(strategy: object) -> RunObjects:
+        return RunObjects(
             pipeline=RuntimeObjects(
                 sizing_model=config.pipeline.sizing_model,
                 simulator=config.pipeline.simulator,
@@ -554,7 +543,7 @@ def test_a_fresh_instance_resumes_a_backtest_too() -> None:
             fill_policy=config.fill_policy,
         )
 
-    def run(records: Any, state: BacktestState) -> BacktestState:
+    def run(records: Any, state: RunState) -> RunState:
         for record in records:
             state, _ = BacktestEngine.advance(state, record, context_factory)
         return state
@@ -575,9 +564,9 @@ def test_a_fresh_instance_resumes_a_backtest_too() -> None:
             ),
         )
 
-    payload = serialize(capture_backtest(partial))
-    restored = restore_backtest(
-        backtest_from_primitives(deserialize(payload)),
+    payload = serialize(capture_run(partial))
+    restored = restore_run(
+        run_from_primitives(deserialize(payload)),
         objects_for(CountingStrategy(STRATEGY_ID, ASSET_ID)),
     )
     with BacktestEngine.resume(restored):
@@ -635,7 +624,7 @@ def test_serialization_is_deterministic_across_a_re_capture() -> None:
     with id_scope(SEED):
         state = _drive(_start(config, strategy), _records())
 
-    assert serialize(capture_session(state)) == serialize(capture_session(state))
+    assert serialize(capture_run(state)) == serialize(capture_run(state))
 
 
 # ---------------------------------------------------------------------------
@@ -925,10 +914,8 @@ def test_a_custom_strategy_type_round_trips_through_its_serializable_projection(
 
     fresh = BandStrategy(STRATEGY_ID, ASSET_ID)
     fresh._band = Band(Decimal("0"), Decimal("0"))  # provably not the captured one
-    payload = serialize(capture_session(partial))
-    restored = restore_session(
-        session_from_primitives(deserialize(payload)), _objects(config, fresh)
-    )
+    payload = serialize(capture_run(partial))
+    restored = restore_run(run_from_primitives(deserialize(payload)), _objects(config, fresh))
     with TradingSession.resume(restored):
         resumed = _drive(restored, _records()[BOUNDARY:])
 
@@ -1047,14 +1034,12 @@ def test_restore_mints_no_identifier_and_processes_no_record() -> None:
     with id_scope(SEED):
         state = _drive(_start(config, strategy), _records(BOUNDARY))
 
-    payload = serialize(capture_session(state))
+    payload = serialize(capture_run(state))
     fresh = CountingStrategy(STRATEGY_ID, ASSET_ID)
 
     with id_scope(SEED):
         before = current_id_position()
-        restored = restore_session(
-            session_from_primitives(deserialize(payload)), _objects(config, fresh)
-        )
+        restored = restore_run(run_from_primitives(deserialize(payload)), _objects(config, fresh))
         after = current_id_position()
 
     assert before == after == IdStreamPosition(SEED, 0)

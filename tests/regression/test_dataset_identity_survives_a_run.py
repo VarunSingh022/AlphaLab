@@ -13,13 +13,21 @@ is a caller's claim rather than a measurement. This is ADR-0017's M2: the run
 carries the identity. Deriving evidence from it is M3 and is not implemented
 here.
 
-Two identities, not one
------------------------
-``dataset_id`` names a finite, ordered dataset that ``validate_dataset`` has
-checked. ``source_id`` names a stream that may declare ``UNORDERED`` and may be
-live. They are kept as separate fields on separate types on purpose: collapsing
-them would let a live session's provenance claim the guarantees a validated
-dataset carries.
+One home, two guarantees
+------------------------
+Until v2.14 the two identities lived in two places with two lifetimes:
+``SessionState.source_id`` was on the state and was captured, while
+``dataset_id`` was an argument to ``finalize`` that no snapshot carried -- so a
+backtest that stopped and continued in another process arrived at
+``derive_evidence`` with nothing to name. ADR-0030 gives the fact one home,
+:attr:`~alphalab.runtime.run.RunState.source_id`, which the run snapshot carries,
+and ``BacktestResult.dataset_id`` reads through it.
+
+The two *guarantees* stay separate, which is what ADR-0017 was protecting: a
+``MarketDataset`` is validated ordered on construction, while a
+``MarketDataSource`` declares what it promises and a run states what it accepts
+in ``RunConfig.ordering``. The guarantee is stated where it is enforced rather
+than smuggled inside an identifier's type.
 """
 
 from dataclasses import fields
@@ -30,8 +38,9 @@ from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.engine import BacktestEngine, finalize, initialize
 from alphalab.backtesting.replay import ReplayBacktest
 from alphalab.backtesting.state import BacktestResult, ReplayResult
-from alphalab.market.source import SequenceSource
-from alphalab.runtime.session import SessionState, TradingSession
+from alphalab.market.source import OrderingGuarantee, SequenceSource
+from alphalab.runtime.run import RunConfig, RunState
+from alphalab.runtime.session import TradingSession
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 from tests.integration.harness import (
     ScriptedStrategy,
@@ -171,9 +180,9 @@ def test_a_session_records_the_source_it_read() -> None:
 
 
 def _session_config(strategy_id: str):  # type: ignore[no-untyped-def]
-    from alphalab.runtime.session import ExecutionMode, SessionConfig
+    from alphalab.runtime.run import ExecutionMode, RunConfig
 
-    return SessionConfig(
+    return RunConfig(
         pipeline=pipeline_config(strategy_id),
         mode=ExecutionMode.BACKTEST,
         start_timestamp=1.0,
@@ -208,14 +217,27 @@ def test_a_session_driven_by_hand_records_no_source() -> None:
     assert state.source_id is None
 
 
-def test_a_result_constructed_directly_still_needs_no_dataset_id() -> None:
-    """Existing direct constructors stay valid: the field is optional, not required."""
+def test_the_result_stores_no_identity_of_its_own() -> None:
+    """``dataset_id`` is a projection of the run, not a second copy of the fact.
 
-    names = [f.name for f in fields(BacktestResult)]
-    dataset_field = next(f for f in fields(BacktestResult) if f.name == "dataset_id")
+    A result that stored the identity could come to disagree with the run it
+    describes, which is exactly what happened before v2.14 when ``finalize``
+    accepted one and the state recorded none.
+    """
 
-    assert names[-1] == "dataset_id", "appended, so positional construction is unchanged"
-    assert dataset_field.default is None
+    assert [f.name for f in fields(BacktestResult)] == ["run"]
+    assert isinstance(BacktestResult.dataset_id, property)
+
+    strategy_id, asset_id = _ids()
+    dataset = dataset_of_quotes(asset_id, MIDS)
+    result = BacktestEngine.run(
+        backtest_config(strategy_id, seed=SEED),
+        dataset,
+        _strategy_state(strategy_id, asset_id),
+        context_factory,
+    )
+
+    assert result.dataset_id == dataset.dataset_id == result.run.source_id
 
 
 # --------------------------------------------------------------------------- #
@@ -223,14 +245,25 @@ def test_a_result_constructed_directly_still_needs_no_dataset_id() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_dataset_identity_and_source_identity_are_separate_concepts() -> None:
-    """A dataset is validated and finite; a source may be live and unordered."""
+def test_the_identity_has_one_home_and_the_guarantee_has_another() -> None:
+    """Collapsing the two identifiers did not collapse the two guarantees.
 
-    result_fields = {f.name for f in fields(BacktestResult)}
-    session_fields = {f.name for f in fields(SessionState)}
+    ``RunState`` carries *which* stream a run read. What that stream promised is
+    ``RunConfig.ordering``, stated where the gate that enforces it reads it -- so
+    a live session's provenance still cannot claim a validated dataset's
+    guarantees.
+    """
 
-    assert "dataset_id" in result_fields and "source_id" not in result_fields
-    assert "source_id" in session_fields and "dataset_id" not in session_fields
+    run_fields = {f.name for f in fields(RunState)}
+    config_fields = {f.name for f in fields(RunConfig)}
+
+    assert run_fields & {"source_id", "dataset_id"} == {"source_id"}
+    assert "ordering" in config_fields and "ordering" not in run_fields
+
+    # And a dataset still validates its order on construction, which a source
+    # only declares.
+    assert MarketDataset.__post_init__ is not None
+    assert OrderingGuarantee.UNORDERED in set(OrderingGuarantee)
 
 
 # --------------------------------------------------------------------------- #
@@ -260,7 +293,7 @@ def test_the_evidence_layer_gains_no_field_from_run_provenance() -> None:
     Note the name collision this pins down. ``ValidationEvidence.source_id``
     already exists and means the *report* a measurement was extracted from -- a
     ``PerformanceReport.report_id`` or a ``ResearchState.research_id``. It has
-    nothing to do with ``SessionState.source_id``, which names a market-data
+    nothing to do with ``RunState.source_id``, which names a market-data
     stream. The two must not be merged.
 
     M3 (``tests/regression/test_evidence_derives_dataset_identity.py``) makes

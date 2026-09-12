@@ -230,10 +230,15 @@ __all__ = [
 #:
 #: Version 2 adds one field to each strategy record: what that strategy said
 #: when it was asked for its state. Nothing else about the envelope changed, and
-#: ``SESSION_SNAPSHOT_SCHEMA`` and ``BACKTEST_SNAPSHOT_SCHEMA`` do **not** move
-#: with it -- they nest this payload and this decoder validates its own version,
-#: which is the churn confinement ADR-0023 decision 1 separated the envelopes to
-#: buy.
+#: the run envelope nesting this payload did not move with it -- it nests this
+#: payload and this decoder validates its own version, which is the churn
+#: confinement ADR-0023 decision 1 separated the envelopes to buy.
+#:
+#: v2.14 spent that confinement exactly as intended, and this constant stayed at
+#: 2. ``SESSION_SNAPSHOT_SCHEMA`` and ``BACKTEST_SNAPSHOT_SCHEMA`` were retired
+#: with the two run states they versioned, replaced by the single
+#: :data:`~alphalab.runtime.run_snapshot.RUN_SNAPSHOT_SCHEMA`: the run layer
+#: moved and this core did not. See ADR-0030.
 PIPELINE_SNAPSHOT_SCHEMA: Final = 2
 
 #: The versions :func:`from_primitives` reads, and the only ones.

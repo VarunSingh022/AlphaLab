@@ -13,7 +13,6 @@ from typing import Any
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
-from alphalab.backtesting.config import BacktestConfig
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.core.enums import AssetType
 from alphalab.execution.policy import FillPolicy, ImmediateFill
@@ -33,6 +32,7 @@ from alphalab.risk.limits import (
     RiskLimits,
 )
 from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig
+from alphalab.runtime.run import ExecutionMode, RunConfig
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy, StrategyProtocol
@@ -220,11 +220,12 @@ def backtest_config(
     simulator: ExecutionSimulator | None = None,
     risk_limits: RiskLimits | None = None,
     compile_analytics: bool = True,
-) -> BacktestConfig:
-    """A seeded backtest config over the shared permissive pipeline config."""
+) -> RunConfig:
+    """A seeded backtest run config over the shared permissive pipeline config."""
 
-    return BacktestConfig(
+    return RunConfig(
         pipeline=pipeline_config(strategy_id, starting_cash, simulator, risk_limits),
+        mode=ExecutionMode.BACKTEST,
         fill_policy=fill_policy if fill_policy is not None else ImmediateFill(),
         seed=seed,
         start_timestamp=1.0,
@@ -256,7 +257,7 @@ def scripted_run(
     strategy_id: str,
     asset_id: str,
     **config_kwargs: object,
-) -> tuple[BacktestConfig, MarketDataset, StrategyRuntimeState]:
+) -> tuple[RunConfig, MarketDataset, StrategyRuntimeState]:
     """Everything one scripted backtest needs, built consistently."""
 
     config = backtest_config(strategy_id, **config_kwargs)  # type: ignore[arg-type]

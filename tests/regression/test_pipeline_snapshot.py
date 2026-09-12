@@ -27,6 +27,7 @@ Two properties are load-bearing and easy to lose:
 See ADR-0023.
 """
 
+import importlib
 import uuid
 from dataclasses import fields, replace
 from decimal import Decimal
@@ -1012,32 +1013,31 @@ def test_the_strategy_record_decoder_reads_the_state_field() -> None:
     assert '"state"' in inspect.getsource(_strategy_record)
 
 
-def test_the_run_envelopes_live_outside_the_state_modules_they_project() -> None:
-    """ADR-0023 decision 1: two envelopes, each in its owning package's own module.
+def test_the_run_envelope_lives_outside_the_state_module_it_projects() -> None:
+    """ADR-0030: one run envelope, and it is not on the module defining the state.
 
-    Named for what it checks. It was written mid-v2.9 as
-    ``test_no_session_or_run_snapshot_exists_yet``, and by the end of that same
-    release both envelopes existed -- in ``alphalab.runtime.session_snapshot``
-    and ``alphalab.backtesting.snapshot``, which is why the assertions below kept
-    passing and stopped meaning what their name said. What they actually pin is
-    still worth pinning: ``session.py`` and ``backtesting/state.py`` define the
-    states, and neither grows a projection of itself, so a snapshot cannot drift
-    away from the module that owns its schema constant.
+    This began in v2.9 as ``test_no_session_or_run_snapshot_exists_yet`` and
+    became a check that neither run-state module grew a projection of itself.
+    v2.14 keeps that property and reduces what it has to hold: there is one run
+    state and one envelope, so a snapshot can no longer drift away from the
+    module that owns its schema constant because there is only one of each.
     """
 
-    import alphalab.backtesting.snapshot as backtest_snapshot
-    import alphalab.backtesting.state as backtest_module
+    import alphalab.runtime.run as run_module
+    import alphalab.runtime.run_snapshot as run_snapshot
     import alphalab.runtime.session as session_module
-    import alphalab.runtime.session_snapshot as session_snapshot
 
-    for module in (session_module, backtest_module):
+    for module in (run_module, session_module):
         assert not hasattr(module, "RunSnapshot")
-        assert not hasattr(module, "SESSION_SNAPSHOT_SCHEMA")
+        assert not hasattr(module, "RUN_SNAPSHOT_SCHEMA")
         assert not hasattr(module, "capture")
         assert not hasattr(module, "restore")
 
-    # And the envelopes are where ADR-0023 put them, one per owning package.
-    for module in (session_snapshot, backtest_snapshot):
-        assert hasattr(module, "capture")
-        assert hasattr(module, "restore")
-        assert hasattr(module, "from_primitives")
+    assert hasattr(run_snapshot, "capture")
+    assert hasattr(run_snapshot, "restore")
+    assert hasattr(run_snapshot, "from_primitives")
+
+    # The two v2.13 envelopes are gone, not aliased.
+    for name in ("alphalab.runtime.session_snapshot", "alphalab.backtesting.snapshot"):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(name)

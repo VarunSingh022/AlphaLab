@@ -18,7 +18,7 @@ This is the one deliberate ambient value on the execution path, and it exists
 because the alternative -- threading an id source parameter through every
 engine method -- would put a plumbing argument on APIs that have nothing to do
 with reproducibility. The seed is recorded on the run that installs it (see
-:class:`alphalab.backtesting.BacktestConfig`), so a reproducible run always
+:class:`alphalab.runtime.run.RunConfig`), so a reproducible run always
 says what made it reproducible.
 
 Where the stream has got to

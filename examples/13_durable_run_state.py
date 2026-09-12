@@ -37,7 +37,7 @@ never stopped. The two serialized payloads are **byte-identical** -- same cash,
 same positions, same orders, same fills, and the same deterministic identifiers.
 
 `capture` / `restore` are not new: they have covered `ExecutionPipelineState`,
-`SessionState` and `BacktestState` since v2.9. What v2.13 adds is somewhere to
+`RunState` and `RunState` since v2.9. What v2.13 adds is somewhere to
 put the result. See ADR-0029.
 
 Three things worth noticing
@@ -45,7 +45,7 @@ Three things worth noticing
 
 **The store never looks inside the payload.** It moves a `str`. It does not
 import a snapshot type and does not decode one, which is why a later release
-that reshapes `SessionState` will not touch it.
+that reshapes `RunState` will not touch it.
 
 **The run identity is yours.** `run_id` is an opaque string you supply to
 `put`. It is not written into any captured state, and no snapshot schema moved
@@ -105,11 +105,12 @@ from alphalab.risk.limits import (
     RiskLimits,
 )
 from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig
-from alphalab.runtime.session import ExecutionMode, SessionConfig, SessionState, TradingSession
-from alphalab.runtime.session_snapshot import SessionObjects
-from alphalab.runtime.session_snapshot import capture as capture_session
-from alphalab.runtime.session_snapshot import from_primitives as session_from_primitives
-from alphalab.runtime.session_snapshot import restore as restore_session
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunState
+from alphalab.runtime.run_snapshot import RunObjects
+from alphalab.runtime.run_snapshot import capture as capture_run
+from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
+from alphalab.runtime.run_snapshot import restore as restore_run
+from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import RuntimeObjects
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
@@ -180,7 +181,7 @@ class AlternatingStrategy(BaseStrategy):
 # ---------------------------------------------------------------------------
 
 
-def build_config() -> SessionConfig:
+def build_config() -> RunConfig:
     """The run's configuration. Values here; live objects are supplied on restore."""
 
     limit = Decimal("100000000")
@@ -206,7 +207,7 @@ def build_config() -> SessionConfig:
             drawdown=DrawdownLimit(Decimal("1.00")),
         ),
     )
-    return SessionConfig(
+    return RunConfig(
         pipeline=pipeline,
         mode=ExecutionMode.BACKTEST,
         fill_policy=ImmediateFill(),
@@ -227,7 +228,7 @@ def build_strategy_state(strategy: AlternatingStrategy) -> StrategyRuntimeState:
     return StrategyRuntimeState(strategies={STRATEGY_ID: entry}, events=state.events)
 
 
-def build_runtime_objects(strategy: AlternatingStrategy) -> SessionObjects:
+def build_runtime_objects(strategy: AlternatingStrategy) -> RunObjects:
     """The four live objects a snapshot records by type and never carries.
 
     Built fresh here. `restore` checks that each is of the recorded class and
@@ -235,7 +236,7 @@ def build_runtime_objects(strategy: AlternatingStrategy) -> SessionObjects:
     """
 
     pipeline = build_config().pipeline
-    return SessionObjects(
+    return RunObjects(
         pipeline=RuntimeObjects(
             sizing_model=pipeline.sizing_model,
             simulator=pipeline.simulator,
@@ -293,7 +294,7 @@ def records(start: int, count: int) -> list[MarketRecord]:
     ]
 
 
-def drive(state: SessionState, batch: Iterable[MarketRecord]) -> SessionState:
+def drive(state: RunState, batch: Iterable[MarketRecord]) -> RunState:
     for record in batch:
         state, _ = TradingSession.advance(state, record, context_factory)
     return state
@@ -316,8 +317,8 @@ def continue_stored_run(spec: Mapping[str, Any]) -> None:
     payload = store.get(RunStateRef(spec["run_id"], spec["sequence"]))
 
     strategy = AlternatingStrategy(STRATEGY_ID, ASSET_ID)
-    restored = restore_session(
-        session_from_primitives(deserialize(payload)), build_runtime_objects(strategy)
+    restored = restore_run(
+        run_from_primitives(deserialize(payload)), build_runtime_objects(strategy)
     )
 
     # The strategy's own memory came back with the payload, not at zero.
@@ -335,7 +336,7 @@ def continue_stored_run(spec: Mapping[str, Any]) -> None:
     with TradingSession.resume(restored):
         restored = drive(restored, records(spec["resume_at"], spec["remaining"]))
 
-    store.put(spec["run_id"], spec["final_sequence"], serialize(capture_session(restored)))
+    store.put(spec["run_id"], spec["final_sequence"], serialize(capture_run(restored)))
     print(f"    child pid {os.getpid()}: finished at {restored.processed} records and stored it")
 
 
@@ -351,7 +352,7 @@ def uninterrupted() -> str:
     with id_scope(SEED):
         state = TradingSession.initialize(build_config(), build_strategy_state(strategy))
         state = drive(state, records(0, BEFORE + AFTER))
-    return serialize(capture_session(state))
+    return serialize(capture_run(state))
 
 
 def main() -> None:
@@ -377,7 +378,7 @@ def main() -> None:
         print(f"    id position: {state.pipeline.id_position}")
 
         print("\n[2] Capture, serialize, and store it.")
-        payload = serialize(capture_session(state))
+        payload = serialize(capture_run(state))
         ref = store.put(RUN_ID, 0, payload)
         print(f"    payload    : {len(payload):,} bytes")
         print(f"    reference  : {ref}          <- an identity, not a path")

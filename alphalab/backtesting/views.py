@@ -4,9 +4,10 @@ from collections.abc import Sequence
 from decimal import Decimal
 
 from alphalab.analytics.report import PerformanceReport
-from alphalab.backtesting.state import BacktestResult, BacktestStep
+from alphalab.backtesting.state import BacktestResult
 from alphalab.core.fill import Fill
 from alphalab.oms.order import Order
+from alphalab.runtime.run import RunStep
 
 
 def final_equity(result: BacktestResult) -> Decimal:
@@ -53,7 +54,7 @@ def executed_fills(result: BacktestResult) -> Sequence[Fill]:
     return result.fills
 
 
-def steps_with_fills(result: BacktestResult) -> Sequence[BacktestStep]:
+def steps_with_fills(result: BacktestResult) -> Sequence[RunStep]:
     """Only the records that actually traded."""
     return tuple(step for step in result.steps if step.fills)
 

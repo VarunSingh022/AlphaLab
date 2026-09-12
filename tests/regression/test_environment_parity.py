@@ -15,7 +15,8 @@ from alphalab.backtesting.replay import ReplayBacktest
 from alphalab.core.fill import Fill
 from alphalab.market.source import SequenceSource
 from alphalab.runtime.execution_pipeline import ExecutionPipeline, ExecutionRouting
-from alphalab.runtime.session import ExecutionMode, SessionConfig, TradingSession
+from alphalab.runtime.run import ExecutionMode, RunConfig
+from alphalab.runtime.session import TradingSession
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 from tests.integration.harness import (
     ScriptedStrategy,
@@ -40,9 +41,9 @@ def _strategy() -> StrategyRuntimeState:
     return running_strategy_state(_STRATEGY, ScriptedStrategy(_STRATEGY, _ASSET, _PLAN))
 
 
-def _session(mode: ExecutionMode) -> SessionConfig:
+def _session(mode: ExecutionMode) -> RunConfig:
     config = backtest_config(_STRATEGY, seed=_SEED)
-    return SessionConfig(
+    return RunConfig(
         pipeline=config.pipeline,
         mode=mode,
         fill_policy=config.fill_policy,
@@ -74,14 +75,25 @@ def test_every_environment_publishes_records_through_one_function() -> None:
 
 
 def test_backtest_and_session_take_the_same_canonical_step() -> None:
+    """Not "both call the same function" -- both *are* the same function.
+
+    Until v2.14 each driver had its own ``advance`` that called
+    ``ExecutionPipeline.process_record``, and this test checked that neither had
+    stopped. ADR-0030 removes the possibility instead of testing for it: both
+    delegate to :meth:`~alphalab.runtime.run.RunEngine.advance`, which is the one
+    place the pipeline step is taken.
+    """
     from alphalab.backtesting import engine as backtesting_engine
     from alphalab.runtime import session as session_module
+    from alphalab.runtime.run import RunEngine
 
-    backtest_source = backtesting_engine.advance.__code__.co_names
-    session_source = session_module.TradingSession.advance.__code__.co_names
+    assert "advance" in backtesting_engine.advance.__code__.co_names
+    assert "advance" in session_module.TradingSession.advance.__code__.co_names
+    assert "RunEngine" in backtesting_engine.advance.__code__.co_names
+    assert "RunEngine" in session_module.TradingSession.advance.__code__.co_names
 
-    assert "process_record" in backtest_source
-    assert "process_record" in session_source
+    # And that one place is where the pipeline step actually happens.
+    assert "process_record" in RunEngine.advance.__code__.co_names
 
 
 def test_the_canonical_types_are_shared_not_mirrored() -> None:

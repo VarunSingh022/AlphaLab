@@ -12,6 +12,26 @@ now-versioned `alphalab.oms.snapshot` (`OMS_SNAPSHOT_SCHEMA = 1`). Decision 1
 records the shipped shape and why the single `RunSnapshot` it first described
 could not be written. No other decision changed.
 
+**Resolved by ADR-0030 in v2.14.0.** Decision 1 records, in the present tense,
+that `SessionState` and `BacktestState` are "the layer a future
+integrated-runtime release is expected to reshape", and splits the run envelopes
+so that reshape can move their constants without versioning the stable pipeline
+core. **That release has happened and that reshape is no longer pending.** v2.14
+merged both states into one `RunState` owned by `RunEngine`, replaced
+`SESSION_SNAPSHOT_SCHEMA` and `BACKTEST_SNAPSHOT_SCHEMA` with a single
+`RUN_SNAPSHOT_SCHEMA = 1`, and left `PIPELINE_SNAPSHOT_SCHEMA` at 2 — which is
+exactly the confinement decision 1 bought, spent as intended.
+
+Read the rest of this ADR as the v2.9 record it is: its reasoning about why one
+envelope could not be written *then* remains accurate (the import cycle it
+describes was real, and ADR-0030 dissolves it by moving the run state into
+`alphalab.runtime` rather than working around it), and its decisions 2–8 are
+otherwise unchanged. Decision 8's Class 1 gains one entry: the run's `source_id`,
+which v2.14 makes durable for every driver. The final runtime ownership boundary
+is ADR-0030's, not this one's.
+
+---
+
 Applies ADR-0014's round-trip contract — "restore reconstructs semantics, not
 structure", and "live objects are referenced, not reconstructed" — to the
 execution path, which is the one place it was never applied. Depends on

@@ -648,16 +648,17 @@ def test_every_environment_refuses_the_same_instrument_the_same_way() -> None:
     structural rather than a convention four call sites must keep.
     """
 
-    from alphalab.backtesting.snapshot import BACKTEST_SNAPSHOT_SCHEMA
-    from alphalab.runtime.session import ExecutionMode, SessionConfig, TradingSession
+    from alphalab.runtime.run import ExecutionMode, RunConfig
+    from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
+    from alphalab.runtime.session import TradingSession
 
-    assert BACKTEST_SNAPSHOT_SCHEMA == 1, "no schema moved"
+    assert RUN_SNAPSHOT_SCHEMA == 1, "no schema moved"
 
     seen: dict[str, tuple[str, ...]] = {}
     for mode in (ExecutionMode.BACKTEST, ExecutionMode.REPLAY, ExecutionMode.PAPER):
         strategy_id = str(uuid4())
         strategy = ScriptedStrategy(strategy_id, _SAP.asset_id, {2.0: Decimal("10")})
-        session = SessionConfig(
+        session = RunConfig(
             pipeline=_config(strategy_id, currency="USD", instruments=registry_of(_SAP)),
             mode=mode,
             seed=_SEED,

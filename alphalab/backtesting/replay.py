@@ -10,26 +10,36 @@ produced any.
 This module closes that gap without duplicating the loop. The replay engine
 keeps doing exactly what it did -- own the cursor, the clock and the lifecycle
 -- and every event it yields is handed to
-:func:`alphalab.backtesting.engine.advance`, the same function
-:class:`~alphalab.backtesting.engine.BacktestEngine` calls. Backtest and replay
-therefore share one execution path by construction, not by convention:
+:meth:`~alphalab.runtime.run.RunEngine.advance`, the same canonical step
+:class:`~alphalab.backtesting.engine.BacktestEngine` and
+:class:`~alphalab.runtime.session.TradingSession` take. Replay is therefore a
+*driver* of the run runtime and not a runtime of its own -- it holds a cursor and
+no execution state at all:
 
 ::
 
     historical dataset
       -> ReplayEngine.step_one_event      (cursor, clock, lifecycle)
-      -> backtesting.advance              (the canonical step)
+      -> RunEngine.advance                (the canonical step)
            -> market -> strategy -> allocation -> risk
            -> OMS -> execution -> portfolio -> analytics
 
 The replay clock is the record index, not wall time. A replay's own state is
 then a pure function of its dataset, which is what lets two replays of one
 dataset be compared field by field.
+
+**Replay is still not resumable**, and v2.14 does not change that: the cursor has
+no snapshot and draws from a second identifier stream. Closing that needs a
+cursor snapshot and a second :class:`~alphalab.common.ids.IdStreamPosition`, both
+of which are additive to this driver and reach neither
+:class:`~alphalab.runtime.run.RunState` nor
+:data:`~alphalab.runtime.run_snapshot.RUN_SNAPSHOT_SCHEMA`. See ADR-0030.
 """
 
 from __future__ import annotations
 
-from alphalab.backtesting.config import BacktestConfig
+from dataclasses import replace
+
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
 from alphalab.backtesting.engine import advance, finalize, id_scope, id_source, initialize
 from alphalab.backtesting.exceptions import UnsupportedRecordError
@@ -39,6 +49,7 @@ from alphalab.replay.engine import ReplayEngine
 from alphalab.replay.session import ReplaySession
 from alphalab.replay.state import ReplayState
 from alphalab.runtime.execution_pipeline import ContextFactory
+from alphalab.runtime.run import ExecutionMode, RunConfig
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
 __all__ = ["REPLAY_CURSOR_SEED_OFFSET", "ReplayBacktest", "session_for"]
@@ -79,12 +90,18 @@ class ReplayBacktest:
 
     @staticmethod
     def run(
-        config: BacktestConfig,
+        config: RunConfig,
         dataset: MarketDataset,
         strategy_state: StrategyRuntimeState,
         context_factory: ContextFactory,
     ) -> ReplayResult:
-        """Replay ``dataset`` end to end through the execution path."""
+        """Replay ``dataset`` end to end through the execution path.
+
+        The run records the dataset it consumed as its ``source_id``, and
+        declares :attr:`~alphalab.runtime.run.ExecutionMode.REPLAY` -- which a
+        replay could not say before v2.14, because it wrote a payload identical
+        to a backtest's.
+        """
 
         cursor_ids = id_source(
             None if config.seed is None else config.seed + REPLAY_CURSOR_SEED_OFFSET
@@ -94,7 +111,10 @@ class ReplayBacktest:
             replay = ReplayBacktest.initialize(dataset)
 
         with id_scope(config.seed):
-            state = initialize(config, strategy_state)
+            state = replace(
+                initialize(replace(config, mode=ExecutionMode.REPLAY), strategy_state),
+                source_id=dataset.dataset_id,
+            )
             last: MarketRecord | None = None
             replayed = 0
 
@@ -118,7 +138,7 @@ class ReplayBacktest:
                 replayed += 1
 
             return ReplayResult(
-                backtest=finalize(state, dataset.dataset_id),
+                backtest=finalize(state),
                 replay_status=replay.status.name,
                 records_replayed=replayed,
                 last_record=last,

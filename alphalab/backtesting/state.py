@@ -1,52 +1,29 @@
-"""Immutable state and results of a backtest run."""
+"""The results of a finished run, as read-only projections over its state.
+
+Neither type here holds state of its own. A run's state is
+:class:`~alphalab.runtime.run.RunState`, owned by
+:class:`~alphalab.runtime.run.RunEngine`; these are what the backtest and replay
+drivers report once that state is finished. Storing a second copy of a fact the
+run already carries is how a result comes to disagree with the run it describes
+-- which is exactly what happened to ``dataset_id`` before v2.14, and why every
+attribute below reads through.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from decimal import Decimal
+from dataclasses import dataclass
 
 from alphalab.analytics.engine import PortfolioSnapshot
 from alphalab.analytics.report import PerformanceReport
-from alphalab.backtesting.config import BacktestConfig
-from alphalab.backtesting.dataset import MarketRecord
-from alphalab.common.append_log import AppendOnlyLog
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.trade import Trade as CoreTrade
-from alphalab.execution.report import ExecutionReport
+from alphalab.market.record import MarketRecord
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.valuation import PortfolioValuation, PortfolioValuationSnapshot
 from alphalab.runtime.execution_pipeline import ExecutionPipelineState, UnpricedAsset
+from alphalab.runtime.run import RunConfig, RunState, RunStep
 
-
-@dataclass(frozen=True, slots=True)
-class BacktestStep:
-    """What one dataset record produced when it went through the path."""
-
-    index: int
-    event_id: str
-    timestamp: float
-    orders: tuple[OMSOrder, ...]
-    reports: tuple[ExecutionReport, ...]
-    fills: tuple[CoreFill, ...]
-    equity: Decimal
-
-
-@dataclass(frozen=True, slots=True)
-class BacktestState:
-    """Immutable snapshot of a run in progress.
-
-    The run owns no accounting of its own: everything about the portfolio, the
-    orders and the fills lives on ``pipeline``, the same
-    :class:`~alphalab.runtime.execution_pipeline.ExecutionPipelineState` the
-    live path threads. What this state adds is only the run's own bookkeeping --
-    where it is in the dataset, and what each record produced.
-    """
-
-    config: BacktestConfig
-    pipeline: ExecutionPipelineState
-    processed: int = 0
-    current_timestamp: float = 0.0
-    steps: AppendOnlyLog[BacktestStep] = field(default_factory=AppendOnlyLog)
+__all__ = ["BacktestResult", "ReplayResult"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,27 +31,57 @@ class BacktestResult:
     """The finished run: its final state plus read-only views over it.
 
     Attributes:
-        config: The configuration the run was driven with.
-        state: Final execution-path state -- portfolio, orders, fills, analytics.
-        steps: What each dataset record produced, in order.
-        records_processed: How many records the run consumed.
-        seed: The identifier seed, if the run was seeded.
-        dataset_id: The dataset this run consumed, or ``None`` when the caller
-            drove ``initialize``/``advance``/``finalize`` by hand and named no
-            dataset. Until v2.7 the identity was discarded at this boundary:
-            :meth:`~alphalab.backtesting.engine.BacktestEngine.run` had the
-            dataset in scope and the result did not record it, which is why
-            :class:`~alphalab.lifecycle.evidence.ValidationEvidence` has to take
-            ``dataset_id`` from a caller who merely asserts it. ``None`` is an
-            honest absence and not a default identity -- see ADR-0017.
+        run: The finished :class:`~alphalab.runtime.run.RunState`. Everything
+            else on this class reads through it.
     """
 
-    config: BacktestConfig
-    state: ExecutionPipelineState
-    steps: tuple[BacktestStep, ...]
-    records_processed: int
-    seed: int | None
-    dataset_id: str | None = None
+    run: RunState
+
+    @property
+    def config(self) -> RunConfig:
+        """The configuration the run was driven with."""
+
+        return self.run.config
+
+    @property
+    def state(self) -> ExecutionPipelineState:
+        """Final execution-path state -- portfolio, orders, fills, analytics."""
+
+        return self.run.pipeline
+
+    @property
+    def steps(self) -> tuple[RunStep, ...]:
+        """What each record produced, in order."""
+
+        return self.run.steps.to_tuple()
+
+    @property
+    def records_processed(self) -> int:
+        """How many records the run consumed."""
+
+        return self.run.processed
+
+    @property
+    def seed(self) -> int | None:
+        """The identifier seed, if the run was seeded."""
+
+        return self.run.config.seed
+
+    @property
+    def dataset_id(self) -> str | None:
+        """The dataset this run consumed, or ``None`` when it named none.
+
+        Read from :attr:`~alphalab.runtime.run.RunState.source_id`, which the
+        driver set when the run started and which the run snapshot carries. Until
+        v2.14 this was an argument to ``finalize`` that no snapshot recorded, so a
+        run that stopped and continued in another process arrived here with
+        whatever the second caller supplied -- usually ``None`` -- and
+        :func:`~alphalab.lifecycle.evidence.derive_evidence` then refused it.
+        ``None`` is an honest absence and not a default identity; see ADR-0017
+        and ADR-0030.
+        """
+
+        return self.run.source_id
 
     @property
     def orders(self) -> tuple[OMSOrder, ...]:
@@ -121,18 +128,12 @@ class BacktestResult:
     def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:
         """Assets this run declined to trade for want of a price, in first-drop order.
 
-        Read from the pipeline state rather than stored again, so a result
-        cannot come to disagree with the run it describes -- the same reason
-        :attr:`ReplayResult.dataset_id` reads through. Empty for a run that
-        priced everything its strategies named.
-
-        A run whose strategies named instruments it never priced produces no
-        fills. Until v2.8 the reason was visible only on the per-event
-        :class:`~alphalab.runtime.execution_pipeline.ExecutionPipelineResult`
-        and was gone by the time the run finished.
+        Read from the run rather than stored again, so a result cannot come to
+        disagree with the run it describes. Empty for a run that priced
+        everything its strategies named.
         """
 
-        return tuple(self.state.unpriced_assets.values())
+        return self.run.unpriced_assets
 
 
 @dataclass(frozen=True, slots=True)

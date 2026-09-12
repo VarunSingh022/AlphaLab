@@ -26,7 +26,6 @@ import pytest
 
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import ReplayBacktest
-from alphalab.backtesting.state import BacktestStep
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.enums import AssetType
 from alphalab.instrument import InstrumentRecord, InstrumentRegistry, register_instrument
@@ -38,7 +37,8 @@ from alphalab.runtime.execution_pipeline import (
     UnpricedAsset,
     UnpricedReason,
 )
-from alphalab.runtime.session import ExecutionMode, SessionConfig, TradingSession
+from alphalab.runtime.run import ExecutionMode, RunConfig, RunStep
+from alphalab.runtime.session import TradingSession
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 from tests.integration.harness import (
     ScriptedStrategy,
@@ -269,7 +269,7 @@ def test_a_session_reports_what_it_declined() -> None:
     source = SequenceSource("src-session", dataset.records)
 
     state = TradingSession.run(
-        SessionConfig(pipeline=pipeline_config(strategy_id), mode=ExecutionMode.PAPER),
+        RunConfig(pipeline=pipeline_config(strategy_id), mode=ExecutionMode.PAPER),
         source,
         _running(strategy_id, priced, plan, asset_for),
         context_factory,
@@ -296,7 +296,7 @@ def test_the_per_event_result_still_carries_the_requests_it_always_did() -> None
 def test_the_backtest_step_gains_nothing() -> None:
     """Per-step data would duplicate the aggregate and grow the step log."""
 
-    assert {field.name for field in BacktestStep.__dataclass_fields__.values()} == {
+    assert {field.name for field in RunStep.__dataclass_fields__.values()} == {
         "index",
         "event_id",
         "timestamp",

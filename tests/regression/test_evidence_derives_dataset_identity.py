@@ -22,7 +22,7 @@ computed from the v2.6 implementation, and they must never move.
 """
 
 import inspect
-from dataclasses import fields
+from dataclasses import fields, replace
 from decimal import Decimal
 from uuid import uuid4
 
@@ -123,13 +123,7 @@ def test_a_run_that_named_no_dataset_cannot_become_evidence() -> None:
     """A hand-driven run has nothing to name, and evidence must not invent one."""
 
     result = _run()
-    unnamed = BacktestResult(
-        config=result.config,
-        state=result.state,
-        steps=result.steps,
-        records_processed=result.records_processed,
-        seed=result.seed,
-    )
+    unnamed = BacktestResult(run=replace(result.run, source_id=None))
     assert unnamed.dataset_id is None
 
     with pytest.raises(LifecycleInputError) as error:
@@ -303,7 +297,7 @@ def test_validation_evidence_gains_no_field() -> None:
 
 
 def test_evidence_source_id_still_means_the_report_not_a_market_stream() -> None:
-    """`ValidationEvidence.source_id` and `SessionState.source_id` are different
+    """`ValidationEvidence.source_id` and `RunState.source_id` are different
     concepts that happen to share a name; M3 must not merge them."""
 
     evidence = evidence_from_backtest(_run(), "ma-crossover@1", 6.0)

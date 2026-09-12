@@ -33,7 +33,62 @@ REMOVAL_RELEASE = {
     # Same mechanism as CommonEvent and for the same reason -- this package has
     # production importers of its codec spine, so the notice cannot be at import.
     "alphalab.persistence.store": "v3.0",
+    # v2.14, ADR-0030: the orphan lifecycle state machine in alphalab.runtime,
+    # and alphalab.production. Both take the PEP 562 mechanism, and the runtime
+    # one must: that package *is* the execution path, so an import-time warning
+    # would fire on every consumer of ExecutionPipeline.
+    "alphalab.runtime.orphan": "v3.0",
+    "alphalab.production": "v3.0",
 }
+
+#: The names ADR-0030 deprecates on the ``alphalab.runtime`` surface, and the
+#: module still defining each. The canonical names beside them -- ``RunEngine``,
+#: ``ExecutionPipeline``, ``RuntimeValidationError`` -- must stay silent.
+DEPRECATED_RUNTIME_NAMES = (
+    "DispatchCompleted",
+    "DispatchFailed",
+    "EventDispatcher",
+    "Heartbeat",
+    "InvalidRuntimeTransitionError",
+    "RuntimeEngine",
+    "RuntimeEvent",
+    "RuntimeFailed",
+    "RuntimeMetrics",
+    "RuntimePaused",
+    "RuntimeResumed",
+    "RuntimeStarted",
+    "RuntimeState",
+    "RuntimeStatus",
+    "RuntimeStopped",
+    "RuntimeSupervisor",
+    "SupervisorState",
+    "create_runtime",
+    "dispatcher_statistics",
+    "runtime_metrics",
+    "runtime_status",
+    "uptime",
+    "validate_dispatch",
+    "validate_heartbeat_config",
+    "validate_transition",
+)
+
+#: The canonical runtime surface, which must never warn. These are the reason
+#: the notice is PEP 562 rather than an import-time warning.
+CANONICAL_RUNTIME_NAMES = (
+    "AlphaLabRuntimeError",
+    "ExecutionMode",
+    "ExecutionPipeline",
+    "ExecutionPipelineConfig",
+    "ExecutionPipelineState",
+    "ExecutionRouting",
+    "RunConfig",
+    "RunEngine",
+    "RunState",
+    "RunStep",
+    "RuntimeValidationError",
+    "SkippedRecord",
+    "TradingSession",
+)
 
 #: The names ADR-0029 decision 6 deprecates, and the module still defining each.
 DEPRECATED_STORE_NAMES = (
@@ -316,3 +371,111 @@ def test_nothing_is_actually_removed_in_this_release() -> None:
         assert alphalab.persistence.MemoryStorage is not None
         assert alphalab.persistence.PersistenceProtocol is not None
         assert alphalab.persistence.PersistenceEngine.initialize("still-here") is not None
+
+
+# ---------------------------------------------------------------------------
+# v2.14: the orphan runtime state machine and alphalab.production (ADR-0030)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", DEPRECATED_RUNTIME_NAMES)
+def test_a_deprecated_runtime_name_warns_on_attribute_access(name: str) -> None:
+    import alphalab.runtime
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        getattr(alphalab.runtime, name)
+
+    matching = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert len(matching) == 1, f"{name} warned {len(matching)} times"
+    message = str(matching[0].message)
+    assert name in message
+    assert REMOVAL_RELEASE["alphalab.runtime.orphan"] in message, "name the removal release"
+    assert "RunEngine" in message, "a notice must name the replacement"
+
+
+@pytest.mark.parametrize("name", CANONICAL_RUNTIME_NAMES)
+def test_the_canonical_runtime_surface_never_warns(name: str) -> None:
+    """The reason this notice is PEP 562 and not at import.
+
+    ``alphalab.runtime`` *is* the execution path. A warning on its import would
+    fire for every consumer of ``ExecutionPipeline`` and ``RunEngine`` to
+    deprecate a state machine neither has ever touched.
+    """
+
+    import alphalab.runtime
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        getattr(alphalab.runtime, name)
+
+    offenders = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert not offenders, f"{name} is canonical and must not warn: {offenders}"
+
+
+def test_a_deprecated_runtime_name_is_still_the_object_it_always_was() -> None:
+    """Deprecated, not broken, and not an alias."""
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import alphalab.runtime
+
+        served = alphalab.runtime.RuntimeEngine
+    from alphalab.runtime.engine import RuntimeEngine as Direct
+
+    assert served is Direct
+
+
+def test_importing_a_deprecated_runtime_submodule_directly_is_silent() -> None:
+    """The notice guards the package surface, not the submodule."""
+
+    assert not _warnings_on_import("alphalab.runtime.engine")
+    assert not _warnings_on_import("alphalab.runtime.state")
+
+
+def test_an_unknown_runtime_attribute_still_raises_attribute_error() -> None:
+    import alphalab.runtime
+
+    with pytest.raises(AttributeError, match="no attribute 'RunEngien'"):
+        alphalab.runtime.RunEngien  # noqa: B018
+
+
+def test_importing_the_runtime_package_emits_no_deprecation_warning() -> None:
+    """It is the execution path; importing it must stay silent."""
+
+    assert not _warnings_on_import("alphalab.runtime")
+    assert not _warnings_on_import("alphalab.runtime.run")
+    assert not _warnings_on_import("alphalab.runtime.run_snapshot")
+
+
+def test_a_production_name_warns_on_attribute_access() -> None:
+    import alphalab.production
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        alphalab.production.Checkpoint  # noqa: B018
+
+    matching = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert len(matching) == 1
+    message = str(matching[0].message)
+    assert REMOVAL_RELEASE["alphalab.production"] in message, "name the removal release"
+    assert "RunStateStore" in message, "a notice must name the replacement"
+
+
+def test_importing_the_production_package_emits_no_deprecation_warning() -> None:
+    """Consistent with every other PEP 562 target here: the notice is on use."""
+
+    assert not _warnings_on_import("alphalab.production")
+
+
+def test_every_production_public_name_is_served_with_a_notice() -> None:
+    """No name slips out of the package without one."""
+
+    import alphalab.production
+
+    for name in alphalab.production.__all__:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            getattr(alphalab.production, name)
+        matching = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(matching) == 1, f"alphalab.production.{name} did not warn"

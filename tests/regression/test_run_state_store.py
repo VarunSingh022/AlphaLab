@@ -28,7 +28,7 @@ file, or cannot be written refuses at construction. It never quietly becomes a
 The shared-contract tests are parametrized over both backends rather than
 written twice, which is also the shape that shows the protocol is
 payload-agnostic: nothing in this file's contract section imports a snapshot
-type, and a later release that reshapes ``SessionState`` or ``BacktestState``
+type, and a later release that reshapes ``RunState`` or ``RunState``
 would not change one line of it.
 """
 
@@ -53,8 +53,9 @@ from alphalab.persistence import (
     deserialize,
     serialize,
 )
-from alphalab.runtime.session import ExecutionMode, SessionConfig, TradingSession
-from alphalab.runtime.session_snapshot import capture as capture_session
+from alphalab.runtime.run import ExecutionMode, RunConfig
+from alphalab.runtime.run_snapshot import capture as capture_run
+from alphalab.runtime.session import TradingSession
 from tests.integration.harness import (
     ScriptedStrategy,
     context_factory,
@@ -420,7 +421,7 @@ def _session_payload() -> str:
     strategy_id = str(uuid.uuid4())
     asset_id = str(uuid.uuid4())
     strategy = ScriptedStrategy(strategy_id, asset_id, {2.0: Decimal("5"), 3.0: Decimal("-3")})
-    config = SessionConfig(
+    config = RunConfig(
         pipeline=pipeline_config(strategy_id),
         mode=ExecutionMode.BACKTEST,
         seed=SEED,
@@ -437,7 +438,7 @@ def _session_payload() -> str:
                 ),
                 context_factory,
             )
-    return serialize(capture_session(state))
+    return serialize(capture_run(state))
 
 
 @pytest.mark.parametrize("store", BACKENDS, indirect=True)
@@ -459,7 +460,7 @@ def test_the_retrieved_payload_still_decodes_through_its_own_owner(store: RunSta
 
     decoded = deserialize(retrieved)
     assert isinstance(decoded, dict)
-    assert decoded["schema_version"] == 1, "SESSION_SNAPSHOT_SCHEMA, untouched by the store"
+    assert decoded["schema_version"] == 1, "RUN_SNAPSHOT_SCHEMA, untouched by the store"
     assert decoded["pipeline"]["schema_version"] == 2, "PIPELINE_SNAPSHOT_SCHEMA, untouched"
 
 
@@ -467,7 +468,7 @@ def test_the_retrieved_payload_still_decodes_through_its_own_owner(store: RunSta
 def test_the_store_imports_no_snapshot_type(store: RunStateStore) -> None:
     """Payload-agnosticism, asserted structurally rather than promised.
 
-    A later release that reshapes ``SessionState`` or ``BacktestState`` -- which
+    A later release that reshapes ``RunState`` or ``RunState`` -- which
     ADR-0023 decision 1 anticipates -- must not have to touch the store. It
     cannot have to, if the store names none of it.
     """
@@ -749,18 +750,17 @@ def test_no_existing_snapshot_schema_moved() -> None:
     """The constants ADR-0029 decision 9 pins, read from where they live."""
 
     from alphalab.allocation.snapshot import ALLOCATION_SNAPSHOT_SCHEMA
-    from alphalab.backtesting.snapshot import BACKTEST_SNAPSHOT_SCHEMA
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
     from alphalab.lifecycle.snapshot import LIFECYCLE_SNAPSHOT_SCHEMA
     from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
     from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
-    from alphalab.runtime.session_snapshot import SESSION_SNAPSHOT_SCHEMA
+    from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
     from alphalab.runtime.snapshot import PIPELINE_SNAPSHOT_SCHEMA
 
     assert (
         PIPELINE_SNAPSHOT_SCHEMA,
-        SESSION_SNAPSHOT_SCHEMA,
-        BACKTEST_SNAPSHOT_SCHEMA,
+        RUN_SNAPSHOT_SCHEMA,
+        RUN_SNAPSHOT_SCHEMA,
         ALLOCATION_SNAPSHOT_SCHEMA,
         OMS_SNAPSHOT_SCHEMA,
         PORTFOLIO_SNAPSHOT_SCHEMA,
