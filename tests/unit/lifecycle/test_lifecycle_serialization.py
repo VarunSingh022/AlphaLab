@@ -11,6 +11,9 @@ import json
 from dataclasses import replace
 
 from alphalab.common.ids import id_scope
+from alphalab.enterprise.identity import register_principal
+from alphalab.enterprise.models import EnterpriseState
+from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import complete_run, log_metrics, start_run
 from alphalab.lifecycle import (
     LifecycleState,
@@ -25,10 +28,30 @@ from alphalab.lifecycle import (
     register_strategy,
     rollback_environment,
 )
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
 from alphalab.model_registry import ArtifactRef, ModelStage, promote
 from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.studio.strategy import StrategyDefinition
 
+# --------------------------------------------------------------------------- #
+# Governance (v2.16): every act that changes what is live names its principal
+# --------------------------------------------------------------------------- #
+
+#: A principal holding every lifecycle permission. Tests that are about the
+#: *gate* build their own narrower principals; everything else uses this one so
+#: that adding governance did not turn every existing test into a governance
+#: test.
+_ACTOR = "release-engineer"
+_ENTERPRISE = grant_role(
+    define_role(
+        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
+        "release",
+        LIFECYCLE_PERMISSIONS,
+    ),
+    _ACTOR,
+    "release",
+)
+GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
 POLICY = ValidationPolicy("prod-v1", (MetricThreshold("sharpe_ratio", minimum=1.0),))
 
 
@@ -73,17 +96,20 @@ def _lifecycle() -> LifecycleState:
         )
         state = record_evidence(state, evidence)
         state = promote_strategy_version(
-            state, ref.name, ref.version, POLICY, evidence.evidence_id, 7.0 + index
+            state, GOVERNANCE, ref.name, ref.version, POLICY, evidence.evidence_id, 7.0 + index
         )
-        state, _ = deploy_strategy_version(state, ref.name, ref.version, "paper", 9.0 + index)
+        state, _ = deploy_strategy_version(
+            state, GOVERNANCE, ref.name, ref.version, "paper", 9.0 + index
+        )
 
-    state, _ = rollback_environment(state, "paper", 20.0)
+    state, _ = rollback_environment(state, GOVERNANCE, "paper", 20.0)
     return state
 
 
 def test_the_whole_lifecycle_state_serializes() -> None:
     decoded = json.loads(serialize(_lifecycle()))
     assert sorted(decoded) == [
+        "approvals",
         "deployments",
         "evidence",
         "experiments",

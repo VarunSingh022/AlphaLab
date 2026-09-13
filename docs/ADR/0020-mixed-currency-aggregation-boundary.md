@@ -12,6 +12,16 @@ Depends on ADR-0019, which separated the account, settlement and trading
 currency roles. This ADR records what happens when a book nonetheless holds more
 than one currency: the valuation refuses rather than inventing a rate.
 
+**Amended by ADR-0033 (v2.16), which supplies the rate source this ADR's
+non-goals deferred.** The refusal is unchanged when no rate covers the book, and
+the constraint this ADR is most often cited for — "a configured rate is an
+invented one" — is what shaped `alphalab.portfolio.fx`: every rate is supplied
+and carries its source and instant, there is no default and no fallback of 1.0,
+and there is no triangulation or implicit inversion. The non-goals "an FX rate
+source, provider, or conversion of any kind" and "rate caching, triangulation,
+or a reference-currency hierarchy" are therefore discharged for the first and
+kept for the second.
+
 **Decision 5 is discharged by ADR-0028 (v2.12.0)**, which is not the release
 that supplies a rate source. `NAVCalculator.calculate`, `PortfolioValuation.portfolio_value`
 and `_risk_exposure` — including the `sector_exposure` v2.11 added — now refuse a

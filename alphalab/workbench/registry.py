@@ -22,11 +22,13 @@ class WorkbenchRegistry:
             return state
 
         new_layout = WorkspaceLayout(layout_id, name, state.active_layout.panels)
-        new_layouts = dict(state.saved_layouts)
-        new_layouts[layout_id] = new_layout
 
         evt = LayoutSaved(WorkbenchRegistry._create_id(), ts, layout_id)
-        return replace(state, saved_layouts=new_layouts, events=(*state.events, evt))
+        return replace(
+            state,
+            saved_layouts=state.saved_layouts.set(layout_id, new_layout),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def restore_layout(state: WorkbenchState, layout_id: str, ts: float) -> WorkbenchState:
@@ -36,4 +38,4 @@ class WorkbenchRegistry:
         layout_to_restore = state.saved_layouts[layout_id]
         evt = LayoutRestored(WorkbenchRegistry._create_id(), ts, layout_id)
 
-        return replace(state, active_layout=layout_to_restore, events=(*state.events, evt))
+        return replace(state, active_layout=layout_to_restore, events=state.events.append(evt))

@@ -349,13 +349,19 @@ def test_the_legacy_path_is_confined_to_standalone_oms_decoding() -> None:
 
 
 def test_other_subsystems_keep_their_own_schema_rules() -> None:
-    """D2 versions the OMS payload and moves nothing else."""
+    """D2 versions the OMS payload and moves nothing else.
+
+    Each subsystem's constant is its own. The values below are what they are
+    *now* -- the portfolio's moved in v2.6 and the lifecycle's in v2.16 -- and
+    the property this test holds is that neither of those moved the OMS one.
+    """
 
     from alphalab.lifecycle.snapshot import LIFECYCLE_SNAPSHOT_SCHEMA
     from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
 
+    assert OMS_SNAPSHOT_SCHEMA == 1
     assert PORTFOLIO_SNAPSHOT_SCHEMA == 2
-    assert LIFECYCLE_SNAPSHOT_SCHEMA == 1
+    assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
 
 
 def test_an_unversioned_portfolio_payload_gains_no_legacy_path() -> None:

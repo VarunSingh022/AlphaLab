@@ -9,6 +9,9 @@ from dataclasses import replace
 
 import pytest
 
+from alphalab.enterprise.identity import register_principal
+from alphalab.enterprise.models import EnterpriseState
+from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import complete_run, fail_run, log_metrics, start_run
 from alphalab.lifecycle import (
     COMPONENT_EVIDENCE,
@@ -43,8 +46,29 @@ from alphalab.lifecycle import (
     strategy_names,
     validate_strategy_version,
 )
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
 from alphalab.model_registry import ModelStage, deployment_metadata, promote
 from alphalab.studio.strategy import StrategyDefinition
+
+# --------------------------------------------------------------------------- #
+# Governance (v2.16): every act that changes what is live names its principal
+# --------------------------------------------------------------------------- #
+
+#: A principal holding every lifecycle permission. Tests that are about the
+#: *gate* build their own narrower principals; everything else uses this one so
+#: that adding governance did not turn every existing test into a governance
+#: test.
+_ACTOR = "release-engineer"
+_ENTERPRISE = grant_role(
+    define_role(
+        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
+        "release",
+        LIFECYCLE_PERMISSIONS,
+    ),
+    _ACTOR,
+    "release",
+)
+GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
 
 POLICY = ValidationPolicy(
     "prod-v1",
@@ -119,12 +143,14 @@ def _staged(
 
     state, ref, _, _ = _registered(state, fast)
     state, evidence_id = _with_evidence(state, ref)
-    return promote_strategy_version(state, ref.name, ref.version, POLICY, evidence_id, 7.0), ref
+    return promote_strategy_version(
+        state, GOVERNANCE, ref.name, ref.version, POLICY, evidence_id, 7.0
+    ), ref
 
 
 def _deployed(environment: str = "paper") -> tuple[LifecycleState, StrategyVersionRef]:
     state, ref = _staged()
-    state, _ = deploy_strategy_version(state, ref.name, ref.version, environment, 8.0)
+    state, _ = deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, environment, 8.0)
     return state, ref
 
 
@@ -301,7 +327,7 @@ def test_failing_evidence_refuses_the_promotion_and_names_every_failure() -> Non
     state, evidence_id = _with_evidence(state, ref, BAD)
 
     with pytest.raises(LifecycleTransitionError) as error:
-        promote_strategy_version(state, ref.name, ref.version, POLICY, evidence_id, 7.0)
+        promote_strategy_version(state, GOVERNANCE, ref.name, ref.version, POLICY, evidence_id, 7.0)
 
     message = str(error.value)
     assert "sharpe_ratio" in message
@@ -312,7 +338,7 @@ def test_a_refused_promotion_leaves_the_state_untouched() -> None:
     state, ref, _, _ = _registered()
     state, evidence_id = _with_evidence(state, ref, BAD)
     with pytest.raises(LifecycleTransitionError):
-        promote_strategy_version(state, ref.name, ref.version, POLICY, evidence_id, 7.0)
+        promote_strategy_version(state, GOVERNANCE, ref.name, ref.version, POLICY, evidence_id, 7.0)
 
     assert _stage(state, ref) is ModelStage.NONE
     assert len(state.strategies.promotions) == 0
@@ -328,7 +354,7 @@ def test_a_strategy_cannot_be_staged_on_an_unstaged_model() -> None:
     state, evidence_id = _with_evidence(state, ref)
 
     with pytest.raises(LifecycleTransitionError, match="which is in stage NONE"):
-        promote_strategy_version(state, ref.name, ref.version, POLICY, evidence_id, 7.0)
+        promote_strategy_version(state, GOVERNANCE, ref.name, ref.version, POLICY, evidence_id, 7.0)
 
 
 def test_a_strategy_with_no_model_needs_only_its_own_evidence() -> None:
@@ -337,7 +363,9 @@ def test_a_strategy_with_no_model_needs_only_its_own_evidence() -> None:
         state, "rules-only", _definition("r-001", "1"), 5.0, run_id=run_id
     )
     state, evidence_id = _with_evidence(state, ref)
-    state = promote_strategy_version(state, ref.name, ref.version, POLICY, evidence_id, 7.0)
+    state = promote_strategy_version(
+        state, GOVERNANCE, ref.name, ref.version, POLICY, evidence_id, 7.0
+    )
 
     assert _stage(state, ref) is ModelStage.STAGING
 
@@ -348,7 +376,7 @@ def test_promoting_an_already_staged_version_is_refused() -> None:
     assert evidence_id is not None
 
     with pytest.raises(LifecycleTransitionError, match="already in stage STAGING"):
-        promote_strategy_version(state, ref.name, ref.version, POLICY, evidence_id, 9.0)
+        promote_strategy_version(state, GOVERNANCE, ref.name, ref.version, POLICY, evidence_id, 9.0)
 
 
 def test_promoting_a_deployed_version_back_to_staging_is_refused() -> None:
@@ -357,7 +385,7 @@ def test_promoting_a_deployed_version_back_to_staging_is_refused() -> None:
     assert evidence_id is not None
 
     with pytest.raises(LifecycleTransitionError, match="can only move to ARCHIVED"):
-        promote_strategy_version(state, ref.name, ref.version, POLICY, evidence_id, 9.0)
+        promote_strategy_version(state, GOVERNANCE, ref.name, ref.version, POLICY, evidence_id, 9.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -378,13 +406,13 @@ def test_deploying_makes_a_version_the_active_one_and_moves_it_to_production() -
 def test_a_version_that_was_never_promoted_cannot_be_deployed() -> None:
     state, ref, _, _ = _registered()
     with pytest.raises(LifecycleTransitionError, match="Promote it on passing evidence first"):
-        deploy_strategy_version(state, ref.name, ref.version, "paper", 8.0)
+        deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "paper", 8.0)
 
 
 def test_deploying_the_version_already_running_there_is_refused() -> None:
     state, ref = _deployed()
     with pytest.raises(LifecycleTransitionError, match="already active in 'paper'"):
-        deploy_strategy_version(state, ref.name, ref.version, "paper", 9.0)
+        deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "paper", 9.0)
 
 
 def test_a_refused_redeploy_registers_no_release() -> None:
@@ -394,7 +422,7 @@ def test_a_refused_redeploy_registers_no_release() -> None:
     ledger_before = len(state.deployments.deployments)
 
     with pytest.raises(LifecycleTransitionError):
-        deploy_strategy_version(state, ref.name, ref.version, "paper", 9.0)
+        deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "paper", 9.0)
 
     assert len(state.deployments.releases[ref.name]) == releases_before
     assert len(state.deployments.deployments) == ledger_before
@@ -403,7 +431,7 @@ def test_a_refused_redeploy_registers_no_release() -> None:
 def test_a_blank_environment_is_refused() -> None:
     state, ref = _staged()
     with pytest.raises(LifecycleInputError):
-        deploy_strategy_version(state, ref.name, ref.version, "   ", 8.0)
+        deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "   ", 8.0)
 
 
 def test_the_release_manifest_carries_typed_references_not_loose_strings() -> None:
@@ -442,7 +470,9 @@ def test_the_deployed_release_is_verifiable_and_names_the_model() -> None:
 def test_deploying_records_the_deployment_on_the_model_version() -> None:
     """The note is derived from the deployment that happened, not asserted."""
     state, ref = _staged()
-    state, _ = deploy_strategy_version(state, ref.name, ref.version, "paper", 8.0, deployed_by="ci")
+    state, _ = deploy_strategy_version(
+        state, GOVERNANCE, ref.name, ref.version, "paper", 8.0, deployed_by="ci"
+    )
     note = deployment_metadata(state.models, "momentum", 1)
 
     assert note is not None
@@ -452,7 +482,9 @@ def test_deploying_records_the_deployment_on_the_model_version() -> None:
 def test_deploying_a_replacement_archives_the_version_it_displaced() -> None:
     state, first = _deployed()
     state, second = _staged(state, fast=8.0)
-    state, _ = deploy_strategy_version(state, second.name, second.version, "paper", 11.0)
+    state, _ = deploy_strategy_version(
+        state, GOVERNANCE, second.name, second.version, "paper", 11.0
+    )
 
     assert _stage(state, second) is ModelStage.PRODUCTION
     assert _stage(state, first) is ModelStage.ARCHIVED
@@ -460,7 +492,7 @@ def test_deploying_a_replacement_archives_the_version_it_displaced() -> None:
 
 def test_one_version_deployed_to_two_environments_stays_in_production() -> None:
     state, ref = _deployed("paper")
-    state, _ = deploy_strategy_version(state, ref.name, ref.version, "live-eu", 9.0)
+    state, _ = deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "live-eu", 9.0)
 
     assert environments_running(state, ref.name, ref.version) == ("paper", "live-eu")
     assert _stage(state, ref) is ModelStage.PRODUCTION
@@ -468,9 +500,11 @@ def test_one_version_deployed_to_two_environments_stays_in_production() -> None:
 
 def test_a_version_still_running_elsewhere_is_not_archived_when_replaced() -> None:
     state, first = _deployed("paper")
-    state, _ = deploy_strategy_version(state, first.name, first.version, "live-eu", 9.0)
+    state, _ = deploy_strategy_version(state, GOVERNANCE, first.name, first.version, "live-eu", 9.0)
     state, second = _staged(state, fast=8.0)
-    state, _ = deploy_strategy_version(state, second.name, second.version, "paper", 11.0)
+    state, _ = deploy_strategy_version(
+        state, GOVERNANCE, second.name, second.version, "paper", 11.0
+    )
 
     assert _stage(state, first) is ModelStage.PRODUCTION
     assert environments_running(state, first.name, first.version) == ("live-eu",)
@@ -478,7 +512,7 @@ def test_a_version_still_running_elsewhere_is_not_archived_when_replaced() -> No
 
 def test_one_release_stands_for_one_strategy_version_however_many_environments() -> None:
     state, ref = _deployed("paper")
-    state, _ = deploy_strategy_version(state, ref.name, ref.version, "live-eu", 9.0)
+    state, _ = deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "live-eu", 9.0)
 
     assert len(state.deployments.releases[ref.name]) == 1
     assert len(state.deployments.deployments) == 2
@@ -486,7 +520,7 @@ def test_one_release_stands_for_one_strategy_version_however_many_environments()
 
 def test_deploying_does_not_mutate_the_input_state() -> None:
     state, ref = _staged()
-    deploy_strategy_version(state, ref.name, ref.version, "paper", 8.0)
+    deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "paper", 8.0)
 
     assert active_strategy_version(state, "paper") is None
     assert _stage(state, ref) is ModelStage.STAGING
@@ -500,13 +534,15 @@ def test_deploying_does_not_mutate_the_input_state() -> None:
 def _two_deployments() -> tuple[LifecycleState, StrategyVersionRef, StrategyVersionRef]:
     state, first = _deployed()
     state, second = _staged(state, fast=8.0)
-    state, _ = deploy_strategy_version(state, second.name, second.version, "paper", 11.0)
+    state, _ = deploy_strategy_version(
+        state, GOVERNANCE, second.name, second.version, "paper", 11.0
+    )
     return state, first, second
 
 
 def test_rollback_restores_the_previous_version_and_archives_the_current_one() -> None:
     state, first, second = _two_deployments()
-    state, restored = rollback_environment(state, "paper", 12.0)
+    state, restored = rollback_environment(state, GOVERNANCE, "paper", 12.0)
 
     assert restored.release_version == 1
     active = active_strategy_version(state, "paper")
@@ -519,7 +555,7 @@ def test_rollback_is_recorded_as_a_rollback_in_the_ledger() -> None:
     from alphalab.deployment_manager import deployment_history
 
     state, _, _ = _two_deployments()
-    state, _ = rollback_environment(state, "paper", 12.0)
+    state, _ = rollback_environment(state, GOVERNANCE, "paper", 12.0)
     history = deployment_history(state.deployments, "paper")
 
     assert [record.is_rollback for record in history] == [False, False, True]
@@ -529,8 +565,8 @@ def test_rollback_is_recorded_as_a_rollback_in_the_ledger() -> None:
 def test_rollback_is_deterministic() -> None:
     """The ledger is append-only, so the answer does not depend on when it is asked."""
     state, _, _ = _two_deployments()
-    once, first_ref = rollback_environment(state, "paper", 12.0)
-    twice, second_ref = rollback_environment(state, "paper", 12.0)
+    once, first_ref = rollback_environment(state, GOVERNANCE, "paper", 12.0)
+    twice, second_ref = rollback_environment(state, GOVERNANCE, "paper", 12.0)
 
     assert first_ref == second_ref
     assert active_strategy_version(once, "paper") == active_strategy_version(twice, "paper")
@@ -539,20 +575,20 @@ def test_rollback_is_deterministic() -> None:
 def test_rolling_back_an_environment_that_was_never_deployed_to_is_refused() -> None:
     state, _ = _staged()
     with pytest.raises(LifecycleInputError, match="no previous deployment"):
-        rollback_environment(state, "paper", 12.0)
+        rollback_environment(state, GOVERNANCE, "paper", 12.0)
 
 
 def test_rolling_back_a_single_deployment_is_refused() -> None:
     """There is no previously valid version to return to."""
     state, _ = _deployed()
     with pytest.raises(LifecycleInputError, match="no previous deployment"):
-        rollback_environment(state, "paper", 12.0)
+        rollback_environment(state, GOVERNANCE, "paper", 12.0)
 
 
 def test_rolling_back_twice_walks_the_ledger_back_again() -> None:
     state, first, second = _two_deployments()
-    state, _ = rollback_environment(state, "paper", 12.0)
-    state, _ = rollback_environment(state, "paper", 13.0)
+    state, _ = rollback_environment(state, GOVERNANCE, "paper", 12.0)
+    state, _ = rollback_environment(state, GOVERNANCE, "paper", 13.0)
 
     active = active_strategy_version(state, "paper")
     assert active is not None and active.ref == second
@@ -561,7 +597,7 @@ def test_rolling_back_twice_walks_the_ledger_back_again() -> None:
 
 def test_rollback_updates_the_model_deployment_note() -> None:
     state, _, _ = _two_deployments()
-    state, _ = rollback_environment(state, "paper", 12.0, deployed_by="oncall")
+    state, _ = rollback_environment(state, GOVERNANCE, "paper", 12.0, deployed_by="oncall")
     note = deployment_metadata(state.models, "momentum", 1)
 
     assert note is not None
@@ -570,7 +606,7 @@ def test_rollback_updates_the_model_deployment_note() -> None:
 
 def test_rollback_does_not_mutate_the_input_state() -> None:
     state, _, second = _two_deployments()
-    rollback_environment(state, "paper", 12.0)
+    rollback_environment(state, GOVERNANCE, "paper", 12.0)
 
     active = active_strategy_version(state, "paper")
     assert active is not None and active.ref == second
@@ -583,21 +619,21 @@ def test_rollback_does_not_mutate_the_input_state() -> None:
 
 def test_a_staged_version_can_be_retired() -> None:
     state, ref = _staged()
-    state = retire_strategy_version(state, ref.name, ref.version, 9.0)
+    state = retire_strategy_version(state, GOVERNANCE, ref.name, ref.version, 9.0)
     assert _stage(state, ref) is ModelStage.ARCHIVED
 
 
 def test_a_live_version_cannot_be_retired_by_a_stage_edit() -> None:
     state, ref = _deployed()
     with pytest.raises(LifecycleTransitionError, match="still active in paper"):
-        retire_strategy_version(state, ref.name, ref.version, 9.0)
+        retire_strategy_version(state, GOVERNANCE, ref.name, ref.version, 9.0)
 
 
 def test_retiring_an_archived_version_again_is_refused() -> None:
     state, ref = _staged()
-    state = retire_strategy_version(state, ref.name, ref.version, 9.0)
+    state = retire_strategy_version(state, GOVERNANCE, ref.name, ref.version, 9.0)
     with pytest.raises(LifecycleTransitionError, match="already in stage ARCHIVED"):
-        retire_strategy_version(state, ref.name, ref.version, 10.0)
+        retire_strategy_version(state, GOVERNANCE, ref.name, ref.version, 10.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -607,7 +643,7 @@ def test_retiring_an_archived_version_again_is_refused() -> None:
 
 def test_every_stage_change_is_recorded_with_its_reason() -> None:
     state, _, _ = _two_deployments()
-    state, _ = rollback_environment(state, "paper", 12.0)
+    state, _ = rollback_environment(state, GOVERNANCE, "paper", 12.0)
     moves = [
         (record.version, record.from_stage.name, record.to_stage.name)
         for record in state.strategies.promotions
@@ -638,14 +674,14 @@ def test_deploying_a_strategy_whose_model_was_archived_is_refused() -> None:
     state = replace(state, models=promote(state.models, "momentum", 1, ModelStage.ARCHIVED, 8.0))
 
     with pytest.raises(LifecycleTransitionError, match="which is now in stage ARCHIVED"):
-        deploy_strategy_version(state, ref.name, ref.version, "paper", 9.0)
+        deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "paper", 9.0)
 
 
 def test_that_refusal_writes_nothing() -> None:
     state, ref = _staged()
     state = replace(state, models=promote(state.models, "momentum", 1, ModelStage.ARCHIVED, 8.0))
     with pytest.raises(LifecycleTransitionError):
-        deploy_strategy_version(state, ref.name, ref.version, "paper", 9.0)
+        deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "paper", 9.0)
 
     assert len(state.deployments.deployments) == 0
     assert "ma-crossover" not in state.deployments.releases
@@ -663,7 +699,7 @@ def test_rolling_back_to_a_version_whose_model_was_archived_is_refused() -> None
     state = replace(state, models=promote(state.models, "momentum", 1, ModelStage.ARCHIVED, 13.0))
 
     with pytest.raises(LifecycleTransitionError, match="which is now in stage ARCHIVED"):
-        rollback_environment(state, "paper", 14.0)
+        rollback_environment(state, GOVERNANCE, "paper", 14.0)
     assert _stage(state, first) is ModelStage.ARCHIVED
 
 
@@ -673,7 +709,9 @@ def test_a_strategy_with_no_model_is_unaffected_by_that_rule() -> None:
         state, "rules-only", _definition("r-001", "1"), 5.0, run_id=run_id
     )
     state, evidence_id = _with_evidence(state, ref)
-    state = promote_strategy_version(state, ref.name, ref.version, POLICY, evidence_id, 7.0)
-    state, _ = deploy_strategy_version(state, ref.name, ref.version, "paper", 8.0)
+    state = promote_strategy_version(
+        state, GOVERNANCE, ref.name, ref.version, POLICY, evidence_id, 7.0
+    )
+    state, _ = deploy_strategy_version(state, GOVERNANCE, ref.name, ref.version, "paper", 8.0)
 
     assert _stage(state, ref) is ModelStage.PRODUCTION

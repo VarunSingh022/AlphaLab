@@ -15,6 +15,9 @@ not one registry, and it is what a caller would actually drive.
 import time
 from dataclasses import replace
 
+from alphalab.enterprise.identity import register_principal
+from alphalab.enterprise.models import EnterpriseState
+from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import complete_run, log_metrics, start_run
 from alphalab.lifecycle import (
     LifecycleState,
@@ -29,9 +32,29 @@ from alphalab.lifecycle import (
     register_strategy,
     rollback_environment,
 )
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
 from alphalab.model_registry import ModelStage, promote
 from alphalab.studio.strategy import StrategyDefinition
 
+# --------------------------------------------------------------------------- #
+# Governance (v2.16): every act that changes what is live names its principal
+# --------------------------------------------------------------------------- #
+
+#: A principal holding every lifecycle permission. Tests that are about the
+#: *gate* build their own narrower principals; everything else uses this one so
+#: that adding governance did not turn every existing test into a governance
+#: test.
+_ACTOR = "release-engineer"
+_ENTERPRISE = grant_role(
+    define_role(
+        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
+        "release",
+        LIFECYCLE_PERMISSIONS,
+    ),
+    _ACTOR,
+    "release",
+)
+GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
 POLICY = ValidationPolicy("bench", (MetricThreshold("sharpe_ratio", minimum=0.0),))
 
 
@@ -59,7 +82,7 @@ def _promoted(state: LifecycleState, line: str, index: int) -> LifecycleState:
     )
     state = record_evidence(state, evidence)
     return promote_strategy_version(
-        state, ref.name, ref.version, POLICY, evidence.evidence_id, float(index)
+        state, GOVERNANCE, ref.name, ref.version, POLICY, evidence.evidence_id, float(index)
     )
 
 
@@ -92,14 +115,16 @@ def run_benchmark() -> None:
     N_DEPLOY = 2_000
     start = time.perf_counter()
     for version in range(1, N_DEPLOY + 1):
-        state, _ = deploy_strategy_version(state, "bench", version, "paper", float(version))
+        state, _ = deploy_strategy_version(
+            state, GOVERNANCE, "bench", version, "paper", float(version)
+        )
     duration = time.perf_counter() - start
     print(f"  deploy ({N_DEPLOY} releases):     {duration:.4f}s, {N_DEPLOY / duration:.2f} ops/sec")
 
     N_ROLLBACK = 1_000
     start = time.perf_counter()
     for index in range(N_ROLLBACK):
-        state, _ = rollback_environment(state, "paper", float(index))
+        state, _ = rollback_environment(state, GOVERNANCE, "paper", float(index))
     duration = time.perf_counter() - start
     print(f"  rollback (deep ledger):        {duration:.4f}s, {N_ROLLBACK / duration:.2f} ops/sec")
 
@@ -109,13 +134,15 @@ def run_benchmark() -> None:
     start = time.perf_counter()
     for index in range(N_END_TO_END):
         state = _promoted(state, "e2e", index)
-        state, _ = deploy_strategy_version(state, "e2e", index + 1, "paper", float(index))
+        state, _ = deploy_strategy_version(
+            state, GOVERNANCE, "e2e", index + 1, "paper", float(index)
+        )
         if index:
             # Half the iterations also roll back, which archives the version
             # just deployed and restores the one before it. Re-deploying that
             # archived version would be refused, so the next iteration ships a
             # new one -- which is what a rollback actually leads to.
-            state, _ = rollback_environment(state, "paper", float(index))
+            state, _ = rollback_environment(state, GOVERNANCE, "paper", float(index))
     duration = time.perf_counter() - start
     print(
         f"  full lifecycle:                {duration:.4f}s, "

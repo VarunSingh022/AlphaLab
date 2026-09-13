@@ -301,7 +301,8 @@ a lost response addresses the same order rather than creating a second one.
 | **A streaming market-data source** | **Implemented (v2.15).** `alphalab.market.stream.StreamingSource` over `alphalab.marketdata.websocket`, an RFC 6455 client |
 | Verification against a commercial venue | **Not done, and cannot be here.** This environment has no network egress and holds no vendor credentials |
 | Vendor adapters (Alpaca, IB, Zerodha, Binance, Databento, NSE, Polygon, Yahoo) | **Stubs** — canned responses or `NotImplementedError`. None is wired to an endpoint |
-| A supervised live *process* | **Not implemented.** A live driver over `RunEngine` is what ADR-0030 anticipates; assembling one into a managed process is v2.16 |
+| **A live driver** | **Implemented (v2.16).** `alphalab.runtime.live.LiveSession` — settle the fills the venue reported, advance the run, route what is newly working — with the venue binding made durable by `alphalab.broker.snapshot`. See ADR-0033 |
+| A supervised live *process* | **Not implemented.** Supervision — restart policy, alerting, scheduling — is an operator's concern and AlphaLab has no opinion about it. `live_health` answers "should a human look at this?"; acting on the answer is the caller's |
 
 **What changed in v2.15, precisely.** AlphaLab now contains a genuine venue
 transport and a genuine streaming client, and both are exercised end to end over
@@ -548,6 +549,144 @@ A partially filled order is now cancelled and its residual reservation released.
 `Order.cancel` preserves `filled_quantity` and `average_fill_price`. **This
 changes bookkeeping, not economics**: no fill is created or destroyed, so cash,
 positions, P&L and the equity curve are unchanged.
+
+## The integrated runtime: the live driver (v2.16)
+
+ADR-0030's Tier-3 table listed `LiveDriver` as "(later)" and its consequences
+section recorded "no live driver exists". Every half of the live path was here
+and tested; what nothing owned was the **cycle**:
+
+```text
+venue fills ---> settle ---> RunEngine.advance ---> route working orders
+     ^                                                      |
+     +------------------------------------------------------+
+```
+
+`LiveSession` is that cycle, and it is a driver on ADR-0030's definition: every
+method is a `@staticmethod` over an immutable value, and it holds no execution
+state and no run state. `LiveRunState` is an **aggregate** of three existing
+authorities — the `RunState`, the `BrokerState`, the `ExternalOrderMap` — with
+no cursor, cash, positions or order book of its own. `RunState` gained no
+fields and `RUN_SNAPSHOT_SCHEMA` did not move.
+
+**The order of a step is the contract.** A fill the venue has already reported
+reaches the portfolio *before* the strategy is dispatched, which is the same
+rule `process_market_event` follows when it marks before it dispatches.
+
+**Two ledgers, two questions.** `BrokerState.executions` answers "has the
+venue-side bookkeeping recorded this fill?"; `ExecutionState.reports` answers
+"has the *portfolio* booked it?". Both are keyed by `execution_id` and both
+refuse their own repeat, and a fill in one and not the other is the normal case
+— `poll_executions` applies every fill it fetches before returning it. A
+**break** stops a fill; a duplicate does not.
+
+**Venue-side durability.** `BrokerState` and `ExternalOrderMap` had no snapshot
+at all through v2.15, so the duplicate-submission gate was worth exactly as much
+as the mapping's durability across a process boundary, which was zero.
+`BROKER_SNAPSHOT_SCHEMA` and `LIVE_SNAPSHOT_SCHEMA` are two nested constants, so
+a backtest payload is unchanged.
+
+**The lifecycle join.** `alphalab.lifecycle`'s docstring ended "the two are
+joined by the caller", which meant nothing checked that a run served the version
+an environment actually had live. `lifecycle.execution.run_plan` resolves a
+deployment and `authorize_run` refuses a run that would serve anything else — a
+query with a refusal, naming no runtime type at all. See ADR-0033.
+
+## Governance: who may change what is live (v2.16)
+
+ADR-0018 was written in v2.7 and deferred. Before v2.16 the lifecycle's audit
+trail answered *what* changed and *when* and was silent on *who*, while
+`alphalab.enterprise` held a complete RBAC implementation with zero production
+consumers.
+
+`Governance(enterprise, actor_id, approval_required_in)` is the **required**
+second argument of `promote_strategy_version`, `deploy_strategy_version`,
+`rollback_environment`, `retire_strategy_version` and `approve_deployment` —
+ADR-0018's option (b), and required because an optional gate is the option (c)
+that ADR rejected as "a gate anyone can bypass by calling the function
+directly".
+
+The actor reaches `StrategyPromotionRecord` and `DeploymentRecord`, so the
+deployment ledger — "the only answer to what is live" — also answers who put it
+there. An approval names an exact `(name, version, environment)` and one granted
+by the deployer does not satisfy separation of duties. `governance_log` reads
+the three append-only records the lifecycle already keeps and maintains no
+fourth.
+
+`LIFECYCLE_SNAPSHOT_SCHEMA` moves 1 → 2 and **refuses** a version 1 payload;
+`DEFAULT_SCHEMA_VERSION` stayed at 1, which is the v2.8 de-alias paying for
+itself. An act no principal requested — an incumbent archived because a
+replacement displaced it — records `actor_id=""`, which is the honest answer.
+
+## FX: a book in two currencies, valued as one figure (v2.16)
+
+Four ADRs deferred to "the release that supplies the rate source". What it
+supplies is shaped by ADR-0020's rejected alternative: a configured rate is an
+invented one. So every rate in `alphalab.portfolio.fx` is **supplied** and
+carries a source and an `as_of`; there is no default, no fallback of 1.0, **no
+triangulation and no implicit inversion**, and a stale rate is refused rather
+than used.
+
+**The rule did not fork.** `assert_single_currency_book` is still the one
+implementation. A currency it can convert stopped being one it must refuse; a
+pair it has no rate for still is, and the message names which pair.
+
+**The fast path is untouched.** A homogeneous book takes the same code it always
+did, so the +1.78% ADR-0028 decision 7 measured for guarding the component sums
+is paid by nobody. A converted valuation records every conversion it performed,
+because a number in a currency the book is not wholly in, with no statement of
+how it got there, is ADR-0020's defect wearing a rate.
+
+**The settlement boundary does not move**, and the reason is now sharper than
+"no rate exists": `realized_pnl` and `commission_paid` are single cumulative
+scalars naming no currency, so a run that *traded* two would sum them across
+both. See ADR-0033 decision 13.
+
+## The strategy boundary, finished (v2.16)
+
+Two halves of the same defect class, both left by a release that named the class
+correctly and fixed a subset of it. See ADR-0032.
+
+**Market events reach a hook by exact identity.** `alphalab.strategy.dispatcher`
+selected four of its seven hooks by comparing `type(event).__name__` against a
+string. Three packages here define a `TickReceived`, a `QuoteReceived` or a
+`TradeReceived`, so `alphalab.live.events.TickReceived` — a different class with
+`provider_id` / `symbol` / `tick_type` instead of a `tick` — was routed to
+`on_tick`, and the `AttributeError` the strategy then raised was reported as a
+*strategy* failure. Routing now matches the module and the name together, which
+identifies a class exactly.
+
+It is deliberately **not** `isinstance`. ADR-0016 decision 3 gives
+`alphalab.strategy` no dependency on `alphalab.market` or
+`alphalab.instrument`, and `test_instrument_identity_reaches_a_fill.py` enforces
+it; importing the canonical types into the dispatcher was tried and that test
+caught it. `alphalab.runtime.execution_pipeline` sits above both layers and does
+use `isinstance`, and `test_strategy_event_routing.py` checks the two agree
+class by class.
+
+`BookUpdated` and `SnapshotCreated` reach no hook. `StrategyProtocol` declares
+no depth hook and delivering a snapshot to `on_quote` would hand existing
+strategies a payload with no `quote`; the canonical record path cannot produce
+either event in any case, because `publish_record` refuses a record that is not
+a quote, bar or tick. Stated boundary, pinned.
+
+**Every context surface declares what it supplies.** ADR-0031 identified a field
+whose protocol "declares no methods, and every construction site in the
+repository passes `object()`" as decorative, and fixed `history` and
+`universe`. The four protocols v2.10 had already populated —
+`PortfolioSnapshotProtocol`, `MarketViewProtocol`, `RiskViewProtocol`,
+`OrderFacadeProtocol` — were left empty, and fifteen construction sites still
+passed `object()`. Since AlphaLab ships `py.typed`, the declared type is the
+contract a downstream strategy is checked against: under `mypy --strict`,
+`context.history.bars(asset)` checked and `context.portfolio.cash("USD")` did
+not.
+
+They now declare what `alphalab.runtime.context_views` implements. Payload types
+stay `Any` for the same layering reason; `Decimal` is named, because it is
+stdlib and it is where a wrong type costs money. `NoPortfolio`, `NoMarket`,
+`NoRiskView` and `NoOrders` replace the placeholders, following `NoHistory` and
+`NoUniverse`: they answer "nothing" and say so through `available`, so *no
+portfolio was supplied* stays distinguishable from *the book is empty*.
 
 ## Standalone engine libraries
 
@@ -803,6 +942,15 @@ Converted: `risk`, `market`, `execution`, `oms`, `allocation`, `portfolio` and
 `ExecutionPipelineState`. `strategy` and `analytics` histories grow per lifecycle
 transition or per compiled report, not per market event, and were left as tuples.
 
+v2.16 adds `studio` and `workbench`, for the reason in the section below. The
+remaining standalone libraries — `scheduler`, `feature_store`, `integrations`,
+`distributed`, `plugins`, `reporting`, `optimizer`, `data`, `cluster_scheduler`
+and `portfolio_optimizer` — still accumulate with tuples and dicts. That is a
+measured, recorded limitation and not an oversight: registering 20,000 timers in
+`alphalab.scheduler` grows at ~3.7x per doubling. None is on the execution path
+and every one of their benchmarks completes, so the conversion is future work
+rather than a v3.0 condition.
+
 Measured on the development machine, full history retained in every case:
 
 | Benchmark | v2.0.0 | v2.1 |
@@ -876,6 +1024,30 @@ around their timed sections, because otherwise the growth ratio measures the
 collector rather than the data structure and has been observed both well above
 and well below linear on the same build.
 
+## Studio and Workbench accumulation (v2.16)
+
+The two presentation-layer packages never took the v2.1 / v2.2 containers, and
+`benchmarks/benchmark_workbench.py` is where that showed. The benchmark had
+never run: it crashed on its first iteration at every tag back to v2.14, and the
+crash hid three further defects underneath it.
+
+| Defect | Was | Now |
+| --- | --- | --- |
+| The rendered tab could not be named | `run_backtest` opens `bt-<result_id>`, where `result_id` is minted by Studio; `Tab.is_active` existed but no view exposed it | `alphalab.workbench.views.active_tab` |
+| Finding Studio's result | filter the whole event log by `type(e).__name__ == "BacktestCompleted"` — O(events) per delegation, and a name match | read the events *this call* appended, by type |
+| Event and index accumulation | `(*state.events, evt)`, `dict(state.backtest_results)`, `(*proj.backtests, config)` | `AppendOnlyLog` and `PersistentMap` |
+| `close_project` | dropped the active tab and left pinned tabs unfocused | restores the one-active-tab invariant |
+
+Measured on the development machine, full history retained:
+
+| Workload | Before | After |
+| --- | --- | --- |
+| `benchmark_workbench` (100k UI cycles) | crashed on iteration 0 | 3.1s, 32,132 cycles/sec |
+| Workbench session scaling (2x workload) | ~3.2x | ~2.1x |
+| `benchmark_strategy_studio` (10k backtests) | 0.76s | 0.12s |
+
+`tests/regression/test_workbench_delegation.py` pins all four.
+
 ## Closed in v2.2
 
 The four limitations the v2.1.0 review listed as blocking a real backtest are
@@ -891,13 +1063,26 @@ fixed, and each has a regression test pinning it:
 
 ## Known gaps and deferred areas
 
-- **Market-data model convergence is not done.** `data.feed.Bar` and
-  `market.bar.Bar` are still separate, incompatible types (a third `Bar` exists
-  in `marketdata.feed`), and `data` / `marketdata` / `feed` still overlap. A
-  backtest reads `alphalab.market` inputs only. Deferred to v2.3.
-- **`broker` / `brokers` overlap, and live broker connectivity is not wired
-  into the execution path.** Deferred to v2.3.
-- **`kernel` and `core/events` are unused by the execution path.** Deferred.
+- **Market-data model convergence was done in v2.3, and this entry described
+  the state before it** (corrected in v2.16). The third `Bar` is gone:
+  `marketdata.feed` re-exports `data.feed`'s definitions, and
+  `tests/regression/test_market_model_convergence.py` asserts the identity.
+  `data.feed.Bar` and `market.bar.Bar` remain separate *deliberately* — one is a
+  `float`/`symbol` wire record, the other the canonical `Decimal`/`asset_id`
+  domain record `market.normalization` lifts it into. A backtest still reads
+  `alphalab.market` inputs only.
+- **`broker` / `brokers` overlap was closed in v2.3, and this entry described
+  the state before it** (corrected in v2.16). `brokers` routes the canonical
+  types: `AccountSnapshot`, `PositionSnapshot`, `ExecutionReport`, `BrokerOrder`
+  and `OrderStatus` *are* the `alphalab.broker` classes under this package's
+  historical names, pinned by
+  `tests/regression/test_shared_names_stay_distinct.py`. Live broker
+  connectivity reached the execution path in v2.15; see ADR-0031.
+- **`kernel` and `core/events` are unused by the execution path.** Both are
+  deprecated and removed in v3.0 (ADR-0015 decision 9, ADR-0030), with the
+  notices `tests/regression/test_deprecation_notices.py` enforces. `kernel`'s
+  `PortfolioState` and `PositionState` are re-exports of the canonical
+  `alphalab.portfolio` types, not a second model.
 - **A strategy still does not see the marked portfolio.** `StrategyContext`
   comes from the caller's `context_factory`; neither `ExecutionPipeline` nor
   `BacktestEngine` populates it. Allocation sizes from market prices and its
@@ -907,9 +1092,12 @@ fixed, and each has a regression test pinning it:
   execution opportunity (v2.5) and its residual reservation released; it is not
   topped up on a later event. A participation-capped strategy that wants to
   finish a large order must keep expressing the intent.
-- **Multi-currency valuation is not implemented.** `PortfolioValuation` and
-  `NAVCalculator` value the base currency only; FX rates would be needed
-  otherwise.
+- **Multi-currency valuation arrived in v2.16.** `alphalab.portfolio.fx` holds
+  supplied rates with provenance, and `PortfolioValuation.snapshot`,
+  `portfolio_value` and `NAVCalculator.calculate` each take a table and convert
+  through the one rule. Without a table they refuse exactly as they did. What is
+  still absent is multi-currency *settlement* — a pipeline that trades two
+  currencies — and FX data itself. See ADR-0033.
 - **Streaming market data arrived in v2.15.** `alphalab.market.stream.StreamingSource`
   is a `MarketDataSource` over a real WebSocket connection, with subscription,
   sequence deduplication, gap counting, heartbeat-based liveness detection,

@@ -39,6 +39,12 @@ from alphalab.deployment_manager.releases import get_release, register_release
 from alphalab.deployment_manager.rollback import previous_release
 from alphalab.deployment_manager.rollback import rollback as rollback_release
 from alphalab.lifecycle.exceptions import LifecycleInputError, LifecycleTransitionError
+from alphalab.lifecycle.governance import (
+    PERMISSION_DEPLOY,
+    PERMISSION_ROLLBACK,
+    Governance,
+    approval_for,
+)
 from alphalab.lifecycle.identity import (
     COMPONENT_EVIDENCE,
     COMPONENT_MODEL,
@@ -206,6 +212,7 @@ def _retire_if_idle(
 
 def deploy_strategy_version(
     state: LifecycleState,
+    governance: Governance,
     name: str,
     version: int,
     environment: str,
@@ -219,15 +226,34 @@ def deploy_strategy_version(
     archived -- unless that version is still active in another environment, in
     which case it stays in ``PRODUCTION`` where it belongs.
 
+    ``governance`` names who is deploying and is checked for
+    :data:`~alphalab.lifecycle.governance.PERMISSION_DEPLOY` **before anything
+    else**. The actor reaches both the strategy-version promotion record and the
+    deployment ledger, which is what makes the ledger -- "the only answer to
+    what is live" -- also the answer to who put it there.
+
+    When ``governance.approval_required_in`` names ``environment``, a recorded
+    approval from a principal *other than* the deployer is required; see
+    :func:`~alphalab.lifecycle.governance.approval_for`. Which environments are
+    named is the operator's policy and AlphaLab does not guess it.
+
+    ``deployed_by`` is unchanged and is still the *model note's* own field. It
+    is not the governance actor and never was; ADR-0018 records that a note on
+    the model version is not the deployment record. Keeping both is how a v2.6
+    caller's note survives while the ledger gains a real actor.
+
     Raises:
+        EnterprisePermissionError: If the actor lacks ``lifecycle.deploy``.
         LifecycleInputError: If the version is unknown or ``environment`` is
             blank.
         LifecycleTransitionError: If the version is not staged, is already the
-            active version in ``environment``, or runs a model version that has
-            since been archived. A redeploy of what is already running is
-            refused rather than silently appending a second identical ledger
-            entry; nothing is registered before any of these refusals.
+            active version in ``environment``, runs a model version that has
+            since been archived, or requires an independent approval it does not
+            have. A redeploy of what is already running is refused rather than
+            silently appending a second identical ledger entry; nothing is
+            registered before any of these refusals.
     """
+    actor_id = governance.authorize(PERMISSION_DEPLOY)
     if not environment.strip():
         raise LifecycleInputError("environment cannot be empty.")
 
@@ -247,11 +273,20 @@ def deploy_strategy_version(
         )
     _require_deployable_model(state, strategy)
 
+    if governance.requires_approval(environment):
+        # Refuses, and names which of the two failures it is. Before any write.
+        approval_for(state.approvals, name, version, environment, actor_id)
+
     deployed, package = _release_for(state, strategy, timestamp)
     deployed = replace(
         deployed,
         deployments=deploy_release(
-            deployed.deployments, package.name, package.version, environment, timestamp
+            deployed.deployments,
+            package.name,
+            package.version,
+            environment,
+            timestamp,
+            actor_id=actor_id,
         ),
     )
 
@@ -262,6 +297,7 @@ def deploy_strategy_version(
             ModelStage.PRODUCTION,
             reason=f"deployed to '{environment}'",
             timestamp=timestamp,
+            actor_id=actor_id,
         )
     deployed = _retire_if_idle(
         deployed, incumbent, f"replaced in '{environment}' by {strategy.ref}", timestamp
@@ -275,6 +311,7 @@ def deploy_strategy_version(
 
 def rollback_environment(
     state: LifecycleState,
+    governance: Governance,
     environment: str,
     timestamp: float,
     deployed_by: str = "",
@@ -287,13 +324,24 @@ def rollback_environment(
     the same place. The restored version returns to ``PRODUCTION`` and the one
     being taken down is archived, unless it is still running somewhere else.
 
+    A rollback needs **no approval**, deliberately, and that is a decision rather
+    than an omission. An approval gate exists to stop something reaching an
+    environment that was not reviewed; a rollback returns an environment to a
+    version that already ran there and therefore already passed whatever gate
+    was in force. Requiring one would mean a firm whose approver is unreachable
+    cannot take a bad release down -- a governance control that makes an
+    incident worse is not one. ``lifecycle.rollback`` is still required, so it
+    is an authorized act by a named principal.
+
     Raises:
+        EnterprisePermissionError: If the actor lacks ``lifecycle.rollback``.
         LifecycleInputError: If ``environment`` has never been deployed to, has
             had only one deployment and so has nothing to return to, or the
             release it would return to names no strategy version.
         LifecycleTransitionError: If the version being restored runs a model
             that has since been archived. Nothing is written before the refusal.
     """
+    actor_id = governance.authorize(PERMISSION_ROLLBACK)
     target = previous_release(state.deployments, environment)
     if target is None:
         raise LifecycleInputError(
@@ -311,7 +359,7 @@ def rollback_environment(
     _require_deployable_model(state, restorable)
 
     try:
-        manager = rollback_release(state.deployments, environment, timestamp)
+        manager = rollback_release(state.deployments, environment, timestamp, actor_id=actor_id)
     except DeploymentManagerInputError as error:  # pragma: no cover - guarded above
         raise LifecycleInputError(str(error)) from error
 
@@ -325,6 +373,7 @@ def rollback_environment(
             ModelStage.PRODUCTION,
             reason=f"rolled back in '{environment}' from {outgoing.ref if outgoing else 'nothing'}",
             timestamp=timestamp,
+            actor_id=actor_id,
         )
     rolled = _retire_if_idle(
         rolled, outgoing, f"rolled back in '{environment}' to {restored.ref}", timestamp

@@ -38,6 +38,13 @@ from alphalab.lifecycle.evidence import (
     evaluate_policy,
 )
 from alphalab.lifecycle.exceptions import LifecycleInputError, LifecycleTransitionError
+from alphalab.lifecycle.governance import (
+    PERMISSION_APPROVE,
+    PERMISSION_PROMOTE,
+    PERMISSION_RETIRE,
+    ApprovalRecord,
+    Governance,
+)
 from alphalab.lifecycle.state import LifecycleState
 from alphalab.lifecycle.strategy_version import (
     StrategyPromotionRecord,
@@ -51,6 +58,7 @@ from alphalab.model_registry.stages import illegal_stage_move
 
 __all__ = [
     "STAGEABLE_MODEL_STAGES",
+    "approve_deployment",
     "promote_strategy_version",
     "record_evidence",
     "record_stage_change",
@@ -127,6 +135,7 @@ def record_stage_change(
     timestamp: float,
     evidence_id: str | None = None,
     policy_id: str | None = None,
+    actor_id: str = "",
 ) -> LifecycleState:
     """Applies one already-validated stage move and appends its audit record.
 
@@ -140,6 +149,13 @@ def record_stage_change(
     ``evidence_id`` and ``policy_id`` are carried through only when the move
     supplies them; a deployment does not restate the evidence a promotion
     already recorded.
+
+    ``actor_id`` defaults to ``""`` and **stays** ``""`` for a move no principal
+    requested. An incumbent archived because a replacement displaced it is such
+    a move: attributing it to the deployer would say that someone archived that
+    version, when what happened is that the ledger did. That distinction is the
+    reason the field is a reference with an honest empty value rather than a
+    required one. See ADR-0018.
     """
 
     record = StrategyPromotionRecord(
@@ -149,6 +165,7 @@ def record_stage_change(
         to_stage=to_stage,
         reason=reason,
         timestamp=timestamp,
+        actor_id=actor_id,
     )
     updated = replace(
         strategy,
@@ -170,6 +187,7 @@ def _refuse_illegal_move(strategy: StrategyVersion, target: ModelStage) -> None:
 
 def promote_strategy_version(
     state: LifecycleState,
+    governance: Governance,
     name: str,
     version: int,
     policy: ValidationPolicy,
@@ -178,7 +196,15 @@ def promote_strategy_version(
 ) -> LifecycleState:
     """Promotes a strategy version to ``STAGING`` on passing evidence.
 
+    ``governance`` names who is promoting and is checked for
+    :data:`~alphalab.lifecycle.governance.PERMISSION_PROMOTE` **before anything
+    else**, so an unpermitted caller learns nothing about the version and
+    nothing is written. The actor reaches
+    :class:`~alphalab.lifecycle.strategy_version.StrategyPromotionRecord`, so
+    the ledger answers *who* as well as what and when. See ADR-0018.
+
     Raises:
+        EnterprisePermissionError: If the actor lacks ``lifecycle.promote``.
         LifecycleInputError: If the version or the evidence is unknown, or the
             evidence is about a different subject.
         LifecycleTransitionError: If the version is already staged or is
@@ -186,6 +212,7 @@ def promote_strategy_version(
             evidence does not pass the policy. A refusal names every failed
             check.
     """
+    actor_id = governance.authorize(PERMISSION_PROMOTE)
     strategy = get_strategy_version(state.strategies, name, version)
     _refuse_illegal_move(strategy, ModelStage.STAGING)
 
@@ -214,21 +241,29 @@ def promote_strategy_version(
         timestamp=timestamp,
         evidence_id=evidence_id,
         policy_id=policy.policy_id,
+        actor_id=actor_id,
     )
 
 
 def retire_strategy_version(
-    state: LifecycleState, name: str, version: int, timestamp: float, reason: str = "retired"
+    state: LifecycleState,
+    governance: Governance,
+    name: str,
+    version: int,
+    timestamp: float,
+    reason: str = "retired",
 ) -> LifecycleState:
     """Archives a strategy version that is not deployed anywhere.
 
     Raises:
+        EnterprisePermissionError: If the actor lacks ``lifecycle.retire``.
         LifecycleInputError: If the version is unknown.
         LifecycleTransitionError: If it is already archived, or is still active
             in some environment -- taking down what is live is
             :func:`~alphalab.lifecycle.deployment.rollback_environment` or a
             replacing deployment, not a stage edit.
     """
+    actor_id = governance.authorize(PERMISSION_RETIRE)
     strategy = get_strategy_version(state.strategies, name, version)
     _refuse_illegal_move(strategy, ModelStage.ARCHIVED)
 
@@ -239,4 +274,49 @@ def retire_strategy_version(
             f"{', '.join(running)}; roll back or deploy a replacement first."
         )
 
-    return record_stage_change(state, strategy, ModelStage.ARCHIVED, reason, timestamp)
+    return record_stage_change(
+        state, strategy, ModelStage.ARCHIVED, reason, timestamp, actor_id=actor_id
+    )
+
+
+def approve_deployment(
+    state: LifecycleState,
+    governance: Governance,
+    name: str,
+    version: int,
+    environment: str,
+    timestamp: float,
+    note: str = "",
+) -> LifecycleState:
+    """Record that this version is approved for this environment.
+
+    An approval is a fact about an act, not a permission: it names an exact
+    ``(name, version, environment)``, so approving version 3 for ``paper`` says
+    nothing about version 4 and nothing about ``live``. It is appended, never
+    edited -- withdrawing one is a new record, not a change to an old one.
+
+    The version must already exist, because approving something that does not
+    is not a governance act, it is a typo. It need not yet be deployable: a
+    release is often approved before it is promoted, and refusing that would
+    force the two into an order no firm actually works in.
+
+    Raises:
+        EnterprisePermissionError: If the actor lacks ``lifecycle.approve``.
+        LifecycleInputError: If the version is unknown or ``environment`` is
+            blank.
+    """
+
+    approver_id = governance.authorize(PERMISSION_APPROVE)
+    if not environment.strip():
+        raise LifecycleInputError("environment cannot be empty.")
+
+    strategy = get_strategy_version(state.strategies, name, version)
+    record = ApprovalRecord(
+        name=strategy.name,
+        version=strategy.version,
+        environment=environment,
+        approver_id=approver_id,
+        timestamp=timestamp,
+        note=note,
+    )
+    return replace(state, approvals=state.approvals.append(record))

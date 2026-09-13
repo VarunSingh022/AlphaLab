@@ -52,6 +52,19 @@ class DeploymentRecord:
         is_rollback: Whether this record was produced by
             :func:`alphalab.deployment_manager.rollback.rollback`.
         timestamp: Unix timestamp of the change.
+        actor_id: Who made the change, as an
+            ``alphalab.enterprise.Principal.principal_id``. ``""`` means *not
+            recorded*, which is the truthful reading of every record written
+            before v2.16 and of any deployment made through this package
+            directly rather than through ``alphalab.lifecycle``.
+
+            This package models releases and has no opinion about identity: it
+            carries the field and never interprets it.
+            :mod:`alphalab.lifecycle.governance` is what decides who may set it.
+            ADR-0018 put the actor here rather than only on
+            ``DeploymentMetadata`` because the append-only ledger is what the
+            lifecycle calls "the only answer to what is live", and an audit
+            trail that stops at a note on the model version does not answer it.
     """
 
     environment: str
@@ -60,6 +73,7 @@ class DeploymentRecord:
     replaced_version: int | None
     is_rollback: bool
     timestamp: float
+    actor_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

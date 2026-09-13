@@ -62,7 +62,7 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineConfig,
     ExecutionPipelineState,
 )
-from alphalab.strategy.context import StrategyContext
+from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
 from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
@@ -123,13 +123,13 @@ class RLAgentStrategy(BaseStrategy):
 def _make_context_factory(pending: _PendingDecision) -> ContextFactory:
     def factory(strategy_id: str) -> StrategyContext:
         return StrategyContext(
-            portfolio=object(),
-            market=object(),
+            portfolio=NoPortfolio(),
+            market=NoMarket(),
             clock=_SimpleClock(pending.timestamp),
             logger=_NullLogger(),
-            risk_view=object(),
+            risk_view=NoRiskView(),
             config=pending,
-            orders=object(),
+            orders=NoOrders(),
         )
 
     return factory

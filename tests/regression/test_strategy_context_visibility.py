@@ -52,7 +52,15 @@ from alphalab.runtime.snapshot import RuntimeObjects
 from alphalab.runtime.snapshot import capture as capture_pipeline
 from alphalab.runtime.snapshot import from_primitives as pipeline_from_primitives
 from alphalab.runtime.snapshot import restore as restore_pipeline
-from alphalab.strategy.context import NoHistory, NoUniverse, StrategyContext
+from alphalab.strategy.context import (
+    NoHistory,
+    NoMarket,
+    NoOrders,
+    NoPortfolio,
+    NoRiskView,
+    NoUniverse,
+    StrategyContext,
+)
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
@@ -371,13 +379,13 @@ def _placeholder_factory(strategy_id: str) -> StrategyContext:
     """A caller factory of exactly the shape every existing site uses."""
 
     return StrategyContext(
-        portfolio=object(),
-        market=object(),
+        portfolio=NoPortfolio(),
+        market=NoMarket(),
         clock=_CLOCK,
         logger=_LOGGER,
-        risk_view=object(),
+        risk_view=NoRiskView(),
         config=_CONFIG,
-        orders=object(),
+        orders=NoOrders(),
     )
 
 
@@ -408,7 +416,9 @@ def test_pipeline_owned_fields_overwrite_whatever_the_caller_supplied() -> None:
 
 
 def test_a_caller_supplied_portfolio_cannot_win() -> None:
-    class Fake:
+    class Fake(NoPortfolio):
+        """A caller's own portfolio. It satisfies the protocol and still loses."""
+
         def position(self, asset_id: str) -> None:
             raise AssertionError("a fabricated portfolio reached the strategy")
 

@@ -30,6 +30,9 @@ import pytest
 
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.state import BacktestResult
+from alphalab.enterprise.identity import register_principal
+from alphalab.enterprise.models import EnterpriseState
+from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.lifecycle.evidence import (
     MetricThreshold,
     ValidationEvidence,
@@ -43,6 +46,7 @@ from alphalab.lifecycle.evidence import (
     verify_evidence_id,
 )
 from alphalab.lifecycle.exceptions import LifecycleInputError
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
 from tests.integration.harness import (
     ScriptedStrategy,
     backtest_config,
@@ -51,6 +55,25 @@ from tests.integration.harness import (
     running_strategy_state,
 )
 
+# --------------------------------------------------------------------------- #
+# Governance (v2.16): every act that changes what is live names its principal
+# --------------------------------------------------------------------------- #
+
+#: A principal holding every lifecycle permission. Tests that are about the
+#: *gate* build their own narrower principals; everything else uses this one so
+#: that adding governance did not turn every existing test into a governance
+#: test.
+_ACTOR = "release-engineer"
+_ENTERPRISE = grant_role(
+    define_role(
+        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
+        "release",
+        LIFECYCLE_PERMISSIONS,
+    ),
+    _ACTOR,
+    "release",
+)
+GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
 MIDS = [Decimal("100.005"), Decimal("120.007"), Decimal("119.003")]
 PLAN = {2.0: Decimal("10")}
 
@@ -307,10 +330,24 @@ def test_evidence_source_id_still_means_the_report_not_a_market_stream() -> None
     assert evidence.source_id and not evidence.source_id.startswith("DS")
 
 
-def test_the_lifecycle_snapshot_schema_does_not_move() -> None:
+def test_the_lifecycle_snapshot_schema_did_not_move_for_evidence_provenance() -> None:
+    """v2.7's claim, which is about *this* release and still holds.
+
+    ADR-0017 shipped evidence provenance with zero schema impact, and that is
+    what this asserts: nothing here moved it. v2.16 moved it to 2 for governance
+    actors, which ADR-0018 planned as the deliberate, batched bump this release
+    deferred to -- so the constant's *value* is not what this test is about.
+    """
+
+    import inspect
+
+    from alphalab.lifecycle import evidence as evidence_module
     from alphalab.lifecycle.snapshot import LIFECYCLE_SNAPSHOT_SCHEMA
 
-    assert LIFECYCLE_SNAPSHOT_SCHEMA == 1
+    assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
+    # None of the evidence types carry a version of their own, which is the
+    # actual v2.7 property: provenance rides on records that already existed.
+    assert "schema_version" not in inspect.getsource(evidence_module)
 
 
 # --------------------------------------------------------------------------- #
@@ -371,7 +408,7 @@ def test_a_v2_6_lifecycle_snapshot_restores_verifies_and_still_gates() -> None:
     state, ref = register_strategy(LifecycleState(), "ma-crossover", definition, 5.0)
     state = record_evidence(state, evidence)
     state = promote_strategy_version(
-        state, ref.name, ref.version, policy, evidence.evidence_id, 7.0
+        state, GOVERNANCE, ref.name, ref.version, policy, evidence.evidence_id, 7.0
     )
 
     restored = restore(from_primitives(deserialize(serialize(capture(state)))), {})

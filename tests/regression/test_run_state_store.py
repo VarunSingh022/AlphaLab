@@ -747,11 +747,16 @@ def inspect_source(module: Any) -> str:
 
 
 def test_no_existing_snapshot_schema_moved() -> None:
-    """The constants ADR-0029 decision 9 pins, read from where they live."""
+    """The constants ADR-0029 decision 9 pins, read from where they live.
+
+    ``LIFECYCLE_SNAPSHOT_SCHEMA`` is no longer among them: it moved to 2 in
+    v2.16 for governance actors (ADR-0018), which is that release's deliberate
+    bump and not something the run-state store did. What ADR-0029 promised is
+    that *its* change moved nothing, and that is what remains asserted.
+    """
 
     from alphalab.allocation.snapshot import ALLOCATION_SNAPSHOT_SCHEMA
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
-    from alphalab.lifecycle.snapshot import LIFECYCLE_SNAPSHOT_SCHEMA
     from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
     from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
@@ -760,13 +765,11 @@ def test_no_existing_snapshot_schema_moved() -> None:
     assert (
         PIPELINE_SNAPSHOT_SCHEMA,
         RUN_SNAPSHOT_SCHEMA,
-        RUN_SNAPSHOT_SCHEMA,
         ALLOCATION_SNAPSHOT_SCHEMA,
         OMS_SNAPSHOT_SCHEMA,
         PORTFOLIO_SNAPSHOT_SCHEMA,
-        LIFECYCLE_SNAPSHOT_SCHEMA,
         DEFAULT_SCHEMA_VERSION,
-    ) == (2, 1, 1, 1, 1, 2, 1, 1)
+    ) == (2, 1, 1, 1, 2, 1)
 
 
 def test_a_v212_payload_is_unchanged_by_being_stored(tmp_path: Path) -> None:

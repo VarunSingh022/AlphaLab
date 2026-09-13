@@ -36,7 +36,7 @@ from alphalab.risk.limits import (
     RiskLimits,
 )
 from alphalab.runtime.execution_pipeline import ExecutionPipeline, ExecutionPipelineConfig
-from alphalab.strategy.context import StrategyContext
+from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy, StrategyProtocol
 from alphalab.strategy.runtime import create_runtime, register_strategy
@@ -80,13 +80,13 @@ class _EnterThenExitStrategy(BaseStrategy):
 
 def _context_factory(strategy_id: str) -> StrategyContext:
     return StrategyContext(
-        portfolio=object(),
-        market=object(),
+        portfolio=NoPortfolio(),
+        market=NoMarket(),
         clock=_Clock(),
         logger=_Logger(),
-        risk_view=object(),
+        risk_view=NoRiskView(),
         config={},
-        orders=object(),
+        orders=NoOrders(),
     )
 
 

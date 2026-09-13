@@ -22,6 +22,7 @@ from alphalab.strategy import (
     get_strategy,
     register_strategy,
 )
+from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView
 
 
 class DummyClock:
@@ -49,13 +50,13 @@ class DummyContextBuilder:
 
     def build(self, strategy_id: str) -> StrategyContext:
         return StrategyContext(
-            portfolio=None,
-            market=None,
+            portfolio=NoPortfolio(),
+            market=NoMarket(),
             clock=DummyClock(),
             logger=DummyLogger(),
-            risk_view=None,
+            risk_view=NoRiskView(),
             config=None,
-            orders=None,
+            orders=NoOrders(),
         )
 
 

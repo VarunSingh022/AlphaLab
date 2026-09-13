@@ -31,17 +31,13 @@ class StudioRunner:
 
         # Track the configuration in the project
         proj = state.projects[project_id]
-        updated_proj = replace(proj, backtests=(*proj.backtests, config))
-        new_projects = dict(state.projects)
-        new_projects[project_id] = updated_proj
+        updated_proj = replace(proj, backtests=proj.backtests.append(config))
 
         # Generate the mapped tracking result
         res_id = StudioRunner._create_id()
         result = StudioAdapter.to_backtest_result(
             res_id, config.backtest_id, config.strategy_id, simulated_metrics
         )
-        new_bt_results = dict(state.backtest_results)
-        new_bt_results[res_id] = result
 
         mets = replace(state.metrics, backtests_run=state.metrics.backtests_run + 1)
         evt = BacktestCompleted(
@@ -54,10 +50,10 @@ class StudioRunner:
 
         return replace(
             state,
-            projects=new_projects,
-            backtest_results=new_bt_results,
+            projects=state.projects.set(project_id, updated_proj),
+            backtest_results=state.backtest_results.set(res_id, result),
             metrics=mets,
-            events=(*state.events, evt),
+            events=state.events.append(evt),
         )
 
     @staticmethod
@@ -72,16 +68,12 @@ class StudioRunner:
         validate_project_exists(state, project_id)
 
         proj = state.projects[project_id]
-        updated_proj = replace(proj, pipelines=(*proj.pipelines, pipeline))
-        new_projects = dict(state.projects)
-        new_projects[project_id] = updated_proj
+        updated_proj = replace(proj, pipelines=proj.pipelines.append(pipeline))
 
         res_id = StudioRunner._create_id()
         result = StudioAdapter.to_pipeline_result(
             res_id, pipeline.pipeline_id, True, duration, simulated_metrics
         )
-        new_pipe_results = dict(state.pipeline_results)
-        new_pipe_results[res_id] = result
 
         mets = replace(state.metrics, pipelines_executed=state.metrics.pipelines_executed + 1)
         evt = PipelineExecuted(
@@ -94,10 +86,10 @@ class StudioRunner:
 
         return replace(
             state,
-            projects=new_projects,
-            pipeline_results=new_pipe_results,
+            projects=state.projects.set(project_id, updated_proj),
+            pipeline_results=state.pipeline_results.set(res_id, result),
             metrics=mets,
-            events=(*state.events, evt),
+            events=state.events.append(evt),
         )
 
     @staticmethod
@@ -114,10 +106,12 @@ class StudioRunner:
         report_id = StudioRunner._create_id()
         report = StudioReport(report_id, project_id, report_type, ts, content, metrics)
 
-        new_reports = dict(state.reports)
-        new_reports[report_id] = report
-
         mets = replace(state.metrics, reports_generated=state.metrics.reports_generated + 1)
         evt = ReportGenerated(StudioRunner._create_id(), ts, project_id, report_id)
 
-        return replace(state, reports=new_reports, metrics=mets, events=(*state.events, evt))
+        return replace(
+            state,
+            reports=state.reports.set(report_id, report),
+            metrics=mets,
+            events=state.events.append(evt),
+        )

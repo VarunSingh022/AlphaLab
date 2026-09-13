@@ -19,11 +19,12 @@ class StudioManager:
         state: StrategyStudioState, session_id: str, user_id: str, project_id: str, ts: float
     ) -> StrategyStudioState:
         session = StudioSession(session_id, user_id, project_id, ts, ts)
-        new_sessions = dict(state.sessions)
-        new_sessions[session_id] = session
-
         evt = SessionStarted(StudioManager._create_id(), ts, session_id)
-        return replace(state, sessions=new_sessions, events=(*state.events, evt))
+        return replace(
+            state,
+            sessions=state.sessions.set(session_id, session),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def save_workspace(
@@ -32,11 +33,12 @@ class StudioManager:
         project_ids = tuple(state.projects.keys())
         snapshot = WorkspaceSnapshot(workspace_id, ts, project_ids, (), ())
 
-        new_workspaces = dict(state.workspaces)
-        new_workspaces[workspace_id] = snapshot
-
         evt = WorkspaceSaved(StudioManager._create_id(), ts, workspace_id)
-        return replace(state, workspaces=new_workspaces, events=(*state.events, evt))
+        return replace(
+            state,
+            workspaces=state.workspaces.set(workspace_id, snapshot),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def load_workspace(

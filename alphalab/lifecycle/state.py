@@ -23,10 +23,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.deployment_manager.releases import DeploymentManager
 from alphalab.experiment_tracking.tracker import ExperimentTracker
 from alphalab.lifecycle.evidence import ValidationEvidence
+from alphalab.lifecycle.governance import ApprovalRecord
 from alphalab.lifecycle.strategy_version import StrategyVersionRegistry
 from alphalab.model_registry.registry import ModelRegistry
 
@@ -55,6 +57,11 @@ class LifecycleState:
             it however many environments it reaches. Without this, deploying
             one version to two environments would register two identical
             release packages.
+        approvals: Every recorded approval of a version for an environment, in
+            the order granted. Append-only, like every other lifecycle record:
+            an approval is a fact about an act that happened, and withdrawing
+            one is a new fact rather than an edit. New in v2.16; see ADR-0018
+            and ADR-0033.
     """
 
     experiments: ExperimentTracker = field(default_factory=ExperimentTracker)
@@ -63,6 +70,7 @@ class LifecycleState:
     deployments: DeploymentManager = field(default_factory=DeploymentManager)
     evidence: PersistentMap[str, ValidationEvidence] = field(default_factory=PersistentMap)
     releases: PersistentMap[str, int] = field(default_factory=PersistentMap)
+    approvals: AppendOnlyLog[ApprovalRecord] = field(default_factory=AppendOnlyLog)
 
     def __post_init__(self) -> None:
         if not isinstance(self.evidence, PersistentMap):

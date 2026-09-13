@@ -2,15 +2,40 @@
 
 ## Status
 
-Proposed — **deferred from v2.7.0**.
+**Accepted and implemented in v2.16.0.** Written in v2.7 and deferred; see
+ADR-0033, which implements it.
 
-This ADR is written and not accepted. It records a real gap, the decision not to
-close it in v2.7, and the shape the eventual seam should take, so that the next
-release starts from a decision rather than from a rediscovery. It should be
-accepted together with the single lifecycle schema bump described below.
+Everything below is left exactly as it was written in v2.7 — including its
+present tense and its "deferred" framing — because it is the record of the
+decision, and the decision is what v2.16 built from rather than improvising one.
+Only this status block is current.
+
+**What shipped, against what this ADR specified.** Every item was taken as
+written:
+
+* the actor is `enterprise.Principal.principal_id`, carried as a bare `str`;
+* `StrategyPromotionRecord.actor_id: str = ""` and
+  `DeploymentRecord.actor_id: str = ""`, with `""` meaning *not recorded*;
+* `LIFECYCLE_SNAPSHOT_SCHEMA` bumped to `2` and a version 1 payload **refused**,
+  not decoded optionally;
+* the permission check is **option (b)** — an explicit `EnterpriseState`
+  parameter on the governance entry points, carried by
+  `lifecycle.governance.Governance`, and **required**, because an optional one
+  is the option (c) this ADR rejected;
+* two logs, one authority each: nothing writes into `enterprise.AuditEvent` and
+  no governance entry point returns an `EnterpriseState`;
+* `EnterprisePermissionError` propagates and nothing is written before a refusal.
+
+**What v2.16 added that this ADR did not specify**, and therefore decided
+itself: an approval record with separation of duties (`approval_for`), and
+`governance_log` as a read-only projection over records that already existed.
+Neither contradicts anything here. See ADR-0033 decisions 6 to 10.
+
+The "Consequences of deferring" section below describes the state of the world
+between v2.7 and v2.15. It is no longer the state of the world.
 
 ADR-0015 already listed "enterprise RBAC enforcement" among the things not in
-its scope. This ADR states why that is still true after v2.7, which is a
+its scope. This ADR stated why that was still true after v2.7, which is a
 different reason from v2.6's.
 
 ---

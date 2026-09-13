@@ -6,13 +6,21 @@ would have versioned every event in the system as a side effect of a lifecycle
 change. v2.6 removed exactly this trap from ``PortfolioSnapshot`` -- see
 ``test_portfolio_snapshot_schema_2`` -- and left it standing here.
 
-The value does not move: it is 1 before and after, so no payload reads or writes
-differently. What changes is that it is now independently settable.
+v2.8 de-aliased it without moving the value, and said why: "what changes is that
+it is now independently settable, which is what the next bump needs".
+
+**v2.16 is that bump, and this file is what shows the de-alias was worth doing.**
+``LIFECYCLE_SNAPSHOT_SCHEMA`` is now 2 -- carrying ``actor_id`` on two persisted
+records and the approval log (ADR-0018) -- and ``DEFAULT_SCHEMA_VERSION`` is
+still 1, so ``CommonEvent``, ``BaseEvent`` and every event in the system are
+untouched by a lifecycle change. That is the whole point, now demonstrated
+rather than asserted in advance.
 
 The portfolio's own guard asserts ``PORTFOLIO_SNAPSHOT_SCHEMA !=
-DEFAULT_SCHEMA_VERSION``, which works only because the values differ. Here they
-do not, so an inequality proves nothing and the assertions have to be
-structural: the module no longer imports the shared constant at all.
+DEFAULT_SCHEMA_VERSION``. Until v2.16 that inequality was unavailable here
+because the two values agreed, so the assertions were structural instead: the
+module does not import the shared constant at all. Both kinds are now kept --
+the structural ones are still the ones that would catch a re-aliasing.
 """
 
 import inspect
@@ -33,10 +41,16 @@ def _payload() -> dict[str, object]:
     return payload
 
 
-def test_the_lifecycle_version_is_still_one() -> None:
-    assert LIFECYCLE_SNAPSHOT_SCHEMA == 1
-    assert capture(LifecycleState()).schema_version == 1
-    assert _payload()["schema_version"] == 1
+def test_the_lifecycle_version_is_two_and_the_shared_one_did_not_follow() -> None:
+    """The bump the de-alias was performed to make possible."""
+
+    assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
+    assert capture(LifecycleState()).schema_version == 2
+    assert _payload()["schema_version"] == 2
+    assert DEFAULT_SCHEMA_VERSION == 1, (
+        "the lifecycle bump moved the shared constant, which is exactly what "
+        "de-aliasing it in v2.8 existed to prevent"
+    )
 
 
 def test_the_module_no_longer_depends_on_the_shared_constant() -> None:
@@ -55,7 +69,7 @@ def test_the_constant_is_written_as_a_literal() -> None:
 
     source = inspect.getsource(lifecycle_snapshot)
 
-    assert "LIFECYCLE_SNAPSHOT_SCHEMA = 1" in source
+    assert f"LIFECYCLE_SNAPSHOT_SCHEMA = {LIFECYCLE_SNAPSHOT_SCHEMA}" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
     assert "import DEFAULT_SCHEMA_VERSION" not in source
     assert "from alphalab.common.constants import" not in source
@@ -72,12 +86,28 @@ def test_the_shared_constant_itself_did_not_move() -> None:
     assert PORTFOLIO_SNAPSHOT_SCHEMA == 2
 
 
-def test_a_payload_written_before_the_de_alias_still_restores() -> None:
-    """Byte-identical on both sides, so a v2.7 payload is a v2.8 payload."""
-
+def test_a_payload_this_build_writes_is_a_payload_this_build_reads() -> None:
     payload = _payload()
 
-    assert from_primitives(payload).schema_version == 1
+    assert from_primitives(payload).schema_version == LIFECYCLE_SNAPSHOT_SCHEMA
+
+
+def test_a_version_one_payload_is_refused_rather_than_read() -> None:
+    """ADR-0018 rejected decoding the new fields as optional at schema 1.
+
+    That would give one version two payload shapes, which is the silent misread
+    ``schema_version`` was introduced to prevent. A v2.15 lifecycle payload
+    needs a v2.15 interpreter, exactly as the v2.6 ``PortfolioSnapshot``
+    precedent set.
+    """
+
+    payload = _payload()
+    payload["schema_version"] = 1
+    for added in ("approvals",):
+        payload.pop(added, None)
+
+    with pytest.raises(StateDecodeError, match="declares schema version 1"):
+        from_primitives(payload)
 
 
 def test_an_unknown_version_is_still_refused_by_version() -> None:

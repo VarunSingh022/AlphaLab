@@ -71,10 +71,16 @@ def test_the_portfolio_snapshot_declares_version_two() -> None:
 
 
 def test_no_other_schema_constant_moved() -> None:
-    """The trap: these three shared a constant with the portfolio snapshot."""
+    """The trap: these three shared a constant with the portfolio snapshot.
+
+    ``LIFECYCLE_SNAPSHOT_SCHEMA`` was among them until v2.8 de-aliased it, and
+    v2.16 then moved it to 2 on its own -- without moving
+    ``DEFAULT_SCHEMA_VERSION``, which is the de-alias proving its worth. The
+    constant this test guards is the *shared* one, and it has not moved since.
+    """
 
     assert DEFAULT_SCHEMA_VERSION == 1
-    assert LIFECYCLE_SNAPSHOT_SCHEMA == 1
+    assert LIFECYCLE_SNAPSHOT_SCHEMA != DEFAULT_SCHEMA_VERSION
     assert CommonEvent("e").schema_version == 1
     assert BaseEvent("id", 1.0).__dataclass_fields__.keys() == {"event_id", "timestamp"}
 

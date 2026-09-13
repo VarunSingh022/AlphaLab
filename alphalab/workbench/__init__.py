@@ -30,6 +30,7 @@ from alphalab.workbench.themes import Theme
 from alphalab.workbench.validation import validate_layout, validate_tab_operation
 from alphalab.workbench.views import (
     active_layout,
+    active_tab,
     active_tabs,
     current_project,
     current_theme,
@@ -64,6 +65,7 @@ __all__ = [
     "WorkbenchValidationError",
     "WorkspaceLayout",
     "active_layout",
+    "active_tab",
     "active_tabs",
     "current_project",
     "current_theme",

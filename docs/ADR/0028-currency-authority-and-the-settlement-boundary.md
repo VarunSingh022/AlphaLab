@@ -2,7 +2,17 @@
 
 ## Status
 
-Proposed (v2.12.0).
+Accepted (v2.12.0).
+
+**Decision 2 revisited by ADR-0033 (v2.16), and upheld.** This ADR refused a
+`SettlementPolicy` because a permissive mode could only mean a mixed book (which
+raises one event later) or converting — "*Convert.* That is FX, and it is
+deferred." v2.16 supplies FX and removes the *first* objection only: a run that
+traded two currencies would still sum `realized_pnl` and `commission_paid`
+across both, because each is a single cumulative scalar naming no currency. The
+settlement boundary therefore stands unchanged, with a sharper reason, and
+decision 7's helper classification is unchanged — the component sums are still
+unguarded, for the +1.78% this ADR measured.
 
 Extends ADR-0016, which made currency one of the four fields `asset_id` is
 derived from. Amends **ADR-0019 decision 2**, which recorded that the trading

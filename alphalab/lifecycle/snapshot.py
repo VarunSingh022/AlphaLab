@@ -43,6 +43,7 @@ from alphalab.deployment_manager.packaging import ReleasePackage
 from alphalab.deployment_manager.releases import DeploymentManager, DeploymentRecord
 from alphalab.experiment_tracking.tracker import ExperimentRun, ExperimentTracker, RunStatus
 from alphalab.lifecycle.evidence import ValidationEvidence, ValidationMethod
+from alphalab.lifecycle.governance import ApprovalRecord
 from alphalab.lifecycle.identity import ModelRef
 from alphalab.lifecycle.state import LifecycleState
 from alphalab.lifecycle.strategy_version import (
@@ -83,16 +84,29 @@ __all__ = [
     "restore",
 ]
 
-#: Schema version this module reads and writes. See ADR-0014 and ADR-0017.
+#: Schema version this module reads and writes. See ADR-0014, ADR-0017, ADR-0018.
 #:
 #: A literal, not ``DEFAULT_SCHEMA_VERSION``, which it aliased until v2.8. That
 #: constant is also the version of ``CommonEvent`` and ``BaseEvent``, so a bump
 #: of it would have versioned every event in the system as a side effect of a
 #: lifecycle change -- the trap v2.6 removed from ``PortfolioSnapshot`` and left
-#: standing here. The value is unchanged and no payload reads or writes
-#: differently; what changes is that this version is now independently settable,
-#: which is what the next bump needs.
-LIFECYCLE_SNAPSHOT_SCHEMA = 1
+#: standing here. v2.8 made this version independently settable "which is what
+#: the next bump needs"; v2.16 is that bump.
+#:
+#: **Version 2 (v2.16): governance.** Three additions, all of them persisted
+#: records:
+#:
+#: * ``StrategyPromotionRecord.actor_id`` -- who made a stage move.
+#: * ``DeploymentRecord.actor_id`` -- who deployed or rolled back.
+#: * ``approvals`` -- the append-only approval log.
+#:
+#: **A version 1 payload is refused, not read.** ADR-0018 considered decoding
+#: the new fields as optional and leaving the schema at 1, and rejected it: that
+#: gives one version two payload shapes, which is the silent misread
+#: ``schema_version`` was introduced to prevent. There is no migration path,
+#: consistent with ``require_schema_version`` and with the v2.6
+#: ``PortfolioSnapshot`` precedent this follows exactly.
+LIFECYCLE_SNAPSHOT_SCHEMA = 2
 
 _SUBSYSTEM = "lifecycle"
 
@@ -140,6 +154,7 @@ class LifecycleSnapshot:
     deployments: tuple[DeploymentRecord, ...]
     evidence: tuple[ValidationEvidence, ...]
     releases: Mapping[str, int]
+    approvals: tuple[ApprovalRecord, ...] = ()
     schema_version: int = LIFECYCLE_SNAPSHOT_SCHEMA
 
 
@@ -194,6 +209,7 @@ def capture(state: LifecycleState) -> LifecycleSnapshot:
         deployments=state.deployments.deployments.to_tuple(),
         evidence=tuple(state.evidence.values()),
         releases=dict(state.releases),
+        approvals=state.approvals.to_tuple(),
     )
 
 
@@ -298,6 +314,7 @@ def restore(snapshot: LifecycleSnapshot, models: Mapping[str, object]) -> Lifecy
         ),
         evidence=PersistentMap((item.evidence_id, item) for item in snapshot.evidence),
         releases=PersistentMap(snapshot.releases),
+        approvals=AppendOnlyLog(snapshot.approvals),
     )
 
 
@@ -473,6 +490,20 @@ def _strategy_promotion(value: Any, index: int) -> StrategyPromotionRecord:
         to_stage=as_named_enum(ModelStage, require(payload, "to_stage"), f"{where}.to_stage"),
         reason=as_str(require(payload, "reason"), f"{where}.reason"),
         timestamp=as_float(require(payload, "timestamp"), f"{where}.timestamp"),
+        actor_id=as_str(require(payload, "actor_id"), f"{where}.actor_id"),
+    )
+
+
+def _approval(value: Any, index: int) -> ApprovalRecord:
+    where = f"approvals[{index}]"
+    payload = as_mapping(value, where)
+    return ApprovalRecord(
+        name=as_str(require(payload, "name"), f"{where}.name"),
+        version=as_int(require(payload, "version"), f"{where}.version"),
+        environment=as_str(require(payload, "environment"), f"{where}.environment"),
+        approver_id=as_str(require(payload, "approver_id"), f"{where}.approver_id"),
+        timestamp=as_float(require(payload, "timestamp"), f"{where}.timestamp"),
+        note=as_str(require(payload, "note"), f"{where}.note"),
     )
 
 
@@ -502,6 +533,7 @@ def _deployment(value: Any, index: int) -> DeploymentRecord:
         ),
         is_rollback=as_bool(require(payload, "is_rollback"), f"{where}.is_rollback"),
         timestamp=as_float(require(payload, "timestamp"), f"{where}.timestamp"),
+        actor_id=as_str(require(payload, "actor_id"), f"{where}.actor_id"),
     )
 
 
@@ -561,5 +593,6 @@ def from_primitives(payload: Mapping[str, Any]) -> LifecycleSnapshot:
         deployments=tuple(_deployment(item, i) for i, item in indexed("deployments")),
         evidence=tuple(_evidence(item, i) for i, item in indexed("evidence")),
         releases=_int_mapping(require(payload, "releases"), "releases"),
+        approvals=tuple(_approval(item, i) for i, item in indexed("approvals")),
         schema_version=LIFECYCLE_SNAPSHOT_SCHEMA,
     )

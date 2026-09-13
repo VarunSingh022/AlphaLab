@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from alphalab.deployment_manager.deployment import active_release, deployed_environments
 from alphalab.lifecycle.evidence import ValidationEvidence
+from alphalab.lifecycle.governance import ApprovalRecord, GovernedAct, approvals_for
+from alphalab.lifecycle.governance import governance_trail as _trail
 from alphalab.lifecycle.identity import COMPONENT_MODEL, COMPONENT_STRATEGY, ModelRef, parse_ref
 from alphalab.lifecycle.identity import StrategyVersionRef as _Ref
 from alphalab.lifecycle.state import LifecycleState
@@ -17,8 +19,10 @@ from alphalab.lifecycle.strategy_version import StrategyVersion, get_strategy_ve
 __all__ = [
     "active_model_version",
     "active_strategy_version",
+    "approvals_of",
     "environments_running",
     "evidence_for",
+    "governance_log",
     "live_environments",
 ]
 
@@ -84,3 +88,32 @@ def evidence_for(state: LifecycleState, name: str, version: int) -> ValidationEv
     if strategy.evidence_id is None:
         return None
     return state.evidence.get(strategy.evidence_id)
+
+
+def governance_log(state: LifecycleState) -> tuple[GovernedAct, ...]:
+    """Every governed act in this lifecycle, in timestamp order: what, when, who.
+
+    The audit question ADR-0018 recorded as unanswerable -- "who promoted this
+    strategy version, and who deployed it" -- read from the three append-only
+    records the lifecycle already keeps. It maintains no log of its own, so it
+    cannot disagree with the records it reads.
+
+    An act with an empty ``actor_id`` is one written before v2.16, or one no
+    principal requested -- an incumbent archived because a replacement displaced
+    it. :attr:`~alphalab.lifecycle.governance.GovernedAct.attributed` tells the
+    two kinds apart from the attributed ones; neither is a gap to fill in.
+    """
+
+    return _trail(
+        state.strategies.promotions,
+        state.deployments.deployments,
+        state.approvals,
+    )
+
+
+def approvals_of(
+    state: LifecycleState, name: str, version: int, environment: str
+) -> tuple[ApprovalRecord, ...]:
+    """Every approval recorded for exactly this version and environment."""
+
+    return approvals_for(state.approvals, name, version, environment)

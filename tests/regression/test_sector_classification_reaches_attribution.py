@@ -37,7 +37,6 @@ from alphalab.instrument.registry import (
     classify_instrument,
     register_instrument,
 )
-from alphalab.lifecycle.snapshot import LIFECYCLE_SNAPSHOT_SCHEMA
 from alphalab.market.source import SequenceSource
 from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
 from alphalab.persistence.serializer import deserialize, serialize
@@ -491,15 +490,19 @@ def test_a_run_with_no_registry_is_unchanged_in_every_field() -> None:
     [
         (PIPELINE_SNAPSHOT_SCHEMA, 2),
         (RUN_SNAPSHOT_SCHEMA, 1),
-        (RUN_SNAPSHOT_SCHEMA, 1),
         (ALLOCATION_SNAPSHOT_SCHEMA, 1),
         (OMS_SNAPSHOT_SCHEMA, 1),
         (PORTFOLIO_SNAPSHOT_SCHEMA, 2),
-        (LIFECYCLE_SNAPSHOT_SCHEMA, 1),
     ],
 )
 def test_no_schema_constant_moved(constant: int, expected: int) -> None:
-    """v2.11 adds a value to two existing persisted fields and no field anywhere."""
+    """v2.11 adds a value to two existing persisted fields and no field anywhere.
+
+    ``LIFECYCLE_SNAPSHOT_SCHEMA`` has been dropped from this list: it moved in
+    v2.16 for governance actors, which is that release's deliberate bump and
+    nothing to do with sector classification. Pinning another release's constant
+    here would make every future bump edit this file.
+    """
 
     assert constant == expected
 

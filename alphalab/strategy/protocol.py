@@ -30,7 +30,14 @@ class StrategyProtocol(Protocol):
         ...
 
     def on_quote(self, context: StrategyContext, event: Any) -> Iterable[Intent]:
-        """React to a subscribed Top-of-Book or L2 quote update."""
+        """React to a subscribed top-of-book quote.
+
+        The event is an :class:`~alphalab.market.events.QuoteReceived`. Depth
+        updates are *not* delivered here: they carry an
+        :class:`~alphalab.market.snapshot.OrderBookSnapshot` rather than a
+        quote, and no hook on this protocol takes one. See
+        :mod:`alphalab.strategy.dispatcher` for the whole routing table.
+        """
         ...
 
     def on_trade(self, context: StrategyContext, event: Any) -> Iterable[Intent]:

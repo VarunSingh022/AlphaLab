@@ -40,8 +40,13 @@ def previous_release(manager: DeploymentManager, environment: str) -> tuple[str,
     return prior.release_name, prior.version
 
 
-def rollback(manager: DeploymentManager, environment: str, timestamp: float) -> DeploymentManager:
+def rollback(
+    manager: DeploymentManager, environment: str, timestamp: float, actor_id: str = ""
+) -> DeploymentManager:
     """Re-deploys the release that was active in ``environment`` before the current one.
+
+    ``actor_id`` reaches the append-only ledger. See
+    :func:`~alphalab.deployment_manager.deployment.record_deployment`.
 
     Raises:
         DeploymentManagerInputError: If ``environment`` has no active release,
@@ -60,4 +65,6 @@ def rollback(manager: DeploymentManager, environment: str, timestamp: float) -> 
 
     name, version = target
     release = get_release(manager, name, version)
-    return record_deployment(manager, environment, release, is_rollback=True, timestamp=timestamp)
+    return record_deployment(
+        manager, environment, release, is_rollback=True, timestamp=timestamp, actor_id=actor_id
+    )

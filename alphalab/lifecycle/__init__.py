@@ -75,7 +75,18 @@ and stores none of them itself.
 
 The lifecycle sits *above* :class:`~alphalab.runtime.execution_pipeline.ExecutionPipeline`
 and is not wired into it. A deployment names what should run; running it is the
-execution path's job, and the two are joined by the caller.
+execution path's job.
+
+**The two are joined by :mod:`alphalab.lifecycle.execution` from v2.16.** Until
+then this paragraph ended "and the two are joined by the caller", which meant
+nothing checked that a run was serving the version an environment actually had
+live -- a run could execute a version that was never promoted, or one rolled
+back an hour earlier, and nothing would notice.
+:func:`~alphalab.lifecycle.execution.run_plan` resolves a deployment into what
+should run and :func:`~alphalab.lifecycle.execution.authorize_run` refuses a run
+that would serve anything else. Neither starts a process, constructs a strategy
+or builds a ``RunConfig``: the join is a query with a refusal, not a second
+runtime. See ADR-0033.
 """
 
 from alphalab.lifecycle.deployment import (
@@ -102,6 +113,25 @@ from alphalab.lifecycle.exceptions import (
     LifecycleInputError,
     LifecycleTransitionError,
 )
+from alphalab.lifecycle.execution import (
+    RunAuthorization,
+    RunPlan,
+    authorize_run,
+    run_plan,
+)
+from alphalab.lifecycle.governance import (
+    LIFECYCLE_PERMISSIONS,
+    PERMISSION_APPROVE,
+    PERMISSION_DEPLOY,
+    PERMISSION_PROMOTE,
+    PERMISSION_RETIRE,
+    PERMISSION_ROLLBACK,
+    ApprovalRecord,
+    Governance,
+    GovernedAct,
+    approval_for,
+    approvals_for,
+)
 from alphalab.lifecycle.identity import (
     COMPONENT_EVIDENCE,
     COMPONENT_MODEL,
@@ -114,6 +144,7 @@ from alphalab.lifecycle.identity import (
 )
 from alphalab.lifecycle.promotion import (
     STAGEABLE_MODEL_STAGES,
+    approve_deployment,
     promote_strategy_version,
     record_evidence,
     record_stage_change,
@@ -136,8 +167,10 @@ from alphalab.lifecycle.strategy_version import (
 from alphalab.lifecycle.views import (
     active_model_version,
     active_strategy_version,
+    approvals_of,
     environments_running,
     evidence_for,
+    governance_log,
     live_environments,
 )
 
@@ -147,14 +180,25 @@ __all__ = [
     "COMPONENT_RUN",
     "COMPONENT_STRATEGY",
     "DEPLOYABLE_STAGES",
+    "LIFECYCLE_PERMISSIONS",
+    "PERMISSION_APPROVE",
+    "PERMISSION_DEPLOY",
+    "PERMISSION_PROMOTE",
+    "PERMISSION_RETIRE",
+    "PERMISSION_ROLLBACK",
     "STAGEABLE_MODEL_STAGES",
+    "ApprovalRecord",
     "DeploymentRef",
+    "Governance",
+    "GovernedAct",
     "LifecycleError",
     "LifecycleInputError",
     "LifecycleState",
     "LifecycleTransitionError",
     "MetricThreshold",
     "ModelRef",
+    "RunAuthorization",
+    "RunPlan",
     "StrategyPromotionRecord",
     "StrategyVersion",
     "StrategyVersionRef",
@@ -165,6 +209,11 @@ __all__ = [
     "ValidationPolicy",
     "active_model_version",
     "active_strategy_version",
+    "approval_for",
+    "approvals_for",
+    "approvals_of",
+    "approve_deployment",
+    "authorize_run",
     "build_evidence",
     "deploy_strategy_version",
     "environments_running",
@@ -174,6 +223,7 @@ __all__ = [
     "evidence_from_research",
     "evidence_id_for",
     "get_strategy_version",
+    "governance_log",
     "latest_strategy_version",
     "list_strategy_versions",
     "live_environments",
@@ -188,6 +238,7 @@ __all__ = [
     "replace_strategy_version",
     "retire_strategy_version",
     "rollback_environment",
+    "run_plan",
     "strategy_names",
     "validate_strategy_version",
     "verify_evidence_id",

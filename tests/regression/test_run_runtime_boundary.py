@@ -92,15 +92,30 @@ def test_the_pipeline_schema_does_not_move() -> None:
         (ALLOCATION_SNAPSHOT_SCHEMA, 1),
         (OMS_SNAPSHOT_SCHEMA, 1),
         (PORTFOLIO_SNAPSHOT_SCHEMA, 2),
-        (LIFECYCLE_SNAPSHOT_SCHEMA, 1),
         (RUN_STATE_ENVELOPE_SCHEMA, 1),
         (DEFAULT_SCHEMA_VERSION, 1),
     ],
 )
 def test_no_other_schema_constant_moves(constant: int, value: int) -> None:
-    """Only the run envelope moves, and only because its state did."""
+    """Only the run envelope moves, and only because its state did.
+
+    ``LIFECYCLE_SNAPSHOT_SCHEMA`` was in this list and is not any more. It moved
+    to 2 in v2.16 for governance actors (ADR-0018), which is a later release's
+    deliberate bump and not something this one did -- and pinning another
+    release's constant here would make every future bump edit this file. What
+    v2.14 promised is that *its* change moved nothing, and that is what the
+    remaining five hold.
+    """
 
     assert constant == value
+
+
+def test_the_lifecycle_constant_moved_on_its_own_terms() -> None:
+    """And not as a side effect of anything the run envelope did."""
+
+    assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
+    assert RUN_SNAPSHOT_SCHEMA == 1
+    assert DEFAULT_SCHEMA_VERSION == 1
 
 
 def test_the_run_envelope_is_the_only_new_constant() -> None:

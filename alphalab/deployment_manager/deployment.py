@@ -23,8 +23,15 @@ def record_deployment(
     release: ReleasePackage,
     is_rollback: bool,
     timestamp: float,
+    actor_id: str = "",
 ) -> DeploymentManager:
-    """Append one deployment to the ledger and to its environment's index."""
+    """Append one deployment to the ledger and to its environment's index.
+
+    ``actor_id`` is carried and never interpreted. This package models releases
+    and has no opinion about identity; :mod:`alphalab.lifecycle.governance`
+    decides who may supply one. Its default of ``""`` keeps a direct caller of
+    this package working and records honestly that no actor was named.
+    """
 
     incumbent = active_release(manager, environment)
     record = DeploymentRecord(
@@ -34,6 +41,7 @@ def record_deployment(
         replaced_version=incumbent.version if incumbent is not None else None,
         is_rollback=is_rollback,
         timestamp=timestamp,
+        actor_id=actor_id,
     )
     history = manager.environments.get(environment, AppendOnlyLog[DeploymentRecord]())
     return replace(
@@ -49,8 +57,11 @@ def deploy(
     version: int,
     environment: str,
     timestamp: float,
+    actor_id: str = "",
 ) -> DeploymentManager:
     """Makes ``name`` version ``version`` the active release in ``environment``.
+
+    ``actor_id`` reaches the append-only ledger. See :func:`record_deployment`.
 
     Raises:
         DeploymentManagerInputError: If ``environment`` is blank, the release
@@ -72,7 +83,9 @@ def deploy(
             f"Release '{name}' version {version} is already active in '{environment}'."
         )
 
-    return record_deployment(manager, environment, release, is_rollback=False, timestamp=timestamp)
+    return record_deployment(
+        manager, environment, release, is_rollback=False, timestamp=timestamp, actor_id=actor_id
+    )
 
 
 def active_release(manager: DeploymentManager, environment: str) -> ReleasePackage | None:

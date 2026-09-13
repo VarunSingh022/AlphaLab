@@ -53,6 +53,9 @@ from typing import Any
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.backtesting import BacktestEngine, ExecutionMode, MarketDataset, RunConfig
+from alphalab.enterprise.identity import register_principal
+from alphalab.enterprise.models import EnterpriseState
+from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.experiment_tracking import complete_run, log_metrics, start_run
 from alphalab.lifecycle import (
@@ -73,6 +76,7 @@ from alphalab.lifecycle import (
     rollback_environment,
     validate_strategy_version,
 )
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
 from alphalab.market.quote import Quote
 from alphalab.model_registry import ArtifactRef, ModelStage, deployment_metadata, promote
 from alphalab.portfolio.account import Account
@@ -88,13 +92,33 @@ from alphalab.risk.limits import (
     RiskLimits,
 )
 from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig
-from alphalab.strategy.context import StrategyContext
+from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
 from alphalab.strategy.runtime import create_runtime
 from alphalab.strategy.runtime import register_strategy as register_instance
 from alphalab.strategy.state import RuntimeState
 from alphalab.strategy.supervisor import RuntimeSupervisor
+
+# --------------------------------------------------------------------------- #
+# Governance (v2.16): every act that changes what is live names its principal
+# --------------------------------------------------------------------------- #
+
+#: A principal holding every lifecycle permission. Tests that are about the
+#: *gate* build their own narrower principals; everything else uses this one so
+#: that adding governance did not turn every existing test into a governance
+#: test.
+_ACTOR = "release-engineer"
+_ENTERPRISE = grant_role(
+    define_role(
+        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
+        "release",
+        LIFECYCLE_PERMISSIONS,
+    ),
+    _ACTOR,
+    "release",
+)
+GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
 
 # The execution path identifies a strategy instance and an asset by UUID. The
 # lifecycle names a strategy *line* and numbers its versions. Two different
@@ -145,13 +169,13 @@ def _context(strategy_id: str) -> StrategyContext:
         def error(self, msg: str) -> None: ...
 
     return StrategyContext(
-        portfolio=object(),
-        market=object(),
+        portfolio=NoPortfolio(),
+        market=NoMarket(),
         clock=_Clock(),
         logger=_Logger(),
-        risk_view=object(),
+        risk_view=NoRiskView(),
         config={"strategy_id": strategy_id},
-        orders=object(),
+        orders=NoOrders(),
     )
 
 
@@ -313,11 +337,13 @@ def main() -> None:
     print("Step 5 — the gate")
     print("-" * 62)
     try:
-        deploy_strategy_version(state, *_ref(strategy), "paper", 7.0)
+        deploy_strategy_version(state, GOVERNANCE, *_ref(strategy), "paper", 7.0)
     except LifecycleTransitionError as error:
         print(f"Refused          : {error}")
 
-    state = promote_strategy_version(state, *_ref(strategy), POLICY, evidence.evidence_id, 7.0)
+    state = promote_strategy_version(
+        state, GOVERNANCE, *_ref(strategy), POLICY, evidence.evidence_id, 7.0
+    )
     print(
         f"After promotion  : {get_strategy_version(state.strategies, *_ref(strategy)).stage.name}"
     )
@@ -328,7 +354,7 @@ def main() -> None:
     # ------------------------------------------------------------------
 
     state, deployment = deploy_strategy_version(
-        state, *_ref(strategy), "paper", 8.0, deployed_by="example"
+        state, GOVERNANCE, *_ref(strategy), "paper", 8.0, deployed_by="example"
     )
     live = active_strategy_version(state, "paper")
     assert live is not None
@@ -355,9 +381,9 @@ def main() -> None:
     second_evidence = evidence_from_backtest(_run(MIDS), str(second), 10.0)
     state = record_evidence(state, second_evidence)
     state = promote_strategy_version(
-        state, *_ref(second), POLICY, second_evidence.evidence_id, 11.0
+        state, GOVERNANCE, *_ref(second), POLICY, second_evidence.evidence_id, 11.0
     )
-    state, _ = deploy_strategy_version(state, *_ref(second), "paper", 12.0)
+    state, _ = deploy_strategy_version(state, GOVERNANCE, *_ref(second), "paper", 12.0)
 
     print("Step 7 — a replacement")
     print("-" * 62)
@@ -371,7 +397,7 @@ def main() -> None:
     # Step 8 : Rollback
     # ------------------------------------------------------------------
 
-    state, restored = rollback_environment(state, "paper", 13.0, deployed_by="oncall")
+    state, restored = rollback_environment(state, GOVERNANCE, "paper", 13.0, deployed_by="oncall")
     back = active_strategy_version(state, "paper")
     assert back is not None
 

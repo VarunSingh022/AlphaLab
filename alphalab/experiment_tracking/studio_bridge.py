@@ -51,8 +51,10 @@ def record_experiment(
         timestamp=timestamp,
     )
 
-    new_experiments = dict(state.experiments)
-    new_experiments[experiment_id] = result
     event = ExperimentRecorded(str(new_id()), timestamp, project_id, experiment_id)
-    new_state = replace(state, experiments=new_experiments, events=(*state.events, event))
+    new_state = replace(
+        state,
+        experiments=state.experiments.set(experiment_id, result),
+        events=state.events.append(event),
+    )
     return new_state, experiment_id

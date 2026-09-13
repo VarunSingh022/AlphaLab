@@ -112,7 +112,7 @@ from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
 from alphalab.runtime.run_snapshot import restore as restore_run
 from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import RuntimeObjects
-from alphalab.strategy.context import StrategyContext
+from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
 from alphalab.strategy.runtime import create_runtime, register_strategy
@@ -260,13 +260,13 @@ def context_factory(strategy_id: str) -> StrategyContext:
         def error(self, message: str) -> None: ...
 
     return StrategyContext(
-        portfolio=object(),
-        market=object(),
+        portfolio=NoPortfolio(),
+        market=NoMarket(),
         clock=_Clock(),
         logger=_Logger(),
-        risk_view=object(),
+        risk_view=NoRiskView(),
         config={"strategy_id": strategy_id},
-        orders=object(),
+        orders=NoOrders(),
     )
 
 

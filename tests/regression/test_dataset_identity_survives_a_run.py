@@ -283,7 +283,11 @@ def test_neither_identity_enters_any_persisted_snapshot() -> None:
         assert "dataset_id" not in names, f"{snapshot.__name__} gained a dataset identity"
         assert "source_id" not in names, f"{snapshot.__name__} gained a source identity"
 
-    assert LIFECYCLE_SNAPSHOT_SCHEMA == 1, "M2 must not move the lifecycle schema"
+    # M2's promise was that *it* moved no schema, and the fields above are how
+    # that is checked. The lifecycle constant moved to 2 in v2.16 for governance
+    # actors (ADR-0018) -- a later release's deliberate bump, unrelated to
+    # dataset identity, and not something this file should pin.
+    assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
     assert PORTFOLIO_SNAPSHOT_SCHEMA == 2, "unchanged since v2.6"
 
 

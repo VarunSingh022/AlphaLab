@@ -49,24 +49,27 @@ simulated, expressed by
 What is real, and what is a contract
 ------------------------------------
 
-Backtest, replay and paper run end to end today. **A live session driven by
-this module still produces working orders and stops** -- it reads a source and
-advances the run, and routing an accepted order is the caller's next step, not
-something this loop does.
+Backtest, replay and paper run end to end through this module. **A live session
+driven by this one still produces working orders and stops** -- it reads a
+source and advances the run, and routing an accepted order is not something this
+loop does.
 
-What changed in v2.15 is what that caller now has to route *with*. Until v2.14
-the answer was "nothing in this repository":
-:class:`~alphalab.broker.paper.PaperBroker` was the only adapter and is a
-simulation. :class:`~alphalab.broker.venue.RestVenueBroker` over
-:class:`~alphalab.broker.transport.HttpVenueTransport` is a real one, and
-:mod:`alphalab.runtime.broker_routing` carries orders out to it and fills back
-through the same functions it always did.
+**Use :class:`~alphalab.runtime.live.LiveSession` for a live run.** That is the
+driver ADR-0030 anticipated and v2.16 wrote: it settles the fills a venue has
+reported, advances the run through the same
+:meth:`~alphalab.runtime.run.RunEngine.advance` this module calls, and routes
+the orders that are newly working -- in that order, so a fill already known
+reaches the portfolio before the strategy is dispatched. It also carries the
+venue binding, which this module has nowhere to put.
 
-Two things remain true. The transport is written to protocol and **has not been
-verified against any commercial venue** (see its docstring), and a *live driver*
--- a loop that routes working orders and applies returning executions as it goes
--- is under ADR-0030 a third driver alongside this one and the backtest's, and
-is not this module. See ADR-0031.
+This module is not deprecated and is not a lesser one: a paper session is a real
+environment and this is its driver. What it is not is a live loop. Until v2.15
+there was no live loop to point at, and until v2.16 there was none in this
+repository; both sentences were here, and both are now out of date.
+
+One thing remains true. The transport is written to protocol and **has not been
+verified against any commercial venue** (see its docstring). See ADR-0031 and
+ADR-0033.
 
 Stale market data
 -----------------

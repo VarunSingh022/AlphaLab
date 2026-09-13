@@ -33,7 +33,7 @@ from alphalab.risk.limits import (
 )
 from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig
 from alphalab.runtime.run import ExecutionMode, RunConfig
-from alphalab.strategy.context import StrategyContext
+from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy, StrategyProtocol
 from alphalab.strategy.runtime import create_runtime, register_strategy
@@ -93,13 +93,13 @@ class ScriptedStrategy(BaseStrategy):
 
 def context_factory(strategy_id: str) -> StrategyContext:
     return StrategyContext(
-        portfolio=object(),
-        market=object(),
+        portfolio=NoPortfolio(),
+        market=NoMarket(),
         clock=_Clock(),
         logger=_Logger(),
-        risk_view=object(),
+        risk_view=NoRiskView(),
         config={"strategy_id": strategy_id},
-        orders=object(),
+        orders=NoOrders(),
     )
 
 

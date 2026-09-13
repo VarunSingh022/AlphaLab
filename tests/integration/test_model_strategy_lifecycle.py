@@ -25,6 +25,9 @@ import pytest
 from alphalab.backtesting import BacktestEngine, BacktestResult
 from alphalab.common.ids import id_scope
 from alphalab.deployment_manager import active_release, deployment_history, verify_checksum
+from alphalab.enterprise.identity import register_principal
+from alphalab.enterprise.models import EnterpriseState
+from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import (
     ExperimentTracker,
     complete_run,
@@ -54,6 +57,7 @@ from alphalab.lifecycle import (
     rollback_environment,
     validate_strategy_version,
 )
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
 from alphalab.model_registry import ModelStage, deployment_metadata, get_version, promote
 from alphalab.research import ResearchEngine, ResearchPayload, TradePayload
 from alphalab.research_assistant import (
@@ -63,6 +67,26 @@ from alphalab.research_assistant import (
 )
 from alphalab.research_assistant.generation import StrategyCandidate
 from tests.integration.harness import context_factory, scripted_run
+
+# --------------------------------------------------------------------------- #
+# Governance (v2.16): every act that changes what is live names its principal
+# --------------------------------------------------------------------------- #
+
+#: A principal holding every lifecycle permission. Tests that are about the
+#: *gate* build their own narrower principals; everything else uses this one so
+#: that adding governance did not turn every existing test into a governance
+#: test.
+_ACTOR = "release-engineer"
+_ENTERPRISE = grant_role(
+    define_role(
+        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
+        "release",
+        LIFECYCLE_PERMISSIONS,
+    ),
+    _ACTOR,
+    "release",
+)
+GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
 
 #: The execution path identifies a strategy and an asset by UUID: those are
 #: `alphalab.core` identities, and deliberately not the lifecycle's. The
@@ -168,7 +192,7 @@ def _lifecycle_through_promotion(
     evidence = evidence_from_backtest(result, str(strategy), 6.0)
     state = record_evidence(state, evidence)
     state = promote_strategy_version(
-        state, strategy.name, strategy.version, POLICY, evidence.evidence_id, 7.0
+        state, GOVERNANCE, strategy.name, strategy.version, POLICY, evidence.evidence_id, 7.0
     )
     return state, model, evidence.evidence_id
 
@@ -198,7 +222,7 @@ def test_the_whole_lifecycle_runs_end_to_end() -> None:
 
     # Deploy: the ledger, not a flag, says what is live.
     state, deployment = deploy_strategy_version(
-        state, STRATEGY_LINE, 1, "paper", 8.0, deployed_by="ci"
+        state, GOVERNANCE, STRATEGY_LINE, 1, "paper", 8.0, deployed_by="ci"
     )
     assert deployment.environment == "paper"
     active = active_strategy_version(state, "paper")
@@ -227,15 +251,17 @@ def test_the_whole_lifecycle_runs_end_to_end() -> None:
     second_evidence = evidence_from_backtest(result, str(second), 10.0)
     state = record_evidence(state, second_evidence)
     state = promote_strategy_version(
-        state, second.name, second.version, POLICY, second_evidence.evidence_id, 11.0
+        state, GOVERNANCE, second.name, second.version, POLICY, second_evidence.evidence_id, 11.0
     )
-    state, _ = deploy_strategy_version(state, second.name, second.version, "paper", 12.0)
+    state, _ = deploy_strategy_version(
+        state, GOVERNANCE, second.name, second.version, "paper", 12.0
+    )
 
     assert get_strategy_version(state.strategies, STRATEGY_LINE, 1).stage is ModelStage.ARCHIVED
     assert get_strategy_version(state.strategies, STRATEGY_LINE, 2).stage is ModelStage.PRODUCTION
 
     # Rollback returns the environment to the previously live version.
-    state, restored = rollback_environment(state, "paper", 13.0)
+    state, restored = rollback_environment(state, GOVERNANCE, "paper", 13.0)
     back = active_strategy_version(state, "paper")
 
     assert restored.environment == "paper"
@@ -264,10 +290,10 @@ def test_the_same_seeded_walk_produces_the_same_lifecycle() -> None:
 
     with id_scope(4242):
         first, _, _ = _lifecycle_through_promotion()
-        first, _ = deploy_strategy_version(first, STRATEGY_LINE, 1, "paper", 8.0)
+        first, _ = deploy_strategy_version(first, GOVERNANCE, STRATEGY_LINE, 1, "paper", 8.0)
     with id_scope(4242):
         second, _, _ = _lifecycle_through_promotion()
-        second, _ = deploy_strategy_version(second, STRATEGY_LINE, 1, "paper", 8.0)
+        second, _ = deploy_strategy_version(second, GOVERNANCE, STRATEGY_LINE, 1, "paper", 8.0)
 
     assert serialize(first) == serialize(second)
 
@@ -331,7 +357,7 @@ def test_research_evidence_can_gate_a_promotion() -> None:
         required_method=ValidationMethod.RESEARCH,
     )
     state = promote_strategy_version(
-        state, third.name, third.version, policy, evidence.evidence_id, 11.0
+        state, GOVERNANCE, third.name, third.version, policy, evidence.evidence_id, 11.0
     )
 
     promoted = get_strategy_version(state.strategies, third.name, third.version)
@@ -393,14 +419,14 @@ def test_a_losing_run_does_not_pass_a_policy_that_asks_for_a_gain() -> None:
     assert evidence.metrics["total_return"] < 0.0
     with pytest.raises(LifecycleTransitionError, match="total_return"):
         promote_strategy_version(
-            state, strategy.name, strategy.version, POLICY, evidence.evidence_id, 7.0
+            state, GOVERNANCE, strategy.name, strategy.version, POLICY, evidence.evidence_id, 7.0
         )
     assert get_strategy_version(state.strategies, STRATEGY_LINE, 1).stage is ModelStage.NONE
 
 
 def test_the_model_a_deployed_strategy_runs_is_recoverable_from_the_ledger() -> None:
     state, model, _ = _lifecycle_through_promotion()
-    state, _ = deploy_strategy_version(state, STRATEGY_LINE, 1, "live-eu", 8.0)
+    state, _ = deploy_strategy_version(state, GOVERNANCE, STRATEGY_LINE, 1, "live-eu", 8.0)
 
     assert active_model_version(state, "live-eu") == model
     assert get_version(state.models, model.name, model.version).run_id is not None

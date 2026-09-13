@@ -315,7 +315,7 @@ def test_the_predicate_has_one_implementation() -> None:
 
     body = inspect.getsource(assert_single_currency).split('"""')[-1]
 
-    assert "assert_single_currency_book(state.cash, state.positions, base_currency)" in body
+    assert "assert_single_currency_book(state.cash, state.positions, base_currency" in body
     assert "MixedCurrencyValuationError" not in body, "no second implementation of the rule"
 
 

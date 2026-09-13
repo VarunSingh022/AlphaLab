@@ -20,13 +20,16 @@ class StudioRegistry:
         state: StrategyStudioState, project: Project, ts: float
     ) -> StrategyStudioState:
         validate_project_creation(state, project)
-        new_projects = dict(state.projects)
-        new_projects[project.project_id] = project
 
         mets = replace(state.metrics, total_projects=state.metrics.total_projects + 1)
         evt = ProjectCreated(StudioRegistry._create_id(), ts, project.project_id)
 
-        return replace(state, projects=new_projects, metrics=mets, events=(*state.events, evt))
+        return replace(
+            state,
+            projects=state.projects.set(project.project_id, project),
+            metrics=mets,
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def register_strategy(
@@ -35,9 +38,7 @@ class StudioRegistry:
         validate_project_exists(state, project_id)
         proj = state.projects[project_id]
 
-        updated_proj = replace(proj, strategies=(*proj.strategies, strategy))
-        new_projects = dict(state.projects)
-        new_projects[project_id] = updated_proj
+        updated_proj = replace(proj, strategies=proj.strategies.append(strategy))
 
         mets = replace(state.metrics, total_strategies=state.metrics.total_strategies + 1)
         evt = StrategyRegistered(
@@ -47,4 +48,9 @@ class StudioRegistry:
             strategy.strategy_id,
         )
 
-        return replace(state, projects=new_projects, metrics=mets, events=(*state.events, evt))
+        return replace(
+            state,
+            projects=state.projects.set(project_id, updated_proj),
+            metrics=mets,
+            events=state.events.append(evt),
+        )

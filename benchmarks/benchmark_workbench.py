@@ -1,9 +1,21 @@
-"""High-performance benchmarking suite for the functional Graphical Workbench."""
+"""High-performance benchmarking suite for the functional Graphical Workbench.
+
+Measures one full UI cycle: the Workbench delegates a backtest to Strategy
+Studio, renders the result tab, and the user closes it again.
+
+The tab is closed by asking the Workbench which tab is open
+(:func:`~alphalab.workbench.views.active_tab`), not by reconstructing its
+identifier. Studio mints its own ``result_id`` for every run and the tab is
+named after that, so ``bt-<backtest_id>`` -- what this benchmark used to
+close -- names a tab that was never opened. That is why it raised
+``WorkbenchValidationError: Tab 'bt-BT-0' is not open.`` on its first iteration,
+identically at every tag back to v2.14.
+"""
 
 import time
 
 from alphalab.studio import BacktestConfiguration, Project, StrategyStudioEngine
-from alphalab.workbench import WorkbenchEngine
+from alphalab.workbench import WorkbenchEngine, WorkbenchManager, active_tab
 
 
 def run_benchmark() -> None:
@@ -33,11 +45,13 @@ def run_benchmark() -> None:
         )
 
         # 2. Simulate User closing the tab immediately to prevent infinite array growth
-        from alphalab.workbench.manager import WorkbenchManager
+        rendered = active_tab(wb_state)
+        if rendered is None:
+            raise AssertionError("run_backtest rendered no tab")
 
         wb_state = WorkbenchManager.close_tab(
             wb_state,
-            f"bt-{configs[i].backtest_id}",
+            rendered.tab_id,
             float(1001 + i),
         )
 

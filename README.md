@@ -38,19 +38,87 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.13.0**
+**Current Release:** **v2.16.0**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.13.0 |
-| Tests | **3190 Passing** |
-| Static Typing | **Strict MyPy** (903 source files) |
+| Version | 2.16.0 |
+| Tests | **3767 Passing** |
+| Static Typing | **Strict MyPy** (1003 source files) |
 | Linting | **Ruff Clean** |
+| Benchmarks | **50 / 50 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+*(This block read "v2.13.0 / 3190 tests" through v2.14 and v2.15 — two releases
+that shipped without updating it. The v2.16 audit found it and it is part of what
+ADR-0032 records; the release checklist now has to touch it.)*
+
+v2.16.0 — "The Integrated Runtime, Governance and FX" — closes three *joins*,
+and audits everything else.
+
+**A deployment decision now reaches a fill at a venue.** `LiveSession` is the
+loop v2.15 left to the caller: settle what the venue reported, advance the run,
+route what is newly working. `runtime/session.py` used to say against itself
+that "a live session driven by this module still produces working orders and
+stops"; it does not any more. The venue binding is durable, so a restarted run
+does not re-send an order the venue already holds — and
+`alphalab.lifecycle.execution.authorize_run` refuses a run that would serve a
+version the deployment ledger does not name.
+
+**Every act that changes what is live names its principal.** ADR-0018 was
+written in v2.7 and deferred; v2.16 implements it. A promotion, a deployment and
+a rollback each require a permission and each record their actor, a deployment
+to a gated environment requires an approval from someone *other than* the
+deployer, and `governance_log` answers "who promoted this, and who deployed it"
+— the question that ADR said was unanswerable. `alphalab.enterprise` had a
+complete RBAC implementation and, until now, zero production consumers.
+
+**A book holding two currencies values as one figure.** Four ADRs deferred to
+"the release that supplies the rate source". Every rate is *supplied* and
+carries where it came from and when it was true: there is no default, no
+fallback of 1.0, no triangulation and no silent inversion, and a stale rate is
+refused rather than used. A converted valuation records every conversion it
+performed, because a number in a currency the book is not wholly in, with no
+statement of how it got there, is the defect ADR-0020 removed wearing a rate.
+
+The three are additions, not a rewrite, and one test says so: the live driver
+added no field to `RunState` and moved no run schema, FX added no field to run
+configuration and moved no pipeline schema, and governance moved exactly one
+schema — its own.
+
+Alongside them, **the refactor audit**: a deliberate search for the internal
+problems that would make AlphaLab worth refactoring *immediately after*
+declaring v3.0 stable, and a classification of every one of them as **required
+before v3.0**, **valid current design**, or **optional post-v3.0 evolution**.
+Nothing is left as "maybe".
+
+Six were required. The strategy dispatcher identified market events by class
+*name*, so `alphalab.live.events.TickReceived` — a different class with a
+different payload — was routed to `on_tick` and the strategy was then reported
+as having failed. Four of the six `StrategyContext` protocols were still
+decorative, so under `mypy --strict` a strategy could not write
+`context.portfolio.cash("USD")` at all. `benchmarks/benchmark_workbench.py` had
+never once run, and underneath its crash were three production defects: a
+rendered tab whose identifier no view exposed, a per-delegation scan of the whole
+Studio event log, and the pre-v2.1 quadratic accumulation in both packages. A
+portfolio optimizer returned silently wrong allocations for mismatched inputs.
+`ARCHITECTURE.md` still listed two gaps that v2.3 had closed.
+
+Eleven findings are recorded as **intentional**, each pinned by a regression test
+so a future "unification" has to break an assertion and read a reason first — the
+two `OrderBook`s, the two `PortfolioEngine`s, `optimizer` against
+`portfolio_optimizer`, the converged `broker` / `brokers` boundary, the two
+matrix inversions, the deprecated zero-consumer packages, the absent CLI, the
+absent vectorized layer, and `lifecycle` taking `studio`'s single
+`StrategyDefinition` rather than declaring a second one. Four are recorded as
+**future evolution** and deliberately not implemented.
+
+No boundary moved that was not moved deliberately, and no owner was created.
+See ADR-0032 and ADR-0033.
 
 v2.13.0 — "Durable Run State" — gives a captured run somewhere to go.
 
@@ -669,6 +737,42 @@ codec spine canonical; and `production.Checkpoint` / `RecoveryEngine` documented
 as the bookkeeping they are. No FX, no artifact storage, no streaming, no live
 transport, no governance implementation, no runtime rewrite. See ADR-0029.
 
+**v2.14.0** — runtime unification: `RunEngine` over `RunState` as the one owner
+of a run — cursor, skips, per-record steps and the identifier-stream scope a
+stopped run continues in — with `TradingSession`, `BacktestEngine` and
+`ReplayBacktest` reduced to *drivers* that decide only which record comes next.
+`ExecutionPipeline` keeps the execution step and nothing else. The orphan
+lifecycle state machine in `alphalab.runtime` and the whole of
+`alphalab.production` are deprecated for v3.0 removal. See ADR-0030.
+
+**v2.15.0** — the five capabilities that had a contract and nothing behind it:
+`HttpVenueTransport` and `RestVenueBroker` reaching a venue over HMAC-signed
+HTTP; `alphalab.marketdata.websocket` (RFC 6455) and `market.stream.StreamingSource`
+as a `MarketDataSource` with the full subscription lifecycle; a content-addressed
+`ArtifactStore` that holds bytes and produces the `ArtifactRef` the registry has
+recorded since v2.4; classification provenance with an append-only history and a
+durable registry snapshot; and `StrategyContext.history` / `.universe`
+populated, closing the two fields ADR-0026 deferred. Each landed on a boundary
+that already existed. See ADR-0031.
+
+**v2.16.0** — three joins and an audit. **Integrated runtime**:
+`runtime.live.LiveSession`, the settle/advance/route loop, with the venue
+binding made durable (`broker.snapshot`, `runtime.live_snapshot`) and
+`lifecycle.execution` refusing a run that would serve a version the ledger does
+not name. **Approval, RBAC and audit**: ADR-0018's seam implemented —
+`Governance` required at every governed entry point, the actor on both persisted
+records, separation of duties on approval, `governance_log`, and one deliberate
+lifecycle schema bump that refuses version 1. **True FX**: `portfolio.fx` holds
+supplied rates with provenance, no triangulation and no silent inversion, and a
+mixed book values as one figure that records every conversion. Plus the
+**refactor audit**: twenty-one structural findings, every one classified as
+required / intentional / future, with six fixed — exact market-event routing,
+real members on four `StrategyContext` protocols, `workbench.views.active_tab`
+and the canonical containers in `studio` / `workbench` (so
+`benchmark_workbench.py` runs its 100,000-iteration workload for the first
+time), refusal of inconsistent portfolio-optimizer inputs, and a truth-up of
+stale architecture claims. See ADR-0032 and ADR-0033.
+
 See `CHANGELOG.md` and `ROADMAP.md`.
 
 ## Not yet addressed
@@ -680,10 +784,12 @@ See `CHANGELOG.md` and `ROADMAP.md`.
   environment has no network egress and holds no vendor credentials — and no named
   vendor's request shapes are implemented. The `integrations` broker clients remain
   canned-response stubs
-- **A live driver.** `TradingSession` reads a source and advances the run; routing
-  working orders and applying returning executions as the run proceeds is the
-  caller's loop. Under ADR-0030 that is a third driver alongside the session and the
-  backtest, and v2.15 did not write it
+- ~~**A live driver.**~~ **Delivered in v2.16.** `alphalab.runtime.live.LiveSession`
+  is the third driver ADR-0030 anticipated: settle the fills the venue reported,
+  advance the run, route what is newly working. The venue binding is durable, so
+  a restarted run does not re-send an order the venue already holds. What is
+  still absent is the same thing as before — verification against a commercial
+  venue, and any named vendor's request shapes. See ADR-0033
 - **Classification data.** v2.11 supplies the security master's *mechanism* —
   `classify_instrument` writes a sector and the execution path reads it onto
   every fill — but AlphaLab ships no taxonomy and no reference-data feed, so a
@@ -695,19 +801,46 @@ See `CHANGELOG.md` and `ROADMAP.md`.
   separate decision
 - A single integrated runtime spanning *all* engines. The **run** layer is one
   owner as of v2.14 — `RunEngine`/`RunState` over `ExecutionPipeline`, with
-  `TradingSession`, `BacktestEngine` and `ReplayBacktest` as drivers (ADR-0030)
-  — but `alphalab.lifecycle` is deliberately not joined to it, and research,
-  reporting, feature store and the rest remain standalone libraries
-- Approval workflow. A promotion is an auditable privileged action, but it is not
-  wired to `alphalab.enterprise`'s RBAC or audit log
+  `TradingSession`, `BacktestEngine`, `ReplayBacktest` and, from v2.16,
+  `LiveSession` as drivers (ADR-0030). **v2.16 joins `alphalab.lifecycle` to
+  it**: `run_plan` resolves what an environment says should run and
+  `authorize_run` refuses a run that would serve anything else. That join is a
+  query with a refusal and not a second runtime — it constructs no strategy and
+  builds no `RunConfig`, because a `StrategyDefinition` is metadata and not
+  code. Research, reporting, feature store and the rest remain standalone
+  libraries by design (ADR-0009)
+- ~~Approval workflow.~~ **Delivered in v2.16**, as ADR-0018 recorded it.
+  `Governance` is required at every entry point that changes what is live, the
+  actor reaches both persisted records, a deployment to a gated environment
+  needs an approval from someone other than the deployer, and `governance_log`
+  answers who did what and when. Permanently out of scope, per ADR-0018:
+  authentication, credential handling, IAM and federation
 - Allocation visibility inside `StrategyContext`. Reservations and contributions
   are post-intent facts; showing a strategy the capital its own intent will
   reserve invites it to pre-size, duplicating the allocation engine's authority
-- Multi-currency valuation. `PortfolioValuation.snapshot` has refused a book it
-  cannot express as one figure since v2.8, and as of v2.12 so do
-  `NAVCalculator.calculate`, `portfolio_value` and `_risk_exposure`; valuing
-  *across* currencies needs an FX rate source that does not exist here. A run
-  settles in exactly one currency, which v2.12 makes explicit: a pipeline whose
+- **A depth hook on `StrategyProtocol`.** `BookUpdated` and `SnapshotCreated`
+  reach no strategy hook. v2.16 made that a stated boundary rather than an
+  accident of a routing list, but it did not add the hook: delivering an
+  `OrderBookSnapshot` to `on_quote` would hand existing strategies a payload
+  with no `quote`, and a new hook is a strategy-API decision needing its own
+  evidence. See ADR-0032
+- **Quadratic accumulation in ten standalone packages.** `scheduler`,
+  `feature_store`, `integrations`, `distributed`, `plugins`, `reporting`,
+  `optimizer`, `data`, `cluster_scheduler` and `portfolio_optimizer` still grow
+  their event logs and indexes by copying. Measured, `alphalab.scheduler` grows
+  at ~3.2–3.8x per doubling. None is on the execution path and every one of
+  their benchmarks completes, so v2.16 recorded it with the measurement rather
+  than pulling the conversion in. `studio` and `workbench` were converted
+  because `benchmark_workbench.py` could not otherwise run. See ADR-0032
+- **Multi-currency *settlement*.** Valuation across currencies arrived in v2.16:
+  `alphalab.portfolio.fx` supplies rates with provenance and a mixed book values
+  as one figure that records every conversion. What is still absent is a
+  pipeline that *trades* two currencies, and ADR-0033 decision 13 names the four
+  blockers: `realized_pnl` and `commission_paid` are single cumulative scalars
+  naming no currency, allocation sizes against a budget in one currency, and
+  risk limits are stated in one. AlphaLab also ships no FX data, exactly as it
+  ships no classification data. A run settles in exactly one currency, which
+  v2.12 makes explicit: a pipeline whose
   settlement currency is EUR trades EUR instruments end to end, and one whose
   settlement currency is USD refuses them rather than mis-booking them.
   `PortfolioEngine` and `CashLedger` remain multi-currency and a wholly foreign

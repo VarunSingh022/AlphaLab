@@ -112,6 +112,13 @@ class StrategyPromotionRecord:
         reason: Why it moved -- the evidence that justified a promotion, the
             environment a deployment targeted, the rollback that restored it.
         timestamp: Unix timestamp the transition happened.
+        actor_id: The ``enterprise.Principal.principal_id`` that made the move.
+            ``""`` means *not recorded*, which is the truthful reading of every
+            record written before v2.16 and of any move made by an internal
+            transition that no principal requested -- an incumbent archived
+            because it was displaced, for instance. It is deliberately not
+            ``None``: the field is a reference like ``run_id`` and
+            ``evidence_id``, and those are strings. See ADR-0018 and ADR-0033.
     """
 
     name: str
@@ -120,6 +127,7 @@ class StrategyPromotionRecord:
     to_stage: ModelStage
     reason: str
     timestamp: float
+    actor_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
