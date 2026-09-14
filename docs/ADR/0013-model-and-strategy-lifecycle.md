@@ -9,6 +9,17 @@ Extends ADR-0009 (integrated path vs. standalone engines) for four packages:
 `research_assistant` are now composed by `alphalab.lifecycle`, in the way
 ADR-0010 did for `replay`. Every other package listed there is unaffected.
 
+
+> **Factual correction (v3.0.0), scope: one word.** This ADR and its consequences
+> describe `alphalab.lifecycle` as composing four packages including
+> `research_assistant`. The lifecycle **does not import** `research_assistant`:
+> it imports `experiment_tracking`, `model_registry`, `deployment_manager`,
+> `studio`, `enterprise`, `research` and `backtesting`. `research_assistant`
+> produces a candidate and `to_strategy_definition` lifts it into the canonical
+> `StrategyDefinition` the lifecycle takes, so the dependency runs through the
+> definition rather than the package. Nothing about the decision changes; the
+> description of one edge does.
+
 ---
 
 # Context

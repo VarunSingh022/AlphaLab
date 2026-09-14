@@ -4,7 +4,14 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v2.17)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.0)** section below.
+
+> **How to read this document.** The **Implementation Status** section and
+> everything up to *Known boundaries* describe what is **built**. From
+> **Design Goals** onward the document describes the architectural *model* —
+> principles, layering rules, extension points and a long-term target. As of
+> v3.0.0 both halves name only packages that exist; where the target half shows a
+> capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 
@@ -12,15 +19,17 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v2.17)
+# Implementation Status (v3.0)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
 
 *(It was headed "v2.5" from v2.5 through v2.16 and still said the two paths below
-were unjoined, which v2.16 made false. The v2.17 documentation audit found it;
-this is the same defect class ADR-0032 recorded for the README's release-status
-table, and the release checklist now has to touch all three.)*
+were unjoined, which v2.16 made false; the v2.17 audit corrected that. The v3.0
+audit read the rest of this document and found the same defect class throughout
+its target-architecture half — see the v3.0.0 entry in `CHANGELOG.md` for the
+full list. The release checklist now has to touch `README.md`, this section and
+`docs/README.md` together.)*
 
 There are **two** wired-together paths, and as of v2.16 they meet:
 
@@ -46,7 +55,9 @@ owned by `RunEngine` and driven by four interchangeable drivers (v2.14); orders
 reach a real venue over signed HTTP and fills come back through the same path a
 simulated fill takes (v2.15, v2.16); every act that changes what is live names
 its principal (v2.16); and a run settles in more than one currency, reporting in
-one, with rates that arrive across a feed boundary (v2.17).
+one, with rates that arrive across a feed boundary (v2.17). **v3.0.0 adds no
+capability**: it freezes the architecture described here and makes the
+documentation match it.
 
 ## AlphaLab is a library
 
@@ -96,13 +107,16 @@ MarketDataset (MarketRecord: Quote | Bar | Tick + event_id + timestamp)
    → AnalyticsEngine.compile_report              (on finalize)
 ```
 
-`backtesting.engine.advance` wraps `ExecutionPipeline.process_record` with the
-run's own bookkeeping, and there are two drivers for it:
+`backtesting.engine.advance` wraps `RunEngine.advance` with the run's own
+bookkeeping, and two of AlphaLab's four drivers live in this package:
 
 | Driver | Cursor | Everything else |
 | --- | --- | --- |
 | `BacktestEngine.run` | iterates `dataset.records` | `advance` |
 | `ReplayBacktest.run` | `ReplayEngine.step_one_event` | `advance` |
+
+The other two are `runtime.session.TradingSession` over any `MarketDataSource`
+and `runtime.live.LiveSession` over a venue. All four call the same step.
 
 Because both call the same function, backtest/replay parity is structural rather
 than a coincidence the tests happen to observe. `MarketRecord` satisfies
@@ -315,7 +329,8 @@ a lost response addresses the same order rather than creating a second one.
 | **A `BrokerProtocol` adapter over it** | **Implemented (v2.15).** `alphalab.broker.venue.RestVenueBroker` — submit, acknowledge, reject, cancel, replace, poll fills, reconcile, recover |
 | **A streaming market-data source** | **Implemented (v2.15).** `alphalab.market.stream.StreamingSource` over `alphalab.marketdata.websocket`, an RFC 6455 client |
 | Verification against a commercial venue | **Not done, and cannot be here.** This environment has no network egress and holds no vendor credentials |
-| Vendor adapters (Alpaca, IB, Zerodha, Binance, Databento, NSE, Polygon, Yahoo) | **Stubs** — canned responses or `NotImplementedError`. None is wired to an endpoint |
+| Vendor market-data clients | **One real, four not.** `alphalab.marketdata.binance` is a real REST client over the shared HTTP transport, parsing `/api/v3/klines`, `/bookTicker`, `/trades` and `/depth` — real since v1.39.0 and **unverified from this environment**, which is not the same as a stub. `databento`, `nse`, `polygon` and `yahoo` raise `NotImplementedError` rather than returning fabricated data |
+| Vendor *broker* adapters | **None.** The canned-response Alpaca / IB / Zerodha clients lived in `alphalab.integrations` and were removed in v2.17 (ADR-0034). Implementing one means implementing that venue's request shapes over `HttpVenueTransport` |
 | **A live driver** | **Implemented (v2.16).** `alphalab.runtime.live.LiveSession` — settle the fills the venue reported, advance the run, route what is newly working — with the venue binding made durable by `alphalab.broker.snapshot`. See ADR-0033 |
 | A supervised live *process* | **Not implemented.** Supervision — restart policy, alerting, scheduling — is an operator's concern and AlphaLab has no opinion about it. `live_health` answers "should a human look at this?"; acting on the answer is the caller's |
 
@@ -339,8 +354,11 @@ See ADR-0012 and ADR-0031.
 
 ## The model and strategy lifecycle: `alphalab.lifecycle` (v2.4)
 
-The third integration package. It adds no engine and no state any of the four
-packages it composes already defines.
+The third integration package. It adds no engine, and no state that any of the
+packages it composes already defines. It imports `experiment_tracking`,
+`model_registry`, `deployment_manager`, `studio`, `enterprise`, `research` and
+`backtesting`; `research_assistant` below is the producer of the candidate and is
+**not** imported — the dependency runs through the `StrategyDefinition`.
 
 ```
 research candidate         (research_assistant.generate_candidates)
@@ -449,20 +467,38 @@ no connection, and reaches no venue.
 
 See ADR-0013.
 
-## State round-trip: `capture` / `restore` (v2.5)
+## State round-trip: `capture` / `restore` (v2.5 onward)
 
 Every AlphaLab state has serialized deterministically since v2.1. Until v2.5
 exactly one could be read back: `deserialize()` returns `Any`, so a snapshot came
 back as nested dictionaries, and only `alphalab.oms.snapshot` turned those into
-typed values again.
+typed values again. **Every durable state round-trips now**, each through its own
+owning module, its own schema constant and its own typed decoder:
 
-| State | Round-trips | Notes |
-| --- | --- | --- |
-| `OMSState` | ✅ v2.2 | book indices rebuilt by replaying `add` |
-| `PortfolioState` | ✅ v2.5 | cash, positions, ledger, typed event history |
-| `LifecycleState` | ✅ v2.5 | model objects supplied by the caller — see below |
-| `ExecutionPipelineState` | ❌ | holds `StrategyProtocol` instances, an `ExecutionSimulator`, a `SizingModel` |
-| `RunState` | ❌ | same blocker, through `config` and `pipeline` |
+| State | Snapshot owner | Schema | Since |
+| --- | --- | --- | --- |
+| `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA = 1` | v2.2, versioned v2.9 |
+| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA = 3` | v2.5 |
+| `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA = 2` | v2.5 |
+| `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA = 1` | v2.9 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 3` | v2.9 |
+| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 1` | v2.14 |
+| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 1` | v2.15 |
+| `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 1` | v2.16 |
+| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA = 1` | v2.16 |
+| `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA = 1` | v2.17 |
+
+The blocker this table used to record for the pipeline and the run — that they
+hold `StrategyProtocol` instances, an `ExecutionSimulator` and a `SizingModel` —
+was never a serialization problem but an ownership one, and ADR-0023 answered it:
+a snapshot records *what the object was*, by type, and a restore requires the
+caller to supply it back, raising rather than substituting. `RunObjects` and
+`RuntimeObjects` are that hand-back.
+
+A payload is stored by `alphalab.persistence.RunStateStore` over
+`(run_id, sequence)` — payload-agnostic, one real file backend with atomic writes
+and a digest verified before any decoder runs, one explicitly named in-memory
+double, and no fallback between them (ADR-0029).
 
 ### The contract
 
@@ -765,25 +801,31 @@ portfolio was supplied* stays distinguishable from *the book is empty*.
 
 ## Standalone engine libraries
 
-Everything else is an independent, deterministic, individually tested library
-that is **not** wired into `ExecutionPipeline`, `backtesting`, `lifecycle`, or a
-shared runtime: `portfolio_optimizer`, `optimizer`, `reporting`,
+An independent, deterministic, individually tested library that is reached by
+**neither** wired path: `portfolio_optimizer`, `optimizer`, `reporting`,
 `feature_store`, `factor_library`, `alt_data`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
-`cloud_research`, `cluster_scheduler`, `distributed`, `studio`,
-`workbench`, `enterprise`, `live`, `brokers`,
-`data`, `marketdata`, `feed`, `plugins`, `scheduler`, `persistence`.
+`cloud_research`, `cluster_scheduler`, `distributed`, `workbench`,
+`research_assistant`, `live`, `feed`, `brokers`, `plugins`, `scheduler`.
 (`production`, `integrations` and `kernel` were on this list until v2.17, which
 removed them — see ADR-0034.)
 
-As of v2.3, `alphalab.broker` is reachable from the execution path through
-`alphalab.runtime.broker_routing`, and `alphalab.data.feed` /
+Six packages often listed as standalone are **not**, and the import graph is the
+authority. `alphalab.broker` is reached from the execution path through
+`alphalab.runtime.broker_routing` (v2.3); `alphalab.data.feed` and
 `alphalab.marketdata.feed` supply the wire records
-`alphalab.market.normalization` lifts. As of v2.4, `experiment_tracking`,
-`model_registry`, `deployment_manager` and `research_assistant` are composed by
-`alphalab.lifecycle`, and `research` / `analytics` supply the reports it
-extracts evidence from — `research` itself is otherwise still standalone. The
-rest of those packages, `brokers` and `live` included, remain standalone.
+`alphalab.market.normalization` lifts, and `marketdata` is imported by `market`;
+`instrument` is read by the pipeline on the fill path (v2.11, v2.12); and
+`persistence` supplies the codec spine and the `RunStateStore` every snapshot
+owner writes through.
+
+`alphalab.lifecycle` imports `experiment_tracking`, `model_registry`,
+`deployment_manager`, `studio`, `enterprise`, `research` and `backtesting`. It
+does **not** import `research_assistant`: that package produces a candidate and
+`to_strategy_definition` lifts it into the canonical `StrategyDefinition` the
+lifecycle takes, so the dependency runs through the definition rather than the
+package. `README.md`, `docs/README.md`, this document and ADR-0013 said
+"composes `research_assistant`" from v2.4 until v3.0 corrected it.
 
 ## Canonical domain models (v2.0.0, R1–R4)
 
@@ -807,9 +849,13 @@ equity == deposits - withdrawals + realized_pnl + unrealized_pnl - commission_pa
 | Quantity | Where it lives | Moved by |
 | --- | --- | --- |
 | `cash` | `PortfolioState.cash` (`CashLedger`) | deposits, withdrawals, trade proceeds/cost, commissions |
-| `realized_pnl` | `PortfolioState.realized_pnl` (cumulative) | reducing or closing a position |
-| `commission_paid` | `PortfolioState.commission_paid` (cumulative) | every fill, exactly once |
+| `realized_pnl` | `PortfolioState.realized_pnl` — `CurrencyAmounts`, cumulative **per currency** since v2.17 | reducing or closing a position |
+| `commission_paid` | `PortfolioState.commission_paid` — `CurrencyAmounts`, cumulative **per currency** since v2.17 | every fill, exactly once |
 | unrealized P&L | derived, never stored | marking positions to market |
+
+Both totals were single scalars naming no currency until v2.17. They are now
+per-currency, so a EUR fill accrues EUR P&L and nothing is ever summed across
+two — see *Settlement in more than one currency* above.
 
 - **Realized P&L is not a cash movement.** It is already implicit in the entry
   cost and the exit proceeds, each applied on its own fill. Adding it to cash a
@@ -841,15 +887,18 @@ on the event, and resyncs the risk state from the marked book, so **risk**
 evaluates against a portfolio valued at the current market. Marks are applied at
 the event's mid price (quote), close (bar) or trade price (tick).
 
-Two honest limits on that reach:
+Two notes on that reach:
 
-- **The strategy does not see the marked portfolio.** `StrategyEngine.process_event`
-  builds each strategy's `StrategyContext` from the caller-supplied
-  `context_factory`; the pipeline does not populate it. A strategy that wants
-  portfolio state must obtain it through its own context factory.
-- **Allocation does not see the portfolio at all.** `AllocationEngine.allocate`
-  sizes from market prices and its `CapitalBudget`, neither of which the mark
-  changes.
+- **The strategy sees the marked portfolio, as of v2.10.** `ExecutionPipeline`
+  assembles the context from the marked-portfolio and resynced-risk locals and
+  overlays them onto whatever the caller's `context_factory` returned, so a
+  strategy reads the book as of the event being dispatched rather than the
+  previous one. This paragraph said the opposite from v2.1 until v3.0, four
+  releases after ADR-0026 made it false and two sections away from the text that
+  already said so. See *The strategy boundary* below.
+- **Allocation does not see the portfolio at all**, and that is unchanged.
+  `AllocationEngine.allocate` sizes from market prices and its `CapitalBudget`,
+  neither of which the mark changes.
 
 `PortfolioValuation.snapshot(state, timestamp, currency)` is the read model:
 cash, long/short/positions value, unrealized and realized P&L, commissions and
@@ -1159,7 +1208,7 @@ fixed, and each has a regression test pinning it:
 | `OMSState` cannot be JSON-serialized as a whole state | explicit snapshot projection, round-trips (`tests/regression/test_oms_state_snapshot.py`) |
 | Replay is not integrated with the real execution path | `alphalab.backtesting.replay`, parity tested (`tests/integration/test_backtest_replay_parity.py`) |
 
-## Known gaps and deferred areas
+## Known boundaries, and what closed them
 
 - **Market-data model convergence was done in v2.3, and this entry described
   the state before it** (corrected in v2.16). The third `Bar` is gone:
@@ -1183,10 +1232,13 @@ fixed, and each has a regression test pinning it:
   aliases. `tests/regression/test_removed_surfaces_stay_removed.py` asserts each
   name is absent, that no package serves one through a `__getattr__`, and that
   none is re-exported under a different spelling.
-- **A strategy still does not see the marked portfolio.** `StrategyContext`
-  comes from the caller's `context_factory`; neither `ExecutionPipeline` nor
-  `BacktestEngine` populates it. Allocation sizes from market prices and its
-  capital budget, not from the portfolio.
+- ~~**A strategy still does not see the marked portfolio.**~~ **False since
+  v2.10** (ADR-0026), and corrected in v3.0. The pipeline overlays the marked
+  portfolio, the strategy's live order shares, and read-only risk and market
+  views onto the caller's context; v2.15 added `history` and `universe` and v2.16
+  gave all six protocols real members. Allocation still sizes from market prices
+  and its capital budget, not from the portfolio, and that is deliberate
+  (ADR-0015).
 - **`ExecutionPipeline` mints a fresh order per market event and never re-works
   an existing one.** A partially filled order is cancelled at the end of its
   execution opportunity (v2.5) and its residual reservation released; it is not
@@ -1316,7 +1368,7 @@ Examples include:
 - Universal Data
 - Replay
 - Runtime
-- Broker Integrations
+- The broker boundary
 
 Subsystems cooperate through stable interfaces rather than direct coupling.
 
@@ -1328,13 +1380,18 @@ AlphaLab is designed with production deployment in mind.
 
 Features such as:
 
-- Runtime supervision
-- Health monitoring
-- Checkpointing
-- Deterministic replay
-- Broker abstraction
+- Durable run state, continuable across a process boundary
+- Deterministic replay, and backtest/replay/paper/live parity on one step
+- Broker abstraction with reconciliation and idempotent submission
+- Governance: every act that changes what is live names its principal
+- Health *reporting* (`live_health`)
 
 are considered first-class architectural components rather than optional add-ons.
+
+**Supervision is not one of them.** Restart policy, alerting, process management
+and scheduling are an operator's concern, and AlphaLab has no opinion about them:
+`alphalab/production` tried to own them, had zero importers, and was removed in
+v2.17 (ADR-0034). AlphaLab reports; the caller decides.
 
 ---
 
@@ -1363,16 +1420,20 @@ Consistency across packages significantly reduces maintenance complexity as the 
                                  ▼
                         Strategy Studio
                                  │
-        ┌─────────────┬─────────────┬─────────────┐
-        ▼             ▼             ▼             ▼
- Universal Data   Research Engine Portfolio Optimizer Production Runtime
-        │             │             │             │
-        └─────────────┴─────────────┴─────────────┘
-                                 │
-                        Broker Integrations
-                                 │
-                                 ▼
-                            Live Markets
+        ┌─────────────┬──────────┴──┬──────────────┐
+        ▼             ▼             ▼              ▼
+ Universal Data   Research      Portfolio     Model & Strategy
+    Engine         Engine       Optimizer       Lifecycle
+        │             │             │              │
+        └─────────────┴──────┬──────┴──────────────┘
+                             ▼
+                  Execution path (RunEngine)
+                             │
+                             ▼
+                     Broker boundary
+                             │
+                             ▼
+                        Live Markets
 ```
 
 The architecture is intentionally layered.
@@ -1432,7 +1493,7 @@ Each layer has clearly defined responsibilities and dependency rules.
                          ▼
 +------------------------------------------------------+
 |                Infrastructure Layer                  |
-| Events • Persistence • Plugins • Scheduler • Kernel  |
+|  Common • Persistence • Plugins • Scheduler          |
 +------------------------------------------------------+
                          │
                          ▼
@@ -1702,9 +1763,21 @@ alphalab/runtime
 
 ### Responsibility
 
-Coordinates execution of AlphaLab components.
+Owns execution in two tiers, and nothing else.
 
-Handles runtime lifecycle while remaining independent of production deployment.
+`ExecutionPipeline` owns the **execution step**: one market event through market,
+strategy, allocation, risk, OMS, execution, portfolio and analytics, as pure
+functions over one immutable `ExecutionPipelineState`. `RunEngine` owns the
+**run**: how far it has read, what it declined to act on, what each record
+produced, and the identifier scope a stopped run continues in.
+
+Around them sit **drivers**, which own the input and the clock and nothing else —
+`TradingSession`, `BacktestEngine`, `ReplayBacktest` and `LiveSession`. A driver
+holds no execution state and no run state; that is what makes backtest, replay,
+paper and live one loop rather than four. `runtime.broker_routing` is the
+boundary an order crosses to reach a venue and its fills cross to come back.
+
+See ADR-0030.
 
 ---
 
@@ -1767,15 +1840,20 @@ Infrastructure packages provide shared capabilities used across the platform.
 
 ---
 
-## Events
+## Common
 
 ```
-alphalab/events
+alphalab/common
 ```
 
-Provides immutable event infrastructure.
+Provides the shared substrate: the package version, `BaseEvent`, deterministic
+serialization, the seeded identifier source, the persistent containers
+(`AppendOnlyLog`, `PersistentMap`, `PersistentSet`) and the one TLS policy.
 
-Every major subsystem communicates through events.
+**There is no `alphalab/events` package and no event bus.** Events are immutable
+values carried on the state that produced them; each package defines its own in
+its own `events.py`, and a caller reads them off the returned state. `alphalab.common`
+imports nothing else in `alphalab`, which is what keeps it the bottom layer.
 
 ---
 
@@ -1785,13 +1863,19 @@ Every major subsystem communicates through events.
 alphalab/persistence
 ```
 
-Provides durable storage.
+Provides the codec spine and the one durable-storage boundary.
 
-Examples include:
+- **Serialization** — `serialize` writes deterministic JSON and raises on
+  anything it has no explicit branch for.
+- **Typed decoding** — `alphalab.persistence.decode` raises `StateDecodeError`
+  naming the field. It is deliberately not a reflective object mapper.
+- **`RunStateStore`** — four methods over `(run_id, sequence) → payload`.
+  Payload-agnostic: it moves a `str`, imports no snapshot type and decodes
+  nothing. `FileRunStateStore` is the real backend; `MemoryRunStateStore` is an
+  explicitly named double that nothing selects automatically.
 
-- Snapshots
-- Checkpoints
-- Serialization
+Each domain package owns its own snapshot projection and its own schema constant;
+persistence owns the codec and the store, never the schema. See ADR-0029.
 
 ---
 
@@ -1884,10 +1968,14 @@ May depend on:
 - Universal Data
 - Replay
 - Runtime
-- Production
 - Reporting
 
 Must not depend directly on provider implementations.
+
+*(In the implementation `alphalab.studio` depends only on `alphalab.common`; it
+is `alphalab.lifecycle` that composes the lifecycle packages and takes Studio's
+`StrategyDefinition`. The rule above is the layering permission, not a claim
+about current imports.)*
 
 ---
 
@@ -1918,7 +2006,7 @@ May depend on:
 Must not depend on:
 
 - Workbench
-- Production
+- Lifecycle
 
 ---
 
@@ -1936,29 +2024,22 @@ Must never depend on:
 
 ---
 
-## Production
-
-May depend on:
-
-- Runtime
-- Integrations
-
-Must not depend on:
-
-- Research
-- Portfolio
-
----
-
-## Integrations
+## Adapters (`broker`, `brokers`, `marketdata`, `live`, `feed`)
 
 May depend only on:
 
 - Core interfaces
 - Protocols
-- Authentication
+- The canonical domain models they translate into
 
-They must never import higher-level AlphaLab modules.
+They must never import higher-level AlphaLab modules. An adapter converts a
+provider's or venue's shapes into canonical AlphaLab values at the boundary, and
+nothing above it learns which provider it was.
+
+*(`alphalab/production` and `alphalab/integrations` had their own rules here
+until v2.17 removed both packages — see ADR-0034. Supervision is an operator's
+concern and AlphaLab has no opinion about it; the venue boundary is
+`alphalab.broker`.)*
 
 ---
 
@@ -2081,10 +2162,10 @@ The intended lifecycle of a quantitative strategy within AlphaLab is illustrated
                   AlphaLab Workbench
                            │
                            ▼
-                 Production Runtime
+              Model & Strategy Lifecycle
                            │
                            ▼
-                Broker Integrations
+                    Broker boundary
                            │
                            ▼
                      Live Markets
@@ -2290,34 +2371,41 @@ The Workbench delegates every operation to Strategy Studio.
 
 ---
 
-# Stage 9 — Production Runtime
+# Stage 9 — Model and Strategy Lifecycle
 
-Once validated, strategies enter production.
+Once validated, a strategy version is promoted and deployed.
+`alphalab.lifecycle` provides
 
-Production Runtime provides
+- Validation evidence with content-derived identity
+- A gated promotion
+- The deployment ledger as the one answer to what is live
+- Deterministic rollback
+- Governance: who may change what is live, and who did
 
-- Supervision
-- Health monitoring
-- Checkpointing
-- Recovery
-- Process management
+A deployment is a lifecycle *fact*: it records that an environment should be
+running a strategy version. It starts no process and opens no connection.
 
-Production is intentionally isolated from research.
+**Supervision is not here.** Restart policy, alerting and process management are
+an operator's concern; `alphalab/production` attempted them, had zero importers,
+and was removed in v2.17 (ADR-0034). `live_health` answers "should a human look
+at this?" and the caller decides what to do about it.
 
 ---
 
-# Stage 10 — Broker Integrations
+# Stage 10 — The broker boundary
 
-The final stage communicates with external brokers.
+The final stage reaches a venue.
 
-Supported providers include
+- `alphalab.broker.protocol.BrokerProtocol` — **one** venue. `PaperBroker` is the
+  reference simulation and `RestVenueBroker` the real adapter over
+  `HttpVenueTransport`.
+- `alphalab.brokers.protocol.BrokerConnectorProtocol` — **many** venues and many
+  accounts, routing the canonical `alphalab.broker` types.
 
-- Paper Trading
-- Alpaca
-- Interactive Brokers
-- Zerodha
-
-Additional providers can be integrated without modifying higher-level modules.
+Additional venues are integrated by implementing the protocol in their own
+package, without modifying higher-level modules. **No named vendor's request
+shapes are implemented**, and nothing here has been verified against a commercial
+venue; see ADR-0012 and ADR-0031.
 
 ---
 
@@ -2441,8 +2529,9 @@ The following responsibilities are intentionally separated.
 | Reporting | Summarize results |
 | Strategy Studio | Orchestrate workflows |
 | Workbench | Present information |
-| Production | Execute and supervise |
-| Integrations | Connect external systems |
+| Execution path | Turn one market event into orders, fills and accounting |
+| Lifecycle | Decide which strategy version an environment should run |
+| Adapters | Connect external systems |
 
 No subsystem duplicates another subsystem's responsibility.
 
@@ -2629,9 +2718,10 @@ Examples include
 | Data | DatasetLoaded, DatasetValidated |
 | Portfolio Optimizer | PortfolioOptimized, AllocationChanged |
 | Replay | ReplayStarted, ReplayCompleted |
-| Runtime | RuntimeStarted, RuntimeStopped |
-| Production | CheckpointCreated, ProcessRestarted |
-| Integrations | BrokerConnected, OrderSubmitted |
+| OMS | OrderAccepted, OrderFilled, OrderCancelled |
+| Portfolio | PositionOpened, PositionClosed, CashConverted |
+| Lifecycle | StrategyPromoted, DeploymentRecorded |
+| Broker | BrokerConnected, ExecutionReceived |
 | Workbench | ProjectOpened, SessionCreated |
 
 This separation prevents coupling between unrelated domains.
@@ -2712,43 +2802,51 @@ ReplayCompleted
 
 ---
 
-## Runtime Events
+## Execution Events
 
-Represent runtime management.
-
-Examples
-
-```
-RuntimeStarted
-
-RuntimeStopped
-
-RuntimeRecovered
-```
-
----
-
-## Production Events
-
-Represent production supervision.
+Represent one market event's progress through the execution path.
 
 Examples
 
 ```
-HeartbeatReceived
+MarketValueUpdated
 
-CheckpointCreated
+AllocationReservationReleased
 
-ProcessRestarted
+OrderAccepted
 
-HealthChanged
+OrderFilled
 ```
+
+*(`RuntimeStarted` / `RuntimeStopped` / `RuntimeRecovered` belonged to the orphan
+lifecycle state machine inside `alphalab.runtime`, removed in v2.17. The strategy
+runtime's own lifecycle transitions are `alphalab.strategy.events.LifecycleTransitioned`.)*
 
 ---
 
-## Integration Events
+## Lifecycle Events
 
-Represent communication with external providers.
+Represent a change to what an environment should be running.
+
+Examples
+
+```
+StrategyVersionRegistered
+
+StrategyPromoted
+
+DeploymentRecorded
+
+EnvironmentRolledBack
+```
+
+Every one of them names the principal that caused it (ADR-0018).
+
+---
+
+## Adapter Events
+
+Represent communication with external providers and venues.
 
 Examples
 
@@ -2810,16 +2908,33 @@ Examples
 
 | Package | State |
 |----------|-------|
-| Data | DatasetState |
+| Data | UniversalDataState |
 | Research | ResearchState |
 | Replay | ReplayState |
 | Portfolio | PortfolioState |
-| Runtime | RuntimeState |
-| Production | ProductionState |
+| OMS | OMSState |
+| Allocation | AllocationState |
+| Market | MarketState |
+| Risk | RiskState |
+| Execution | ExecutionState |
+| Strategy | RuntimeState (`alphalab.strategy.state`) |
+| Runtime — step | ExecutionPipelineState |
+| Runtime — run | RunState |
+| Broker | BrokerState |
+| Lifecycle | LifecycleState (`alphalab.lifecycle.state`) |
 | Studio | StrategyStudioState |
 | Workbench | WorkbenchState |
 
 Each state is immutable.
+
+**Two pairs of names are reused on purpose.** `RuntimeState` in
+`alphalab.strategy.state` holds registered strategy instances and their lifecycle
+status; it is not a runtime-package state, and the orphan `RuntimeState` that
+once was one is removed. `LifecycleState` in `alphalab.lifecycle.state` is the
+whole lifecycle registry, while `LifecycleState` in `alphalab.strategy.state` is
+an enum naming the stages of a strategy *instance running inside a session*. A
+deployed strategy version is started and stopped many times without its stage
+changing.
 
 ---
 
@@ -2933,19 +3048,16 @@ Consumers may read events but never modify them.
 
 # State Snapshots
 
-Certain subsystems support snapshots.
-
-Examples include
-
-- Runtime
-- Production
-- Replay
-- Persistence
+Every durable state supports a snapshot, and each is owned by the package that
+owns the state: `oms`, `portfolio`, `allocation`, `instrument`, `broker`,
+`lifecycle`, `runtime` (the pipeline, the run and the live envelope) and
+`portfolio.fx_feed`. See the **State round-trip** table above for the schema
+constant each carries.
 
 Snapshots provide
 
-- recovery
-- checkpointing
+- continuation of a stopped run, byte-identically
+- durability across a process boundary
 - debugging
 - auditing
 
@@ -3008,17 +3120,15 @@ Failures are represented explicitly.
 Instead of silently mutating state
 
 ```
-Process Failed
-```
-
-becomes
-
-```
-ProcessFailedEvent
+A strategy hook raises
 
 ↓
 
-ProductionState Updated
+LifecycleTransitioned(FAILED)
+
+↓
+
+strategy RuntimeState updated — the other strategies are unaffected
 ```
 
 Likewise
@@ -3028,10 +3138,13 @@ BrokerDisconnected
 
 ↓
 
-IntegrationState Updated
+BrokerState updated
 ```
 
-Every failure is observable.
+Every failure is observable. A failure the system cannot honestly represent is
+**refused** rather than recorded: a missing FX rate, a stale one, an instrument
+in a currency the run does not settle, and a snapshot whose schema this build
+does not read each raise rather than produce a number.
 
 ---
 
@@ -3210,31 +3323,37 @@ alphalab/
 
 # Canonical execution core — wired together by runtime.ExecutionPipeline
 core/  runtime/  strategy/  allocation/  risk/  oms/
-execution/  portfolio/  analytics/  market/
+execution/  portfolio/  analytics/  market/  instrument/
+
+# Drivers over the execution core
+backtesting/  replay/
 
 # Shared infrastructure
-common/  kernel/  plugins/  scheduler/  persistence/  optimizer/
+common/  persistence/  plugins/  scheduler/
+
+# The lifecycle path — composed by alphalab.lifecycle
+lifecycle/  experiment_tracking/  model_registry/  deployment_manager/
+studio/  enterprise/  research/
+
+# Data and venue surfaces reached from the execution path
+data/  marketdata/  broker/
 
 # Standalone engines
-research/  replay/  portfolio_optimizer/  reporting/
+portfolio_optimizer/  optimizer/  reporting/
 feature_store/  factor_library/  alt_data/
 ml/  deep_learning/  reinforcement_learning/
 options/  futures/  crypto/  macro/
 cloud_research/  cluster_scheduler/  distributed/
-experiment_tracking/  model_registry/  deployment_manager/
-studio/  workbench/  research_assistant/  enterprise/
-
-# Data surface (overlapping; consolidation deferred)
-data/  marketdata/  feed/
-
-# Live / ops surface (deferred product decisions)
-live/  production/  broker/  brokers/  integrations/
+workbench/  research_assistant/
+live/  feed/  brokers/
 ```
 
 Every package follows a consistent internal organization.
 
-> `alphalab/core/events/` exists but is not used by the execution path.
-> There is no top-level `alphalab/events/` package.
+> **There is no top-level `alphalab/events/` package**, and `alphalab/core/events`
+> was removed in v2.17 along with `kernel`, `integrations` and `production`
+> (ADR-0034). `alphalab.common.events` holds `BaseEvent`; every other package
+> defines its own events in its own `events.py`.
 
 ---
 
@@ -3441,19 +3560,13 @@ Coordinates workflows across multiple engines.
 ## Domain
 
 ```
-research/
+runtime/  strategy/  allocation/  risk/  oms/  execution/  portfolio/  analytics/
 
-portfolio_optimizer/
+market/  instrument/  core/
 
-data/
+research/  portfolio_optimizer/  data/  replay/  reporting/
 
-runtime/
-
-production/
-
-replay/
-
-reporting/
+lifecycle/
 ```
 
 Implements business capabilities.
@@ -3465,15 +3578,13 @@ Each package owns one domain.
 ## Infrastructure
 
 ```
-events/
+common/
 
-kernel/
+persistence/
 
 plugins/
 
 scheduler/
-
-persistence/
 ```
 
 Provides platform-wide infrastructure.
@@ -3487,9 +3598,9 @@ Infrastructure packages support other domains without owning business workflows.
 ```
 marketdata/
 
-integrations/
+broker/  brokers/
 
-feed/
+feed/  live/
 ```
 
 Connects AlphaLab to external systems.
@@ -4022,14 +4133,15 @@ Broker Adapter
 
 ↓
 
-Integration Protocol
+BrokerProtocol
 
 ↓
 
-Production Runtime
+runtime.broker_routing  →  ExecutionPipeline.apply_execution_report
 ```
 
-Research and portfolio modules never communicate directly with broker APIs.
+Research and portfolio modules never communicate directly with broker APIs, and a
+venue fill returns through the same function a simulated fill takes.
 
 ---
 
@@ -4237,7 +4349,7 @@ The long-term vision of AlphaLab follows a layered evolution.
                       │
      ┌────────────────┼─────────────────┐
      ▼                ▼                 ▼
- Research      Portfolio Engine    Production
+ Research      Portfolio Engine     Lifecycle
      │                │                 │
      └────────────────┼─────────────────┘
                       ▼
@@ -4507,7 +4619,7 @@ Research
 
 Replay becomes the simulation environment.
 
-Production Runtime remains unchanged.
+The execution path remains unchanged.
 
 ---
 
@@ -4745,11 +4857,11 @@ This architecture allows the platform to evolve while remaining maintainable, te
                                    │
       ┌───────────────┬────────────┴────────────┬───────────────┐
       ▼               ▼                         ▼               ▼
- Universal Data   Research Engine     Portfolio Optimizer  Production Runtime
+ Universal Data   Research Engine     Portfolio Optimizer      Lifecycle
       │               │                         │               │
       └───────────────┴────────────┬────────────┴───────────────┘
                                    ▼
-                         Broker & Market Integrations
+                   Execution path  →  Broker & Market Adapters
                                    │
                                    ▼
                               External Systems
@@ -4776,7 +4888,7 @@ Examples
 - Research performs quantitative analysis.
 - Universal Data normalizes datasets.
 - Portfolio Optimizer constructs portfolios.
-- Production supervises running systems.
+- The lifecycle decides what should be running, and records who decided.
 - Workbench presents information.
 
 Responsibilities should never overlap.
@@ -4854,7 +4966,7 @@ Workbench
 
 ↓
 
-Production
+Lifecycle
 ```
 
 Modules never bypass intermediate layers.
@@ -4882,7 +4994,7 @@ Infrastructure
 
 ↓
 
-Integrations
+Adapters
 ```
 
 Lower layers never import higher layers.
@@ -4988,16 +5100,28 @@ These principles are considered architectural contracts rather than implementati
 
 | Version | Milestone |
 |---------|-----------|
-| v0.27 | Production Runtime |
-| v0.28 | Broker Integrations |
-| v0.29 | Market Data Integrations |
-| v0.30 | Portfolio Optimization Engine |
-| v0.31 | Universal Data Engine |
-| v0.32 | Strategy Studio |
-| v0.33 | AlphaLab Workbench |
-| **v1.0.0** | Stable Architecture & Engineering Foundation |
+| v0.27 – v0.33 | Pre-1.0 engine series — runtime supervision, broker and market-data integrations, portfolio optimization, Universal Data, Strategy Studio, Workbench |
+| **v1.0.0** | Stable architecture and engineering foundation |
 | v1.34.0 – v1.46.0 | Engine series — feature store, factor library, options, futures, crypto, macro, alternative data, ML, deep learning, RL, cloud research, cluster scheduler, experiment tracking |
-| **v2.0.0** | Model registry, research assistant, deployment manager, Enterprise; canonical execution domain-model unification (R1–R4); portfolio cash-accounting and `PerformanceReport` serialization fixes (D1/D2) |
+| **v2.0.0** | Model registry, research assistant, deployment manager, Enterprise; canonical execution domain models unified (ADR-0008) |
+| v2.1.0 | Mark-to-market, the exact accounting identity, O(1) engine histories |
+| v2.2.0 | Backtest and replay on one step (ADR-0010); persistent containers; seeded identifiers |
+| v2.3.0 | One market-data model, one broker boundary, four environments (ADR-0011, ADR-0012) |
+| v2.4.0 | Model and strategy lifecycle (ADR-0013) |
+| v2.5.0 | Typed state round-trip and the provider → source link (ADR-0014) |
+| v2.6.0 | Allocation authority and attribution truth (ADR-0015) |
+| v2.7.0 | Instrument identity and dataset provenance (ADR-0016, ADR-0017) |
+| v2.8.0 | Currency roles and run outcomes (ADR-0019 – ADR-0021) |
+| v2.9.0 | Durable run state; deterministic identifier continuation (ADR-0022 – ADR-0024) |
+| v2.10.0 | The strategy boundary: durable strategy state, populated context (ADR-0025, ADR-0026) |
+| v2.11.0 | Instrument classification and sector provenance (ADR-0027) |
+| v2.12.0 | The currency authority and the settlement boundary (ADR-0028) |
+| v2.13.0 | The run-state store and the durability boundary (ADR-0029) |
+| v2.14.0 | Runtime unification: one `RunEngine`, drivers hold no state (ADR-0030) |
+| v2.15.0 | Venue transport, streaming, artifact bytes, classification provenance (ADR-0031) |
+| v2.16.0 | Live driver, governance, FX valuation, and the refactor audit (ADR-0032, ADR-0033) |
+| v2.17.0 | Settlement multi-currency, FX feed, strategy registry, seven removals (ADR-0034, ADR-0035) |
+| **v3.0.0** | **Architecture frozen; documentation truth freeze. No capability added** |
 
 ---
 
@@ -5017,6 +5141,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v2.0.0
-Status: Target architecture; see "Implementation Status (v2.17)" for what is built
+Version: v3.0.0
+Status: Implementation Status (v3.0) describes what is built and is authoritative.
+        From "Design Goals" onward the document describes the architectural model
+        and long-term target. Both halves name only packages that exist.
 ```

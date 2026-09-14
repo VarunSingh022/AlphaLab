@@ -100,11 +100,12 @@ If all commands complete successfully, your environment is correctly configured.
 ```
 AlphaLab/
 
-alphalab/
-benchmarks/
-docs/
-examples/
-tests/
+alphalab/     framework source (48 packages)
+benchmarks/   47 performance benchmarks
+configs/      reference configuration files
+docs/         technical documentation and 35 ADRs
+examples/     14 runnable examples
+tests/        3956 tests — unit, integration, regression
 ```
 
 ### alphalab/
@@ -115,7 +116,8 @@ Contains the framework source code.
 
 ### tests/
 
-Contains the complete unit test suite.
+Contains the complete test suite: unit, integration and regression. It reports
+**0 skipped and 0 warnings**, and a standing test enforces both.
 
 ---
 
@@ -139,31 +141,35 @@ Contains performance benchmarks.
 
 # Understanding the Architecture
 
-AlphaLab is a **library**. There is no server, daemon, or CLI — you import
-packages and call their pure engine APIs.
+AlphaLab is a **library**. There is no server, daemon, or CLI, and it has zero
+runtime dependencies — you import packages and call their pure engine APIs.
 
-Two kinds of package:
+Three kinds of package:
 
-- **Integrated path** — `alphalab.runtime.ExecutionPipeline` wires market data →
-  strategy → allocation → risk → OMS → execution simulator → portfolio →
-  analytics as pure functions over one immutable state snapshot, and
-  `alphalab.backtesting` drives it from a dataset. `BacktestEngine.run` walks
-  the dataset directly; `ReplayBacktest.run` walks it through
-  `alphalab.replay`'s cursor. Both call the same step, so a backtest and a
-  replay of one dataset produce identical orders, fills and P&L.
-- **Standalone engines** — `research`, `portfolio_optimizer`, the learning and
-  asset-class engines, `studio`, `workbench`, `enterprise`, and the rest. Each is
-  deterministic and individually tested, but they are not chained together
-  automatically.
+- **The execution path** — `alphalab.runtime.ExecutionPipeline` wires mark to
+  market → strategy → allocation → risk → OMS → execution → portfolio →
+  analytics as pure functions over one immutable state, and
+  `alphalab.runtime.run.RunEngine` owns the run over it. Four drivers feed it:
+  `BacktestEngine` walks a dataset, `ReplayBacktest` walks it through
+  `alphalab.replay`'s cursor, `TradingSession` reads any `MarketDataSource`, and
+  `LiveSession` drives the settle/advance/route cycle against a venue. All four
+  call the same step, so a backtest and a replay of one dataset produce identical
+  orders, fills and P&L.
+- **The lifecycle path** — `alphalab.lifecycle` takes a research candidate to a
+  deployment and back, and refuses a run that would serve a version the
+  deployment ledger does not name.
+- **Standalone engines** — `portfolio_optimizer`, the learning and asset-class
+  engines, `workbench`, `reporting`, and the rest. Each is deterministic and
+  individually tested, and they are deliberately not chained together (ADR-0009).
 
 ```
-Workbench   ─┐
-Strategy Studio ─┤  standalone orchestration engines
-Research     ─┤
-Portfolio Optimizer ─┘
+market event → mark → strategy → allocation → risk → OMS → execution
+             → portfolio → analytics        ← runtime.ExecutionPipeline
+                                            ← runtime.run.RunEngine owns the run
 
-market event → strategy → allocation → risk → OMS → execution simulator
-             → portfolio → analytics       ← alphalab.runtime.ExecutionPipeline
+research candidate → evidence → model version → strategy version
+             → promotion → deployment        ← alphalab.lifecycle
+                                              authorize_run joins the two
 ```
 
 ---
@@ -205,24 +211,22 @@ Each example demonstrates one complete workflow.
 Major packages include
 
 ```
-research/
-
-portfolio_optimizer/
-
-data/
-
-studio/
-
-workbench/
-
-production/
-
-marketdata/
-
-integrations/
+runtime/        the execution step and the run
+strategy/       what a strategy is, and the registry that maps identity to code
+oms/            order lifecycle
+portfolio/      cash, positions, P&L, FX
+market/         canonical market model and normalization
+instrument/     canonical instrument identity
+lifecycle/      research candidate → deployment → rollback
+research/       research workflows and scores
+portfolio_optimizer/  portfolio construction
+data/  marketdata/    wire records and provider clients
+broker/  brokers/     one venue, and many
+studio/  workbench/   orchestration and presentation
 ```
 
-Each package owns one business capability.
+Each package owns one business capability. The complete list, with which of the
+two paths reaches each, is in `../README.md`.
 
 ---
 
@@ -309,11 +313,13 @@ Optimize Portfolio
 Generate Report
 ```
 
-Every stage is deterministic and uses immutable state. As of v2.2 the
-market-data → analytics segment *is* chained, by `alphalab.backtesting`, with
-`replay` as an alternative driver of the same path. The research, optimization,
-reporting and deployment packages around it are separate engines; nothing chains
-those automatically.
+Every stage is deterministic and uses immutable state. The market-data →
+analytics segment *is* chained, by `alphalab.backtesting` over
+`ExecutionPipeline`, with `replay`, a live source and a venue as alternative
+drivers of the same step. The research → model → deployment sequence is chained
+too, by `alphalab.lifecycle`. Research, optimization and reporting around them
+are separate engines, and nothing chains those automatically — deliberately
+(ADR-0009).
 
 ---
 
@@ -329,9 +335,11 @@ Examples include
 - Research Engine
 - Portfolio Optimizer
 - Market Data
-- Broker Integrations
+- The two broker boundaries
 - Strategy Studio
 - Workbench
+- The unified backtest, the lifecycle, durable run state and multi-currency
+  settlement (examples 11–14)
 
 ---
 
@@ -386,14 +394,17 @@ Please include enough information to reproduce the problem.
 
 After completing this guide, consider exploring
 
-- Research Engine
-- Universal Data Engine
-- Portfolio Optimizer
-- Strategy Studio
-- Workbench
-- Production Runtime
+- The execution path — `examples/11_unified_backtest.py`, then
+  `alphalab.runtime.ExecutionPipeline` and `alphalab.runtime.run.RunEngine`
+- The lifecycle path — `examples/12_model_lifecycle.py`, then
+  `alphalab.lifecycle`
+- Durable run state — `examples/13_durable_run_state.py`
+- Multi-currency settlement and the FX feed — `examples/14_multi_currency_settlement.py`
+- The standalone engines — Research, Universal Data, Portfolio Optimizer,
+  Strategy Studio, Workbench
 
-These modules form the core of AlphaLab.
+`../nowandfuture.md` is the long-form reference for who owns what, which
+invariants are frozen, and what must not be changed casually.
 
 ---
 
@@ -403,6 +414,9 @@ Congratulations!
 
 You have successfully set up AlphaLab and are ready to begin building quantitative research workflows.
 
-As the platform evolves, additional guides and examples will be added to demonstrate more advanced capabilities such as machine learning, distributed research, cloud execution, and enterprise deployment.
+The advanced capabilities — machine learning, distributed research, cloud
+execution and enterprise governance — all ship as standalone packages today; their
+usage is covered by the unit tests under `tests/unit/<package>/` and the
+benchmarks under `benchmarks/`.
 
 Welcome to AlphaLab.

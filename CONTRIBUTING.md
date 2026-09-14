@@ -16,8 +16,21 @@ Before contributing, we recommend reading:
 - `docs/ARCHITECTURE.md`
 - `docs/ENGINEERING_GUIDELINES.md`
 - `ROADMAP.md`
+- `nowandfuture.md`
 
 Understanding the overall architecture before making changes will help keep the framework consistent and maintainable.
+
+**As of v3.0.0 the architecture is frozen.** That does not close the project to
+contributions; it sets the bar for a particular kind of change. A contribution
+that moves an ownership boundary, a schema contract, or one of the invariants
+listed in `nowandfuture.md` needs an ADR and a major release. A vendor adapter, a
+new standalone engine, a strategy, a benchmark, a test or a documentation fix
+follows the ordinary workflow below.
+
+If you believe you have found a duplicate type, a redundant package or a layering
+violation, read `tests/regression/test_shared_names_stay_distinct.py` and
+`test_venue_concepts_stay_distinct.py` first. Most apparent duplication in
+AlphaLab is deliberate and those files carry the reasons.
 
 ---
 
@@ -86,15 +99,15 @@ All three commands must complete successfully before code is submitted.
 # Repository Structure
 
 ```
-alphalab/      Framework source code
+alphalab/      Framework source code — 48 packages
 
-tests/         Unit tests
+tests/         Unit, integration and regression tests
 
-examples/      Runnable examples
+examples/      14 runnable examples
 
-docs/          Project documentation
+docs/          Project documentation and 35 ADRs
 
-benchmarks/    Performance benchmarks
+benchmarks/    47 performance benchmarks
 
 configs/       Reference configuration files
 ```
@@ -243,11 +256,16 @@ Before opening a pull request, verify that you have:
 
 - [ ] Added or updated tests where appropriate
 - [ ] Updated documentation if public behavior changed
-- [ ] Run `ruff check .`
+- [ ] Run `ruff check .` and `ruff format --check .`
 - [ ] Run `mypy .`
-- [ ] Run `pytest`
+- [ ] Run `pytest` — and confirmed it still reports **0 skipped, 0 warnings**
+- [ ] Run `pytest -q -W error::DeprecationWarning`
 - [ ] Confirmed all checks pass
 - [ ] Reviewed your changes before submission
+
+A skipped test and a warning are both treated as defects here, not as noise: the
+suite reports zero of each and a standing test enforces it. If a change needs a
+skip, say why in the pull request rather than adding one quietly.
 
 ---
 

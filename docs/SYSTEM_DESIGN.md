@@ -43,15 +43,17 @@ Every implementation decision should reinforce these objectives.
                           ▼
                   Strategy Studio
                           │
-     ┌────────────┬──────────────┬─────────────┐
+     ┌────────────┬───────┴──────┬─────────────┐
      ▼            ▼              ▼             ▼
- Universal    Research      Portfolio     Production
- Data         Engine        Optimizer      Runtime
-     │            │              │             │
-     └────────────┴──────────────┴─────────────┘
+ Universal    Research      Portfolio      Model &
+ Data         Engine        Optimizer     Strategy
+     │            │              │        Lifecycle
+     └────────────┴───────┬──────┴─────────────┘
+                          ▼
+               Execution path (RunEngine)
                           │
                           ▼
-                 Broker Integrations
+                   Broker boundary
                           │
                           ▼
                     External Systems
@@ -76,15 +78,27 @@ canonical entities (`core.enums.Side`, `core.OrderRequest`, `oms.order.Order`,
 fills and P&L as the equivalent backtest (ADR-0010). This document said otherwise
 from v2.2 until v2.5.
 
-Two further paths are wired together, and neither runs through
-`ExecutionPipeline`: `alphalab.lifecycle` composes experiment tracking, the model
-registry and the deployment manager (v2.4, ADR-0013), and
-`alphalab.market.provider` turns a market-data provider's history into a
-`MarketDataSource` a `TradingSession` can read (v2.5, ADR-0014).
+**The run is owned above the step, as of v2.14.** `alphalab.runtime.run.RunEngine`
+over `RunState` holds the cursor, the skips, the per-record steps and the
+identifier scope a stopped run continues in; `ExecutionPipeline` keeps the
+execution step and nothing else. `TradingSession`, `BacktestEngine`,
+`ReplayBacktest` and `LiveSession` are **drivers** — each decides only which
+record comes next and what clock reading judges it, and holds no state of its own
+(ADR-0030).
 
-Every other engine described in this document (`research`, `studio`,
-`production`, the learning and asset-class engines, …) is standalone and is not
-invoked by `ExecutionPipeline`.
+Two further paths are wired, and neither runs through `ExecutionPipeline`:
+`alphalab.lifecycle` composes experiment tracking, the model registry, the
+deployment manager, `studio`, `enterprise` and `research` (v2.4, ADR-0013), and
+`alphalab.market.provider` / `alphalab.market.stream` turn a provider's history
+or a live socket into a `MarketDataSource` the run can read (v2.5, v2.15).
+**The lifecycle path and the execution path meet** at
+`lifecycle.execution.authorize_run` and `strategy.registry` — a query with a
+refusal and a mapping with a refusal, not a second runtime (v2.16, v2.17).
+
+Every other engine described in this document (the learning and asset-class
+engines, `reporting`, `portfolio_optimizer`, `workbench`, …) is standalone and is
+not invoked by either path. `alphalab/production`, which earlier revisions of this
+document named here, was removed in v2.17.
 
 ---
 
@@ -218,11 +232,11 @@ Replay
 
 ↓
 
-Production
+Lifecycle
 
 ↓
 
-Integrations
+Adapters (broker, marketdata)
 ```
 
 Communication always follows public APIs.
@@ -300,14 +314,20 @@ ResearchState
 
 PortfolioState
 
-RuntimeState
+OMSState
 
-ProductionState
+ExecutionPipelineState   (the execution step)
 
-StudioState
+RunState                 (the run)
+
+LifecycleState
+
+StrategyStudioState
 ```
 
-Each operation returns a new instance.
+Each operation returns a new instance. The full ownership table is in
+`ARCHITECTURE.md` under **State Ownership**, and the snapshot and schema for each
+is in `STATE_MODEL.md`.
 
 ---
 
@@ -348,12 +368,18 @@ Examples
 ```
 ResearchValidationError
 
-IntegrationError
+BrokerValidationError
 
 OptimizationError
+
+MissingRateError / StaleRateError
 ```
 
-Validation errors occur before business logic executes.
+Validation errors occur before business logic executes. A condition the system
+cannot represent honestly is **refused** rather than defaulted — a missing or
+stale FX rate, an instrument in a currency the run does not settle, an unknown
+strategy identity, and a snapshot whose schema this build does not read all
+raise.
 
 ---
 
@@ -380,7 +406,7 @@ For example
 
 Research should not import
 
-- Production
+- Lifecycle
 - Workbench
 
 Portfolio Optimizer should not import
@@ -454,11 +480,19 @@ The architecture favors extension over modification.
 
 # Future Compatibility
 
-The system design established in v1.0.0 has since absorbed distributed execution,
-cloud research, machine learning, and enterprise deployment as standalone
-packages (v1.34.0–v2.0.0) without architectural redesign. Wiring the rest of them
-into an integrated path remains future work; v2.2 wired `replay`, v2.4 composed
-the lifecycle packages, and v2.5 connected the market-data provider boundary.
+The system design established in v1.0.0 absorbed distributed execution, cloud
+research, machine learning and enterprise deployment as standalone packages
+(v1.34.0–v2.0.0) without architectural redesign, and then absorbed the
+integration work the same way: v2.2 wired `replay` onto the execution step, v2.3
+converged the market-data and broker models, v2.4 composed the lifecycle
+packages, v2.5 connected the provider boundary, v2.14 gave the run one owner,
+v2.15 made the transports real, and v2.16 joined the two paths.
+
+**As of v3.0.0 the architecture is frozen.** Wiring the remaining standalone
+engines into an integrated path is not pending work — it is a deliberate
+boundary (ADR-0009). What a future release may still add is listed in
+`../ROADMAP.md` under *Optional future evolution*, and nothing depends on any of
+it.
 
 ---
 

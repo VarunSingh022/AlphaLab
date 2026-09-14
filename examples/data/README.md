@@ -1,96 +1,87 @@
 # AlphaLab Example Datasets
 
-This directory contains small synthetic datasets used by the AlphaLab example suite.
+Four small synthetic CSV files supporting the example suite. They exist only to
+demonstrate the public APIs without needing a market-data provider, and they are
+**not** suitable for research, backtesting conclusions, or production trading.
 
-The data is intentionally simple and exists only to demonstrate the public APIs of AlphaLab.
-
-These datasets are **not intended for production research**.
+Everything here is generated, deterministic, and small enough to read by eye.
 
 ---
 
 ## Files
 
-sample_prices.csv
+| File | Shape | Rows |
+|---|---|---|
+| `sample_prices.csv` | `dataset_id, symbol, timestamp, price` | 90 |
+| `sample_ohlcv.csv` | `dataset_id, symbol, timestamp, open, high, low, close, volume` | 90 |
+| `sample_trades.csv` | `strategy_id, project_id, backtest_id, trade_id, symbol, entry_timestamp, exit_timestamp, entry_price, exit_price, quantity, pnl` | 5 |
+| `sample_portfolio.csv` | `portfolio_id, symbol, weight` | 3 |
 
-Daily closing prices.
+### `sample_prices.csv`
 
-Used by
+Daily closing prices for three synthetic U.S. equities — `AAPL`, `MSFT`, `SPY` —
+over 30 trading days, `2025-01-02` to `2025-02-13`, timestamped in ISO-8601 UTC.
+Three symbols × 30 days = 90 rows.
 
-- Research
-- Replay
-- Universal Data
+### `sample_ohlcv.csv`
 
----
+The same three symbols over the same 30 days, with full OHLCV. The bounds hold
+(`low <= open, close <= high`) and the `close` column matches
+`sample_prices.csv` exactly, so an example can move between the two without the
+numbers changing.
 
-sample_ohlcv.csv
+### `sample_trades.csv`
 
-Daily OHLCV bars.
+Five closed round trips attributed to `MEAN_REV_V1`, deliberately mixed so
+research metrics have something to report: two winners (+390.00, +92.00), two
+losers (−105.00, −130.00) and one break-even (0.00). Every `pnl` is consistent
+with its own entry price, exit price and quantity.
 
-Used by
+### `sample_portfolio.csv`
 
-- Market Data
-- Strategy Studio
-
----
-
-sample_trades.csv
-
-Example executed trades.
-
-Used by
-
-- Research
-- Replay
-
----
-
-sample_portfolio.csv
-
-Target portfolio weights.
-
-Used by
-
-- Portfolio Optimizer
+One target allocation for `PORT-001`: `AAPL` 0.4000, `MSFT` 0.3500, `SPY`
+0.2500. The weights sum to exactly **1.0000**.
 
 ---
 
-All datasets reference the same fictional strategy and symbols.
+## Shared identifiers
+
+The same identifiers appear across every dataset and every example that reads
+them, so nothing has to be re-keyed between stages:
+
+| Object | Identifier |
+|---------|------------|
+| Strategy | `MEAN_REV_V1` |
+| Project | `PROJECT-001` |
+| Dataset | `DATASET-001` |
+| Portfolio | `PORT-001` |
+| Backtest | `BT-001` |
+| Replay session | `REPLAY-001` |
+| Workbench | `WORKBENCH-001` |
 
 ---
 
-AlphaLab Example Datasets
-Purpose
-This directory contains deterministic, synthetic datasets specifically designed to support the official AlphaLab v1.0.0 example suite. They are engineered to ensure smooth executions of 01_research.py through 10_complete_pipeline.py without external dependencies or data cleaning requirements.
-Dataset Descriptions
-sample_prices.csv: A minimal, stripped-down time-series defining only the closing prices. Ideal for lightweight strategy execution and basic research scripts.
-sample_ohlcv.csv: Contains complete Open, High, Low, Close, and Volume fields over an identical time horizon. Fully compliant with rigorous internal validity checks (e.g., bounds constraints such as Low <= Open/Close <= High).
-sample_trades.csv: Contains a realistic sequence of simulated strategy execution records—including winning, losing, and break-even scenarios—with mathematically verified PnL values tied strictly to the asset OHLC limits.
-sample_portfolio.csv: Provides a deterministic baseline weight distribution for optimization routines (summing exactly to 1.0).
-Shared Identifiers
-To prevent configuration mismatches, the following identifiers are used consistently throughout the example suite and the datasets:
-Strategy ID: MEAN_REV_V1
-Project ID: PROJECT-001
-Dataset ID: DATASET-001
-Portfolio ID: PORT-001
-Backtest ID: BT-001
-Replay Session: REPLAY-001
-Workbench ID: WORKBENCH-001
-Data Generation Philosophy
-The data is entirely synthetic and strictly non-monotonic to simulate realistic market fluctuations. It spans an exact period of 30 trading days formatted in ISO-8601 UTC standards to guarantee cross-platform and cross-timezone parsing consistency across various engines without invoking network or web requests.
-Metadata
-Version: AlphaLab v1.0.0
-Status: Stable
-Dataset Type: Synthetic, Deterministic, Educational
-License: MIT
-Generated For: Official AlphaLab Example Suite
-Compatible Examples:
-01_research.py
-02_backtest.py
-03_replay.py
-04_market_data.py
-05_broker_connection.py
-06_portfolio_optimizer.py
-07_universal_data.py
-08_strategy_studio.py
-09_workbench.py
-10_complete_pipeline.py
+## Which examples use them
+
+Read directly by `02_backtest.py`, `07_universal_data.py`,
+`08_strategy_studio.py` and `10_complete_pipeline.py`.
+
+Examples `11`–`14` — the unified backtest, the model lifecycle, durable run state
+and multi-currency settlement — construct their own in-memory data and use
+nothing here.
+
+---
+
+## Design philosophy
+
+Synthetic, deterministic, human-readable, consistent across every example, and
+small enough to inspect by hand. The objective is to teach AlphaLab workflows,
+not to simulate a real market.
+
+| Property | Value |
+|----------|-------|
+| Dataset type | Synthetic |
+| Deterministic | Yes |
+| Intended use | Educational |
+| External dependencies | None |
+| License | MIT |

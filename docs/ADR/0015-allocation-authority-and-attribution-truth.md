@@ -2,7 +2,20 @@
 
 ## Status
 
-Proposed (v2.6).
+**Accepted and implemented in v2.6.0.** `alphalab.core.contribution` ships
+`StrategyContribution` and `contributions_from`; `AllocationEngine.allocate`
+counts outstanding commitment against the budget; `AllocationState.contributions`
+is the per-order ledger retired at the terminal OMS transition;
+`analytics.split_realized_pnl` splits by signed contribution;
+`Position.opened_at` makes holding periods real; and
+`PORTFOLIO_SNAPSHOT_SCHEMA` moved to 2, refusing version 1. `"ALLOC-NETTED"` is
+deleted.
+
+*(This status line read `Proposed (v2.6)` from v2.6 until v3.0, although v2.6.0
+shipped it and nine other ADRs — 0016, 0017, 0018, 0021, 0023, 0026, 0031, 0032
+and 0034 — plus `README.md`, `ROADMAP.md`, `CHANGELOG.md` and `ARCHITECTURE.md`
+all cite it as normative. It was the only ADR whose status was wrong, and the
+v3.0 documentation audit corrected it.)*
 
 Extends ADR-0012's `ExecutionRouting.EXTERNAL` — which made an accepted order stay
 working and its reservation stay held — by making that held capital actually

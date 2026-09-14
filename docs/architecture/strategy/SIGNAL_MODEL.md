@@ -3,6 +3,20 @@
 **Subsystem:** Strategy Runtime
 **Related:** `STRATEGY_RUNTIME_DESIGN.md`, `STRATEGY_API.md`, `STRATEGY_CONTEXT.md`, `STRATEGY_RUNTIME_ADVANCED_TOPICS.md` §Multi-Strategy
 
+
+> ## Status — design record
+>
+> **This is a pre-implementation design document from the strategy-runtime design
+> phase, kept as the record of how the decisions were reached.** The Strategy
+> Runtime shipped, and where the implementation and this document differ, **the
+> implementation is authoritative**. `docs/architecture/strategy/README.md`
+> carries the full design-versus-implementation list; the items relevant to this
+> document are noted inline below where they matter.
+>
+> Current behaviour is described by `docs/ARCHITECTURE.md`, the ADRs that
+> superseded parts of this design (ADR-0016, ADR-0025, ADR-0026, ADR-0031,
+> ADR-0032, ADR-0035), and the code itself.
+
 ---
 
 ## 1. The Question

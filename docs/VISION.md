@@ -30,22 +30,34 @@ Every component should follow these principles.
 
 # Current State
 
-As of v2.0.0, AlphaLab provides:
+As of **v3.0.0** the architecture is frozen. AlphaLab provides:
 
-- The canonical execution core and the `alphalab.runtime.ExecutionPipeline` that
-  wires it together (strategy → allocation → risk → OMS → execution simulator →
-  portfolio → analytics)
-- Standalone engines for research, replay, reporting, portfolio optimization,
-  feature store, factor library, alternative data, machine learning, deep
-  learning, reinforcement learning, options, futures, crypto, macro, cloud
-  research, cluster scheduling, experiment tracking, model registry, deployment
-  management, the AI research assistant, Strategy Studio, Workbench, and
-  Enterprise governance
-- Broker and market-data integration scaffolding, and a production runtime
-  supervisor
+- **One execution path with one owner per tier.**
+  `alphalab.runtime.ExecutionPipeline` owns the execution step (mark to market →
+  strategy → allocation → risk → OMS → execution → portfolio → analytics) and
+  `alphalab.runtime.run.RunEngine` owns the run. Four interchangeable drivers
+  feed it — backtest, replay, paper and live — so all four produce the same
+  orders, fills and accounting wherever the venue is the same.
+- **One lifecycle path, joined to it.** `alphalab.lifecycle` takes a research
+  candidate to a deployment and back, with governance on every act that changes
+  what is live, and refuses a run that would serve a version the ledger does not
+  name.
+- **Durable, typed state.** Ten snapshot owners, ten schema constants, typed
+  decoding that names the field it rejects, and a run that can stop in one
+  process and finish byte-identically in another.
+- **Real connectivity.** An HMAC-signed venue transport, an RFC 6455 WebSocket
+  client, and a content-addressed artifact store — written to protocol and
+  exercised over real sockets, and **not** verified against any commercial venue.
+- **Money that refuses rather than guesses.** Per-currency settlement, a
+  reporting currency converted on demand with every rate recorded, and no
+  default, triangulated, inverted or stale rate anywhere.
+- **Standalone engines** for reporting, portfolio optimization, the feature
+  store, the factor library, alternative data, ML / deep learning / RL, options,
+  futures, crypto, macro, cloud research, cluster scheduling and the Workbench.
 
-These engines share the engineering model but are not yet fused into a single
-runtime. AlphaLab is a library, not a running application.
+Those standalone engines share the engineering model and are deliberately not
+fused into a single runtime (ADR-0009). AlphaLab is a library, not a running
+application: no server, no daemon, no CLI, and zero runtime dependencies.
 
 ---
 
@@ -83,17 +95,16 @@ AlphaLab prioritizes correctness, clarity, and maintainability over unnecessary 
 
 # Long-Term Roadmap
 
-The engine expansion planned after v1.0.0 is now delivered (v1.34.0–v2.0.0):
-feature store, factor library, options, futures, crypto, macro, alternative data,
-machine learning, deep learning, reinforcement learning, cloud research,
-experiment tracking, model registry, AI research assistant, deployment manager,
-and the Enterprise platform — each as a standalone package on the v1.0.0
-foundation.
+The engine expansion planned after v1.0.0 is delivered (v1.34.0–v2.0.0), and so
+is the integration work that followed it. The three items this section listed as
+remaining — wiring `replay` into the execution path, mark-to-market repricing,
+and consolidating the overlapping data surfaces — were delivered in **v2.2**,
+**v2.1** and **v2.3** respectively, and the entry stood unchanged until v3.0.
 
-The remaining long-term work is integration, not more engines: composing these
-packages into one runtime, wiring `replay` into the execution path,
-mark-to-market repricing, and consolidating the overlapping data surfaces. See
-`../ROADMAP.md`.
+What remains is not a missing layer. `../ROADMAP.md` classifies it as deliberate
+boundaries that should stay, external dependencies that are somebody else's to
+supply (FX data, classification data, a vendor's request shapes, credentials),
+and optional evolution that nothing is waiting on.
 
 ---
 
@@ -108,8 +119,13 @@ The project values thoughtful design, constructive collaboration, and high engin
 # Looking Ahead
 
 Version 1.0.0 established AlphaLab's architectural foundation; v1.34.0–v2.0.0
-populated it with standalone quantitative engines.
+populated it with standalone quantitative engines; the v2 line integrated the
+execution and lifecycle paths and made their state durable; and v3.0.0 froze the
+result.
 
-Future releases will focus on integrating those engines into a coherent runtime
-while preserving the project's core principles of determinism, immutability,
-modularity, and production readiness.
+A frozen architecture is not a finished project. What it changes is the bar: a
+contribution that moves an ownership boundary, a schema contract or a documented
+invariant now needs an ADR and a major release, while a vendor adapter, a new
+standalone engine, a strategy or a benchmark follows the ordinary workflow. The
+principles that decide those calls — determinism, immutability, modularity,
+production readiness, and refusing rather than guessing — are unchanged.

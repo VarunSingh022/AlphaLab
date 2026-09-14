@@ -1,10 +1,55 @@
 # Strategy Runtime — Architecture Design
 
 **Subsystem:** Strategy Runtime
-**Status:** Proposed (Architecture Review)
+**Status:** Design record — implemented, with the divergences listed below
 **Author:** Chief Architect
 **Applies to:** AlphaLab Core, all future strategy implementations
 **Audience:** Core maintainers, strategy authors, infrastructure engineers
+
+> ## Status — design record
+>
+> **This is a pre-implementation design document from the strategy-runtime design
+> phase, kept as the record of how the decisions were reached.** The Strategy
+> Runtime shipped, and where the implementation and this document differ, **the
+> implementation is authoritative**. `docs/architecture/strategy/README.md`
+> carries the full design-versus-implementation list; the items relevant to this
+> document are noted inline below where they matter.
+>
+> Current behaviour is described by `docs/ARCHITECTURE.md`, the ADRs that
+> superseded parts of this design (ADR-0016, ADR-0025, ADR-0026, ADR-0031,
+> ADR-0032, ADR-0035), and the code itself.
+
+> ### The five verification points in §10, answered
+>
+> §10 lists five load-bearing assumptions framed as questions "to be confirmed
+> against the actual code". They are now answerable:
+>
+> 1. **Is there a real event bus?** No, and one was deliberately not built.
+>    Events are immutable values carried on the state that produced them, and
+>    `Dispatcher` is a pure routing function rather than a bus. Nothing
+>    subscribes and nothing is delivered, which is what makes a run replayable
+>    from a dataset.
+> 2. **Does market data carry sequence numbers?** Yes. `MarketRecord` carries an
+>    `event_id`, quotes and books carry a `sequence`, and `MarketEngine.publish_book`
+>    refuses a non-advancing one. Ordering is a declared property of the source
+>    (`OrderingGuarantee`), and a regressing record raises or is skipped-and-recorded
+>    according to `RunConfig.ordering` (ADR-0014).
+> 3. **Does Risk expose a read API?** Yes — `runtime.context_views.RiskView`,
+>    populated onto `StrategyContext.risk_view` since v2.10 (ADR-0026).
+> 4. **Does Portfolio support per-strategy sub-ledgers?** No, and deliberately
+>    not. The question is answered instead by the allocation **contribution
+>    ledger** and `order_shares_by_strategy`: two strategies whose intents net
+>    into one order each see their own share and neither claims sole ownership
+>    (ADR-0015, ADR-0026). There is exactly one portfolio book, and a regression
+>    test asserts no second portfolio model exists.
+> 5. **Is there a virtual clock?** Yes. Nothing on the execution path reads a wall
+>    clock; every timestamp comes from the record or the event, and the one clock
+>    in a run is the `now` argument to `RunEngine.advance`, supplied per step by
+>    the driver and never stored (ADR-0030).
+>
+> §11's open questions resolved the same way: the allocation/netting layer is a
+> distinct package (`alphalab.allocation`), and no GPU or threading model was
+> built — AlphaLab is single-threaded and deterministic by design.
 
 ---
 

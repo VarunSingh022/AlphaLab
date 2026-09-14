@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-2.13.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.0.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-3190%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-3956%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -23,14 +23,13 @@
 
 AlphaLab is an open-source Python **library** for building deterministic quantitative research and algorithmic trading components.
 
-It is a library, not a running application: there is no server, daemon, scheduler process, or CLI. You import the packages you need and call their pure, immutable engine APIs from your own code.
+It is a library, not a running application: there is no server, daemon, scheduler process, or CLI, and it declares **zero runtime dependencies** — the standard library is the whole of it. You import the packages you need and call their pure, immutable engine APIs from your own code.
 
 AlphaLab ships three kinds of package:
 
-- **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable state snapshot. `alphalab.backtesting` drives that spine from a dataset, either straight through or through `alphalab.replay`'s cursor; both call the same step, so a backtest and a replay of one dataset produce identical orders, fills and P&L.
-- **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, strategy definitions and the deployment manager into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. It sits *above* the execution path, not inside it: a deployment names what should run, and running it is the execution path's job.
-- **State round-trip, and somewhere to put it.** `capture` / `restore` turn `OMSState`, `PortfolioState`, `LifecycleState`, `AllocationState` and — as of v2.9 — `ExecutionPipelineState`, `SessionState` and `BacktestState` into typed snapshots and back, through typed decoders that name the field when a payload is wrong. A snapshot records live objects (strategy instances, the simulator, the sizing model, the fill policy) by type and requires the caller to supply them back, raising rather than substituting. `TradingSession.resume` / `BacktestEngine.resume` continue a restored run on the identifier stream it left off on. As of **v2.13**, `alphalab.persistence.RunStateStore` stores those payloads durably — `FileRunStateStore` on the local filesystem, `MemoryRunStateStore` as an explicitly named test double — so a run can stop in one process and finish in another, byte-identically. `alphalab.market.provider` feeds the execution path from a market-data provider's history rather than only from a stored dataset.
-- **Standalone engine libraries.** Most other packages (research, portfolio optimizer, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, enterprise, studio, workbench) are independent, deterministic, individually tested libraries. They share the engineering model but are **not** currently fused into a single runtime.
+- **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable `ExecutionPipelineState`. `alphalab.runtime.run.RunEngine` owns the *run* over it, and four interchangeable drivers feed it: `TradingSession`, `BacktestEngine`, `ReplayBacktest` and `LiveSession`. Because all four call the same step, a backtest, a replay, a paper run and a live run of one dataset produce identical orders, fills and P&L wherever the venue is the same.
+- **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, the deployment manager, `studio`'s strategy definitions, `enterprise`'s RBAC and `research`/`backtesting`'s reports into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. Every act that changes what is live names its principal. As of v2.16 it is **joined** to the execution path: `run_plan` resolves what an environment has live and `authorize_run` refuses a run that would serve anything else. As of v2.17 `alphalab.strategy.registry` supplies the other half of that join — the identity a deployment names, mapped to the code a run executes.
+- **Standalone engine libraries.** The remaining packages (portfolio optimizer, reporting, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, workbench, and the rest) are independent, deterministic, individually tested libraries reached by neither path. They share the engineering model and are **not** fused into a single runtime. That is a decision, not a gap — see ADR-0009.
 
 The framework is designed for researchers, quantitative developers, students, and engineering teams building reproducible trading infrastructure.
 
@@ -38,14 +37,15 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v2.17.0**
+**Current Release:** **v3.0.0 — the stable, architecture-frozen release**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 2.17.0 |
-| Tests | **3949 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (909 source files) |
+| Version | 3.0.0 |
+| Runtime dependencies | **None** (standard library only) |
+| Tests | **3956 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (910 source files) |
 | Linting | **Ruff Clean** |
 | Benchmarks | **47 / 47 Passing** |
 | Examples | **14 / 14 Passing** |
@@ -54,282 +54,92 @@ The framework is designed for researchers, quantitative developers, students, an
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-*(This block read "v2.13.0 / 3190 tests" through v2.14 and v2.15 — two releases
-that shipped without updating it. The v2.16 audit found it and it is part of what
-ADR-0032 records; the release checklist now has to touch it. The file and
-benchmark counts fell in v2.17 because seven deprecated surfaces were removed,
-not because anything stopped being checked.)*
+## What v3.0.0 is
 
-v2.17.0 — "The Final Engineering Release" — is the last release before v3.0,
-and it exists so that v3.0 has nothing left to do but freeze. Two things:
-everything ADR-0032 deferred is implemented, and the three capabilities ADR-0033
-left open are built.
+v3.0.0 adds no capability. It is the release in which AlphaLab's architecture is
+**frozen** and the repository is made to describe itself truthfully.
 
-**Settlement-level multi-currency.** A run can settle fills in more than one
-currency. `PortfolioState.realized_pnl` and `commission_paid` were single
-cumulative scalars naming no currency — ADR-0033 named them as the first two of
-four blockers — and are now per-currency, so a EUR fill accrues EUR P&L and
-nothing is summed across two. **Settlement truth and reporting truth are
-different numbers and stay apart**: the state records what was earned in the
-currency it was earned in, permanently, and a valuation converts into one
-reporting currency on demand, recording every rate it used. The other two
-blockers close too — a capital budget names its currency when two are in play and
-is refused when it cannot, and risk reads the whole book rather than silently
-dropping every balance that is not in the base currency.
+Three things were established before it could be declared:
 
-**An FX rate feed.** AlphaLab still ships no FX data; what was missing was the
-*boundary*. Without one, every caller folded quotes into a rate table itself and
-decided, alone and usually implicitly, what to do about a quote that arrives out
-of order, one redelivered after a reconnect, and two sources disagreeing about
-one pair at one instant. Those have one right answer each: a later quote
-supersedes, an identical one is a duplicate, an **older one is not applied** —
-and two that claim one instant and disagree are refused rather than ranked.
+1. **A whole-repository architecture audit** — every major responsibility mapped
+   to exactly one owner, every state to one snapshot owner and one schema
+   constant, the import graph checked for cycles at package and module level,
+   and every financial default swept for. The conclusion it had to reach, and
+   did: **there is no known internal problem that would require AlphaLab to be
+   refactored immediately after declaring it stable.**
+2. **The engineering work that would otherwise have made v3.0 a breaking
+   release** — done in v2.17 instead, so that v3.0 is additive. Seven deprecated
+   surfaces removed with no compatibility aliases, all four of ADR-0032's
+   category C items implemented, zero skipped tests and zero warnings.
+3. **A documentation truth freeze** — this release. Every current-facing
+   document now describes the architecture that actually exists. Historical
+   records stay historical and are labelled as such.
 
-**A strategy-class registry.** The join ADR-0033 left as "the caller's
-knowledge": what turns the identity a deployment names into the code a run
-executes. It is *not* in `alphalab.lifecycle`, which still constructs nothing —
-it is beside `StrategyProtocol`, it stores an identity and a factory and nothing
-about what a strategy *is*, and it never resolves a name to code. A duplicate
-registration and an unknown identity are both refusals.
+What "architecture-frozen" means in practice is written down in
+[`nowandfuture.md`](nowandfuture.md): the invariants that must not be changed
+casually, the boundaries that are deliberate, what is external, and what is a
+non-goal.
 
-Alongside them, **the cleanup that makes v3.0 additive**. Seven deprecated
-surfaces scheduled for v3.0 removal are removed here instead — `kernel`,
-`integrations`, `production`, `core.events`, `CommonEvent`, the nine-module
-persistence store and the ten-module orphan runtime lifecycle — all with zero
-production importers, and **with no compatibility aliases**. All four of
-ADR-0032's category C items are implemented: eight standalone packages no longer
-accumulate quadratically (`distributed` went from 38.4s to 0.18s at 20,000
-transitions, and from 4.1x to 2.1x per doubling), `ResearchPayload.parameters` is
-genuinely immutable, the duplicated `BrokerProtocol` name is resolved, and
-`Dispatcher.dispatch_event` no longer takes `Any`.
+## The two paths, and where they meet
 
-The suite reports **0 skipped and 0 warnings**, and neither was achieved by
-configuration: the two skips were a real gap in structural coverage, and the 94
-warnings are gone because the code that emitted them is gone.
+| Path | Owner | Answers |
+| --- | --- | --- |
+| Execution | `runtime.ExecutionPipeline` for the step, `runtime.run.RunEngine` for the run | what happens to one market event |
+| Lifecycle | `alphalab.lifecycle` | which strategy version an environment should be running, and why |
 
-Three of the audit's findings were **not** things previous releases had recorded.
-Profiling before converting found that the container conversion would have fixed
-~10% of `distributed`'s cost and made `feature_store` four times *slower*, because
-the dominant terms were full scans the finding had not named. A sweep for silent
-financial defaults found an invented Reg-T margin rate and two assumed currencies
-on public surfaces. And `from alphalab.common import *` raised `AttributeError`,
-because `__all__` advertised a name nothing defined.
+A deployment names what should run; running it is the execution path's job.
+`lifecycle.execution` joins them as a query with a refusal — it builds no state
+and starts nothing — and `strategy.registry` turns the named identity into
+executable code, deterministically and with a refusal. Neither is a second
+runtime.
 
-See ADR-0034 and ADR-0035.
+## Release history in brief
 
-v2.16.0 — "The Integrated Runtime, Governance and FX" — closes three *joins*,
-and audits everything else.
+The full record is in [`CHANGELOG.md`](CHANGELOG.md); the decisions behind it are
+in [`docs/ADR/`](docs/ADR). In outline:
 
-**A deployment decision now reaches a fill at a venue.** `LiveSession` is the
-loop v2.15 left to the caller: settle what the venue reported, advance the run,
-route what is newly working. `runtime/session.py` used to say against itself
-that "a live session driven by this module still produces working orders and
-stops"; it does not any more. The venue binding is durable, so a restarted run
-does not re-send an order the venue already holds — and
-`alphalab.lifecycle.execution.authorize_run` refuses a run that would serve a
-version the deployment ledger does not name.
+| Release | What it established |
+| --- | --- |
+| **v1.0.0** | Architectural foundation: core domain models, strategy runtime, replay engine, portfolio optimizer, Strategy Studio, Workbench |
+| **v1.34.0 – v1.46.0** | The engine series — feature store, factor library, options, futures, crypto, macro, alternative data, ML, deep learning, RL, cloud research, cluster scheduler, experiment tracking |
+| **v2.0.0** | Model registry, research assistant, deployment manager, Enterprise; canonical execution domain models unified (ADR-0008) |
+| **v2.1.0** | Mark-to-market; the exact accounting identity; O(1) amortized engine histories |
+| **v2.2.0** | Unified backtesting and replay on one step (ADR-0010); persistent containers; seeded identifiers |
+| **v2.3.0** | One canonical market-data model and one broker boundary (ADR-0011, ADR-0012); four environments, one path |
+| **v2.4.0** | The model and strategy lifecycle (ADR-0013) |
+| **v2.5.0** | Typed state round-trip and the provider → source link (ADR-0014) |
+| **v2.6.0** | Allocation authority and attribution truth (ADR-0015) |
+| **v2.7.0** | Instrument identity and dataset provenance (ADR-0016, ADR-0017) |
+| **v2.8.0** | Currency roles and run outcomes (ADR-0019 – ADR-0021) |
+| **v2.9.0** | Durable run state and deterministic identifier continuation (ADR-0022 – ADR-0024) |
+| **v2.10.0** | The strategy boundary — durable strategy state, populated `StrategyContext` (ADR-0025, ADR-0026) |
+| **v2.11.0** | Instrument classification and sector provenance (ADR-0027) |
+| **v2.12.0** | The currency authority and the settlement boundary (ADR-0028) |
+| **v2.13.0** | The run-state store and the durability boundary (ADR-0029) |
+| **v2.14.0** | Runtime unification: one `RunEngine`, four drivers (ADR-0030) |
+| **v2.15.0** | Real venue transport, streaming market data, artifact bytes, classification provenance, the completed strategy context (ADR-0031) |
+| **v2.16.0** | The live driver, governance/RBAC/audit, FX valuation — and the refactor audit (ADR-0032, ADR-0033) |
+| **v2.17.0** | Settlement-level multi-currency, the FX rate feed, the strategy-class registry, and the removal of seven deprecated surfaces (ADR-0034, ADR-0035) |
+| **v3.0.0** | Architecture frozen; documentation truth freeze. No capability added |
 
-**Every act that changes what is live names its principal.** ADR-0018 was
-written in v2.7 and deferred; v2.16 implements it. A promotion, a deployment and
-a rollback each require a permission and each record their actor, a deployment
-to a gated environment requires an approval from someone *other than* the
-deployer, and `governance_log` answers "who promoted this, and who deployed it"
-— the question that ADR said was unanswerable. `alphalab.enterprise` had a
-complete RBAC implementation and, until now, zero production consumers.
-
-**A book holding two currencies values as one figure.** Four ADRs deferred to
-"the release that supplies the rate source". Every rate is *supplied* and
-carries where it came from and when it was true: there is no default, no
-fallback of 1.0, no triangulation and no silent inversion, and a stale rate is
-refused rather than used. A converted valuation records every conversion it
-performed, because a number in a currency the book is not wholly in, with no
-statement of how it got there, is the defect ADR-0020 removed wearing a rate.
-
-The three are additions, not a rewrite, and one test says so: the live driver
-added no field to `RunState` and moved no run schema, FX added no field to run
-configuration and moved no pipeline schema, and governance moved exactly one
-schema — its own.
-
-Alongside them, **the refactor audit**: a deliberate search for the internal
-problems that would make AlphaLab worth refactoring *immediately after*
-declaring v3.0 stable, and a classification of every one of them as **required
-before v3.0**, **valid current design**, or **optional post-v3.0 evolution**.
-Nothing is left as "maybe".
-
-Six were required. The strategy dispatcher identified market events by class
-*name*, so `alphalab.live.events.TickReceived` — a different class with a
-different payload — was routed to `on_tick` and the strategy was then reported
-as having failed. Four of the six `StrategyContext` protocols were still
-decorative, so under `mypy --strict` a strategy could not write
-`context.portfolio.cash("USD")` at all. `benchmarks/benchmark_workbench.py` had
-never once run, and underneath its crash were three production defects: a
-rendered tab whose identifier no view exposed, a per-delegation scan of the whole
-Studio event log, and the pre-v2.1 quadratic accumulation in both packages. A
-portfolio optimizer returned silently wrong allocations for mismatched inputs.
-`ARCHITECTURE.md` still listed two gaps that v2.3 had closed.
-
-Eleven findings are recorded as **intentional**, each pinned by a regression test
-so a future "unification" has to break an assertion and read a reason first — the
-two `OrderBook`s, the two `PortfolioEngine`s, `optimizer` against
-`portfolio_optimizer`, the converged `broker` / `brokers` boundary, the two
-matrix inversions, the deprecated zero-consumer packages, the absent CLI, the
-absent vectorized layer, and `lifecycle` taking `studio`'s single
-`StrategyDefinition` rather than declaring a second one. Four are recorded as
-**future evolution** and deliberately not implemented.
-
-No boundary moved that was not moved deliberately, and no owner was created.
-See ADR-0032 and ADR-0033.
-
-v2.13.0 — "Durable Run State" — gives a captured run somewhere to go.
-
-`capture` / `restore` have covered `ExecutionPipelineState`, `SessionState` and
-`BacktestState` since v2.9, and v2.10 closed the last precondition with
-`StrategyStateProtocol`. A run could be described completely and rebuilt exactly
-— and could not be **put anywhere**. There were zero filesystem calls in the
-package; `MemoryStorage` was the only `PersistenceProtocol` implementation and
-lost everything on exit; and nothing in production imported the snapshot modules
-at all. The one object claiming to own recovery, `production.Checkpoint` with
-`RecoveryEngine`, held six opaque strings and restored nothing.
-
-`alphalab.persistence.RunStateStore` is the one owner of durable run state:
-four methods over `(run_id, sequence) → payload`. It is **payload-agnostic** —
-it moves a `str`, imports no snapshot type and never decodes one — which is what
-keeps it correct through the runtime unification ADR-0023 anticipates.
-`FileRunStateStore` is the real local backend: standard library only, atomic
-temp-file-and-rename writes, a digest verified **before any decoder runs**, and a
-root that must already exist. `MemoryRunStateStore` is an explicitly named test
-double a caller constructs by hand — never a fallback, and the file store never
-degrades into it. `RunStateRef(run_id, sequence)` is an **identity, not a
-location**: it renders `run_id@sequence` and carries no path, so a second backend
-would change no caller.
-
-The run identity is **yours**: an opaque string supplied at `put`, never written
-into any captured state, which is why no snapshot schema moves. And persistence
-**draws no identifier** from the run's stream — the deprecated store took one per
-operation, and the two it took were the run's own next two — so a mid-run
-checkpoint leaves a seeded run reproducible.
-
-Proven rather than asserted: a seeded run of five records, stored to disk,
-continued in a **separate interpreter** over six more, produces a final
-serialized payload **byte-identical** to a run that never stopped. Storage is an
-explicit caller action between completed steps; nothing on the execution path
-calls it, and there is no append-per-event API.
-
-The original nine-module persistence store is **deprecated, removed in v3.0**,
-with the codec spine (`serializer`, `decode`, `exceptions`) canonical and
-untouched. Nothing is removed in v2.13.
-
-**No FX, no multi-currency valuation, no `ArtifactStore` or artifact bytes, no
-cloud storage, no streaming, no live venue transport, no governance/RBAC
-implementation, and no runtime rewrite.** Runtime unification was the next
-architectural seam at the time; **v2.14 closed it** — see ADR-0030. See
-ADR-0029.
-
-v2.11.0 — "The Security Master" — makes the instrument registry authoritative
-for runs that *work*, not only for runs that fail.
-
-`InstrumentRecord.sector` has existed since v2.7, outside the identity key by
-ADR-0016 N5 so that a later classification could never re-identify an instrument
-and orphan its fills. It was also unwritable: `register_instrument` refuses a
-record whose content differs from one already held, so a field documented as
-mutable was in practice immutable. `classify_instrument` is that write — keyed
-by `asset_id`, sector only, `None` to unclassify, copy-on-write and `O(1)`, and
-structurally incapable of touching an identity field.
-
-The pipeline reads it **once per fill**, in `_apply_report_to_portfolio`, and
-freezes the answer onto that fill's `TradeRecord.sector_id`. That site is the
-one a simulated fill and a venue fill share, so backtest, replay, paper and live
-agree on the sector by construction. `pnl_by_sector` produces a real breakdown
-for the first time, and `ExposureStatus.sector_exposure` — declared, persisted
-and decoded since before v2.6, populated by nothing — is filled from the same
-authority, on signed market value, in the pass that already walked the
-positions.
-
-Two facts, two owners, two tenses: the registry says what an instrument **is**
-classified as; a trade record says what it **was** classified as when the fill
-happened. A later reclassification cannot rewrite a completed run, and a run
-reclassified mid-run correctly splits across both sectors.
-
-**No schema constant moves** — all seven stay where v2.10 left them — no
-identifier is drawn, `alphalab.analytics` is untouched because the consumer was
-already correct, and a run configured with no registry is byte-identical to
-v2.10.0. AlphaLab still ships no classification data: the operator declares a
-sector the way they already declare an instrument. See ADR-0027.
-
-v2.10.0 — "The Strategy Boundary" — closes both halves of the one surface v2.9
-could not: what a strategy tells the runtime about itself, and what the runtime
-tells a strategy about the world.
-
-`StrategyStateProtocol` lets a strategy declare durable internal state and
-supply a two-sided codec for it, so a run that stops and continues restores a
-**fresh** strategy instance's memory and reproduces an uninterrupted run exactly
-— the one precondition v2.9's equivalence guarantee stated and no protocol could
-express. The codec is two-sided because the shared encoder writes a `Decimal`
-and a `str` identically and no generic decoder can tell them apart afterwards;
-capture puts the state through that encoder immediately, so an unencodable value
-is refused where it was produced rather than at some later `serialize`.
-`PIPELINE_SNAPSHOT_SCHEMA` moves to **2** and reads version 1 as "no strategy was
-asked"; `SESSION_` and `BACKTEST_SNAPSHOT_SCHEMA` do not move.
-
-`StrategyContext` is populated by the pipeline for the first time since it was
-written. A strategy now sees the **marked** portfolio — the book as of the event
-being dispatched, after mark-to-market and the risk resync — its own **live
-order shares**, risk headroom and a market view. Order attribution comes from
-the allocation contribution ledger rather than `OrderBook.orders_for_strategy`,
-which answers nothing for a netted order: two strategies whose intents net into
-one `BUY 100` each see their own share and neither claims sole ownership. The
-caller's `context_factory` keeps its signature and its `clock`, `logger` and
-`config`; the pipeline overlays only what it owns. `history` and `universe`
-remain deferred and say so.
-
-**No live trading is added**, and no schema outside the pipeline envelope moves.
-
-v2.9.0 — "Durable Run State" — let a run stop and continue. Every *quantity*
-already survived a round trip — cash, positions, realized P&L, reservations,
-contributions, risk NAV — but nothing recorded where the identifier stream had
-reached, so a run that stopped and resumed rebuilt its generator at zero and
-re-minted identifiers it had already used: up to **4 duplicates** in a
-41-identifier workload, against zero for a run that never stopped, with nothing
-raising at any layer. `capture` / `restore` now cover `ExecutionPipelineState`,
-`SessionState` and `BacktestState` alongside the portfolio, the OMS and a new
-allocation snapshot; a venue fill delivered twice is applied once; a working
-external order the venue has ended can be ended here; `OMSState` payloads
-declare a schema version and one bounded legacy shape; `alphalab.persistence`
-appends in linear time (32,000 appends: **14.0 s → 0.24 s**); and `restore`
-re-runs the construction-time validations `initialize` enforces, so v2.8's
-currency invariant holds on both paths into a pipeline state. Its equivalence
-guarantee was conditional on strategy-internal state the caller restored, which
-`StrategyProtocol` gave no way to express; **v2.10 closes that precondition for
-a strategy that declares its state**, and leaves it stated for one that does not.
-
-> **A deployment is a lifecycle fact, not an operation on a machine.** It records that
-> an environment *should* be running a strategy version. It starts no process, opens no
-> connection and reaches no venue.
+> **What connectivity means here.** `alphalab.broker.transport.HttpVenueTransport`
+> signs and sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker`
+> is a full `BrokerProtocol` over it, `alphalab.market.stream.StreamingSource`
+> consumes a push feed through an RFC 6455 WebSocket client, and
+> `alphalab.runtime.live.LiveSession` drives the settle/advance/route cycle. All of
+> it is exercised end to end over real sockets against local servers that verify
+> signatures, timestamp windows, idempotency keys and WebSocket accept tokens.
 >
-> **Connectivity exists from v2.15; vendor integration does not.** This replaces the
-> flat "AlphaLab does not support live trading" this section carried through v2.14,
-> which stopped being accurate and would have been the most misleading sentence in the
-> repository if left.
->
-> What v2.15 adds is real: `alphalab.broker.transport.HttpVenueTransport` signs and
-> sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker` is a
-> full `BrokerProtocol` over it, and `alphalab.market.stream.StreamingSource` consumes
-> a push feed through an RFC 6455 WebSocket client. All of it is exercised end to end
-> over real sockets against local servers that verify signatures, timestamp windows,
-> idempotency keys and WebSocket accept tokens.
->
-> What v2.15 does **not** add: verification against any commercial venue — this
-> environment has no network egress and holds no vendor credentials — and any named
-> vendor's request shapes. Read the transports as written-to-protocol and
-> unverified-against-a-vendor, which is what their own docstrings say. (The
-> `alphalab.integrations` canned-response clients this paragraph also named were
-> removed in v2.17; they had zero production importers and had been deprecated
-> since v2.6.)
->
-> Market *data* history has been real since v1.39.0: `alphalab.marketdata.binance` is a
-> real REST client over a real HTTP transport, unverified from this environment for the
-> same reason. See `docs/ADR/0012-broker-boundary-and-environment-parity.md` and
+> What is **not** here: verification against any commercial venue — this
+> environment has no network egress and holds no vendor credentials — and any
+> named vendor's request shapes. Read the transports as written-to-protocol and
+> unverified-against-a-vendor, which is what their own docstrings say. See
+> `docs/ADR/0012-broker-boundary-and-environment-parity.md` and
 > `docs/ADR/0031-real-transport-streaming-artifacts-and-the-completed-boundaries.md`.
+>
+> **A deployment is a lifecycle fact, not an operation on a machine.** It records
+> that an environment *should* be running a strategy version. It starts no
+> process, opens no connection and reaches no venue.
 
 ---
 
@@ -360,7 +170,10 @@ market event flows through each stage as a pure function over an immutable
 Market event (Quote / Bar / Tick)
         │
         ▼
-Strategy   →  Intents
+Mark to market  →  positions re-priced, risk resynced from the marked book
+        │
+        ▼
+Strategy   →  Intents                        (sees the marked portfolio)
         │
         ▼
 Allocation →  sized OrderRequests            (core.OrderRequest, core.enums.Side)
@@ -372,22 +185,30 @@ Risk       →  RiskDecision (approve / reject)
 OMS        →  Order lifecycle                (oms.order.Order — canonical)
         │
         ▼
-Execution simulator → ExecutionReport (deterministic fills, commission)
+Execution  →  ExecutionReport                (simulator, or a venue fill returning)
         │
         ▼
-Portfolio  →  cash, positions, realized P&L  (Fill / Trade — float timestamps)
+Portfolio  →  cash, positions, realized P&L  (per settlement currency)
         │
         ▼
 Analytics  →  PerformanceReport (compiled on demand)
 ```
 
-The caller owns the event loop and feeds events in one at a time.
+The caller owns the process. A **driver** decides which record comes next and
+what clock reading judges it, and holds no state of its own:
+
+| Driver | Cursor |
+| --- | --- |
+| `runtime.session.TradingSession` | a `MarketDataSource` |
+| `backtesting.BacktestEngine` | a `MarketDataset` |
+| `backtesting.replay.ReplayBacktest` | `alphalab.replay`'s cursor |
+| `runtime.live.LiveSession` | a venue, through the settle/advance/route cycle |
 
 ## Instrument identity on the production path
 
 Everything reaching the execution path crosses `alphalab.market.normalization`,
-and as of v2.7 that boundary resolves identity through an authority rather than
-passing a provider symbol through:
+and that boundary resolves identity through an authority rather than passing a
+provider symbol through:
 
 ```text
 (provider, symbol)  →  InstrumentRegistry  →  canonical asset_id (deterministic UUID)
@@ -424,43 +245,62 @@ The second mode, `UnresolvedIdentity`, keeps the wire → canonical lift testabl
 without a registry. **It is not a production execution configuration**: it yields
 provider symbols, which `core.Fill` and `core.Trade` refuse, and
 `ProviderHistorySource.of` rejects it before calling the provider. `DEFAULT_POLICY`
-uses this mode and is therefore a testing default.
+uses this mode and is therefore a testing default. See ADR-0016.
 
-`core.Fill` / `core.Trade` UUID validation is unchanged. See ADR-0016.
+The registry is read a second time on the **fill** path: `ExecutionPipeline` asks
+it what sector the filled asset is classified as and freezes that answer onto the
+fill's `TradeRecord.sector_id`, and asks it what currency the instrument trades in
+to decide whether this run may trade it at all. Only `record_for` is ever called —
+the pipeline resolves no provider symbol, derives no `asset_id` and classifies
+nothing. See ADR-0027 and ADR-0028.
 
-As of v2.11 the registry is read a second time, on the **fill** path rather than
-the wire boundary: `ExecutionPipeline` asks it what sector the filled asset is
-classified as and freezes that answer onto the fill's `TradeRecord.sector_id`.
-Only `record_for` is ever called — the pipeline still resolves no provider
-symbol, derives no `asset_id` and classifies nothing. Configuring no registry
-remains fully supported and simply leaves the sector `None`. See ADR-0027.
+## Money: settlement truth and reporting truth
+
+A run settles the currencies `ExecutionPipelineConfig.also_settles` names — empty
+by default, which is the single-currency pipeline. `PortfolioState.realized_pnl`
+and `commission_paid` are per-currency, so a EUR fill accrues EUR P&L permanently
+and nothing is ever summed across two. A valuation names one reporting currency
+and converts into it **on demand**, recording every rate it used.
+
+Every rate is *supplied* and carries its source and the instant it was true.
+There is no default, no fallback of 1.0, **no triangulation and no implicit
+inversion**, a stale rate is refused rather than used, and a run that settles a
+currency it has not funded is refused rather than financed.
+`alphalab.portfolio.fx_feed` is the boundary rates arrive across — it adds a
+contract, and **AlphaLab ships no FX data**. See ADR-0035.
 
 ## Standalone engine libraries
 
 Everything below is importable, deterministic, and independently tested, but is
-**not** currently connected into `ExecutionPipeline` or into one another:
+**not** wired into `ExecutionPipeline` or into the lifecycle path:
 
 | Area | Packages |
 |---|---|
-| Research & simulation | `research`, `reporting` |
+| Reporting | `reporting` |
 | Portfolio construction | `portfolio_optimizer`, `optimizer` |
-| Data surface (overlapping) | `data`, `marketdata`, `feed` |
 | Features & factors | `feature_store`, `factor_library`, `alt_data` |
 | Learning | `ml`, `deep_learning`, `reinforcement_learning` |
 | Asset classes | `options`, `futures`, `crypto`, `macro` |
 | Scale-out | `cloud_research`, `cluster_scheduler`, `distributed` |
-| Workflow & governance | `studio`, `workbench`, `enterprise` |
-| Live / ops surface | `live`, `production`, `broker`, `brokers`, `integrations` |
+| Workflow | `workbench`, `research_assistant` |
+| Provider surfaces | `live`, `feed`, `brokers` |
+| Infrastructure | `plugins`, `scheduler` |
 
-> The Workbench → Studio → live-markets flow shown in `docs/` is a design target,
-> not a single runtime that exists today. What is wired together is
-> `ExecutionPipeline` and the packages that drive it — `backtesting` (including
-> `replay`, as of v2.2) and `runtime.session` (paper and the live boundary, as of
-> v2.3) — and, separately, `alphalab.lifecycle` (as of v2.4), which composes
-> `experiment_tracking`, `model_registry`, `research_assistant` and
-> `deployment_manager`. The two are not joined into one runtime: a deployment
-> names what should run, and the execution path runs it. Connectivity to a real
-> venue is still absent. See `ROADMAP.md`.
+Several packages that are often described as standalone are **not**, and the
+import graph is the authority:
+
+- `data`, `marketdata`, `market`, `instrument`, `broker` and `persistence` are
+  each reached from the execution path. `data.feed` and `marketdata.feed` supply
+  the wire records `market.normalization` lifts; `marketdata` is consumed by
+  `market`; `broker` is reached through `runtime.broker_routing`; `persistence`
+  supplies the codec spine and the `RunStateStore` every snapshot owner writes
+  through.
+- `research`, `studio`, `enterprise`, `experiment_tracking`, `model_registry`,
+  `deployment_manager` and `backtesting` are imported by `alphalab.lifecycle`.
+- `research_assistant` is the one package the lifecycle *names* without
+  importing: it produces a candidate and `to_strategy_definition` lifts it into
+  the canonical `StrategyDefinition` the lifecycle takes. The dependency runs
+  through the definition, not through the package.
 
 ---
 
@@ -470,15 +310,14 @@ Everything below is importable, deterministic, and independently tested, but is
 
 ```bash
 git clone https://github.com/VarunSingh022/AlphaLab.git
-
 cd AlphaLab
-
 python -m venv .venv
-
 source .venv/bin/activate
-
 pip install -e ".[dev]"
 ```
+
+AlphaLab itself needs nothing beyond the standard library; the `[dev]` extra
+installs the lint, type-check, test and build toolchain.
 
 ---
 
@@ -488,18 +327,20 @@ The recommended way to learn the framework is through the curated examples.
 
 | Example | File | Description |
 |---------|------|-------------|
-| 01 | `01_research.py` | Research Engine |
+| 01 | `01_research.py` | Research engine |
 | 02 | `02_backtest.py` | Strategy Studio backtest bookkeeping |
-| 03 | `03_replay.py` | Historical replay over the real execution path |
-| 04 | `04_market_data.py` | Market Data |
-| 05 | `05_broker_connection.py` | Broker Integrations |
-| 06 | `06_portfolio_optimizer.py` | Portfolio Optimizer |
+| 03 | `03_replay.py` | Historical replay cursor |
+| 04 | `04_market_data.py` | Market-data providers |
+| 05 | `05_broker_connection.py` | The two broker boundaries: one venue, or a registry of many |
+| 06 | `06_portfolio_optimizer.py` | Portfolio construction |
 | 07 | `07_universal_data.py` | Universal Data Engine |
-| 08 | `08_strategy_studio.py` | Strategy Studio |
-| 09 | `09_workbench.py` | Workbench |
+| 08 | `08_strategy_studio.py` | Strategy Studio orchestration |
+| 09 | `09_workbench.py` | Workbench workspace |
 | 10 | `10_complete_pipeline.py` | Multi-engine walkthrough |
-| 11 | `11_unified_backtest.py` | Dataset → orders → fills → P&L → analytics |
+| 11 | `11_unified_backtest.py` | Dataset → orders → fills → P&L → analytics, plus replay parity |
 | 12 | `12_model_lifecycle.py` | Research candidate → model → strategy version → deploy → rollback |
+| 13 | `13_durable_run_state.py` | Stop a run, store it, continue it in another process |
+| 14 | `14_multi_currency_settlement.py` | FX feed → two settlement currencies → one reported figure |
 
 Run any example:
 
@@ -508,8 +349,10 @@ python examples/01_research.py
 ```
 
 Examples `01`–`10` date from v1.0.0 and exercise the standalone engine APIs;
-`11` (v2.2) drives the integrated execution path and `12` (v2.4) drives the
-lifecycle path. None are part of the automated test suite.
+`11` (v2.2) drives the integrated execution path, `12` (v2.4) the lifecycle path,
+`13` (v2.13) durable run state across two processes, and `14` (v2.17)
+settlement-level multi-currency. None are part of the automated test suite,
+though all fourteen run.
 
 ---
 
@@ -519,12 +362,16 @@ The complete documentation is available in the `docs/` directory.
 
 | Document | Description |
 |----------|-------------|
-| Getting Started | Installation and first steps |
-| Architecture | Framework architecture |
-| ADR | Architectural Decision Records |
-| Examples | Example walkthroughs |
-| Engineering | Engineering guidelines |
-| Roadmap | Future development |
+| `docs/GETTING_STARTED.md` | Installation and first steps |
+| `docs/ARCHITECTURE.md` | Framework architecture, and what is actually built |
+| `docs/SYSTEM_DESIGN.md` | Internal design and subsystem interaction |
+| `docs/STATE_MODEL.md` | Immutable state, snapshots and schemas |
+| `docs/EVENT_MODEL.md` | Event-driven architecture and lifecycle |
+| `docs/ADR/` | Architectural Decision Records — 35 of them |
+| `docs/EXAMPLES.md` | Example walkthroughs |
+| `docs/ENGINEERING_GUIDELINES.md` | Engineering standards |
+| `nowandfuture.md` | The long-form project reference: ownership, invariants, boundaries, what must not change casually |
+| `ROADMAP.md` | What is delivered, what is deliberate, what remains optional |
 
 ---
 
@@ -532,45 +379,57 @@ The complete documentation is available in the `docs/` directory.
 
 ```text
 alphalab/
-├── core/            Canonical domain models — Side, OrderRequest, Fill, Trade, ids
-├── runtime/         ExecutionPipeline (the integrated execution spine) + runtime engine
-├── strategy/        Strategy protocol, engine, supervisor
-├── allocation/      Intent sizing / netting → OrderRequest
-├── risk/            Pre-trade risk checks and limits
-├── oms/             Order lifecycle (oms.order.Order is canonical)
-├── execution/       Deterministic execution simulator, commission models
-├── portfolio/       Cash ledger, positions, NAV, realized P&L
-├── analytics/       Performance report, attribution
-├── market/          In-memory market state and events
-├── instrument/      Canonical instrument identity, registry, classification
-├── common/          Shared version, events, serialization, constants
-├── backtesting/     Dataset → execution path → analytics (backtest + replay)
-├── replay/          Deterministic replay cursor (drives backtesting)
-├── lifecycle/       Research → model → strategy version → promotion → deployment
-├── research/  portfolio_optimizer/  reporting/               Standalone engines
-├── feature_store/  factor_library/  alt_data/                 Standalone engines
-├── ml/  deep_learning/  reinforcement_learning/               Standalone engines
-├── options/  futures/  crypto/  macro/                        Standalone engines
-├── cloud_research/  cluster_scheduler/  distributed/          Standalone engines
-├── experiment_tracking/  model_registry/  deployment_manager/ Standalone engines
-├── studio/  workbench/  research_assistant/  enterprise/      Standalone engines
-├── data/  marketdata/  feed/                                  Data-surface (overlapping; see docs)
-├── live/  production/  broker/  brokers/  integrations/       Live/ops surface (deferred)
-├── kernel/  plugins/  scheduler/  persistence/  optimizer/    Infrastructure
-└── ...
+├── Execution spine (wired by runtime.ExecutionPipeline / runtime.run.RunEngine)
+│   core/          Canonical domain models — Side, OrderRequest, Fill, Trade, ids
+│   runtime/       ExecutionPipeline, RunEngine, drivers, broker routing, snapshots
+│   strategy/      Strategy protocol, dispatcher, supervisor, class registry
+│   allocation/    Intent sizing / netting → OrderRequest, reservations, contributions
+│   risk/          Pre-trade risk checks and limits
+│   oms/           Order lifecycle (oms.order.Order is canonical)
+│   execution/     Deterministic execution simulator, commission, fill policies
+│   portfolio/     Cash ledger, positions, NAV, per-currency P&L, FX, FX feed
+│   analytics/     Performance report, attribution
+│   market/        Canonical market model, normalization, sources, streaming
+│   instrument/    Canonical instrument identity, registry, classification
+│   common/        Version, events, serialization, ids, containers, TLS
+│   persistence/   Codec spine, RunStateStore, typed decoding
+│   backtesting/   Dataset → execution path → analytics (backtest + replay drivers)
+│   replay/        Deterministic replay cursor
+│
+├── Lifecycle path (composed by alphalab.lifecycle)
+│   lifecycle/     Research → model → strategy version → promotion → deployment
+│   experiment_tracking/  model_registry/  deployment_manager/
+│   studio/        Strategy definitions and project orchestration
+│   enterprise/    RBAC, principals, audit log (governance reads it)
+│   research/      Research scores, consumed for validation evidence
+│
+├── Data surfaces
+│   data/          Wire records and the universal data engine
+│   marketdata/    Provider clients, transport, WebSocket
+│   feed/  live/   Standalone provider-surface engines
+│
+├── Broker surfaces
+│   broker/        The canonical single-venue boundary (BrokerProtocol)
+│   brokers/       The many-venue connector framework (BrokerConnectorProtocol)
+│
+└── Standalone engines
+    reporting/  portfolio_optimizer/  optimizer/
+    feature_store/  factor_library/  alt_data/
+    ml/  deep_learning/  reinforcement_learning/
+    options/  futures/  crypto/  macro/
+    cloud_research/  cluster_scheduler/  distributed/
+    workbench/  research_assistant/  plugins/  scheduler/
 ```
+
+All 48 top-level packages are accounted for above.
 
 Additional directories:
 
 ```text
-docs/          Documentation
-
-examples/      Runnable examples
-
-benchmarks/    Performance benchmarks
-
-tests/         Automated test suite
-
+docs/          Documentation and ADRs
+examples/      14 runnable examples
+benchmarks/    47 performance benchmarks
+tests/         3956 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
 
@@ -580,360 +439,76 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ 2926 passing tests (1782 unit, 109 integration, 1035 regression)
-- ✅ Strict MyPy type checking (958 source files)
+- ✅ **3956 passing tests** (1646 unit, 239 integration, 2071 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking (910 source files)
 - ✅ Ruff linting and formatting
-- ✅ Source distribution validation
-- ✅ Wheel validation
-- ✅ Python packaging verification
+- ✅ 47 / 47 benchmarks, 14 / 14 examples
+- ✅ Source distribution, wheel and `twine check` validation
+
+Neither the zero skips nor the zero warnings can be satisfied by configuration:
+`tests/regression/test_the_suite_reports_nothing_deferred.py` reads the collected
+items rather than the summary line, and spawns a **fresh interpreter** with
+`-W error::DeprecationWarning` to import every module in the package tree.
 
 ---
 
-# Roadmap
+# What is deliberate, what is external, what is optional
 
-## Delivered
+The v3.0 audit classified everything that remains. Nothing below is a defect.
 
-**v1.0.0** — architectural foundation: core domain models, strategy runtime,
-replay engine, portfolio optimizer, broker integration scaffolding, production
-runtime, Strategy Studio, Workbench.
+## Deliberate design — pinned by regression tests
 
-**v1.34.0 – v1.46.0** — engine series: feature store, factor library, options,
-futures, crypto, macro, alternative data, machine learning, deep learning,
-reinforcement learning, cloud research, cluster scheduler, experiment tracking.
+These look like duplication or a layer violation and are not. A future
+"unification" has to break an assertion and read a reason first; the reasons live
+in `tests/regression/test_shared_names_stay_distinct.py` and
+`test_venue_concepts_stay_distinct.py`.
 
-**v2.0.0** — model registry, AI research assistant, deployment manager, AlphaLab
-Enterprise; canonical execution domain-model unification (`core.enums.Side`,
-`core.OrderRequest`, `oms.order.Order`, float `Fill`/`Trade` timestamps);
-portfolio close/reduce cash-accounting fix; `PerformanceReport` serialization fix.
+- **Two `OrderBook`s** — `oms.book.OrderBook` holds *my* working orders;
+  `data.feed.OrderBook` is a venue depth snapshot. They share no operation.
+- **Two `PortfolioEngine`s** — `portfolio` does accounting, `portfolio_optimizer`
+  does construction. Only the accounting one is reachable from the execution path.
+- **`optimizer` vs `portfolio_optimizer`** — two searches over two different
+  subjects.
+- **`broker` vs `brokers`** — one venue versus many venues and many accounts.
+  The connector package routes the canonical types under its historical names;
+  the identities are asserted.
+- **A wire record and a domain record** — `data.feed` is `float`/`symbol`,
+  `alphalab.market` is `Decimal`/`asset_id`. They sit on opposite sides of an
+  explicit conversion (ADR-0011).
+- **Three things called a venue** — listing exchange, market-data attribution and
+  execution venue. None derives from another (ADR-0019).
+- **Standalone engines with no in-repo consumer** — that is ADR-0009, not an
+  orphan.
 
-**v2.1.0** — execution and portfolio correctness: mark-to-market wired into
-`ExecutionPipeline`; account-level realized P&L and commissions; the
-`PortfolioValuation` read model; per-fill P&L attribution; unpriced-request and
-terminal-rejection execution invariants; O(1) amortized append-only histories
-(`common.AppendOnlyLog`) replacing the O(N²) tuple rebuilds.
+## External dependencies — not internal engineering
 
-**v2.2.0** — unified backtesting and replay: `alphalab.backtesting` composes
-`ExecutionPipeline` into a real backtest, and `alphalab.replay` drives the same
-path; fill policies (`ImmediateFill`, `StaticFill`, `LiquidityCappedFill`);
-persistent order-book and execution-report containers
-(`common.PersistentMap` / `PersistentSet`) replacing the quadratic
-dict/frozenset copying; a per-order allocation
-reservation ledger released exactly once; complete round-trippable `OMSState`
-snapshots; seeded, reproducible identifiers.
+- **Verification against a commercial venue.** No network egress, no vendor
+  credentials. The protocols are proven against local servers.
+- **Named vendor request shapes.** Each belongs to a vendor adapter.
+- **FX data.** v2.17 ships the rate-feed *boundary* and not a single rate.
+- **Classification data.** v2.11 ships the security master's *mechanism* and
+  v2.15 its provenance; AlphaLab ships no taxonomy and no reference-data feed.
 
-**v2.3.0** — market data and broker/live execution: one canonical market-data
-model (`alphalab.market`) over one canonical wire record, with an explicit
-normalization boundary (`market.normalization`) and adapter contract
-(`market.source`); one canonical broker boundary (`alphalab.broker`) that
-`alphalab.brokers` routes rather than redefines; order/fill reconciliation with
-defined answers for duplicate, out-of-order, unknown and terminal-order fills and
-the cancel/fill race; `runtime.session.TradingSession` driving backtest, replay,
-paper and live through one canonical step; `runtime.broker_routing` carrying an
-order out to a venue and a fill back through the same portfolio accounting a
-simulated fill uses; and the removal of the quadratic index rebuilds in the
-broker, market, marketdata, live and feed states.
+## Optional future evolution — deliberately not built
 
-**v2.4.0** — model and strategy lifecycle: `alphalab.lifecycle` composing
-experiment tracking, the model registry, strategy definitions and the deployment
-manager into research candidate → experiment run → validation evidence → model
-version → strategy version → promotion → deployment → rollback; `StrategyVersion`,
-the numbered immutable record that did not exist; typed `ModelRef` /
-`StrategyVersionRef` / `DeploymentRef` replacing opaque manifest strings;
-`ValidationEvidence` with content-derived ids, extracted from the
-`PerformanceReport` and `ResearchScore` AlphaLab already produces; a promotion gate
-requiring passing evidence and a staged model; the deployment ledger as the one
-source of truth for what is live; `ArtifactRef` and a serializable `ModelVersion`
-projection; declared stage transitions refusing `PRODUCTION → STAGING` and the
-resurrection of an archived version that was never live; and the removal of the
-quadratic writes in all three stateful lifecycle registries.
-
-**v2.5.0** — state round-trip and the live data path: `capture` / `restore` for
-`PortfolioState` and `LifecycleState` joining `OMSState`, over typed decoders
-(`alphalab.persistence.decode`) that name the field they reject and refuse an
-unknown schema version; `PersistenceAdapter.snapshot_payload` giving
-`alphalab.persistence` its first production consumers;
-`alphalab.market.provider.ProviderHistorySource` connecting a provider adapter to
-`TradingSession` through the v2.3 normalization boundary (as of v2.7 it requires
-`InstrumentRegistry`-backed identity resolution — see below); explicit
-`SessionConfig.ordering` semantics for unordered sources; terminal semantics for a
-partially filled simulated order's remainder, with its reservation released; and the
-removal of the replay cursor's O(N²), with the benchmark repointed at the API the
-integrated path actually uses.
-
-**v2.6.0** — allocation authority and attribution truth: the budget guard counts
-outstanding commitment, so `EXTERNAL` routing can no longer over-commit across
-events; a terminal order releases whatever a fill priced away from the reference
-price left behind; `StrategyContribution` carries who asked for a netted order
-through to `TradeRecord`, and `pnl_by_strategy` splits by signed contribution;
-`Position.opened_at` makes holding periods real; `pnl_by_sector` is empty rather
-than fictional; the portfolio snapshot moves to schema 2 and refuses version 1
-without a migration framework; and `integrations`, `kernel`, `core.events` and
-`CommonEvent` are deprecated for removal (taken in v2.17). See ADR-0015.
-
-**v2.7.0** — instrument identity and dataset provenance: `alphalab.instrument`
-becomes the authority for what a provider symbol means, deriving a canonical
-`asset_id` deterministically (`uuid5` over a fixed key under a frozen namespace)
-so two independently configured environments agree with no shared database; an
-unregistered symbol is refused at the normalization boundary naming provider and
-symbol, instead of failing at the first fill; a run records the dataset or source
-it consumed (`BacktestResult.dataset_id`, `SessionState.source_id`); and
-`BACKTEST` evidence derives that identity from the run rather than accepting a
-caller's claim — with `evidence_id_for` byte-identical to v2.6, so evidence
-recorded then still verifies and still passes its policy.
-
-**v2.8.0** — currency roles and run outcomes: `ExecutionPipeline.initialize`
-refuses a configuration whose `currency` and `Account.base_currency` disagree,
-which silently zeroed buying power and NAV and switched off the leverage and
-margin checks; `PortfolioValuation.snapshot` refuses a book spanning two
-currencies instead of adding them together under one label; a run records the
-assets it declined to trade for want of a price, aggregated per asset and
-surfaced on `BacktestResult`, `ReplayResult` and `SessionState`, optionally
-distinguishing an unregistered identifier from an unpriced instrument through a
-read-only `InstrumentRegistry` reference; an allocation contribution is retired
-wherever a request's lifecycle ends rather than only where an order produced a
-report; and `LIFECYCLE_SNAPSHOT_SCHEMA` becomes a literal without moving its
-value. No breaking changes, no schema movement, no migration, and no FX.
-
-**v2.9.0** — durable run state: `capture` / `restore` / `from_primitives` for
-`ExecutionPipelineState` (`PIPELINE_SNAPSHOT_SCHEMA`), `SessionState`
-(`SESSION_SNAPSHOT_SCHEMA`), `BacktestState` (`BACKTEST_SNAPSHOT_SCHEMA`) and
-`AllocationState` (`ALLOCATION_SNAPSHOT_SCHEMA`), with live objects recorded by
-type and required back from the caller rather than reconstructed;
-`IdStreamPosition` giving the deterministic identifier stream the cursor it
-never had, so a continued run no longer re-mints identifiers it already used;
-`TradingSession.resume` / `BacktestEngine.resume` opening the scope a restored
-position implies; a duplicate `execution_id` applied once rather than twice;
-`ExecutionPipeline.apply_terminal_outcome` ending a restored external working
-order and retiring its reservation and contribution; `OMS_SNAPSHOT_SCHEMA = 1`
-with a bounded exact-five-key legacy shape and no generic "missing means
-version 1"; `alphalab.persistence` migrated to `AppendOnlyLog` / `PersistentMap`
-/ `PersistentSet`, turning a quadratic append linear; and `restore` re-running
-every construction-time validation `initialize` enforces. No breaking changes,
-no migration, no venue transport, and `PORTFOLIO_SNAPSHOT_SCHEMA` /
-`LIFECYCLE_SNAPSHOT_SCHEMA` do not move.
-
-**v2.10.0** — the strategy boundary: `StrategyStateProtocol`, a second and
-separate protocol a strategy satisfies to declare durable internal state, with a
-required two-sided codec (`strategy_state_version` / `capture_state` /
-`restore_state`) whose encode side is validated and normalized through the
-existing `DeterministicEncoder` at capture rather than at some later
-`serialize`; `PIPELINE_SNAPSHOT_SCHEMA = 2` carrying a three-valued
-`StrategyRecord.state` — absent means a version-1 payload nobody asked, `null`
-means declared none, an object means declared — with version 1 still readable
-and four reconciliation mismatches refusing the whole restore; deterministic
-continuation into a **fresh** strategy instance at every record boundary, adding
-no identifier draws; `StrategyContext` populated by the pipeline from the marked
-portfolio and resynced risk locals, with strategy-scoped live order **shares**
-read from the allocation contribution ledger rather than the OMS strategy index,
-read-only risk and market views, and construction only for a running strategy;
-the caller's `context_factory` signature, `clock`, `logger` and `config`
-preserved. No breaking changes, no migration, no venue transport, and
-`SESSION_`, `BACKTEST_`, `ALLOCATION_`, `OMS_`, `PORTFOLIO_` and
-`LIFECYCLE_SNAPSHOT_SCHEMA` do not move.
-
-**v2.11.0** — instrument classification and sector provenance:
-`classify_instrument` / `classify_instruments` give `InstrumentRegistry` the
-write ADR-0016 N5 kept the identity key clear for, keyed by `asset_id` and
-writing `sector` alone — `None` unclassifies, the label already in effect
-returns the same registry object, and the write is copy-on-write and `O(1)`;
-`sector` stays outside the canonical key, so a reclassification cannot
-re-identify an instrument or orphan its fills, and the classification API
-exposes no identity field; `normalize_sector_label` refuses a blank,
-whitespace-only, control-character or non-string label while permitting internal
-whitespace and non-ASCII and preserving case, because a sector derives no
-identifier; `ExecutionPipeline` reads the registry once per **fill**, on the one
-path a simulated fill and a venue fill share, and freezes the answer onto
-`TradeRecord.sector_id`, so a later reclassification never rewrites a completed
-run and a run reclassified mid-run splits across both sectors; `pnl_by_sector`
-produces a real breakdown for the first time and `ExposureStatus.sector_exposure`
-is populated on signed market value, both from the same authority, with
-`alphalab.analytics` untouched because the consumer was already correct. No
-breaking changes, no migration, no venue transport; all seven snapshot schema
-constants hold, identifier draw counts are unchanged, and a run configured with
-no registry is byte-identical to v2.10.0. **AlphaLab ships no taxonomy or
-reference data** — the operator declares a sector the way they already declare an
-instrument — and sector is the only classification dimension. See ADR-0027.
-
-**v2.12.0** — the currency authority: `InstrumentRecord.currency` decides what a
-run may trade. A EUR-registered instrument traded on a USD pipeline used to
-produce `Position.currency == "USD"` — a position labelled with a currency the
-instrument does not trade in, silently — because `_instruction` stamped
-`ExecutionPipelineConfig.currency` onto every instruction and nothing consulted
-the registry. Two seams close it, answering different questions: `_process_requests`
-asks whether this run may *trade* an instrument, needs the registry, and **drops**
-the request before the OMS, retiring both allocation ledgers and reporting a
-`SettlementRefusal` on `ExecutionPipelineResult`; `_apply_report_to_portfolio`
-asks whether a report is denominated in what the pipeline *settles*, needs no
-registry, and **raises** `RuntimeValidationError`, because a venue fill has
-already happened and cannot be declined. The second closes `RoutingConfig.currency`,
-a fifth currency site ADR-0019 did not name and nothing compared to anything, and
-through which a live sell used to mix a book silently. `STRICT_MATCH` is the only
-rule and there is no policy object: a permissive mode could only book honestly —
-making the book mixed, which the next snapshot refuses — or convert, which is FX.
-`assert_single_currency_book` becomes the one implementation of the mixed-book
-rule, and `NAVCalculator.calculate`, `PortfolioValuation.portfolio_value` and
-`_risk_exposure`/`sector_exposure` now refuse a book they cannot express,
-discharging ADR-0020 decision 5 earlier than it expected — on measurement rather
-than on a rate source. `long_value` and `short_value` deliberately do **not**:
-they name no base currency, so they are components of a valuation rather than
-valuations. `_currency_of` mirrors `_sector_of` — one keyed `record_for`, no scan,
-no identifier — and the authority is **opt-in**: a run with `instruments=None`
-behaves exactly as v2.11. No breaking changes beyond two deliberate correctness
-refusals, no migration, no new identifier draw; all seven snapshot schema
-constants hold and a single-currency run is byte-identical to v2.11.0. **No FX
-rate source, no conversion, and no multi-currency aggregation** — a mixed book is
-still refused, not valued. See ADR-0028.
-
-**v2.13.0** — durable run state and the run-state store:
-`alphalab.persistence.RunStateStore` over `(run_id, sequence) → payload`, with
-`FileRunStateStore` (stdlib, atomic writes, digest verified before decode, no
-fallback) and the explicitly named `MemoryRunStateStore`; `RunStateRef` as an
-identity rendering `run_id@sequence` and carrying no backend location;
-`RUN_STATE_ENVELOPE_SCHEMA = 1` as the only new constant, with all eight existing
-schema constants unmoved; a caller-supplied opaque `run_id` that is never written
-into captured state; zero identifiers drawn from the run's stream on any path;
-cross-process continuation proven byte-identical against an uninterrupted run;
-`__serializable__` resolved on the type for a 3.70× faster, byte-identical
-encode; the nine-module placeholder store deprecated for v3.0 removal with the
-codec spine canonical; and `production.Checkpoint` / `RecoveryEngine` documented
-as the bookkeeping they are (the store and `production` were removed in
-v2.17). No FX, no artifact storage, no streaming, no live
-transport, no governance implementation, no runtime rewrite. See ADR-0029.
-
-**v2.14.0** — runtime unification: `RunEngine` over `RunState` as the one owner
-of a run — cursor, skips, per-record steps and the identifier-stream scope a
-stopped run continues in — with `TradingSession`, `BacktestEngine` and
-`ReplayBacktest` reduced to *drivers* that decide only which record comes next.
-`ExecutionPipeline` keeps the execution step and nothing else. The orphan
-lifecycle state machine in `alphalab.runtime` and the whole of
-`alphalab.production` are deprecated for removal (taken in v2.17). See ADR-0030.
-
-**v2.15.0** — the five capabilities that had a contract and nothing behind it:
-`HttpVenueTransport` and `RestVenueBroker` reaching a venue over HMAC-signed
-HTTP; `alphalab.marketdata.websocket` (RFC 6455) and `market.stream.StreamingSource`
-as a `MarketDataSource` with the full subscription lifecycle; a content-addressed
-`ArtifactStore` that holds bytes and produces the `ArtifactRef` the registry has
-recorded since v2.4; classification provenance with an append-only history and a
-durable registry snapshot; and `StrategyContext.history` / `.universe`
-populated, closing the two fields ADR-0026 deferred. Each landed on a boundary
-that already existed. See ADR-0031.
-
-**v2.16.0** — three joins and an audit. **Integrated runtime**:
-`runtime.live.LiveSession`, the settle/advance/route loop, with the venue
-binding made durable (`broker.snapshot`, `runtime.live_snapshot`) and
-`lifecycle.execution` refusing a run that would serve a version the ledger does
-not name. **Approval, RBAC and audit**: ADR-0018's seam implemented —
-`Governance` required at every governed entry point, the actor on both persisted
-records, separation of duties on approval, `governance_log`, and one deliberate
-lifecycle schema bump that refuses version 1. **True FX**: `portfolio.fx` holds
-supplied rates with provenance, no triangulation and no silent inversion, and a
-mixed book values as one figure that records every conversion. Plus the
-**refactor audit**: twenty-one structural findings, every one classified as
-required / intentional / future, with six fixed — exact market-event routing,
-real members on four `StrategyContext` protocols, `workbench.views.active_tab`
-and the canonical containers in `studio` / `workbench` (so
-`benchmark_workbench.py` runs its 100,000-iteration workload for the first
-time), refusal of inconsistent portfolio-optimizer inputs, and a truth-up of
-stale architecture claims. See ADR-0032 and ADR-0033.
-
-**v2.17.0** — the final engineering release. **Settlement-level multi-currency**:
-`realized_pnl` and `commission_paid` become per-currency `CurrencyAmounts`, a
-pipeline settles the currencies `also_settles` names, a fill is denominated in
-the instrument's own currency, `CapitalBudget` states its currency and is refused
-when it cannot, risk reads the whole book, `PortfolioEngine.convert_cash` funds
-one settlement currency from another at a recorded rate, and
-`PORTFOLIO_SNAPSHOT_SCHEMA` moves to 3 refusing version 2 rather than guessing a
-currency for it. **An FX rate feed**: `portfolio.fx_feed` — a source protocol, a
-fold with three rules (applied / duplicate / **superseded**) and one refusal, and
-a durable snapshot; AlphaLab still ships no FX data. **A strategy-class
-registry**: `strategy.registry` maps a deployed identity to executable code, with
-a duplicate registration and an unknown identity both refused, and no name ever
-resolved to a class. Plus the cleanup: **seven deprecated surfaces removed** with
-no aliases, **all four of ADR-0032's category C items implemented** (eight
-packages de-quadratified, immutable research parameters, the `BrokerProtocol`
-name resolved, `dispatch_event` no longer `Any`), **0 skipped tests and 0
-warnings**, an invented Reg-T margin rate and two assumed currencies removed from
-public surfaces, and a broken `alphalab.common.__all__` that made
-`from alphalab.common import *` raise. See ADR-0034 and ADR-0035.
-
-See `CHANGELOG.md` and `ROADMAP.md`.
-
-## Not yet addressed
-
-- **Vendor integration and live verification.** v2.15 added a real venue transport
-  (`HttpVenueTransport`, HMAC-signed) and a real adapter over it (`RestVenueBroker`),
-  so the connectivity gap this list carried through v2.14 is closed. What is *not*
-  closed: nothing here has been verified against a commercial venue — this
-  environment has no network egress and holds no vendor credentials — and no named
-  vendor's request shapes are implemented. (The `integrations` canned-response
-  broker clients this entry used to name were removed in v2.17.)
-- ~~**A live driver.**~~ **Delivered in v2.16.** `alphalab.runtime.live.LiveSession`
-  is the third driver ADR-0030 anticipated: settle the fills the venue reported,
-  advance the run, route what is newly working. The venue binding is durable, so
-  a restarted run does not re-send an order the venue already holds. What is
-  still absent is the same thing as before — verification against a commercial
-  venue, and any named vendor's request shapes. See ADR-0033
-- **Classification data.** v2.11 supplies the security master's *mechanism* —
-  `classify_instrument` writes a sector and the execution path reads it onto
-  every fill — but AlphaLab ships no taxonomy and no reference-data feed, so a
-  sector breakdown requires an operator who declares one. v2.15 adds the
-  provenance the mechanism lacked — a classification records its `source` and
-  `as_of`, corrections are appended rather than overwritten, and the registry is
-  durable — but it ships no more reference data than v2.11 did. Sector is also
-  still the only dimension: industry, country, issuer and rating are each a
-  separate decision
-- A single integrated runtime spanning *all* engines. The **run** layer is one
-  owner as of v2.14 — `RunEngine`/`RunState` over `ExecutionPipeline`, with
-  `TradingSession`, `BacktestEngine`, `ReplayBacktest` and, from v2.16,
-  `LiveSession` as drivers (ADR-0030). **v2.16 joins `alphalab.lifecycle` to
-  it**: `run_plan` resolves what an environment says should run and
-  `authorize_run` refuses a run that would serve anything else. That join is a
-  query with a refusal and not a second runtime — it constructs no strategy and
-  builds no `RunConfig`, because a `StrategyDefinition` is metadata and not
-  code. **v2.17 supplies the missing half of that join**: `strategy.registry`
-  maps the identity a deployment names to the code that runs it, deterministically
-  and with a refusal — and it is not in `alphalab.lifecycle`, which still
-  constructs nothing (ADR-0035). Research, reporting, feature store and the rest
-  remain standalone libraries by design (ADR-0009)
-- ~~Approval workflow.~~ **Delivered in v2.16**, as ADR-0018 recorded it.
-  `Governance` is required at every entry point that changes what is live, the
-  actor reaches both persisted records, a deployment to a gated environment
-  needs an approval from someone other than the deployer, and `governance_log`
-  answers who did what and when. Permanently out of scope, per ADR-0018:
-  authentication, credential handling, IAM and federation
+- A depth hook on `StrategyProtocol`. `BookUpdated` and `SnapshotCreated` reach
+  no hook; delivering a snapshot to `on_quote` would hand existing strategies a
+  payload with no `quote`, and a new hook is a strategy-API decision needing its
+  own evidence.
 - Allocation visibility inside `StrategyContext`. Reservations and contributions
   are post-intent facts; showing a strategy the capital its own intent will
-  reserve invites it to pre-size, duplicating the allocation engine's authority
-- **A depth hook on `StrategyProtocol`.** `BookUpdated` and `SnapshotCreated`
-  reach no strategy hook. v2.16 made that a stated boundary rather than an
-  accident of a routing list, but it did not add the hook: delivering an
-  `OrderBookSnapshot` to `on_quote` would hand existing strategies a payload
-  with no `quote`, and a new hook is a strategy-API decision needing its own
-  evidence. See ADR-0032
-- ~~**Quadratic accumulation in ten standalone packages.**~~ **Closed in v2.17.**
-  Two of the ten (`integrations`, `production`) were removed; the other eight
-  take `AppendOnlyLog` and `PersistentMap`. `distributed` went from 38.4s to
-  0.18s at 20,000 transitions and from 4.1x to 2.1x per doubling; every converted
-  package now grows at ~2.0–2.1x. **Profiling first is what made it work**: in
-  three of them the containers were not the dominant term, and converting them
-  alone would have fixed ~10% of `distributed`'s cost and made `feature_store`
-  four times *slower*. One term is deliberately left super-linear —
-  `OptimizerState.pending_trials`, whose fix was implemented, measured at +3.9%
-  on the execution pipeline, and refused on that evidence. See ADR-0034
-- ~~**Multi-currency *settlement*.**~~ **Closed in v2.17.** All four of
-  ADR-0033 decision 13's blockers are gone: `realized_pnl` and `commission_paid`
-  are per-currency, a capital budget states its currency and is refused when two
-  are in play and it does not, and risk reads the whole book rather than dropping
-  every non-base balance. A pipeline settles the currencies
-  `ExecutionPipelineConfig.also_settles` names; a fill is denominated in the
-  instrument's own currency; and **settlement truth stays separate from reporting
-  truth** — what was earned is recorded in the currency it was earned in, and a
-  valuation converts into one reporting currency on demand with every rate
-  recorded. What has *not* changed: **AlphaLab ships no FX data**. v2.17 adds the
-  rate-feed boundary (`portfolio.fx_feed`) and not a single rate; nothing is
-  triangulated, inverted or defaulted; a missing or stale rate is refused; and a
-  run that settles a currency it has not funded is refused rather than financed.
-  See ADR-0035
+  reserve invites it to pre-size, duplicating the allocation engine's authority.
+- Per-environment promotion policy. A strategy version has one stage across all
+  environments.
+- A single integrated runtime spanning *all* engines. Reporting, the feature
+  store, the factor library and the rest remain standalone by design (ADR-0009).
+- One measured trade left in place: `OptimizerState.pending_trials` stays
+  super-linear because the fix was implemented, measured at **+3.9%** on the
+  execution pipeline, and refused on that evidence. It is in a standalone package
+  with no in-repo consumer.
+
+The full list, with the reasoning behind each, is in
+[`nowandfuture.md`](nowandfuture.md) and `ROADMAP.md`.
 
 ---
 
@@ -961,7 +536,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v2.11.0**
+**AlphaLab v3.0.0**
 
 Building deterministic infrastructure for quantitative research.
 

@@ -6,6 +6,124 @@ This project follows the principles of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and adheres to Semantic Versioning.
 
+Each entry below is the record of the release it names, written at that release.
+Statements inside an entry are scoped to it: where an entry says a capability is
+absent or deferred, that is what was true *then*, and a later entry says what
+changed. The current state of the project is in `README.md`, `ROADMAP.md` and
+`nowandfuture.md`.
+
+---
+
+# [3.0.0] - 2026-09-14
+
+**The stable release: architecture frozen, documentation true.**
+
+v3.0.0 adds no capability, moves no boundary, changes no schema and removes no
+public name. It is the release in which AlphaLab's architecture is declared
+frozen and the repository is made to describe itself accurately.
+
+It is deliberately **additive**. Everything that would have made a v3.0 removal
+breaking was taken a release early, in v2.17: seven deprecated surfaces removed
+with no compatibility aliases, all four of ADR-0032's category C items
+implemented, zero skipped tests and zero warnings.
+
+## What was established
+
+**The architecture audit.** A whole-repository audit, not limited to the
+execution path, verified against the code rather than the documentation:
+
+* **One authoritative owner per responsibility.** `ExecutionPipelineState` owns
+  the execution step and `RunState` owns the run; the four drivers
+  (`TradingSession`, `BacktestEngine`, `ReplayBacktest`, `LiveSession`) hold no
+  state at all — none is a dataclass and none defines `__init__`. Ten snapshot
+  owners, ten `capture` / `restore` / `from_primitives` triples, ten module-local
+  schema constants and no aliasing.
+* **Zero package-level import cycles**, measured over all 632 modules by AST
+  rather than by grep. The one module-level cycle (`oms.state` ↔ `oms.snapshot`)
+  is a documented deferred import inside `__serializable__`, and both import
+  orders were shown safe from a cold interpreter.
+* **No silent financial default.** The existing signature sweep was extended to
+  dataclass field defaults and fallback expressions. Every remaining `"USD"` is a
+  settlement declaration guarded by ADR-0028's two seams, or market-data
+  attribution that never reaches accounting; `CapitalBudget.currency` is `""`,
+  meaning *unstated*, and is refused where it cannot be determined.
+* **The canonical path is linear**, re-measured at 500 → 8,000 records
+  (≈2.0× per doubling), with the accounting identity holding at every size.
+* **Zero runtime dependencies**, no declared entry point, no composition root.
+
+The conclusion the audit had to reach, and did: **there is no known internal
+problem that would require AlphaLab to be refactored immediately after declaring
+it stable.** Everything else is classified as deliberate design, an external
+dependency, or optional evolution — and `ROADMAP.md` now carries that
+classification rather than a queue.
+
+**The documentation truth freeze.** Every current-facing document was read in
+full and corrected against the code. The substantive corrections:
+
+* **`docs/ARCHITECTURE.md`** described removed packages as current architecture
+  throughout its target-architecture half — `production`, `integrations`,
+  `kernel` and a top-level `events` package appeared in the layer diagrams, the
+  dependency rules, the package categories, the state-ownership table and the
+  event-ownership table. Its state round-trip table still marked
+  `ExecutionPipelineState` and `RunState` as **not** round-tripping, which has
+  been false since v2.9 and v2.14; and it twice said a strategy does not see the
+  marked portfolio, which has been false since v2.10 and which the same document
+  contradicted two sections earlier. Its version history stopped at v2.0.0.
+* **`README.md`**'s version badge read `2.13.0` while its own status table read
+  `2.17.0`; its test counts disagreed with each other (3949 in one section, 2926
+  in another) and with the suite (3956); its example table listed 12 of 14; its
+  repository tree listed three removed packages; and its footer read `v2.11.0`.
+* **`ROADMAP.md`** carried present-tense claims from v2.3, v2.4 and v2.5 that had
+  since become false — "there is no connectivity to any real venue in this
+  repository", "there is no object store in this repository", "no broker adapter
+  reaches any venue" — said the lifecycle path was "deliberately not joined" to
+  the execution path four releases after v2.16 joined it, described `kernel` as
+  warning at import after v2.17 removed it, and had no v2.12 entry at all.
+* **`docs/README.md`**, **`docs/SYSTEM_DESIGN.md`**, **`docs/VISION.md`**,
+  **`docs/STATE_MODEL.md`**, **`docs/EVENT_MODEL.md`**,
+  **`docs/GETTING_STARTED.md`** and **`docs/ENGINEERING_GUIDELINES.md`** each
+  named removed packages or removed state types as current. `docs/VISION.md`
+  additionally listed three items as remaining future work — wiring `replay` into
+  the execution path, mark-to-market repricing, and consolidating the data
+  surfaces — that were delivered in v2.2, v2.1 and v2.3 respectively.
+* **A composition claim repeated since v2.4 was imprecise.** `README.md`,
+  `docs/README.md`, `docs/ARCHITECTURE.md` and ADR-0013 said
+  `alphalab.lifecycle` composes `research_assistant`. It does not
+  import it: it imports `research`, `studio`, `enterprise`, `experiment_tracking`,
+  `model_registry`, `deployment_manager` and `backtesting`, and takes the
+  `StrategyDefinition` that `research_assistant.to_strategy_definition` produces.
+  The dependency runs through the definition, not the package.
+* **`SECURITY.md`** said AlphaLab depends on third-party Python packages. It
+  declares `dependencies = []`.
+* **The six strategy-runtime design documents** under
+  `docs/architecture/strategy/` were pre-implementation design briefs with no
+  status marker except one. Each now carries one, recording what shipped and
+  where the implementation deliberately diverged.
+* **ADR-0015** was still labelled `Proposed (v2.6)` although v2.6.0 shipped it
+  and four documents cite it as normative. It is the only ADR whose status was
+  wrong.
+
+### Changed
+
+- `pyproject.toml`, `alphalab.common.version` and `tests/unit/test_package_metadata.py`
+  declare **3.0.0**. The `Development Status` classifier moves from
+  `4 - Beta` to `5 - Production/Stable`.
+- The v2.17.0 entry below reported `3949 passed`. The tagged tree reports
+  **3956**; the figure is corrected there rather than carried forward.
+
+### Added
+
+- **`nowandfuture.md`** — the long-form project reference: purpose, ownership
+  package by package, canonical models, schemas, invariants, what must not be
+  changed casually, what is deliberately not implemented, what is external, and
+  what optional evolution remains.
+
+### Not changed
+
+No source behaviour. No public name added, removed or renamed. No schema
+constant moved. No test weakened: the suite is the same 3956 tests, and the only
+test edited is the metadata test that pins the declared version.
+
 ---
 
 # [2.17.0] - 2026-09-14
@@ -164,8 +282,10 @@ is why the store's notice was PEP 562 in the first place.
 
 ## 6. Zero skips, zero warnings
 
-v2.16 reported `3767 passed, 2 skipped, 94 warnings`. v2.17 reports **3949
+v2.16 reported `3767 passed, 2 skipped, 94 warnings`. v2.17 reports **3956
 passed, 0 skipped, 0 warnings**, and neither was achieved by configuration.
+*(This paragraph read "3949 passed" until the v3.0 documentation audit measured
+the tagged tree and found 3956.)*
 
 The two skips were a **gap**, not a duplicate: `SURFACES` carried `None` for the
 `history` and `universe` views, so two of the six `StrategyContext` surfaces had

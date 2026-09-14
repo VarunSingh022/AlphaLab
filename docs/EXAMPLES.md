@@ -109,11 +109,15 @@ Examples demonstrate
 - Binance
 - NSE
 
-All provider outputs are normalized through the Universal Data Engine.
+Provider output arrives as a **wire record** (`alphalab.data.feed` — `float`
+prices keyed by a provider symbol) and is lifted into the canonical domain model
+by `alphalab.market.normalization` (`Decimal` prices keyed by a derived
+`asset_id`). Those are two layers on opposite sides of one explicit conversion,
+not two copies of one thing — see ADR-0011.
 
 ---
 
-# Broker Integrations
+# The broker boundaries
 
 `05_broker_connection.py` shows the two boundaries and which is which:
 

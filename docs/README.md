@@ -78,55 +78,69 @@ Reference
 
 | Document | Description |
 |-----------|-------------|
-| `ROADMAP.md` | Development roadmap and future milestones |
-| `CHANGELOG.md` | Version history and release notes |
+| `../ROADMAP.md` | What is delivered, what is a deliberate boundary, what is external, what is optional |
+| `../CHANGELOG.md` | Version history and release notes. Each entry is scoped to its own release |
+| `../nowandfuture.md` | The long-form project reference: ownership, invariants, and what must not change casually |
 | `VISION.md` | Long-term goals and project philosophy |
+| `work/` | Per-release working handoffs (v2.15, v2.16). **Historical**: each records the state during that release, not the current state |
 
 ---
 
 # Architecture Overview
 
-The diagram below is a **design target**, not one running system. Three paths
-are wired together today -- the execution path (`alphalab.runtime.ExecutionPipeline`,
-driven by `alphalab.backtesting` and `alphalab.runtime.session`), the lifecycle
-path (`alphalab.lifecycle`, v2.4) and the market-data path into the session
-(`alphalab.market.provider`, v2.5). Every other subsystem is a standalone,
-individually tested engine.
+AlphaLab has **two** wired-together paths, and as of v2.16 they meet. Everything
+else is a standalone, individually tested engine (ADR-0009).
 
 ```
-                         AlphaLab Workbench
-                                 │
-                                 ▼
-                        Strategy Studio
-                                 │
-        ┌─────────────┬─────────────┬─────────────┐
-        ▼             ▼             ▼             ▼
- Universal Data   Research Engine Portfolio Optimizer Production Runtime
-        │             │             │             │
-        └─────────────┴─────────────┴─────────────┘
-                                 │
-                        Broker Integrations
-                                 │
-                                 ▼
-                            Live Markets
+                    AlphaLab Workbench
+                            │
+                            ▼
+                    Strategy Studio
+                            │
+    ┌───────────────┬───────┴───────┬───────────────┐
+    ▼               ▼               ▼               ▼
+ Universal      Research        Portfolio      Model & Strategy
+   Data          Engine         Optimizer        Lifecycle
+    │               │               │               │
+    └───────────────┴───────┬───────┴───────────────┘
+                            ▼
+                 Execution path (RunEngine)
+                            │
+                            ▼
+                     Broker boundary
+                            │
+                            ▼
+                       Live Markets
 ```
 
-Integrated paths that actually exist:
+The paths that exist, precisely:
 
 ```
-market event → strategy → allocation → risk → OMS → execution simulator
-             → portfolio → analytics       (alphalab.runtime.ExecutionPipeline)
+the execution step        (alphalab.runtime.ExecutionPipeline)
+  market event → mark to market → strategy → allocation → risk → OMS
+               → execution → portfolio → analytics
 
-provider adapter → normalization → MarketDataSource → TradingSession
-                                                     (alphalab.market.provider, v2.5)
+the run                   (alphalab.runtime.run.RunEngine, v2.14)
+  driven by TradingSession | BacktestEngine | ReplayBacktest | LiveSession
 
-research candidate → experiment run → validation evidence → model version
-  → strategy version → promotion → deployment → rollback
-                                                     (alphalab.lifecycle, v2.4)
+market data in            (alphalab.market.provider v2.5, alphalab.market.stream v2.15)
+  provider adapter → normalization → MarketDataSource → the run
+
+orders out, fills back    (alphalab.runtime.broker_routing v2.3, LiveSession v2.16)
+  OMS order → BrokerProtocol → venue → ExecutionPipeline.apply_execution_report
+
+the lifecycle             (alphalab.lifecycle, v2.4)
+  research candidate → experiment run → validation evidence → model version
+    → strategy version → promotion → deployment → rollback
 ```
 
-The lifecycle path is deliberately *not* joined to the execution path: a
-deployment names what should run, and the execution path runs it.
+**The two paths are joined, as of v2.16.** `lifecycle.execution.run_plan`
+resolves what an environment has live and `authorize_run` refuses a run that
+would serve anything else; `strategy.registry` (v2.17) turns the identity a
+deployment names into the code a run executes. Both are queries with refusals,
+not a second runtime — a deployment names what should run, and the execution path
+runs it. *(This section said the two were "deliberately not joined" from v2.4
+until v3.0 corrected it.)*
 
 Each subsystem is independently testable, immutable where appropriate, and designed around deterministic execution.
 
@@ -169,15 +183,27 @@ Replay historical market events deterministically for repeatable backtests.
 
 ---
 
-## Production Runtime
+## Model and Strategy Lifecycle
 
-Manage long-running trading systems with health monitoring, checkpointing, supervision, and recovery.
+Take a research candidate to a deployment and back: experiment run, validation
+evidence, model version, strategy version, gated promotion, the deployment ledger
+as the one answer to what is live, and deterministic rollback — with every act
+naming the principal that caused it.
+
+*(`alphalab/production`, which supervised long-running systems, had zero
+importers and was removed in v2.17. Durable run state is
+`alphalab.persistence.RunStateStore`; a live loop is
+`alphalab.runtime.live.LiveSession`; supervision is the operator's.)*
 
 ---
 
-## Broker Integrations
+## Broker boundary
 
-Unified interface for paper trading and supported broker APIs.
+Two boundaries, deliberately: `alphalab.broker` for **one** venue
+(`BrokerProtocol`, implemented by `PaperBroker` and `RestVenueBroker`), and
+`alphalab.brokers` for **many** venues and accounts
+(`BrokerConnectorProtocol`), which routes the canonical `alphalab.broker` types
+rather than redefining them.
 
 ---
 
@@ -198,10 +224,13 @@ User-facing workspace for managing projects, monitoring strategies, visualizing 
 Additional standalone, individually tested engines added after v1.0.0:
 `feature_store`, `factor_library`, `alt_data`, `options`, `futures`, `crypto`,
 `macro`, `ml`, `deep_learning`, `reinforcement_learning`, `cloud_research`,
-`cluster_scheduler`, `enterprise`. None are wired into `ExecutionPipeline`.
-`experiment_tracking`, `model_registry`, `research_assistant` and
-`deployment_manager` are composed by `alphalab.lifecycle` as of v2.4, and remain
-usable on their own.
+`cluster_scheduler`. None is wired into `ExecutionPipeline`.
+
+`experiment_tracking`, `model_registry`, `deployment_manager`, `studio`,
+`enterprise` and `research` are imported by `alphalab.lifecycle` as of v2.4 and
+remain usable on their own. `research_assistant` is the one the lifecycle names
+without importing: it produces a candidate and `to_strategy_definition` lifts it
+into the canonical `StrategyDefinition` the lifecycle takes.
 
 ---
 
@@ -226,10 +255,12 @@ Portfolio Optimization
 Reporting
 ```
 
-`replay`, `studio`, `production`, and the broker packages are separate engines you
-can call, but nothing chains them automatically. For a wired-together
-market-to-portfolio-to-analytics path, use `alphalab.runtime.ExecutionPipeline`
-directly.
+`replay` and the workbench are separate engines you can call, and nothing chains
+the research → optimization → reporting sequence above automatically. For a
+wired-together market-to-portfolio-to-analytics path, use
+`alphalab.backtesting.BacktestEngine` over
+`alphalab.runtime.ExecutionPipeline`; for the research-candidate-to-deployment
+sequence, use `alphalab.lifecycle`.
 
 ---
 
@@ -253,21 +284,27 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v2.17.0
+v3.0.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
-without updating it. The v2.17 documentation audit found it. It is the same class
-of defect ADR-0032 recorded when the README's release-status table had been stale
-since v2.13, and the release checklist now has to touch both.)*
+without updating it — and the v2.17 audit corrected it. The release checklist now
+has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
+block together, because all three have drifted independently before.)*
 
-v2.17.0 — "The Final Engineering Release" — is the last release before v3.0, and
-exists so that v3.0 has nothing to do but freeze. **Settlement-level
-multi-currency**: a run settles fills in more than one currency, accruing P&L and
-commission in the currency each was earned in, and reports one figure in one
-currency with the rates that produced it. **An FX rate feed**
-(`alphalab.portfolio.fx_feed`): the boundary rates arrive across, with ordering,
-deduplication and conflict rules — AlphaLab still ships no FX data. **A
+**v3.0.0 — the stable release.** The architecture is frozen and the documentation
+is made to match it. No capability is added, no boundary moves, no schema changes
+and no public name is removed: v2.17 took the removals a release early so that
+v3.0 could be additive. What "frozen" commits to is written down in
+`../nowandfuture.md`, and `../ROADMAP.md` now classifies everything that remains
+as a deliberate boundary, an external dependency, or optional evolution.
+
+v2.17.0 — "The Final Engineering Release" — exists so that v3.0 had nothing to do
+but freeze. **Settlement-level multi-currency**: a run settles fills in more than
+one currency, accruing P&L and commission in the currency each was earned in, and
+reports one figure in one currency with the rates that produced it. **An FX rate
+feed** (`alphalab.portfolio.fx_feed`): the boundary rates arrive across, with
+ordering, deduplication and conflict rules — AlphaLab ships no FX data. **A
 strategy-class registry** (`alphalab.strategy.registry`): what turns the identity
 a deployment names into the code a run executes. Alongside them, seven deprecated
 surfaces removed with no aliases, all four of ADR-0032's category C items

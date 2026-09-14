@@ -202,10 +202,20 @@ ResearchValidationError
 
 OptimizationError
 
-IntegrationError
+BrokerValidationError
+
+MissingRateError
 ```
 
 Avoid raising generic exceptions where a domain-specific error communicates intent more clearly.
+
+**Refuse rather than default.** Where a value cannot be known honestly, raise
+rather than substituting one. AlphaLab refuses a missing or stale FX rate, an
+instrument in a currency the run does not settle, an unknown strategy identity, a
+snapshot whose schema this build does not read, and a budget whose currency is
+unstated in a multi-currency run. A wrong number that looks authoritative is
+worse than an error, and `tests/regression/test_no_silent_financial_defaults.py`
+sweeps the whole package for the shape.
 
 ---
 
@@ -331,9 +341,11 @@ Examples
 ```
 ResearchState
 
-RuntimeState
+PortfolioState
 
-StudioState
+ExecutionPipelineState
+
+StrategyStudioState
 ```
 
 ---
@@ -351,7 +363,7 @@ ResearchEngine
 
 PortfolioEngine
 
-IntegrationEngine
+OMSEngine
 ```
 
 ---
@@ -501,14 +513,34 @@ Large unrelated changes should be split into multiple pull requests.
 
 Before creating a release, verify
 
-- Ruff passes
-- MyPy passes
-- Pytest passes
-- Benchmarks execute successfully
-- Documentation is updated
-- Examples remain functional
-- Changelog is updated
-- Version numbers are correct
+- `ruff check .` and `ruff format --check .` pass
+- `mypy .` passes
+- `pytest -q` passes, reporting **0 skipped and 0 warnings**
+- `pytest -q -W error::DeprecationWarning` passes
+- All 14 examples run
+- All 47 benchmarks run
+- `python -m build` and `twine check dist/*` pass
+- `git diff --check` is clean
+- `CHANGELOG.md` has an entry for the release
+
+**The version appears in three places and they drift.** It has happened twice:
+v2.14.0 shipped with `pyproject.toml` still declaring `2.13.0`, and the README's
+status table was stale from v2.13 through v2.15. Update all three together:
+
+```
+pyproject.toml                      version = "X.Y.Z"
+alphalab/common/version.py          the PackageNotFoundError fallback
+tests/unit/test_package_metadata.py both assertions
+```
+
+**Four documents carry a current-state claim and drift independently.** Touch
+them together as well: `README.md`'s badges and status table,
+`docs/ARCHITECTURE.md`'s *Implementation Status* section, `docs/README.md`'s
+*Version* block, and `ROADMAP.md`'s classification.
+
+**After v3.0.0 the architecture is frozen.** A change that moves an ownership
+boundary, a schema contract, or a documented invariant in `nowandfuture.md` needs
+an ADR and a major release. Everything else follows the ordinary workflow.
 
 ---
 
