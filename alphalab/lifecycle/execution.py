@@ -22,9 +22,21 @@ runtime: it builds no state, holds none, and starts nothing.
 :class:`~alphalab.studio.strategy.StrategyDefinition` -- author metadata and
 parameter bounds -- and not code. Turning that into a
 :class:`~alphalab.strategy.protocol.StrategyProtocol` requires knowing which
-class implements it, which is the caller's knowledge and nobody else's.
-Inventing a registry of strategy classes here would be a plugin system this
-package has no business owning.
+class implements it, and inventing a registry of strategy classes here would be
+a plugin system this package has no business owning.
+
+That is unchanged in v2.17, and the registry it declined to own now exists
+somewhere it belongs: :mod:`alphalab.strategy.registry`, beside the protocol
+being registered. The join is therefore a **lookup with a refusal** rather than
+the caller's ad-hoc knowledge::
+
+    plan = run_plan(state, "live")
+    strategy = registry.construct_from(plan.definition)
+
+:attr:`RunPlan.definition` satisfies that registry's structural
+``StrategyDeclaration`` as it stands, so nothing translates between two shapes
+and this module acquires no dependency on the strategy runtime -- which
+``test_the_join_builds_no_state_and_starts_nothing`` still enforces.
 
 **It does not build a ``RunConfig``.** An account, a capital budget, risk limits
 and a settlement currency are operational configuration; a deployment is a
@@ -54,6 +66,7 @@ from alphalab.lifecycle.state import LifecycleState
 from alphalab.lifecycle.strategy_version import StrategyVersion
 from alphalab.lifecycle.views import active_strategy_version, evidence_for
 from alphalab.model_registry.registry import ModelStage
+from alphalab.studio.strategy import StrategyDefinition
 
 __all__ = [
     "RunAuthorization",
@@ -92,15 +105,37 @@ class RunPlan:
     deployed_at: float
 
     @property
-    def definition(self) -> object:
+    def definition(self) -> StrategyDefinition:
         """The strategy definition to construct an instance from.
 
-        A :class:`~alphalab.studio.strategy.StrategyDefinition`: metadata and
-        parameter bounds. The caller maps it to a class; see the module
-        docstring for why that mapping is not here.
+        Typed as itself since v2.17, having been ``object``. The vagueness was
+        never a boundary -- this package already imports
+        :class:`~alphalab.studio.strategy.StrategyDefinition` and already stores
+        one on every :class:`~alphalab.lifecycle.strategy_version.StrategyVersion`
+        -- and it cost the caller the only thing this property is for: a
+        ``StrategyDefinition`` satisfies
+        :class:`~alphalab.strategy.registry.StrategyDeclaration` structurally, so
+        a typed one can be handed straight to
+        :meth:`~alphalab.strategy.registry.StrategyClassRegistry.construct_from`.
+
+        The mapping from this to a class is still **not here** -- ADR-0033
+        decision 5, unchanged. What v2.17 adds is a registry that owns the
+        mapping (``alphalab.strategy.registry``), so a caller performs a lookup
+        that refuses rather than writing an ``if`` ladder or guessing a class
+        from a name.
         """
 
         return self.version.definition
+
+    @property
+    def strategy_id(self) -> str:
+        """The identity a strategy-class registry is keyed by.
+
+        ``definition.strategy_id``, named here because that is the whole of what
+        a caller needs to resolve this plan to executable code.
+        """
+
+        return self.version.definition.strategy_id
 
     @property
     def attributed(self) -> bool:

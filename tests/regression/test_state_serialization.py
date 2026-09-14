@@ -32,11 +32,9 @@ from alphalab.oms.engine import OMSEngine
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order
 from alphalab.oms.state import OMSState
-from alphalab.persistence.adapter import PersistenceAdapter
 from alphalab.persistence.exceptions import SerializationError
+from alphalab.persistence.run_store import MemoryRunStateStore
 from alphalab.persistence.serializer import deserialize, serialize
-from alphalab.persistence.state import PersistenceState
-from alphalab.persistence.validation import validate_snapshot_save
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.risk.engine import RiskEngine
@@ -65,10 +63,10 @@ def _portfolio_state() -> PortfolioState:
         1.0,
     )
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("1.00"), 2.0
+        state, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("1.00"), 2.0, "USD"
     )
     return PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("-4"), Decimal("110.00"), Decimal("1.00"), 3.0
+        state, "AAPL", Decimal("-4"), Decimal("110.00"), Decimal("1.00"), 3.0, "USD"
     )
 
 
@@ -182,6 +180,23 @@ MIGRATED_STATES = {
     "AllocationState": (_allocation_state, ("events", "history")),
 }
 
+
+def _through_the_store(run_id: str, state: object) -> str:
+    """Serialize ``state``, store it, read it back, and return the stored payload.
+
+    The round trip goes through :class:`~alphalab.persistence.run_store.RunStateStore`,
+    which is the canonical durability boundary (ADR-0029). Before v2.17 these
+    tests went through ``PersistenceAdapter`` and the nine-module store beside
+    it; that surface was removed, and this one is what production actually
+    writes through -- so the payload asserted on here is the payload a run
+    persists, digest-verified on the way back out.
+    """
+
+    store = MemoryRunStateStore()
+    ref = store.put(run_id, 0, serialize(state))
+    return store.get(ref)
+
+
 #: OMSState is migrated and its logs must serialize. Its whole-state payload
 #: goes through the explicit v2.2 snapshot projection, where each event is
 #: wrapped in a typed record -- see tests/regression/test_oms_state_snapshot.py.
@@ -245,9 +260,7 @@ def test_snapshot_round_trip_preserves_event_contents_and_order(name: str) -> No
     factory, log_fields = MIGRATED_STATES[name]
     state = factory()
 
-    snapshot = PersistenceAdapter.to_snapshot(f"snap-{name}", name, 9.0, state)
-    validate_snapshot_save(PersistenceState(engine_id="engine-ser"), snapshot)
-    restored = deserialize(snapshot.payload)
+    restored = deserialize(_through_the_store(f"run-{name}", state))
 
     for field in log_fields:
         original = list(getattr(state, field))
@@ -260,15 +273,16 @@ def test_snapshot_round_trip_preserves_event_contents_and_order(name: str) -> No
 
 def test_round_trip_preserves_portfolio_event_payloads_exactly() -> None:
     state = _portfolio_state()
-    restored = deserialize(PersistenceAdapter.to_snapshot("s", "portfolio", 9.0, state).payload)
+    restored = deserialize(_through_the_store("run-portfolio-payload", state))
 
     events = restored["events"]
     assert [e["timestamp"] for e in events] == [1.0, 2.0, 3.0]
     assert events[0]["amount"] == "100000.00"  # CashDeposited
     assert events[1]["asset_id"] == "AAPL"  # PositionOpened
     assert events[2]["realized_pnl"] == "40.00"  # PositionReduced: (110-100)*4
-    assert restored["realized_pnl"] == "40.00"
-    assert restored["commission_paid"] == "2.00"
+    # Per settlement currency since v2.17 (ADR-0035).
+    assert restored["realized_pnl"] == {"USD": "40.00"}
+    assert restored["commission_paid"] == {"USD": "2.00"}
 
 
 def test_serializing_is_deterministic() -> None:

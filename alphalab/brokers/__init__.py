@@ -45,7 +45,7 @@ from alphalab.brokers.execution import ExecutionReport
 from alphalab.brokers.manager import OrderManager
 from alphalab.brokers.order import OrderStatus
 from alphalab.brokers.position import AssetClass, PositionSnapshot
-from alphalab.brokers.protocol import BrokerProtocol
+from alphalab.brokers.protocol import BrokerConnectorProtocol
 from alphalab.brokers.registry import BrokerRegistry
 from alphalab.brokers.state import BrokerConnectorState, BrokerStatistics
 from alphalab.brokers.validation import (
@@ -75,6 +75,7 @@ __all__ = [
     "BrokerConnection",
     "BrokerConnectorEngine",
     "BrokerConnectorError",
+    "BrokerConnectorProtocol",
     "BrokerConnectorState",
     "BrokerDisconnected",
     "BrokerEvent",
@@ -82,7 +83,6 @@ __all__ = [
     "BrokerOrder",
     "BrokerOrderStatus",
     "BrokerPosition",
-    "BrokerProtocol",
     "BrokerRegistered",
     "BrokerRegistry",
     "BrokerStatistics",

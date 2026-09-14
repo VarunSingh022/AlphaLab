@@ -225,7 +225,7 @@ __all__ = [
 #:
 #: A module-local literal rather than ``DEFAULT_SCHEMA_VERSION``, for the reason
 #: v2.6 gave for the portfolio and v2.8 for the lifecycle: that constant also
-#: versions ``CommonEvent`` and ``BaseEvent``, so bumping it would version every
+#: versions ``BaseEvent``, so bumping it would version every
 #: event in the system as a side effect of one subsystem's change.
 #:
 #: Version 2 adds one field to each strategy record: what that strategy said
@@ -239,7 +239,12 @@ __all__ = [
 #: with the two run states they versioned, replaced by the single
 #: :data:`~alphalab.runtime.run_snapshot.RUN_SNAPSHOT_SCHEMA`: the run layer
 #: moved and this core did not. See ADR-0030.
-PIPELINE_SNAPSHOT_SCHEMA: Final = 2
+#:
+#: Version 3 carries two configuration fields settlement-level multi-currency
+#: added: ``ExecutionPipelineConfig.also_settles`` and ``CapitalBudget.currency``
+#: (ADR-0035). Both are on the *configuration*, which is why the envelope moved
+#: and no state record did.
+PIPELINE_SNAPSHOT_SCHEMA: Final = 3
 
 #: The versions :func:`from_primitives` reads, and the only ones.
 #:
@@ -250,10 +255,27 @@ PIPELINE_SNAPSHOT_SCHEMA: Final = 2
 #: genuinely lacked ``Position.opened_at`` and no honest value could be
 #: substituted. See ADR-0025 decision 9.
 #:
+#: A v2.16 payload (version 2) is missing nothing either, and the reason is the
+#: same one stated differently. It has no ``also_settles`` because its writer
+#: could not have had one -- a pipeline before v2.17 settled exactly one
+#: currency, by construction -- so reading it as the empty set is what that
+#: payload *says*, not a value invented for it. Its budget names no currency for
+#: the same reason: with one settlement currency in play the budget's was
+#: determined, and ``""`` is how a v2.17 build spells determined-not-stated.
+#:
+#: Contrast :data:`~alphalab.portfolio.snapshot.PORTFOLIO_SNAPSHOT_SCHEMA`, which
+#: **refuses** its own version 2. That payload records ``realized_pnl`` as a bare
+#: number in no currency, and choosing a currency for it would be a guess about
+#: money. The rule is not "old payloads are readable" or "old payloads are
+#: refused" -- it is that a default is allowed only when it is what the payload
+#: already meant. A v2 *pipeline* payload nests a v2 *portfolio* payload, so
+#: restoring one still fails at the portfolio decoder: each envelope validates
+#: its own version, which is the churn confinement ADR-0023 decision 1 bought.
+#:
 #: This is *not* a migration framework and *not* a generic "missing means
-#: current" rule: a payload declaring no version is still refused, and version 3
+#: current" rule: a payload declaring no version is still refused, and version 4
 #: is still refused.
-READABLE_PIPELINE_SCHEMAS: Final = (1, 2)
+READABLE_PIPELINE_SCHEMAS: Final = (1, 2, 3)
 
 _SUBSYSTEM: Final = "pipeline"
 
@@ -384,6 +406,9 @@ class ConfigRecord:
     risk_limits: RiskLimits
     venue: str
     currency: str
+    #: Sorted, not a ``frozenset``: this record is the serializable projection,
+    #: and a set has no deterministic JSON order. ``restore`` rebuilds the set.
+    also_settles: tuple[str, ...]
     routing: ExecutionRouting
     sizing_model_type: str
     simulator_type: str
@@ -549,6 +574,7 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
         risk_limits=config.risk_limits,
         venue=config.venue,
         currency=config.currency,
+        also_settles=tuple(sorted(config.also_settles)),
         routing=config.routing,
         sizing_model_type=_type_name(config.sizing_model),
         simulator_type=_type_name(config.simulator),
@@ -813,6 +839,7 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
         simulator=_require_object(objects.simulator, record.simulator_type, "simulator"),
         venue=record.venue,
         currency=record.currency,
+        also_settles=frozenset(record.also_settles),
         routing=record.routing,
         instruments=instruments,
     )
@@ -1060,6 +1087,10 @@ def _budget(value: Any, where: str = "config.budget") -> CapitalBudget:
         strategy_budgets=as_decimal_mapping(
             require(payload, "strategy_budgets"), f"{where}.strategy_budgets"
         ),
+        # Absent in a version 1 or 2 payload, where it means "unstated" -- which
+        # is what a budget written by a single-currency pipeline was. See
+        # READABLE_PIPELINE_SCHEMAS.
+        currency=as_str(payload.get("currency", ""), f"{where}.currency"),
     )
 
 
@@ -1482,6 +1513,14 @@ def _config(value: Any) -> ConfigRecord:
         risk_limits=_risk_limits(require(payload, "risk_limits"), f"{where}.risk_limits"),
         venue=as_str(require(payload, "venue"), f"{where}.venue"),
         currency=as_str(require(payload, "currency"), f"{where}.currency"),
+        # Absent in a version 1 or 2 payload: such a pipeline settled exactly one
+        # currency, so the empty set is what it says. See READABLE_PIPELINE_SCHEMAS.
+        also_settles=tuple(
+            as_str(entry, f"{where}.also_settles[{index}]")
+            for index, entry in enumerate(
+                as_sequence(payload.get("also_settles", ()), f"{where}.also_settles")
+            )
+        ),
         routing=as_named_enum(ExecutionRouting, require(payload, "routing"), f"{where}.routing"),
         sizing_model_type=as_str(
             require(payload, "sizing_model_type"), f"{where}.sizing_model_type"

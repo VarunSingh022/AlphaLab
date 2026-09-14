@@ -237,8 +237,8 @@ def _report(records: int, duration: float, state: RunState) -> None:
 def _totals(state: RunState) -> Mapping[str, Decimal]:
     return {
         "cash": state.pipeline.portfolio.cash.balance("USD"),
-        "realized_pnl": state.pipeline.portfolio.realized_pnl,
-        "commission_paid": state.pipeline.portfolio.commission_paid,
+        "realized_pnl": state.pipeline.portfolio.realized_pnl.of("USD"),
+        "commission_paid": state.pipeline.portfolio.commission_paid.of("USD"),
     }
 
 

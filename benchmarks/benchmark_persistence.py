@@ -1,14 +1,40 @@
-"""High-performance benchmarking suite for the functional Persistence Engine."""
+"""Benchmark the persistence boundary that production actually writes through.
 
+Until v2.17 this measured ``MemoryStorage.append_event`` from the nine-module
+store deprecated in v2.13 and removed in v2.17 (ADR-0034). A benchmark of a
+surface with no production importer reports a throughput nobody can act on, so
+it now measures the two things a run really pays for when it checkpoints:
+
+1. **The codec spine.** ``serialize`` over a captured state, which every
+   snapshot module in the repository goes through.
+2. **The run-state store.** ``put`` / ``get`` over
+   :class:`~alphalab.persistence.run_store.RunStateStore`, which envelopes the
+   payload, digests it, and verifies that digest on the way back out. Both
+   backends are measured, because the file backend's ``fsync`` is the cost a
+   durable checkpoint actually has and the memory backend is what isolates the
+   envelope work from the disk.
+
+The store's own contract is that a full cycle inside ``id_scope`` draws **zero**
+run identifiers (ADR-0029 decision 7), so the loop below runs inside one: what
+is measured is the same code path a mid-run checkpoint takes.
+"""
+
+import tempfile
 import time
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 
+from alphalab.common.ids import id_scope
 from alphalab.persistence import (
-    MemoryStorage,
-    PersistenceAdapter,
-    PersistenceEngine,
+    FileRunStateStore,
+    MemoryRunStateStore,
+    RunStateStore,
+    deserialize,
+    serialize,
 )
+
+SEED = 20260914
 
 
 @dataclass(frozen=True)
@@ -17,37 +43,48 @@ class BenchEvent:
     price: Decimal
 
 
+def _measure(store: RunStateStore, label: str, payloads: tuple[str, ...]) -> None:
+    with id_scope(SEED):
+        start = time.perf_counter()
+        for sequence, payload in enumerate(payloads):
+            ref = store.put("BENCH-RUN", sequence, payload)
+            store.get(ref)
+        duration = time.perf_counter() - start
+
+    count = len(payloads)
+    print(f"  {label}: {duration:.4f}s, {count / duration:.2f} checkpoints/sec")
+
+
 def run_benchmark() -> None:
-    state = PersistenceEngine.initialize("MEM-BENCH")
-    store = MemoryStorage()
+    n_serialize = 100_000
+    n_store = 5_000
 
-    N = 100_000
-    print(f"Starting Persistence Engine Benchmark: Storing {N} Events...")
+    print(f"Starting Persistence Benchmark: serializing {n_serialize} events...")
 
-    # 1. Pre-generate domain events to isolate serialization & storage overhead
-    domain_events = tuple(
-        BenchEvent(trade_id=f"TRD-{i}", price=Decimal("150.00")) for i in range(N)
+    events = tuple(
+        BenchEvent(trade_id=f"TRD-{i}", price=Decimal("150.00")) for i in range(n_serialize)
     )
 
     start = time.perf_counter()
-
-    # 2. Sequentially translate, serialize, and persist
-    for i, domain_event in enumerate(domain_events):
-        ts = float(1000 + i)
-        stored_evt = PersistenceAdapter.to_stored_event(
-            event_id=f"EVT-{i}",
-            timestamp=ts,
-            domain_event=domain_event,
-        )
-        state, _ = store.append_event(state, stored_evt, ts)
-
+    encoded = tuple(serialize(event) for event in events)
     duration = time.perf_counter() - start
+    print(f"  serialize: {duration:.4f}s, {n_serialize / duration:.2f} events/sec")
 
-    ops_sec = N / duration
-    print(f"Persistence Engine Evaluation Time: {duration:.4f}s")
-    print(f"Events Appended: {state.statistics.total_events_appended}")
-    print(f"Total Bytes Stored: {state.statistics.bytes_stored}")
-    print(f"Throughput: {ops_sec:.2f} events/sec")
+    start = time.perf_counter()
+    for payload in encoded:
+        deserialize(payload)
+    duration = time.perf_counter() - start
+    print(f"  deserialize: {duration:.4f}s, {n_serialize / duration:.2f} events/sec")
+
+    print(f"Run-state store: {n_store} put/get cycles per backend...")
+    payloads = encoded[:n_store]
+
+    _measure(MemoryRunStateStore(), "MemoryRunStateStore", payloads)
+
+    with tempfile.TemporaryDirectory() as root:
+        _measure(FileRunStateStore(Path(root)), "FileRunStateStore ", payloads)
+
+    print(f"Total bytes serialized: {sum(len(p) for p in encoded)}")
 
 
 if __name__ == "__main__":

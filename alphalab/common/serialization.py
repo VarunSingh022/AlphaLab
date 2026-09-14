@@ -8,8 +8,16 @@ sequence of dicts, and would then reach the JSON encoder as an unserializable
 value. :func:`dataclass_to_dict` therefore does its own recursion, which is
 ``asdict``'s behaviour plus two rules:
 
-* an ``AppendOnlyLog`` converts like the tuple it replaced, and
+* an ``AppendOnlyLog`` converts like the tuple it replaced,
+* a ``MappingProxyType`` converts like the dict it wraps, and
 * a value that defines ``__serializable__`` converts as whatever that returns.
+
+The proxy rule exists because ``MappingProxyType`` is **not** a ``dict``
+subclass, so the ``isinstance(value, dict)`` branch below does not see one and
+``asdict`` would deep-copy it. It is how a frozen dataclass holds a mapping
+nobody can edit -- :class:`~alphalab.research.protocol.ResearchPayload` is the
+first -- and such a field must persist as the object it stands for rather than
+being refused at the encoder as an unknown type.
 
 The second rule is how a type whose in-memory shape has no JSON form declares
 one explicitly. :class:`~alphalab.oms.book.OrderBook` keys its orders by the
@@ -21,6 +29,7 @@ encoder unchanged, and is still rejected there rather than stringified.
 """
 
 from dataclasses import fields, is_dataclass
+from types import MappingProxyType
 from typing import Any, Protocol, cast, runtime_checkable
 
 from alphalab.common.append_log import AppendOnlyLog
@@ -79,6 +88,11 @@ def _convert(value: Any) -> Any:
         if hasattr(value, "_fields"):
             return type(value)(*(_convert(item) for item in value))
         return type(value)(_convert(item) for item in value)
+    if isinstance(value, MappingProxyType):
+        # Checked before ``dict``, which it is not a subclass of. A read-only
+        # view converts as the mapping it is a view of; the proxy itself has no
+        # JSON form and would otherwise reach the encoder and be refused.
+        return {_convert(k): _convert(v) for k, v in value.items()}
     if isinstance(value, dict):
         return type(value)((_convert(k), _convert(v)) for k, v in value.items())
     return value

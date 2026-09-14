@@ -28,7 +28,14 @@ from typing import Any, get_type_hints
 
 import pytest
 
-from alphalab.runtime.context_views import MarketView, OrderView, PortfolioView, RiskView
+from alphalab.runtime.context_views import (
+    HistoryView,
+    MarketView,
+    OrderView,
+    PortfolioView,
+    RiskView,
+    UniverseView,
+)
 from alphalab.strategy.context import (
     HistoryAccessorProtocol,
     MarketViewProtocol,
@@ -46,14 +53,23 @@ from alphalab.strategy.context import (
 )
 
 #: Field -> (declared protocol, the view the pipeline overlays, the null object).
-#: ``None`` for a view means it is pinned by its own v2.15 file instead.
-SURFACES: tuple[tuple[str, type, type | None, type], ...] = (
+#:
+#: ``history`` and ``universe`` carried ``None`` here until v2.17, which made
+#: :func:`test_the_overlaid_view_satisfies_the_declared_protocol` skip for both
+#: on the grounds that they were "pinned by
+#: test_strategy_context_history_and_universe". That file pins their *behaviour*
+#: -- the look-ahead bound, what an unconfigured universe means -- and never
+#: asserted the structural property this table exists for, so two of the six
+#: surfaces had no structural check at all and the suite reported two skips
+#: rather than a gap. ADR-0034 fills the table; the behavioural file is
+#: unchanged and still the place those guarantees live.
+SURFACES: tuple[tuple[str, type, type, type], ...] = (
     ("portfolio", PortfolioSnapshotProtocol, PortfolioView, NoPortfolio),
     ("market", MarketViewProtocol, MarketView, NoMarket),
     ("risk_view", RiskViewProtocol, RiskView, NoRiskView),
     ("orders", OrderFacadeProtocol, OrderView, NoOrders),
-    ("history", HistoryAccessorProtocol, None, NoHistory),
-    ("universe", UniverseProtocol, None, NoUniverse),
+    ("history", HistoryAccessorProtocol, HistoryView, NoHistory),
+    ("universe", UniverseProtocol, UniverseView, NoUniverse),
 )
 
 
@@ -68,7 +84,7 @@ def _declared_members(protocol: type) -> frozenset[str]:
 
 @pytest.mark.parametrize(("field", "protocol", "view", "null"), SURFACES, ids=lambda v: str(v))
 def test_no_context_protocol_is_decorative(
-    field: str, protocol: type, view: type | None, null: type
+    field: str, protocol: type, view: type, null: type
 ) -> None:
     """A protocol with no members is a promise nothing can be written against."""
 
@@ -81,7 +97,7 @@ def test_no_context_protocol_is_decorative(
 
 @pytest.mark.parametrize(("field", "protocol", "view", "null"), SURFACES, ids=lambda v: str(v))
 def test_the_null_object_satisfies_the_declared_protocol(
-    field: str, protocol: type, view: type | None, null: type
+    field: str, protocol: type, view: type, null: type
 ) -> None:
     missing = sorted(_declared_members(protocol) - set(dir(null)))
     assert not missing, f"{null.__name__} does not supply {missing}"
@@ -89,12 +105,10 @@ def test_the_null_object_satisfies_the_declared_protocol(
 
 @pytest.mark.parametrize(("field", "protocol", "view", "null"), SURFACES, ids=lambda v: str(v))
 def test_the_overlaid_view_satisfies_the_declared_protocol(
-    field: str, protocol: type, view: type | None, null: type
+    field: str, protocol: type, view: type, null: type
 ) -> None:
     """The type the pipeline actually supplies answers everything it declares."""
 
-    if view is None:
-        pytest.skip("history and universe are pinned by test_strategy_context_history_and_universe")
     missing = sorted(_declared_members(protocol) - set(dir(view)))
     assert not missing, f"{view.__name__} does not supply {missing}"
 
@@ -107,8 +121,6 @@ def test_the_declared_members_are_the_view_members_and_not_a_subset_chosen_by_ha
     """
 
     for _field, protocol, view, _null in SURFACES:
-        if view is None:
-            continue
         public_view_members = {
             name
             for name, value in vars(view).items()
@@ -217,3 +229,61 @@ def test_every_declared_member_is_documented() -> None:
             if not (target.__doc__ or "").strip() and not name.startswith("__"):
                 undocumented.append(f"{protocol.__name__}.{name}")
     assert undocumented == [], f"undocumented context members: {undocumented}"
+
+
+def test_the_table_names_the_views_the_pipeline_actually_overlays() -> None:
+    """The table is only worth what its agreement with the pipeline is worth.
+
+    Two of these entries were ``None`` until v2.17 and the corresponding case
+    skipped. Filling them in by hand is worth nothing if the pipeline overlays a
+    different type, so this reads the construction site: every view listed above
+    must be the class ``_populate_context`` instantiates for that field, and
+    every field it populates must be listed here.
+    """
+
+    import ast
+    import inspect
+    import textwrap
+
+    from alphalab.runtime import execution_pipeline
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(execution_pipeline._populate_context)))
+
+    # ``name -> the class it is constructed from``, for the views built once
+    # outside the per-strategy closure.
+    locals_to_class = {
+        target.id: node.value.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+        for target in node.targets
+        if isinstance(target, ast.Name) and isinstance(node.value.func, ast.Name)
+    }
+
+    fields = {field for field, _, _, _ in SURFACES}
+    overlaid = next(
+        {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg in fields}
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "replace"
+    )
+
+    assert set(overlaid) == fields, (
+        "the pipeline populates a different set of context fields than this table lists: "
+        f"{sorted(set(overlaid) ^ fields)}"
+    )
+
+    for field, _protocol, view, _null in SURFACES:
+        value = overlaid[field]
+        if isinstance(value, ast.Name):
+            # Built once, above the closure, and referenced by name.
+            built = locals_to_class.get(value.id)
+        elif isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+            # Built per strategy, inline -- ``orders`` is the one such field.
+            built = value.func.id
+        else:  # pragma: no cover - a shape this assertion does not understand
+            raise AssertionError(f"{field} is overlaid from an unrecognised expression")
+
+        assert built == view.__name__, (
+            f"the pipeline overlays {built} onto {field}, but this table names {view.__name__}"
+        )

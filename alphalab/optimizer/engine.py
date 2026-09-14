@@ -62,7 +62,7 @@ class OptimizationEngine:
             state,
             status=OptimizerStatus.RUNNING,
             start_time=timestamp,
-            events=(*state.events, start_evt),
+            events=state.events.append(start_evt),
         )
 
     @staticmethod
@@ -133,9 +133,9 @@ class OptimizationEngine:
         new_state = replace(
             state,
             pending_trials=remaining_trials,
-            completed_trials=(*state.completed_trials, result),
+            completed_trials=state.completed_trials.append(result),
             best_trial=new_best,
-            events=(*state.events, start_evt, comp_evt),
+            events=state.events.extend((start_evt, comp_evt)),
         )
 
         # 5. Auto-Complete if exhausted
@@ -161,7 +161,7 @@ class OptimizationEngine:
             state,
             status=OptimizerStatus.COMPLETED,
             end_time=timestamp,
-            events=(*state.events, comp_evt),
+            events=state.events.append(comp_evt),
         )
 
     @staticmethod
@@ -172,5 +172,5 @@ class OptimizationEngine:
             state,
             status=OptimizerStatus.FAILED,
             end_time=timestamp,
-            events=(*state.events, fail_evt),
+            events=state.events.append(fail_evt),
         )

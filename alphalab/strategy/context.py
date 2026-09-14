@@ -69,13 +69,32 @@ class PortfolioSnapshotProtocol(Protocol):
         ...
 
     @property
-    def realized_pnl(self) -> Decimal:
-        """Cumulative realized profit and loss."""
+    def realized_pnl(self) -> Mapping[Any, Decimal]:
+        """Cumulative realized profit and loss, keyed by settlement currency.
+
+        Keyed rather than scalar as of v2.17. A book may settle in more than one
+        currency (ADR-0035), and a single number summed across two would be a
+        figure in no currency at all -- the defect ADR-0020 removed from
+        valuation. Read one currency with :meth:`realized_pnl_in`.
+        """
         ...
 
     @property
-    def commission_paid(self) -> Decimal:
-        """Cumulative commission paid."""
+    def commission_paid(self) -> Mapping[Any, Decimal]:
+        """Cumulative commission paid, keyed by settlement currency."""
+        ...
+
+    def realized_pnl_in(self, currency: str) -> Decimal:
+        """Realized profit and loss settled in ``currency``; zero if none was.
+
+        The exact sibling of :meth:`cash`, and for the same reason: a keyed
+        lookup returns what it was asked for and claims nothing about any other
+        currency, so it needs no rate and refuses nothing.
+        """
+        ...
+
+    def commission_paid_in(self, currency: str) -> Decimal:
+        """Commission expensed in ``currency``; zero if none was."""
         ...
 
     def position(self, asset_id: str) -> Any | None:
@@ -337,11 +356,17 @@ class NoPortfolio:
         return {}
 
     @property
-    def realized_pnl(self) -> Decimal:
-        return Decimal("0")
+    def realized_pnl(self) -> Mapping[Any, Decimal]:
+        return {}
 
     @property
-    def commission_paid(self) -> Decimal:
+    def commission_paid(self) -> Mapping[Any, Decimal]:
+        return {}
+
+    def realized_pnl_in(self, currency: str) -> Decimal:
+        return Decimal("0")
+
+    def commission_paid_in(self, currency: str) -> Decimal:
         return Decimal("0")
 
     def position(self, asset_id: str) -> Any | None:

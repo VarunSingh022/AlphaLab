@@ -297,8 +297,16 @@ class PortfolioValuationSnapshot:
         short_value: Summed market value of short positions (<= 0).
         positions_value: ``long_value + short_value``.
         unrealized_pnl: Open P&L across all positions at their current marks.
-        realized_pnl: Cumulative P&L crystallised by reductions and closes.
-        commission_paid: Cumulative commissions already expensed to cash.
+        realized_pnl: Cumulative P&L crystallised by reductions and closes,
+            **expressed in** ``currency``. The state holds it per settlement
+            currency (:class:`~alphalab.portfolio.amounts.CurrencyAmounts`); a
+            valuation names one currency, so a book that realized in two is
+            converted here and the rates are recorded in ``conversions``. That
+            is the reporting half of the split ADR-0035 draws: settlement truth
+            stays per currency on the state, reporting truth is one figure whose
+            derivation is attributable.
+        commission_paid: Cumulative commissions already expensed to cash,
+            expressed in ``currency`` on the same terms.
         equity: Total account equity, ``cash + positions_value``.
         conversions: Every FX conversion this valuation performed, in the order
             performed. **Empty for a single-currency book**, which is every book
@@ -426,6 +434,20 @@ class PortfolioValuation:
         foreign_positions, foreign_cash = assert_single_currency(state, base_currency, rates)
         positions = state.positions
 
+        # Settlement truth -> reporting truth. Both accumulations are per
+        # currency on the state; a valuation names one, so anything realized or
+        # expensed in another is converted here and the conversion is recorded.
+        # A book that settled only in ``base_currency`` -- every book before
+        # v2.17 and the overwhelming majority since -- converts nothing and
+        # takes the same addition it always did.
+        realized, realized_conversions = state.realized_pnl.total_in(
+            base_currency, rates, timestamp
+        )
+        commission, commission_conversions = state.commission_paid.total_in(
+            base_currency, rates, timestamp
+        )
+        settlement_conversions = (*realized_conversions, *commission_conversions)
+
         if not foreign_positions and not foreign_cash:
             # The homogeneous path, byte-for-byte what it was before v2.16. The
             # assertion has already proven the book is in one currency, so the
@@ -435,7 +457,7 @@ class PortfolioValuation:
             short_value = PortfolioValuation.short_value(positions)
             positions_value = long_value + short_value
             unrealized = sum((p.unrealized_pnl for p in positions.values()), ZERO_MONEY)
-            conversions: tuple[FxConversion, ...] = ()
+            conversions: tuple[FxConversion, ...] = settlement_conversions
         else:
             # The converting path, reached only by a book that is actually
             # mixed. Each position is converted from the currency it declares,
@@ -462,7 +484,7 @@ class PortfolioValuation:
                 unrealized += pnl.converted
 
             positions_value = long_value + short_value
-            conversions = tuple(performed)
+            conversions = (*settlement_conversions, *performed)
 
         return PortfolioValuationSnapshot(
             timestamp=timestamp,
@@ -472,8 +494,8 @@ class PortfolioValuation:
             short_value=short_value,
             positions_value=positions_value,
             unrealized_pnl=unrealized,
-            realized_pnl=state.realized_pnl,
-            commission_paid=state.commission_paid,
+            realized_pnl=realized,
+            commission_paid=commission,
             equity=cash + positions_value,
             conversions=conversions,
         )

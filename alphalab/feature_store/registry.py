@@ -33,16 +33,15 @@ class FeatureRegistry:
             raise FeatureValidationError(dependency_violation.description)
 
         key = f"{metadata.feature_id}:{metadata.version}"
-        new_features = dict(state.features)
-        new_features[key] = metadata
 
         event = FeatureRegistered(str(new_id()), timestamp, metadata.feature_id, metadata.version)
         stats = replace(state.statistics, total_registered=state.statistics.total_registered + 1)
 
         return replace(
             state,
-            features=new_features,
-            events=(*state.events, event),
+            features=state.features.set(key, metadata),
+            registered_feature_ids=state.registered_feature_ids.add(metadata.feature_id),
+            events=state.events.append(event),
             statistics=stats,
         )
 
@@ -68,13 +67,12 @@ class FeatureRegistry:
                 f"Feature '{feature_id}' version {version} is already deprecated."
             )
 
-        new_deprecated = frozenset({*state.deprecated_keys, key})
         event = FeatureDeprecated(str(new_id()), timestamp, feature_id, version)
         stats = replace(state.statistics, total_deprecated=state.statistics.total_deprecated + 1)
 
         return replace(
             state,
-            deprecated_keys=new_deprecated,
-            events=(*state.events, event),
+            deprecated_keys=state.deprecated_keys.add(key),
+            events=state.events.append(event),
             statistics=stats,
         )

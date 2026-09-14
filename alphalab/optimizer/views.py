@@ -48,6 +48,8 @@ def optimization_summary(state: OptimizerState) -> OptimizationResult:
     total_time = state.end_time - state.start_time if state.end_time > 0 else 0.0
     return OptimizationResult(
         best_trial=state.best_trial,
-        all_trials=state.completed_trials,
+        # OptimizationResult is a returned value object, not accumulated
+        # state, so it keeps its tuple. The conversion happens once, here.
+        all_trials=state.completed_trials.to_tuple(),
         total_execution_time=total_time,
     )

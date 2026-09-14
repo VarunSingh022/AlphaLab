@@ -76,6 +76,7 @@ from alphalab.core.trade import Trade as CoreTrade
 from alphalab.execution.fill import FillStatus
 from alphalab.execution.report import ExecutionReport
 from alphalab.oms.order import Order as OMSOrder
+from alphalab.portfolio.fx import NO_RATES, FxRates
 from alphalab.runtime.execution_pipeline import ExecutionPipeline, ExecutionPipelineState
 
 __all__ = [
@@ -287,14 +288,19 @@ def apply_broker_execution(
     oms_order: OMSOrder,
     execution: BrokerExecution,
     config: RoutingConfig | None = None,
+    rates: FxRates = NO_RATES,
 ) -> tuple[ExecutionPipelineState, tuple[CoreFill, ...], tuple[CoreTrade, ...]]:
     """Apply a venue fill through the canonical execution path.
 
     The fill reaches the OMS, the portfolio, the allocation ledger and the
     analytics record by exactly the route a simulated fill takes -- see
     :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.apply_execution_report`.
+
+    ``rates`` is passed straight through to that method and is only read when
+    the book this fill lands in holds more than one currency. It defaults to the
+    empty table, so a single-currency live run is unchanged.
     """
 
     return ExecutionPipeline.apply_execution_report(
-        state, oms_order, execution_report_from_broker(execution, oms_order, config)
+        state, oms_order, execution_report_from_broker(execution, oms_order, config), rates
     )

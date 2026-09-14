@@ -22,7 +22,7 @@ class MockOMSOrder:
 
 
 def run_benchmark() -> None:
-    state = BrokerEngine.initialize("PAPER-BENCH", Decimal("100000000.00"))
+    state = BrokerEngine.initialize("PAPER-BENCH", Decimal("100000000.00"), "USD")
     broker = PaperBroker()
 
     N = 100_000

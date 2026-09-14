@@ -18,12 +18,9 @@ import pytest
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import id_scope
-from alphalab.persistence.adapter import PersistenceAdapter
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.run_store import MemoryRunStateStore
 from alphalab.persistence.serializer import deserialize, serialize
-from alphalab.persistence.state import PersistenceState
-from alphalab.persistence.storage import MemoryStorage
-from alphalab.persistence.views import latest_snapshot
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.snapshot import (
@@ -57,13 +54,13 @@ def _build() -> PortfolioState:
         1.0,
     )
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("10"), Decimal("100.005"), Decimal("1.00"), 2.0
+        state, "AAPL", Decimal("10"), Decimal("100.005"), Decimal("1.00"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("-4"), Decimal("110.007"), Decimal("1.00"), 3.0
+        state, "AAPL", Decimal("-4"), Decimal("110.007"), Decimal("1.00"), 3.0, "USD"
     )
     state = PortfolioEngine.apply_fill(
-        state, "MSFT", Decimal("5"), Decimal("300.50"), Decimal("0.50"), 4.0
+        state, "MSFT", Decimal("5"), Decimal("300.50"), Decimal("0.50"), 4.0, "USD"
     )
     return PortfolioEngine.update_market_prices(
         state, {"AAPL": Decimal("115.00"), "MSFT": Decimal("305.00")}, 5.0
@@ -123,8 +120,8 @@ def test_exact_money_survives_the_round_trip() -> None:
     position = restored.positions["AAPL"]
 
     assert position.quantity == Decimal("6.000000")
-    assert restored.realized_pnl == Decimal("40.01")
-    assert restored.commission_paid == Decimal("2.50")
+    assert restored.realized_pnl.of("USD") == Decimal("40.01")
+    assert restored.commission_paid.of("USD") == Decimal("2.50")
     assert restored.cash.balance("USD") == _state().cash.balance("USD")
 
 
@@ -190,11 +187,11 @@ def test_a_restored_state_continues_processing_identically() -> None:
 
     with id_scope(_SEED + 1):
         direct = PortfolioEngine.apply_fill(
-            state, "AAPL", Decimal("-6"), Decimal("120.00"), Decimal("1.00"), 6.0
+            state, "AAPL", Decimal("-6"), Decimal("120.00"), Decimal("1.00"), 6.0, "USD"
         )
     with id_scope(_SEED + 1):
         resumed = PortfolioEngine.apply_fill(
-            restored, "AAPL", Decimal("-6"), Decimal("120.00"), Decimal("1.00"), 6.0
+            restored, "AAPL", Decimal("-6"), Decimal("120.00"), Decimal("1.00"), 6.0, "USD"
         )
 
     assert resumed.realized_pnl == direct.realized_pnl
@@ -204,33 +201,25 @@ def test_a_restored_state_continues_processing_identically() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The persistence store is a real consumer
+# The run-state store is a real consumer
 # --------------------------------------------------------------------------- #
 
 
-def test_a_snapshot_round_trips_through_the_persistence_store() -> None:
-    """capture -> Snapshot -> save -> load -> from_primitives -> restore."""
+def test_a_snapshot_round_trips_through_the_run_state_store() -> None:
+    """capture -> serialize -> put -> get -> from_primitives -> restore.
+
+    The canonical durability boundary (ADR-0029), which digest-verifies the
+    payload on the way back out, so what is asserted here is that the bytes a
+    run persists decode to the state it captured.
+    """
 
     state = _state()
-    storage = MemoryStorage()
-    persistence = PersistenceState(engine_id="ENGINE-1")
+    store = MemoryRunStateStore()
 
-    record = PersistenceAdapter.to_snapshot("SNAP-1", "portfolio", 9.0, capture(state))
-    persistence, _ = storage.save_snapshot(persistence, record, 9.0)
-
-    stored = latest_snapshot(persistence, "portfolio")
-    assert stored is not None
-    restored = restore(from_primitives(PersistenceAdapter.snapshot_payload(stored)))
+    ref = store.put("run-portfolio", 0, serialize(capture(state)))
+    restored = restore(from_primitives(deserialize(store.get(ref))))
 
     assert restored == state
-
-
-def test_a_payload_that_is_not_an_object_is_refused_by_the_adapter() -> None:
-    from alphalab.persistence.snapshot import Snapshot
-
-    bad = Snapshot(snapshot_id="S", subsystem="portfolio", timestamp=1.0, payload="[1, 2, 3]")
-    with pytest.raises(StateDecodeError, match="does not contain an object"):
-        PersistenceAdapter.snapshot_payload(bad)
 
 
 # --------------------------------------------------------------------------- #
@@ -257,7 +246,8 @@ def test_a_missing_nested_field_names_the_field() -> None:
     [
         ("positions", {}, "positions is not an array"),
         ("balances", [], "balances is not an object"),
-        ("realized_pnl", "not-a-number", "realized_pnl is not a decimal"),
+        # v2.17: a per-currency mapping, so the type it is not is an object.
+        ("realized_pnl", "not-a-number", "realized_pnl is not an object"),
         ("account", "ACC-1", "account is not an object"),
         ("events", {}, "events is not an array"),
     ],
@@ -305,9 +295,16 @@ def test_a_number_is_not_accepted_where_a_string_belongs() -> None:
 
 
 def test_a_boolean_is_not_accepted_as_a_decimal() -> None:
+    """``bool`` is an ``int``, and a decimal field must still refuse one.
+
+    Asserted through ``realized_pnl["USD"]`` since v2.17, because the field
+    itself is now a per-currency mapping; the rule being pinned -- a boolean is
+    not money -- is unchanged and is checked one level deeper.
+    """
+
     payload = _payload()
-    payload["realized_pnl"] = True
-    with pytest.raises(StateDecodeError, match="realized_pnl is not a decimal"):
+    payload["realized_pnl"] = {"USD": True}
+    with pytest.raises(StateDecodeError, match="realized_pnl"):
         from_primitives(payload)
 
 
@@ -366,7 +363,7 @@ def test_the_snapshot_is_immutable() -> None:
 
     snapshot = capture(_state())
     with pytest.raises(FrozenInstanceError):
-        snapshot.realized_pnl = Decimal("0")  # type: ignore[misc]
+        snapshot.realized_pnl = {}  # type: ignore[misc]
 
 
 def test_capture_does_not_mutate_the_state() -> None:

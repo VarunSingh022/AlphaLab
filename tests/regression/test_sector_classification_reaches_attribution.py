@@ -40,7 +40,6 @@ from alphalab.instrument.registry import (
 from alphalab.market.source import SequenceSource
 from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
 from alphalab.persistence.serializer import deserialize, serialize
-from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
 from alphalab.runtime.broker_routing import (
     RoutingConfig,
     apply_broker_execution,
@@ -464,7 +463,7 @@ def test_a_classified_run_and_an_unclassified_one_differ_only_in_the_sector() ->
     control = _run(_ROUND_TRIP, registry_of(_PLAIN_APPLE), _PLAIN_APPLE.asset_id)
 
     assert classified.portfolio.cash.balance("USD") == control.portfolio.cash.balance("USD")
-    assert classified.portfolio.realized_pnl == control.portfolio.realized_pnl
+    assert classified.portfolio.realized_pnl.of("USD") == control.portfolio.realized_pnl.of("USD")
     assert len(classified.fills) == len(control.fills)
     assert [r.realized_pnl for r in classified.trade_records] == [
         r.realized_pnl for r in control.trade_records
@@ -488,11 +487,15 @@ def test_a_run_with_no_registry_is_unchanged_in_every_field() -> None:
 @pytest.mark.parametrize(
     ("constant", "expected"),
     [
-        (PIPELINE_SNAPSHOT_SCHEMA, 2),
+        # PIPELINE_SNAPSHOT_SCHEMA was here and is not any more: v2.17 moved it
+        # to 3 for settlement-level multi-currency (ADR-0035), which is a later
+        # release's deliberate bump and not something this one did.
         (RUN_SNAPSHOT_SCHEMA, 1),
         (ALLOCATION_SNAPSHOT_SCHEMA, 1),
         (OMS_SNAPSHOT_SCHEMA, 1),
-        (PORTFOLIO_SNAPSHOT_SCHEMA, 2),
+        # PORTFOLIO_SNAPSHOT_SCHEMA was here and is not any more: it moved to 3
+        # in v2.17 (ADR-0035). Pinning another release's constant makes every
+        # future bump edit unrelated files.
     ],
 )
 def test_no_schema_constant_moved(constant: int, expected: int) -> None:
@@ -531,7 +534,7 @@ def test_a_payload_carrying_a_null_sector_still_restores() -> None:
     state = _run(_ROUND_TRIP, None, _APPLE.asset_id)
     payload = deserialize(serialize(capture_pipeline(state)))
 
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert [record["sector_id"] for record in payload["trade_records"]] == [None, None]
 
     objects = RuntimeObjects(
@@ -826,7 +829,7 @@ def test_sector_exposure_survives_a_round_trip_without_moving_the_schema() -> No
     payload = deserialize(serialize(capture_pipeline(state)))
     restored = restore_pipeline(pipeline_from_primitives(payload), objects)
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 2
+    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 3
     assert payload["risk"]["exposure"]["sector_exposure"] == {
         "Technology": "1000.00",
         "Financials": "-400.00",

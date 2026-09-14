@@ -24,11 +24,9 @@ from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order
 from alphalab.oms.snapshot import capture, from_primitives, restore
 from alphalab.oms.state import OMSState
-from alphalab.persistence.adapter import PersistenceAdapter
 from alphalab.persistence.exceptions import SerializationError
+from alphalab.persistence.run_store import MemoryRunStateStore
 from alphalab.persistence.serializer import deserialize, serialize
-from alphalab.persistence.state import PersistenceState
-from alphalab.persistence.validation import validate_snapshot_save
 
 
 def _order(order_id: OrderId, asset: str = "AAPL", strategy: str = "STRAT") -> Order:
@@ -221,13 +219,21 @@ def test_a_restored_state_keeps_working() -> None:
     assert working not in filled.active_orders
 
 
-def test_a_persisted_snapshot_validates_and_round_trips() -> None:
+def test_a_persisted_snapshot_round_trips_through_the_run_state_store() -> None:
+    """Through the canonical durability boundary, not just through ``serialize``.
+
+    :class:`~alphalab.persistence.run_store.RunStateStore` digest-verifies the
+    payload on the way back out, so this asserts that the bytes a run actually
+    persists decode to the state it captured. Before v2.17 this went through the
+    nine-module store ADR-0034 removed.
+    """
+
     state, _, _ = _state()
 
-    snapshot = PersistenceAdapter.to_snapshot("snap-oms", "oms", 9.0, state)
-    validate_snapshot_save(PersistenceState(engine_id="engine-oms"), snapshot)
+    store = MemoryRunStateStore()
+    ref = store.put("run-oms", 0, serialize(capture(state)))
 
-    assert restore(from_primitives(deserialize(snapshot.payload))) == state
+    assert restore(from_primitives(deserialize(store.get(ref)))) == state
 
 
 # ---------------------------------------------------------------------------

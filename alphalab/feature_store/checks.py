@@ -85,9 +85,18 @@ def check_asset_scope(value: FeatureValue, metadata: FeatureMetadata) -> Feature
 def check_dependencies_registered(
     metadata: FeatureMetadata, state: FeatureStoreState
 ) -> FeatureViolation | None:
-    """Verifies every declared upstream dependency has at least one registered version."""
-    registered_ids = {meta.feature_id for meta in state.features.values()}
-    missing = tuple(dep for dep in metadata.depends_on if dep not in registered_ids)
+    """Verifies every declared upstream dependency has at least one registered version.
+
+    Reads :attr:`~alphalab.feature_store.state.FeatureStoreState.registered_feature_ids`
+    rather than scanning the registry. Until v2.17 this built a set of every
+    registered feature id on every call, which made registration quadratic and
+    was the largest cost in the package -- see that module's docstring.
+    """
+
+    if not metadata.depends_on:
+        return None
+
+    missing = tuple(dep for dep in metadata.depends_on if dep not in state.registered_feature_ids)
 
     if missing:
         return FeatureViolation(

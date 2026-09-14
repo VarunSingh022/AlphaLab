@@ -1,8 +1,23 @@
-"""Global immutable state container for the Portfolio Engine."""
+"""Global immutable state container for the Portfolio Engine.
 
-from collections.abc import Mapping
+The eight keyed indexes and the event log use the canonical containers from
+:mod:`alphalab.common`, for the reason v2.1 and v2.2 introduced them. Until
+v2.17 every mutator rebuilt a whole ``dict`` and a whole ``tuple`` per
+transition, so ``N`` transitions copied ``O(N^2)`` entries -- ADR-0032 category C
+finding 1, closed by ADR-0034. Both containers are immutable, both define value
+equality, and a ``PersistentMap`` iterates in first-insertion order of the keys
+still present, which is what a ``dict`` does.
+
+This is the ``PortfolioEngine`` that answers *what should I own*. The accounting
+one -- *what do I own and what is it worth* -- is
+:class:`alphalab.portfolio.engine.PortfolioEngine`, and they share no operation
+(ADR-0032 finding B2).
+"""
+
 from dataclasses import dataclass, field
 
+from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.portfolio_optimizer.allocation import CapitalAllocation
 from alphalab.portfolio_optimizer.constraints import RiskConstraints, WeightConstraints
 from alphalab.portfolio_optimizer.costs import TransactionCostEstimate
@@ -18,12 +33,14 @@ class PortfolioEngineState:
     """Deterministic snapshot of the Portfolio Management cluster."""
 
     engine_id: str
-    portfolios: Mapping[str, Portfolio] = field(default_factory=dict)
-    weights: Mapping[str, TargetWeights] = field(default_factory=dict)
-    constraints: Mapping[str, WeightConstraints] = field(default_factory=dict)
-    risk_limits: Mapping[str, RiskConstraints] = field(default_factory=dict)
-    metrics: Mapping[str, PortfolioMetrics] = field(default_factory=dict)
-    exposures: Mapping[str, PortfolioExposure] = field(default_factory=dict)
-    allocations: Mapping[str, CapitalAllocation] = field(default_factory=dict)
-    cost_estimates: Mapping[str, TransactionCostEstimate] = field(default_factory=dict)
-    events: tuple[PortfolioEvent, ...] = field(default_factory=tuple)
+    portfolios: PersistentMap[str, Portfolio] = field(default_factory=PersistentMap)
+    weights: PersistentMap[str, TargetWeights] = field(default_factory=PersistentMap)
+    constraints: PersistentMap[str, WeightConstraints] = field(default_factory=PersistentMap)
+    risk_limits: PersistentMap[str, RiskConstraints] = field(default_factory=PersistentMap)
+    metrics: PersistentMap[str, PortfolioMetrics] = field(default_factory=PersistentMap)
+    exposures: PersistentMap[str, PortfolioExposure] = field(default_factory=PersistentMap)
+    allocations: PersistentMap[str, CapitalAllocation] = field(default_factory=PersistentMap)
+    cost_estimates: PersistentMap[str, TransactionCostEstimate] = field(
+        default_factory=PersistentMap
+    )
+    events: AppendOnlyLog[PortfolioEvent] = field(default_factory=AppendOnlyLog)

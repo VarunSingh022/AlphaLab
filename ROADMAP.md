@@ -404,6 +404,55 @@ Enterprise capabilities
 
 ---
 
+v2.17.0 — "The Final Engineering Release" — is the last release before v3.0, and
+it exists so that v3.0 has nothing left to do but freeze.
+
+- **Settlement-level multi-currency.** All four blockers ADR-0033 decision 13
+  named are gone. `PortfolioState.realized_pnl` and `commission_paid` are
+  per-currency `CurrencyAmounts`; `ExecutionPipelineConfig.also_settles` says
+  which currencies a pipeline may settle; a fill is denominated in the
+  instrument's own currency; `CapitalBudget` states its currency and is refused
+  when two are in play and it does not; and risk reads the whole book rather
+  than silently dropping every balance that is not in the base currency.
+  **Settlement truth and reporting truth stay apart**: what was earned is
+  recorded in the currency it was earned in, permanently, and a valuation
+  converts into one reporting currency on demand with every rate recorded.
+  Settlement conversion of cash is a deliberate act with a recorded rate; no
+  fill converts to cover itself.
+
+- **An FX rate feed.** `alphalab.portfolio.fx_feed` is the boundary, not the
+  data — AlphaLab still ships no FX rate. It fixes the three questions every
+  caller was answering implicitly: a later quote supersedes, an identical one is
+  a duplicate, an **older one is not applied**, and two claiming one instant that
+  disagree are refused rather than ranked. Provenance, staleness and liveness
+  stay three separate questions.
+
+- **A strategy-class registry.** `alphalab.strategy.registry` maps the identity a
+  deployment names to the code a run executes. It is deliberately *not* in
+  `alphalab.lifecycle`, which still constructs nothing; it stores an identity and
+  a factory and nothing about what a strategy *is*; and it never resolves a name
+  to a class. A duplicate registration and an unknown identity are both refusals.
+
+- **The cleanup that makes v3.0 additive.** Seven deprecated surfaces scheduled
+  for v3.0 removal are removed here — `kernel`, `integrations`, `production`,
+  `core.events`, `CommonEvent`, the nine-module persistence store and the
+  ten-module orphan runtime lifecycle — all with zero production importers and
+  **with no compatibility aliases**. All four of ADR-0032's category C items are
+  implemented. The suite reports **0 skipped and 0 warnings**, neither achieved
+  by configuration.
+
+- **What the audit found that nothing had recorded.** Profiling before converting
+  showed that in three of the eight packages the containers were not the dominant
+  term — converting them alone would have fixed ~10% of `distributed`'s cost and
+  made `feature_store` four times *slower*. A sweep for silent financial defaults
+  found an invented Reg-T margin rate and two assumed currencies on public
+  surfaces. And `from alphalab.common import *` raised `AttributeError`, because
+  `__all__` advertised a name nothing defined.
+
+See ADR-0034 and ADR-0035.
+
+---
+
 v2.16.0 — "The Integrated Runtime, Governance and FX" — closes three joins and
 audits everything else.
 
@@ -922,24 +971,32 @@ said and when it stopped being true is part of the record (ADR-0032).*
   v3.0** — `kernel` warns at import, `core.events` deliberately does not, because
   `alphalab.core` re-exports its symbols eagerly and a warning there would fire
   on the canonical core package for every consumer (ADR-0015).
-- `alphalab.integrations` is a third broker surface that speaks none of the
-  canonical `alphalab.broker` types and is imported by nothing. v2.3 converged
+- ~~`alphalab.integrations` is a third broker surface that speaks none of the
+  canonical `alphalab.broker` types and is imported by nothing.~~ v2.3 converged
   `broker` and `brokers` and left it untouched. **Deprecated in v2.6, removed in
-  v3.0.**
+  v2.17** — brought forward from v3.0 so the stable release is additive.
 
-- **The v3.0 condition, as of v2.16.** The audit in ADR-0032 looked for every
+- **The v3.0 condition, met in v2.17.** The audit in ADR-0032 looked for every
   internal problem that would make AlphaLab worth refactoring *immediately
   after* declaring v3.0 stable, and classified each as required before v3.0,
   valid current design, or optional post-v3.0 evolution. Six were required and
-  are fixed in v2.16; eleven are recorded as intentional and pinned by
-  `tests/regression/test_shared_names_stay_distinct.py`; four are recorded as
-  future evolution and deliberately not implemented. **There is no unclassified
-  known structural defect.** The four future items are: quadratic accumulation in
-  ten standalone packages, `ResearchPayload.parameters` as a mutable field on a
-  frozen dataclass, the `BrokerProtocol` name shared between `broker` and
-  `brokers`, and narrowing `Dispatcher.dispatch_event`'s `event: Any` — which
-  cannot be done inside `alphalab.strategy` while ADR-0016 decision 3 stands, and
-  so needs its own decision rather than a side effect.
+  were fixed in v2.16; eleven are recorded as intentional and pinned by
+  `tests/regression/test_shared_names_stay_distinct.py`; four were recorded as
+  future evolution.
+
+  **v2.17 implements all four**, because the trade inverts in the release before
+  a freeze: quadratic accumulation is gone from eight standalone packages (two
+  more were removed outright), `ResearchPayload.parameters` is genuinely
+  immutable, the shared `BrokerProtocol` name is resolved to
+  `BrokerConnectorProtocol` with no alias, and `Dispatcher.dispatch_event` takes
+  `StrategyInboundEvent` — narrowed by naming the supertype both event families
+  share, which needs no market import and moves no hook selection.
+
+  **There is no known required internal refactor.** The only things recorded as
+  remaining are intentional design (ADR-0032's category B), a true external
+  dependency (FX and classification *data*), and one measured trade:
+  `OptimizerState.pending_trials` stays super-linear because the fix costs +3.9%
+  on the execution pipeline. See ADR-0034.
 - ~~Strategies still do not see the marked portfolio.~~ **Done in v2.10**
   (ADR-0026): the pipeline overlays the marked portfolio, the strategy's live
   order shares, and read-only risk and market views onto the context the
@@ -947,13 +1004,16 @@ said and when it stopped being true is part of the record (ADR-0032).*
   above it from v2.10 until v2.12, when it was noticed and corrected. Two of the
   nine fields — `history` and `universe` — genuinely remain unpopulated, and are
   tracked there.
-- ~~Multi-currency valuation~~ — **delivered in v2.16**. `alphalab.portfolio.fx`
-  supplies rates with provenance, refuses one without a source, refuses a stale
-  one, performs no triangulation and no silent inversion, and a mixed book now
-  values as one figure that records every conversion it performed. What remains
-  absent is multi-currency *settlement* — a pipeline that trades two currencies
-  — whose four blockers ADR-0033 decision 13 names, and FX *data*, which
-  AlphaLab ships no more of than it ships classification data.
+- ~~Multi-currency valuation~~ — **delivered in v2.16**, and ~~multi-currency
+  *settlement*~~ — **delivered in v2.17**. `alphalab.portfolio.fx` supplies rates
+  with provenance, refuses one without a source, refuses a stale one, performs no
+  triangulation and no silent inversion, and a mixed book values as one figure
+  that records every conversion it performed. v2.17 closes the settlement half:
+  all four of ADR-0033 decision 13's blockers are gone, a pipeline settles the
+  currencies it was configured to settle, and `alphalab.portfolio.fx_feed` is the
+  boundary rates arrive across. What remains absent is FX *data*, which AlphaLab
+  ships no more of than it ships classification data — the feed adds a contract
+  and not a single rate.
 
   The history, kept because the reasoning is the point. v2.8 made
   `PortfolioValuation.snapshot` refuse a book

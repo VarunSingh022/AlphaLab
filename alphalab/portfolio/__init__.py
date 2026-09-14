@@ -1,6 +1,7 @@
 """Public Portfolio API."""
 
 from .account import Account as Account
+from .amounts import CurrencyAmounts as CurrencyAmounts
 from .cash import CashLedger as CashLedger
 from .engine import PortfolioEngine as PortfolioEngine
 from .engine import PortfolioState as PortfolioState
@@ -44,6 +45,16 @@ from .fx import FxRate as FxRate
 from .fx import FxRates as FxRates
 from .fx import MissingRateError as MissingRateError
 from .fx import StaleRateError as StaleRateError
+from .fx_feed import FX_FEED_SNAPSHOT_SCHEMA as FX_FEED_SNAPSHOT_SCHEMA
+from .fx_feed import ConflictingQuoteError as ConflictingQuoteError
+from .fx_feed import FxFeed as FxFeed
+from .fx_feed import FxFeedDecision as FxFeedDecision
+from .fx_feed import FxFeedOutcome as FxFeedOutcome
+from .fx_feed import FxFeedSnapshot as FxFeedSnapshot
+from .fx_feed import FxFeedState as FxFeedState
+from .fx_feed import FxQuote as FxQuote
+from .fx_feed import FxRateSource as FxRateSource
+from .fx_feed import SequenceFxSource as SequenceFxSource
 from .ledger import TransactionLedger as TransactionLedger
 from .margin import MarginEngine as MarginEngine
 from .nav import NAVCalculator as NAVCalculator

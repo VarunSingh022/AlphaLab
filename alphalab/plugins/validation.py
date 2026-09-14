@@ -48,8 +48,10 @@ def validate_registration(state: PluginState, plugin: PluginProtocol) -> None:
         exception_type=InvalidPluginStateError,
     )
 
-    existing_names = {p.metadata().name for p in state.plugins.values()}
-    if meta.name in existing_names:
+    # Reads the derived index rather than scanning every registered plugin and
+    # calling metadata() on each. That scan was 54% of the registration path at
+    # 4,000 plugins, and quadratic -- see alphalab.plugins.state.
+    if meta.name in state.registered_names:
         raise InvalidPluginStateError(f"Plugin Name '{meta.name}' is already in use.")
 
 

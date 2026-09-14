@@ -43,13 +43,30 @@ case, because
 :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.publish_record`
 refuses a record that is not a quote, bar or tick. That is a stated boundary,
 pinned by the routing test, not an accident of the list.
+
+**What ``event`` is typed as.** ``Any`` until v2.17, which ADR-0032 recorded as
+category C finding 4: "narrowing it to the union it routes would let a caller's
+mistake be a static error". ADR-0034 narrows it to
+:data:`~alphalab.strategy.events.StrategyInboundEvent`, and does so *without*
+moving hook selection into ``alphalab.runtime``, which ADR-0032 named as the
+alternative. Moving it would have created a second dispatch authority beside
+:data:`MARKET_EVENT_HOOKS`, which ADR-0032's ownership table assigns here; the
+narrowing instead names the supertype both event families already share, which
+is reachable from this package because ``alphalab.common`` is below it. See the
+alias for why nothing narrower is honest.
 """
 
 from collections.abc import Iterable
-from typing import Any
 
 from alphalab.strategy.context import StrategyContext
-from alphalab.strategy.events import FillEvent, Intent, OrderEvent, TimerEvent
+from alphalab.strategy.events import (
+    FillEvent,
+    Intent,
+    LifecycleTransitioned,
+    OrderEvent,
+    StrategyInboundEvent,
+    TimerEvent,
+)
 from alphalab.strategy.exceptions import InvalidIntentError
 from alphalab.strategy.state import LifecycleState, StrategyState
 from alphalab.strategy.supervisor import RuntimeSupervisor
@@ -92,18 +109,27 @@ class Dispatcher:
     @staticmethod
     def dispatch_event(
         strategy_state: StrategyState,
-        event: Any,
+        event: StrategyInboundEvent,
         context: StrategyContext,
         timestamp: float,
-    ) -> tuple[StrategyState, tuple[Intent, ...], tuple[Any, ...]]:
-        """
-        Invokes the appropriate hook on the strategy instance.
-        Returns (NewStrategyState, EmittedIntents, LifecycleEvents).
-        Exceptions transition the strategy to FAILED.
+    ) -> tuple[StrategyState, tuple[Intent, ...], tuple[LifecycleTransitioned, ...]]:
+        """Invoke the hook ``event`` routes to, and return what it produced.
+
+        Returns ``(new_strategy_state, emitted_intents, lifecycle_events)``.
+        Exceptions transition the strategy to ``FAILED``.
 
         An event this dispatcher does not route leaves the strategy untouched
         and emits nothing, which is also what a non-running strategy does. See
         the module docstring for the routing table and what is outside it.
+
+        ``event`` was ``Any`` until v2.17 (ADR-0032 category C finding 4). It is
+        now :data:`~alphalab.strategy.events.StrategyInboundEvent`, which is the
+        narrowest type this package can write without importing the canonical
+        market vocabulary that ADR-0016 decision 3 forbids it -- see that alias
+        for the whole reasoning. The runtime guard below is kept regardless: a
+        value that is not an event reaches no hook and fails nothing, because a
+        static type is a claim about callers that type-check and this is the one
+        place a wrong claim would be charged to the *strategy*.
         """
         if strategy_state.status != LifecycleState.RUNNING:
             return strategy_state, (), ()

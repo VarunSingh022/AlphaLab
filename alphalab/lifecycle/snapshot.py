@@ -87,7 +87,7 @@ __all__ = [
 #: Schema version this module reads and writes. See ADR-0014, ADR-0017, ADR-0018.
 #:
 #: A literal, not ``DEFAULT_SCHEMA_VERSION``, which it aliased until v2.8. That
-#: constant is also the version of ``CommonEvent`` and ``BaseEvent``, so a bump
+#: constant is also the version of ``BaseEvent``, so a bump
 #: of it would have versioned every event in the system as a side effect of a
 #: lifecycle change -- the trap v2.6 removed from ``PortfolioSnapshot`` and left
 #: standing here. v2.8 made this version independently settable "which is what

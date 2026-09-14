@@ -253,23 +253,45 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v2.5.0
+v2.17.0
 ```
 
-v2.5.0 — "State Round-Trip and the Live Data Path" — makes the states AlphaLab
-writes readable back (`capture` / `restore` for `PortfolioState` and
-`LifecycleState`, joining `OMSState`), connects a market-data provider to the
-execution path through the normalization boundary v2.3 built
-(`alphalab.market.provider`), removes the last quadratic on a wired path (the
-replay cursor), and decides what a session does with unordered records and what
-happens to a partially filled order's remainder. See `ADR/0014`.
+*(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
+without updating it. The v2.17 documentation audit found it. It is the same class
+of defect ADR-0032 recorded when the README's release-status table had been stale
+since v2.13, and the release checklist now has to touch both.)*
 
-Earlier milestones: v2.4.0 composed the model and strategy lifecycle (ADR-0013);
-v2.3.0 unified the market-data and broker models (ADR-0011, ADR-0012); v2.2.0
-unified backtesting and replay (ADR-0010); v2.1.0 added mark-to-market and
-removed the O(N²) engine histories; v2.0.0 consolidated the v1.34.0–v1.46.0
-engine series and unified the canonical execution domain models. Several
-releases contain breaking public API changes — see `../CHANGELOG.md`.
+v2.17.0 — "The Final Engineering Release" — is the last release before v3.0, and
+exists so that v3.0 has nothing to do but freeze. **Settlement-level
+multi-currency**: a run settles fills in more than one currency, accruing P&L and
+commission in the currency each was earned in, and reports one figure in one
+currency with the rates that produced it. **An FX rate feed**
+(`alphalab.portfolio.fx_feed`): the boundary rates arrive across, with ordering,
+deduplication and conflict rules — AlphaLab still ships no FX data. **A
+strategy-class registry** (`alphalab.strategy.registry`): what turns the identity
+a deployment names into the code a run executes. Alongside them, seven deprecated
+surfaces removed with no aliases, all four of ADR-0032's category C items
+implemented, and a suite reporting zero skips and zero warnings. See `ADR/0034`
+and `ADR/0035`.
+
+Earlier milestones: v2.16.0 closed three joins — the live driver, governance and
+FX valuation — and classified twenty-one structural findings (ADR-0032,
+ADR-0033); v2.15.0 built the five capabilities that had a contract and nothing
+behind it (ADR-0031); v2.14.0 unified the runtime under `RunEngine` (ADR-0030);
+v2.13.0 gave a captured run somewhere durable to go (ADR-0029); v2.12.0 made the
+instrument registry the currency authority (ADR-0028); v2.11.0 added instrument
+classification with sector provenance (ADR-0027); v2.10.0 finished the strategy
+boundary (ADR-0025, ADR-0026); v2.9.0 added deterministic identifier continuation
+(ADR-0022, ADR-0023); v2.8.0 settled currency roles and run outcomes (ADR-0019 to
+ADR-0021); v2.7.0 established instrument identity and dataset provenance
+(ADR-0016 to ADR-0018); v2.6.0 gave allocation authority and attribution truth
+(ADR-0015); v2.5.0 made states round-trip and connected the live data path
+(ADR-0014); v2.4.0 composed the model and strategy lifecycle (ADR-0013); v2.3.0
+unified the market-data and broker models (ADR-0011, ADR-0012); v2.2.0 unified
+backtesting and replay (ADR-0010); v2.1.0 added mark-to-market and removed the
+O(N²) engine histories; v2.0.0 consolidated the v1.34.0–v1.46.0 engine series and
+unified the canonical execution domain models. Several releases contain breaking
+public API changes — see `../CHANGELOG.md`.
 
 ---
 

@@ -278,7 +278,7 @@ def test_no_capability_moved_another_ones_boundary() -> None:
 
     # FX added no field to run configuration and moved no pipeline schema.
     assert "fx_rates" not in {f.name for f in fields(ExecutionPipelineConfig)}
-    assert PIPELINE_SNAPSHOT_SCHEMA == 2
+    assert PIPELINE_SNAPSHOT_SCHEMA == 3
 
     # Governance moved exactly one schema, and only its own.
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION

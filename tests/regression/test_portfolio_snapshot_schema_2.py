@@ -13,9 +13,9 @@ of false number v2.6 exists to remove.
 
 The trap this file mainly guards is different, and quieter:
 ``PORTFOLIO_SNAPSHOT_SCHEMA`` aliased ``DEFAULT_SCHEMA_VERSION`` until v2.6, and
-that constant is also the version of the lifecycle snapshot, ``CommonEvent`` and
-``BaseEvent``. Bumping the shared constant would have versioned every event in
-the system as a side effect of adding one field to a position.
+that constant is also the version of the lifecycle snapshot and of ``BaseEvent``.
+Bumping the shared constant would have versioned every event in the system as a
+side effect of adding one field to a position.
 """
 
 from decimal import Decimal
@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 
 from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
-from alphalab.common.events import BaseEvent, CommonEvent
+from alphalab.common.events import BaseEvent
 from alphalab.lifecycle.snapshot import LIFECYCLE_SNAPSHOT_SCHEMA
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.serializer import deserialize, serialize
@@ -64,10 +64,16 @@ def _payload() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def test_the_portfolio_snapshot_declares_version_two() -> None:
-    assert PORTFOLIO_SNAPSHOT_SCHEMA == 2
-    assert capture(_state()).schema_version == 2
-    assert _payload()["schema_version"] == 2
+def test_the_portfolio_snapshot_declares_its_current_version() -> None:
+    """Moved twice: 2 for ``Position.opened_at`` (v2.6), 3 for per-currency
+    ``realized_pnl`` and ``commission_paid`` (v2.17, ADR-0035). Both bumps refuse
+    the version below them, and for the same reason -- the older payload does
+    not record what the newer one needs and no honest value can be invented.
+    """
+
+    assert PORTFOLIO_SNAPSHOT_SCHEMA == 3
+    assert capture(_state()).schema_version == 3
+    assert _payload()["schema_version"] == 3
 
 
 def test_no_other_schema_constant_moved() -> None:
@@ -81,7 +87,6 @@ def test_no_other_schema_constant_moved() -> None:
 
     assert DEFAULT_SCHEMA_VERSION == 1
     assert LIFECYCLE_SNAPSHOT_SCHEMA != DEFAULT_SCHEMA_VERSION
-    assert CommonEvent("e").schema_version == 1
     assert BaseEvent("id", 1.0).__dataclass_fields__.keys() == {"event_id", "timestamp"}
 
 

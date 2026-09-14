@@ -15,6 +15,15 @@ equality (see ADR-0014). This is the same contract
 :mod:`alphalab.oms.snapshot` has held since v2.2, where the order book's asset
 and strategy indices are rebuilt rather than restored.
 
+Currency, and what version 3 carries
+------------------------------------
+
+``realized_pnl`` and ``commission_paid`` are **mappings from currency to
+amount** as of v2.17, matching the per-currency accumulation the state now
+holds (ADR-0035). A book that settled only in USD writes ``{"USD": "40.00"}``
+where it used to write ``"40.00"``; a book that settled in two writes both, and
+neither is summed into the other by a payload that cannot say what it is in.
+
 Round trip
 ----------
 :func:`capture` and :func:`restore` are inverses in memory. Across JSON, decode
@@ -39,6 +48,7 @@ from typing import Any
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.persistence.decode import (
+    as_bool,
     as_decimal,
     as_decimal_mapping,
     as_float,
@@ -52,9 +62,11 @@ from alphalab.persistence.decode import (
 )
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.portfolio.account import Account
+from alphalab.portfolio.amounts import CurrencyAmounts
 from alphalab.portfolio.cash import CashLedger
 from alphalab.portfolio.engine import PortfolioState
 from alphalab.portfolio.events import (
+    CashConverted,
     CashDeposited,
     CashWithdrawn,
     MarketValueUpdated,
@@ -79,22 +91,34 @@ __all__ = [
     "restore",
 ]
 
-#: Schema version this module reads and writes. See ADR-0014 and ADR-0015.
+#: Schema version this module reads and writes. See ADR-0014, ADR-0015, ADR-0035.
 #:
-#: Version 2 adds ``Position.opened_at``. This is deliberately a portfolio-local
-#: constant rather than ``DEFAULT_SCHEMA_VERSION``, which it aliased until v2.6:
-#: that constant is also the version of the lifecycle snapshot,
-#: ``CommonEvent`` and ``BaseEvent``, so bumping it would have versioned every
-#: event in the system as a side effect of adding one field to a position.
+#: Version 2 added ``Position.opened_at``. Version 3 carries ``realized_pnl`` and
+#: ``commission_paid`` as **per-currency mappings** rather than scalars. This is
+#: deliberately a portfolio-local constant rather than ``DEFAULT_SCHEMA_VERSION``,
+#: which it aliased until v2.6: that constant is also the version of the
+#: lifecycle snapshot and of ``BaseEvent``, so bumping it would have versioned
+#: every event in the system as a side effect of one field on a position.
 #:
-#: Version 1 payloads are refused rather than migrated. A v1 payload does not
-#: record when a position opened, and no honest value can be invented for it --
-#: ``last_updated`` is the last mark-to-market time, which for a position marked
-#: on every event would report a holding period of roughly zero for a position
-#: held for a year. ADR-0014 said the version field exists "so that the first
-#: schema change is a decision rather than a silent misread"; refusing is the
-#: decision that cannot misread.
-PORTFOLIO_SNAPSHOT_SCHEMA = 2
+#: **Versions 1 and 2 are refused rather than migrated**, and the reason is the
+#: same in both cases: no honest value can be invented for what the payload does
+#: not record.
+#:
+#: A v1 payload does not record when a position opened, and ``last_updated`` is
+#: the last mark-to-market time -- for a position marked on every event that
+#: would report a holding period of roughly zero for a position held for a year.
+#:
+#: A v2 payload records ``realized_pnl`` as a bare number in **no currency**.
+#: Reading it as ``{account.base_currency: amount}`` looks like a migration and
+#: is a guess: a v2 run that settled in one currency while its account declared
+#: another -- which nothing before v2.8 refused -- would have its whole P&L
+#: history relabelled into a currency it was never in, silently, and every
+#: figure derived from it would be confidently wrong. ADR-0014 said the version
+#: field exists "so that the first schema change is a decision rather than a
+#: silent misread"; refusing is the decision that cannot misread. A v2 payload
+#: is still readable by a v2.16 build, which is where a caller who needs those
+#: numbers converts them deliberately.
+PORTFOLIO_SNAPSHOT_SCHEMA = 3
 
 _SUBSYSTEM = "portfolio"
 
@@ -102,6 +126,7 @@ _SUBSYSTEM = "portfolio"
 _EVENT_TYPES: Mapping[str, type[PortfolioEvent]] = {
     cls.__name__: cls
     for cls in (
+        CashConverted,
         CashDeposited,
         CashWithdrawn,
         PositionOpened,
@@ -125,6 +150,11 @@ _EVENT_FIELD_DECODERS: Mapping[str, Any] = {
     "realized_pnl": as_decimal,
     "nav": as_decimal,
     "prices": as_decimal_mapping,
+    # CashConverted (v2.17): the rate that joined two settlement currencies.
+    "converted": as_decimal,
+    "rate": as_decimal,
+    "rate_as_of": as_float,
+    "rate_derived": as_bool,
 }
 
 
@@ -146,8 +176,8 @@ class PortfolioSnapshot:
     positions: tuple[Position, ...]
     transactions: tuple[Transaction, ...]
     events: tuple[PortfolioEventRecord, ...]
-    realized_pnl: Decimal
-    commission_paid: Decimal
+    realized_pnl: Mapping[str, Decimal]
+    commission_paid: Mapping[str, Decimal]
     schema_version: int = PORTFOLIO_SNAPSHOT_SCHEMA
 
 
@@ -171,8 +201,8 @@ def capture(state: PortfolioState) -> PortfolioSnapshot:
         positions=tuple(state.positions.values()),
         transactions=state.ledger.transactions.to_tuple(),
         events=tuple(PortfolioEventRecord(type(e).__name__, e) for e in state.events),
-        realized_pnl=state.realized_pnl,
-        commission_paid=state.commission_paid,
+        realized_pnl=dict(state.realized_pnl),
+        commission_paid=dict(state.commission_paid),
     )
 
 
@@ -195,8 +225,8 @@ def restore(snapshot: PortfolioSnapshot) -> PortfolioState:
         positions={position.asset_id: position for position in snapshot.positions},
         ledger=TransactionLedger(transactions=AppendOnlyLog(snapshot.transactions)),
         events=AppendOnlyLog(record.event for record in snapshot.events),
-        realized_pnl=snapshot.realized_pnl,
-        commission_paid=snapshot.commission_paid,
+        realized_pnl=CurrencyAmounts(dict(snapshot.realized_pnl)),
+        commission_paid=CurrencyAmounts(dict(snapshot.commission_paid)),
     )
 
 
@@ -310,7 +340,7 @@ def from_primitives(payload: Mapping[str, Any]) -> PortfolioSnapshot:
             for index, item in enumerate(_indexed(payload, "transactions"))
         ),
         events=tuple(_event(item, index) for index, item in enumerate(_indexed(payload, "events"))),
-        realized_pnl=as_decimal(require(payload, "realized_pnl"), "realized_pnl"),
-        commission_paid=as_decimal(require(payload, "commission_paid"), "commission_paid"),
+        realized_pnl=as_decimal_mapping(require(payload, "realized_pnl"), "realized_pnl"),
+        commission_paid=as_decimal_mapping(require(payload, "commission_paid"), "commission_paid"),
         schema_version=PORTFOLIO_SNAPSHOT_SCHEMA,
     )

@@ -185,7 +185,13 @@ def test_other_execution_path_engines_also_append_without_copying() -> None:
     portfolio_buffers = set()
     for i in range(100):
         portfolio = PortfolioEngine.apply_fill(
-            portfolio, "AAPL", Decimal("1"), Decimal("100.00"), Decimal("0.00"), float(i) + 1.0
+            portfolio,
+            "AAPL",
+            Decimal("1"),
+            Decimal("100.00"),
+            Decimal("0.00"),
+            float(i) + 1.0,
+            "USD",
         )
         portfolio_buffers.add(id(portfolio.events._buffer))
     assert len(portfolio_buffers) == 1

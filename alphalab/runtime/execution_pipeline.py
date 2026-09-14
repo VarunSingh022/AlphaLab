@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from enum import Enum, auto
+from types import MappingProxyType
 from uuid import UUID
 
 from alphalab.allocation.budget import CapitalBudget
@@ -64,11 +65,13 @@ from alphalab.oms.status import Side as OMSSide
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
+from alphalab.portfolio.fx import NO_RATES, FxConversion, FxRates
 from alphalab.portfolio.nav import NAVCalculator
 from alphalab.portfolio.valuation import (
     PortfolioValuation,
     PortfolioValuationSnapshot,
     assert_single_currency_book,
+    cash_in,
 )
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.engine import RiskEngine
@@ -149,16 +152,31 @@ class ExecutionPipelineConfig:
             :class:`~alphalab.instrument.record.InstrumentRecord` for the
             listing exchange and :class:`~alphalab.market.quote.Quote` for
             market-data attribution; the three are distinct.
-        currency: The **settlement currency** of this pipeline -- what cash is
-            funded in, what an ``OrderInstruction`` and its
-            :class:`~alphalab.execution.report.ExecutionReport` are denominated
-            in, and therefore what every :class:`~alphalab.portfolio.position.Position`
-            is booked in. It must equal ``account.base_currency``, which risk
-            and NAV read; :meth:`ExecutionPipeline.initialize` refuses a config
-            where the two disagree. It is *not* the currency an instrument
-            trades in -- that is
-            :attr:`~alphalab.instrument.record.InstrumentRecord.currency`, and
-            it does not reach the execution path.
+        currency: The **reporting settlement currency** of this pipeline --
+            what starting cash is funded in, what risk and NAV are expressed in,
+            and what a fill settles in unless the registry names another this
+            pipeline also settles. It must equal ``account.base_currency``;
+            :meth:`ExecutionPipeline.initialize` refuses a config where the two
+            disagree.
+        also_settles: Other currencies a fill may settle in. **Empty by
+            default**, which is the single-currency pipeline every run had
+            before v2.17 and is byte-identical to it: one permitted currency,
+            the same two refusals, the same fast path.
+
+            Naming a currency here does three things and no more. It lets
+            :func:`_settlement_refusal` pass a request for an instrument that
+            trades in it (ADR-0028 seam 1), lets
+            :func:`_require_settlement_currency` book a venue fill denominated
+            in it (seam 2), and makes the resulting book genuinely mixed -- so
+            every valuation of it needs an
+            :class:`~alphalab.portfolio.fx.FxRates` covering the pair, and
+            refuses without one. It does **not** convert anything by itself, and
+            it is not a licence to guess a rate: ADR-0035 keeps settlement in the
+            currency traded and reporting in ``currency``, joined only by a rate
+            a caller supplied.
+
+            It is a ``frozenset`` because it is a membership test on the hot
+            path and because a list would let the same currency be named twice.
         routing: Where an accepted order executes. Defaults to ``SIMULATED``,
             which is what every environment before v2.3 did.
         instruments: The registry the run's market data was resolved against, or
@@ -187,8 +205,30 @@ class ExecutionPipelineConfig:
     simulator: ExecutionSimulator = field(default_factory=ExecutionSimulator)
     venue: str = "SIM"
     currency: str = "USD"
+    also_settles: frozenset[str] = frozenset()
     routing: ExecutionRouting = ExecutionRouting.SIMULATED
     instruments: InstrumentRegistry | None = None
+
+    @property
+    def settlement_currencies(self) -> frozenset[str]:
+        """Every currency this pipeline may settle a fill in.
+
+        Always contains :attr:`currency`; a pipeline that could not settle its
+        own reporting currency could not fund its own cash.
+        """
+
+        return frozenset({self.currency, *self.also_settles})
+
+    @property
+    def is_multi_currency(self) -> bool:
+        """Whether this pipeline may produce a book holding two currencies."""
+
+        return len(self.settlement_currencies) > 1
+
+
+#: The empty budget-price map a single-currency pipeline passes. A module-level
+#: constant so the per-event path allocates nothing for it.
+_NO_BUDGET_PRICES: Mapping[str, Decimal] = MappingProxyType({})
 
 
 class UnpricedReason(Enum):
@@ -462,6 +502,117 @@ def _require_one_account_currency(config: ExecutionPipelineConfig) -> None:
         )
 
 
+def _budget_prices(
+    state: ExecutionPipelineState,
+    market_prices: Mapping[str, Decimal],
+    rates: FxRates,
+    as_of: float,
+) -> Mapping[str, Decimal]:
+    """Every observed price, expressed in the capital budget's currency.
+
+    The seam that keeps ``alphalab.allocation`` free of exchange rates. That
+    package sizes and nets in arithmetic and has never imported
+    ``alphalab.portfolio``; giving it an ``FxRates`` would have ended that --
+    measured, it pulled all eighteen portfolio modules into a package that
+    previously imported none of them. So the conversion happens here, where the
+    registry that names an instrument's currency and the rates that price it
+    both already are, and allocation receives numbers.
+
+    **A single-currency pipeline pays nothing.** It returns the empty mapping
+    without reading a price, and ``AllocationEngine.allocate`` then falls back to
+    ``market_prices`` exactly as it always has -- so the per-event allocation
+    path is byte-for-byte what it was.
+
+    A pair no rate covers raises rather than being summed anyway: an order whose
+    cost against the budget nobody can state is not an order this pipeline will
+    size.
+
+    Raises:
+        MissingRateError: If an asset trades in a currency the table cannot
+            convert into the budget's.
+        StaleRateError: If the only rate for such a pair is too old.
+    """
+
+    budget_currency = state.config.budget.currency
+    registry = state.config.instruments
+    if not state.config.is_multi_currency or registry is None or not budget_currency:
+        return _NO_BUDGET_PRICES
+
+    permitted = state.config.settlement_currencies
+    converted: dict[str, Decimal] = {}
+    for asset_id, price in market_prices.items():
+        currency = _currency_of(registry, asset_id)
+        if currency is None or currency == budget_currency:
+            continue
+        if currency not in permitted:
+            # An instrument this pipeline cannot settle. Its request is dropped
+            # by _settlement_refusal before an order exists, so pricing it
+            # against the budget is work nobody uses -- and would demand a rate
+            # for a pair the run has no reason to hold, turning a settlement
+            # refusal into a MissingRateError that names the wrong problem.
+            continue
+        converted[asset_id] = rates.convert(price, currency, budget_currency, as_of).converted
+    return converted
+
+
+def _require_settleable_budget(config: ExecutionPipelineConfig) -> None:
+    """Refuse a capital budget this pipeline cannot price.
+
+    The third of the four blockers ADR-0033 decision 13 named: "allocation sizes
+    against a capital budget in one currency". Two rules, and the asymmetry
+    between them is the point.
+
+    A **single-currency** pipeline accepts a budget that names no currency,
+    because there is exactly one currency in play and the budget is therefore in
+    it by determination rather than by assumption. Requiring the string there
+    would break every existing caller to state something already known.
+
+    A **multi-currency** pipeline refuses one. Its sizing compares a notional
+    computed from an instrument's own price against the budget, and with two
+    settlement currencies in play that comparison is meaningless unless the
+    budget says which one it is in. An unstated budget is not "probably the
+    reporting currency" -- it is a figure nobody can price, and sizing against
+    it would produce orders whose size nothing could justify.
+
+    Either way, a budget naming a currency the pipeline does not settle is
+    refused. That catches a transposed configuration -- a EUR budget handed to a
+    USD pipeline -- which a default would have silently accepted.
+
+    Raises:
+        RuntimeValidationError: On either failure. Deliberately the same class
+            :func:`_require_one_account_currency` raises: one category of fault
+            -- a call into the pipeline whose currencies do not agree -- gets one
+            name.
+    """
+
+    budget = config.budget
+    permitted = config.settlement_currencies
+
+    if budget.states_currency:
+        if budget.currency not in permitted:
+            settles = ", ".join(repr(each) for each in sorted(permitted))
+            raise RuntimeValidationError(
+                f"CapitalBudget.currency is {budget.currency!r} and this pipeline "
+                f"settles in {settles}. Allocation would size every order against a "
+                "capital figure in a currency no fill can ever be denominated in, so "
+                "no order it produced could be checked against it. State the budget "
+                "in a currency this pipeline settles, or add "
+                f"{budget.currency!r} to ExecutionPipelineConfig.also_settles."
+            )
+        return
+
+    if config.is_multi_currency:
+        settles = ", ".join(repr(each) for each in sorted(permitted))
+        raise RuntimeValidationError(
+            f"This pipeline settles in {settles} and its CapitalBudget names no "
+            "currency. With one settlement currency a budget's currency is "
+            "determined and need not be stated; with two it is not, and sizing an "
+            "order against a capital figure in no currency is the defect ADR-0020 "
+            "removed from valuation. Set CapitalBudget.currency -- "
+            "budget.in_currency(...) relabels an existing one without converting it."
+        )
+
+
 class ExecutionPipeline:
     """Pure functional facade for the real AlphaLab execution path."""
 
@@ -481,11 +632,15 @@ class ExecutionPipeline:
         """
 
         _require_one_account_currency(config)
+        _require_settleable_budget(config)
 
         portfolio = PortfolioState(account=config.account)
         portfolio = PortfolioEngine.apply_deposit(
             portfolio, config.starting_cash, config.currency, timestamp
         )
+        # No rates here, deliberately: a freshly funded book holds one currency
+        # -- the deposit above is in ``config.currency`` and there are no
+        # positions -- so nothing is convertible and nothing needs converting.
         risk = _sync_risk_from_portfolio(
             RiskEngine.reset(config.risk_limits), portfolio, config.instruments
         )
@@ -508,6 +663,108 @@ class ExecutionPipeline:
         )
 
     @staticmethod
+    def fund(
+        state: ExecutionPipelineState,
+        amount: Decimal,
+        currency: str,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Deposit cash in a currency this pipeline settles, and resync risk.
+
+        :meth:`initialize` funds ``config.currency`` with ``starting_cash`` and
+        nothing else, which is complete for a single-currency pipeline and is
+        not for one that settles two: a fill denominated in EUR debits the EUR
+        balance, and a run with no EUR cash is refused by
+        :class:`~alphalab.portfolio.exceptions.InsufficientFundsError`. That
+        refusal is correct -- an account cannot spend money it does not hold --
+        and this is how the money gets there.
+
+        Deliberately **not** a config field. How much of each currency an account
+        holds, and when, is an operational fact that changes during a run; a
+        ``Mapping[str, Decimal]`` on ``ExecutionPipelineConfig`` would freeze one
+        answer for the whole of it and would be wrong the first time a desk wired
+        more in.
+
+        ``rates`` is only read when the resulting book is mixed, which is when
+        risk has to express two currencies as one NAV.
+
+        Raises:
+            RuntimeValidationError: If ``currency`` is not one this pipeline
+                settles. Funding a currency no fill can be denominated in puts
+                cash in the book that nothing can spend and every valuation must
+                then convert.
+        """
+
+        permitted = state.config.settlement_currencies
+        if currency not in permitted:
+            settles = ", ".join(repr(each) for each in sorted(permitted))
+            raise RuntimeValidationError(
+                f"This pipeline settles in {settles} and cannot be funded in "
+                f"{currency!r}. Cash in a currency no fill can be denominated in is "
+                "capital nothing can spend, and every valuation of the book would "
+                f"have to convert it. Add {currency!r} to "
+                "ExecutionPipelineConfig.also_settles if this pipeline is meant to "
+                "trade it."
+            )
+
+        portfolio = PortfolioEngine.apply_deposit(state.portfolio, amount, currency, timestamp)
+        risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments, rates)
+        return replace(state, portfolio=portfolio, risk=risk)
+
+    @staticmethod
+    def convert_cash(
+        state: ExecutionPipelineState,
+        amount: Decimal,
+        from_currency: str,
+        to_currency: str,
+        rates: FxRates,
+        timestamp: float,
+    ) -> tuple[ExecutionPipelineState, FxConversion]:
+        """Fund one settlement currency out of another, at a supplied rate.
+
+        The settlement-level counterpart to the valuation-level conversion v2.16
+        added: this moves *actual cash* between balances rather than expressing
+        one figure in another currency. Delegates to
+        :meth:`~alphalab.portfolio.engine.PortfolioEngine.convert_cash`, which
+        records the rate, its ``as_of`` and its source on a
+        :class:`~alphalab.portfolio.events.CashConverted` event -- so the
+        conversion stays attributable after the fact.
+
+        **There is no implicit version of this.** No fill converts cash to cover
+        itself, and no shortfall is silently financed: a run that settles a
+        currency it has not funded is refused. Auto-conversion would mean
+        applying a rate nobody asked for to money that already moved, which is
+        exactly the "invented figure that looks authoritative" ADR-0020 refuses.
+
+        Raises:
+            RuntimeValidationError: If either currency is not one this pipeline
+                settles.
+            InvalidTransactionError: If the amount is not positive or the two
+                currencies are the same.
+            InsufficientFundsError: If ``from_currency`` cannot cover it.
+            MissingRateError: If no rate covers the pair.
+            StaleRateError: If the only rate for the pair is too old.
+        """
+
+        permitted = state.config.settlement_currencies
+        unsettled = [c for c in (from_currency, to_currency) if c not in permitted]
+        if unsettled:
+            settles = ", ".join(repr(each) for each in sorted(permitted))
+            raise RuntimeValidationError(
+                f"This pipeline settles in {settles}, and a conversion between "
+                f"{from_currency!r} and {to_currency!r} names {unsettled} which it "
+                "does not. Both sides of a settlement conversion must be currencies "
+                "this pipeline can hold and spend."
+            )
+
+        portfolio, conversion = PortfolioEngine.convert_cash(
+            state.portfolio, amount, from_currency, to_currency, rates, timestamp
+        )
+        risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments, rates)
+        return replace(state, portfolio=portfolio, risk=risk), conversion
+
+    @staticmethod
     def process_quote(
         state: ExecutionPipelineState,
         quote: Quote,
@@ -515,6 +772,7 @@ class ExecutionPipeline:
         fill_status: FillStatus = FillStatus.FULL_FILL,
         fill_quantity: Decimal | None = None,
         fill_policy: FillPolicy | None = None,
+        rates: FxRates = NO_RATES,
     ) -> ExecutionPipelineResult:
         """Publish a quote and process the resulting market event."""
 
@@ -527,6 +785,7 @@ class ExecutionPipeline:
             fill_status,
             fill_quantity,
             fill_policy,
+            rates,
         )
 
     @staticmethod
@@ -555,6 +814,7 @@ class ExecutionPipeline:
         record: MarketRecord,
         context_factory: ContextFactory,
         fill_policy: FillPolicy | None = None,
+        rates: FxRates = NO_RATES,
     ) -> ExecutionPipelineResult:
         """Move one market record through the whole execution path.
 
@@ -573,6 +833,7 @@ class ExecutionPipeline:
             market.events[-1],
             context_factory,
             fill_policy=fill_policy,
+            rates=rates,
         )
 
     @staticmethod
@@ -583,6 +844,7 @@ class ExecutionPipeline:
         fill_status: FillStatus = FillStatus.FULL_FILL,
         fill_quantity: Decimal | None = None,
         fill_policy: FillPolicy | None = None,
+        rates: FxRates = NO_RATES,
     ) -> ExecutionPipelineResult:
         """Route one market event through strategy, order, execution, and portfolio.
 
@@ -608,13 +870,23 @@ class ExecutionPipeline:
         liquidity the event showed, and takes precedence over ``fill_status`` /
         ``fill_quantity``, which apply one fixed outcome to every order. Passing
         neither fills every order in full, as it always has.
+
+        ``rates`` is the FX table any conversion this step performs must use, and it
+        defaults to the empty one -- so a single-currency run behaves exactly as
+        it did and a multi-currency one refuses rather than guesses. It is a
+        **parameter and not configuration** for the reason ADR-0033 decision 13
+        gave: a quote is time-varying data, fixing one for a whole run would be
+        wrong for a live session, and putting it on ``ExecutionPipelineConfig``
+        would move ``PIPELINE_SNAPSHOT_SCHEMA``. It is not on
+        ``ExecutionPipelineState`` either, which ADR-0030 fixes at sixteen
+        fields because every one of them is paid eleven times per record.
         """
 
         market_prices = _market_prices_with_event(state.market_prices, event)
         portfolio = PortfolioEngine.update_market_prices(
             state.portfolio, market_prices, event.timestamp
         )
-        risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments)
+        risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments, rates)
 
         # Assembled from the marked locals above, after marking and after the
         # risk resync, and before dispatch. The order is the guarantee: reading
@@ -643,6 +915,7 @@ class ExecutionPipeline:
             state.config.sizing_model,
             state.config.allocation_constraints,
             event.timestamp,
+            _budget_prices(state, market_prices, rates, event.timestamp),
         )
         current = replace(
             state,
@@ -655,13 +928,14 @@ class ExecutionPipeline:
         policy: FillPolicy = (
             fill_policy if fill_policy is not None else StaticFill(fill_status, fill_quantity)
         )
-        return _process_requests(current, event, intents, requests, policy)
+        return _process_requests(current, event, intents, requests, policy, rates)
 
     @staticmethod
     def apply_execution_report(
         state: ExecutionPipelineState,
         order: OMSOrder,
         report: ExecutionReport,
+        rates: FxRates = NO_RATES,
     ) -> tuple[ExecutionPipelineState, tuple[CoreFill, ...], tuple[CoreTrade, ...]]:
         """Apply one execution report that did not come from the simulator.
 
@@ -710,7 +984,7 @@ class ExecutionPipeline:
             return state, (), ()
 
         applied, fills, trades = _apply_reports(
-            _record_venue_execution(state, order, report), order, (report,)
+            _record_venue_execution(state, order, report), order, (report,), rates
         )
         return replace(applied, id_position=current_id_position()), fills, trades
 
@@ -829,6 +1103,7 @@ def _process_requests(
     intents: tuple[Intent, ...],
     requests: tuple[OrderRequest, ...],
     policy: FillPolicy,
+    rates: FxRates = NO_RATES,
 ) -> ExecutionPipelineResult:
     decisions: list[RiskDecision] = []
     orders: list[OMSOrder] = []
@@ -896,14 +1171,16 @@ def _process_requests(
             )
             current = _release_if_terminal(current, order.order_id, event.timestamp)
 
-        current, new_fills, new_trades = _apply_reports(current, order, new_reports)
+        current, new_fills, new_trades = _apply_reports(current, order, new_reports, rates)
         current = _withdraw_partial_remainder(current, request, order, event.timestamp)
         orders.append(order)
         reports.extend(new_reports)
         fills.extend(new_fills)
         trades.extend(new_trades)
 
-    snapshot = _portfolio_snapshot(current.portfolio, current.config.currency, event.timestamp)
+    snapshot = _portfolio_snapshot(
+        current.portfolio, current.config.currency, event.timestamp, rates
+    )
     # The step boundary, and the only place the position is refreshed for an
     # event: every environment reaches here through process_record,
     # process_market_event or process_quote, and none of them refreshes it
@@ -915,7 +1192,7 @@ def _process_requests(
         id_position=current_id_position(),
     )
     valuation = PortfolioValuation.snapshot(
-        current.portfolio, event.timestamp, current.config.currency
+        current.portfolio, event.timestamp, current.config.currency, rates
     )
 
     return ExecutionPipelineResult(
@@ -1179,6 +1456,7 @@ def _apply_reports(
     state: ExecutionPipelineState,
     order: OMSOrder,
     reports: tuple[ExecutionReport, ...],
+    rates: FxRates = NO_RATES,
 ) -> tuple[ExecutionPipelineState, tuple[CoreFill, ...], tuple[CoreTrade, ...]]:
     current = state
     fills: list[CoreFill] = []
@@ -1187,9 +1465,18 @@ def _apply_reports(
     for report in reports:
         current = _apply_report_to_oms(current, order.order_id, report)
         fill, trade = _canonical_execution(report, order.side)
-        current = _apply_report_to_portfolio(current, report, order.side)
-        # Reconcile allocation budgets with executed notional
-        executed_notional = report.fill_quantity * report.fill_price
+        current = _apply_report_to_portfolio(current, report, order.side, rates)
+        # Reconcile allocation budgets with executed notional, expressed in the
+        # budget's currency like the reservation it consumes. Converting here
+        # rather than inside AllocationEngine is what keeps that package free of
+        # exchange rates -- see _budget_prices.
+        executed_notional = _in_budget_currency(
+            current,
+            report.fill_quantity * report.fill_price,
+            report.currency,
+            rates,
+            report.timestamp,
+        )
         allocation_state = AllocationEngine.apply_execution(
             current.allocation, report.order_id, executed_notional, report.timestamp
         )
@@ -1298,24 +1585,30 @@ def _require_settlement_currency(state: ExecutionPipelineState, report: Executio
             one -- gets one name.
     """
 
-    if report.currency == state.config.currency:
+    permitted = state.config.settlement_currencies
+    if report.currency in permitted:
         return
 
+    settles = ", ".join(repr(each) for each in sorted(permitted))
     raise RuntimeValidationError(
         f"Execution report {report.execution_id} for asset {report.asset_id} is "
         f"denominated in {report.currency!r}, and this pipeline settles in "
-        f"{state.config.currency!r}. Applying it would book a position and move "
-        f"cash in {report.currency!r}, leaving a book holding two currencies that "
-        "no valuation can express as one figure -- the next portfolio snapshot "
-        "would raise. Nothing has been applied and the state you passed in is "
-        "unchanged. A venue fill reaches this path through "
-        "RoutingConfig.currency, which defaults to 'USD' and is not the "
-        "pipeline's settlement currency unless it is set to it."
+        f"{settles}. Applying it would book a position and move cash in "
+        f"{report.currency!r}, leaving a book holding a currency no valuation of it "
+        "could express -- the next portfolio snapshot would raise. Nothing has been "
+        "applied and the state you passed in is unchanged. A venue fill reaches this "
+        "path through RoutingConfig.currency, which defaults to 'USD' and is not the "
+        "pipeline's settlement currency unless it is set to it. Add "
+        f"{report.currency!r} to ExecutionPipelineConfig.also_settles if this "
+        "pipeline is meant to settle it."
     )
 
 
 def _apply_report_to_portfolio(
-    state: ExecutionPipelineState, report: ExecutionReport, side: OMSSide
+    state: ExecutionPipelineState,
+    report: ExecutionReport,
+    side: OMSSide,
+    rates: FxRates = NO_RATES,
 ) -> ExecutionPipelineState:
     # Seam 2 of ADR-0028, before anything is read or applied, on the one path a
     # simulated fill and a venue fill both take -- the site ADR-0027 decision 6
@@ -1341,7 +1634,7 @@ def _apply_report_to_portfolio(
         report.timestamp,
         report.currency,
     )
-    risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments)
+    risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments, rates)
     record = _trade_record(report, portfolio.events[before:], opened_at, contributions, sector)
     return replace(
         state,
@@ -1453,8 +1746,62 @@ def _instruction(order: OMSOrder, state: ExecutionPipelineState) -> OrderInstruc
         state.market_prices[order.asset_id],
         order.side,
         state.config.venue,
-        state.config.currency,
+        _settlement_currency_for(state, order.asset_id),
     )
+
+
+def _settlement_currency_for(state: ExecutionPipelineState, asset_id: str) -> str:
+    """What a fill in ``asset_id`` settles in.
+
+    The instrument's own currency when this pipeline has a registry that names
+    one *and* is configured to settle it; otherwise the pipeline's reporting
+    currency.
+
+    That ordering is what makes settlement-level multi-currency real rather than
+    nominal. Before v2.17 every instruction was stamped ``config.currency``
+    regardless of what the instrument traded in, and :func:`_settlement_refusal`
+    dropped anything that disagreed -- so the stamp was always right because
+    nothing else could reach it. Now that a foreign instrument *can* reach it,
+    stamping the pipeline's currency would book a EUR trade as USD at the EUR
+    price: a silent relabelling, which is the exact failure ADR-0019 exists to
+    prevent.
+
+    A single-currency pipeline is unaffected. Its
+    :attr:`~ExecutionPipelineConfig.settlement_currencies` holds one member, so
+    the only currency this can return is the one it always returned.
+    """
+
+    registry = state.config.instruments
+    if registry is None:
+        return state.config.currency
+
+    currency = _currency_of(registry, asset_id)
+    if currency is None or currency not in state.config.settlement_currencies:
+        # Unregistered, or registered and not settled here -- the second of
+        # which _settlement_refusal already dropped before an order existed.
+        return state.config.currency
+    return currency
+
+
+def _in_budget_currency(
+    state: ExecutionPipelineState,
+    amount: Decimal,
+    currency: str,
+    rates: FxRates,
+    as_of: float,
+) -> Decimal:
+    """``amount``, settled in ``currency``, expressed in the budget's currency.
+
+    The counterpart to :func:`_budget_prices` on the fill path. Nothing is
+    converted when the budget states no currency (a single-currency pipeline,
+    where there is only one currency for the amount to be in) or when it is
+    already the same one.
+    """
+
+    budget_currency = state.config.budget.currency
+    if not budget_currency or currency == budget_currency:
+        return amount
+    return rates.convert(amount, currency, budget_currency, as_of).converted
 
 
 def _canonical_execution(report: ExecutionReport, side: CoreSide) -> tuple[CoreFill, CoreTrade]:
@@ -1539,25 +1886,29 @@ def _settlement_refusal(
         return None
 
     settlement = state.config.currency
+    permitted = state.config.settlement_currencies
     currency = _currency_of(registry, asset_id)
-    if currency is None or currency == settlement:
+    if currency is None or currency in permitted:
         return None
 
     record = registry.record_for(asset_id)
     named = (
         f"{record.symbol} on {record.exchange}" if record is not None else f"asset_id {asset_id!r}"
     )
+    settles = ", ".join(repr(each) for each in sorted(permitted))
     return SettlementRefusal(
         asset_id=asset_id,
         instrument_currency=currency,
         settlement_currency=settlement,
         detail=(
             f"{named} trades in {currency!r} and this pipeline settles in "
-            f"{settlement!r}, so it cannot be traded here. The request was dropped "
+            f"{settles}, so it cannot be traded here. The request was dropped "
             "before it reached the OMS and the capital it held was released. "
-            f"Run a pipeline whose currency and Account.base_currency are {currency!r} "
-            "to trade this instrument, or trade an instrument that settles in "
-            f"{settlement!r}. This is a settlement boundary, not a missing FX rate."
+            f"Add {currency!r} to ExecutionPipelineConfig.also_settles to trade it "
+            "here -- which makes this book multi-currency, so every valuation of it "
+            "then needs an FxRates table covering the pair -- or trade an instrument "
+            f"that settles in one of {settles}. This is a settlement boundary, not a "
+            "missing FX rate."
         ),
         timestamp=timestamp,
     )
@@ -1664,11 +2015,20 @@ def _market_price(event: MarketEvent) -> tuple[str, Decimal] | None:
 
 
 def _portfolio_snapshot(
-    portfolio: PortfolioState, currency: str, timestamp: float
+    portfolio: PortfolioState,
+    currency: str,
+    timestamp: float,
+    rates: FxRates = NO_RATES,
 ) -> PortfolioSnapshot:
-    """Project the canonical portfolio valuation into the analytics snapshot."""
+    """Project the canonical portfolio valuation into the analytics snapshot.
 
-    valuation = PortfolioValuation.snapshot(portfolio, timestamp, currency)
+    ``rates`` is threaded rather than defaulted at the call sites, because a
+    multi-currency book cannot be valued without one and a snapshot that
+    silently dropped a currency is the v2.7 defect ADR-0020 removed. A
+    single-currency book converts nothing and never reads the table.
+    """
+
+    valuation = PortfolioValuation.snapshot(portfolio, timestamp, currency, rates)
     return PortfolioSnapshot(
         timestamp,
         valuation.equity,
@@ -1679,7 +2039,10 @@ def _portfolio_snapshot(
 
 
 def _sync_risk_from_portfolio(
-    risk: RiskState, portfolio: PortfolioState, instruments: InstrumentRegistry | None
+    risk: RiskState,
+    portfolio: PortfolioState,
+    instruments: InstrumentRegistry | None,
+    rates: FxRates = NO_RATES,
 ) -> RiskState:
     """Refresh the risk state from a marked book.
 
@@ -1687,13 +2050,26 @@ def _sync_risk_from_portfolio(
     silently stop reporting sector exposure by forgetting it. It is read only by
     :func:`_risk_exposure`, and only to classify; nothing here resolves,
     registers or classifies anything.
+
+    ``rates`` is threaded for a sharper reason, and it closes the fourth blocker
+    ADR-0033 decision 13 named. **Risk limits are stated in one currency**:
+    ``buying_power``, ``current_nav``, ``peak_nav`` and every limit checked
+    against them are figures in ``account.base_currency``. Reading cash with
+    ``cash.balance(base)`` on a book that also holds JPY silently *dropped* the
+    JPY -- so a run holding most of its capital abroad would have reported
+    almost no buying power and refused every order, with nothing saying why.
+    ``cash_in`` includes every balance and converts what is not already in the
+    base currency; a book it cannot convert refuses rather than under-reports.
+
+    A single-currency book takes the same addition it always did and touches no
+    rate, which is what keeps the per-event risk resync at the cost ADR-0028
+    decision 7 measured.
     """
 
-    cash = portfolio.cash.balance(portfolio.account.base_currency)
-    nav = NAVCalculator.calculate(
-        portfolio.cash, portfolio.positions, portfolio.account.base_currency
-    )
-    exposure = _risk_exposure(portfolio, instruments)
+    base = portfolio.account.base_currency
+    cash, _ = cash_in(portfolio.cash, base, rates, None)
+    nav = NAVCalculator.calculate(portfolio.cash, portfolio.positions, base, rates)
+    exposure = _risk_exposure(portfolio, instruments, rates)
 
     # Delegate exposure and margin updates to the RiskEngine so that
     # risk events and history are produced consistently with other
@@ -1715,7 +2091,9 @@ def _sync_risk_from_portfolio(
 
 
 def _risk_exposure(
-    portfolio: PortfolioState, instruments: InstrumentRegistry | None
+    portfolio: PortfolioState,
+    instruments: InstrumentRegistry | None,
+    rates: FxRates = NO_RATES,
 ) -> ExposureStatus:
     """Exposure by asset and, when the run classifies its instruments, by sector.
 
@@ -1739,18 +2117,27 @@ def _risk_exposure(
     Every figure here aggregates market values across positions and is reported
     against the account's base currency, so this is a valuation in the sense the
     module docstring of :mod:`alphalab.portfolio.valuation` defines, and it
-    refuses a mixed book. ``sector_exposure`` is the newest such aggregation in
-    the tree and was blind from the day it was written: v2.11 bucketed signed
-    market value by sector with no regard for what each position traded in, so a
-    mixed book produced sector totals summed across currencies. The check folds
-    into the pass this function already makes -- one string comparison per
-    position, the same shape as the ``instruments is not None`` test beside it --
-    and delegates the message to the one rule that owns it. See ADR-0028
-    decision 7.
+    refuses a book it cannot express. ``sector_exposure`` is the newest such
+    aggregation in the tree and was blind from the day it was written: v2.11
+    bucketed signed market value by sector with no regard for what each position
+    traded in, so a mixed book produced sector totals summed across currencies.
+    The check folds into the pass this function already makes -- one string
+    comparison per position, the same shape as the ``instruments is not None``
+    test beside it -- and delegates the message to the one rule that owns it.
+    See ADR-0028 decision 7.
+
+    **v2.17 converts where v2.16 could only refuse.** A position in a currency
+    ``rates`` covers is expressed in the base currency and bucketed there, so a
+    multi-currency book produces exposure figures that are genuinely one number.
+    One that no rate covers is still refused, through the same rule and with the
+    same message. A homogeneous book takes the identical path it always did and
+    touches no rate, which is what keeps the per-event resync at the cost
+    ADR-0028 decision 7 measured.
 
     Raises:
         MixedCurrencyValuationError: If the book holds positions or non-zero cash
-            in any currency other than the account's base currency.
+            in a currency the account's base currency cannot express and no rate
+            converts.
     """
 
     base_currency = portfolio.account.base_currency
@@ -1761,10 +2148,23 @@ def _risk_exposure(
 
     for asset_id, position in portfolio.positions.items():
         if position.currency != base_currency:
-            # Always raises: a foreign position guarantees the predicate's first
-            # condition fails. Delegated rather than raised here so that one
-            # rule owns the message and the two cannot come to disagree.
-            assert_single_currency_book(portfolio.cash, portfolio.positions, base_currency)
+            # Refuses when no rate covers the pair -- delegated rather than
+            # raised here so that one rule owns the message -- and converts when
+            # one does, so the bucket below is in the base currency either way.
+            assert_single_currency_book(portfolio.cash, portfolio.positions, base_currency, rates)
+            value = rates.convert(
+                position.market_value, position.currency, base_currency, None
+            ).converted
+            asset_exposure[asset_id] = value
+            if value > 0:
+                long_exposure += value
+            elif value < 0:
+                short_exposure += value
+            if instruments is not None:
+                sector = _sector_of(instruments, asset_id)
+                if sector is not None:
+                    sector_exposure[sector] = sector_exposure.get(sector, Decimal("0.00")) + value
+            continue
         value = position.market_value
         asset_exposure[asset_id] = value
         if value > 0:

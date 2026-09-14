@@ -45,7 +45,7 @@ __all__ = ["RUN_STATE_ENVELOPE_SCHEMA", "RunStateRef"]
 #:
 #: A module-local literal rather than ``DEFAULT_SCHEMA_VERSION``, for the reason
 #: v2.6 gave for the portfolio and v2.9 for the pipeline: that constant also
-#: versions ``CommonEvent`` and ``BaseEvent``, so bumping it would version every
+#: versions ``BaseEvent``, so bumping it would version every
 #: event in the system as a side effect of one subsystem's change.
 #:
 #: It versions what the store records *about* a payload -- the run it belongs

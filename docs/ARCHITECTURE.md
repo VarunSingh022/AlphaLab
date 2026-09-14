@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting` and `alphalab.backtesting.replay` — and, separately, `alphalab.lifecycle`, actually wire a group of them together. See the **Implementation Status (v2.5)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v2.17)** section below.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 
@@ -12,26 +12,41 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v2.5)
+# Implementation Status (v2.17)
 
 Most of this document describes the **target** architecture. This section states
-what is actually built as of v2.5 so the two are not confused.
+what is actually built so the two are not confused.
 
-There are **two** wired-together paths, and they are deliberately not joined:
+*(It was headed "v2.5" from v2.5 through v2.16 and still said the two paths below
+were unjoined, which v2.16 made false. The v2.17 documentation audit found it;
+this is the same defect class ADR-0032 recorded for the README's release-status
+table, and the release checklist now has to touch all three.)*
+
+There are **two** wired-together paths, and as of v2.16 they meet:
 
 | Path | Package | Answers |
 | --- | --- | --- |
-| Execution | `runtime.ExecutionPipeline`, owned per run by `runtime.run.RunEngine`, driven by `runtime.session`, `backtesting` and `backtesting.replay` | what happens to one market event |
+| Execution | `runtime.ExecutionPipeline`, owned per run by `runtime.run.RunEngine`, driven by `runtime.session`, `backtesting`, `backtesting.replay` and `runtime.live` | what happens to one market event |
 | Lifecycle | `alphalab.lifecycle` | which strategy version an environment should be running, and why |
 
-A deployment names what should run; running it is the execution path's job. The
-caller joins them.
+A deployment names what should run; running it is the execution path's job.
+**v2.16 joined them** with `lifecycle.execution`: `run_plan` resolves what an
+environment has live and `authorize_run` refuses a run that would serve anything
+else. That join is a query with a refusal, not a second runtime — it builds no
+state and starts nothing. **v2.17 supplies its missing half**:
+`strategy.registry` maps the identity a deployment names to the code that runs
+it, deterministically and with a refusal, and it deliberately does not live in
+`alphalab.lifecycle` (ADR-0035).
 
-As of v2.5 the execution path can be fed by a market-data provider rather than
-only by a stored dataset (`alphalab.market.provider`), and three states can be
-captured and restored as typed values rather than only written
-(`alphalab.oms.snapshot`, `alphalab.portfolio.snapshot`,
-`alphalab.lifecycle.snapshot`).
+What is built, by release: the execution path can be fed by a market-data
+provider rather than only a stored dataset (v2.5, `market.provider`) or by a live
+stream (v2.15, `market.stream`); every state on it captures and restores as a
+typed value and lives durably in a `RunStateStore` (v2.5 through v2.13); a run is
+owned by `RunEngine` and driven by four interchangeable drivers (v2.14); orders
+reach a real venue over signed HTTP and fills come back through the same path a
+simulated fill takes (v2.15, v2.16); every act that changes what is live names
+its principal (v2.16); and a run settles in more than one currency, reporting in
+one, with rates that arrive across a feed boundary (v2.17).
 
 ## AlphaLab is a library
 
@@ -637,10 +652,70 @@ is paid by nobody. A converted valuation records every conversion it performed,
 because a number in a currency the book is not wholly in, with no statement of
 how it got there, is ADR-0020's defect wearing a rate.
 
-**The settlement boundary does not move**, and the reason is now sharper than
-"no rate exists": `realized_pnl` and `commission_paid` are single cumulative
-scalars naming no currency, so a run that *traded* two would sum them across
-both. See ADR-0033 decision 13.
+**The settlement boundary did not move in v2.16**, and the reason was sharper
+than "no rate exists": `realized_pnl` and `commission_paid` were single
+cumulative scalars naming no currency, so a run that *traded* two would have
+summed them across both. See ADR-0033 decision 13.
+
+## Settlement in more than one currency (v2.17)
+
+Those blockers are gone. `realized_pnl` and `commission_paid` are
+`CurrencyAmounts` — currency to exact amount — so a EUR fill accrues EUR P&L and
+no addition is ever performed across two.
+
+**Settlement truth and reporting truth are different numbers and stay apart.**
+The state records what was earned in the currency it was earned in, permanently;
+a valuation names one currency and converts into it on demand, recording every
+rate. Translating at fill time would have kept both fields scalars, and it
+destroys the only record of what was actually earned while baking one instant's
+rate into a cumulative figure.
+
+`ExecutionPipelineConfig.also_settles` is **empty by default**, which is the
+single-currency pipeline every run had before v2.17 and byte-identical to it.
+Naming a currency there widens both ADR-0028 seams and makes the resulting book
+genuinely mixed — so every valuation of it then needs a rate table and refuses
+without one. It is not a licence to convert: an `OrderInstruction` is stamped
+with the instrument's own currency, and a run that settles a currency it has not
+funded is refused rather than financed.
+`PortfolioEngine.convert_cash` is how the money gets there, and it records the
+rate, its `as_of` and its source on a `CashConverted` event.
+
+The other two blockers close too. `CapitalBudget.currency` is `""` — *unstated*,
+not `"USD"` — which a single-currency pipeline determines and a multi-currency
+one refuses; and `_sync_risk_from_portfolio` reads `cash_in` rather than
+`cash.balance(base)`, which had silently dropped every other balance.
+
+**`alphalab.allocation` still knows nothing about exchange rates**, and that is
+measured rather than stylistic: threading an `FxRates` into it pulled all
+eighteen `alphalab.portfolio` modules into a package that previously imported
+none of them. The conversion happens at the pipeline, which already holds both
+the registry and the rates, and allocation receives a second price map.
+
+See ADR-0035.
+
+## Where rates come from (v2.17)
+
+`alphalab.portfolio.fx_feed` is a **boundary, not data** — AlphaLab ships no FX
+rate, exactly as it ships no classification data. What was missing was the seam a
+supplier crosses and the rules it enforces, because without one every caller
+folded quotes into a table itself and answered three questions implicitly:
+
+| A quote that is… | …is |
+| --- | --- |
+| newer than what is held for its pair | `APPLIED` |
+| byte-identical to what is held | `DUPLICATE` |
+| **older** than what is held | `SUPERSEDED`, and not applied |
+
+The third is the one that matters: accepting it would move the book's view of
+the market backwards because two packets arrived out of order. Two quotes
+claiming one instant that disagree are **refused**, not ranked — `FxRates.of`
+already refuses that shape, and a feed that let the later packet win would be
+picking while looking authoritative.
+
+`FxRateSource` takes `MarketDataSource`'s shape: identity, provenance, and
+nothing about order. Staleness stays at conversion time
+(`FxRates.max_age_seconds`); `FxFeedState.silent_for` answers the different
+question of whether the *connection* has gone quiet.
 
 ## The strategy boundary, finished (v2.16)
 
@@ -696,8 +771,10 @@ shared runtime: `portfolio_optimizer`, `optimizer`, `reporting`,
 `feature_store`, `factor_library`, `alt_data`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
 `cloud_research`, `cluster_scheduler`, `distributed`, `studio`,
-`workbench`, `enterprise`, `live`, `production`, `brokers`, `integrations`,
-`data`, `marketdata`, `feed`, `kernel`, `plugins`, `scheduler`, `persistence`.
+`workbench`, `enterprise`, `live`, `brokers`,
+`data`, `marketdata`, `feed`, `plugins`, `scheduler`, `persistence`.
+(`production`, `integrations` and `kernel` were on this list until v2.17, which
+removed them — see ADR-0034.)
 
 As of v2.3, `alphalab.broker` is reachable from the execution path through
 `alphalab.runtime.broker_routing`, and `alphalab.data.feed` /
@@ -942,14 +1019,35 @@ Converted: `risk`, `market`, `execution`, `oms`, `allocation`, `portfolio` and
 `ExecutionPipelineState`. `strategy` and `analytics` histories grow per lifecycle
 transition or per compiled report, not per market event, and were left as tuples.
 
-v2.16 adds `studio` and `workbench`, for the reason in the section below. The
-remaining standalone libraries — `scheduler`, `feature_store`, `integrations`,
-`distributed`, `plugins`, `reporting`, `optimizer`, `data`, `cluster_scheduler`
-and `portfolio_optimizer` — still accumulate with tuples and dicts. That is a
-measured, recorded limitation and not an oversight: registering 20,000 timers in
-`alphalab.scheduler` grows at ~3.7x per doubling. None is on the execution path
-and every one of their benchmarks completes, so the conversion is future work
-rather than a v3.0 condition.
+v2.16 adds `studio` and `workbench`, for the reason in the section below.
+
+**v2.17 converts the rest.** `scheduler`, `feature_store`, `distributed`,
+`plugins`, `reporting`, `optimizer`, `data`, `cluster_scheduler` and
+`portfolio_optimizer` now take the canonical containers; `integrations` and
+`production`, which were on the same list, were removed instead. Measured over a
+2,500 → 20,000 doubling sweep, `distributed` went from 38.4s to 0.18s and from
+4.1x to 2.1x per doubling, and every converted package now grows at ~2.0–2.1x.
+
+**The containers were not the whole story in three of them**, and profiling
+before changing anything is what found that. `distributed` spent ~65% of its
+submit path re-sorting the whole queue and ~26% building a union of four
+containers per validation; `plugins` spent ~54% calling `metadata()` on every
+registered plugin; `feature_store` scanned the whole registry per registration.
+Converting the containers alone would have left ~90% of `distributed`'s cost in
+place and made `feature_store` four times *slower*, because a `PersistentMap`
+iterates more slowly than a `dict`. Each is now answered by a derived index
+carried on the state, which is the v2.2 OMS pattern.
+
+**Batch operations keep their local copies.** `assign_jobs`, the two
+`cluster_scheduler` assigners and `SchedulerEngine.advance_clock` each traverse a
+whole collection in one call, so one copy in and one immutable value out is
+O(collection) per *call* rather than per element — writing each element through
+`PersistentMap.set` instead measured ~30% of the 100,000-timer benchmark.
+
+One term is deliberately left super-linear: `OptimizerState.pending_trials`,
+whose fix needs a start offset on `AppendOnlyLog` and was measured at **+3.9%**
+on `benchmark_execution_pipeline`. That is the trade ADR-0028 decision 7 refused
+at +1.78%. See ADR-0034.
 
 Measured on the development machine, full history retained in every case:
 
@@ -1078,11 +1176,13 @@ fixed, and each has a regression test pinning it:
   historical names, pinned by
   `tests/regression/test_shared_names_stay_distinct.py`. Live broker
   connectivity reached the execution path in v2.15; see ADR-0031.
-- **`kernel` and `core/events` are unused by the execution path.** Both are
-  deprecated and removed in v3.0 (ADR-0015 decision 9, ADR-0030), with the
-  notices `tests/regression/test_deprecation_notices.py` enforces. `kernel`'s
-  `PortfolioState` and `PositionState` are re-exports of the canonical
-  `alphalab.portfolio` types, not a second model.
+- ~~**`kernel` and `core/events` are unused by the execution path.**~~
+  **Removed in v2.17** (ADR-0034), along with `integrations`, `production`,
+  `CommonEvent`, the nine-module persistence store and the ten-module orphan
+  runtime lifecycle — all with zero production importers and no compatibility
+  aliases. `tests/regression/test_removed_surfaces_stay_removed.py` asserts each
+  name is absent, that no package serves one through a `__getattr__`, and that
+  none is re-exported under a different spelling.
 - **A strategy still does not see the marked portfolio.** `StrategyContext`
   comes from the caller's `context_factory`; neither `ExecutionPipeline` nor
   `BacktestEngine` populates it. Allocation sizes from market prices and its
@@ -1092,12 +1192,13 @@ fixed, and each has a regression test pinning it:
   execution opportunity (v2.5) and its residual reservation released; it is not
   topped up on a later event. A participation-capped strategy that wants to
   finish a large order must keep expressing the intent.
-- **Multi-currency valuation arrived in v2.16.** `alphalab.portfolio.fx` holds
-  supplied rates with provenance, and `PortfolioValuation.snapshot`,
-  `portfolio_value` and `NAVCalculator.calculate` each take a table and convert
-  through the one rule. Without a table they refuse exactly as they did. What is
-  still absent is multi-currency *settlement* — a pipeline that trades two
-  currencies — and FX data itself. See ADR-0033.
+- **Multi-currency valuation arrived in v2.16 and settlement in v2.17.**
+  `alphalab.portfolio.fx` holds supplied rates with provenance, and
+  `PortfolioValuation.snapshot`, `portfolio_value` and `NAVCalculator.calculate`
+  each take a table and convert through the one rule. Without a table they refuse
+  exactly as they did. v2.17 closes the settlement half — see the two sections
+  above and ADR-0035. What is still absent is **FX data itself**: the feed adds a
+  contract and not a single rate.
 - **Streaming market data arrived in v2.15.** `alphalab.market.stream.StreamingSource`
   is a `MarketDataSource` over a real WebSocket connection, with subscription,
   sequence deduplication, gap counting, heartbeat-based liveness detection,
@@ -1607,53 +1708,32 @@ Handles runtime lifecycle while remaining independent of production deployment.
 
 ---
 
-## Production Runtime
+## Production Runtime — removed in v2.17
 
-**Package**
+`alphalab/production` supervised live systems: process supervision, health
+monitoring, heartbeats, checkpoints, recovery and restart policies. It had zero
+production importers, its `Checkpoint` / `RecoveryEngine` held six opaque strings
+and restored nothing, and it was deprecated in v2.14 (ADR-0030). **Removed in
+v2.17** (ADR-0034).
 
-```
-alphalab/production
-```
-
-### Responsibility
-
-Supervises live systems.
-
-Provides:
-
-- Process supervision
-- Health monitoring
-- Heartbeats
-- Checkpoints
-- Recovery
-- Restart policies
-
-Production Runtime exists independently from research.
+Durable run state is `alphalab.persistence.run_store.RunStateStore` (ADR-0029);
+a live loop is `alphalab.runtime.live.LiveSession` (ADR-0033).
 
 ---
 
 # Integration Layer
 
-## Broker Integrations
+## Broker Integrations — removed in v2.17
 
-**Package**
+`alphalab/integrations` was a third broker surface speaking none of the canonical
+`alphalab.broker` types, with canned-response clients for Alpaca, Interactive
+Brokers, Zerodha and paper trading. v2.3 converged `broker` and `brokers` and
+left it untouched; it was deprecated in v2.6 and had zero production importers.
+**Removed in v2.17** (ADR-0034).
 
-```
-alphalab/integrations
-```
-
-### Responsibility
-
-Provides a unified abstraction over broker APIs.
-
-Current providers include:
-
-- Paper Trading
-- Alpaca
-- Interactive Brokers
-- Zerodha
-
-Future providers can be added without modifying existing modules.
+The broker boundary is `alphalab.broker.protocol.BrokerProtocol` — one venue —
+and `alphalab.brokers.protocol.BrokerConnectorProtocol` — many brokers and many
+accounts. See ADR-0012 and `examples/05_broker_connection.py`.
 
 ---
 
@@ -1737,13 +1817,17 @@ Third-party modules integrate through plugins rather than modifying core package
 
 ---
 
-## Kernel
+## Kernel — removed in v2.17
 
-```
-alphalab/kernel
-```
+`alphalab/kernel` described itself as "the internal execution foundation shared
+across the platform" and was shared with nothing: it had zero importers and never
+drove the execution path. Its `PortfolioState` and `PositionState` were
+re-exports of the canonical `alphalab.portfolio` types rather than a second
+model, which is what the v2.16 audit established (ADR-0032 finding B6). It was
+deprecated in v2.6 and **removed in v2.17** (ADR-0034).
 
-Provides the internal execution foundation shared across the platform.
+The execution foundation is `alphalab.runtime.execution_pipeline.ExecutionPipeline`
+for a step and `alphalab.runtime.run.RunEngine` for a run (ADR-0030).
 
 ---
 
@@ -1766,7 +1850,7 @@ Domain Engines
 Infrastructure
       │
       ▼
-Integrations
+Adapters (alphalab.broker, alphalab.brokers, alphalab.marketdata, alphalab.live)
 ```
 
 Dependencies in the opposite direction are prohibited.
@@ -4934,5 +5018,5 @@ The architecture documented here serves as the reference implementation for all 
 ```
 Architecture Specification
 Version: v2.0.0
-Status: Target architecture; see "Implementation Status (v2.3)" for what is built
+Status: Target architecture; see "Implementation Status (v2.17)" for what is built
 ```

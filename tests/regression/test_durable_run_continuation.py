@@ -336,7 +336,7 @@ def test_session_capture_declares_the_version() -> None:
     assert payload["schema_version"] == 1
     # The nested core moved to 2 in v2.10 and this envelope did not: the whole
     # point of ADR-0023 decision 1's split, exercised for the first time.
-    assert payload["pipeline"]["schema_version"] == 2
+    assert payload["pipeline"]["schema_version"] == 3
 
 
 def test_a_missing_session_version_is_refused_with_no_legacy_path() -> None:
@@ -379,9 +379,9 @@ def test_a_nested_pipeline_failure_arrives_through_the_pipeline_decoder() -> Non
     """Not normalized into a generic session error."""
 
     payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
-    payload["pipeline"]["schema_version"] = 3
+    payload["pipeline"]["schema_version"] = 4
 
-    with pytest.raises(StateDecodeError, match="pipeline snapshot declares schema version 3"):
+    with pytest.raises(StateDecodeError, match="pipeline snapshot declares schema version 4"):
         run_from_primitives(payload)
 
 

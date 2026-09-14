@@ -1,5 +1,6 @@
 """Adapter translating AlphaLab domain objects to Research Payloads."""
 
+from collections.abc import Mapping
 from typing import Any
 
 from alphalab.research.protocol import ResearchPayload, TradePayload
@@ -13,7 +14,7 @@ class ResearchAdapter:
         strategy_id: str,
         returns: tuple[float, ...],
         trades: tuple[dict[str, Any], ...],
-        parameters: dict[str, float],
+        parameters: Mapping[str, float],
         market_regimes: tuple[str, ...],
         aum: float,
     ) -> ResearchPayload:

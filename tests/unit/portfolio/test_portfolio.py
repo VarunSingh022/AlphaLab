@@ -118,6 +118,7 @@ def test_engine_apply_fill(
         Decimal("150"),
         Decimal("1.50"),
         101.0,
+        "USD",
     )
 
     assert "AAPL" in s2.positions
@@ -135,8 +136,8 @@ def test_engine_round_trip_winning_close_cash_and_pnl(
     n, p1, p2, comm = Decimal("10"), Decimal("150.00"), Decimal("165.00"), Decimal("1.00")
 
     s = PortfolioEngine.apply_deposit(empty_state, initial, "USD", 100.0)
-    s = PortfolioEngine.apply_fill(s, "AAPL", n, p1, comm, 101.0)  # BUY 10 @ 150
-    s = PortfolioEngine.apply_fill(s, "AAPL", -n, p2, comm, 102.0)  # SELL 10 @ 165
+    s = PortfolioEngine.apply_fill(s, "AAPL", n, p1, comm, 101.0, "USD")  # BUY 10 @ 150
+    s = PortfolioEngine.apply_fill(s, "AAPL", -n, p2, comm, 102.0, "USD")  # SELL 10 @ 165
 
     realized = (p2 - p1) * n  # 150.00
     cash_flow_expected = initial - n * p1 - comm + n * p2 - comm  # 100148.00
@@ -156,8 +157,8 @@ def test_engine_round_trip_losing_close_cash(
     n, p1, p2, comm = Decimal("8"), Decimal("200.00"), Decimal("175.00"), Decimal("0.75")
 
     s = PortfolioEngine.apply_deposit(empty_state, initial, "USD", 100.0)
-    s = PortfolioEngine.apply_fill(s, "MSFT", n, p1, comm, 101.0)  # BUY 8 @ 200
-    s = PortfolioEngine.apply_fill(s, "MSFT", -n, p2, comm, 102.0)  # SELL 8 @ 175
+    s = PortfolioEngine.apply_fill(s, "MSFT", n, p1, comm, 101.0, "USD")  # BUY 8 @ 200
+    s = PortfolioEngine.apply_fill(s, "MSFT", -n, p2, comm, 102.0, "USD")  # SELL 8 @ 175
 
     realized = (p2 - p1) * n  # -200.00
     cash_flow_expected = initial - n * p1 - comm + n * p2 - comm  # 99798.50
@@ -184,8 +185,8 @@ def test_engine_partial_reduction_cash(
     )
 
     s = PortfolioEngine.apply_deposit(empty_state, initial, "USD", 100.0)
-    s = PortfolioEngine.apply_fill(s, "NVDA", n, p1, comm, 101.0)  # BUY 10 @ 100
-    s = PortfolioEngine.apply_fill(s, "NVDA", -m, p2, comm, 102.0)  # SELL 4 @ 130
+    s = PortfolioEngine.apply_fill(s, "NVDA", n, p1, comm, 101.0, "USD")  # BUY 10 @ 100
+    s = PortfolioEngine.apply_fill(s, "NVDA", -m, p2, comm, 102.0, "USD")  # SELL 4 @ 130
 
     realized = (p2 - p1) * m  # 120.00
     cash_flow_expected = initial - n * p1 - comm + m * p2 - comm  # 98999.00
@@ -215,6 +216,7 @@ def test_pnl_and_nav(
         Decimal("100"),
         Decimal("0"),
         101.0,
+        "USD",
     )
 
     s3 = PortfolioEngine.update_market_prices(
@@ -251,6 +253,7 @@ def test_margin(
         Decimal("100"),
         Decimal("0"),
         101.0,
+        "USD",
     )
 
     initial_margin = MarginEngine.initial_margin(

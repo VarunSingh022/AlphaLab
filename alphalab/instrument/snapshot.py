@@ -84,7 +84,7 @@ __all__ = [
 #:
 #: A module-local literal rather than ``DEFAULT_SCHEMA_VERSION``, for the reason
 #: v2.6 gave for the portfolio and v2.9 for the pipeline: that constant also
-#: versions ``CommonEvent`` and ``BaseEvent``, so bumping it would version every
+#: versions ``BaseEvent``, so bumping it would version every
 #: event in the system as a side effect of one subsystem's change.
 #:
 #: New in v2.15, so it has nothing to be compatible with: no legacy shape, no

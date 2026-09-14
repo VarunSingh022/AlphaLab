@@ -159,26 +159,31 @@ def test_the_connector_package_routes_the_canonical_types() -> None:
     assert connectors.AssetClass is AssetType
 
 
-def test_the_two_broker_protocols_describe_different_boundaries() -> None:
-    """One broker, or many. The state each carries is the difference.
+def test_exactly_one_public_broker_protocol_exists() -> None:
+    """ADR-0032 finding C3, closed by ADR-0034: one name, one contract.
 
-    ``alphalab.broker.protocol.BrokerProtocol`` is the canonical single-venue
-    boundary the execution path routes through -- every method takes a
-    ``BrokerState``, which is *one* broker. ``alphalab.brokers.protocol
-    .BrokerProtocol`` is the connector contract over a ``BrokerConnectorState``
-    holding many brokers and many accounts, which is why its queries take an
-    ``account_id`` the single-venue boundary has no need of.
+    Until v2.17 ``alphalab.broker.protocol.BrokerProtocol`` and
+    ``alphalab.brokers.protocol.BrokerProtocol`` were two public symbols of the
+    same name standing for two different contracts. The contracts are still
+    genuinely different -- the venue boundary takes a ``BrokerState``, which is
+    *one* broker; the connector takes a ``BrokerConnectorState`` holding many
+    brokers and many accounts, which is why its queries take an ``account_id``
+    the boundary has no need of -- so what changed is the *name*, not the shape.
 
-    The overlap in verb names is real -- both connect and submit orders -- and
-    that is what a routing layer over a boundary looks like. Collapsing them
-    would force the single-venue adapter to carry a registry it does not have.
+    The connector is now ``BrokerConnectorProtocol``, which is the word this
+    package already uses for its state, its engine and its error. There is no
+    alias: an alias would leave one name meaning two things at an import site,
+    which is the whole defect.
     """
 
+    import importlib
+    import pkgutil
     import typing
 
+    import alphalab
     from alphalab.broker.protocol import BrokerProtocol as VenueBoundary
     from alphalab.broker.state import BrokerState
-    from alphalab.brokers.protocol import BrokerProtocol as ConnectorBoundary
+    from alphalab.brokers.protocol import BrokerConnectorProtocol as ConnectorBoundary
     from alphalab.brokers.state import BrokerConnectorState
 
     venue_boundary: type = VenueBoundary
@@ -199,6 +204,25 @@ def test_the_two_broker_protocols_describe_different_boundaries() -> None:
     assert "query_account" not in dir(VenueBoundary)
     assert "apply_execution" in dir(VenueBoundary)
     assert "apply_execution" not in dir(ConnectorBoundary)
+
+    # And only one module in the repository exports the bare name.
+    exporters = [
+        info.name
+        for info in pkgutil.walk_packages(alphalab.__path__, "alphalab.")
+        if "BrokerProtocol" in getattr(importlib.import_module(info.name), "__all__", ())
+    ]
+    assert exporters == ["alphalab.broker", "alphalab.broker.protocol"], exporters
+
+
+def test_the_renamed_connector_protocol_is_not_aliased_back() -> None:
+    """A rename that leaves the old spelling reachable has renamed nothing."""
+
+    import alphalab.brokers
+    import alphalab.brokers.protocol
+
+    for module in (alphalab.brokers, alphalab.brokers.protocol):
+        assert not hasattr(module, "BrokerProtocol")
+        assert "BrokerProtocol" not in module.__all__
 
 
 # --------------------------------------------------------------------------- #
@@ -305,79 +329,76 @@ def test_each_inversion_is_correct_on_the_input_it_documents() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 7. The deprecated packages are managed, not orphaned
+# 7. Every package with no importer is a standalone engine, not an orphan
 # --------------------------------------------------------------------------- #
 
 
-def test_every_zero_consumer_production_package_is_either_standalone_or_deprecated() -> None:
+def test_every_zero_consumer_production_package_is_a_standalone_engine() -> None:
     """ "No importer" is a finding only when nothing explains it.
 
-    ``kernel``, ``production`` and ``integrations`` have no importer *and* are
-    deprecated for removal in v3.0, with the notices
-    ``test_deprecation_notices.py`` enforces. The rest are the standalone engine
-    libraries ADR-0009 describes: independently useful, deliberately not wired
-    into the execution path. Neither is an orphan.
+    ADR-0032 answered this finding with two categories: the standalone engine
+    libraries ADR-0009 describes -- independently useful, deliberately not wired
+    into the execution path -- and three packages (``kernel``, ``production``,
+    ``integrations``) that had no importer *because* they were deprecated, with
+    notices ``test_deprecation_notices.py`` enforced.
+
+    v2.17 removed the second category (ADR-0034), so only the first remains and
+    the explanation is now uniform: a package with no importer here is a
+    standalone engine by design. What this asserts is the part that would
+    otherwise go unnoticed -- that the removed three are gone rather than
+    quietly re-added with the notice dropped, which would turn a managed
+    deprecation into a genuine orphan.
     """
 
     import importlib
-    import warnings
 
-    # kernel and integrations warn at import: nothing on the path imports them,
-    # so the notice reaches exactly the callers who do.
-    for module_name in ("alphalab.kernel", "alphalab.integrations"):
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            importlib.reload(importlib.import_module(module_name))
-        messages = [str(w.message) for w in caught if w.category is DeprecationWarning]
-        assert any("v3.0" in message for message in messages), (
-            f"{module_name} has no importer and no removal notice"
+    for module_name in ("alphalab.kernel", "alphalab.production", "alphalab.integrations"):
+        try:
+            importlib.import_module(module_name)
+        except ModuleNotFoundError:
+            continue
+        raise AssertionError(
+            f"{module_name} is back. It was removed in v2.17 because it had no "
+            "importer and no future; re-adding it without a consumer makes it the "
+            "orphan the deprecation existed to avoid."
         )
 
-    # production warns on *use*, through PEP 562, for the reason
-    # test_deprecation_notices.py records: an import-time warning there would
-    # fire for anyone importing the package for any reason.
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        import alphalab.production
 
-        alphalab.production.Checkpoint  # noqa: B018 -- the access is the point
-    messages = [str(w.message) for w in caught if w.category is DeprecationWarning]
-    assert any("v3.0" in message for message in messages)
+def test_no_second_portfolio_model_came_back_with_the_removed_kernel() -> None:
+    """What the audit was actually looking for inside ``alphalab.kernel``.
 
-
-def test_the_deprecated_kernel_re_exports_the_canonical_models_it_once_copied() -> None:
-    """The audit expected a duplicate here and found an alias. Pinned as such.
-
-    ``alphalab.kernel`` exports ``PortfolioState`` and ``PositionState``, which
-    reads like a second portfolio model. It is not one: both names *are* the
-    canonical types from ``alphalab.portfolio``. Only ``MarketState`` and
-    ``SystemState`` are the kernel's own, and they are configuration-shaped --
-    ``float`` prices in a ``Mapping``, no money, no fill ever applied.
-
-    The package is deprecated and removed in v3.0, so nothing here needs
-    changing; what needed establishing is that no second source of portfolio
-    truth is waiting inside it.
+    The finding was "``kernel`` exports ``PortfolioState`` and ``PositionState``,
+    which reads like a second portfolio model". It was not one -- both names
+    *were* the canonical types -- and the package is now removed, so the
+    surviving question is the one that mattered: is there exactly one source of
+    portfolio truth in the repository?
     """
 
-    import warnings
+    import importlib
+    import pkgutil
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        from alphalab.kernel.state import MarketState as KernelMarketState
-        from alphalab.kernel.state import PortfolioState as KernelPortfolioState
-        from alphalab.kernel.state import PositionState as KernelPositionState
-
+    import alphalab
+    from alphalab.portfolio.amounts import CurrencyAmounts
     from alphalab.portfolio.engine import PortfolioState as CanonicalPortfolioState
     from alphalab.portfolio.position import Position as CanonicalPosition
 
-    assert KernelPortfolioState is CanonicalPortfolioState
-    assert KernelPositionState is CanonicalPosition
+    impostors: list[str] = []
+    for info in pkgutil.walk_packages(alphalab.__path__, "alphalab."):
+        module = importlib.import_module(info.name)
+        for name in ("PortfolioState", "PositionState"):
+            value = getattr(module, name, None)
+            if value is None:
+                continue
+            if value not in (CanonicalPortfolioState, CanonicalPosition):
+                impostors.append(f"{info.name}.{name}")
 
-    # The kernel's own state holds float prices and no money at all.
-    fields = KernelMarketState.__dataclass_fields__
-    assert "float" in str(fields["prices"].type)
-    assert not any("Decimal" in str(field.type) for field in fields.values())
-    assert isinstance(CanonicalPortfolioState.__dataclass_fields__["realized_pnl"].default, Decimal)
+    assert not impostors, f"a second portfolio model exists at {impostors}"
+    # And the canonical one accounts in money, per settlement currency.
+    assert (
+        CanonicalPortfolioState.__dataclass_fields__["realized_pnl"].default_factory
+        is CurrencyAmounts
+    )
+    assert isinstance(CurrencyAmounts().of("USD"), Decimal)
 
 
 # --------------------------------------------------------------------------- #

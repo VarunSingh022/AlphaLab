@@ -104,7 +104,9 @@ def test_open_long_mark_to_market_then_close() -> None:
     assert marked.average_cost == Decimal("100.0000")  # cost basis is not moved by a mark
     assert marked.market_price == Decimal("115.0000")
     assert marked.unrealized_pnl == Decimal("150.00")
-    assert hold.state.portfolio.realized_pnl == Decimal("0.00")  # marking realizes nothing
+    assert hold.state.portfolio.realized_pnl.of("USD") == Decimal(
+        "0.00"
+    )  # marking realizes nothing
     assert hold.state.portfolio.cash.balance("USD") == START_CASH - Decimal("1000.00")
     assert hold.valuation is not None
     assert hold.valuation.equity == START_CASH + Decimal("150.00")
@@ -114,7 +116,7 @@ def test_open_long_mark_to_market_then_close() -> None:
         hold.state, quote(asset, 4.0, Decimal("120.00")), context_factory
     )
     assert asset not in exit_result.state.portfolio.positions
-    assert exit_result.state.portfolio.realized_pnl == Decimal("200.00")
+    assert exit_result.state.portfolio.realized_pnl.of("USD") == Decimal("200.00")
     assert exit_result.valuation is not None
     assert exit_result.valuation.unrealized_pnl == Decimal("0.00")
     assert exit_result.state.portfolio.cash.balance("USD") == START_CASH + Decimal("200.00")
@@ -158,7 +160,7 @@ def test_open_short_mark_to_market_then_close() -> None:
         hold.state, quote(asset, 4.0, Decimal("105.00")), context_factory
     )
     assert asset not in cover.state.portfolio.positions
-    assert cover.state.portfolio.realized_pnl == Decimal("-50.00")
+    assert cover.state.portfolio.realized_pnl.of("USD") == Decimal("-50.00")
     assert cover.state.portfolio.cash.balance("USD") == START_CASH - Decimal("50.00")
     _assert_accounting_identity(cover)
 
@@ -184,7 +186,7 @@ def test_partial_close_realizes_only_the_closed_portion() -> None:
     assert position.market_price == Decimal("130.0000")
 
     # Realized on the 4 sold; unrealized still open on the 6 held.
-    assert reduced.state.portfolio.realized_pnl == Decimal("120.00")
+    assert reduced.state.portfolio.realized_pnl.of("USD") == Decimal("120.00")
     assert position.unrealized_pnl == Decimal("180.00")
     assert reduced.state.portfolio.cash.balance("USD") == START_CASH - Decimal("1000.00") + Decimal(
         "520.00"
@@ -249,7 +251,7 @@ def test_multiple_fills_average_cost_and_single_application_per_fill() -> None:
         second.state, quote(asset, 4.0, Decimal("130.00")), context_factory
     )
     # 20 bought at an average of 110, sold at 130.
-    assert closed.state.portfolio.realized_pnl == Decimal("400.00")
+    assert closed.state.portfolio.realized_pnl.of("USD") == Decimal("400.00")
     assert asset not in closed.state.portfolio.positions
     assert closed.state.portfolio.cash.balance("USD") == START_CASH + Decimal("400.00")
     _assert_accounting_identity(closed)
@@ -268,7 +270,7 @@ def test_commission_is_charged_once_per_fill_and_never_enters_cost_basis() -> No
         state, quote(asset, 2.0, Decimal("100.00")), context_factory
     )
     assert entry.execution_reports[0].commission == Decimal("1.0000")
-    assert entry.state.portfolio.commission_paid == Decimal("1.00")
+    assert entry.state.portfolio.commission_paid.of("USD") == Decimal("1.00")
     # Cost basis stays a clean price: the commission was expensed to cash.
     assert entry.state.portfolio.positions[asset].average_cost == Decimal("100.0000")
     assert entry.state.portfolio.cash.balance("USD") == START_CASH - Decimal("1001.00")
@@ -277,8 +279,8 @@ def test_commission_is_charged_once_per_fill_and_never_enters_cost_basis() -> No
     exit_result = ExecutionPipeline.process_quote(
         entry.state, quote(asset, 3.0, Decimal("110.00")), context_factory
     )
-    assert exit_result.state.portfolio.commission_paid == Decimal("2.00")
-    assert exit_result.state.portfolio.realized_pnl == Decimal("100.00")
+    assert exit_result.state.portfolio.commission_paid.of("USD") == Decimal("2.00")
+    assert exit_result.state.portfolio.realized_pnl.of("USD") == Decimal("100.00")
     assert exit_result.state.portfolio.cash.balance("USD") == START_CASH + Decimal("98.00")
     _assert_accounting_identity(exit_result)
 
@@ -306,7 +308,7 @@ def test_analytics_trade_records_attribute_realized_pnl_to_the_right_fill() -> N
     assert records[0].realized_pnl == Decimal("0.00")  # open
     assert records[1].realized_pnl == Decimal("500.00")  # close
     assert records[2].realized_pnl == Decimal("0.00")  # re-open, realizes nothing
-    assert r3.state.portfolio.realized_pnl == Decimal("500.00")
+    assert r3.state.portfolio.realized_pnl.of("USD") == Decimal("500.00")
 
 
 # ---------------------------------------------------------------------------

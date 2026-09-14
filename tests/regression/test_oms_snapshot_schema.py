@@ -360,7 +360,7 @@ def test_other_subsystems_keep_their_own_schema_rules() -> None:
     from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
 
     assert OMS_SNAPSHOT_SCHEMA == 1
-    assert PORTFOLIO_SNAPSHOT_SCHEMA == 2
+    assert PORTFOLIO_SNAPSHOT_SCHEMA == 3
     assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
 
 

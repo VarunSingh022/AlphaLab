@@ -3,6 +3,7 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from decimal import Decimal
+from types import MappingProxyType
 
 from alphalab.allocation.allocator import IntentAllocator
 from alphalab.allocation.budget import CapitalBudget
@@ -48,10 +49,37 @@ class AllocationEngine:
         sizing_model: SizingModel,
         constraints: AllocationConstraints,
         timestamp: float,
+        budget_prices: Mapping[str, Decimal] = MappingProxyType({}),
     ) -> tuple[AllocationState, tuple[OrderRequest, ...]]:
         """
-        Processes a batch of intents, sizes them, applies cross-strategy netting,
-        checks capital budgets, and emits netted OrderRequests.
+                Processes a batch of intents, sizes them, applies cross-strategy netting,
+                checks capital budgets, and emits netted OrderRequests.
+
+        ``budget_prices`` is the same assets priced in the **budget's** currency, and
+                it is empty for the single-currency run that is every run before v2.17. An
+                asset absent from it is priced by ``market_prices``, which is what this
+                always did.
+
+                The two maps exist because two different questions are being asked, and
+                the asymmetry is deliberate:
+
+                * ``market_prices`` prices an **order**, so it is in the instrument's own
+                  currency -- that is what the venue executes at and what the fill will be
+                  denominated in. ``OrderRequest.price`` comes from here and is unchanged.
+                * ``budget_prices`` prices a **comparison against one number**.
+                  ``notional_allocated``, ``reservations`` and every budget ceiling are
+                  figures in the budget's currency, and adding a JPY notional to them
+                  unconverted would be the "figure in no currency at all" ADR-0020 removed
+                  from valuation -- silently mis-sizing every later order.
+
+                **This engine performs no conversion and knows nothing about exchange
+                rates.** It takes a second price map and does arithmetic. Whoever supplies
+                it converted, and is where the rate and its provenance live -- see
+                :func:`alphalab.runtime.execution_pipeline._budget_prices`. That keeps
+                ``alphalab.allocation`` independent of ``alphalab.portfolio``, which it
+                has always been and which importing an ``FxRates`` here would have ended:
+                measured, it pulled all eighteen portfolio modules into a package that
+                previously imported none of them.
         """
         events = state.events.append(
             AllocationStarted(AllocationEngine._create_id(), timestamp, len(intents))
@@ -106,8 +134,11 @@ class AllocationEngine:
             abs_qty = abs(net_qty)
             price = market_prices.get(asset_id, Decimal("0.00"))
 
-            notional = abs_qty * price
-            total_notional += notional
+            # Two prices, two questions. ``price`` denominates the order;
+            # ``budget_price`` denominates the comparison against the budget. They
+            # are the same number unless the budget is in another currency.
+            budget_price = budget_prices.get(asset_id, price)
+            total_notional += abs_qty * budget_price
 
             events = events.append(
                 NettingCompleted(
@@ -180,7 +211,11 @@ class AllocationEngine:
         reservations = state.reservations
         contributions = state.contributions
         for order in orders:
-            reservations = reservations.set(order.order_id, order.quantity * order.price)
+            # In the budget's currency, like the total it is a part of.
+            reservations = reservations.set(
+                order.order_id,
+                order.quantity * budget_prices.get(order.asset_id, order.price),
+            )
             contributions = contributions.set(order.order_id, order.contributions)
 
         new_state = replace(
@@ -230,7 +265,10 @@ class AllocationEngine:
 
     @staticmethod
     def apply_execution(
-        state: AllocationState, order_id: str, executed_notional: Decimal, timestamp: float
+        state: AllocationState,
+        order_id: str,
+        executed_notional: Decimal,
+        timestamp: float,
     ) -> AllocationState:
         """Consume executed notional from the capital reserved for an order.
 
@@ -238,6 +276,13 @@ class AllocationEngine:
         executed order's entry is dropped from the ledger; a partial fill
         leaves the residual reserved, because the order is still working and
         that capital is still committed.
+
+        ``executed_notional`` is in the **budget's** currency, like the
+        reservation it consumes. A caller settling in another converts before
+        calling: consuming a JPY notional from a USD reservation would free the
+        wrong amount of capital, and would do it silently. The pipeline does that
+        conversion in :func:`alphalab.runtime.execution_pipeline._apply_reports`,
+        which is where the rate lives.
         """
 
         reserved = state.reservations.get(order_id)

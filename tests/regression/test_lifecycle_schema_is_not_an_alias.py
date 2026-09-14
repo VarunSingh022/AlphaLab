@@ -1,7 +1,7 @@
 """The lifecycle snapshot version is its own, not a shared constant's.
 
 ``LIFECYCLE_SNAPSHOT_SCHEMA`` aliased ``DEFAULT_SCHEMA_VERSION`` until v2.8. That
-constant is also the version of ``CommonEvent`` and ``BaseEvent``, so bumping it
+constant is also the schema version every event in the system carries, so bumping it
 would have versioned every event in the system as a side effect of a lifecycle
 change. v2.6 removed exactly this trap from ``PortfolioSnapshot`` -- see
 ``test_portfolio_snapshot_schema_2`` -- and left it standing here.
@@ -12,8 +12,8 @@ it is now independently settable, which is what the next bump needs".
 **v2.16 is that bump, and this file is what shows the de-alias was worth doing.**
 ``LIFECYCLE_SNAPSHOT_SCHEMA`` is now 2 -- carrying ``actor_id`` on two persisted
 records and the approval log (ADR-0018) -- and ``DEFAULT_SCHEMA_VERSION`` is
-still 1, so ``CommonEvent``, ``BaseEvent`` and every event in the system are
-untouched by a lifecycle change. That is the whole point, now demonstrated
+still 1, so ``BaseEvent`` and every event in the system are untouched by a
+lifecycle change. That is the whole point, now demonstrated
 rather than asserted in advance.
 
 The portfolio's own guard asserts ``PORTFOLIO_SNAPSHOT_SCHEMA !=
@@ -78,12 +78,10 @@ def test_the_constant_is_written_as_a_literal() -> None:
 def test_the_shared_constant_itself_did_not_move() -> None:
     """De-aliasing is not a bump: nothing else changes version."""
 
-    from alphalab.common.events import CommonEvent
     from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
 
     assert DEFAULT_SCHEMA_VERSION == 1
-    assert CommonEvent("e").schema_version == 1
-    assert PORTFOLIO_SNAPSHOT_SCHEMA == 2
+    assert PORTFOLIO_SNAPSHOT_SCHEMA == 3
 
 
 def test_a_payload_this_build_writes_is_a_payload_this_build_reads() -> None:

@@ -60,9 +60,9 @@ class FeatureValueStore:
             )
             return replace(
                 state,
-                events=(*state.events, event),
+                events=state.events.append(event),
                 statistics=stats,
-                history=(*state.history, decision),
+                history=state.history.append(decision),
             ), decision
 
         decision = FeatureValueStore._approve(decision_id, value, timestamp)
@@ -70,9 +70,7 @@ class FeatureValueStore:
             str(new_id()), timestamp, decision_id, value.feature_id, value.version, value.asset_id
         )
 
-        new_values = dict(state.values)
         value_key = f"{value.feature_id}:{value.version}:{value.asset_id or '_GLOBAL'}"
-        new_values[value_key] = value
 
         new_cache = cache_value(state.cache, value)
         stats = replace(
@@ -81,11 +79,11 @@ class FeatureValueStore:
 
         new_state = replace(
             state,
-            values=new_values,
+            values=state.values.set(value_key, value),
             cache=new_cache,
-            events=(*state.events, write_event),
+            events=state.events.append(write_event),
             statistics=stats,
-            history=(*state.history, decision),
+            history=state.history.append(decision),
         )
         return new_state, decision
 

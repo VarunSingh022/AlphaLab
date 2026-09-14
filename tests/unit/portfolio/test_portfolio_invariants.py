@@ -53,12 +53,12 @@ def assert_identity(state: PortfolioState, deposits: Decimal = INITIAL) -> None:
 
 def test_opening_a_long_moves_cash_by_cost_plus_commission_only(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("2.50"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("2.50"), 2.0, "USD"
     )
 
     assert state.cash.balance("USD") == INITIAL - Decimal("1002.50")
-    assert state.realized_pnl == Decimal("0.00")
-    assert state.commission_paid == Decimal("2.50")
+    assert state.realized_pnl.of("USD") == Decimal("0.00")
+    assert state.commission_paid.of("USD") == Decimal("2.50")
     assert state.positions["AAPL"].average_cost == Decimal("100.0000")
     assert isinstance(state.events[-1], PositionOpened)
     assert_identity(state)
@@ -66,32 +66,32 @@ def test_opening_a_long_moves_cash_by_cost_plus_commission_only(funded: Portfoli
 
 def test_increasing_a_long_averages_cost_and_realizes_nothing(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("30"), Decimal("120.00"), Decimal("0.00"), 3.0
+        state, "AAPL", Decimal("30"), Decimal("120.00"), Decimal("0.00"), 3.0, "USD"
     )
 
     position = state.positions["AAPL"]
     assert position.quantity == Decimal("40.000000")
     assert position.average_cost == Decimal("115.0000")  # (10*100 + 30*120) / 40
-    assert state.realized_pnl == Decimal("0.00")
+    assert state.realized_pnl.of("USD") == Decimal("0.00")
     assert isinstance(state.events[-1], PositionIncreased)
     assert_identity(state)
 
 
 def test_reducing_a_long_realizes_only_the_closed_portion(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("-4"), Decimal("130.00"), Decimal("0.00"), 3.0
+        state, "AAPL", Decimal("-4"), Decimal("130.00"), Decimal("0.00"), 3.0, "USD"
     )
 
     position = state.positions["AAPL"]
     assert position.quantity == Decimal("6.000000")
     assert position.average_cost == Decimal("100.0000")
-    assert state.realized_pnl == Decimal("120.00")
+    assert state.realized_pnl.of("USD") == Decimal("120.00")
     event = state.events[-1]
     assert isinstance(event, PositionReduced)
     assert event.realized_pnl == Decimal("120.00")
@@ -104,15 +104,15 @@ def test_realized_pnl_survives_the_position_being_closed_and_dropped(
     """Closing removes the position; the account's realized P&L must remain."""
 
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("-10"), Decimal("140.00"), Decimal("0.00"), 3.0
+        state, "AAPL", Decimal("-10"), Decimal("140.00"), Decimal("0.00"), 3.0, "USD"
     )
 
     assert state.positions == {}
     assert PnLEngine.realized_pnl(state.positions) == Decimal("0.00")  # no open positions left
-    assert state.realized_pnl == Decimal("400.00")  # ... but the account keeps the P&L
+    assert state.realized_pnl.of("USD") == Decimal("400.00")  # ... but the account keeps the P&L
     assert state.cash.balance("USD") == INITIAL + Decimal("400.00")
     event = state.events[-1]
     assert isinstance(event, PositionClosed)
@@ -128,31 +128,31 @@ def test_realized_pnl_accumulates_across_several_round_trips(funded: PortfolioSt
     )
     for entry, exit_price in round_trips:
         state = PortfolioEngine.apply_fill(
-            state, "AAPL", Decimal("10"), entry, Decimal("0.00"), 2.0
+            state, "AAPL", Decimal("10"), entry, Decimal("0.00"), 2.0, "USD"
         )
         state = PortfolioEngine.apply_fill(
-            state, "AAPL", Decimal("-10"), exit_price, Decimal("0.00"), 3.0
+            state, "AAPL", Decimal("-10"), exit_price, Decimal("0.00"), 3.0, "USD"
         )
 
-    assert state.realized_pnl == Decimal("50.00")  # +100 then -50
+    assert state.realized_pnl.of("USD") == Decimal("50.00")  # +100 then -50
     assert state.cash.balance("USD") == INITIAL + Decimal("50.00")
     assert_identity(state)
 
 
 def test_short_round_trip_credits_then_debits_cash(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "TSLA", Decimal("-10"), Decimal("200.00"), Decimal("1.00"), 2.0
+        funded, "TSLA", Decimal("-10"), Decimal("200.00"), Decimal("1.00"), 2.0, "USD"
     )
     assert state.positions["TSLA"].quantity == Decimal("-10.000000")
     assert state.cash.balance("USD") == INITIAL + Decimal("1999.00")
     assert_identity(state)
 
     state = PortfolioEngine.apply_fill(
-        state, "TSLA", Decimal("10"), Decimal("180.00"), Decimal("1.00"), 3.0
+        state, "TSLA", Decimal("10"), Decimal("180.00"), Decimal("1.00"), 3.0, "USD"
     )
     assert state.positions == {}
-    assert state.realized_pnl == Decimal("200.00")
-    assert state.commission_paid == Decimal("2.00")
+    assert state.realized_pnl.of("USD") == Decimal("200.00")
+    assert state.commission_paid.of("USD") == Decimal("2.00")
     assert state.cash.balance("USD") == INITIAL + Decimal("198.00")
     assert_identity(state)
 
@@ -161,16 +161,16 @@ def test_reversing_a_long_into_a_short_realizes_the_old_leg_only(
     funded: PortfolioState,
 ) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("-25"), Decimal("120.00"), Decimal("0.00"), 3.0
+        state, "AAPL", Decimal("-25"), Decimal("120.00"), Decimal("0.00"), 3.0, "USD"
     )
 
     position = state.positions["AAPL"]
     assert position.quantity == Decimal("-15.000000")
     assert position.average_cost == Decimal("120.0000")  # the new short leg's basis
-    assert state.realized_pnl == Decimal("200.00")  # only the 10 long shares realized
+    assert state.realized_pnl.of("USD") == Decimal("200.00")  # only the 10 long shares realized
     assert_identity(state)
 
 
@@ -178,10 +178,10 @@ def test_commission_is_counted_exactly_once_per_fill(funded: PortfolioState) -> 
     state = funded
     for i in range(4):
         state = PortfolioEngine.apply_fill(
-            state, "AAPL", Decimal("1"), Decimal("10.00"), Decimal("0.25"), 2.0 + i
+            state, "AAPL", Decimal("1"), Decimal("10.00"), Decimal("0.25"), 2.0 + i, "USD"
         )
 
-    assert state.commission_paid == Decimal("1.00")
+    assert state.commission_paid.of("USD") == Decimal("1.00")
     assert state.cash.balance("USD") == INITIAL - Decimal("40.00") - Decimal("1.00")
     assert sum((t.commission for t in state.ledger.by_asset("AAPL")), Decimal("0.00")) == Decimal(
         "1.00"
@@ -196,7 +196,7 @@ def test_each_fill_produces_exactly_one_event_and_one_transaction(
     ledger_before = len(funded.ledger.history())
 
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("5"), Decimal("20.00"), Decimal("0.10"), 2.0
+        funded, "AAPL", Decimal("5"), Decimal("20.00"), Decimal("0.10"), 2.0, "USD"
     )
 
     assert len(state.events) == events_before + 1
@@ -227,7 +227,7 @@ def test_malformed_fills_are_rejected(
     match: str,
 ) -> None:
     with pytest.raises(InvalidTransactionError, match=match):
-        PortfolioEngine.apply_fill(funded, "AAPL", quantity, price, commission, 2.0)
+        PortfolioEngine.apply_fill(funded, "AAPL", quantity, price, commission, 2.0, "USD")
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +237,7 @@ def test_malformed_fills_are_rejected(
 
 def test_marking_moves_unrealized_pnl_and_nothing_else(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("1.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("1.00"), 2.0, "USD"
     )
     cash_before = state.cash.balance("USD")
     ledger_before = len(state.ledger.history())
@@ -247,8 +247,8 @@ def test_marking_moves_unrealized_pnl_and_nothing_else(funded: PortfolioState) -
     assert marked.positions["AAPL"].unrealized_pnl == Decimal("500.00")
     assert marked.positions["AAPL"].average_cost == Decimal("100.0000")
     assert marked.cash.balance("USD") == cash_before
-    assert marked.realized_pnl == Decimal("0.00")
-    assert marked.commission_paid == Decimal("1.00")
+    assert marked.realized_pnl.of("USD") == Decimal("0.00")
+    assert marked.commission_paid.of("USD") == Decimal("1.00")
     assert len(marked.ledger.history()) == ledger_before
     assert isinstance(marked.events[-1], MarketValueUpdated)
     assert_identity(marked)
@@ -258,7 +258,7 @@ def test_marking_a_short_position_inverts_the_sign_of_the_move(
     funded: PortfolioState,
 ) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "TSLA", Decimal("-10"), Decimal("200.00"), Decimal("0.00"), 2.0
+        funded, "TSLA", Decimal("-10"), Decimal("200.00"), Decimal("0.00"), 2.0, "USD"
     )
 
     gain = PortfolioEngine.update_market_prices(state, {"TSLA": Decimal("180.00")}, 3.0)
@@ -273,7 +273,7 @@ def test_marking_a_short_position_inverts_the_sign_of_the_move(
 
 def test_marking_is_deterministic_and_idempotent(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0, "USD"
     )
 
     once = PortfolioEngine.update_market_prices(state, {"AAPL": Decimal("140.00")}, 3.0)
@@ -287,7 +287,7 @@ def test_marking_is_deterministic_and_idempotent(funded: PortfolioState) -> None
 
 def test_prices_for_unheld_or_invalid_assets_are_ignored(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0, "USD"
     )
     events_before = len(state.events)
 
@@ -303,10 +303,10 @@ def test_prices_for_unheld_or_invalid_assets_are_ignored(funded: PortfolioState)
 
 def test_a_position_with_no_price_keeps_its_previous_mark(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_fill(
-        state, "MSFT", Decimal("5"), Decimal("300.00"), Decimal("0.00"), 2.0
+        state, "MSFT", Decimal("5"), Decimal("300.00"), Decimal("0.00"), 2.0, "USD"
     )
 
     marked = PortfolioEngine.update_market_prices(state, {"AAPL": Decimal("120.00")}, 3.0)
@@ -323,10 +323,10 @@ def test_a_position_with_no_price_keeps_its_previous_mark(funded: PortfolioState
 
 def test_valuation_separates_long_short_cash_and_equity(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_fill(
-        state, "TSLA", Decimal("-5"), Decimal("200.00"), Decimal("0.00"), 2.0
+        state, "TSLA", Decimal("-5"), Decimal("200.00"), Decimal("0.00"), 2.0, "USD"
     )
     state = PortfolioEngine.update_market_prices(
         state, {"AAPL": Decimal("110.00"), "TSLA": Decimal("190.00")}, 3.0
@@ -358,7 +358,7 @@ def test_valuation_of_an_empty_portfolio_is_all_cash(funded: PortfolioState) -> 
 
 def test_withdrawal_is_reflected_in_the_identity(funded: PortfolioState) -> None:
     state = PortfolioEngine.apply_fill(
-        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("1.00"), 2.0
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("1.00"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_withdrawal(state, Decimal("5000.00"), "USD", 3.0)
 

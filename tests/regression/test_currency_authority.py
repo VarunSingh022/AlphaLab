@@ -267,7 +267,14 @@ def test_the_refusal_names_the_instrument_both_currencies_and_the_fix() -> None:
 
     assert "SAP" in detail and "XETR" in detail
     assert "'EUR'" in detail and "'USD'" in detail
-    assert "Account.base_currency" in detail, "the message must say how to fix it"
+    # v2.17 changed what the fix *is*, so the message names the new one. Before
+    # settlement-level multi-currency the only remedy was to run a whole second
+    # pipeline whose currency and Account.base_currency were EUR; now the
+    # instrument can be settled here by naming EUR in also_settles, which the
+    # message says -- along with what that costs (every valuation of the
+    # resulting book then needs a rate).
+    assert "also_settles" in detail, "the message must say how to fix it"
+    assert "FxRates table covering the pair" in detail, "and what the fix costs"
 
 
 def test_the_refusal_does_not_claim_a_rate_is_missing() -> None:
@@ -473,8 +480,16 @@ def test_a_hand_built_report_cannot_bypass_the_seam() -> None:
 
 
 def test_the_simulated_path_cannot_produce_a_mismatched_report() -> None:
-    """Structural, not incidental: ``_instruction`` builds every instruction from
-    ``config.currency`` and the simulator copies it onto the report.
+    """Structural, not incidental: every instruction is built from a currency
+    this pipeline settles, and the simulator copies it onto the report.
+
+    Until v2.17 ``_instruction`` read ``config.currency`` directly, which was
+    correct because :func:`_settlement_refusal` had already dropped anything
+    that traded in another. Now that a foreign instrument can be settled here,
+    the instruction is stamped with :func:`_settlement_currency_for` -- the
+    instrument's own currency when this pipeline settles it, and the reporting
+    currency otherwise. For a single-currency pipeline those are the same
+    string, which is why the behavioural half of this test is unchanged.
     """
 
     for settlement, instrument in (("USD", _APPLE), ("EUR", _SAP)):
@@ -485,9 +500,13 @@ def test_the_simulated_path_cannot_produce_a_mismatched_report() -> None:
         )
         assert [r.currency for r in result.execution_reports] == [settlement]
 
-    from alphalab.runtime.execution_pipeline import _instruction
+    from alphalab.runtime.execution_pipeline import _instruction, _settlement_currency_for
 
-    assert "state.config.currency" in inspect.getsource(_instruction)
+    assert "_settlement_currency_for" in inspect.getsource(_instruction)
+    # And that function can only ever return a currency the pipeline settles.
+    source = inspect.getsource(_settlement_currency_for)
+    assert "state.config.settlement_currencies" in source
+    assert "return state.config.currency" in source
 
 
 def test_routing_config_keeps_its_public_shape() -> None:

@@ -165,12 +165,18 @@ def test_rebalance_schedule() -> None:
 def test_estimate_costs(base_state: PortfolioEngineState, test_portfolio: Portfolio) -> None:
     s1 = PortfolioEngine.create(base_state, test_portfolio, 1000.0)
 
-    # Mock Target weights internally inside the engine state
+    # Mock Target weights internally inside the engine state.
+    # ``weights`` is a PersistentMap as of v2.17 (ADR-0034), so a construction
+    # site passes one; reading is unchanged, because it is still a Mapping.
     from dataclasses import replace
 
+    from alphalab.common.persistent_map import PersistentMap
     from alphalab.portfolio_optimizer.weights import TargetWeights
 
-    s1 = replace(s1, weights={"P-1": TargetWeights("P-1", 1000.0, {"A": 0.6, "B": 0.4})})
+    s1 = replace(
+        s1,
+        weights=PersistentMap({"P-1": TargetWeights("P-1", 1000.0, {"A": 0.6, "B": 0.4})}),
+    )
 
     cw = {"A": 0.5, "B": 0.5}  # Drifted weights
     model = CostModel(0.001, 0.001, 0.0, 0.0, 1.0)  # Total 0.2% + $1 fee

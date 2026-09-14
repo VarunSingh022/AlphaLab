@@ -107,7 +107,7 @@ class SnapshotDecodeError(OMSError):
 #: the projection has been stable since v2.2 and no field is added here. It is a
 #: module-local literal rather than ``DEFAULT_SCHEMA_VERSION`` for the reason
 #: v2.6 gave for the portfolio and v2.8 for the lifecycle -- that constant also
-#: versions ``CommonEvent`` and ``BaseEvent``, so bumping it would version every
+#: versions ``BaseEvent``, so bumping it would version every
 #: event in the system as a side effect of one subsystem's change.
 OMS_SNAPSHOT_SCHEMA: Final = 1
 

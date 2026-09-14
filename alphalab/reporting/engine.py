@@ -43,9 +43,6 @@ class ReportingEngine:
             report_type=report.report_type.name,
         )
 
-        new_reports = dict(state.reports)
-        new_reports[report.report_id] = report
-
         new_stats = replace(
             state.statistics,
             total_reports_generated=state.statistics.total_reports_generated + 1,
@@ -53,9 +50,9 @@ class ReportingEngine:
 
         return replace(
             state,
-            reports=new_reports,
+            reports=state.reports.set(report.report_id, report),
             statistics=new_stats,
-            events=(*state.events, evt),
+            events=state.events.append(evt),
         )
 
     @staticmethod
@@ -69,9 +66,6 @@ class ReportingEngine:
             dashboard_id=dashboard.dashboard_id,
         )
 
-        new_dashboards = dict(state.dashboards)
-        new_dashboards[dashboard.dashboard_id] = dashboard
-
         new_stats = replace(
             state.statistics,
             total_dashboards_generated=state.statistics.total_dashboards_generated + 1,
@@ -79,9 +73,9 @@ class ReportingEngine:
 
         return replace(
             state,
-            dashboards=new_dashboards,
+            dashboards=state.dashboards.set(dashboard.dashboard_id, dashboard),
             statistics=new_stats,
-            events=(*state.events, evt),
+            events=state.events.append(evt),
         )
 
     @staticmethod
@@ -115,16 +109,16 @@ class ReportingEngine:
             )
 
             export_key = f"{report_id}.{fmt.lower()}"
-            new_exports = dict(state.exports)
-            new_exports[export_key] = output
-
             new_stats = replace(
                 state.statistics,
                 total_exports_completed=state.statistics.total_exports_completed + 1,
             )
 
             return replace(
-                state, exports=new_exports, statistics=new_stats, events=(*state.events, evt)
+                state,
+                exports=state.exports.set(export_key, output),
+                statistics=new_stats,
+                events=state.events.append(evt),
             )
 
         except Exception as e:
@@ -139,4 +133,4 @@ class ReportingEngine:
                 state.statistics,
                 total_exports_failed=state.statistics.total_exports_failed + 1,
             )
-            return replace(state, statistics=new_stats, events=(*state.events, fail_evt))
+            return replace(state, statistics=new_stats, events=state.events.append(fail_evt))

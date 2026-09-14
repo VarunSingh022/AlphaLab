@@ -195,10 +195,13 @@ def test_the_state_under_test_exercises_every_durable_field() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_constant_is_two() -> None:
-    """v2.10 moved it once, for the strategy-state field. See ADR-0025 decision 8."""
+def test_the_schema_constant_is_three() -> None:
+    """Moved twice: v2.10 for the strategy-state field (ADR-0025 decision 8),
+    v2.17 for the two configuration fields settlement-level multi-currency added
+    (ADR-0035). Both bumps are on this envelope and neither moved another.
+    """
 
-    assert PIPELINE_SNAPSHOT_SCHEMA == 2
+    assert PIPELINE_SNAPSHOT_SCHEMA == 3
 
 
 def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
@@ -209,7 +212,7 @@ def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
     source = inspect.getsource(pipeline_snapshot)
 
     assert not hasattr(pipeline_snapshot, "DEFAULT_SCHEMA_VERSION")
-    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 2" in source
+    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 3" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -217,7 +220,7 @@ def test_capture_declares_the_version() -> None:
     state, _, _ = _state()
 
     assert capture(state).schema_version == PIPELINE_SNAPSHOT_SCHEMA
-    assert _payload(state)["schema_version"] == 2
+    assert _payload(state)["schema_version"] == 3
 
 
 def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
@@ -231,7 +234,7 @@ def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
         from_primitives(payload)
 
 
-@pytest.mark.parametrize("version", [3, 99, 0, -1])
+@pytest.mark.parametrize("version", [4, 99, 0, -1])
 def test_an_unreadable_version_is_refused_naming_it(version: int) -> None:
     state, _, _ = _state()
     payload = _payload(state)
@@ -254,7 +257,7 @@ def test_a_malformed_version_is_refused(version: object) -> None:
 def test_the_refusal_names_the_pipeline_subsystem() -> None:
     state, _, _ = _state()
     payload = _payload(state)
-    payload["schema_version"] = 3
+    payload["schema_version"] = 4
 
     with pytest.raises(StateDecodeError) as excinfo:
         from_primitives(payload)
@@ -396,7 +399,7 @@ def test_the_nested_snapshots_declare_their_own_versions() -> None:
         # catches; v2.9 deliberately kept that rather than flattening a nested
         # failure into an opaque pipeline one.
         ("oms", OMSSnapshotDecodeError, "oms snapshot declares schema version 2"),
-        ("portfolio", StateDecodeError, "portfolio snapshot declares schema version 3"),
+        ("portfolio", StateDecodeError, "portfolio snapshot declares schema version 4"),
     ],
 )
 def test_a_nested_snapshot_is_validated_by_its_own_decoder(

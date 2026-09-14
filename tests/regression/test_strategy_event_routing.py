@@ -262,12 +262,25 @@ def test_the_strategy_events_still_route_by_type() -> None:
 
 
 def test_an_unroutable_object_leaves_the_strategy_untouched() -> None:
-    """Unchanged behaviour, now reached by type rather than by a missing name."""
+    """Unchanged behaviour, now reached by type rather than by a missing name.
+
+    ``object()`` is not a ``StrategyInboundEvent`` and mypy rejects this call --
+    which is the v2.17 narrowing working, and the reason the ignore is here
+    rather than the signature being widened back. The runtime guard behind it is
+    kept deliberately: a static type is a claim about callers that type-check,
+    and this is the one place where a wrong claim would be charged to the
+    *strategy* as a ``FAILED`` transition.
+    """
 
     recorder = Recorder()
     state = _running(recorder)
 
-    after, intents, lifecycle = Dispatcher.dispatch_event(state, object(), _context(), 1.0)
+    after, intents, lifecycle = Dispatcher.dispatch_event(
+        state,
+        object(),  # type: ignore[arg-type]
+        _context(),
+        1.0,
+    )
 
     assert recorder.calls == []
     assert after is state

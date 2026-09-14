@@ -12,14 +12,14 @@ parse, reorder, re-encode or validate what is inside, so what ``get`` returns is
 what ``put`` was handed, byte for byte, including for a real
 ``serialize(capture(state))`` payload from a live session.
 
-**The store consumes no run identifier.** This is the invariant the
-characterization in ``test_persistence_draws_from_the_run_stream`` exists to
-contrast with. The old store drew one identifier per operation from the ambient
-source, so persisting inside :func:`~alphalab.common.ids.id_scope` consumed the
-run's own next identifiers -- measured 0 -> 2 for one save plus one append, with
-``load_snapshot`` drawing too. The new store draws **zero**, for both backends,
-across a full cycle. That characterization test is deliberately left asserting
-the old behaviour; it is not rewritten to make the legacy store look fixed.
+**The store consumes no run identifier.** ADR-0029 decision 7, and the reason
+the store ADR-0034 removed in v2.17 was replaced rather than repaired. That one
+drew an identifier per operation from the ambient source, so persisting inside
+:func:`~alphalab.common.ids.id_scope` consumed the run's own next identifiers --
+measured 0 -> 2 for one save plus one append, with ``load_snapshot`` drawing too,
+so a run could not even be *read back* without moving its stream. This store
+draws **zero**, for both backends, across a full cycle and per operation, and
+that is what the tests below assert directly rather than by contrast.
 
 **Nothing falls back.** A :class:`FileRunStateStore` whose root is missing, is a
 file, or cannot be written refuses at construction. It never quietly becomes a
@@ -300,7 +300,7 @@ def test_opaque_run_ids_do_not_collide_or_leak(store: RunStateStore) -> None:
 
 @pytest.mark.parametrize("store", BACKENDS, indirect=True)
 def test_a_full_cycle_inside_a_run_scope_draws_zero_identifiers(store: RunStateStore) -> None:
-    """The inversion of ``test_persistence_draws_from_the_run_stream``."""
+    """The invariant ADR-0029 decision 7 requires: a checkpoint mints nothing."""
 
     with id_scope(SEED):
         before = current_id_position().draws
@@ -318,7 +318,7 @@ def test_each_operation_on_its_own_draws_zero(store: RunStateStore, method: str)
     """Every method, in isolation, so a future one cannot regress unnoticed.
 
     The mirror image of ``test_every_operation_that_emits_a_system_event_costs_one_draw``
-    in ``test_persistence_draws_from_the_run_stream``, which measures the legacy
+    by the characterization removed in v2.17, which measured the legacy
     store answering +1 to five of these.
     """
 
@@ -461,7 +461,7 @@ def test_the_retrieved_payload_still_decodes_through_its_own_owner(store: RunSta
     decoded = deserialize(retrieved)
     assert isinstance(decoded, dict)
     assert decoded["schema_version"] == 1, "RUN_SNAPSHOT_SCHEMA, untouched by the store"
-    assert decoded["pipeline"]["schema_version"] == 2, "PIPELINE_SNAPSHOT_SCHEMA, untouched"
+    assert decoded["pipeline"]["schema_version"] == 3, "PIPELINE_SNAPSHOT_SCHEMA"
 
 
 @pytest.mark.parametrize("store", BACKENDS, indirect=True)
@@ -751,8 +751,11 @@ def test_no_existing_snapshot_schema_moved() -> None:
 
     ``LIFECYCLE_SNAPSHOT_SCHEMA`` is no longer among them: it moved to 2 in
     v2.16 for governance actors (ADR-0018), which is that release's deliberate
-    bump and not something the run-state store did. What ADR-0029 promised is
-    that *its* change moved nothing, and that is what remains asserted.
+    bump and not something the run-state store did. ``PIPELINE_SNAPSHOT_SCHEMA``
+    and ``PORTFOLIO_SNAPSHOT_SCHEMA`` moved to 3 in v2.17 for settlement-level
+    multi-currency (ADR-0035), on the same terms. What ADR-0029 promised is that
+    *its* change moved nothing, and that is what remains asserted -- against the
+    values those constants hold now, not the values they held then.
     """
 
     from alphalab.allocation.snapshot import ALLOCATION_SNAPSHOT_SCHEMA
@@ -769,7 +772,7 @@ def test_no_existing_snapshot_schema_moved() -> None:
         OMS_SNAPSHOT_SCHEMA,
         PORTFOLIO_SNAPSHOT_SCHEMA,
         DEFAULT_SCHEMA_VERSION,
-    ) == (2, 1, 1, 1, 2, 1)
+    ) == (3, 1, 1, 1, 3, 1)
 
 
 def test_a_v212_payload_is_unchanged_by_being_stored(tmp_path: Path) -> None:

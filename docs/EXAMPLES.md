@@ -11,9 +11,13 @@ Examples are intended to be read sequentially by new users and used as reference
 > Examples `01`–`10` were written for v1.0.0 and exercise the **standalone**
 > engine APIs. `11_unified_backtest.py` (v2.2) drives the integrated execution
 > path end to end, `12_model_lifecycle.py` (v2.4) drives the model and strategy
-> lifecycle, and `13_durable_run_state.py` (v2.13) stops a run, stores it, and
-> finishes it in a different process. None are part of the automated test suite,
-> though all thirteen run. For the integrated market-to-analytics path see
+> lifecycle, `13_durable_run_state.py` (v2.13) stops a run, stores it, and
+> finishes it in a different process, and `14_multi_currency_settlement.py`
+> (v2.17) drives an FX feed into a run that settles two currencies and reports
+> in one. `05_broker_connection.py` was rewritten in v2.17 against the canonical
+> broker boundary, having used `alphalab.integrations` until that package was
+> removed. None are part of the automated test suite, though all fourteen run.
+> For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
 > under `tests/integration/` and `tests/regression/`.
 
@@ -29,7 +33,7 @@ The `examples/` directory contains:
 | `02_backtest.py` | Strategy Studio backtest bookkeeping |
 | `03_replay.py` | Historical replay cursor |
 | `04_market_data.py` | Market data providers |
-| `05_broker_connection.py` | Broker integration adapters |
+| `05_broker_connection.py` | The two broker boundaries: one venue, or a registry of many |
 | `06_portfolio_optimizer.py` | Portfolio construction |
 | `07_universal_data.py` | Universal Data Engine |
 | `08_strategy_studio.py` | Strategy Studio orchestration |
@@ -38,6 +42,7 @@ The `examples/` directory contains:
 | `11_unified_backtest.py` | Dataset → orders → fills → P&L → analytics, plus replay parity |
 | `12_model_lifecycle.py` | Research candidate → deployment → rollback |
 | `13_durable_run_state.py` | Stop a run, store it, continue it in another process |
+| `14_multi_currency_settlement.py` | FX feed → two settlement currencies → one reported figure |
 
 ---
 
@@ -110,12 +115,19 @@ All provider outputs are normalized through the Universal Data Engine.
 
 # Broker Integrations
 
-Supported examples include
+`05_broker_connection.py` shows the two boundaries and which is which:
 
-- Paper Trading
-- Alpaca
-- Interactive Brokers
-- Zerodha
+- `alphalab.broker` — **one** venue. `BrokerProtocol` is the canonical adapter
+  contract; `RestVenueBroker` and `PaperBroker` implement it, and
+  `runtime.broker_routing` and `LiveSession` speak it.
+- `alphalab.brokers` — **many** venues and many accounts.
+  `BrokerConnectorProtocol` routes over a `BrokerConnectorState`, which is why
+  its queries take an `account_id` the single-venue boundary has no need of. Its
+  domain values *are* the `alphalab.broker` types.
+
+The named vendor adapters (Alpaca, Interactive Brokers, Zerodha) lived in
+`alphalab.integrations` as canned-response stubs and were removed in v2.17; see
+ADR-0034.
 
 ---
 

@@ -2,7 +2,9 @@
 
 from dataclasses import replace
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import new_id
+from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.distributed.events import DistributedEvent, JobAssigned
 from alphalab.distributed.job import JobStatus
 from alphalab.distributed.state import DistributedState
@@ -25,6 +27,9 @@ class JobScheduler:
         if not state.queued_jobs or not state.workers:
             return state
 
+        # Local mutable copies for the duration of one batch assignment. This
+        # is a single call over the whole queue, not an accumulation across
+        # calls, so one copy in and one immutable value out is the right shape.
         new_queued = list(state.queued_jobs)
         new_workers = dict(state.workers)
         new_running = dict(state.running_jobs)
@@ -75,8 +80,9 @@ class JobScheduler:
 
         return replace(
             state,
-            queued_jobs=tuple(new_queued),
-            workers=new_workers,
-            running_jobs=new_running,
-            events=(*state.events, *events),
+            queued_jobs=AppendOnlyLog(new_queued),
+            queued_ids=PersistentSet(job.job_id for job in new_queued),
+            workers=PersistentMap(new_workers),
+            running_jobs=PersistentMap(new_running),
+            events=state.events.extend(events),
         )

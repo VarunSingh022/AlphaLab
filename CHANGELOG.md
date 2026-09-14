@@ -8,6 +8,239 @@ and adheres to Semantic Versioning.
 
 ---
 
+# [2.17.0] - 2026-09-14
+
+**The final engineering release.**
+
+v2.17 exists so that v3.0 has nothing left to do but freeze. It does two things:
+implements everything ADR-0032 deferred, and builds the three capabilities
+ADR-0033 explicitly left open — "settlement-level multi-currency trading, with
+the four blockers in decision 13; a strategy-class registry for the lifecycle
+join; and a rate feed."
+
+**The property that makes the three additions and not a rewrite**, pinned by
+`test_no_capability_moved_another_ones_boundary`: the registry added no field to
+`RunState` (still eight) or `ExecutionPipelineState` (still sixteen); FX rates
+are still not run configuration *and* still not run state; multi-currency moved
+one pipeline schema and one portfolio schema and no other constant; and the feed
+took no dependency on the execution path.
+
+## 1. Settlement-level multi-currency
+
+All four of ADR-0033 decision 13's blockers are gone.
+
+**Settlement truth and reporting truth are different numbers and stay apart.**
+`PortfolioState.realized_pnl` and `commission_paid` were single cumulative
+scalars naming no currency and are now `CurrencyAmounts` — currency to exact
+amount — so a EUR fill accrues EUR P&L permanently and nothing is summed across
+two. A valuation names one currency and converts into it on demand, recording
+every rate. Translating at fill time would have been the smaller change and is
+wrong: it destroys the only record of what was actually earned and bakes one
+instant's rate into a cumulative figure.
+
+**`ExecutionPipelineConfig.also_settles`** says which currencies a pipeline may
+settle, and is **empty by default** — the single-currency pipeline every run had
+before v2.17, byte-identical to it. Both ADR-0028 seams change from "equals the
+settlement currency" to "is one of them", an `OrderInstruction` is stamped with
+the *instrument's* own currency, and the resulting book is genuinely mixed — so
+every valuation of it needs a rate table and refuses without one.
+
+**Settlement conversion is an act, never a consequence.** A run that settles a
+currency it has not funded is refused by `InsufficientFundsError`, and that
+refusal is the capability: no fill converts cash to cover itself.
+`PortfolioEngine.convert_cash` and `ExecutionPipeline.fund` / `.convert_cash` are
+how the money gets there, recording both currencies, both amounts, the rate, its
+`as_of` and its source on a new `CashConverted` event.
+
+**Blockers 3 and 4.** `CapitalBudget.currency` is `""` — *unstated*, not
+`"USD"` — which a single-currency pipeline determines and a multi-currency one
+refuses. `_sync_risk_from_portfolio` reads `cash_in` rather than
+`cash.balance(base)`, which had silently dropped every non-base balance; a run
+holding most of its capital abroad would have reported almost no buying power and
+refused every order, with nothing saying why.
+
+**`alphalab.allocation` still knows nothing about exchange rates**, and that is
+measured: threading an `FxRates` into it pulled all eighteen
+`alphalab.portfolio` modules into a package that previously imported none of
+them. The conversion happens at the pipeline and allocation receives a second
+price map.
+
+`PORTFOLIO_SNAPSHOT_SCHEMA` moves 2 → 3 and **refuses version 2**: a v2 payload
+records `realized_pnl` as a bare number in no currency, and choosing one for it
+would be a guess about money. `PIPELINE_SNAPSHOT_SCHEMA` moves 2 → 3 and keeps
+v1 and v2 readable, because a v2 payload's missing `also_settles` genuinely
+*means* the empty set. A default is allowed only when it is what the payload
+already meant.
+
+## 2. The FX rate feed
+
+**AlphaLab still ships no FX data.** `alphalab.portfolio.fx_feed` is the
+*boundary*, and it adds a contract rather than a single rate.
+
+Without one, every caller folded quotes into a table itself and decided, alone
+and usually implicitly, what to do about three things. A later quote is
+`APPLIED`; a byte-identical one is a `DUPLICATE` (a venue redelivers after a
+reconnect); an **older one is `SUPERSEDED` and not applied** — accepting it would
+move the book's view of the market backwards because two packets arrived out of
+order. Two quotes claiming one instant that disagree are **refused**, not ranked.
+
+`FxRateSource` takes `MarketDataSource`'s shape: identity, provenance, and
+nothing about order. `SequenceFxSource` is the deterministic source.
+`FxFeedState` is durable, so a replayed run values its book with the rates the
+original used. Staleness stays at conversion time; `silent_for` answers the
+different question of whether the connection has gone quiet.
+
+## 3. The strategy-class registry
+
+The join ADR-0033 left as "the caller's knowledge". It is **not** in
+`alphalab.lifecycle`, which still constructs nothing and still names no runtime
+type — it is in `alphalab.strategy`, beside the protocol being registered.
+
+It is not a second `StrategyDefinition`: it stores an identity, a factory and a
+qualified name for provenance. It **never resolves a name to code** — no
+`importlib`, no class-name derivation, because a name is not a type. A duplicate
+registration is refused naming both incumbent and challenger, an unknown identity
+is refused listing what *is* registered, and a factory returning something
+undispatchable is refused at construction rather than at its first market event
+where `Dispatcher` would blame the *strategy*.
+
+`RunPlan.definition` was typed `object` and is now typed as itself, so it can be
+handed straight to the registry.
+
+## 4. Every ADR-0032 category C item
+
+**Quadratic accumulation** is gone from eight standalone packages; two more
+(`integrations`, `production`) were removed instead. Measured over a
+2,500 → 20,000 doubling sweep: `distributed` 38.4s → 0.18s and 4.1x → 2.1x per
+doubling, `feature_store` 7.8s → 0.18s, `plugins` 12.6s → 0.26s, and every
+converted package now grows at ~2.0–2.1x.
+
+**Profiling first is what made it work.** In three of them the containers were
+not the dominant term: `distributed` spent ~65% re-sorting its queue per
+submission and ~26% building a union of four containers per validation; `plugins`
+spent ~54% calling `metadata()` on every registered plugin; `feature_store`
+scanned the whole registry per registration. Converting the containers alone
+would have left ~90% of `distributed`'s cost in place and made `feature_store`
+**four times slower**. Each is now a derived index carried on the state, the v2.2
+OMS pattern.
+
+One term is deliberately left super-linear. `OptimizerState.pending_trials` needs
+a start offset on `AppendOnlyLog`; that was implemented and measured at **+3.9%**
+on `benchmark_execution_pipeline` across four interleaved runs, and refused — the
+same trade ADR-0028 decision 7 refused at +1.78%.
+
+**`AppendOnlyLog.__iter__`** became `itertools.islice`: 0.068s → 0.008s over
+10,000 elements, an 8x constant every engine was paying. Bounded by index, so an
+append mid-iteration is still never yielded.
+
+**`ResearchPayload.parameters`** is genuinely immutable — copied into a
+`MappingProxyType`, closing both the write-through-the-payload route and the
+write-through-your-own-dict route. The annotation alone would have closed
+neither. It also found a codec defect: a `MappingProxyType` is not a `dict`, so
+`dataclass_to_dict` did not recurse into it.
+
+**`BrokerProtocol`** no longer names two contracts.
+`alphalab.brokers.protocol.BrokerProtocol` is `BrokerConnectorProtocol` — the
+word this package already uses for its state, engine and error. **No alias.**
+
+**`Dispatcher.dispatch_event`** takes `StrategyInboundEvent` instead of `Any`,
+narrowed by naming the supertype both event families share. That needs no market
+import and moves no hook selection, so no second dispatch authority appears.
+
+## 5. Seven deprecated surfaces removed
+
+`kernel`, `integrations`, `production`, `core.events`, `CommonEvent`, the
+nine-module `alphalab.persistence` store and the ten-module orphan
+`alphalab.runtime` lifecycle. All were scheduled for v3.0; removing them there
+would have made the stable release a breaking one. All had **zero production
+importers**.
+
+**No compatibility aliases.** No removed name is re-exported, redirected or
+served by a `__getattr__` — and `test_removed_surfaces_stay_removed.py` also
+checks that none is re-exported under a *different* spelling, which would
+preserve the ambiguous architecture while passing every other assertion. The
+persistence **codec spine** and `RunStateStore` are untouched; that distinction
+is why the store's notice was PEP 562 in the first place.
+
+## 6. Zero skips, zero warnings
+
+v2.16 reported `3767 passed, 2 skipped, 94 warnings`. v2.17 reports **3949
+passed, 0 skipped, 0 warnings**, and neither was achieved by configuration.
+
+The two skips were a **gap**, not a duplicate: `SURFACES` carried `None` for the
+`history` and `universe` views, so two of the six `StrategyContext` surfaces had
+no structural check at all. The 94 warnings are gone because the code that
+emitted them is gone. `pytest -q -W error::DeprecationWarning` passes, and a test
+imports every module in the tree in a fresh interpreter with the warning fatal.
+
+## 7. What the audit found that nothing had recorded
+
+- **An invented Reg-T margin rate.** `MarginEngine.initial_margin` defaulted to
+  `0.50` and `maintenance_margin` to `0.25`. A convention is not a universal, and
+  the default produced a requirement computed against a policy nobody chose. Both
+  are now required, as are `BrokerEngine.initialize(currency)` and
+  `open_option_position(currency)`.
+- **`from alphalab.common import *` raised `AttributeError`**, because `__all__`
+  advertised `"Registry"`, which nothing defined.
+- **`PersistentMap` and `PersistentSet` were reachable from no package surface**,
+  while their sibling `AppendOnlyLog` was — despite typing ~100 public dataclass
+  fields. AlphaLab ships `py.typed`, so a declared type a caller cannot import is
+  a contract they cannot write against.
+
+### Added
+
+- `alphalab.portfolio.amounts.CurrencyAmounts`, `alphalab.portfolio.fx_feed`
+  (`FxFeed`, `FxQuote`, `FxRateSource`, `SequenceFxSource`, `FxFeedState`,
+  `FxFeedDecision`, `FxFeedOutcome`, `ConflictingQuoteError`, capture/restore),
+  `alphalab.strategy.registry` (`StrategyClassRegistry`, `StrategyDeclaration`,
+  `StrategyFactory`, `StrategyRegistration`, `DuplicateStrategyError`,
+  `UnknownStrategyError`, `instances_for`, `runtime_for`).
+- `ExecutionPipelineConfig.also_settles`, `.settlement_currencies`,
+  `.is_multi_currency`; `ExecutionPipeline.fund`, `.convert_cash`;
+  `PortfolioEngine.convert_cash`; `PortfolioState.settlement_currencies`;
+  `CapitalBudget.currency`, `.states_currency`, `.in_currency`;
+  `portfolio.events.CashConverted`; `RunPlan.strategy_id`.
+- `PortfolioSnapshotProtocol.realized_pnl_in` / `.commission_paid_in`.
+- `DistributedState.queued_ids`, `FeatureStoreState.registered_feature_ids`,
+  `PluginState.registered_names` — derived indexes.
+- `AppendOnlyLog.rest` is **not** added; see section 4.
+- `alphalab.common` now exports `PersistentMap` and `PersistentSet`;
+  `alphalab.portfolio` now exports `CurrencyAmounts`.
+- A `rates` parameter on `process_record`, `process_quote`,
+  `process_market_event`, `apply_execution_report`, `RunEngine.advance` and
+  `apply_broker_execution`, each defaulting to the empty table.
+- `examples/14_multi_currency_settlement.py`.
+
+### Changed
+
+- `PortfolioState.realized_pnl` / `commission_paid` are `CurrencyAmounts`.
+- `PortfolioEngine.apply_fill` requires `currency`.
+- `PortfolioSnapshotProtocol.realized_pnl` / `.commission_paid` are mappings.
+- `alphalab.brokers.BrokerProtocol` → `BrokerConnectorProtocol`.
+- `ResearchPayload.parameters` is a read-only `Mapping`.
+- `Dispatcher.dispatch_event` / `StrategyEngine.process_event` take `BaseEvent`.
+- `StrategyProtocol` is `runtime_checkable`.
+- `MarginEngine` rate parameters, `BrokerEngine.initialize(currency)` and
+  `open_option_position(currency)` are required.
+- Eight standalone states hold `AppendOnlyLog` / `PersistentMap` / `PersistentSet`.
+- `PORTFOLIO_SNAPSHOT_SCHEMA` 2 → 3 (refuses v2); `PIPELINE_SNAPSHOT_SCHEMA`
+  2 → 3 (reads v1, v2, v3).
+- `examples/05_broker_connection.py` rewritten against the canonical broker
+  boundary; `benchmarks/benchmark_persistence.py` rewritten against
+  `RunStateStore`.
+
+### Removed
+
+- `alphalab.kernel`, `alphalab.integrations`, `alphalab.production`,
+  `alphalab.core.events`, `alphalab.common.CommonEvent`, the nine-module
+  `alphalab.persistence` store, the ten-module orphan `alphalab.runtime`
+  lifecycle. No aliases.
+- `alphalab.common.__all__`'s non-existent `"Registry"`.
+- `benchmarks/benchmark_event_pipeline.py`, `benchmark_integrations.py`,
+  `benchmark_production.py` — they benchmarked removed packages.
+
+---
+
 # [2.16.0] - 2026-09-14
 
 **The integrated runtime, governance, and FX — plus the refactor audit.**

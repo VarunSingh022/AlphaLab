@@ -34,7 +34,6 @@ from alphalab.lifecycle.snapshot import LIFECYCLE_SNAPSHOT_SCHEMA
 from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.run_state import RUN_STATE_ENVELOPE_SCHEMA
-from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineConfig,
     ExecutionPipelineState,
@@ -82,8 +81,8 @@ def test_the_pipeline_schema_does_not_move() -> None:
     the stable core does not.
     """
 
-    assert PIPELINE_SNAPSHOT_SCHEMA == 2
-    assert READABLE_PIPELINE_SCHEMAS == (1, 2)
+    assert PIPELINE_SNAPSHOT_SCHEMA == 3
+    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3)
 
 
 @pytest.mark.parametrize(
@@ -91,7 +90,10 @@ def test_the_pipeline_schema_does_not_move() -> None:
     [
         (ALLOCATION_SNAPSHOT_SCHEMA, 1),
         (OMS_SNAPSHOT_SCHEMA, 1),
-        (PORTFOLIO_SNAPSHOT_SCHEMA, 2),
+        # PORTFOLIO_SNAPSHOT_SCHEMA was here and is not any more. It moved to 3
+        # in v2.17 for per-currency settlement (ADR-0035), which is a later
+        # release's deliberate bump and not something this one did -- the same
+        # reason LIFECYCLE_SNAPSHOT_SCHEMA was dropped from this list in v2.16.
         (RUN_STATE_ENVELOPE_SCHEMA, 1),
         (DEFAULT_SCHEMA_VERSION, 1),
     ],
@@ -979,13 +981,19 @@ def test_a_retired_name_is_gone_rather_than_aliased(module: str, name: str) -> N
         exec(f"from {module} import {name}")
 
 
-def test_the_runtime_package_serves_no_retired_run_state_through_its_hook() -> None:
-    """The PEP 562 hook is for the orphan state machine only."""
+def test_the_runtime_package_resurrects_no_retired_run_state() -> None:
+    """Nothing brings back a state type the run consolidation retired.
+
+    Until v2.17 this checked the package's PEP 562 hook, which served the orphan
+    lifecycle state machine's names. ADR-0034 removed both the machine and the
+    hook, so the check is now against the package surface itself -- which is a
+    stronger statement, because it covers every way a name could be reachable
+    rather than one of them.
+    """
 
     import alphalab.runtime
 
-    served = set(alphalab.runtime._DEPRECATED_RUNTIME)
-    retired = {
+    retired = (
         "SessionState",
         "SessionConfig",
         "BacktestState",
@@ -993,9 +1001,12 @@ def test_the_runtime_package_serves_no_retired_run_state_through_its_hook() -> N
         "BacktestStep",
         "SessionSnapshot",
         "BacktestSnapshot",
-    }
+    )
 
-    assert not (served & retired), f"the hook resurrects {sorted(served & retired)}"
+    resurrected = [name for name in retired if hasattr(alphalab.runtime, name)]
+
+    assert not resurrected, f"the runtime package resurrects {resurrected}"
+    assert not set(retired) & set(alphalab.runtime.__all__)
 
 
 def test_every_name_the_runtime_package_advertises_is_reachable() -> None:

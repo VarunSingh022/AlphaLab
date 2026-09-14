@@ -118,7 +118,9 @@ def test_occ_symbol_differs_by_strike() -> None:
 def test_open_option_position_returns_unmodified_portfolio_position() -> None:
     """Proves options positions are the real Position class, not a new type."""
     contract = _call()
-    position = open_option_position(contract, Decimal("1"), Decimal("6.50"), timestamp=1000.0)
+    position = open_option_position(
+        contract, Decimal("1"), Decimal("6.50"), timestamp=1000.0, currency="USD"
+    )
 
     assert type(position) is Position
     assert position.asset_id == occ_symbol(contract)
@@ -129,7 +131,9 @@ def test_open_option_position_returns_unmodified_portfolio_position() -> None:
 def test_option_position_supports_apply_fill_from_portfolio_package() -> None:
     """A real Position method, never touched by this PR, works on an option position."""
     contract = _call()
-    position = open_option_position(contract, Decimal("1"), Decimal("6.50"), timestamp=1000.0)
+    position = open_option_position(
+        contract, Decimal("1"), Decimal("6.50"), timestamp=1000.0, currency="USD"
+    )
 
     updated, realized = position.apply_fill(Decimal("-1"), Decimal("9.00"), timestamp=2000.0)
 
@@ -139,7 +143,9 @@ def test_option_position_supports_apply_fill_from_portfolio_package() -> None:
 
 def test_short_option_position_side_is_short() -> None:
     contract = _call()
-    position = open_option_position(contract, Decimal("-2"), Decimal("6.50"), timestamp=1000.0)
+    position = open_option_position(
+        contract, Decimal("-2"), Decimal("6.50"), timestamp=1000.0, currency="USD"
+    )
     assert position.quantity < 0
 
 

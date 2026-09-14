@@ -42,6 +42,7 @@ def run_benchmark() -> None:
             price,
             comm,
             float(i),
+            "USD",
         )
 
         if i % 2 == 0:
@@ -52,6 +53,7 @@ def run_benchmark() -> None:
                 price,
                 comm,
                 float(i),
+                "USD",
             )
 
     end_time = time.perf_counter()

@@ -24,7 +24,9 @@ worker-selection heuristic (most free capacity), same validation, same event sha
 from dataclasses import replace
 
 from alphalab.cluster_scheduler.exceptions import ClusterSchedulerInputError
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import new_id
+from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.distributed.events import DistributedEvent, JobAssigned
 from alphalab.distributed.job import Job, JobStatus
 from alphalab.distributed.state import DistributedState
@@ -90,8 +92,9 @@ def assign_jobs_with_aging(
 
     return replace(
         state,
-        queued_jobs=tuple(new_queued),
-        workers=new_workers,
-        running_jobs=new_running,
-        events=(*state.events, *events),
+        queued_jobs=AppendOnlyLog(new_queued),
+        queued_ids=PersistentSet(job.job_id for job in new_queued),
+        workers=PersistentMap(new_workers),
+        running_jobs=PersistentMap(new_running),
+        events=state.events.extend(events),
     )

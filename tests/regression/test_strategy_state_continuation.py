@@ -498,7 +498,7 @@ def test_the_session_round_trips_and_the_session_schema_did_not_move() -> None:
     payload = dict(deserialize(serialize(capture_run(state))))
 
     assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 1
-    assert payload["pipeline"]["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 2
+    assert payload["pipeline"]["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 3
     assert restore_run(run_from_primitives(payload), _objects(config, strategy)) == state
 
 
@@ -524,7 +524,7 @@ def test_the_backtest_round_trips_and_the_backtest_schema_did_not_move() -> None
     )
 
     assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 1
-    assert payload["pipeline"]["schema_version"] == 2
+    assert payload["pipeline"]["schema_version"] == 3
     assert restore_run(run_from_primitives(payload), objects) == state
 
 
@@ -746,7 +746,7 @@ def test_one_bad_strategy_refuses_the_whole_restore_and_not_just_itself() -> Non
         restore_pipeline(pipeline_from_primitives(payload), objects)
 
 
-@pytest.mark.parametrize("version", [3, 99, 0, -1])
+@pytest.mark.parametrize("version", [4, 99, 0, -1])
 def test_an_unreadable_pipeline_version_is_refused(version: int) -> None:
     payload = _pipeline_payload(_uninterrupted())
     payload["schema_version"] = version
@@ -763,9 +763,14 @@ def test_a_missing_pipeline_version_is_still_refused_with_no_legacy_path() -> No
         pipeline_from_primitives(payload)
 
 
-def test_the_readable_versions_are_exactly_one_and_two() -> None:
-    assert READABLE_PIPELINE_SCHEMAS == (1, 2)
-    assert PIPELINE_SNAPSHOT_SCHEMA == 2
+def test_the_readable_versions_are_exactly_one_two_and_three() -> None:
+    """Version 3 is the current one; 1 and 2 stay readable because neither is
+    missing anything -- see ``READABLE_PIPELINE_SCHEMAS`` for why a default is
+    allowed here and refused by the portfolio decoder.
+    """
+
+    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3)
+    assert PIPELINE_SNAPSHOT_SCHEMA == 3
 
 
 def test_a_schema_one_payload_restores_a_non_declaring_strategy() -> None:

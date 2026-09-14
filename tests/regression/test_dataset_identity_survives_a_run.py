@@ -288,7 +288,7 @@ def test_neither_identity_enters_any_persisted_snapshot() -> None:
     # actors (ADR-0018) -- a later release's deliberate bump, unrelated to
     # dataset identity, and not something this file should pin.
     assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
-    assert PORTFOLIO_SNAPSHOT_SCHEMA == 2, "unchanged since v2.6"
+    assert PORTFOLIO_SNAPSHOT_SCHEMA == 3, "moved in v2.17 for per-currency settlement"
 
 
 def test_the_evidence_layer_gains_no_field_from_run_provenance() -> None:

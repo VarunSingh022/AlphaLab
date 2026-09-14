@@ -24,15 +24,14 @@ class DataManager:
         validate_dataset_ingestion(state, dataset)
 
         ds_id = dataset.metadata.dataset_id
-        new_ds = dict(state.datasets)
-        new_ds[ds_id] = dataset
-
-        new_meta = dict(state.metadata)
-        new_meta[ds_id] = dataset.metadata
-
         evt = DatasetIngested(DataManager._create_id(), ts, ds_id, len(dataset.records))
 
-        return replace(state, datasets=new_ds, metadata=new_meta, events=(*state.events, evt))
+        return replace(
+            state,
+            datasets=state.datasets.set(ds_id, dataset),
+            metadata=state.metadata.set(ds_id, dataset.metadata),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def clean(state: UniversalDataState, dataset_id: str, ts: float) -> UniversalDataState:
@@ -54,11 +53,12 @@ class DataManager:
         removed = start_count - len(bars)
         cleaned_ds = replace(dataset, records=bars)
 
-        new_ds = dict(state.datasets)
-        new_ds[dataset_id] = cleaned_ds
-
         evt = DatasetCleaned(DataManager._create_id(), ts, dataset_id, removed)
-        return replace(state, datasets=new_ds, events=(*state.events, evt))
+        return replace(
+            state,
+            datasets=state.datasets.set(dataset_id, cleaned_ds),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def quality(state: UniversalDataState, dataset_id: str, ts: float) -> UniversalDataState:
@@ -70,17 +70,15 @@ class DataManager:
 
         report = evaluate_bar_quality(dataset_id, bars)
 
-        new_reports = dict(state.quality_reports)
-        new_reports[dataset_id] = report
-
         updated_ds = replace(dataset, quality=report)
-        new_ds = dict(state.datasets)
-        new_ds[dataset_id] = updated_ds
 
         evt = QualityReportGenerated(DataManager._create_id(), ts, dataset_id, report.quality_score)
 
         return replace(
-            state, quality_reports=new_reports, datasets=new_ds, events=(*state.events, evt)
+            state,
+            quality_reports=state.quality_reports.set(dataset_id, report),
+            datasets=state.datasets.set(dataset_id, updated_ds),
+            events=state.events.append(evt),
         )
 
     @staticmethod
@@ -96,7 +94,4 @@ class DataManager:
         resampled = resample_bars(bars, interval_sec)
 
         updated_ds = replace(dataset, records=resampled)
-        new_ds = dict(state.datasets)
-        new_ds[dataset_id] = updated_ds
-
-        return replace(state, datasets=new_ds)
+        return replace(state, datasets=state.datasets.set(dataset_id, updated_ds))

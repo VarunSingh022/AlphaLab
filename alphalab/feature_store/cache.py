@@ -6,9 +6,9 @@ operation returns a new `FeatureCache` rather than mutating one in place. This
 mirrors `alphalab.marketdata.cache.MarketDataCache`.
 """
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.feature_store.value import FeatureValue
 
 
@@ -22,7 +22,7 @@ def cache_key(feature_id: str, version: int, asset_id: str | None) -> str:
 class FeatureCache:
     """Immutable read-through cache of the most recently written feature values."""
 
-    entries: Mapping[str, FeatureValue] = field(default_factory=dict)
+    entries: PersistentMap[str, FeatureValue] = field(default_factory=PersistentMap)
     hits: int = 0
     misses: int = 0
 
@@ -30,9 +30,7 @@ class FeatureCache:
 def cache_value(cache: FeatureCache, value: FeatureValue) -> FeatureCache:
     """Returns a new cache with the given value stored under its canonical key."""
     key = cache_key(value.feature_id, value.version, value.asset_id)
-    new_entries = dict(cache.entries)
-    new_entries[key] = value
-    return replace(cache, entries=new_entries)
+    return replace(cache, entries=cache.entries.set(key, value))
 
 
 def cached_value(
@@ -53,9 +51,7 @@ def invalidate(
     key = cache_key(feature_id, version, asset_id)
     if key not in cache.entries:
         return cache
-    new_entries = dict(cache.entries)
-    del new_entries[key]
-    return replace(cache, entries=new_entries)
+    return replace(cache, entries=cache.entries.delete(key))
 
 
 def clear(cache: FeatureCache) -> FeatureCache:

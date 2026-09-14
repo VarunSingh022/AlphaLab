@@ -27,12 +27,13 @@ class JobCoordinator:
 
         running_job = replace(job, status=JobStatus.RUNNING, started_timestamp=timestamp)
 
-        new_running = dict(state.running_jobs)
-        new_running[job_id] = running_job
-
         evt = JobStarted(JobCoordinator._create_id(), timestamp, job_id, job.worker_id or "UNKNOWN")
 
-        return replace(state, running_jobs=new_running, events=(*state.events, evt))
+        return replace(
+            state,
+            running_jobs=state.running_jobs.set(job_id, running_job),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def complete_job(state: DistributedState, job_id: str, timestamp: float) -> DistributedState:
@@ -46,20 +47,16 @@ class JobCoordinator:
         completed_job = replace(job, status=JobStatus.COMPLETED, completed_timestamp=timestamp)
         exec_time = timestamp - job.started_timestamp if job.started_timestamp > 0 else 0.0
 
-        new_running = dict(state.running_jobs)
-        del new_running[job_id]
-
-        new_completed = dict(state.completed_jobs)
-        new_completed[job_id] = completed_job
-
-        new_workers = dict(state.workers)
+        new_workers = state.workers
         if job.worker_id and job.worker_id in new_workers:
             worker = new_workers[job.worker_id]
             updated_running = tuple(j for j in worker.running_jobs if j != job_id)
-            updated_worker = replace(
-                worker, running_jobs=updated_running, completed_jobs=worker.completed_jobs + 1
+            new_workers = new_workers.set(
+                job.worker_id,
+                replace(
+                    worker, running_jobs=updated_running, completed_jobs=worker.completed_jobs + 1
+                ),
             )
-            new_workers[job.worker_id] = updated_worker
 
         evt = JobCompleted(
             JobCoordinator._create_id(), timestamp, job_id, job.worker_id or "UNKNOWN", exec_time
@@ -71,11 +68,11 @@ class JobCoordinator:
 
         return replace(
             state,
-            running_jobs=new_running,
-            completed_jobs=new_completed,
+            running_jobs=state.running_jobs.delete(job_id),
+            completed_jobs=state.completed_jobs.set(job_id, completed_job),
             workers=new_workers,
             statistics=new_stats,
-            events=(*state.events, evt),
+            events=state.events.append(evt),
         )
 
     @staticmethod
@@ -91,18 +88,13 @@ class JobCoordinator:
 
         failed_job = replace(job, status=JobStatus.FAILED, completed_timestamp=timestamp)
 
-        new_running = dict(state.running_jobs)
-        del new_running[job_id]
-
-        new_failed = dict(state.failed_jobs)
-        new_failed[job_id] = failed_job
-
-        new_workers = dict(state.workers)
+        new_workers = state.workers
         if job.worker_id and job.worker_id in new_workers:
             worker = new_workers[job.worker_id]
             updated_running = tuple(j for j in worker.running_jobs if j != job_id)
-            updated_worker = replace(worker, running_jobs=updated_running)
-            new_workers[job.worker_id] = updated_worker
+            new_workers = new_workers.set(
+                job.worker_id, replace(worker, running_jobs=updated_running)
+            )
 
         evt = JobFailed(
             JobCoordinator._create_id(), timestamp, job_id, job.worker_id or "UNKNOWN", reason
@@ -114,9 +106,9 @@ class JobCoordinator:
 
         return replace(
             state,
-            running_jobs=new_running,
-            failed_jobs=new_failed,
+            running_jobs=state.running_jobs.delete(job_id),
+            failed_jobs=state.failed_jobs.set(job_id, failed_job),
             workers=new_workers,
             statistics=new_stats,
-            events=(*state.events, evt),
+            events=state.events.append(evt),
         )

@@ -64,9 +64,15 @@ def open_option_position(
     quantity: Decimal,
     price: Decimal,
     timestamp: float,
-    currency: str = "USD",
+    currency: str,
 ) -> Position:
     """Opens a new options position using the unmodified portfolio Position model.
+
+    `currency` is **required** as of v2.17, having defaulted to `"USD"`. It becomes
+    `Position.currency`, which decides what a valuation of the book must convert and
+    which settlement bucket the position's P&L accrues to -- and an option on a
+    foreign underlying is exactly the case where a default is wrong. ADR-0019's
+    rule: a currency is named, never assumed.
 
     `quantity` follows the same sign convention as every other Position in AlphaLab:
     positive to go long the contract (buy to open), negative to go short (sell to

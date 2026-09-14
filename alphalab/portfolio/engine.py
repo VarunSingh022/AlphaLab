@@ -9,13 +9,14 @@ The portfolio keeps four separated quantities, and never mixes them:
     P&L is *never* added to cash on top of those, because it is already implicit
     in the entry cost and the exit proceeds, each applied on its own fill.
 ``realized_pnl``
-    Cumulative P&L crystallised by reducing or closing positions. It is an
-    accounting result carried on the state (and on the position while it is
-    open), not a cash movement. Keeping it on the state means it survives a
-    position going flat and being dropped from ``positions``.
+    Cumulative P&L crystallised by reducing or closing positions, **per
+    currency**. It is an accounting result carried on the state (and on the
+    position while it is open), not a cash movement. Keeping it on the state
+    means it survives a position going flat and being dropped from ``positions``.
 ``commission_paid``
-    Cumulative commissions, expensed to cash at fill time. Commissions do not
-    enter a position's cost basis, so ``average_cost`` stays a clean price.
+    Cumulative commissions, expensed to cash at fill time, **per currency**.
+    Commissions do not enter a position's cost basis, so ``average_cost`` stays
+    a clean price.
 ``unrealized_pnl``
     Derived, never stored: computed from each open position's ``average_cost``
     and its current ``market_price`` (see :mod:`alphalab.portfolio.valuation`).
@@ -25,6 +26,22 @@ Together these satisfy the portfolio accounting identity, which
 
     equity == deposits - withdrawals + realized_pnl + unrealized_pnl
               - commission_paid
+
+Settlement currency, and what v2.17 changed
+-------------------------------------------
+
+``realized_pnl`` and ``commission_paid`` were single ``Decimal`` scalars naming
+no currency until v2.17. ADR-0033 decision 13 named them as the first two of the
+four blockers to settlement-level multi-currency: "a run trading in two would sum
+them across both". They are now
+:class:`~alphalab.portfolio.amounts.CurrencyAmounts`, so a JPY fill accrues
+against JPY and a USD fill against USD, and the identity above holds **per
+currency** -- which is the only sense in which it can hold for a book that
+settles in more than one.
+
+``cash`` has been keyed by currency since v2.1 and ``Position`` has declared its
+own since v2.7, so those two halves were already right; these two were the ones
+that were not. See ADR-0035.
 """
 
 from collections.abc import Mapping
@@ -34,8 +51,10 @@ from decimal import Decimal
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import new_id
 from alphalab.portfolio.account import Account
+from alphalab.portfolio.amounts import CurrencyAmounts
 from alphalab.portfolio.cash import CashLedger
 from alphalab.portfolio.events import (
+    CashConverted,
     CashDeposited,
     CashWithdrawn,
     MarketValueUpdated,
@@ -46,6 +65,7 @@ from alphalab.portfolio.events import (
     PositionReduced,
 )
 from alphalab.portfolio.exceptions import InvalidTransactionError
+from alphalab.portfolio.fx import FxConversion, FxRates
 from alphalab.portfolio.ledger import TransactionLedger
 from alphalab.portfolio.money import ZERO_MONEY, notional, to_money, to_price, to_quantity
 from alphalab.portfolio.position import Position
@@ -57,8 +77,13 @@ from alphalab.portfolio.types import TransactionType
 class PortfolioState:
     """Canonical immutable portfolio state.
 
-    ``realized_pnl`` and ``commission_paid`` are cumulative account totals: they
-    keep accruing after a position is closed and removed from ``positions``.
+    ``realized_pnl`` and ``commission_paid`` are cumulative account totals **per
+    settlement currency**: they keep accruing after a position is closed and
+    removed from ``positions``, and they are never summed across two currencies
+    without a stated rate. Read one currency with
+    :meth:`~alphalab.portfolio.amounts.CurrencyAmounts.of` and the whole
+    accumulation with
+    :meth:`~alphalab.portfolio.amounts.CurrencyAmounts.total_in`.
     """
 
     account: Account
@@ -66,8 +91,25 @@ class PortfolioState:
     positions: Mapping[str, Position] = field(default_factory=dict)
     ledger: TransactionLedger = field(default_factory=TransactionLedger)
     events: AppendOnlyLog[PortfolioEvent] = field(default_factory=AppendOnlyLog)
-    realized_pnl: Decimal = ZERO_MONEY
-    commission_paid: Decimal = ZERO_MONEY
+    realized_pnl: CurrencyAmounts = field(default_factory=CurrencyAmounts)
+    commission_paid: CurrencyAmounts = field(default_factory=CurrencyAmounts)
+
+    @property
+    def settlement_currencies(self) -> tuple[str, ...]:
+        """Every currency this book has settled anything in, sorted.
+
+        The union of what cash holds, what positions declare, and what has been
+        realized or expensed. This is what makes "is this book single-currency?"
+        answerable from the state rather than from a configuration flag.
+        """
+
+        currencies = {
+            currency for currency, amount in self.cash.balances.items() if amount != ZERO_MONEY
+        }
+        currencies.update(position.currency for position in self.positions.values())
+        currencies.update(self.realized_pnl.currencies)
+        currencies.update(self.commission_paid.currencies)
+        return tuple(sorted(currencies))
 
 
 class PortfolioEngine:
@@ -126,6 +168,118 @@ class PortfolioEngine:
         )
 
     @staticmethod
+    def convert_cash(
+        state: PortfolioState,
+        amount: Decimal,
+        from_currency: str,
+        to_currency: str,
+        rates: FxRates,
+        timestamp: float,
+    ) -> tuple[PortfolioState, FxConversion]:
+        """Move cash between two settlement currencies at a supplied rate.
+
+        What funds a currency a run settles in out of one it already holds. A
+        multi-currency pipeline needs it: ``starting_cash`` funds
+        ``ExecutionPipelineConfig.currency`` and nothing else, and a fill in
+        another currency debits *that* currency's balance -- so a run that
+        settles EUR without EUR cash is refused by
+        :class:`~alphalab.portfolio.exceptions.InsufficientFundsError`, loudly
+        and correctly.
+
+        **Nothing is converted implicitly.** This is a deliberate act with a
+        rate the caller supplied, and it records that rate on a
+        :class:`~alphalab.portfolio.events.CashConverted` event: both
+        currencies, both amounts, the rate, its ``as_of`` and its source. A
+        settlement conversion nobody can trace back to a quote is the "invented
+        figure that looks authoritative" ADR-0020 refuses, and there is no
+        auto-conversion path anywhere in the pipeline for the same reason.
+
+        Rounding happens once, in :meth:`~alphalab.portfolio.fx.FxRates.convert`,
+        which is :mod:`alphalab.portfolio.money`'s rule applied to this path.
+        The debit is the exact ``amount`` and the credit is the rounded
+        conversion, so no fraction of a minor unit is created or destroyed on
+        either side.
+
+        Returns:
+            The new state, and the :class:`~alphalab.portfolio.fx.FxConversion`
+            performed -- so a caller can report what it cost without re-deriving
+            it from the event log.
+
+        Raises:
+            InvalidTransactionError: If ``amount`` is not positive, or the two
+                currencies are the same. Converting a currency into itself is
+                not a conversion, and doing it through this path would write an
+                event claiming a rate for a pair no table may hold.
+            InsufficientFundsError: If ``from_currency`` cannot cover ``amount``.
+            MissingRateError: If ``rates`` holds no rate for the pair.
+            StaleRateError: If the only rate for the pair is too old at
+                ``timestamp``.
+        """
+
+        if amount <= 0:
+            raise InvalidTransactionError(
+                f"A cash conversion moves a positive amount, got {amount}."
+            )
+        if from_currency == to_currency:
+            raise InvalidTransactionError(
+                f"{from_currency} to {to_currency} is not a conversion. A currency is "
+                "worth one of itself, and recording it as a conversion would claim a "
+                "rate for a pair no FxRates table may hold."
+            )
+
+        amount = to_money(amount)
+        # Convert first: a refused rate must leave the ledger untouched rather
+        # than debit one side of a movement that never completes.
+        conversion = rates.convert(amount, from_currency, to_currency, timestamp)
+
+        cash = state.cash.withdraw(amount, from_currency)
+        cash = cash.deposit(conversion.converted, to_currency)
+
+        evt = CashConverted(
+            timestamp=timestamp,
+            account_id=state.account.account_id,
+            amount=amount,
+            from_currency=from_currency,
+            converted=conversion.converted,
+            to_currency=to_currency,
+            rate=conversion.rate.rate,
+            rate_as_of=conversion.rate.as_of,
+            rate_source=conversion.rate.source,
+            rate_derived=conversion.rate.derived,
+        )
+        debit = Transaction(
+            transaction_id=str(new_id()),
+            timestamp=timestamp,
+            account_id=state.account.account_id,
+            type=TransactionType.WITHDRAWAL,
+            asset_id="CASH",
+            quantity=-amount,
+            price=Decimal("1.0"),
+            commission=Decimal("0.0"),
+            currency=from_currency,
+        )
+        credit = Transaction(
+            transaction_id=str(new_id()),
+            timestamp=timestamp,
+            account_id=state.account.account_id,
+            type=TransactionType.DEPOSIT,
+            asset_id="CASH",
+            quantity=conversion.converted,
+            price=Decimal("1.0"),
+            commission=Decimal("0.0"),
+            currency=to_currency,
+        )
+        return (
+            replace(
+                state,
+                cash=cash,
+                ledger=state.ledger.append(debit).append(credit),
+                events=state.events.append(evt),
+            ),
+            conversion,
+        )
+
+    @staticmethod
     def apply_fill(
         state: PortfolioState,
         asset_id: str,
@@ -133,14 +287,35 @@ class PortfolioEngine:
         price: Decimal,
         commission: Decimal,
         timestamp: float,
-        currency: str = "USD",
+        currency: str,
     ) -> PortfolioState:
         """Apply one signed fill (BUY > 0, SELL < 0) to the portfolio.
 
         Exactly one position update, one cash movement, one ledger transaction
         and one portfolio event are produced per call, so a fill can never be
         counted twice.
+
+        ``currency`` is **required** as of v2.17, and until then defaulted to
+        ``"USD"``. A default was survivable while ``realized_pnl`` and
+        ``commission_paid`` were currency-less scalars, because the string only
+        reached the cash ledger and the position. It is not survivable now: the
+        currency decides which bucket a fill's P&L and commission accrue into,
+        so a caller that forgets it would book EUR results against USD and every
+        figure derived from them would be wrong in a way no later check could
+        detect. This is ADR-0019's rule -- a currency is named, never assumed --
+        applied to the one entry point that had escaped it.
+
+        Raises:
+            InvalidTransactionError: If the price is not positive, the
+                commission is negative, or the quantity rounds to zero.
         """
+
+        if not currency.strip():
+            raise InvalidTransactionError(
+                "A fill must name the currency it settles in. It decides which "
+                "cash balance moves and which realized-P&L and commission bucket "
+                "accrues, and no currency can be assumed for it."
+            )
 
         if price <= 0:
             raise InvalidTransactionError("A fill must have a positive price.")
@@ -221,8 +396,10 @@ class PortfolioEngine:
             cash=new_cash,
             ledger=state.ledger.append(tx),
             events=state.events.append(evt),
-            realized_pnl=state.realized_pnl + pnl,
-            commission_paid=state.commission_paid + commission,
+            # Accrued against the currency the fill actually settled in, never
+            # summed across two. See the module docstring and ADR-0035.
+            realized_pnl=state.realized_pnl.add(pnl, currency),
+            commission_paid=state.commission_paid.add(commission, currency),
         )
 
     @staticmethod

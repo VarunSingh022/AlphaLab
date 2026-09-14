@@ -100,17 +100,17 @@ def test_penny_spread_mid_round_trip_is_exact() -> None:
 
     state = funded()
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("7"), Decimal("100.005"), Decimal("0"), 2.0
+        state, "AAPL", Decimal("7"), Decimal("100.005"), Decimal("0"), 2.0, "USD"
     )
     assert_exact(state)
     assert_all_money_is_cent_exact(state)
 
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("-7"), Decimal("133.335"), Decimal("0"), 3.0
+        state, "AAPL", Decimal("-7"), Decimal("133.335"), Decimal("0"), 3.0, "USD"
     )
     assert_exact(state)
     # Cash moved by exactly what realized P&L claims.
-    assert state.cash.balance("USD") == INITIAL + state.realized_pnl
+    assert state.cash.balance("USD") == INITIAL + state.realized_pnl.of("USD")
 
 
 def test_long_reversal_at_a_sub_cent_price_is_exact() -> None:
@@ -118,11 +118,11 @@ def test_long_reversal_at_a_sub_cent_price_is_exact() -> None:
 
     state = funded()
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("1.00"), 2.0
+        state, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("1.00"), 2.0, "USD"
     )
     before = state.cash.balance("USD")
     state = PortfolioEngine.apply_fill(
-        state, "AAPL", Decimal("-25"), Decimal("120.007"), Decimal("1.00"), 3.0
+        state, "AAPL", Decimal("-25"), Decimal("120.007"), Decimal("1.00"), 3.0, "USD"
     )
 
     assert_exact(state)
@@ -141,7 +141,7 @@ def test_long_reversal_at_a_sub_cent_price_is_exact() -> None:
 @pytest.mark.parametrize("price", AWKWARD_PRICES)
 @pytest.mark.parametrize("quantity", AWKWARD_QUANTITIES)
 def test_opening_a_long_is_exact(price: Decimal, quantity: Decimal) -> None:
-    state = PortfolioEngine.apply_fill(funded(), "A", quantity, price, Decimal("0.125"), 2.0)
+    state = PortfolioEngine.apply_fill(funded(), "A", quantity, price, Decimal("0.125"), 2.0, "USD")
     assert_exact(state)
     assert_all_money_is_cent_exact(state)
 
@@ -149,7 +149,9 @@ def test_opening_a_long_is_exact(price: Decimal, quantity: Decimal) -> None:
 @pytest.mark.parametrize("price", AWKWARD_PRICES)
 @pytest.mark.parametrize("quantity", AWKWARD_QUANTITIES)
 def test_opening_a_short_is_exact(price: Decimal, quantity: Decimal) -> None:
-    state = PortfolioEngine.apply_fill(funded(), "A", -quantity, price, Decimal("0.125"), 2.0)
+    state = PortfolioEngine.apply_fill(
+        funded(), "A", -quantity, price, Decimal("0.125"), 2.0, "USD"
+    )
     assert_exact(state)
     assert_all_money_is_cent_exact(state)
 
@@ -159,10 +161,10 @@ def test_commissions_at_sub_cent_precision_stay_exact(commission: Decimal) -> No
     state = funded()
     for i in range(5):
         state = PortfolioEngine.apply_fill(
-            state, "A", Decimal("3"), Decimal("33.333333"), commission, 2.0 + i
+            state, "A", Decimal("3"), Decimal("33.333333"), commission, 2.0 + i, "USD"
         )
         assert_exact(state)
-    assert state.commission_paid == to_money(commission) * 5
+    assert state.commission_paid.of("USD") == to_money(commission) * 5
     assert_all_money_is_cent_exact(state)
 
 
@@ -170,10 +172,12 @@ def test_commissions_at_sub_cent_precision_stay_exact(commission: Decimal) -> No
 def test_partial_close_is_exact(exit_price: Decimal) -> None:
     state = funded()
     state = PortfolioEngine.apply_fill(
-        state, "A", Decimal("9"), Decimal("77.775"), Decimal("0.1"), 2.0
+        state, "A", Decimal("9"), Decimal("77.775"), Decimal("0.1"), 2.0, "USD"
     )
     for i, size in enumerate((Decimal("-3"), Decimal("-3"), Decimal("-3"))):
-        state = PortfolioEngine.apply_fill(state, "A", size, exit_price, Decimal("0.1"), 3.0 + i)
+        state = PortfolioEngine.apply_fill(
+            state, "A", size, exit_price, Decimal("0.1"), 3.0 + i, "USD"
+        )
         assert_exact(state)
     assert "A" not in state.positions
     assert_all_money_is_cent_exact(state)
@@ -184,11 +188,19 @@ def test_multiple_fills_then_full_close_is_exact(price: Decimal) -> None:
     state = funded()
     for i in range(6):
         state = PortfolioEngine.apply_fill(
-            state, "A", Decimal("1.7"), price + Decimal(i) / Decimal("3"), Decimal("0.01"), 2.0 + i
+            state,
+            "A",
+            Decimal("1.7"),
+            price + Decimal(i) / Decimal("3"),
+            Decimal("0.01"),
+            2.0 + i,
+            "USD",
         )
         assert_exact(state)
     held = state.positions["A"].quantity
-    state = PortfolioEngine.apply_fill(state, "A", -held, Decimal("199.995"), Decimal("0.01"), 20.0)
+    state = PortfolioEngine.apply_fill(
+        state, "A", -held, Decimal("199.995"), Decimal("0.01"), 20.0, "USD"
+    )
     assert_exact(state)
     assert state.positions == {}
 
@@ -196,11 +208,11 @@ def test_multiple_fills_then_full_close_is_exact(price: Decimal) -> None:
 def test_short_reversal_at_sub_cent_prices_is_exact() -> None:
     state = funded()
     state = PortfolioEngine.apply_fill(
-        state, "A", Decimal("-7"), Decimal("55.555"), Decimal("0.25"), 2.0
+        state, "A", Decimal("-7"), Decimal("55.555"), Decimal("0.25"), 2.0, "USD"
     )
     assert_exact(state)
     state = PortfolioEngine.apply_fill(
-        state, "A", Decimal("18"), Decimal("51.115"), Decimal("0.25"), 3.0
+        state, "A", Decimal("18"), Decimal("51.115"), Decimal("0.25"), 3.0, "USD"
     )
     assert_exact(state)
     assert state.positions["A"].quantity == Decimal("11.000000")
@@ -215,10 +227,10 @@ def test_short_reversal_at_sub_cent_prices_is_exact() -> None:
 def test_marking_at_a_fractional_cent_price_keeps_the_identity_exact(mark: Decimal) -> None:
     state = funded()
     state = PortfolioEngine.apply_fill(
-        state, "A", Decimal("7"), Decimal("100.005"), Decimal("0"), 2.0
+        state, "A", Decimal("7"), Decimal("100.005"), Decimal("0"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_fill(
-        state, "B", Decimal("-3"), Decimal("33.333333"), Decimal("0"), 2.0
+        state, "B", Decimal("-3"), Decimal("33.333333"), Decimal("0"), 2.0, "USD"
     )
 
     marked = PortfolioEngine.update_market_prices(state, {"A": mark, "B": mark}, 3.0)
@@ -226,6 +238,8 @@ def test_marking_at_a_fractional_cent_price_keeps_the_identity_exact(mark: Decim
     assert_exact(marked)
     assert_all_money_is_cent_exact(marked)
     # Marking moves unrealized P&L only.
+    # Whole accumulations, not one bucket: marking must move neither, in any
+    # currency. CurrencyAmounts is a value, so this compares by equality.
     assert marked.realized_pnl == state.realized_pnl
     assert marked.commission_paid == state.commission_paid
     assert marked.cash.balance("USD") == state.cash.balance("USD")
@@ -234,7 +248,7 @@ def test_marking_at_a_fractional_cent_price_keeps_the_identity_exact(mark: Decim
 def test_withdrawals_are_included_in_the_identity() -> None:
     state = funded()
     state = PortfolioEngine.apply_fill(
-        state, "A", Decimal("7"), Decimal("100.005"), Decimal("0.5"), 2.0
+        state, "A", Decimal("7"), Decimal("100.005"), Decimal("0.5"), 2.0, "USD"
     )
     state = PortfolioEngine.apply_withdrawal(state, Decimal("1234.56"), "USD", 3.0)
 
@@ -258,7 +272,9 @@ def test_randomized_multi_asset_portfolios_are_exact(seed: int) -> None:
         quantity = rng.choice(AWKWARD_QUANTITIES) * rng.choice([Decimal("1"), Decimal("-1")])
         price = rng.choice(AWKWARD_PRICES)
         commission = rng.choice(AWKWARD_COMMISSIONS)
-        state = PortfolioEngine.apply_fill(state, asset, quantity, price, commission, 2.0 + step)
+        state = PortfolioEngine.apply_fill(
+            state, asset, quantity, price, commission, 2.0 + step, "USD"
+        )
         assert_exact(state)
 
     marks = {f"A{i}": rng.choice(AWKWARD_PRICES) for i in range(4)}
@@ -277,20 +293,22 @@ def test_identity_holds_after_fully_unwinding_a_random_portfolio() -> None:
         asset = f"A{rng.randrange(3)}"
         quantity = rng.choice(AWKWARD_QUANTITIES) * rng.choice([Decimal("1"), Decimal("-1")])
         state = PortfolioEngine.apply_fill(
-            state, asset, quantity, rng.choice(AWKWARD_PRICES), Decimal("0.125"), 2.0 + step
+            state, asset, quantity, rng.choice(AWKWARD_PRICES), Decimal("0.125"), 2.0 + step, "USD"
         )
 
     for asset in list(state.positions):
         held = state.positions[asset].quantity
         state = PortfolioEngine.apply_fill(
-            state, asset, -held, rng.choice(AWKWARD_PRICES), Decimal("0.125"), 100.0
+            state, asset, -held, rng.choice(AWKWARD_PRICES), Decimal("0.125"), 100.0, "USD"
         )
 
     assert state.positions == {}
     assert_exact(state)
     valuation = PortfolioValuation.snapshot(state, 0.0)
     assert valuation.equity == valuation.cash
-    assert valuation.cash == INITIAL + state.realized_pnl - state.commission_paid
+    assert valuation.cash == INITIAL + state.realized_pnl.of("USD") - state.commission_paid.of(
+        "USD"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -301,19 +319,19 @@ def test_identity_holds_after_fully_unwinding_a_random_portfolio() -> None:
 def test_cost_basis_is_authoritative_and_survives_partial_closes() -> None:
     state = funded()
     state = PortfolioEngine.apply_fill(
-        state, "A", Decimal("10"), Decimal("100.005"), Decimal("0"), 2.0
+        state, "A", Decimal("10"), Decimal("100.005"), Decimal("0"), 2.0, "USD"
     )
     opened = state.positions["A"]
     assert opened.basis == Decimal("1000.05")  # exactly what cash paid
     assert state.cash.balance("USD") == INITIAL - Decimal("1000.05")
 
     state = PortfolioEngine.apply_fill(
-        state, "A", Decimal("-4"), Decimal("120.00"), Decimal("0"), 3.0
+        state, "A", Decimal("-4"), Decimal("120.00"), Decimal("0"), 3.0, "USD"
     )
     reduced = state.positions["A"]
     # Relieved 4/10 of the basis; the remainder is the exact complement.
     assert reduced.basis == Decimal("1000.05") - Decimal("400.02")
-    assert state.realized_pnl == Decimal("480.00") - Decimal("400.02")
+    assert state.realized_pnl.of("USD") == Decimal("480.00") - Decimal("400.02")
     assert_exact(state)
 
 

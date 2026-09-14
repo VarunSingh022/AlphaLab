@@ -57,19 +57,19 @@ class PortfolioManager:
         constraints = state.constraints.get(port_id, WeightConstraints())
         final_w = apply_weight_constraints(raw_w, constraints)
 
-        new_weights = dict(state.weights)
-        new_weights[port_id] = TargetWeights(port_id, ts, final_w)
-
         evt = WeightsCalculated(PortfolioManager._create_id(), ts, port_id, method)
-        return replace(state, weights=new_weights, events=(*state.events, evt))
+        return replace(
+            state,
+            weights=state.weights.set(port_id, TargetWeights(port_id, ts, final_w)),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def apply_constraints(
         state: PortfolioEngineState, port_id: str, constraints: WeightConstraints, ts: float
     ) -> PortfolioEngineState:
         validate_portfolio_exists(state, port_id)
-        new_constraints = dict(state.constraints)
-        new_constraints[port_id] = constraints
+        new_constraints = state.constraints.set(port_id, constraints)
 
         if port_id in state.weights:
             old_w = state.weights[port_id]
@@ -83,13 +83,11 @@ class PortfolioManager:
                     "WeightLimits",
                     1.0,
                 )
-                new_weights = dict(state.weights)
-                new_weights[port_id] = TargetWeights(port_id, ts, new_w)
                 return replace(
                     state,
                     constraints=new_constraints,
-                    weights=new_weights,
-                    events=(*state.events, evt),
+                    weights=state.weights.set(port_id, TargetWeights(port_id, ts, new_w)),
+                    events=state.events.append(evt),
                 )
 
         return replace(state, constraints=new_constraints)
@@ -114,7 +112,7 @@ class PortfolioManager:
 
         if do_rebalance:
             evt = Rebalanced(PortfolioManager._create_id(), current_ts, port_id, trigger.name)
-            return replace(state, events=(*state.events, evt))
+            return replace(state, events=state.events.append(evt))
 
         return state
 
@@ -143,6 +141,4 @@ class PortfolioManager:
 
         est = TransactionCostEstimate(port_id, trade_value, comm, slip, impact, total_cost)
 
-        new_costs = dict(state.cost_estimates)
-        new_costs[port_id] = est
-        return replace(state, cost_estimates=new_costs)
+        return replace(state, cost_estimates=state.cost_estimates.set(port_id, est))

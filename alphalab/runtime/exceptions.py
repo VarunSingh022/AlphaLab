@@ -9,7 +9,3 @@ class AlphaLabRuntimeError(AlphaLabError):
 
 class RuntimeValidationError(AlphaLabRuntimeError):
     """Raised when runtime configurations or parameters are invalid."""
-
-
-class InvalidRuntimeTransitionError(AlphaLabRuntimeError):
-    """Raised when an illegal lifecycle state transition is attempted."""

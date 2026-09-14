@@ -1,11 +1,10 @@
 """Runtime Engine orchestrating dispatch and state mutations."""
 
 from collections.abc import Callable
-from typing import Any
 
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.dispatcher import Dispatcher
-from alphalab.strategy.events import Intent, StrategyRuntimeEvent
+from alphalab.strategy.events import Intent, StrategyInboundEvent, StrategyRuntimeEvent
 from alphalab.strategy.state import LifecycleState, RuntimeState
 
 
@@ -15,7 +14,7 @@ class StrategyEngine:
     @staticmethod
     def process_event(
         state: RuntimeState,
-        event: Any,
+        event: StrategyInboundEvent,
         context_factory: Callable[[str], StrategyContext],
         timestamp: float,
     ) -> tuple[RuntimeState, tuple[Intent, ...]]:

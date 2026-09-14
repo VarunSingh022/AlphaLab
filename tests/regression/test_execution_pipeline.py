@@ -115,8 +115,8 @@ def test_every_non_trading_execution_outcome_reaches_a_terminal_state(
     assert result.trades == ()
     assert result.state.portfolio.positions == {}
     assert result.state.portfolio.cash.balance("USD") == Decimal("100000")
-    assert result.state.portfolio.realized_pnl == Decimal("0.00")
-    assert result.state.portfolio.commission_paid == Decimal("0.00")
+    assert result.state.portfolio.realized_pnl.of("USD") == Decimal("0.00")
+    assert result.state.portfolio.commission_paid.of("USD") == Decimal("0.00")
 
     # The reservation is released exactly once.
     assert result.state.allocation.notional_allocated == Decimal("0.00")

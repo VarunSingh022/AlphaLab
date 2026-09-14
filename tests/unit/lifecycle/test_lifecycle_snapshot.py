@@ -46,12 +46,9 @@ from alphalab.lifecycle.snapshot import (
     restore,
 )
 from alphalab.model_registry import ArtifactRef, ModelStage, promote
-from alphalab.persistence.adapter import PersistenceAdapter
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.run_store import MemoryRunStateStore
 from alphalab.persistence.serializer import deserialize, serialize
-from alphalab.persistence.state import PersistenceState
-from alphalab.persistence.storage import MemoryStorage
-from alphalab.persistence.views import latest_snapshot
 from alphalab.studio.strategy import StrategyDefinition
 
 # --------------------------------------------------------------------------- #
@@ -303,21 +300,22 @@ def test_a_restored_lifecycle_continues_processing_identically() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The persistence store is a real consumer
+# The run-state store is a real consumer
 # --------------------------------------------------------------------------- #
 
 
-def test_a_lifecycle_snapshot_round_trips_through_the_persistence_store() -> None:
+def test_a_lifecycle_snapshot_round_trips_through_the_run_state_store() -> None:
+    """capture -> serialize -> put -> get -> from_primitives -> restore.
+
+    The canonical durability boundary (ADR-0029), which digest-verifies the
+    payload on the way back out.
+    """
+
     state = _state()
-    storage = MemoryStorage()
-    persistence = PersistenceState(engine_id="ENGINE-L")
+    store = MemoryRunStateStore()
 
-    record = PersistenceAdapter.to_snapshot("SNAP-L", "lifecycle", 30.0, capture(state))
-    persistence, _ = storage.save_snapshot(persistence, record, 30.0)
-
-    stored = latest_snapshot(persistence, "lifecycle")
-    assert stored is not None
-    restored = restore(from_primitives(PersistenceAdapter.snapshot_payload(stored)), MODELS)
+    ref = store.put("run-lifecycle", 0, serialize(capture(state)))
+    restored = restore(from_primitives(deserialize(store.get(ref))), MODELS)
 
     assert restored == state
 

@@ -118,7 +118,7 @@ __all__ = [
 #:
 #: A module-local literal rather than ``DEFAULT_SCHEMA_VERSION``, for the reason
 #: v2.6 gave for the portfolio, v2.9 for the pipeline and v2.13 for the run-state
-#: envelope: that constant also versions ``CommonEvent`` and ``BaseEvent``, so
+#: envelope: that constant also versions ``BaseEvent``, so
 #: bumping it would version every event in the system as a side effect of one
 #: subsystem's change.
 #:

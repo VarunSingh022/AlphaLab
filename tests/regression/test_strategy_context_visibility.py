@@ -266,8 +266,10 @@ def test_cash_and_account_truth_reach_the_strategy() -> None:
 
     assert view.account == state.portfolio.account
     assert view.cash("USD") == state.portfolio.cash.balance("USD")
-    assert view.realized_pnl == state.portfolio.realized_pnl
-    assert view.commission_paid == state.portfolio.commission_paid
+    assert view.realized_pnl == dict(state.portfolio.realized_pnl)
+    assert view.realized_pnl_in("USD") == state.portfolio.realized_pnl.of("USD")
+    assert view.commission_paid == dict(state.portfolio.commission_paid)
+    assert view.commission_paid_in("USD") == state.portfolio.commission_paid.of("USD")
     assert view.quantity(OTHER) == Decimal("0"), "flat is zero, not None"
     assert view.position(OTHER) is None, "and no position is None, not a placeholder"
 
@@ -498,7 +500,7 @@ def test_no_context_is_built_for_a_strategy_that_is_not_running() -> None:
     )
     counting = _CountingFactory()
 
-    StrategyEngine.process_event(state, object(), counting, 2.0)
+    StrategyEngine.process_event(state, object(), counting, 2.0)  # type: ignore[arg-type]
 
     assert state.strategies[MOM].status is LifecycleState.PAUSED
     assert counting.calls == [REV], "only the running strategy had a context built"
@@ -517,7 +519,7 @@ def test_every_non_running_status_skips_construction(transition: Any) -> None:
     state = replace(state, strategies={MOM: transition(state.strategies[MOM])})
     counting = _CountingFactory()
 
-    StrategyEngine.process_event(state, object(), counting, 2.0)
+    StrategyEngine.process_event(state, object(), counting, 2.0)  # type: ignore[arg-type]
 
     assert counting.calls == []
 
@@ -546,7 +548,12 @@ def test_skipping_construction_does_not_change_the_resulting_state() -> None:
     state = _running((MOM, Observer(MOM)))
     state = replace(state, strategies={MOM: RuntimeSupervisor.pause(state.strategies[MOM], 2.0)[0]})
 
-    after, intents = StrategyEngine.process_event(state, object(), _placeholder_factory, 2.0)
+    after, intents = StrategyEngine.process_event(
+        state,
+        object(),  # type: ignore[arg-type]
+        _placeholder_factory,
+        2.0,
+    )
 
     assert after.strategies == state.strategies
     assert intents == ()
@@ -736,7 +743,7 @@ def test_the_context_is_not_added_to_any_snapshot() -> None:
 
     names = {field.name for field in fields(PipelineSnapshot)}
     assert not [n for n in names if "context" in n]
-    assert PIPELINE_SNAPSHOT_SCHEMA == 2, "populating a context moves no schema"
+    assert PIPELINE_SNAPSHOT_SCHEMA == 3, "populating a context moves no schema"
 
 
 # ---------------------------------------------------------------------------

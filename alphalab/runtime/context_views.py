@@ -163,12 +163,26 @@ class PortfolioView:
         return MappingProxyType(dict(self._state.cash.reserved))
 
     @property
-    def realized_pnl(self) -> Decimal:
-        return self._state.realized_pnl
+    def realized_pnl(self) -> Mapping[str, Decimal]:
+        """Realized P&L keyed by settlement currency (ADR-0035)."""
+
+        return MappingProxyType(dict(self._state.realized_pnl))
 
     @property
-    def commission_paid(self) -> Decimal:
-        return self._state.commission_paid
+    def commission_paid(self) -> Mapping[str, Decimal]:
+        """Commission expensed, keyed by settlement currency."""
+
+        return MappingProxyType(dict(self._state.commission_paid))
+
+    def realized_pnl_in(self, currency: str) -> Decimal:
+        """Realized P&L settled in ``currency``; zero if none was."""
+
+        return self._state.realized_pnl.of(currency)
+
+    def commission_paid_in(self, currency: str) -> Decimal:
+        """Commission expensed in ``currency``; zero if none was."""
+
+        return self._state.commission_paid.of(currency)
 
 
 # ---------------------------------------------------------------------------

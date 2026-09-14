@@ -39,7 +39,7 @@ class PluginManager:
         if meta.enabled:
             events.append(PluginEnabled(PluginManager._create_id(), timestamp, meta.plugin_id))
 
-        return replace(s1, events=(*s1.events, *events))
+        return replace(s1, events=s1.events.extend(events))
 
     @staticmethod
     def unregister_plugin(state: PluginState, plugin_id: str, timestamp: float) -> PluginState:
@@ -47,7 +47,7 @@ class PluginManager:
         s1 = PluginRegistry.unregister(state, plugin_id)
 
         evt = PluginRemoved(PluginManager._create_id(), timestamp, plugin_id)
-        return replace(s1, events=(*s1.events, evt))
+        return replace(s1, events=s1.events.append(evt))
 
     @staticmethod
     def enable_plugin(state: PluginState, plugin_id: str, timestamp: float) -> PluginState:
@@ -57,7 +57,7 @@ class PluginManager:
             return state  # No change occurred
 
         evt = PluginEnabled(PluginManager._create_id(), timestamp, plugin_id)
-        return replace(s1, events=(*s1.events, evt))
+        return replace(s1, events=s1.events.append(evt))
 
     @staticmethod
     def disable_plugin(state: PluginState, plugin_id: str, timestamp: float) -> PluginState:
@@ -67,4 +67,4 @@ class PluginManager:
             return state
 
         evt = PluginDisabled(PluginManager._create_id(), timestamp, plugin_id)
-        return replace(s1, events=(*s1.events, evt))
+        return replace(s1, events=s1.events.append(evt))

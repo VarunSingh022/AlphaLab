@@ -7,10 +7,20 @@ from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import FillEvent, Intent, OrderEvent, TimerEvent
 
 
+@runtime_checkable
 class StrategyProtocol(Protocol):
     """
     The strict Protocol every strategy must satisfy.
     All hooks are uniformly shaped and return Iterables of Intent.
+
+    ``runtime_checkable`` as of v2.17, which lets
+    :meth:`~alphalab.strategy.registry.StrategyClassRegistry.construct` refuse a
+    factory that returns something undispatchable *at registration* rather than
+    at its first market event -- where
+    :class:`~alphalab.strategy.dispatcher.Dispatcher` would record the failure
+    against the strategy. As ever for a protocol, the check is on member
+    presence and not on signatures; that is the right strength here, because
+    what it is guarding against is a stub or a ``None``, not a subtly wrong hook.
     """
 
     def on_start(self, context: StrategyContext) -> None:

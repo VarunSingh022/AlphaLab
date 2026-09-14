@@ -20,6 +20,7 @@ from alphalab.common.ids import (
     use_id_source,
 )
 from alphalab.common.metadata import Metadata, copy_metadata
+from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.common.point_in_time import PointInTimeRecord
 from alphalab.common.point_in_time import known_as_of as generic_known_as_of
 from alphalab.common.results import Result
@@ -44,15 +45,15 @@ __all__ = [
     "AlphaLabValidationError",
     "AppendOnlyLog",
     "BaseEvent",
-    "CommonEvent",
     "DeterministicIdSource",
     "Identifier",
     "Metadata",
     "MetadataMapping",
     "MetadataValue",
     "ParamValue",
+    "PersistentMap",
+    "PersistentSet",
     "PointInTimeRecord",
-    "Registry",
     "Result",
     "__version__",
     "copy_metadata",
@@ -72,32 +73,3 @@ __all__ = [
     "use_id_source",
     "utc_now",
 ]
-
-
-def __getattr__(name: str) -> object:
-    """Serve ``CommonEvent`` with a deprecation warning, on use rather than import.
-
-    ``CommonEvent`` is deprecated in v2.6 and removed in v3.0: it has no
-    consumer anywhere in this repository, and every subsystem event derives from
-    :class:`~alphalab.common.events.BaseEvent` instead.
-
-    The warning is deliberately *not* at module import. Nearly everything in
-    AlphaLab imports ``alphalab.common`` for ``BaseEvent``, so an import-time
-    warning would fire on every run to deprecate a symbol nobody uses -- which is
-    how people learn to filter DeprecationWarning. PEP 562 lets the warning
-    reach exactly the caller who touches the name. See ADR-0015 decision 9.
-    """
-
-    if name == "CommonEvent":
-        import warnings
-
-        from alphalab.common.events import CommonEvent
-
-        warnings.warn(
-            "alphalab.common.CommonEvent is deprecated and will be removed in "
-            "v3.0. Subsystem events derive from alphalab.common.events.BaseEvent.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return CommonEvent
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

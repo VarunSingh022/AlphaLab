@@ -34,6 +34,16 @@ from alphalab.strategy.exceptions import (
     StrategyRuntimeError,
 )
 from alphalab.strategy.protocol import BaseStrategy, StrategyProtocol, StrategyStateProtocol
+from alphalab.strategy.registry import (
+    DuplicateStrategyError,
+    StrategyClassRegistry,
+    StrategyDeclaration,
+    StrategyFactory,
+    StrategyRegistration,
+    UnknownStrategyError,
+    instances_for,
+    runtime_for,
+)
 from alphalab.strategy.runtime import create_runtime, register_strategy
 from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
 from alphalab.strategy.supervisor import RuntimeSupervisor
@@ -44,6 +54,7 @@ __all__ = [
     "BaseStrategy",
     "ClockProtocol",
     "Dispatcher",
+    "DuplicateStrategyError",
     "FillEvent",
     "HistoryAccessorProtocol",
     "HookExecutionError",
@@ -66,19 +77,26 @@ __all__ = [
     "RuntimeState",
     "RuntimeSupervisor",
     "ScopedLoggerProtocol",
+    "StrategyClassRegistry",
     "StrategyContext",
+    "StrategyDeclaration",
     "StrategyEngine",
+    "StrategyFactory",
     "StrategyProtocol",
+    "StrategyRegistration",
     "StrategyRuntimeError",
     "StrategyRuntimeEvent",
     "StrategyState",
     "StrategyStateProtocol",
     "TimerEvent",
     "UniverseProtocol",
+    "UnknownStrategyError",
     "active_strategies",
     "create_runtime",
     "failed_strategies",
     "get_strategy",
+    "instances_for",
     "register_strategy",
+    "runtime_for",
     "validate_intent",
 ]

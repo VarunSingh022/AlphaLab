@@ -19,11 +19,12 @@ class DatasetRegistry:
         meta = dataset.metadata
 
         record = CatalogRecord(meta, dataset.quality, len(dataset.records))
-        new_catalog = dict(state.catalog)
-        new_catalog[meta.dataset_id] = record
-
         evt = DatasetCataloged(
             DatasetRegistry._create_id(), ts, meta.dataset_id, meta.asset_class.name
         )
 
-        return replace(state, catalog=new_catalog, events=(*state.events, evt))
+        return replace(
+            state,
+            catalog=state.catalog.set(meta.dataset_id, record),
+            events=state.events.append(evt),
+        )

@@ -10,8 +10,15 @@ class BrokerEngine:
     """Facade orchestrating safe interaction with configured BrokerProtocols."""
 
     @staticmethod
-    def initialize(broker_name: str, initial_cash: Decimal, currency: str = "USD") -> BrokerState:
-        """Constructs an empty base state for the broker layer."""
+    def initialize(broker_name: str, initial_cash: Decimal, currency: str) -> BrokerState:
+        """Constructs an empty base state for the broker layer.
+
+        ``currency`` is **required** as of v2.17, having defaulted to ``"USD"``.
+        It is stamped onto the account this state carries and onto every
+        figure derived from it, and nothing downstream refuses a wrong one --
+        an account in the wrong currency reconciles against a venue silently
+        and wrongly. ADR-0019's rule: a currency is named, never assumed.
+        """
         account = BrokerAccount(
             account_id=f"{broker_name}-ACC",
             cash=initial_cash,

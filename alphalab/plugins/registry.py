@@ -2,7 +2,6 @@
 
 from dataclasses import replace
 
-from alphalab.common.registry import with_mapping_item, without_mapping_key
 from alphalab.plugins.protocol import PluginProtocol
 from alphalab.plugins.state import PluginState
 from alphalab.plugins.validation import validate_lookup, validate_registration
@@ -16,11 +15,11 @@ class PluginRegistry:
         validate_registration(state, plugin)
 
         meta = plugin.metadata()
-        new_plugins = with_mapping_item(state.plugins, meta.plugin_id, plugin)
+        new_plugins = state.plugins.set(meta.plugin_id, plugin)
 
-        new_enabled = set(state.enabled_ids)
+        new_enabled = state.enabled_ids
         if meta.enabled:
-            new_enabled.add(meta.plugin_id)
+            new_enabled = new_enabled.add(meta.plugin_id)
 
         stats = replace(
             state.statistics,
@@ -32,7 +31,8 @@ class PluginRegistry:
         return replace(
             state,
             plugins=new_plugins,
-            enabled_ids=frozenset(new_enabled),
+            enabled_ids=new_enabled,
+            registered_names=state.registered_names.add(meta.name),
             statistics=stats,
         )
 
@@ -40,11 +40,9 @@ class PluginRegistry:
     def unregister(state: PluginState, plugin_id: str) -> PluginState:
         validate_lookup(state, plugin_id)
 
-        new_plugins = without_mapping_key(state.plugins, plugin_id)
-
-        new_enabled = set(state.enabled_ids)
-        if plugin_id in new_enabled:
-            new_enabled.remove(plugin_id)
+        name = state.plugins[plugin_id].metadata().name
+        new_plugins = state.plugins.delete(plugin_id)
+        new_enabled = state.enabled_ids.discard(plugin_id)
 
         stats = replace(
             state.statistics,
@@ -56,7 +54,8 @@ class PluginRegistry:
         return replace(
             state,
             plugins=new_plugins,
-            enabled_ids=frozenset(new_enabled),
+            enabled_ids=new_enabled,
+            registered_names=state.registered_names.discard(name),
             statistics=stats,
         )
 
@@ -67,7 +66,7 @@ class PluginRegistry:
         if plugin_id in state.enabled_ids:
             return state
 
-        new_enabled = frozenset(state.enabled_ids | {plugin_id})
+        new_enabled = state.enabled_ids.add(plugin_id)
         stats = replace(
             state.statistics,
             enabled_count=len(new_enabled),
@@ -82,7 +81,7 @@ class PluginRegistry:
         if plugin_id not in state.enabled_ids:
             return state
 
-        new_enabled = frozenset(state.enabled_ids - {plugin_id})
+        new_enabled = state.enabled_ids.discard(plugin_id)
         stats = replace(
             state.statistics,
             enabled_count=len(new_enabled),

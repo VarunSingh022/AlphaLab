@@ -3,7 +3,6 @@
 from dataclasses import replace
 
 from alphalab.common.ids import new_id
-from alphalab.common.registry import with_mapping_item, without_mapping_key
 from alphalab.distributed.events import WorkerRegistered, WorkerRemoved
 from alphalab.distributed.node import WorkerNode, WorkerStatus
 from alphalab.distributed.state import DistributedState
@@ -22,13 +21,15 @@ class WorkerRegistry:
         """Validates and registers a computation node."""
         validate_worker_registration(state, worker)
 
-        new_workers = with_mapping_item(state.workers, worker.node_id, worker)
-
         evt = WorkerRegistered(
             WorkerRegistry._create_id(), timestamp, worker.node_id, worker.capacity
         )
 
-        return replace(state, workers=new_workers, events=(*state.events, evt))
+        return replace(
+            state,
+            workers=state.workers.set(worker.node_id, worker),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def remove(state: DistributedState, worker_id: str, timestamp: float) -> DistributedState:
@@ -36,11 +37,13 @@ class WorkerRegistry:
         if worker_id not in state.workers:
             return state
 
-        new_workers = without_mapping_key(state.workers, worker_id)
-
         evt = WorkerRemoved(WorkerRegistry._create_id(), timestamp, worker_id)
 
-        return replace(state, workers=new_workers, events=(*state.events, evt))
+        return replace(
+            state,
+            workers=state.workers.delete(worker_id),
+            events=state.events.append(evt),
+        )
 
     @staticmethod
     def update_status(
@@ -54,7 +57,4 @@ class WorkerRegistry:
         if worker.status == status:
             return state
 
-        updated_worker = replace(worker, status=status)
-        new_workers = with_mapping_item(state.workers, worker_id, updated_worker)
-
-        return replace(state, workers=new_workers)
+        return replace(state, workers=state.workers.set(worker_id, replace(worker, status=status)))

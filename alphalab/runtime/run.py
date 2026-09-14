@@ -65,6 +65,7 @@ from alphalab.market.record import MarketRecord
 from alphalab.market.source import OrderingGuarantee
 from alphalab.market.state import MarketState
 from alphalab.oms.order import Order as OMSOrder
+from alphalab.portfolio.fx import NO_RATES, FxRates
 from alphalab.runtime.execution_pipeline import (
     ContextFactory,
     ExecutionPipeline,
@@ -322,6 +323,7 @@ class RunEngine:
         record: MarketRecord,
         context_factory: ContextFactory,
         now: float | None = None,
+        rates: FxRates = NO_RATES,
     ) -> tuple[RunState, ExecutionPipelineResult | None]:
         """Move one record through the execution path, and record what it did.
 
@@ -364,7 +366,7 @@ class RunEngine:
             return _out_of_order(state, record, previous)
 
         result = ExecutionPipeline.process_record(
-            state.pipeline, record, context_factory, state.config.fill_policy
+            state.pipeline, record, context_factory, state.config.fill_policy, rates
         )
         step = RunStep(
             index=state.processed,
