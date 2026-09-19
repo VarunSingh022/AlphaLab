@@ -8,6 +8,11 @@ it is no longer a queue of structural work, because the v3.0 audit established
 that there is no known internal problem requiring AlphaLab to be refactored. What
 remains is classified below, and each class means something different.
 
+**v3.1.0** is the first release after the freeze, and shows what "frozen" is
+meant to permit: a capability release confined to one package, adding the data
+layer `alphalab.data` was named for without moving a boundary or changing an
+owner.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
@@ -86,6 +91,36 @@ v3.0.0 adds no capability and moves no boundary. It is the point at which:
 The v2.17 release exists so that this one could be additive: everything that
 would have been a breaking removal in v3.0 was taken a release early.
 
+## v3.1.0 — universal data ingestion
+
+The first capability release on the frozen architecture, confined to
+`alphalab.data`. ADR-0036.
+
+- **Source provenance** — `RawSource` records the channel, the location, the
+  retrieval time and the SHA-256 of the exact bytes.
+- **CSV as a first-class input** — four delimiters, quoted fields, headerless
+  files, vendor header spellings, and every discrepancy preserved rather than
+  padded away.
+- **Schema detection that refuses to guess** — bindings with stated reasons,
+  ambiguities reported rather than resolved, every assumption returned.
+- **Explicit timezones** — a naive timestamp is refused until a zone is named;
+  a bare date needs a stated time-of-day convention.
+- **Structured validation** — thirteen `FindingKind`s, each carrying severity,
+  source line and column.
+- **Cleaning under a policy with no defaults**, every change recorded as a
+  `TransformationRecord`. There is no way to fill a missing price.
+- **Market calendars** — sessions, lunch breaks, overnight sessions, half days,
+  holidays and 24/7, for any venue. No holiday data ships.
+- **Multi-asset semantics** — one spec per asset class, each keeping the fields
+  its class needs.
+- **Corporate actions** — `PriceBasis` distinguishes raw from adjusted, and
+  every adjustment is traceable to the action that caused it.
+- **A derived, immutable dataset version**, carried into `MarketDataset`,
+  `RunState.source_id`, `BacktestResult.dataset_id` and `ValidationEvidence` —
+  with the evidence digest unchanged.
+- **`alphalab.api`** — the application-facing Python API, so a host
+  platform imports one module rather than reaching into internals.
+
 ---
 
 # Deliberate boundaries
@@ -134,6 +169,25 @@ future "simplification" would have to break first —
   acting on the answer is the caller's.
 - **No CLI, no server, no daemon, no event bus.** AlphaLab is a library with no
   composition root and no declared entry point, and a test asserts it.
+- **No way to fill a missing price.** `MissingValuePolicy` has `REFUSE` and
+  `DROP_ROW` and deliberately no `FILL`. Forward-fill, interpolation and
+  last-known-value each invent a print that never happened, and the invention is
+  invisible by the time it reaches an equity curve. The absence is structural
+  rather than a member that raises, so the option is not discoverable and then
+  refused (ADR-0036 decision 3).
+- **No repair of an impossible bar.** A bar with `high < low` is a row whose
+  meaning is unknown, not one with a small error in it; clamping it produces a
+  plausible bar the source never reported.
+- **No holiday data, and no corporate-action feed.** `MarketCalendar` and
+  `apply_adjustments` are the mechanism and the arithmetic; the data is an
+  application's to supply. An exchange's holiday list changes annually and
+  differs between segments of one venue, so a list baked in here would be wrong
+  within a year while looking authoritative — the same position v2.11 took on
+  taxonomies and v2.17 on FX rates.
+- **No trade or depth ingestion from a flat file.** A `price`/`size` pair is
+  indistinguishable from a partially populated bar without a declaration, and a
+  depth book is not a flat table. `RecordType` has `BAR` and `QUOTE` only; a
+  caller that builds the records itself can still ingest them.
 
 ---
 
@@ -151,6 +205,13 @@ Real, and not AlphaLab's engineering to complete.
   that venue's request shapes, which differ per venue and belong to an adapter.
 - **FX data.** v2.17 adds the rate-feed *boundary* — ordering, deduplication,
   conflict refusal, provenance and staleness — and **not a single rate**.
+- **Market calendars and corporate actions.** v3.1 adds the calendar
+  abstraction and the split/dividend arithmetic, and **not one holiday and not
+  one action**. Both are vendor- or exchange-supplied and change on their own
+  schedule.
+- **A reader for any binary columnar format.** Parquet is expressible in
+  provenance through `RawSource.media_type`; reading it needs a third-party
+  dependency, and AlphaLab has none.
 - **Classification data.** v2.11 supplies the security master's *mechanism* and
   v2.15 its provenance. AlphaLab ships no taxonomy and no reference-data feed, so
   a sector breakdown requires an operator who declares one. Sector is also the
@@ -215,6 +276,12 @@ made `governance` a required argument at every governed entry point; and v2.17.0
 required the margin rates and currencies that had been silently defaulted.
 
 **Patch releases** focus on stability, bug fixes, and performance.
+
+**v3.1.0** made two narrow documented changes of the kind described above, both
+because a v3.1 requirement contradicted a v3.0 behaviour directly:
+`UniversalDataEngine.clean` now requires a `CleaningPolicy` rather than applying
+an implicit one, and it — like `convert_timeframe` — derives a new dataset
+version rather than replacing records in place.
 
 After v3.0.0, the bar for a change rises: the invariants listed in
 `nowandfuture.md` are frozen, and a change to any of them is a major release with

@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-3.0.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.1.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-3956%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-4144%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -37,27 +37,86 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.0.0 — the stable, architecture-frozen release**
+**Current Release:** **v3.1.0 — universal data ingestion, on the v3.0 frozen architecture**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.0.0 |
+| Version | 3.1.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **3956 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (910 source files) |
+| Tests | **4144 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (929 source files) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **47 / 47 Passing** |
-| Examples | **14 / 14 Passing** |
+| Benchmarks | **48 / 48 Passing** |
+| Examples | **16 / 16 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
 
-## What v3.0.0 is
+## What v3.1.0 is
 
-v3.0.0 adds no capability. It is the release in which AlphaLab's architecture is
-**frozen** and the repository is made to describe itself truthfully.
+The first release after the v3.0 architecture freeze, and a **capability**
+release confined to one package. `alphalab.data` gains the ingestion,
+validation, cleaning, provenance and identity machinery it was named for and did
+not have. No boundary moves, no ownership changes, and nothing outside
+`alphalab.data` is redesigned.
+
+The path it adds, end to end:
+
+```
+raw source  ->  schema detection  ->  validation  ->  cleaning (under a policy)
+            ->  quality report    ->  canonical dataset
+            ->  provenance + a derived, immutable version
+            ->  a backtest whose result names the exact bytes it read
+```
+
+Four properties are the point of it:
+
+1. **Nothing happens silently.** Every row that does not become a record is
+   returned with the reason and the source line; every change that *is* made is
+   returned as a `TransformationRecord` with its count and its reason. Both ride
+   into the dataset's provenance. The promise is not that the data will be
+   clean — it is that a user can always reconstruct what AlphaLab did to it.
+2. **The policy is the caller's.** `CleaningPolicy` has four required fields and
+   no defaults, because whether a duplicate instant is fatal or routine depends
+   on the desk and the dataset. There is **no way to fill a missing price** —
+   `MissingValuePolicy` has `REFUSE` and `DROP_ROW` and no `FILL`, because
+   forward-fill invents a print that never happened and the invention is
+   invisible by the time it reaches an equity curve.
+3. **Ambiguity is refused, not resolved.** A Yahoo export carrying both `close`
+   and `adj close` is reported ambiguous, because choosing is the difference
+   between a backtest on raw prices and one on adjusted prices. So is a
+   delimiter two candidates fit, a naive timestamp with no zone named, and a
+   numeric column that reads as a valid instant in both seconds and
+   milliseconds.
+4. **A dataset version is derived and immutable.** The identity is a SHA-256
+   over the content hash, schema, zone, calendar, frequency, basis, policy and
+   every transformation — so two ingestions of the same bytes agree with no
+   shared state. Cleaning *derives* a new version rather than editing one, and
+   both stay in the catalogue. That closes a hole under ADR-0017: evidence
+   hashed `dataset_id`, but cleaning used to replace the data behind it, so the
+   digest still verified while the numbers had changed.
+
+The derived version reaches `MarketDataset`, `RunState.source_id`,
+`BacktestResult.dataset_id` and `ValidationEvidence` unchanged — and **the
+evidence digest did not move**, so every promotion recorded since v2.6 still
+verifies.
+
+Global time is explicit throughout: `MarketCalendar` expresses a venue's
+timezone, sessions, lunch break, overnight session, half days and holidays, with
+India, the US, Europe, Japan, Hong Kong, Singapore, Australia and 24/7 crypto
+all expressible and none privileged. **No holiday data ships**, for the reason
+no taxonomy shipped in v2.11 and no FX rate in v2.17.
+
+See [`ADR-0036`](docs/ADR/0036-universal-data-ingestion-provenance-and-the-dataset-version.md),
+and `examples/15_data_ingestion.py` / `examples/16_research_from_dataset.py`.
+
+## What v3.0.0 was
+
+v3.0.0 added no capability. It is the release in which AlphaLab's architecture
+was **frozen** and the repository made to describe itself truthfully. It remains
+the baseline: v3.1 is additive to it, and the invariants below are unchanged.
 
 Three things were established before it could be declared:
 
@@ -121,6 +180,7 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v2.16.0** | The live driver, governance/RBAC/audit, FX valuation — and the refactor audit (ADR-0032, ADR-0033) |
 | **v2.17.0** | Settlement-level multi-currency, the FX rate feed, the strategy-class registry, and the removal of seven deprecated surfaces (ADR-0034, ADR-0035) |
 | **v3.0.0** | Architecture frozen; documentation truth freeze. No capability added |
+| **v3.1.0** | Universal data ingestion: CSV, schema detection, structured validation, explicit cleaning policies, market calendars, multi-asset semantics, provenance and the derived dataset version (ADR-0036) |
 
 > **What connectivity means here.** `alphalab.broker.transport.HttpVenueTransport`
 > signs and sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker`
@@ -333,7 +393,7 @@ The recommended way to learn the framework is through the curated examples.
 | 04 | `04_market_data.py` | Market-data providers |
 | 05 | `05_broker_connection.py` | The two broker boundaries: one venue, or a registry of many |
 | 06 | `06_portfolio_optimizer.py` | Portfolio construction |
-| 07 | `07_universal_data.py` | Universal Data Engine |
+| 07 | `07_universal_data.py` | Universal Data Engine: state, versions and the catalogue |
 | 08 | `08_strategy_studio.py` | Strategy Studio orchestration |
 | 09 | `09_workbench.py` | Workbench workspace |
 | 10 | `10_complete_pipeline.py` | Multi-engine walkthrough |
@@ -341,6 +401,8 @@ The recommended way to learn the framework is through the curated examples.
 | 12 | `12_model_lifecycle.py` | Research candidate → model → strategy version → deploy → rollback |
 | 13 | `13_durable_run_state.py` | Stop a run, store it, continue it in another process |
 | 14 | `14_multi_currency_settlement.py` | FX feed → two settlement currencies → one reported figure |
+| 15 | `15_data_ingestion.py` | **A broken CSV** through detection, validation, an explicit cleaning policy and a quality report, out as a versioned canonical dataset |
+| 16 | `16_research_from_dataset.py` | Research access by dataset version, point-in-time selection, and a backtest that names the exact bytes it read |
 
 Run any example:
 
@@ -350,9 +412,10 @@ python examples/01_research.py
 
 Examples `01`–`10` date from v1.0.0 and exercise the standalone engine APIs;
 `11` (v2.2) drives the integrated execution path, `12` (v2.4) the lifecycle path,
-`13` (v2.13) durable run state across two processes, and `14` (v2.17)
-settlement-level multi-currency. None are part of the automated test suite,
-though all fourteen run.
+`13` (v2.13) durable run state across two processes, `14` (v2.17)
+settlement-level multi-currency, and `15`–`16` (v3.1) universal data ingestion
+and research from a canonical dataset. None are part of the automated test
+suite, though all sixteen run.
 
 ---
 
@@ -367,7 +430,7 @@ The complete documentation is available in the `docs/` directory.
 | `docs/SYSTEM_DESIGN.md` | Internal design and subsystem interaction |
 | `docs/STATE_MODEL.md` | Immutable state, snapshots and schemas |
 | `docs/EVENT_MODEL.md` | Event-driven architecture and lifecycle |
-| `docs/ADR/` | Architectural Decision Records — 35 of them |
+| `docs/ADR/` | Architectural Decision Records — 36 of them |
 | `docs/EXAMPLES.md` | Example walkthroughs |
 | `docs/ENGINEERING_GUIDELINES.md` | Engineering standards |
 | `nowandfuture.md` | The long-form project reference: ownership, invariants, boundaries, what must not change casually |
@@ -404,7 +467,9 @@ alphalab/
 │   research/      Research scores, consumed for validation evidence
 │
 ├── Data surfaces
-│   data/          Wire records and the universal data engine
+│   data/          Wire records, and the universal data engine:
+│                  ingestion, schema detection, validation, cleaning,
+│                  calendars, corporate actions, provenance, `api`
 │   marketdata/    Provider clients, transport, WebSocket
 │   feed/  live/   Standalone provider-surface engines
 │
@@ -427,9 +492,9 @@ Additional directories:
 
 ```text
 docs/          Documentation and ADRs
-examples/      14 runnable examples
-benchmarks/    47 performance benchmarks
-tests/         3956 tests — unit, integration, regression
+examples/      16 runnable examples
+benchmarks/    48 performance benchmarks
+tests/         4144 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
 
@@ -439,10 +504,10 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **3956 passing tests** (1646 unit, 239 integration, 2071 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking (910 source files)
+- ✅ **4144 passing tests** (1754 unit, 239 integration, 2151 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking (929 source files)
 - ✅ Ruff linting and formatting
-- ✅ 47 / 47 benchmarks, 14 / 14 examples
+- ✅ 48 / 48 benchmarks, 16 / 16 examples
 - ✅ Source distribution, wheel and `twine check` validation
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
@@ -536,7 +601,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v3.0.0**
+**AlphaLab v3.1.0**
 
 Building deterministic infrastructure for quantitative research.
 

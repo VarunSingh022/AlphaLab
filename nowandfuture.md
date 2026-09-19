@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.1.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,16 +42,53 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.0.0** |
+| Version | **3.1.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen.** |
+| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 is additive to it.** |
 
 ---
 
-# 2. What v3.0.0 means
+# 2. What v3.1.0 adds, and what v3.0.0 means
+
+## v3.1.0 — the first release on the frozen architecture
+
+v3.1.0 is a **capability** release confined to one package. `alphalab.data`
+gains the ingestion, validation, cleaning, provenance and identity machinery it
+was named for and did not have. No boundary moves, no ownership changes, no
+schema constant moves, and nothing outside `alphalab.data` is redesigned. It is
+what "frozen" is meant to permit. ADR-0036.
+
+Four properties, and each is an invariant now (section 14):
+
+1. **Nothing is altered silently.** Every rejected row is returned with its
+   reason and source line; every applied change is a `TransformationRecord`
+   with its count and reason; both ride into the dataset's provenance.
+2. **The cleaning policy is the caller's, and has no default.** ADR-0033
+   decision 10's rule, applied to data: a default either way is an invented
+   policy presented as an architectural one. There is **no way to fill a
+   missing price** — the absence is structural, not a member that raises.
+3. **Ambiguity is refused rather than resolved.** `close` and `adj close`
+   together, a delimiter two candidates fit, a naive timestamp with no zone, a
+   numeric column that reads as a valid instant in both seconds and
+   milliseconds.
+4. **A dataset version is derived and immutable.** The identity hashes the
+   content, schema, zone, calendar, frequency, basis, policy and every
+   transformation. Cleaning *derives* a new version; both stay in the
+   catalogue, and `UniversalDataState.lineage` records which came from which.
+
+The fourth closes a hole under ADR-0017. Evidence hashed `dataset_id` so that a
+promotion could not be pointed at different data after the fact — but cleaning
+used to replace `state.datasets[id]` in place, so the digest still verified
+while the numbers behind it had changed. The tamper-evidence was real for
+metrics and decorative for data. The derived version now reaches
+`MarketDataset`, `RunState.source_id`, `BacktestResult.dataset_id` and
+`ValidationEvidence` unchanged, and **`evidence_id_for` did not move** — every
+promotion recorded since v2.6 still verifies.
+
+## What v3.0.0 means
 
 v3.0.0 adds no capability, moves no ownership boundary, changes no schema and
 removes no public name. Three things make it the stable release:
@@ -140,8 +177,9 @@ All 48 packages, and which path reaches each.
 | `backtesting` | The dataset type and the two drivers over it |
 | `replay` | The deterministic replay cursor, clock and session lifecycle |
 | `broker` | **One** venue: `BrokerProtocol`, the canonical broker vocabulary, reconciliation, the HMAC transport, `RestVenueBroker`, `PaperBroker` |
-| `data` | The canonical **wire** record, and the Universal Data Engine |
+| `data` | The canonical **wire** record, and the Universal Data Engine: source provenance, delimited reading, schema detection, timestamps and frequency, validation findings, cleaning policy, quality reporting, asset-class semantics, market calendars, corporate-action basis, and the derived dataset version. Its only outward edges are `common` and `options` (one leaf enum), which is what keeps the package graph acyclic |
 | `marketdata` | Provider clients, HTTP transport, the WebSocket client, symbols, subscriptions |
+| `api` | **The top of the graph** (v3.1). The application-facing Python API joining the data layer to the execution path: `ingest_csv`, `select`, `to_market_dataset`, `backtest`, `replay`. Nothing imports it, which is what lets it depend on both `data` and `market` without closing a cycle |
 
 ## The lifecycle path
 
@@ -421,6 +459,17 @@ lineage.
   docstring: `LiveRunSnapshot` omits `routed` / `settled` (derivable from the two
   halves — carrying them would give one fact two homes that could disagree), and
   `InstrumentRegistrySnapshot` omits `by_provider` (a rebuilt index).
+- **A dataset version is never overwritten** (v3.1). Cleaning and resampling
+  derive a new version through `derive_transformed_version`; `DataManager`
+  refuses a version it already holds, and `UniversalDataState.lineage` records
+  the parent. A dataset's identity is derived from its content and
+  configuration, never minted — the property `derive_asset_id` gives
+  instruments, for the same reason.
+- **Provenance may be absent, and says so.** A dataset built from rows already
+  in memory carries `provenance=None`; `require_provenance()` refuses rather
+  than manufacturing a record, so an unverifiable dataset can never look like a
+  verified one. Same rule as `RunState.source_id` being `None` for a
+  hand-driven run.
 
 ## Where a payload goes
 
@@ -605,21 +654,20 @@ retry-on-older-protocol fallback exists.
 ```bash
 ruff check .                              # lint
 ruff format --check .                     # format
-mypy .                                    # strict, 910 source files
-pytest -q                                 # 3956 tests, 0 skipped, 0 warnings
-pytest -q -W error::DeprecationWarning    # the same 3956
+mypy .                                    # strict, 929 source files
+pytest -q                                 # 4144 tests, 0 skipped, 0 warnings
+pytest -q -W error::DeprecationWarning    # the same 4144
 git diff --check
 python -m build && twine check dist/*
-for f in examples/*.py; do python "$f"; done    # 14
-for f in benchmarks/*.py; do python "$f"; done  # 47
+for f in examples/*.py; do python "$f"; done    # 16
+for f in benchmarks/*.py; do python "$f"; done  # 48
 ```
 
 `make check` runs the first four.
 
-**3956 tests: 1646 unit, 239 integration, 2071 regression.** The regression suite
-is the largest deliberately — 77 files, most of them pinning a decision rather
-than a behaviour, so a future "simplification" has to break an assertion and read
-a reason first.
+**4144 tests.** The regression suite is the largest deliberately — most of its
+files pin a *decision* rather than a behaviour, so a future "simplification" has
+to break an assertion and read a reason first.
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
 `test_the_suite_reports_nothing_deferred.py` reads the **collected items** rather
@@ -630,7 +678,7 @@ than the summary line, and spawns a **fresh interpreter** with
 
 | File | Pins |
 | --- | --- |
-| `test_shared_names_stay_distinct.py` | Eight pairs of same-named things that are not one thing |
+| `test_shared_names_stay_distinct.py` | Thirteen pairs of same-named things that are not one thing |
 | `test_venue_concepts_stay_distinct.py` | Listing exchange vs market-data attribution vs execution venue |
 | `test_no_silent_financial_defaults.py` | An AST sweep of the whole package; each exemption earned by a refusal test |
 | `test_snapshot_field_coverage.py` | Silent state loss when a state gains a field |
@@ -639,6 +687,9 @@ than the summary line, and spawns a **fresh interpreter** with
 | `test_durable_run_state_cross_process.py` | Byte-identical continuation across a real process boundary |
 | `test_instrument_identity_reaches_a_fill.py` | The `strategy` → `market` layering ban |
 | `test_the_suite_reports_nothing_deferred.py` | Zero skips, zero warnings |
+| `test_data_quality_contracts.py` | What ingestion does with bad data, one defect at a time |
+| `test_dataset_provenance_and_immutability.py` | Provenance preserved, versions immutable, identity derived |
+| `test_data_ingestion_complexity.py` | That the ingestion path stays linear in row count |
 
 ## Performance
 
@@ -646,6 +697,13 @@ The canonical path is **linear**: ~2.0× per doubling, measured 500 → 8,000
 records at v3.0, with the accounting identity holding at every size. Engine
 histories are `AppendOnlyLog` (O(1) amortized append) and keyed state is
 `PersistentMap` / `PersistentSet` (O(1) amortized write, copy-on-branch).
+
+**Ingestion is linear** in row count: measured at 1,000 / 10,000 / 100,000 /
+1,000,000 rows (10.3×, 11.7× and 10.3× for each 10× of data, against a linear
+prediction of 10×), ~9µs per row in pure Python with no dependencies. Duplicate
+detection uses a hashed set and ordering a per-instrument high-water mark, both
+pinned structurally by `test_data_ingestion_complexity.py`, because the obvious
+implementation of either is a rescan.
 
 One term is deliberately left super-linear — see section 17.
 
@@ -682,6 +740,15 @@ an ADR.
     or the event; the one clock in a run is the `now` argument to
     `RunEngine.advance`.
 14. **Zero skipped tests and zero warnings.**
+15. **A dataset version is never overwritten, and nothing is altered silently**
+    (v3.1, ADR-0036). Cleaning derives a new version rather than editing one;
+    every rejected row carries its reason and source line; every applied change
+    is a recorded `TransformationRecord`. A cleaning policy is the caller's and
+    has no default, and there is no way to fill a missing price.
+16. **Ambiguity in ingestion is refused, not resolved.** An unresolved schema, a
+    delimiter two candidates fit, a naive timestamp with no zone named, and a
+    numeric column that reads as a valid instant in both seconds and
+    milliseconds each raise rather than pick.
 
 ## The failure mode to watch for
 
@@ -789,6 +856,7 @@ of these is a defect.
 | v2.6.0 – v2.13.0 | Authority and durability: allocation authority, instrument identity, currency roles, identifier continuation, the strategy boundary, classification, the currency authority, the run-state store |
 | v2.14.0 – v2.17.0 | Unification and completion: one `RunEngine`, real transports, the live driver and governance and FX, then settlement multi-currency and the final cleanup |
 | **v3.0.0** | **Architecture frozen. Documentation true. No capability added** |
+| **v3.1.0** | **Universal data ingestion: CSV, detection, validation, cleaning policy, calendars, provenance, the derived dataset version (ADR-0036)** |
 
 35 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
@@ -840,6 +908,6 @@ Genuinely unresolved, recorded so they are not rediscovered:
 
 ---
 
-*Written at v3.0.0. If you are reading this long after, check the version in
+*Written at v3.0.0, updated at v3.1.0. If you are reading this long after, check the version in
 `pyproject.toml` first: where this document and the code disagree, the code is
 right, and this document has a bug worth fixing.*

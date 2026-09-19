@@ -31,4 +31,13 @@ class UniversalDataState:
     quality_reports: PersistentMap[str, QualityReport] = field(default_factory=PersistentMap)
     schemas: PersistentMap[str, DatasetSchema] = field(default_factory=PersistentMap)
     metadata: PersistentMap[str, DatasetMetadata] = field(default_factory=PersistentMap)
+
+    #: Derived version to the version it was derived from.
+    #:
+    #: Cleaning and resampling never overwrite a dataset, so both versions live
+    #: in ``datasets`` and this is what says which came from which. A dataset
+    #: read from a source has no entry, which is the honest statement that it
+    #: is the root of its own lineage rather than a derivative of something.
+    lineage: PersistentMap[str, str] = field(default_factory=PersistentMap)
+
     events: AppendOnlyLog[DataEvent] = field(default_factory=AppendOnlyLog)

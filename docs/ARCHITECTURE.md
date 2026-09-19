@@ -4,13 +4,13 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.0)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.1)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.0.0 both halves name only packages that exist; where the target half shows a
+> v3.1.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.0)
+# Implementation Status (v3.1)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -30,6 +30,15 @@ audit read the rest of this document and found the same defect class throughout
 its target-architecture half — see the v3.0.0 entry in `CHANGELOG.md` for the
 full list. The release checklist now has to touch `README.md`, this section and
 `docs/README.md` together.)*
+
+**v3.1 (ADR-0036)** added the universal data-ingestion path inside
+`alphalab.data` — source provenance, CSV reading, schema detection, structured
+validation, cleaning under an explicit policy, quality reporting, market
+calendars, multi-asset semantics, the raw/adjusted price basis, and a derived,
+immutable dataset version. It moved no boundary and changed no owner, and the
+derived version reaches `BacktestResult.dataset_id` and `ValidationEvidence`
+without the evidence digest moving. `alphalab.api` is the
+application-facing surface. See the **Universal Data Engine** section below.
 
 There are **two** wired-together paths, and as of v2.16 they meet:
 
@@ -55,7 +64,9 @@ owned by `RunEngine` and driven by four interchangeable drivers (v2.14); orders
 reach a real venue over signed HTTP and fills come back through the same path a
 simulated fill takes (v2.15, v2.16); every act that changes what is live names
 its principal (v2.16); and a run settles in more than one currency, reporting in
-one, with rates that arrive across a feed boundary (v2.17). **v3.0.0 adds no
+one, with rates that arrive across a feed boundary (v2.17). **v3.1.0 adds the
+universal data-ingestion path inside `alphalab.data` and moves no boundary
+(ADR-0036).** **v3.0.0 adds no
 capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -1633,35 +1644,78 @@ alphalab/data
 
 ### Responsibility
 
-Provides a canonical representation of market data.
+Turns a raw source into a canonical dataset that can say where it came from.
 
-Responsibilities include:
+```
+raw source  ->  schema detection  ->  validation  ->  cleaning (under a policy)
+            ->  quality report    ->  canonical dataset
+            ->  provenance + a derived, immutable version
+```
 
-- Loading datasets
-- Schema detection
-- Normalization
-- Validation
-- Cleaning
-- Metadata extraction
-- Symbol normalization
-- Timezone normalization
-- Dataset statistics
+Every downstream module consumes canonical datasets produced here. v3.1
+(ADR-0036) implemented this path; before it, the module names existed and behind
+each was a stub.
 
-Every downstream module consumes canonical datasets produced here.
+### One owner per step
+
+| Step | Module | Owns |
+| --- | --- | --- |
+| Source provenance | `data.source` | `RawSource`, `SourceKind`, the content digest |
+| Delimited reading | `data.csv_source` | `CsvDialect`, `RawTable`, delimiter detection, malformed rows |
+| Column spellings | `data.formats` | `COLUMN_ALIASES`, `canonical_field` — the one alias table |
+| Schema detection | `data.schema` | `FieldRole`, `RecordType`, `SchemaDetection`, `DatasetSchema` |
+| Time | `data.time` | `TimestampFormat`, `DateOnlyPolicy`, `TimeFrequency`, zone resolution |
+| Validation | `data.validation` | `FindingKind`, `ValidationFinding`, `RowRejection`, row coercion |
+| Cleaning | `data.cleaning` | `CleaningPolicy`, `TransformationRecord`, `is_internally_consistent` |
+| Quality | `data.quality` | `DataQualityReport` (authority) and `QualityReport` (its projection) |
+| Asset semantics | `data.assets` | One spec per asset class |
+| Calendars | `data.calendar` | `MarketCalendar`, `SessionWindow` |
+| Corporate actions | `data.corporate_actions` | `PriceBasis`, `AdjustmentRecord` |
+| Provenance | `data.provenance` | `DatasetProvenance`, `derive_dataset_version` |
+| The dataset | `data.dataset` | `Dataset` |
+| The pipeline | `data.ingestion` | `IngestionRequest`, `ingest_table` |
+| Engine state | `data.engine`, `data.manager`, `data.state` | The catalogue, lineage and event log |
+| Application API | `alphalab.api` | The surface a host platform calls — a **top-level** module, not part of `data` |
+
+`alphalab.api` sits *above* both the data layer and the execution path rather
+than inside either. `alphalab.market` imports `alphalab.data.feed` for the wire
+records, so a join placed inside `alphalab.data` would close a package-level
+import cycle. `alphalab.data`'s only outward edges are `alphalab.common` and
+`alphalab.options`, nothing imports `alphalab.api`, and `import alphalab.data`
+pulls in no part of the execution path —
+`tests/regression/test_import_graph_stays_acyclic.py` measures all three.
+
+### The rules it enforces
+
+- **Nothing is altered silently.** Every rejected row carries its reason and
+  source line; every applied change is a `TransformationRecord`.
+- **The cleaning policy is the caller's** and has no default. There is no way to
+  fill a missing price.
+- **Ambiguity is refused**, not resolved — an unresolved schema, a delimiter two
+  candidates fit, a naive timestamp with no zone, a numeric column that reads as
+  a valid instant in both seconds and milliseconds.
+- **A dataset version is immutable.** Cleaning and resampling derive a new one;
+  both stay in state and `lineage` records the parent.
+- **Provenance may be absent and says so.** `provenance=None` for a dataset
+  built from rows in memory; `require_provenance()` refuses rather than
+  manufacturing one.
 
 ### Owns
 
-- Dataset model
-- Dataset registry
-- Schema inference
-- Validation
-- Transformations
+- The canonical wire record (`data.feed`)
+- The `Dataset` model, its provenance and its derived identity
+- The dataset registry, catalogue and lineage
+- Schema detection, validation, cleaning and quality reporting
+- Market calendars and the raw/adjusted price basis
 
 ### Never Owns
 
 - Research
 - Trading logic
 - Portfolio optimization
+- The wire → domain normalization boundary — that is `market.normalization`,
+  and `alphalab.api.normalize_records` delegates to it rather than repeating it
+- Holiday data, corporate actions, or any vendor feed
 
 ---
 
@@ -1830,7 +1884,8 @@ Examples include:
 - Binance
 - NSE
 
-Raw provider data is forwarded to the Universal Data Engine for normalization.
+Raw provider data is forwarded to the Universal Data Engine for ingestion,
+validation and canonicalization.
 
 ---
 
@@ -5122,6 +5177,7 @@ These principles are considered architectural contracts rather than implementati
 | v2.16.0 | Live driver, governance, FX valuation, and the refactor audit (ADR-0032, ADR-0033) |
 | v2.17.0 | Settlement multi-currency, FX feed, strategy registry, seven removals (ADR-0034, ADR-0035) |
 | **v3.0.0** | **Architecture frozen; documentation truth freeze. No capability added** |
+| **v3.1.0** | **Universal data ingestion, provenance and the derived dataset version (ADR-0036)** |
 
 ---
 
@@ -5141,8 +5197,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v3.0.0
-Status: Implementation Status (v3.0) describes what is built and is authoritative.
+Version: v3.1.0
+Status: Implementation Status (v3.1) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```

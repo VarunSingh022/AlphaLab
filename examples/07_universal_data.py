@@ -21,7 +21,8 @@ Topics
 • Dataset Ingestion
 • Data Quality
 • Dataset Catalog
-• Immutable State
+• Immutable dataset versions (v3.1)
+• Explicit cleaning policy (v3.1)
 
 Run
 
@@ -29,9 +30,15 @@ Run
 """
 
 from alphalab.data import (
+    CleaningPolicy,
     DatasetMetadata,
+    DuplicatePolicy,
+    InvalidRecordPolicy,
+    MissingValuePolicy,
+    OrderingPolicy,
     UniversalDataEngine,
     catalog_summary,
+    dataset_lineage,
     dataset_summary,
     metadata_view,
     quality_report,
@@ -118,12 +125,24 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------
-    # Step 6 : Run Quality Checks
+    # Step 6 : Clean under an explicit policy
+    #
+    # v3.1 requires the policy: what may be altered is the data owner's
+    # decision, not the engine's. Cleaning derives a NEW version and leaves
+    # the ingested one exactly as it was.
     # ------------------------------------------------------------
+
+    policy = CleaningPolicy(
+        duplicates=DuplicatePolicy.KEEP_FIRST,
+        ordering=OrderingPolicy.SORT,
+        invalid_records=InvalidRecordPolicy.DROP,
+        missing_values=MissingValuePolicy.DROP_ROW,
+    )
 
     state = UniversalDataEngine.clean(
         state,
         metadata.dataset_id,
+        policy,
         ts=1_720_000_001.0,
     )
 
@@ -153,8 +172,23 @@ def main() -> None:
     print("=" * 60)
     print()
 
-    print(f"Datasets : {len(dataset_summary(state))}")
+    print(f"Dataset Versions : {len(dataset_summary(state))}")
     print(f"Catalog Entries : {len(catalog_summary(state))}")
+
+    print()
+    print("Versions held")
+    for held in dataset_summary(state):
+        name = held.metadata.dataset_id
+        symbols = sorted({record.symbol for record in held.records})
+        print(f"  {name[:48]:<48} {len(held.records)} records {symbols}")
+
+    for held in dataset_summary(state):
+        chain = dataset_lineage(state, held.metadata.dataset_id)
+        if len(chain) > 1:
+            print()
+            print("Lineage")
+            print(f"  derived : {chain[0][:60]}")
+            print(f"  from    : {chain[1]}")
 
     meta = metadata_view(
         state,

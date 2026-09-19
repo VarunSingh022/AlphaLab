@@ -14,6 +14,215 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.1.0] - 2026-09-20
+
+**Universal data ingestion, provenance, and the dataset version.**
+
+v3.0.0 froze the architecture and added no capability. This is the first release
+after that freeze, and it is a **capability** release confined to one package.
+`alphalab.data` gains the ingestion, validation, cleaning, provenance and
+identity machinery it was named for and did not have. No boundary moves, no
+ownership changes, and nothing outside `alphalab.data` is redesigned.
+
+The decisions are recorded in
+[`ADR-0036`](docs/ADR/0036-universal-data-ingestion-provenance-and-the-dataset-version.md).
+
+## What was wrong
+
+`alphalab.data` was called the Universal Data Engine and was 904 lines. The
+module names were right and behind each was a stub:
+
+* `parse_raw_rows` **silently dropped** every row that failed to translate, then
+  **silently sorted** the survivors, out of a parser implementation of its own;
+* `DataAdapter.create_metadata` fell back to `EQUITY` and `DAILY` on any
+  unrecognised input, so a file of option quotes labelled `"opt"` was catalogued
+  as equities;
+* `evaluate_bar_quality` reported a `missing_count` that was never incremented,
+  so `completeness` was 100% for every dataset that ever existed;
+* `DataManager.clean` and `convert_timeframe` **replaced** `state.datasets[id]`
+  in place, so the raw data ceased to exist the moment anything was done to it;
+* `remove_duplicates` keyed on timestamp alone, collapsing a three-instrument
+  daily file to one instrument;
+* `parse_and_load` overwrote every record's symbol with the dataset's id;
+* there was no CSV reader, no schema detection, no timezone handling, no
+  provenance and no dataset version.
+
+The second and fourth are the ones that mattered. A user handed AlphaLab a file
+and got back a dataset with fewer rows, in a different order, with no record of
+either — and ADR-0017's guarantee that evidence could not be pointed at
+different data after the fact was defeated one layer down, because cleaning
+replaced the dataset behind the id while the digest still verified.
+
+## Added
+
+**Source provenance.** `RawSource` records what was retrieved, from where, when,
+and the SHA-256 of the exact bytes. `raw_source_from_path` reads a local file and
+returns both the record and the bytes, so the content hashed is the content
+ingested. Every other channel — HTTP, object storage, a broker export — is
+recorded through `raw_source_from_bytes` by the caller that performed the
+retrieval; AlphaLab fetches nothing it cannot test.
+
+**CSV as a first-class input.** `read_delimited` handles comma, semicolon, tab
+and pipe delimiters, quoted fields, headerless files and vendor header
+spellings, and **preserves every discrepancy**: a row whose field count
+disagrees with the header is kept as a `MalformedRow` with the reason rather
+than padded or dropped. `detect_delimiter` refuses when more than one candidate
+fits, and reports the share of lines that agree so raggedness stays visible.
+
+**Schema detection.** `SchemaDetection` carries the bindings it resolved, the
+roles two columns could fill, the roles nothing filled, the columns it did not
+recognise, and every assumption — each with its reason, in words. `require()`
+refuses unless all of it is settled and lists every problem at once. A Yahoo
+export carrying both `close` and `adj close` is reported ambiguous rather than
+resolved, because choosing is the difference between a backtest on raw prices
+and one on adjusted prices.
+
+**Timestamps with explicit zones.** Offset-bearing timestamps are authoritative;
+a naive one is refused without a named zone rather than assumed UTC; a bare date
+needs a `DateOnlyPolicy`. A numeric column whose values all read as valid
+instants in both seconds and milliseconds is refused rather than guessed.
+
+**Structured validation.** `ValidationFinding` carries a `FindingKind`, a
+severity, the source line and the column. Thirteen kinds, covering duplicates,
+out-of-order records, impossible OHLC, non-positive prices, negative volumes,
+crossed quotes, missing values, unparseable timestamps and inconsistent
+frequencies.
+
+**Cleaning under a policy, with every change recorded.** `CleaningPolicy` has
+four required fields and no defaults — ADR-0033 decision 10's rule, that a
+default either way is an invented policy presented as an architectural one.
+`REFUSE_EVERYTHING` is the named starting point. Every change applied returns a
+`TransformationRecord` naming the operation, the count and the reason.
+
+**There is no way to fill a missing price.** `MissingValuePolicy` has `REFUSE`
+and `DROP_ROW` and no `FILL`. Forward-fill, interpolation and last-known-value
+each invent a print that never happened, invisibly. The absence is structural
+rather than a member that raises, so the option is not discoverable and then
+refused.
+
+**Market calendars.** `MarketCalendar` expresses a venue's timezone, weekly
+sessions, lunch break, overnight session, half days and holidays. India, the
+United States, Europe, Japan, Hong Kong, Singapore, Australia and a 24/7 crypto
+venue are all expressible and none is privileged. **No holiday data ships** —
+the position v2.11 took on taxonomies and v2.17 on FX rates.
+
+**Multi-asset semantics.** One spec per class — equity, index, future, option,
+FX, crypto, rate, commodity — each carrying what its class needs and nothing it
+does not. `FxSpec` has no single `currency` because a pair's price is a ratio
+between two. `OptionType` is reused from `alphalab.options.enums` rather than
+spelled a third time.
+
+**Corporate actions.** `PriceBasis` is `RAW`, `SPLIT_ADJUSTED` or
+`TOTAL_RETURN`, recorded in provenance and part of the dataset's identity.
+Splits adjust prices *and* volumes. Every adjustment returns an
+`AdjustmentRecord` with its factor, ex-date and affected count.
+
+**A derived, immutable dataset version.** `derive_dataset_version` hashes the
+content hash, schema, zone, calendar, frequency, basis, policy and every
+transformation, following `canonical_instrument_key`'s rendering exactly.
+`retrieved_at` and `alphalab.__version__` are deliberately **not** in the
+digest, so re-downloading an unchanged file and shipping a patch release both
+leave every identity reproducible.
+
+**The application-facing API.** `alphalab.api` — `ingest_csv`,
+`ingest_rows`, `inspect_csv`, `validate_dataset`, `clean_dataset`,
+`normalize_records`, `select`, `to_market_dataset`, `backtest`, `replay`. It is
+deliberately not imported by `alphalab.data.__init__`, so `import alphalab.data`
+pulls in no part of the execution path.
+
+**Exact lineage into a run.** `to_market_dataset` hands the derived version to
+`MarketDataset.of`, so it flows into `RunState.source_id`, out as
+`BacktestResult.dataset_id`, and is hashed into `ValidationEvidence`. **The
+evidence digest did not change** — `evidence_id_for` is untouched and the golden
+digests pinned since v2.7 still hold. A v2.6 promotion verifies exactly as it
+did; a v3.1 one additionally names the file it was measured on.
+
+## Changed
+
+Two v3.0 behaviours changed, both because a v3.1 requirement contradicted them
+directly:
+
+| Surface | Was | Is |
+| --- | --- | --- |
+| `UniversalDataEngine.clean` | `(state, id, ts)`, applying an implicit policy | `(state, id, policy, ts)`, deriving a new version |
+| `DataManager.convert_timeframe` | replaced records in place | derives a new version |
+| `parse_raw_rows` | dropped untranslatable rows silently | raises, naming the rows and reasons |
+
+The first two now leave the original version untouched, record the parent in
+`UniversalDataState.lineage`, and refuse to overwrite a version already held.
+
+**`parse_raw_rows` no longer has a parser of its own.** It had its own alias
+lookup, float coercion, symbol fallback and sort, and it dropped any row it
+could not translate while returning the rest with nothing to say so -- a caller
+who passed ten rows and received seven bars had no way to learn about the three.
+It now builds a `RawTable` through `RawTable.from_rows` and coerces through
+`coerce_row`, the same detection and coercion a CSV goes through, and refuses
+rather than dropping. Its signature and return type are unchanged, so
+`parse_and_load`, `UniversalDataEngine.load`, the examples and the benchmarks
+are untouched; exactly one test pinned the old behaviour and now pins the
+refusal.
+
+There are therefore two doors onto one parser. `parse_raw_rows` returns
+`tuple[Bar, ...]`, which has nowhere to put a finding, so it raises and its
+message names `alphalab.api.ingest_rows` -- the door that returns a dataset
+*and* a `DataQualityReport`, and can ingest the good rows while reporting the
+bad ones. `ingest_rows` builds its table the same way, so the two cannot
+disagree about which rows are usable.
+
+The legacy door costs about 2.2x what it did (100,000 rows in 0.64s rather than
+0.29s) because it now runs full detection and structured coercion. It stays
+**linear**, and the canonical path is unaffected.
+
+## Fixed
+
+* `DataAdapter.create_metadata` refuses an unrecognised asset class or frequency
+  instead of substituting `EQUITY` / `DAILY`.
+* `remove_duplicates` keys on instrument **and** instant. Keying on the instant
+  alone silently discarded every instrument but the first in a multi-symbol
+  series.
+* `remove_invalid_ohlc` uses the same `is_internally_consistent` predicate the
+  validator does, so a record can no longer be reported invalid by one and
+  dropped as valid by the other. It now also catches an `open` or `close`
+  outside the high–low range, which the previous check missed.
+* `parse_and_load` no longer overwrites each record's symbol with the dataset
+  id, which had collapsed a multi-instrument load into one instrument.
+* `DataManager.quality` records the report without replacing the dataset object.
+  Quality is a measurement *of* a version, not part of it.
+
+## Deliberately not built
+
+* **Trade and depth ingestion from a flat file.** A `price`/`size` pair is
+  indistinguishable from a partially populated bar without a declaration, and a
+  depth book is not a flat table. `RecordType` has `BAR` and `QUOTE` only.
+* **A Parquet reader.** The format is expressible in provenance via
+  `RawSource.media_type`; reading it needs a third-party dependency, and
+  AlphaLab has none. JSON needs no reader — a caller parses it with the standard
+  library and hands the rows to `ingest_rows`, which takes the same pipeline a
+  file does.
+* **A corporate-action or holiday feed.** The boundary and the arithmetic ship;
+  the data is an application's to supply, permanently.
+* **Vendor broker adapters, an AI dependency, an OpenBB dependency.** None
+  added. Runtime dependencies remain **zero**.
+
+## Quality
+
+| Metric | v3.0.0 | v3.1.0 |
+| --- | --- | --- |
+| Tests | 3956 | **4144** |
+| Skipped | 0 | **0** |
+| Warnings | 0 | **0** |
+| MyPy (strict) | 910 files | **929 files** |
+| Examples | 14 | **16** |
+| Benchmarks | 47 | **48** |
+| Runtime dependencies | 0 | **0** |
+
+Ingestion is linear in row count, measured at 1,000 / 10,000 / 100,000 /
+1,000,000 rows (10.3x, 11.7x and 10.3x for each 10x of data against a linear
+prediction of 10x), and pinned by
+`tests/regression/test_data_ingestion_complexity.py`.
+
+---
+
 # [3.0.0] - 2026-09-14
 
 **The stable release: architecture frozen, documentation true.**

@@ -30,7 +30,8 @@ Every component should follow these principles.
 
 # Current State
 
-As of **v3.0.0** the architecture is frozen. AlphaLab provides:
+As of **v3.0.0** the architecture is frozen; **v3.1.0** is additive to it.
+AlphaLab provides:
 
 - **One execution path with one owner per tier.**
   `alphalab.runtime.ExecutionPipeline` owns the execution step (mark to market →
@@ -120,8 +121,9 @@ The project values thoughtful design, constructive collaboration, and high engin
 
 Version 1.0.0 established AlphaLab's architectural foundation; v1.34.0–v2.0.0
 populated it with standalone quantitative engines; the v2 line integrated the
-execution and lifecycle paths and made their state durable; and v3.0.0 froze the
-result.
+execution and lifecycle paths and made their state durable; v3.0.0 froze the
+result; and v3.1.0 showed what the freeze permits, adding the universal
+data-ingestion path inside one package without moving a boundary.
 
 A frozen architecture is not a finished project. What it changes is the bar: a
 contribution that moves an ownership boundary, a schema contract or a documented

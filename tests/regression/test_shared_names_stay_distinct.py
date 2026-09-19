@@ -441,3 +441,237 @@ def test_the_strategy_declaration_has_one_definition_and_lifecycle_takes_it() ->
     import alphalab.lifecycle as lifecycle
 
     assert not [name for name in dir(lifecycle) if "StrategyDefinition" in name]
+
+
+# --------------------------------------------------------------------------- #
+# 9. "source" -- a stream to pull from, and a record of bytes already read
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_sources_are_a_protocol_and_a_receipt() -> None:
+    """One is a live relationship. The other is evidence about a file.
+
+    ``alphalab.market.source.MarketDataSource`` is a *protocol*: something the
+    execution path pulls canonical records from, one at a time, for as long as
+    it runs. ``alphalab.data.source.RawSource`` is a *record*: an immutable
+    statement about bytes that were already read, made after the fact, carrying
+    a content hash and a retrieval time.
+
+    A socket can satisfy the first and can never be the second; a hash of a
+    downloaded file is the second and can never yield a record. Merging them
+    would give the execution path a content hash it has no use for, and give
+    provenance an iterator it cannot store.
+    """
+
+    from alphalab.data.source import RawSource
+    from alphalab.market.source import MarketDataSource
+
+    raw: type = RawSource
+    assert raw is not MarketDataSource
+
+    assert hasattr(MarketDataSource, "records"), "the protocol yields a stream"
+    assert not hasattr(RawSource, "records"), "the receipt yields nothing"
+
+    fields = set(RawSource.__dataclass_fields__)
+    assert {"content_hash", "retrieved_at", "byte_count"} <= fields
+    assert "source_id" not in fields, "a receipt is not a stream identity"
+
+
+# --------------------------------------------------------------------------- #
+# 10. "calendar" -- when a job fires, and when a venue is open
+# --------------------------------------------------------------------------- #
+
+
+def test_the_scheduler_calendar_and_the_market_calendar_answer_different_questions() -> None:
+    """``TradingCalendar`` asks "should this job fire today?" over UTC weekends
+    and an optional holiday hook. It knows nothing about venues, sessions or
+    local time, and deliberately so -- a scheduler that had to resolve an
+    exchange's session to decide whether to run would need reference data it
+    has no business holding.
+
+    ``MarketCalendar`` asks "was this venue open at this instant?", which needs
+    the exchange's timezone, its session windows, its lunch break and its half
+    days. Answering the scheduler's question with it would require every caller
+    to declare a venue; answering the market's question with the scheduler's
+    would put every bar in UTC and misplace every session outside it.
+    """
+
+    from alphalab.data.calendar import MarketCalendar
+    from alphalab.scheduler.calendar import TradingCalendar
+
+    market: type = MarketCalendar
+    assert market is not TradingCalendar
+
+    assert "timezone_name" in MarketCalendar.__dataclass_fields__
+    assert not hasattr(TradingCalendar, "__dataclass_fields__"), (
+        "the scheduler's is stateless utilities, not a declared calendar"
+    )
+
+    scheduler_members = {name for name in dir(TradingCalendar) if not name.startswith("_")}
+    market_members = {name for name in dir(MarketCalendar) if not name.startswith("_")}
+
+    # They share exactly one name, and it takes different things and means
+    # different things in each. The scheduler's reads an instant and answers
+    # about the UTC week; the market's reads a *local date* and answers about a
+    # venue. A caller passing a timestamp to the market one gets a type error
+    # rather than a plausible wrong answer, which is what keeps the collision
+    # harmless.
+    assert scheduler_members & market_members == {"is_trading_day"}
+
+    scheduler_signature = inspect.signature(TradingCalendar.is_trading_day)
+    market_signature = inspect.signature(MarketCalendar.is_trading_day)
+    assert list(scheduler_signature.parameters) == ["timestamp", "holiday_calendar"]
+    assert list(market_signature.parameters) == ["self", "day"]
+    assert market_signature.parameters["day"].annotation == "date"
+
+    # And the market one can express what the scheduler's cannot.
+    assert MarketCalendar.continuous("X", "UTC").is_continuous
+    assert not hasattr(TradingCalendar, "continuous")
+
+
+# --------------------------------------------------------------------------- #
+# 11. Two adjustments: one company's shares, and two contracts spliced
+# --------------------------------------------------------------------------- #
+
+
+def test_price_basis_and_the_futures_roll_method_are_not_one_idea() -> None:
+    """``PriceBasis`` is about *one instrument* whose share count or cash value
+    genuinely changed -- a split, a dividend. ``AdjustmentMethod`` is about
+    splicing *two contracts* into one continuous series, where the gap at the
+    roll is an artefact of switching instruments and nothing happened to the
+    company.
+
+    A merge would have to claim that a 7-for-1 split and a December-to-March
+    roll are the same event, which would let a back-adjusted futures series be
+    labelled total-return.
+    """
+
+    from alphalab.data.corporate_actions import PriceBasis
+    from alphalab.futures.roll import AdjustmentMethod
+
+    basis: type = PriceBasis
+    assert basis is not AdjustmentMethod
+    assert {member.name for member in PriceBasis} == {"RAW", "SPLIT_ADJUSTED", "TOTAL_RETURN"}
+    assert {member.name for member in AdjustmentMethod} == {
+        "UNADJUSTED",
+        "BACK_ADJUSTED",
+        "RATIO_ADJUSTED",
+    }
+    assert not {m.name for m in PriceBasis} & {m.name for m in AdjustmentMethod}
+
+
+def test_the_data_future_spec_and_the_futures_contract_are_wire_and_domain() -> None:
+    """The same split ``alphalab.data.feed`` already draws for bars.
+
+    ``FutureSpec`` is a wire-layer *description*: ``float``, keyed by provider
+    ``symbol``, cheap for a data provider to fill in, and it says what a price
+    series is about. ``FutureContract`` is the domain counterpart: ``Decimal``,
+    bridged to ``Position`` so a contract can be *held*.
+
+    Making ``data`` use ``FutureContract`` would put ``alphalab.portfolio`` --
+    and a standalone engine with no in-repo consumers by design -- on the
+    ingestion path, for a description that never opens a position. Joining them
+    is v3.4's work.
+    """
+
+    from decimal import Decimal
+
+    from alphalab.data.assets import FutureSpec
+    from alphalab.futures.contract import FutureContract
+
+    spec: type = FutureSpec
+    assert spec is not FutureContract
+
+    assert FutureSpec.__annotations__["tick_size"] == "float"
+    assert FutureContract.__annotations__["tick_size"] is Decimal or (
+        FutureContract.__annotations__["tick_size"] == "Decimal"
+    )
+    assert "symbol" in FutureSpec.__dataclass_fields__
+    assert "underlying_asset_id" in FutureContract.__dataclass_fields__
+
+    # And the data layer drags no portfolio machinery along. Checked over the
+    # import statements rather than the source text, because the module's
+    # docstring names ``alphalab.portfolio`` while explaining this very split.
+    import ast
+    import pathlib
+
+    module = pathlib.Path(inspect.getfile(FutureSpec))
+    imported = {
+        node.module
+        for node in ast.walk(ast.parse(module.read_text()))
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert not [name for name in imported if name.startswith("alphalab.portfolio")]
+    assert not [name for name in imported if name.startswith("alphalab.futures")]
+
+
+# --------------------------------------------------------------------------- #
+# 12. Two quality reports, and why that is one authority rather than two
+# --------------------------------------------------------------------------- #
+
+
+def test_the_scored_summary_is_a_projection_of_the_findings_not_a_second_measurement() -> None:
+    """``DataQualityReport`` carries the counts *and* every finding.
+    ``QualityReport`` is the scored summary stored in state and shown in a
+    catalogue, and it is produced only by ``DataQualityReport.summarize``.
+
+    Two independently-computed reports could come to disagree about one
+    dataset, and the one in state would win while the detailed one was the one
+    people read. This is the same shape as ``BacktestResult.dataset_id`` being
+    a property over ``RunState``: one fact, one home, two views.
+    """
+
+    from alphalab.data.quality import DataQualityReport, QualityReport
+
+    detail = DataQualityReport(
+        dataset_id="DS", row_count=10, valid_rows=8, duplicate_count=1, invalid_count=1
+    )
+    summary = detail.summarize()
+
+    assert isinstance(summary, QualityReport)
+    assert summary.completeness == detail.completeness
+    assert summary.quality_score == detail.quality_score
+    assert summary.duplicate_count == detail.duplicate_count == 1
+
+    # The detail is what a reader goes to; the summary cannot answer it.
+    assert hasattr(detail, "rejected_rows") and hasattr(detail, "errors")
+    assert not hasattr(summary, "rejected_rows")
+
+
+# --------------------------------------------------------------------------- #
+# 13. "Dataset" -- a canonical price series, and a design matrix
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_datasets_are_a_price_series_and_a_design_matrix() -> None:
+    """One is what was observed; the other is what a model is fitted on.
+
+    ``alphalab.data.dataset.Dataset`` is a canonical, versioned series of market
+    records with the provenance saying where it came from.
+    ``alphalab.ml.dataset.Dataset`` is an ML-ready ``(x, y)`` design matrix
+    built out of the Feature Store, one row per *asset* rather than per instant,
+    carrying no time axis at all.
+
+    They share the English word and nothing else -- no field, and no operation.
+    Merging them would either give a price series a target vector it has no
+    notion of, or give a design matrix a schema, a calendar and a price basis
+    that mean nothing for it. v3.1 made the first one considerably larger, which
+    is why the pair is recorded now rather than left to look like an oversight.
+    """
+
+    from alphalab.data.dataset import Dataset as CanonicalDataset
+    from alphalab.ml.dataset import Dataset as DesignMatrix
+
+    canonical: type = CanonicalDataset
+    assert canonical is not DesignMatrix
+
+    canonical_fields = set(CanonicalDataset.__dataclass_fields__)
+    matrix_fields = set(DesignMatrix.__dataclass_fields__)
+    assert canonical_fields & matrix_fields == set(), "the two share no field"
+
+    assert {"records", "provenance", "schema"} <= canonical_fields
+    assert {"x", "y", "feature_names"} <= matrix_fields
+
+    # And only one of them is on the path a run reads.
+    assert hasattr(CanonicalDataset, "require_provenance")
+    assert not hasattr(DesignMatrix, "require_provenance")

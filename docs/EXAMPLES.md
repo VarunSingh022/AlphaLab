@@ -35,7 +35,7 @@ The `examples/` directory contains:
 | `04_market_data.py` | Market data providers |
 | `05_broker_connection.py` | The two broker boundaries: one venue, or a registry of many |
 | `06_portfolio_optimizer.py` | Portfolio construction |
-| `07_universal_data.py` | Universal Data Engine |
+| `07_universal_data.py` | Universal Data Engine: state, versions and the catalogue |
 | `08_strategy_studio.py` | Strategy Studio orchestration |
 | `09_workbench.py` | Workbench workspace |
 | `10_complete_pipeline.py` | Multi-engine walkthrough |
@@ -43,6 +43,8 @@ The `examples/` directory contains:
 | `12_model_lifecycle.py` | Research candidate → deployment → rollback |
 | `13_durable_run_state.py` | Stop a run, store it, continue it in another process |
 | `14_multi_currency_settlement.py` | FX feed → two settlement currencies → one reported figure |
+| `15_data_ingestion.py` | A **deliberately broken CSV** through detection, validation, an explicit cleaning policy and a quality report, out as a versioned canonical dataset |
+| `16_research_from_dataset.py` | Research access by dataset version, point-in-time selection, and a backtest that names the exact bytes it read |
 
 ---
 
@@ -52,12 +54,13 @@ Learn how AlphaLab transforms heterogeneous market data into canonical datasets.
 
 Topics include
 
-- CSV ingestion
-- JSON ingestion
-- Schema detection
-- Column mapping
+- CSV ingestion (`15_data_ingestion.py`)
+- JSON ingestion, via `alphalab.api.ingest_rows` — a caller parses JSON with the
+  standard library and hands the rows to the same pipeline a file takes
+- Schema detection, and the ambiguities it refuses to resolve
+- Column mapping through the one alias table
 - Symbol normalization
-- Timestamp normalization
+- Timestamp normalization, with explicit timezones
 
 ---
 

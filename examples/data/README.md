@@ -1,6 +1,6 @@
 # AlphaLab Example Datasets
 
-Four small synthetic CSV files supporting the example suite. They exist only to
+Five small synthetic CSV files supporting the example suite. They exist only to
 demonstrate the public APIs without needing a market-data provider, and they are
 **not** suitable for research, backtesting conclusions, or production trading.
 
@@ -16,6 +16,7 @@ Everything here is generated, deterministic, and small enough to read by eye.
 | `sample_ohlcv.csv` | `dataset_id, symbol, timestamp, open, high, low, close, volume` | 90 |
 | `sample_trades.csv` | `strategy_id, project_id, backtest_id, trade_id, symbol, entry_timestamp, exit_timestamp, entry_price, exit_price, quantity, pnl` | 5 |
 | `sample_portfolio.csv` | `portfolio_id, symbol, weight` | 3 |
+| `messy_ohlcv.csv` | `Ticker, Date, Open, High, Low, Close, Vol` | 11 |
 
 ### `sample_prices.csv`
 
@@ -85,3 +86,26 @@ not to simulate a real market.
 | Intended use | Educational |
 | External dependencies | None |
 | License | MIT |
+
+### `messy_ohlcv.csv`
+
+Broken on purpose, and the only file here that is. It supports
+`examples/15_data_ingestion.py`, which exists to show what AlphaLab does with
+data that is not clean — so a pristine file would demonstrate nothing.
+
+It carries, deliberately:
+
+| Line | Defect |
+|---|---|
+| header | Vendor spellings (`Ticker`, `Date`, `Vol`) rather than canonical names |
+| 4 | An exact duplicate of line 3 — same instrument, same instant |
+| 5 | `high` below `low`: a bar whose true values are unknown |
+| 6 | A missing `close` |
+| 8 | A row with every price missing |
+| 11 | `MSFT` dated before the row above it — out of order |
+| 12 | One field too many |
+
+Nothing in AlphaLab repairs any of it silently. Each defect is reported as a
+finding or a rejection, and what happens next is the cleaning policy's decision.
+The remaining rows are ordinary, valid daily bars for `AAPL` and `MSFT` in
+January 2025, timestamped in ISO-8601 UTC.

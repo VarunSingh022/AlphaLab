@@ -161,7 +161,18 @@ Develop and validate quantitative strategies using deterministic research workfl
 
 ## Universal Data Engine
 
-Load, normalize, validate, and transform market data from multiple providers into a canonical format.
+Turn a raw source — a CSV on disk, an upload, a broker export, rows already in
+memory — into a canonical dataset that can say where it came from.
+
+Schema detection reports what it resolved and refuses what is ambiguous;
+validation returns structured findings with source lines; cleaning runs under a
+policy the caller supplies and records every change it makes. The result carries
+provenance and a **derived, immutable version** that a backtest names as the
+exact data it consumed.
+
+AlphaLab ships no holiday data, no corporate actions and no vendor feed — the
+calendars and the adjustment arithmetic are the mechanism, and the data is the
+application's to supply.
 
 ---
 
@@ -284,13 +295,24 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.0.0
+v3.1.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.1.0 — universal data ingestion.** The first release after the v3.0
+architecture freeze, and a capability release confined to one package.
+`alphalab.data` gains the ingestion, validation, cleaning, provenance and
+identity machinery it was named for and did not have: CSV as a first-class
+input, schema detection that refuses to guess, structured validation findings,
+cleaning under a policy with no defaults, market calendars, multi-asset
+semantics, the raw/adjusted price basis, and a **derived, immutable dataset
+version** that reaches `BacktestResult.dataset_id` and `ValidationEvidence`
+unchanged — with the evidence digest untouched. No boundary moves and no
+ownership changes. See `ADR/0036`.
 
 **v3.0.0 — the stable release.** The architecture is frozen and the documentation
 is made to match it. No capability is added, no boundary moves, no schema changes

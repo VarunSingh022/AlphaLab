@@ -4,13 +4,20 @@ import pytest
 
 from alphalab.data import (
     COLUMN_ALIASES,
+    CleaningPolicy,
     DataAdapter,
     DataAssetClass,
+    DatasetCleaned,
     DatasetMetadata,
+    DuplicatePolicy,
+    InvalidRecordPolicy,
+    MissingValuePolicy,
+    OrderingPolicy,
     TimeFrequency,
     UniversalDataEngine,
     UniversalDataState,
     catalog_summary,
+    dataset_lineage,
     dataset_summary,
     evaluate_bar_quality,
     normalize_prices,
@@ -19,6 +26,17 @@ from alphalab.data import (
     remove_duplicates,
     remove_invalid_ohlc,
     resample_bars,
+)
+from alphalab.data.exceptions import DataValidationError
+
+#: A policy that permits everything cleaning can do. Stated here rather than
+#: defaulted anywhere in the package: what may be altered is the data owner's
+#: decision, and v3.1 removed the implicit one these tests used to rely on.
+PERMISSIVE = CleaningPolicy(
+    duplicates=DuplicatePolicy.KEEP_FIRST,
+    ordering=OrderingPolicy.SORT,
+    invalid_records=InvalidRecordPolicy.DROP,
+    missing_values=MissingValuePolicy.DROP_ROW,
 )
 
 
@@ -53,12 +71,46 @@ def test_parse_raw_rows_perfect() -> None:
     assert bar.volume == 100.0
 
 
-def test_parse_raw_rows_missing_columns() -> None:
+def test_parse_raw_rows_refuses_rows_it_cannot_translate() -> None:
+    """v3.1 change: rows that cannot become bars are refused, never dropped.
+
+    Until v3.1 this returned an empty tuple and said nothing, so a caller who
+    passed ten rows and received seven bars had no way to learn that three had
+    gone or why. Every figure computed downstream was computed on data the
+    caller had not seen. The refusal is the whole point; the message has to be
+    actionable, so it names the path that *can* do a partial load.
+    """
+
     raw = [
         {"Date": 1000.0, "Open": 10}  # Missing HLC
     ]
-    parsed = parse_raw_rows("AAPL", raw)
-    assert len(parsed) == 0  # Invalid structures are safely dropped
+
+    with pytest.raises(DataValidationError) as error:
+        parse_raw_rows("AAPL", raw)
+
+    message = str(error.value)
+    assert "HIGH" in message and "LOW" in message and "CLOSE" in message, (
+        "the refusal names the roles nothing supplied"
+    )
+
+
+def test_parse_raw_rows_refuses_one_bad_row_among_good_ones() -> None:
+    """And it refuses the whole call rather than quietly returning the rest."""
+
+    raw: list[dict[str, object]] = [
+        {"timestamp": 1000.0, "o": 10, "h": 12, "l": 9, "c": 11, "v": 100},
+        {"timestamp": 1001.0, "o": 10, "h": 12, "l": 9, "c": "n/a", "v": 100},
+        {"timestamp": 1002.0, "o": 10, "h": 12, "l": 9, "c": 11, "v": 100},
+    ]
+
+    with pytest.raises(DataValidationError) as error:
+        parse_raw_rows("AAPL", raw)
+
+    message = str(error.value)
+    assert "1 of 3 rows" in message, "it says how much was at stake"
+    assert "'n/a' is not a number" in message, "and which value was the problem"
+    assert "row 2" in message, "and where it was"
+    assert "ingest_rows" in message, "and how to load the other two anyway"
 
 
 def test_parse_raw_rows_chronological_sort() -> None:
@@ -199,6 +251,15 @@ def test_engine_ingest(base_state: UniversalDataState, generic_metadata: Dataset
 
 
 def test_engine_clean(base_state: UniversalDataState, generic_metadata: DatasetMetadata) -> None:
+    """Cleaning derives a new version and leaves the original exactly as it was.
+
+    Until v3.1 this replaced ``state.datasets["AAPL-1D"]`` in place, so the raw
+    data stopped existing the moment anything was done to it and any evidence
+    naming that id became unverifiable -- the id still resolved, to different
+    numbers. Both versions now live in state, and ``lineage`` says which came
+    from which.
+    """
+
     raw = [
         {"timestamp": 1000.0, "o": 10, "h": 12, "l": 9, "c": 11, "v": 100},
         {"timestamp": 1000.0, "o": 10, "h": 12, "l": 9, "c": 11, "v": 100},  # Duplicate
@@ -206,10 +267,53 @@ def test_engine_clean(base_state: UniversalDataState, generic_metadata: DatasetM
     ds = UniversalDataEngine.load(generic_metadata, raw)
     s1 = UniversalDataEngine.ingest(base_state, ds, 1001.0)
 
-    s2 = UniversalDataEngine.clean(s1, "AAPL-1D", 1002.0)
+    s2 = UniversalDataEngine.clean(s1, "AAPL-1D", PERMISSIVE, 1002.0)
 
-    assert len(s2.datasets["AAPL-1D"].records) == 1
-    assert any(type(e).__name__ == "DatasetCleaned" for e in s2.events)
+    # The version that was read is untouched, duplicate included.
+    assert len(s2.datasets["AAPL-1D"].records) == 2
+
+    derived = [name for name in s2.datasets if name != "AAPL-1D"]
+    assert len(derived) == 1, "cleaning derives exactly one new version"
+    assert len(s2.datasets[derived[0]].records) == 1, "and that one has the duplicate removed"
+    assert dataset_lineage(s2, derived[0]) == (derived[0], "AAPL-1D")
+
+    cleaned = [e for e in s2.events if isinstance(e, DatasetCleaned)]
+    assert len(cleaned) == 1
+    assert cleaned[0].dataset_id == "AAPL-1D", "the event names the version that was read"
+    assert cleaned[0].derived_dataset_id == derived[0], "and the one that was written"
+    assert cleaned[0].records_removed == 1
+
+
+def test_cleaning_the_same_dataset_twice_reaches_the_same_version(
+    base_state: UniversalDataState, generic_metadata: DatasetMetadata
+) -> None:
+    """A derived identity is reproducible, which is what makes it an identity."""
+
+    raw = [
+        {"timestamp": 1000.0, "o": 10, "h": 12, "l": 9, "c": 11, "v": 100},
+        {"timestamp": 1000.0, "o": 10, "h": 12, "l": 9, "c": 11, "v": 100},
+    ]
+    ds = UniversalDataEngine.load(generic_metadata, raw)
+    s1 = UniversalDataEngine.ingest(base_state, ds, 1001.0)
+
+    first = UniversalDataEngine.clean(s1, "AAPL-1D", PERMISSIVE, 1002.0)
+    second = UniversalDataEngine.clean(s1, "AAPL-1D", PERMISSIVE, 9999.0)
+
+    assert set(first.datasets) == set(second.datasets)
+
+
+def test_cleaning_a_clean_dataset_derives_nothing(
+    base_state: UniversalDataState, generic_metadata: DatasetMetadata
+) -> None:
+    """A dataset nothing was done to is the dataset it came from."""
+
+    raw = [{"timestamp": 1000.0, "o": 10, "h": 12, "l": 9, "c": 11, "v": 100}]
+    ds = UniversalDataEngine.load(generic_metadata, raw)
+    s1 = UniversalDataEngine.ingest(base_state, ds, 1001.0)
+
+    s2 = UniversalDataEngine.clean(s1, "AAPL-1D", PERMISSIVE, 1002.0)
+
+    assert list(s2.datasets) == ["AAPL-1D"]
 
 
 def test_engine_quality(base_state: UniversalDataState, generic_metadata: DatasetMetadata) -> None:
@@ -226,6 +330,8 @@ def test_engine_quality(base_state: UniversalDataState, generic_metadata: Datase
 
 
 def test_engine_convert(base_state: UniversalDataState, generic_metadata: DatasetMetadata) -> None:
+    """Resampling derives a new version too, for the same reason cleaning does."""
+
     raw = [
         {"timestamp": 0.0, "o": 10, "h": 12, "l": 9, "c": 11, "v": 100},
         {"timestamp": 30.0, "o": 11, "h": 15, "l": 10, "c": 14, "v": 200},
@@ -235,7 +341,12 @@ def test_engine_convert(base_state: UniversalDataState, generic_metadata: Datase
 
     s2 = UniversalDataEngine.convert(s1, "AAPL-1D", 60.0, 1002.0)
 
-    assert len(s2.datasets["AAPL-1D"].records) == 1
+    assert len(s2.datasets["AAPL-1D"].records) == 2, "the minute bars are still there"
+
+    derived = [name for name in s2.datasets if name != "AAPL-1D"]
+    assert len(derived) == 1
+    assert len(s2.datasets[derived[0]].records) == 1, "aggregated into one 60s bucket"
+    assert dataset_lineage(s2, derived[0]) == (derived[0], "AAPL-1D")
 
 
 def test_engine_catalog(base_state: UniversalDataState, generic_metadata: DatasetMetadata) -> None:
@@ -255,3 +366,43 @@ def test_adapter_metadata_helper() -> None:
     meta = DataAdapter.create_metadata("M-1", "Src", "equity", "daily", 0.0, 100.0)
     assert meta.asset_class == DataAssetClass.EQUITY
     assert meta.frequency == TimeFrequency.DAILY
+
+
+def test_adapter_refuses_an_asset_class_it_does_not_know() -> None:
+    """Until v3.1 an unrecognised class silently became EQUITY.
+
+    A vendor file of option quotes labelled ``"opt"`` was catalogued as
+    equities, and nothing anywhere recorded that a substitution had happened.
+    """
+
+    with pytest.raises(DataValidationError) as error:
+        DataAdapter.create_metadata("M-1", "Src", "opt", "daily", 0.0, 100.0)
+
+    assert "OPTION" in str(error.value), "the refusal names the spellings it accepts"
+
+
+def test_adapter_refuses_a_frequency_it_does_not_know() -> None:
+    """And an unrecognised frequency silently became DAILY."""
+
+    with pytest.raises(DataValidationError) as error:
+        DataAdapter.create_metadata("M-1", "Src", "equity", "1min", 0.0, 100.0)
+
+    assert "MINUTE" in str(error.value)
+
+
+def test_remove_duplicates_keys_on_the_instrument_as_well_as_the_instant() -> None:
+    """Two instruments printing in the same minute are not duplicates.
+
+    Keyed on timestamp alone -- which this did before v3.1 -- a three-symbol
+    daily file collapsed to one symbol, silently.
+    """
+
+    raw = [
+        {"symbol": "AAPL", "timestamp": 1000.0, "o": 10, "h": 12, "l": 9, "c": 11, "v": 100},
+        {"symbol": "MSFT", "timestamp": 1000.0, "o": 20, "h": 22, "l": 19, "c": 21, "v": 200},
+        {"symbol": "SPY", "timestamp": 1000.0, "o": 30, "h": 32, "l": 29, "c": 31, "v": 300},
+    ]
+    bars = parse_raw_rows("FALLBACK", raw)
+
+    assert len(remove_duplicates(bars)) == 3
+    assert {bar.symbol for bar in remove_duplicates(bars)} == {"AAPL", "MSFT", "SPY"}

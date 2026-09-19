@@ -147,7 +147,7 @@ Each package owns exactly one primary state object.
 | `workbench` | `WorkbenchState` |
 | `research` | `ResearchState` |
 | `replay` | `ReplayState` |
-| `data` | `UniversalDataState` |
+| `data` | `UniversalDataState` — datasets keyed by version, the catalogue, quality reports, schemas, metadata, `lineage` (derived version → parent) and the event log. A version is never overwritten: cleaning and resampling add a new entry and record the parent (ADR-0036). |
 
 **Two names are reused deliberately.** `RuntimeState` in
 `alphalab.strategy.state` holds strategy instances and is not a runtime-package

@@ -340,6 +340,8 @@ Examples include
 - Workbench
 - The unified backtest, the lifecycle, durable run state and multi-currency
   settlement (examples 11–14)
+- Universal data ingestion and research from a canonical dataset
+  (examples 15–16)
 
 ---
 
