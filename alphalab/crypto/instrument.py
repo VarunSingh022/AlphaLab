@@ -24,9 +24,13 @@ class CryptoInstrument:
         quote_asset: The asset it's priced in, e.g. "USDT".
         instrument_type: Spot, dated future, or perpetual.
         exchange: Venue this instrument trades on, e.g. "binance".
-        contract_size: Units of base_asset per contract. 1 for spot (quantity is
-            denominated directly in base_asset); exchange-defined for futures and
-            perpetuals.
+        contract_size: Units of base_asset per contract. **Required** as of
+            v3.4, having defaulted to ``1``. One is correct for spot, where
+            quantity is denominated directly in ``base_asset``, and is
+            exchange-defined for futures and perpetuals -- so the default was
+            right for one of the three instrument types and quietly wrong for
+            the other two, in a field that scales every funding payment and
+            notional computed from the instrument.
         expiry: Unix timestamp of contract expiration. Required for FUTURE, and
             must be None for SPOT and PERPETUAL, which never expire.
     """
@@ -35,7 +39,7 @@ class CryptoInstrument:
     quote_asset: str
     instrument_type: InstrumentType
     exchange: str
-    contract_size: Decimal = Decimal("1")
+    contract_size: Decimal
     expiry: float | None = None
 
     def __post_init__(self) -> None:

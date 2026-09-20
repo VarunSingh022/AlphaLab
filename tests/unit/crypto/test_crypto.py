@@ -30,7 +30,11 @@ ONE_MONTH = 30 * 86400
 
 def _spot(exchange: str = "binance") -> CryptoInstrument:
     return CryptoInstrument(
-        base_asset="BTC", quote_asset="USDT", instrument_type=InstrumentType.SPOT, exchange=exchange
+        base_asset="BTC",
+        quote_asset="USDT",
+        instrument_type=InstrumentType.SPOT,
+        exchange=exchange,
+        contract_size=Decimal("1"),
     )
 
 
@@ -40,6 +44,7 @@ def _perpetual(exchange: str = "binance") -> CryptoInstrument:
         quote_asset="USDT",
         instrument_type=InstrumentType.PERPETUAL,
         exchange=exchange,
+        contract_size=Decimal("1"),
     )
 
 
@@ -50,6 +55,7 @@ def _future(exchange: str = "binance", expiry: float = ONE_MONTH) -> CryptoInstr
         instrument_type=InstrumentType.FUTURE,
         exchange=exchange,
         expiry=expiry,
+        contract_size=Decimal("1"),
     )
 
 
@@ -71,6 +77,7 @@ def test_future_requires_expiry() -> None:
             quote_asset="USDT",
             instrument_type=InstrumentType.FUTURE,
             exchange="binance",
+            contract_size=Decimal("1"),
         )
 
 
@@ -82,6 +89,7 @@ def test_spot_rejects_expiry() -> None:
             instrument_type=InstrumentType.SPOT,
             exchange="binance",
             expiry=ONE_MONTH,
+            contract_size=Decimal("1"),
         )
 
 
@@ -93,6 +101,7 @@ def test_perpetual_rejects_expiry() -> None:
             instrument_type=InstrumentType.PERPETUAL,
             exchange="binance",
             expiry=ONE_MONTH,
+            contract_size=Decimal("1"),
         )
 
 
@@ -232,6 +241,7 @@ def test_compute_funding_payment_long_pays_when_rate_positive() -> None:
         position_quantity=Decimal("1"),
         mark_price=Decimal("50000"),
         funding_rate=Decimal("0.0001"),
+        contract_size=Decimal("1"),
     )
     assert payment == Decimal("-5.00000")  # long pays 50000 * 0.0001
 
@@ -241,6 +251,7 @@ def test_compute_funding_payment_short_receives_when_rate_positive() -> None:
         position_quantity=Decimal("-1"),
         mark_price=Decimal("50000"),
         funding_rate=Decimal("0.0001"),
+        contract_size=Decimal("1"),
     )
     assert payment == Decimal("5.00000")
 
@@ -259,8 +270,12 @@ def test_average_funding_rate() -> None:
     history = FundingRateHistory(
         instrument_symbol="X",
         rates=(
-            FundingRate(instrument_symbol="X", rate=Decimal("0.0001"), timestamp=0.0),
-            FundingRate(instrument_symbol="X", rate=Decimal("0.0003"), timestamp=28800.0),
+            FundingRate(
+                instrument_symbol="X", rate=Decimal("0.0001"), timestamp=0.0, interval_hours=8
+            ),
+            FundingRate(
+                instrument_symbol="X", rate=Decimal("0.0003"), timestamp=28800.0, interval_hours=8
+            ),
         ),
     )
     assert average_funding_rate(history) == Decimal("0.0002")
@@ -275,7 +290,11 @@ def test_annualized_funding_rate_matches_hand_computed_value() -> None:
     """0.0001 average rate every 8 hours -> 0.0001 * (24*365/8) = 0.1095."""
     history = FundingRateHistory(
         instrument_symbol="X",
-        rates=(FundingRate(instrument_symbol="X", rate=Decimal("0.0001"), timestamp=0.0),),
+        rates=(
+            FundingRate(
+                instrument_symbol="X", rate=Decimal("0.0001"), timestamp=0.0, interval_hours=8
+            ),
+        ),
     )
     result = annualized_funding_rate(history)
     assert result == pytest.approx(Decimal("0.1095"), abs=Decimal("0.0001"))

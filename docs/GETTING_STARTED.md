@@ -100,12 +100,12 @@ If all commands complete successfully, your environment is correctly configured.
 ```
 AlphaLab/
 
-alphalab/     framework source (48 packages)
-benchmarks/   47 performance benchmarks
+alphalab/     framework source (50 packages)
+benchmarks/   53 performance benchmarks
 configs/      reference configuration files
-docs/         technical documentation and 37 ADRs
-examples/     24 runnable examples
-tests/        3956 tests — unit, integration, regression
+docs/         technical documentation and 39 ADRs
+examples/     40 runnable examples
+tests/        5123 tests — unit, integration, regression
 ```
 
 ### alphalab/
@@ -347,6 +347,10 @@ Examples include
   diagnostics and the complete research pipeline (examples 17–24)
 - Execution cost simulation, capacity modelling, portfolio attribution, risk
   decomposition, stress testing and the scenario engine (examples 25–30)
+- Market conventions, exchange calendars and sessions, futures chains and rolls,
+  continuous futures, options chains and Greeks, implied volatility and the
+  volatility surface, FX research, crypto perpetuals and 24/7 coverage, the
+  fixed-income foundation, and a multi-asset book (examples 31–40)
 
 ---
 

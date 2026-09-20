@@ -1,6 +1,6 @@
 # AlphaLab Examples
 
-Thirty runnable scripts, each demonstrating one part of AlphaLab against
+Forty runnable scripts, each demonstrating one part of AlphaLab against
 its real public API. Every one of them runs:
 
 ```bash
@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all thirty are executed as a
+paths far more thoroughly under `tests/` — but all forty are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -48,6 +48,16 @@ API.
 | 28 | `28_risk_decomposition.py` | Three VaR methods, the Euler decomposition, and samples that refuse |
 | 29 | `29_portfolio_stress_testing.py` | Synthetic and historical scenarios — and why 2008 ships as a contract |
 | 30 | `30_scenario_engine.py` | One scenario contract applied to five different books |
+| 31 | `31_global_market_conventions.py` | **The v3.4 convention authority**: three markets declared side by side, a tick *size* against a tick *value*, a tiered grid, rounding as a stated direction, a partial lot refused rather than rounded, the multiplier applied once, and quote against settlement currency |
+| 32 | `32_exchange_calendars_and_sessions.py` | Four venues in four timezones disagreeing about one instant; an overnight session belonging to the day it opened; a lunch break as two windows and one envelope; daylight saving moving the UTC instant while the wall clock holds; and the settlement dates each venue's own trading days produce |
+| 33 | `33_futures_contracts_and_rolls.py` | A contract chain and the three ways it refuses an incoherent one; three roll rules producing three schedules from one chain; which contract was front; contango, backwardation and the humped curve the endpoints get wrong; annualized roll yield; and margin as a published figure refused when it post-dates the research instant |
+| 34 | `34_continuous_futures_research.py` | The four separate things a continuous series is built from, the segments and the real prints at each roll, three adjustment methods producing three series that agree on the newest bar, reproducibility, and a missing roll print refused rather than interpolated |
+| 35 | `35_options_chains_and_greeks.py` | A chain by expiry, type and strike; Greeks beside the four things the model does not do; multipliers that are not 100 and payoffs that scale with them; net premium and net Greeks across legs that keep their direction; and expiry as exercised, assigned, abandoned or worthless with cash and underlying units as two signed quantities |
+| 36 | `36_implied_volatility_surface.py` | The inversion round-tripping the volatility it was priced at; the **five** ways a quoted price has no implied volatility, each refused; a surface built from a chain that reports every refusal with its reason; the smile at one expiry; and a term structure that interpolates across none |
+| 37 | `37_fx_research.py` | Quotation direction carried rather than inferred; a cross derived only through a **named** currency; covered-parity forwards with both deposit rates and the day count required; carry against forward points; the look-ahead guard in both directions of time; and currency attribution as an identity with no residual |
+| 38 | `38_crypto_perpetuals_and_funding.py` | Two venues that disagree about funding interval, fees, price source and minimum size; funding instants following a venue's own anchor; accrual against the venue's mark with a missing mark refused; maker rebates in the same sign convention as funding; and a 24/7 clock measured against 24/7 data |
+| 39 | `39_fixed_income_foundation.py` | Cash flows generated backwards from maturity; clean, dirty and accrued as three numbers with the identity checked; the yield inversion and the prices it refuses; duration in years against convexity in years squared; discount factors under a **named** compounding; and the boundary, stated |
+| 40 | `40_multi_asset_portfolio.py` | Five asset classes, four venues, four currencies and one book: sessions read locally, the multiplier applied once, notional in the quote currency, settlement converted with a recorded rate, and the return split into what the assets did and what the currencies did |
 
 ## Reading order
 
@@ -105,6 +115,13 @@ attribution reconciliation and a scenario are all statements about numbers the
 example states outright, so the reader can check the arithmetic rather than
 trust a CSV. None of them uses a random number generator, so each prints the
 same figures on every machine and every run.
+
+`31`–`40` build their own data too, and go further: each **declares its own
+calendars, conventions, venue specifications and FX rates**, because AlphaLab
+ships none of them. A calendar in example 32 is a calendar that example 32
+wrote; the one holiday it uses to move a settlement date is declared three lines
+above the line that uses it. That is not a limitation of the examples — it is
+the boundary the library draws, made visible.
 
 See `examples/data/README.md` for what each dataset contains.
 

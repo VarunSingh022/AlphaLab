@@ -43,10 +43,10 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from alphalab.common.exceptions import AlphaLabValidationError
 from alphalab.common.statistics import mean, ranks, sample_variance, standardize
+from alphalab.data.time import resolve_zone
 from alphalab.factor_library.definition import (
     FeatureDefinition,
     FeatureKind,
@@ -114,7 +114,7 @@ def compute_time_series(
     kind = definition.kind
 
     if kind in (FeatureKind.TIME_OF_DAY, FeatureKind.DAY_OF_WEEK):
-        zone = ZoneInfo(timezone_name)
+        zone = resolve_zone(timezone_name)
         for index, stamp in enumerate(timestamps):
             local = datetime.fromtimestamp(stamp, zone)
             if kind is FeatureKind.TIME_OF_DAY:

@@ -572,8 +572,12 @@ def test_the_data_future_spec_and_the_futures_contract_are_wire_and_domain() -> 
 
     Making ``data`` use ``FutureContract`` would put ``alphalab.portfolio`` --
     and a standalone engine with no in-repo consumers by design -- on the
-    ingestion path, for a description that never opens a position. Joining them
-    is v3.4's work.
+    ingestion path, for a description that never opens a position.
+
+    **v3.4 joined them, and the join is in ``alphalab.api``**, above both:
+    ``future_contract_from_spec`` lifts one into the other. The two types stay
+    distinct and ``alphalab.data`` still imports neither engine, which is what
+    the assertions below check.
     """
 
     from decimal import Decimal
@@ -1071,3 +1075,175 @@ def test_an_impact_model_refuses_the_liquidity_it_was_not_given() -> None:
 
     with pytest.raises(ExecutionValidationError, match="participation rate"):
         SquareRootImpact(Decimal("0.1")).impact(context)
+
+
+# --------------------------------------------------------------------------- #
+# 19. "calendar" -- a job schedule, a venue's sessions, and a trading-day count
+# --------------------------------------------------------------------------- #
+
+
+def test_the_third_calendar_shaped_thing_is_a_protocol_not_a_calendar() -> None:
+    """v3.4 needed trading-day arithmetic in two packages that must not import
+    ``alphalab.data``, and did not add a calendar to either.
+
+    ``alphalab.conventions`` rests on ``alphalab.common`` alone -- an edge into
+    ``alphalab.data`` would close a package cycle through
+    ``data -> options -> portfolio``. ``alphalab.futures`` could import it, and
+    a roll rule needing one method does not justify dragging the ingestion layer
+    onto the futures engine.
+
+    So both name a one-method structural protocol that ``MarketCalendar``
+    already satisfies. There is still exactly one calendar with holidays,
+    sessions and a timezone, and it is ``alphalab.data.calendar.MarketCalendar``.
+    """
+
+    from alphalab.conventions.settlement import TradingDayCalendar
+    from alphalab.data.calendar import MarketCalendar
+    from alphalab.futures.chain import SessionCalendar
+
+    for protocol in (TradingDayCalendar, SessionCalendar):
+        declared = {name for name in vars(protocol) if not name.startswith("_")}
+        assert declared == {"is_trading_day"}, (
+            f"{protocol.__name__} grew beyond one method; a protocol with sessions and "
+            "holidays on it is a second calendar in all but name."
+        )
+
+    owns_the_data = {"holidays", "special_sessions", "weekly_sessions", "timezone_name"}
+    assert owns_the_data <= set(MarketCalendar.__dataclass_fields__)
+    for protocol in (TradingDayCalendar, SessionCalendar):
+        assert not hasattr(protocol, "holidays")
+
+
+# --------------------------------------------------------------------------- #
+# 20. "margin" -- an account calculation, a liquidation price, a published figure
+# --------------------------------------------------------------------------- #
+
+
+def test_the_three_margins_answer_three_questions_from_three_inputs() -> None:
+    """None of the three can produce either of the others.
+
+    ``MarginEngine`` reads a *book* and a rate the caller states, and answers
+    buying power. ``compute_liquidation_price`` reads an entry price and a
+    leverage, and answers a *price*. ``position_margin`` reads a clearing
+    house's *published figures* and answers money per contract -- a number
+    neither of the others holds and neither can derive, because a futures
+    requirement is set per contract and revised without notice.
+    """
+
+    from alphalab.crypto.perpetual import compute_liquidation_price
+    from alphalab.futures.margin import ContractMarginSpec, position_margin
+    from alphalab.portfolio.margin import MarginEngine
+
+    account = set(inspect.signature(MarginEngine.buying_power).parameters)
+    liquidation = set(inspect.signature(compute_liquidation_price).parameters)
+    published = set(inspect.signature(position_margin).parameters)
+
+    assert "cash_ledger" in account and "specifications" not in account
+    assert liquidation == {"entry_price", "side", "leverage", "maintenance_margin_rate"}
+    assert "specifications" in published and "leverage" not in published
+
+    # The published one carries an amount and a currency; the others carry rates.
+    assert {"initial", "maintenance", "currency", "as_of"} <= set(
+        ContractMarginSpec.__dataclass_fields__
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 21. "exposure" -- shares, and contracts (v3.4)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_exposures_differ_in_whether_a_multiplier_exists() -> None:
+    """``ExposureEngine`` reads ``Position.market_value``, which is
+    ``quantity * market_price`` and means *shares*. ``Position`` carries no
+    multiplier and never will -- every contract bridge in the repository says
+    so and tells the caller to apply one.
+
+    ``contract_exposures`` takes the convention that supplies it. It is not a
+    better version of the first: it answers a question the first cannot express,
+    and it needs an input the first does not have.
+    """
+
+    from alphalab.portfolio.contracts import ContractHolding, contract_exposures
+    from alphalab.portfolio.exposure import ExposureEngine
+    from alphalab.portfolio.position import Position
+
+    assert "multiplier" not in Position.__dataclass_fields__
+    assert set(inspect.signature(ExposureEngine.gross_exposure).parameters) == {"positions"}
+    assert "convention" in ContractHolding.__dataclass_fields__
+    assert set(inspect.signature(contract_exposures).parameters) == {"holdings"}
+
+
+def test_the_unmultiplied_exposure_is_a_thousandth_of_the_contract_one() -> None:
+    """The 1,000x error ``alphalab.data.assets`` opens by naming, demonstrated."""
+
+    from alphalab.conventions import (
+        LotSpecification,
+        MarketConvention,
+        SettlementBasis,
+        SettlementRule,
+        TickSchedule,
+    )
+    from alphalab.portfolio.contracts import ContractHolding, contract_exposures
+    from alphalab.portfolio.exposure import ExposureEngine
+    from alphalab.portfolio.position import Position
+
+    position = Position(
+        "CL_202606", Decimal("5"), Decimal("75"), Decimal("75"), Decimal("0"), "USD", 0.0
+    )
+    convention = MarketConvention(
+        "XCME",
+        "XCME",
+        "USD",
+        "USD",
+        Decimal("1000"),
+        TickSchedule.flat(Decimal("0.01")),
+        LotSpecification.single_units(),
+        SettlementRule(SettlementBasis.TRADE_DATE, 0),
+    )
+    shares = ExposureEngine.gross_exposure({"CL_202606": position})
+    contracts = contract_exposures([ContractHolding(position, convention)]).gross.of("USD")
+    assert shares == Decimal("375.00")
+    assert contracts == Decimal("375000.00")
+    assert contracts == shares * 1000
+
+
+# --------------------------------------------------------------------------- #
+# 22. "currency attribution" -- a P&L breakdown, and a return decomposition (v3.4)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_currency_breakdowns_measure_different_things() -> None:
+    """``AttributionDimension.CURRENCY`` buckets *realized P&L by settlement
+    currency*, from trades, and deliberately has no total -- summing it would
+    need rates ADR-0020 forbids inventing.
+
+    ``currency_attribution`` decomposes a *reporting-currency return* into a
+    local component and a currency component, from values and two rate tables.
+    It has a total because it was given the rates the other was not.
+
+    Neither derives the other, and the return decomposition imports nothing
+    from ``alphalab.analytics``.
+    """
+
+    import ast
+    import pathlib
+
+    from alphalab.analytics.attribution import AttributionDimension, attribute
+    from alphalab.portfolio import fx_research
+    from alphalab.portfolio.fx_research import currency_attribution
+
+    assert "trades" in inspect.signature(attribute).parameters
+    assert "trades" not in inspect.signature(currency_attribution).parameters
+    assert {"opening_rates", "closing_rates"} <= set(
+        inspect.signature(currency_attribution).parameters
+    )
+    assert AttributionDimension.CURRENCY.name == "CURRENCY"
+
+    module = pathlib.Path(inspect.getfile(fx_research))
+    imported = {
+        node.module
+        for node in ast.walk(ast.parse(module.read_text()))
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert not [name for name in imported if name.startswith("alphalab.analytics")]

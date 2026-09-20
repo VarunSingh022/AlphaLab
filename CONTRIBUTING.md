@@ -99,7 +99,7 @@ All three commands must complete successfully before code is submitted.
 # Repository Structure
 
 ```
-alphalab/      Framework source code — 48 packages
+alphalab/      Framework source code — 50 packages
 
 tests/         Unit, integration and regression tests
 

@@ -44,6 +44,7 @@ def _call(strike: str = "150.00", expiry: float = ONE_YEAR) -> OptionContract:
         expiry=expiry,
         option_type=OptionType.CALL,
         style=ExerciseStyle.EUROPEAN,
+        multiplier=100,
     )
 
 
@@ -54,6 +55,7 @@ def _put(strike: str = "150.00", expiry: float = ONE_YEAR) -> OptionContract:
         expiry=expiry,
         option_type=OptionType.PUT,
         style=ExerciseStyle.EUROPEAN,
+        multiplier=100,
     )
 
 
@@ -85,6 +87,8 @@ def test_contract_rejects_non_positive_strike() -> None:
             strike=Decimal("0"),
             expiry=ONE_YEAR,
             option_type=OptionType.CALL,
+            style=ExerciseStyle.AMERICAN,
+            multiplier=100,
         )
 
 
@@ -96,6 +100,7 @@ def test_contract_rejects_non_positive_multiplier() -> None:
             expiry=ONE_YEAR,
             option_type=OptionType.CALL,
             multiplier=0,
+            style=ExerciseStyle.AMERICAN,
         )
 
 
@@ -161,6 +166,8 @@ def test_black_scholes_call_matches_textbook_reference() -> None:
         strike=Decimal("100"),
         expiry=ONE_YEAR,
         option_type=OptionType.CALL,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     price = black_scholes_price(contract, Decimal("100"), 0.2, 0.05, 0.0)
     assert price == pytest.approx(Decimal("10.4506"), abs=Decimal("0.001"))
@@ -173,6 +180,8 @@ def test_black_scholes_put_matches_textbook_reference() -> None:
         strike=Decimal("100"),
         expiry=ONE_YEAR,
         option_type=OptionType.PUT,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     price = black_scholes_price(contract, Decimal("100"), 0.2, 0.05, 0.0)
     assert price == pytest.approx(Decimal("5.5735"), abs=Decimal("0.001"))
@@ -187,12 +196,16 @@ def test_put_call_parity_holds() -> None:
         strike=Decimal("100"),
         expiry=ONE_YEAR,
         option_type=OptionType.CALL,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     put = OptionContract(
         underlying_asset_id="TEST",
         strike=Decimal("100"),
         expiry=ONE_YEAR,
         option_type=OptionType.PUT,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     call_price = black_scholes_price(call, Decimal("100"), 0.2, 0.05, 0.0)
     put_price = black_scholes_price(put, Decimal("100"), 0.2, 0.05, 0.0)
@@ -232,6 +245,8 @@ def test_call_delta_matches_textbook_reference() -> None:
         strike=Decimal("100"),
         expiry=ONE_YEAR,
         option_type=OptionType.CALL,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     greeks = black_scholes_greeks(contract, Decimal("100"), 0.2, 0.05, 0.0)
     assert greeks.delta == pytest.approx(0.6368, abs=0.001)
@@ -243,12 +258,16 @@ def test_put_delta_is_call_delta_minus_one() -> None:
         strike=Decimal("100"),
         expiry=ONE_YEAR,
         option_type=OptionType.CALL,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     put = OptionContract(
         underlying_asset_id="TEST",
         strike=Decimal("100"),
         expiry=ONE_YEAR,
         option_type=OptionType.PUT,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     call_greeks = black_scholes_greeks(call, Decimal("100"), 0.2, 0.05, 0.0)
     put_greeks = black_scholes_greeks(put, Decimal("100"), 0.2, 0.05, 0.0)
@@ -261,12 +280,16 @@ def test_gamma_is_identical_for_call_and_put() -> None:
         strike=Decimal("100"),
         expiry=ONE_YEAR,
         option_type=OptionType.CALL,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     put = OptionContract(
         underlying_asset_id="TEST",
         strike=Decimal("100"),
         expiry=ONE_YEAR,
         option_type=OptionType.PUT,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     call_greeks = black_scholes_greeks(call, Decimal("100"), 0.2, 0.05, 0.0)
     put_greeks = black_scholes_greeks(put, Decimal("100"), 0.2, 0.05, 0.0)
@@ -279,6 +302,8 @@ def test_deep_itm_call_delta_approaches_one() -> None:
         strike=Decimal("10"),
         expiry=ONE_YEAR,
         option_type=OptionType.CALL,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     greeks = black_scholes_greeks(contract, Decimal("1000"), 0.2, 0.05, 0.0)
     assert greeks.delta > 0.99

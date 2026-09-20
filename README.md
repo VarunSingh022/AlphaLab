@@ -7,7 +7,7 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-3.3.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.4.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
 [![Tests](https://img.shields.io/badge/Tests-4548%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
@@ -37,22 +37,89 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.3.0 — institutional backtesting and portfolio intelligence, on the v3.0 frozen architecture**
+**Current Release:** **v3.4.0 — global markets and multi-asset research, on the v3.0 frozen architecture**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.3.0 |
+| Version | 3.4.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **4764 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (999 source files) |
+| Tests | **5123 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (1041 source files) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **51 / 51 Passing** |
-| Examples | **30 / 30 Passing** |
+| Benchmarks | **53 / 53 Passing** |
+| Examples | **40 / 40 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+## What v3.4.0 is
+
+The fourth capability release on the frozen architecture. v3.1 gave AlphaLab a
+dataset it could trust, v3.2 research methodology and v3.3 the institutional
+answers; v3.4 makes it say what an instrument's numbers *mean* outside the
+market whose conventions had been written into the defaults.
+
+Six of those defaults were US or Binance conventions presented as universals — a
+futures contract's currency, an option's multiplier and exercise style, a
+funding interval, a crypto contract size. Each produced a number rather than an
+error when it was wrong, and each was invisible to the sweep that has looked for
+exactly that shape since v2.17, because the sweep reads function parameters and
+these are dataclass fields. All six are now required, and the sweep reads both.
+
+**One convention authority.** `alphalab.conventions` holds `MarketConvention` —
+venue, calendar id, quote *and* settlement currency, multiplier, tick schedule,
+lot specification, settlement rule — with every field required. It imports
+`alphalab.common` and nothing else in `alphalab`, which is what lets `options`,
+`futures`, `crypto`, `portfolio`, `data` and `api` all use it: the package graph
+already runs `data → options → portfolio`, so an edge into any of those would
+close a cycle.
+
+**The multiplier, multiplied once.** `Position.market_value` is
+`quantity * market_price` and always will be — exactly right for a share, a
+thousand times wrong for a contract on a thousand barrels. `contract_notional`
+is the only site in AlphaLab that applies a multiplier, and a regression test
+reads every module's source to keep a second from appearing.
+
+**Reproducible continuous futures.** A series is reproducible from four stated
+things: the contract chain, the roll policy, the observations, and the
+adjustment method. `roll_schedule` records when each handover happened and why;
+a rule refuses the input it needs rather than approximating it; a missing print
+at a roll raises rather than being interpolated.
+
+**An implied volatility that refuses.** Five cases where a quoted price has no
+answer, each raising rather than returning a clamp or a fallback.
+`surface_from_chain` returns the surface **and every refusal with its reason**,
+and the two account for every contract in the chain.
+
+**Both directions of time on an FX rate.** `max_age_seconds` has bounded how
+*old* a rate may be since v2.16; a rate dated *after* the conversion instant is
+now refused too. Applying it found a genuine look-ahead in the repository's own
+settlement fixture, invisible for four releases because nothing checked.
+
+**A fixed-income foundation, and it says foundation.** Bond cash flows, accrued
+interest, clean and dirty price, the yield inversion, duration in years and
+convexity in years squared. No credit, no optionality, no floating coupons, and
+no curve bootstrapper — each needs a model whose choice is the researcher's.
+
+```text
+                     alphalab.conventions  (leaf, over common)
+                  venue · calendar id · currencies · multiplier
+                     tick schedule · lot spec · settlement
+                                    |
+        +---------------+-----------+-----------+---------------+
+        |               |           |           |               |
+     futures         options      crypto      macro        portfolio
+   chain · roll   IV · surface   venue ·     bonds ·      contracts ·
+   continuous ·   expiry ·       funding ·   curves       fx research
+   curve · margin Greeks         coverage                  attribution
+```
+
+Full detail in [ADR-0039](docs/ADR/0039-global-markets-conventions-and-the-multi-asset-boundary.md)
+and [CHANGELOG.md](CHANGELOG.md).
+
+---
 
 ## What v3.3.0 is
 
@@ -309,6 +376,7 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v3.0.0** | Architecture frozen; documentation truth freeze. No capability added |
 | **v3.1.0** | Universal data ingestion: CSV, schema detection, structured validation, explicit cleaning policies, market calendars, multi-asset semantics, provenance and the derived dataset version (ADR-0036) |
 | **v3.2.0** | Strategy research and validation: typed features with derived identity and lineage, factor research, signal diagnostics, walk-forward, purged and embargoed cross-validation, robustness perturbation, overfitting diagnostics, and the reproducible study contract (ADR-0037) |
+| **v3.4.0** | Global markets and multi-asset research: one market-convention authority, reproducible continuous futures, implied volatility with five refusals, FX cross rates and a look-ahead guard, crypto venue metadata and 24/7 coverage, and a fixed-income foundation (ADR-0039) |
 | **v3.3.0** | Institutional backtesting and portfolio intelligence: itemized execution costs, capacity modelling, nine-dimension attribution, risk decomposition with named VaR methodology, and a reusable scenario/stress contract (ADR-0038) |
 
 > **What connectivity means here.** `alphalab.broker.transport.HttpVenueTransport`
@@ -470,6 +538,7 @@ Everything below is importable, deterministic, and independently tested, but is
 | Features & factors | `feature_store`, `factor_library`, `alt_data` |
 | Learning | `ml`, `deep_learning`, `reinforcement_learning` |
 | Asset classes | `options`, `futures`, `crypto`, `macro` |
+| Market conventions | `conventions` — a leaf over `common`, imported *by* `data`-side and `portfolio`-side packages rather than reached from a run |
 | Scale-out | `cloud_research`, `cluster_scheduler`, `distributed` |
 | Workflow | `workbench`, `research_assistant` |
 | Provider surfaces | `live`, `feed`, `brokers` |
@@ -595,6 +664,8 @@ alphalab/
 │   market/        Canonical market model, normalization, sources, streaming
 │   instrument/    Canonical instrument identity, registry, classification
 │   common/        Version, events, serialization, ids, containers, TLS
+│   conventions/   Market conventions — settlement, ticks, lots, multipliers,
+│                  day counts, compounding. A leaf over common (ADR-0039)
 │   persistence/   Codec spine, RunStateStore, typed decoding
 │   backtesting/   Dataset → execution path → analytics (backtest + replay drivers)
 │   replay/        Deterministic replay cursor
@@ -634,7 +705,7 @@ Additional directories:
 ```text
 docs/          Documentation and ADRs
 examples/      24 runnable examples
-benchmarks/    50 performance benchmarks
+benchmarks/    53 performance benchmarks
 tests/         4548 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
@@ -645,10 +716,10 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **4548 passing tests** (2030 unit, 263 integration, 2255 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking (975 source files)
+- ✅ **5123 passing tests** (2479 unit, 303 integration, 2341 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking (1041 source files)
 - ✅ Ruff linting and formatting
-- ✅ 50 / 50 benchmarks, 24 / 24 examples
+- ✅ 53 / 53 benchmarks, 40 / 40 examples
 - ✅ Source distribution, wheel and `twine check` validation
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
@@ -683,6 +754,20 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   explicit conversion (ADR-0011).
 - **Three things called a venue** — listing exchange, market-data attribution and
   execution venue. None derives from another (ADR-0019).
+- **Three calendar-shaped things** — `MarketCalendar` answers sessions,
+  `scheduler.TradingCalendar` answers "should a job fire today", and v3.4's two
+  one-method protocols are neither. There is one calendar with holidays,
+  sessions and a timezone (ADR-0039).
+- **Three margins** — an account calculation, a liquidation *price*, and a
+  clearing house's *published* figure. None can produce either of the others.
+- **Two exposures** — `ExposureEngine` reads `Position.market_value` and means
+  shares; `contract_exposures` takes the convention that supplies a multiplier.
+  The second is not a better version of the first; it answers a question the
+  first cannot express.
+- **Two currency breakdowns** — `AttributionDimension.CURRENCY` buckets realized
+  P&L by settlement currency and deliberately has no total;
+  `currency_attribution` decomposes a reporting-currency return and has one,
+  because it was given the rates the other was not.
 - **Standalone engines with no in-repo consumer** — that is ADR-0009, not an
   orphan.
 
@@ -694,6 +779,14 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
 - **FX data.** v2.17 ships the rate-feed *boundary* and not a single rate.
 - **Classification data.** v2.11 ships the security master's *mechanism* and
   v2.15 its provenance; AlphaLab ships no taxonomy and no reference-data feed.
+- **Market conventions.** v3.4 ships the convention *contract* and not one
+  venue's values: no holiday list, no tick table, no lot schedule, no venue
+  registry.
+- **Deposit and discount curves.** Both rate inputs to a covered-parity forward
+  are required arguments; AlphaLab bootstraps no curve.
+- **Futures margin figures and crypto venue specifications.** A clearing house
+  and an exchange publish them. AlphaLab holds no adapter, client or
+  credential.
 
 ## Optional future evolution — deliberately not built
 
@@ -742,7 +835,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v3.3.0**
+**AlphaLab v3.4.0**
 
 Building deterministic infrastructure for quantitative research.
 

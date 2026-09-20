@@ -26,17 +26,26 @@ class OptionContract:
         strike: Strike price per share.
         expiry: Unix timestamp of contract expiration.
         option_type: Call or put.
-        style: American or European exercise.
-        multiplier: Shares controlled per contract, 100 for standard US equity
-            options.
+        style: When the contract may be exercised. **Required** as of v3.4,
+            having defaulted to :attr:`~alphalab.options.enums.ExerciseStyle.AMERICAN`.
+            That is the US single-stock convention and it is not a universal:
+            index options on the same exchange are European, and so is most of
+            what trades in Europe and India. The default answered a question
+            about the contract that nobody had asked.
+        multiplier: Units of the underlying per contract. **Required** as of
+            v3.4, having defaulted to ``100``. A US equity option controls 100
+            shares, a Nifty option 50 units of the index and a Eurostoxx option
+            10 -- and the multiplier scales every payoff, premium and Greek this
+            package computes, so a wrong one is wrong by that factor with
+            nothing refusing it.
     """
 
     underlying_asset_id: str
     strike: Decimal
     expiry: float
     option_type: OptionType
-    style: ExerciseStyle = ExerciseStyle.AMERICAN
-    multiplier: int = 100
+    style: ExerciseStyle
+    multiplier: int
 
     def __post_init__(self) -> None:
         if self.strike <= Decimal("0"):

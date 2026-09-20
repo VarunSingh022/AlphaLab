@@ -24,9 +24,15 @@ These specs are **wire-layer descriptions**: ``float``, keyed by provider
 counterparts: ``Decimal``, keyed by ``asset_id``, and bridged to
 :class:`~alphalab.portfolio.position.Position` so a contract can be *held*.
 A :class:`FutureSpec` says what a price series is about; a ``FutureContract``
-opens a position in it. Joining them is v3.4's work, not v3.1's, and
-``tests/regression/test_shared_names_stay_distinct.py`` records why they are
-two types.
+opens a position in it. **v3.4 joined them**, and put the join in
+:mod:`alphalab.api` rather than here: ``future_contract_from_spec`` and
+``option_contract_from_spec`` lift a spec into the domain, and
+``convention_from_spec`` builds the
+:class:`~alphalab.conventions.market.MarketConvention` that says what the
+numbers mean. A joining layer belongs *above* the things it joins, which is why
+this module still imports neither ``alphalab.futures`` nor
+``alphalab.portfolio``; ``tests/regression/test_shared_names_stay_distinct.py``
+records why they remain two types.
 
 ``OptionType`` is *not* redefined
 ---------------------------------
@@ -184,9 +190,15 @@ class OptionSpec:
         strike: Exercise price per unit of the underlying.
         expiry: Unix seconds of expiration.
         option_type: Call or put, from :mod:`alphalab.options.enums`.
-        multiplier: Units of the underlying per contract, 100 for standard US
-            equity options.
-        style: When the contract may be exercised.
+        multiplier: Units of the underlying per contract. 100 for a standard
+            US equity option, 50 for a Nifty option, 10 for a Eurostoxx one.
+        style: When the contract may be exercised. **Required** as of v3.4,
+            having defaulted to
+            :attr:`~alphalab.options.enums.ExerciseStyle.AMERICAN` -- the US
+            single-stock convention, which index options on the same exchange
+            do not follow. The domain counterpart
+            :class:`alphalab.options.contract.OptionContract` made the same
+            field required in the same release.
     """
 
     symbol: str
@@ -197,7 +209,7 @@ class OptionSpec:
     expiry: float
     option_type: OptionType
     multiplier: float
-    style: ExerciseStyle = ExerciseStyle.AMERICAN
+    style: ExerciseStyle
 
     def __post_init__(self) -> None:
         _require(self.symbol, "symbol", self.symbol)

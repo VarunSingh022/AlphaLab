@@ -332,6 +332,31 @@ def test_no_module_invents_an_overfitting_score() -> None:
 # --------------------------------------------------------------------------- #
 
 
+#: Every external product, vendor and framework AlphaLab must not integrate.
+#:
+#: Declared once, here, because it is checked twice: this file reads **import
+#: statements** for any of these roots, and
+#: ``tests/regression/test_v34_invariants.py`` reads the **raw source text** for
+#: the same names. The two catch different things -- an import, and a vendor
+#: named in a docstring or a URL -- and a second copy of the list is how one of
+#: them comes to be shorter than the other.
+FORBIDDEN_VENDORS = (
+    "quant_mind",
+    "quantmind",
+    "openbb",
+    "knight",
+    "iluvtrade",
+    "reddesk",
+    "marketplace",
+    "langchain",
+    "openai",
+    "anthropic",
+    "transformers",
+    "torch",
+    "tensorflow",
+)
+
+
 def test_the_package_integrates_no_external_product_or_vendor() -> None:
     """AlphaLab stays an independent engine, and this is measured every run.
 
@@ -341,21 +366,6 @@ def test_the_package_integrates_no_external_product_or_vendor() -> None:
     any of them.
     """
 
-    forbidden = (
-        "quant_mind",
-        "quantmind",
-        "openbb",
-        "knight",
-        "iluvtrade",
-        "reddesk",
-        "marketplace",
-        "langchain",
-        "openai",
-        "anthropic",
-        "transformers",
-        "torch",
-        "tensorflow",
-    )
     offenders: list[str] = []
 
     for path in sorted(PACKAGE.rglob("*.py")):
@@ -373,7 +383,7 @@ def test_the_package_integrates_no_external_product_or_vendor() -> None:
                 line = node.lineno
             for name in names:
                 root = name.split(".")[0].lower()
-                if root in forbidden:
+                if root in FORBIDDEN_VENDORS:
                     offenders.append(f"{path.relative_to(ROOT)}:{line} imports {name}")
 
     assert not offenders, f"AlphaLab imports an external product or vendor SDK: {offenders}"

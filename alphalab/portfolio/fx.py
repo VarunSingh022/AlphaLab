@@ -29,6 +29,18 @@ source:
   act and each derived rate says so through :attr:`FxRate.derived`.
 * **No caching and no reference-currency hierarchy.** A table is a value. Where
   it comes from and how often it is refreshed belong to whoever supplies it.
+* **No implicit cross.** :meth:`FxRates.cross_rate` will derive one, and the
+  caller must name the currency it goes through -- EUR/JPY via USD and via GBP
+  are different numbers. :meth:`FxRates.convert` triangulates nothing.
+
+Both directions of time (v3.4)
+-------------------------------
+
+``max_age_seconds`` has bounded how *old* a rate may be since v2.16. v3.4 closes
+the other side: a rate whose ``as_of`` is **after** the conversion instant is
+refused with :class:`FutureDatedRateError`. A stale rate is visibly old; a
+future-dated one is a look-ahead that produces a confident currency return the
+position could not have earned.
 
 Precision
 ---------
@@ -75,6 +87,7 @@ from alphalab.portfolio.exceptions import PortfolioError
 from alphalab.portfolio.money import to_money
 
 __all__ = [
+    "FutureDatedRateError",
     "FxConversion",
     "FxRate",
     "FxRates",
@@ -94,6 +107,22 @@ class MissingRateError(PortfolioError):
 
 class StaleRateError(PortfolioError):
     """Raised when the only rate for a pair is older than the table tolerates."""
+
+
+class FutureDatedRateError(PortfolioError):
+    """Raised when the only rate for a pair was not yet true at the conversion instant.
+
+    :class:`StaleRateError`'s mirror image, and the more dangerous of the two.
+    A stale rate is visibly old; a future-dated one is a look-ahead, and a
+    backtest that converts January's position at March's rate reports a currency
+    return it could not have earned.
+
+    The feed path cannot produce one -- a quote older than what is held is
+    ``SUPERSEDED`` -- so this guards a table assembled by hand, which is how
+    research tables are assembled. Listed as "optional future evolution" in
+    ROADMAP.md until v3.4, whose point-in-time rule made it required rather than
+    optional.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +290,66 @@ class FxRates:
                 table[inverse.pair] = inverse
         return replace(self, rates=table)
 
+    def cross_rate(self, base: str, quote: str, via: str) -> FxRate:
+        """Derive ``base``/``quote`` through a named third currency.
+
+        Triangulation, and therefore a **deliberate act** with the same standing
+        as :meth:`with_inverses`. ADR-0020 refuses it as an *implicit* step and
+        says why: "EUR to JPY from EUR/USD and USD/JPY is a rate nobody quoted",
+        wrong by both legs' spreads. What it refuses is the table doing it
+        silently inside :meth:`convert` -- which this does not change.
+        :meth:`convert` still raises :class:`MissingRateError` for a pair it was
+        not given.
+
+        What changes is that a caller who *wants* the cross must now name the
+        currency it goes through, which is the fact that was missing: EUR/JPY
+        via USD and EUR/JPY via GBP are different numbers, and a result that
+        does not say which one it used cannot be reconciled against anything.
+        The derived rate carries ``derived=True`` and a source naming both legs.
+
+        Args:
+            base: Convert from.
+            quote: Convert to.
+            via: The currency the derivation passes through. Required, and
+                distinct from both ends.
+
+        Returns:
+            The derived rate. Not added to the table -- :meth:`with_rate` does
+            that, so holding it is also deliberate.
+
+        Raises:
+            PortfolioError: If ``via`` equals either end, or the two ends are
+                the same currency.
+            MissingRateError: If either leg is absent. The message names which.
+        """
+
+        if base == quote:
+            raise PortfolioError(f"{base} to {quote} is not a conversion, so it has no cross rate.")
+        if via in (base, quote):
+            raise PortfolioError(
+                f"A cross from {base} to {quote} via {via} passes through one of its own "
+                "ends, which is the direct rate or its inverse rather than a cross."
+            )
+        first = self.rate_for(base, via)
+        second = self.rate_for(via, quote)
+        missing = [
+            f"{a}/{b}" for a, b, rate in ((base, via, first), (via, quote, second)) if rate is None
+        ]
+        if missing:
+            raise MissingRateError(
+                f"A cross from {base} to {quote} via {via} needs {' and '.join(missing)}, "
+                f"which this table does not hold. It holds {list(self.pairs)}."
+            )
+        assert first is not None and second is not None  # established above
+        return FxRate(
+            base=base,
+            quote=quote,
+            rate=first.rate * second.rate,
+            as_of=min(first.as_of, second.as_of),
+            source=f"cross via {via}: {first.source!r} x {second.source!r}",
+            derived=True,
+        )
+
     def __bool__(self) -> bool:
         """Whether this table holds any rate at all.
 
@@ -322,6 +411,14 @@ class FxRates:
                 "AlphaLab does not triangulate or invert a rate it was not given: "
                 "supply the pair, or call with_inverses() if the opposite direction "
                 "is an acceptable derivation."
+            )
+
+        if as_of is not None and rate.as_of > as_of:
+            raise FutureDatedRateError(
+                f"The only {base}/{quote} rate was true at {rate.as_of}, after the "
+                f"conversion instant {as_of}. It came from {rate.source!r}. Converting at a "
+                "rate that did not exist yet is a look-ahead, and the figure it produces is "
+                "a currency return nobody could have earned."
             )
 
         if as_of is not None and self.max_age_seconds is not None:

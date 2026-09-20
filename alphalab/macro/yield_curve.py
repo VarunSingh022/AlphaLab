@@ -6,11 +6,33 @@ minus 2-year) is the spread most commonly cited in financial media as "the yield
 curve," while 3m10y (10-year minus 3-month) is the specific spread the New York
 Fed's own published recession probability model is built on. Conflating the two is
 a common, real error.
+
+Observed, not constructed
+--------------------------
+
+A :class:`YieldCurve` is a set of **observed** yields at observed tenors. It is
+not a bootstrapped discount curve, and v3.4 deliberately did not make it one.
+Bootstrapping requires choosing an interpolation scheme over an incomplete set
+of quotes, and the choice changes every forward rate read off the result -- a
+log-linear discount interpolation and a linear-in-yield one disagree most
+exactly where the quotes are sparsest, which is where a forward is most often
+wanted. That choice belongs to whoever is doing the research, and a library
+making it silently would be the "hidden market assumption" this release exists
+to remove. ROADMAP.md records the boundary.
+
+What v3.4 does add is :func:`discount_factor_at`, which turns an *observed*
+yield into a discount factor under a **named** compounding convention. It reads
+the curve through :func:`yield_at_tenor` -- the same linear-in-yield
+interpolation that has been this module's stated behaviour since v1, with the
+same refusal to extrapolate -- rather than introducing a second way to read a
+curve.
 """
 
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.conventions.rates import Compounding
+from alphalab.conventions.rates import discount_factor as _discount_factor
 from alphalab.macro.exceptions import MacroInputError
 
 TWO_YEAR = Decimal("2")
@@ -124,3 +146,32 @@ def is_inverted(
     if result is None:
         return None
     return result < Decimal("0")
+
+
+def discount_factor_at(
+    curve: YieldCurve, tenor_years: Decimal, compounding: Compounding
+) -> float | None:
+    """What one unit received at ``tenor_years`` is worth now, on this curve.
+
+    ``compounding`` is required and has no default: the same observed 5% gives
+    0.6139 annually compounded and 0.6065 continuously over ten years, and
+    nothing in the curve says which convention its yields were quoted under.
+    That is the publisher's fact and the caller's to state.
+
+    Returns ``None`` -- not ``1.0`` and not an extrapolated factor -- when
+    :func:`yield_at_tenor` has no yield for the tenor, for the reason that
+    function returns ``None``: a tenor outside the observed range was never
+    quoted, and a discount factor for it would be invented.
+
+    Raises:
+        MacroInputError: If ``tenor_years`` is negative. A negative tenor
+            compounds forward while being read as a discount.
+    """
+    if tenor_years < Decimal("0"):
+        raise MacroInputError(
+            f"tenor_years is {tenor_years}; a discount factor is read over a forward period."
+        )
+    observed = yield_at_tenor(curve, tenor_years)
+    if observed is None:
+        return None
+    return _discount_factor(float(observed), float(tenor_years), compounding)

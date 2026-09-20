@@ -55,6 +55,40 @@ def _d1_d2(
     return d1, d2
 
 
+def black_scholes_value(
+    contract: OptionContract,
+    spot: float,
+    volatility: float,
+    risk_free_rate: float,
+    years: float,
+) -> float:
+    """The Black-Scholes value as a ``float``, before any rounding.
+
+    :func:`black_scholes_price` is this, quantized to four decimal places and
+    floored at zero, and :mod:`alphalab.options.implied` inverts *this* rather
+    than the quantized figure -- a step function is not monotonic at the step,
+    and a bisection on one converges to the edge of a tick rather than to a
+    volatility.
+
+    It is public so that the identity is checkable rather than asserted:
+    ``tests/unit/options/test_implied.py`` requires the rounded form of this to
+    equal ``black_scholes_price`` on the same inputs, which is what keeps the
+    solver and the pricer one formula.
+
+    Takes ``years`` directly rather than a valuation timestamp, because the
+    solver evaluates it thousands of times at one maturity and recomputing the
+    time to expiry per evaluation would make the result depend on how many
+    iterations it took.
+    """
+
+    strike_f = float(contract.strike)
+    d1, d2 = _d1_d2(spot, strike_f, risk_free_rate, volatility, years)
+    discount = math.exp(-risk_free_rate * years)
+    if contract.option_type is OptionType.CALL:
+        return spot * _norm_cdf(d1) - strike_f * discount * _norm_cdf(d2)
+    return strike_f * discount * _norm_cdf(-d2) - spot * _norm_cdf(-d1)
+
+
 def _validate_pricing_inputs(spot: Decimal, volatility: float) -> None:
     if spot <= Decimal("0"):
         raise OptionInputError(f"spot must be positive, got {spot}.")
@@ -79,16 +113,7 @@ def black_scholes_price(
     """
     _validate_pricing_inputs(spot, volatility)
     years = time_to_expiry_years(contract, valuation_timestamp)
-
-    spot_f, strike_f = float(spot), float(contract.strike)
-    d1, d2 = _d1_d2(spot_f, strike_f, risk_free_rate, volatility, years)
-    discount = math.exp(-risk_free_rate * years)
-
-    if contract.option_type is OptionType.CALL:
-        price = spot_f * _norm_cdf(d1) - strike_f * discount * _norm_cdf(d2)
-    else:
-        price = strike_f * discount * _norm_cdf(-d2) - spot_f * _norm_cdf(-d1)
-
+    price = black_scholes_value(contract, float(spot), volatility, risk_free_rate, years)
     return Decimal(str(max(price, 0.0))).quantize(_PRICE_QUANT, rounding=ROUND_HALF_EVEN)
 
 

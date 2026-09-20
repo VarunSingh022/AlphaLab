@@ -10,7 +10,7 @@ Every subsystem follows the same engineering principles (immutable state, pure f
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.3.0 both halves name only packages that exist; where the target half shows a
+> v3.4.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.3)
+# Implementation Status (v3.4)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -72,7 +72,14 @@ universal data-ingestion path inside `alphalab.data` and moves no boundary
 institutional surfaces — itemized execution costs and capacity inside
 `alphalab.execution`, attribution dimensions and risk decomposition inside
 `alphalab.analytics`, one new standalone package `alphalab.scenario`, and one
-function in `alphalab.common.statistics` — and moves no boundary (ADR-0038).** **v3.0.0 adds no
+function in `alphalab.common.statistics` — and moves no boundary (ADR-0038).**
+**v3.4.0 adds the global-market surfaces — one new leaf package
+`alphalab.conventions` over `alphalab.common`, the contract chain and roll
+policy inside `alphalab.futures`, implied volatility and expiry resolution
+inside `alphalab.options`, venue metadata and 24/7 coverage inside
+`alphalab.crypto`, bond analytics inside `alphalab.macro`, and cross rates, FX
+research and contract-aware exposure inside `alphalab.portfolio` — and moves no
+boundary (ADR-0039).** **v3.0.0 adds no
 capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -827,6 +834,12 @@ An independent, deterministic, individually tested library that is reached by
 `scenario`.
 (`production`, `integrations` and `kernel` were on this list until v2.17, which
 removed them — see ADR-0034.)
+
+**`conventions` (v3.4) is on neither path and is not a standalone engine
+either.** It is a leaf *library* imported by other packages rather than one
+reached from a run, and its edge set is asserted: `alphalab.common` and nothing
+else in `alphalab`. That constraint is what makes it usable from both sides of
+the `data → options → portfolio` chain at once (ADR-0039 decision 1).
 
 **`scenario` joined this list in v3.3**, and its being there is the design
 rather than an omission. A `Scenario` applies to a `ScenarioState` — a flat

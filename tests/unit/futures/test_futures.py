@@ -55,6 +55,7 @@ def _contract(
         expiry=float((month_offset_days + expiry_offset_days) * 86400),
         multiplier=multiplier,
         tick_size=Decimal("0.01"),
+        currency="USD",
     )
 
 
@@ -87,6 +88,7 @@ def test_contract_rejects_non_positive_multiplier() -> None:
             expiry=1000.0,
             multiplier=0,
             tick_size=Decimal("0.01"),
+            currency="USD",
         )
 
 
@@ -98,6 +100,7 @@ def test_contract_rejects_non_positive_tick_size() -> None:
             expiry=1000.0,
             multiplier=1000,
             tick_size=Decimal("0"),
+            currency="USD",
         )
 
 
@@ -109,6 +112,7 @@ def test_contract_rejects_expiry_before_contract_month() -> None:
             expiry=1000.0,
             multiplier=1000,
             tick_size=Decimal("0.01"),
+            currency="USD",
         )
 
 

@@ -44,7 +44,21 @@ from typing import Final
 from alphalab.data.exceptions import DataValidationError
 from alphalab.data.time import resolve_zone
 
-__all__ = ["CONTINUOUS_SESSION", "MarketCalendar", "SessionWindow"]
+__all__ = [
+    "CONTINUOUS_SESSION",
+    "MAX_SESSION_SEARCH_DAYS",
+    "MarketCalendar",
+    "SessionWindow",
+]
+
+#: How far the session searches look before refusing.
+#:
+#: A calendar whose next session is more than a year away is mis-declared --
+#: an empty ``weekly_sessions``, or a holiday set that swallowed the year -- and
+#: walking forever would hang a backtest rather than report the mistake. The
+#: same bound, for the same reason, as
+#: :data:`alphalab.conventions.settlement.MAX_SETTLEMENT_SEARCH_DAYS`.
+MAX_SESSION_SEARCH_DAYS: Final = 400
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +201,89 @@ class MarketCalendar:
         close_day = day + timedelta(days=1) if window.crosses_midnight else day
         end = datetime.combine(close_day, window.closes, tzinfo=zone)
         return start.timestamp(), end.timestamp()
+
+    def add_trading_days(self, day: date, count: int) -> date:
+        """The local date ``count`` trading days from ``day``.
+
+        Counts *this market's* trading days, so a Friday plus one is the
+        following Monday on a weekday venue and the following Saturday on a
+        continuous one. ``day`` itself is not counted whether or not it trades,
+        which is the convention every "T+n" settlement rule states.
+
+        Negative ``count`` walks backwards, which is what a lookback window
+        needs.
+
+        Raises:
+            DataValidationError: If the calendar declares no such day within
+                :data:`MAX_SESSION_SEARCH_DAYS` -- a calendar with no trading
+                weekday at all, rather than a date this far out.
+        """
+
+        if count == 0:
+            return day
+        step = timedelta(days=1 if count > 0 else -1)
+        remaining = abs(count)
+        cursor = day
+        for _ in range(MAX_SESSION_SEARCH_DAYS):
+            cursor += step
+            if self.is_trading_day(cursor):
+                remaining -= 1
+                if remaining == 0:
+                    return cursor
+        raise DataValidationError(
+            f"{self.calendar_id}: {abs(count)} trading day(s) from {day} is beyond "
+            f"{MAX_SESSION_SEARCH_DAYS} calendar days. The calendar declares too few trading "
+            "days for that to be a date rather than a mis-declaration."
+        )
+
+    def next_open(self, timestamp: float) -> float | None:
+        """The next instant this market opens, at or after ``timestamp``.
+
+        Returns ``timestamp`` itself when the market is already open, because
+        "when does it next open" has that answer while it is trading and
+        answering with the following session would skip the one in progress.
+        ``None`` when no session starts within
+        :data:`MAX_SESSION_SEARCH_DAYS`.
+        """
+
+        if self.is_open(timestamp):
+            return timestamp
+        local = self.local_datetime(timestamp).date()
+        for offset in range(MAX_SESSION_SEARCH_DAYS):
+            day = local + timedelta(days=offset)
+            starts = sorted(self._span(day, window)[0] for window in self.windows_on(day))
+            for start in starts:
+                if start >= timestamp:
+                    return start
+        return None
+
+    def next_close(self, timestamp: float) -> float | None:
+        """The end of the session in progress at ``timestamp``.
+
+        ``None`` when the market is not open then -- which is a different
+        question from "when does it next close", and answering that one would
+        return a close belonging to a session the caller is not in. Pair it with
+        :meth:`next_open` to cross a gap deliberately.
+        """
+
+        local = self.local_datetime(timestamp).date()
+        for day in (local - timedelta(days=1), local):
+            for window in self.windows_on(day):
+                start, end = self._span(day, window)
+                if start <= timestamp < end:
+                    return end
+        return None
+
+    def session_windows_on(self, day: date) -> tuple[tuple[float, float], ...]:
+        """Every window traded on a local date, as absolute ``(open, close)``
+        bounds in Unix seconds, ascending.
+
+        Distinct from :meth:`session_bounds`, which is the outer envelope of the
+        day: a market with a lunch break has two windows here and one envelope
+        there, and only this one can say the market was shut at noon.
+        """
+
+        return tuple(sorted(self._span(day, window) for window in self.windows_on(day)))
 
     def sessions_between(self, start: date, end: date) -> tuple[date, ...]:
         """Every trading date in an inclusive local-date range.

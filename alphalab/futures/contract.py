@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from alphalab.conventions.tick import TickValue, tick_value
 from alphalab.futures.exceptions import FuturesInputError
 from alphalab.portfolio.position import Position
 
@@ -26,7 +27,14 @@ class FutureContract:
         expiry: Unix timestamp of the last trading day.
         multiplier: Contract size, e.g. 1000 for a 1,000-barrel crude contract.
         tick_size: Minimum price movement.
-        currency: Settlement currency.
+        currency: Settlement currency. **Required** as of v3.4, having defaulted
+            to ``"USD"``. It becomes ``Position.currency`` through
+            :func:`open_future_position`, which decides what a valuation of the
+            book must convert and which settlement bucket this contract's P&L
+            accrues to -- and a Nifty, Bund or TOPIX future is exactly the case
+            where a US default is wrong. The same change v2.17 made to
+            :func:`alphalab.options.contract.open_option_position`, for the same
+            reason, under ADR-0019's rule: a currency is named, never assumed.
     """
 
     underlying_asset_id: str
@@ -34,9 +42,14 @@ class FutureContract:
     expiry: float
     multiplier: int
     tick_size: Decimal
-    currency: str = "USD"
+    currency: str
 
     def __post_init__(self) -> None:
+        if not self.currency.strip():
+            raise FuturesInputError(
+                f"{self.underlying_asset_id} names no settlement currency. A contract whose "
+                "currency is unstated produces a Position that cannot be valued or settled."
+            )
         if self.multiplier <= 0:
             raise FuturesInputError(f"multiplier must be positive, got {self.multiplier}.")
         if self.tick_size <= Decimal("0"):
@@ -76,4 +89,21 @@ def open_future_position(
         realized_pnl=Decimal("0.00"),
         currency=contract.currency,
         last_updated=timestamp,
+    )
+
+
+def contract_tick_value(contract: FutureContract) -> TickValue:
+    """What a one-tick move is worth on one contract of this month.
+
+    ``tick_size * multiplier``, in the contract's settlement currency -- and
+    computed by :func:`alphalab.conventions.tick.tick_value`, which is the one
+    place in AlphaLab that multiplication happens. A tick size is a *price* and
+    a tick value is *money*, and the returned
+    :class:`~alphalab.conventions.tick.TickValue` keeps them as separate fields
+    along with the inputs, so the figure can be audited rather than trusted.
+    """
+    return tick_value(
+        tick_size=contract.tick_size,
+        multiplier=Decimal(contract.multiplier),
+        currency=contract.currency,
     )

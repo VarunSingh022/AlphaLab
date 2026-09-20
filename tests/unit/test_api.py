@@ -7,6 +7,7 @@ came from, and it must refuse rather than invent when it cannot.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -14,13 +15,22 @@ import pytest
 from alphalab.api import (
     DataRequest,
     clean_dataset,
+    convention_from_spec,
+    future_contract_from_spec,
     ingest_csv,
     ingest_rows,
     inspect_csv,
     normalize_records,
+    option_contract_from_spec,
     select,
     to_market_dataset,
     validate_dataset,
+)
+from alphalab.conventions import (
+    LotSpecification,
+    SettlementBasis,
+    SettlementRule,
+    TickSchedule,
 )
 from alphalab.data import (
     CleaningPolicy,
@@ -38,8 +48,11 @@ from alphalab.data import (
     TimestampFormat,
     raw_source_from_bytes,
 )
+from alphalab.data.assets import EquitySpec, FutureSpec, OptionSpec
+from alphalab.futures import futures_symbol
 from alphalab.market.bar import TimeFrame
 from alphalab.market.normalization import NormalizationPolicy
+from alphalab.options.enums import ExerciseStyle, OptionType
 
 SAMPLE = Path(__file__).resolve().parents[2] / "examples" / "data" / "sample_ohlcv.csv"
 RETRIEVED_AT = 1_726_000_000.0
@@ -283,3 +296,135 @@ def test_the_market_dataset_is_chronological_across_instruments() -> None:
     stamps = [record.timestamp for record in market.records]
 
     assert stamps == sorted(stamps)
+
+
+# --------------------------------------------------------------------------- #
+# The wire/domain contract join (v3.4)
+# --------------------------------------------------------------------------- #
+
+
+def _future_spec(**overrides: object) -> FutureSpec:
+    fields: dict[str, object] = {
+        "symbol": "CLZ6",
+        "currency": "USD",
+        "exchange": "XCME",
+        "root": "CL",
+        "expiry": 1_766_188_800.0,
+        "multiplier": 1000.0,
+        "tick_size": 0.01,
+        "contract_month": 1_764_547_200.0,
+    }
+    fields.update(overrides)
+    return FutureSpec(**fields)  # type: ignore[arg-type]
+
+
+def test_a_future_spec_lifts_into_a_contract_that_opens_a_position() -> None:
+    contract = future_contract_from_spec(_future_spec())
+    assert contract.underlying_asset_id == "CL"
+    assert contract.multiplier == 1000
+    assert contract.tick_size == Decimal("0.01")
+    assert contract.currency == "USD"
+    assert futures_symbol(contract) == "CL_202512"
+
+
+def test_the_float_to_decimal_conversion_carries_no_binary_artefact() -> None:
+    """``Decimal(0.1)`` is 0.1000000000000000055…, and a tick size holding that
+    would put every price off its own grid."""
+
+    contract = future_contract_from_spec(_future_spec(tick_size=0.1, multiplier=50.0))
+    assert contract.tick_size == Decimal("0.1")
+    assert Decimal("100.3") % contract.tick_size == Decimal("0")
+
+
+def test_a_spec_with_no_contract_month_is_refused_rather_than_derived() -> None:
+    with pytest.raises(DataValidationError, match="never named"):
+        future_contract_from_spec(_future_spec(contract_month=None))
+
+
+def test_a_settlement_currency_can_differ_from_the_series_label() -> None:
+    """ADR-0019's four currency roles: a statement, not a default."""
+
+    assert future_contract_from_spec(_future_spec()).currency == "USD"
+    assert future_contract_from_spec(_future_spec(), currency="EUR").currency == "EUR"
+
+
+def test_an_option_spec_lifts_into_a_contract_keeping_its_non_us_terms() -> None:
+    spec = OptionSpec(
+        symbol="NKO",
+        currency="JPY",
+        exchange="XOSE",
+        underlying_symbol="NK225",
+        strike=38000.0,
+        expiry=1_766_188_800.0,
+        option_type=OptionType.CALL,
+        multiplier=1000.0,
+        style=ExerciseStyle.EUROPEAN,
+    )
+    contract = option_contract_from_spec(spec)
+    assert contract.multiplier == 1000
+    assert contract.style is ExerciseStyle.EUROPEAN
+    assert contract.strike == Decimal("38000.0")
+
+
+def test_a_convention_takes_the_three_facts_a_spec_cannot_carry() -> None:
+    """Calendar, tick grid and lot grid are arguments: no price series states
+    them, and a default would be one market's convention as a universal."""
+
+    convention = convention_from_spec(
+        _future_spec(),
+        calendar_id="XCME",
+        tick=TickSchedule.flat(Decimal("0.01")),
+        lot=LotSpecification.single_units(),
+        settlement=SettlementRule(SettlementBasis.TRADE_DATE, 0),
+    )
+    assert convention.venue == "XCME"
+    assert convention.quote_currency == convention.settlement_currency == "USD"
+    assert convention.multiplier == Decimal("1000.0")
+    assert convention.calendar_id == "XCME"
+
+
+def test_an_equity_spec_takes_a_multiplier_of_one_stated_rather_than_assumed() -> None:
+    convention = convention_from_spec(
+        EquitySpec(symbol="AAPL", currency="USD", exchange="XNAS"),
+        calendar_id="XNAS",
+        tick=TickSchedule.flat(Decimal("0.01")),
+        lot=LotSpecification.single_units(),
+        settlement=SettlementRule(SettlementBasis.TRADING_DAYS, 1),
+    )
+    assert convention.multiplier == Decimal("1")
+    assert convention.settlement.label == "T+1 trading days"
+
+
+def test_a_quanto_settlement_currency_is_carried_through() -> None:
+    convention = convention_from_spec(
+        _future_spec(currency="JPY"),
+        calendar_id="XCME",
+        tick=TickSchedule.flat(Decimal("5")),
+        lot=LotSpecification.single_units(),
+        settlement=SettlementRule(SettlementBasis.TRADE_DATE, 0),
+        settlement_currency="USD",
+    )
+    assert convention.quote_currency == "JPY"
+    assert convention.settlement_currency == "USD"
+    assert not convention.settles_in_quote_currency
+
+
+def test_the_join_lives_above_both_and_data_still_imports_neither_engine() -> None:
+    """The reason it is in ``alphalab.api``: ``data`` importing either engine
+    would close a package cycle and put a standalone engine on the ingestion
+    path."""
+
+    import ast
+    import inspect
+    import pathlib
+
+    from alphalab.data import assets
+
+    imported = {
+        node.module
+        for node in ast.walk(ast.parse(pathlib.Path(inspect.getfile(assets)).read_text()))
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert not [n for n in imported if n.startswith("alphalab.futures")]
+    assert not [n for n in imported if n.startswith("alphalab.portfolio")]
+    assert not [n for n in imported if n.startswith("alphalab.conventions")]

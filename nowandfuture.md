@@ -42,16 +42,96 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.3.0** |
+| Version | **3.4.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0, v3.2.0 and v3.3.0 are additive to it.** |
+| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.4.0 are additive to it.** |
 
 ---
 
-# 2. What v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+# 2. What v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+
+## v3.4.0 — global markets and multi-asset research
+
+The fourth capability release on the frozen architecture. One leaf package
+added, five deepened, six defaults made required. ADR-0039.
+
+### What it fixed
+
+Six defaults were one market's convention presented as a universal:
+
+| Where | Was | Right in |
+| --- | --- | --- |
+| `FutureContract.currency` | `"USD"` | the US |
+| `OptionContract.multiplier` | `100` | US single-stock options |
+| `OptionContract.style` | `AMERICAN` | US single-stock options |
+| `data.assets.OptionSpec.style` | `AMERICAN` | the same |
+| `FundingRate.interval_hours` | `8` | most perpetual venues, not all |
+| `CryptoInstrument.contract_size` | `Decimal("1")` | spot only |
+
+Each produced a number rather than an error when wrong.
+`test_no_silent_financial_defaults.py` has swept for exactly that shape since
+v2.17 and found none of them, because it sweeps **function parameters** and
+every one of these is a **dataclass field**. `test_v34_invariants.py` now sweeps
+both, with each surviving default listed beside the reason a wrong value there
+cannot produce a number — and the exemptions verified by exercising the refusal
+rather than asserted.
+
+### `alphalab.conventions` — one authority, and why it is a leaf
+
+`MarketConvention` carries venue, calendar id, quote **and** settlement
+currency, multiplier, tick schedule, lot specification and settlement rule, with
+**every field required**.
+
+It imports `alphalab.common` and nothing else in `alphalab`. That is
+load-bearing rather than tidy: the graph already runs
+`data → options → portfolio`, so a convention authority reaching into any of
+those could not also be used *by* them without closing a package-level cycle.
+
+Settlement counts trading days over a **structural protocol**
+(`TradingDayCalendar`, one method) that `MarketCalendar` already satisfies, so
+the calendar authority does not move and the calendar is passed in. The
+precedent is `common.point_in_time.PointInTimeRecord`.
+
+### The multiplier
+
+`contract_notional` is the **one site in AlphaLab** that multiplies a contract
+count by a multiplier, and `test_v34_invariants.py` reads every module's source
+to keep a second from appearing. `ContractNotional` reports money and underlying
+units as separate fields.
+
+`Position` is unchanged and still carries no multiplier. `portfolio.contracts`
+pairs one with its convention and is a *different measurement* from
+`ExposureEngine`, not a better one — the 1,000x gap between them is
+demonstrated in `test_shared_names_stay_distinct.py`.
+
+### Futures, options, FX, crypto, rates
+
+| Capability | Shape |
+| --- | --- |
+| Continuous futures | Reproducible from chain + policy + observations + adjustment method, and nothing else |
+| Roll rules | Three triggers, no default; each refuses the input it needs rather than approximating it |
+| Roll prices | The prints at the roll instant on both contracts; a missing one raises |
+| Implied volatility | Inverts the same expression the pricer rounds; refuses in five cases |
+| Surfaces | `surface_from_chain` returns the surface **and every refusal with its reason** |
+| Greeks | Carry `ModelAssumptions`: the four things the model does not do |
+| Expiry | Exercised / assigned / abandoned / worthless, with cash and units as two signed quantities |
+| Cross rates | Derived only on request, only through a **named** currency, marked `derived` |
+| FX time | A rate dated *after* the conversion instant is now refused, not just a stale one |
+| Currency attribution | A return decomposition with no residual; imports nothing from `analytics` |
+| Crypto venues | Funding interval, fees, price source, minimum notional — declared, nothing defaulted |
+| 24/7 coverage | Measured against a theoretical clock; gaps are counts of absences, never rows |
+| Fixed income | A **foundation**: exact arithmetic only, no credit, no optionality, no bootstrapper |
+
+### What it did not add
+
+**No durable state.** Every type is a frozen value or a pure function. No new
+snapshot owner, no new schema constant, no migration, and every v3.3 payload
+round-trips unchanged. A test asserts the absence.
+
+---
 
 ## v3.3.0 — institutional backtesting and portfolio intelligence
 
@@ -259,7 +339,7 @@ Verified at v3.0: none of the four drivers holds a field.
 
 # 4. Package ownership
 
-All 48 packages, and which path reaches each.
+All 50 packages, and which path reaches each.
 
 ## The execution spine
 
@@ -272,8 +352,8 @@ All 48 packages, and which path reaches each.
 | `risk` | Pre-trade checks and limits |
 | `oms` | The order lifecycle. `oms.order.Order` is *the* lifecycle order |
 | `execution` | The deterministic execution simulator, commission models, fill policies, slippage, latency |
-| `portfolio` | Cash, positions, the transaction ledger, NAV, per-currency P&L, valuation, margin, exposure, FX and the FX feed |
-| `analytics` | Performance reports and attribution |
+| `portfolio` | Cash, positions, the transaction ledger, NAV, per-currency P&L, valuation, margin, exposure, FX and the FX feed. Since v3.4 also FX research (cross rates, covered-parity forwards, carry, hedging, currency attribution) and contract-aware exposure |
+| `analytics` | Performance reports and attribution. Its `CURRENCY` dimension buckets realized P&L per currency and has no total; the *return* decomposition that does is `portfolio.fx_research` and neither derives the other |
 | `market` | The canonical market-data model, the normalization boundary, market sources, streaming |
 | `instrument` | Canonical instrument identity, the registry, classification and its provenance |
 | `common` | Version, `BaseEvent`, deterministic serialization, the seeded identifier source, `AppendOnlyLog` / `PersistentMap` / `PersistentSet`, TLS policy, point-in-time helpers |
@@ -297,6 +377,12 @@ All 48 packages, and which path reaches each.
 | `enterprise` | Principals, RBAC, the audit log. Governance reads it |
 | `research` | Research workflows and `ResearchScore`, which validation evidence extracts from |
 
+## Leaf libraries — imported by other packages, reached from neither path
+
+| Package | Owns |
+| --- | --- |
+| `conventions` | Market conventions (v3.4): the settlement rule and its basis, the tick schedule and tick value, the lot specification, the contract multiplier and `contract_notional`, day counts and compounding. Its only outward edge is `common`, which is what lets both sides of the `data → options → portfolio` chain use it. A calendar reaches it through a one-method structural protocol, never an import |
+
 ## Standalone engines — reached by neither path
 
 `portfolio_optimizer`, `optimizer`, `reporting`, `feature_store`,
@@ -309,6 +395,12 @@ Each is deterministic, individually tested and individually benchmarked. **A
 package with no in-repo consumer is a standalone engine by design, not an
 orphan** — pinned by
 `test_every_zero_consumer_production_package_is_a_standalone_engine`.
+
+`conventions` (v3.4) is not on this list and is not on either path either. It is
+a **leaf library imported by other packages** — `macro` and `portfolio` today,
+and available to `options`, `futures`, `crypto`, `data` and `api` — rather than
+one reached from a run. Its edge set is asserted: `alphalab.common` and nothing
+else in `alphalab`.
 
 ## One composition claim that was wrong for thirteen releases
 
@@ -477,8 +569,8 @@ Neither seam subsumes the other, and both were shown necessary.
 
 ## FX: every rate is supplied
 
-There is **no default rate, no fallback of 1.0, no triangulation and no implicit
-inversion.** Verified behaviour at v3.0:
+There is **no default rate, no fallback of 1.0, no implicit triangulation and no
+implicit inversion.** Verified behaviour, at v3.0 and as extended by v3.4:
 
 | Asked for | Answer |
 | --- | --- |
@@ -490,6 +582,8 @@ inversion.** Verified behaviour at v3.0:
 | A rate with no `source` | refused at construction — an unattributed rate is the configured rate ADR-0020 rejected |
 | Two rates for one pair | refused — which is right is not a question a table answers by picking |
 | `with_inverses()` | mints the opposite direction, marked `derived=True`, never replacing a real quote |
+| `cross_rate(base, quote, via=...)` | derives one through a **named** currency, marked `derived=True`, taking the older leg's `as_of` (v3.4) |
+| A rate dated **after** the conversion instant | `FutureDatedRateError` — a look-ahead, refused since v3.4 |
 | Same-currency conversion | identity, marked `source="identity"` |
 
 Every conversion records the rate, its `as_of` and its source.
@@ -798,6 +892,8 @@ than the summary line, and spawns a **fresh interpreter** with
 | `test_research_is_reproducible.py` | That no research identity reads a clock and every stochastic step is seeded |
 | `test_one_research_authority_per_concept.py` | One owner per research concept, and the import edges v3.2 added |
 | `test_research_complexity.py` | That the feature and research paths stay near-linear |
+| `test_v34_invariants.py` | One authority per concept, the dataclass-field default sweep, point-in-time guards, dimensional correctness, and that v3.4 added no durable state |
+| `test_v34_complexity.py` | That roll selection, segment construction, chain inversion and contract exposure stay linear |
 
 ## Performance
 
@@ -917,6 +1013,34 @@ an ADR.
     raises rather than being skipped. Historical scenarios ship as contracts
     requiring supplied data; **no historical observation is invented.**
 
+29. **A market convention is declared, never defaulted** (v3.4, ADR-0039).
+    `MarketConvention` has no default on any field, and the six that had been
+    defaulted to one market's value — a futures currency, an option multiplier
+    and exercise style, a funding interval, a crypto contract size — are
+    required. `test_v34_invariants.py` sweeps dataclass fields as well as
+    function parameters, and each surviving default is listed with the reason a
+    wrong value there cannot produce a number.
+30. **A multiplier is multiplied in exactly one place.**
+    `conventions.market.contract_notional`. `Position` carries no multiplier and
+    never will. A regression test reads every module's source to keep a second
+    site from appearing.
+31. **`alphalab.conventions` imports `alphalab.common` and nothing else in
+    `alphalab`.** The graph runs `data → options → portfolio`; an edge into any
+    of those would close a package cycle and make the package unusable from the
+    layers that need it. A calendar is reached through a one-method structural
+    protocol, never an import.
+32. **A continuous futures series is reproducible from four stated things** —
+    chain, roll policy, observations, adjustment method — and nothing else. A
+    roll rule refuses the input it needs rather than approximating it from
+    another, and a missing print at a roll raises rather than being
+    interpolated.
+33. **An implied volatility that is not identifiable is refused**, in five named
+    cases, and `surface_from_chain` accounts for every contract in the chain as
+    either a point or a refusal with its reason.
+34. **A rate dated after the instant it is read at is a look-ahead**, refused by
+    `FxRates.convert`. `max_age_seconds` bounds the other direction. A cross
+    rate is derived only on request and only through a named currency.
+
 ## The failure mode to watch for
 
 The most expensive defects in AlphaLab's history were not unknown problems. They
@@ -1035,8 +1159,9 @@ of these is a defect.
 | **v3.1.0** | **Universal data ingestion: CSV, detection, validation, cleaning policy, calendars, provenance, the derived dataset version (ADR-0036)** |
 | **v3.2.0** | **Strategy research and validation: typed features with derived identity and lineage, factor research, signal diagnostics, walk-forward, purged and embargoed CV, seeded robustness, transparent overfitting diagnostics, the reproducible study contract (ADR-0037)** |
 | **v3.3.0** | **Institutional backtesting and portfolio intelligence: itemized execution costs, capacity modelling, nine-dimension attribution, risk decomposition with named VaR methodology, the reusable scenario/stress contract (ADR-0038)** |
+| **v3.4.0** | **Global markets and multi-asset research: one market-convention authority as a leaf over `common`, reproducible continuous futures, implied volatility with five refusals, cross rates and the FX look-ahead guard, crypto venue metadata and 24/7 coverage, a fixed-income foundation, and six US/Binance defaults made required (ADR-0039)** |
 
-37 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+39 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---
@@ -1086,6 +1211,6 @@ Genuinely unresolved, recorded so they are not rediscovered:
 
 ---
 
-*Written at v3.0.0, updated at v3.1.0, v3.2.0 and v3.3.0. If you are reading this long after, check the version in
+*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0 and v3.4.0. If you are reading this long after, check the version in
 `pyproject.toml` first: where this document and the code disagree, the code is
 right, and this document has a bug worth fixing.*

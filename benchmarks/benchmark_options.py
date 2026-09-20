@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from alphalab.core.enums import Side
 from alphalab.options import (
+    ExerciseStyle,
     OptionContract,
     OptionLeg,
     OptionStrategy,
@@ -23,6 +24,8 @@ def run_benchmark() -> None:
         strike=Decimal("150.00"),
         expiry=ONE_YEAR,
         option_type=OptionType.CALL,
+        style=ExerciseStyle.AMERICAN,
+        multiplier=100,
     )
     strategy = OptionStrategy(
         legs=(
@@ -33,6 +36,8 @@ def run_benchmark() -> None:
                     strike=Decimal("160.00"),
                     expiry=ONE_YEAR,
                     option_type=OptionType.CALL,
+                    style=ExerciseStyle.AMERICAN,
+                    multiplier=100,
                 ),
                 side=Side.SELL,
                 quantity=1,

@@ -139,7 +139,11 @@ def _funded(
         running_strategy_state(strategy_id, strategy),
         1.0,
     )
-    state, _ = ExecutionPipeline.convert_cash(state, eur, "USD", "EUR", _RATES, 1.5)
+    # At 2.0 rather than 1.5: that is when ``_RATES`` became true, and since
+    # v3.4 ``FxRates.convert`` refuses a rate dated after the conversion instant
+    # (``FutureDatedRateError``). The half-second of look-ahead this fixture
+    # carried was invisible while nothing checked for it.
+    state, _ = ExecutionPipeline.convert_cash(state, eur, "USD", "EUR", _RATES, 2.0)
     return state
 
 

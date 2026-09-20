@@ -304,13 +304,34 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.3.0
+v3.4.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.4.0 — global markets and multi-asset research.** The fourth capability
+release on the frozen architecture, and the one that makes AlphaLab say what an
+instrument's numbers *mean* outside the market whose conventions had been
+written into the defaults. `alphalab.conventions` is a new **leaf** package —
+importing `alphalab.common` and nothing else in `alphalab`, which is what lets
+`options`, `futures`, `crypto`, `portfolio`, `data` and `api` all use it —
+holding a `MarketConvention` with no default on any field: venue, calendar id,
+quote and settlement currency, multiplier, tick schedule, lot specification and
+settlement rule. `alphalab.futures` gains the contract chain, the roll policy and
+the roll schedule that make a continuous series reproducible from four stated
+things. `alphalab.options` gains the implied-volatility inversion, which refuses
+in five named cases rather than returning a fabricated placeholder, and expiry
+resolution that moves cash and underlying units as two separate signed
+quantities. `alphalab.portfolio` gains cross rates through a named currency, a
+covered-parity forward with every rate input required, currency attribution with
+no residual, and contract-aware exposure with the multiplier applied exactly
+once. `alphalab.crypto` gains per-venue metadata and the distinction between a
+24/7 clock and 24/7 data. `alphalab.macro` gains a fixed-income **foundation**
+— and calls it one. Six silently-defaulted market conventions became required.
+No boundary moves and no ownership changes. See `ADR/0039`.
 
 **v3.3.0 — institutional backtesting and portfolio intelligence.** The third
 capability release on the frozen architecture, and the one that answers the

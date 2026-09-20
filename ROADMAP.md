@@ -26,6 +26,13 @@ the P&L came from, where the risk comes from, and what a crisis would do to it.
 It deepens `alphalab.execution` and `alphalab.analytics`, adds
 `alphalab.scenario`, and extends `alphalab.common.statistics`. ADR-0038.
 
+**v3.4.0** is the fourth, and makes AlphaLab say what an instrument's numbers
+*mean* outside the market whose conventions had been written into the defaults.
+It adds the leaf package `alphalab.conventions`, deepens `alphalab.futures`,
+`alphalab.options`, `alphalab.crypto`, `alphalab.macro` and
+`alphalab.portfolio`, and makes six silently-defaulted market conventions
+required. ADR-0039.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
@@ -133,6 +140,76 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.4.0 — global markets and multi-asset research
+
+The fourth capability release on the frozen architecture. One leaf package added,
+five deepened, six defaults made required. ADR-0039.
+
+- **One convention authority, usable from everywhere** — `alphalab.conventions`
+  holds `MarketConvention` (venue, calendar id, quote *and* settlement currency,
+  multiplier, tick schedule, lot specification, settlement rule), with **every
+  field required**. It imports `alphalab.common` and nothing else in `alphalab`,
+  which is what lets `options`, `futures`, `crypto`, `portfolio`, `data` and
+  `api` all use it without closing a package cycle.
+- **Settlement dates** — `SettlementBasis` distinguishes trade-date, trading-day
+  and calendar-day counting, because T+2 trading days across a long weekend is
+  four calendar days. Trading days are counted over a supplied calendar reached
+  through a one-method structural protocol, so the calendar authority does not
+  move.
+- **Tick and lot grids** — tiered tick schedules (the normal shape outside the
+  US), a tick *size* and a tick *value* as separate types, and a lot
+  specification that **refuses** a partial lot rather than rounding it.
+- **The multiplier, multiplied once** — `contract_notional` is the only site in
+  AlphaLab that multiplies a contract count by a multiplier, and a regression
+  test reads every module's source to keep a second from appearing.
+  `alphalab.portfolio.contracts` pairs a `Position` with its convention; the
+  1,000x gap between that and the unmultiplied `ExposureEngine` figure is
+  demonstrated in a test.
+- **Reproducible continuous futures** — a series is reproducible from four
+  stated things: `ContractChain`, `RollPolicy`, the observations, and the
+  `AdjustmentMethod`. `roll_schedule` says when each handover happened and why;
+  a rule refuses the input it needs and was not given rather than approximating
+  it; a missing print at a roll raises rather than being interpolated.
+- **An implied volatility that refuses** — `implied_volatility` inverts the same
+  expression the pricer rounds, and raises in five cases where a quoted price
+  has no answer. `surface_from_chain` returns the surface **and every refusal
+  with its reason**, and the two account for every contract in the chain.
+- **Greeks that carry their model** — `ModelAssumptions` names the four things
+  Black-Scholes does not do, as a value a figure travels with.
+- **Expiry as an event, not a number** — `resolve_expiration` reports exercised,
+  assigned, abandoned or worthless, and moves cash and underlying units as two
+  separate signed quantities.
+- **Cross rates, forwards and carry** — a cross is derived only when asked and
+  only through a **named** third currency; a forward is covered parity with both
+  deposit rates and the day-count basis required. `FxRates.convert` triangulates
+  nothing, as it never has.
+- **Both directions of time on an FX rate** — a rate dated after the conversion
+  instant is now `FutureDatedRateError`. This was listed under *optional future
+  evolution* through v3.3; applying it found a genuine look-ahead in the
+  repository's own settlement fixture.
+- **Currency attribution** — a reporting-currency return split into what the
+  assets did and what the currency did, as an identity with no residual. It
+  imports nothing from `alphalab.analytics`: the two currency breakdowns are
+  different measurements and neither derives the other.
+- **Venue differences as metadata** — `VenueSpecification` declares a crypto
+  venue's funding interval, fees, price source, minimum notional and settlement
+  asset, with nothing defaulted and no adapter, client or credential anywhere.
+- **A 24/7 clock that does not invent observations** — `coverage` measures
+  against a theoretical clock computed from the window and the declared cadence,
+  and reports gaps as counts of absences. No fill, no carry, no interpolation.
+- **A fixed-income foundation** — bond cash flows, accrued interest, clean and
+  dirty price, the yield inversion, duration in years and convexity in years
+  squared. Deliberately **not** an engine: see the boundary below.
+- **The wire/domain contract join, where v3.1 said it would be** — a
+  `FutureSpec` lifts into a `FutureContract` through `alphalab.api`, above both,
+  because `alphalab.data` importing either engine would close a package cycle.
+  A spec with no contract month is refused rather than having one derived.
+- **Six US and Binance defaults made required** — a futures contract's currency,
+  an option's multiplier and exercise style, a funding interval and a crypto
+  contract size. Each produced a number rather than an error when wrong, and
+  each was invisible to the v2.17 sweep because that sweep reads function
+  parameters and these are dataclass fields. The sweep now reads both.
 
 ## v3.3.0 — institutional backtesting and portfolio intelligence
 
@@ -301,6 +378,37 @@ future "simplification" would have to break first —
   differs between segments of one venue, so a list baked in here would be wrong
   within a year while looking authoritative — the same position v2.11 took on
   taxonomies and v2.17 on FX rates.
+- **No curve bootstrapper.** `YieldCurve` holds *observed* yields and v3.4
+  deliberately did not make it a discount curve. Bootstrapping requires choosing
+  an interpolation scheme over an incomplete set of quotes, and the choice
+  changes every forward rate read off the result — which is the researcher's
+  decision, not a library's. `discount_factor_at` turns an observed yield into a
+  factor under a **named** compounding convention and stops there (ADR-0039
+  decision 11).
+- **No fixed-income engine.** `alphalab.macro.bond` covers what a fixed-rate
+  bond with known coupon dates admits exactly. Credit spreads and default,
+  embedded calls and puts, floating and inflation-linked coupons, and the
+  30E/360 and ACT/ACT ISDA day-count variants are each absent because each needs
+  a model or an end-of-month rule whose correct form depends on the instrument's
+  own terms. The module, the example and this line all say *foundation*.
+- **No volatility-surface fit, and no interpolation across expiries.** A
+  `VolatilitySurface` interpolates along strikes at a matching expiry and refuses
+  an expiry nobody quoted. Variance accumulates with time, so the quantity that
+  interpolates sensibly between two maturities is total variance rather than
+  volatility, and an SVI or SABR fit is a model with parameters somebody has to
+  choose. `term_structure` reports the expiries that actually quote a strike.
+- **No American option pricing.** `black_scholes_price` is a European closed
+  form and `ModelAssumptions.prices_early_exercise` is `False`, carried on every
+  implied volatility so a figure cannot travel without it. `ExerciseStyle` is
+  required on a contract and is read by `resolve_expiration`, not by the pricer.
+- **No inferred roll rule.** Volume, open interest and days-to-expiry each give
+  a defensible answer and they disagree. A `RollPolicy` has no default, and a
+  trigger refuses the input it needs rather than approximating it from another —
+  approximating is a different rule reported under this one's name.
+- **No exchange registry, tick table, lot schedule or venue list.** The same
+  position `MarketCalendar` takes on holidays, for the same reason: an exchange
+  revises them, they differ between segments of one venue, and a table baked in
+  here would be wrong within a year while looking authoritative.
 - **No trade or depth ingestion from a flat file.** A `price`/`size` pair is
   indistinguishable from a partially populated bar without a declaration, and a
   depth book is not a flat table. `RecordType` has `BAR` and `QUOTE` only; a
@@ -326,6 +434,21 @@ Real, and not AlphaLab's engineering to complete.
   abstraction and the split/dividend arithmetic, and **not one holiday and not
   one action**. Both are vendor- or exchange-supplied and change on their own
   schedule.
+- **Market conventions.** v3.4 adds the convention *contract* — the tick
+  schedule, the lot specification, the settlement rule, the multiplier — and
+  **not one venue's values**. An exchange publishes them and revises them.
+- **Deposit and discount curves.** `covered_forward_rate` requires both deposit
+  rates and the day-count basis as arguments; AlphaLab holds no curve and
+  bootstraps none. A computed parity forward is arbitrage-free and is not a
+  price anyone traded.
+- **Futures margin figures.** A clearing house sets initial and maintenance
+  margin per contract and revises them without notice. `ContractMarginSpec`
+  carries what was published, and `position_margin` refuses a specification
+  dated after the research instant.
+- **Crypto venue specifications.** Funding interval, fee tier, price source,
+  minimum notional and settlement asset differ per venue and per contract.
+  `VenueSpecification` declares them; AlphaLab holds no exchange adapter, no API
+  client and no credential.
 - **A reader for any binary columnar format.** Parquet is expressible in
   provenance through `RawSource.media_type`; reading it needs a third-party
   dependency, and AlphaLab has none.
@@ -372,12 +495,6 @@ Could be built. Nothing depends on any of it, and no commitment is made here.
   `live.provider` and `marketdata.symbols`. Neither is on the canonical path and
   neither is persisted; the canonical asset taxonomy is `core.enums.AssetType`,
   which `brokers` aliases and `data` deliberately renames `DataAssetClass`.
-- **A look-ahead guard on FX rates.** `FxRates.max_age_seconds` bounds how *old*
-  a rate may be at the instant it is used. A future-dated rate — one whose
-  `as_of` is after the conversion instant — is not refused. The feed path cannot
-  produce one, because a quote older than what is held is `SUPERSEDED`, and every
-  conversion records the rate's `as_of` and source, so the fact is visible. A
-  caller supplying a table by hand is trusted with its contents.
 - **A start offset on `AppendOnlyLog`**, which is what
   `OptimizerState.pending_trials` would need to stop being super-linear. It was
   implemented, measured at **+3.9%** on `benchmark_execution_pipeline`, and
@@ -421,6 +538,14 @@ because a v3.1 requirement contradicted a v3.0 behaviour directly:
 `UniversalDataEngine.clean` now requires a `CleaningPolicy` rather than applying
 an implicit one, and it — like `convert_timeframe` — derives a new dataset
 version rather than replacing records in place.
+
+**v3.4.0** made seven, all of the same class: a market convention that had been
+defaulted to one market's value became required. `FutureContract.currency`,
+`OptionContract.multiplier`, `OptionContract.style`, `OptionSpec.style`,
+`FundingRate.interval_hours`, `CryptoInstrument.contract_size` and
+`compute_funding_payment`'s `contract_size`. Each produced a number rather than
+an error when it was wrong. `FxRates.convert` additionally began refusing a rate
+dated after the conversion instant, which is a look-ahead it previously allowed.
 
 After v3.0.0, the bar for a change rises: the invariants listed in
 `nowandfuture.md` are frozen, and a change to any of them is a major release with

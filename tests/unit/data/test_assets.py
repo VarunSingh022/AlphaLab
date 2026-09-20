@@ -37,7 +37,17 @@ def test_each_spec_reports_its_own_asset_class() -> None:
         (IndexSpec("SPX", "USD", "S&P Dow Jones"), DataAssetClass.INDEX),
         (FutureSpec("CLZ5", "USD", "XNYM", "CL", EXPIRY, 1000.0, 0.01), DataAssetClass.FUTURE),
         (
-            OptionSpec("AAPL_C_200", "USD", "OPRA", "AAPL", 200.0, EXPIRY, OptionType.CALL, 100.0),
+            OptionSpec(
+                "AAPL_C_200",
+                "USD",
+                "OPRA",
+                "AAPL",
+                200.0,
+                EXPIRY,
+                OptionType.CALL,
+                100.0,
+                ExerciseStyle.AMERICAN,
+            ),
             DataAssetClass.OPTION,
         ),
         (FxSpec("EURUSD", "EUR", "USD"), DataAssetClass.FOREX),

@@ -211,6 +211,31 @@ Read them in order: each assumes the one before it.
 
 ---
 
+# Global markets and multi-asset research (v3.4)
+
+Examples `31`–`40` cover the market-convention and multi-asset surfaces added in
+v3.4. Each declares its own calendars, conventions, prices and rates — AlphaLab
+ships none of them — and none uses a random number generator, so each prints the
+same figures on every machine and every run.
+
+| # | Shows |
+|---|---|
+| 31 | Market conventions: tick size against tick value, lot grids, the multiplier applied once, quote against settlement currency |
+| 32 | Four venues in four timezones: local days, overnight sessions, lunch breaks, daylight saving, and the settlement dates they produce |
+| 33 | Contract chains, three roll rules producing three schedules, curve shape, and margin as a published figure |
+| 34 | The four things a continuous series is built from, three adjustment methods, and a missing roll print refused |
+| 35 | Chains, Greeks and the four things the model does not do; multipliers that are not 100; expiry as exercised, assigned, abandoned or worthless |
+| 36 | The implied-volatility round trip, the five ways a quote has no answer, and a surface that reports every refusal |
+| 37 | Quotation direction, cross rates through a named currency, covered-parity forwards, the look-ahead guard, and currency attribution |
+| 38 | Two crypto venues that disagree about everything; funding accrual against the venue's mark; a 24/7 clock against 24/7 data |
+| 39 | Bond cash flows, clean against dirty, the yield inversion, duration in years and convexity in years squared — and the boundary |
+| 40 | Five asset classes, four venues, four currencies, one book: every seam checked |
+
+`31`, `32` and `37` stand alone. `33`–`34` and `35`–`36` are pairs, and `40`
+assumes `31`, `33` and `37`.
+
+---
+
 # Additional engines
 
 The feature store, machine learning, cloud research, enterprise, and other
@@ -225,6 +250,12 @@ v3.3 added examples `25`–`30` for the institutional surfaces: the execution co
 contract, capacity, attribution, risk decomposition, stress testing and the
 scenario engine. They build their data in memory and use no RNG, so each prints
 the same figures on every machine.
+
+v3.4 added `31`–`40` for the global-market surfaces, on the same terms. The
+**conventions** package, added in that release, has examples `31` and `40`; the
+**futures**, **options**, **crypto** and **macro** engines gained their first
+dedicated examples there too, having been covered only by tests and benchmarks
+since the v1 engine series.
 
 ---
 

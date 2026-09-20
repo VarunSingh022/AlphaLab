@@ -72,6 +72,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 from alphalab.analytics.engine import AnalyticsEngine
@@ -79,6 +80,11 @@ from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import ReplayBacktest
 from alphalab.backtesting.state import BacktestResult, ReplayResult
+from alphalab.conventions.lot import LotSpecification
+from alphalab.conventions.market import MarketConvention
+from alphalab.conventions.settlement import SettlementRule
+from alphalab.conventions.tick import TickSchedule
+from alphalab.data.assets import EquitySpec, FutureSpec, OptionSpec
 from alphalab.data.cleaning import CleaningPolicy, clean_records
 from alphalab.data.corporate_actions import PriceBasis
 from alphalab.data.csv_source import CsvDialect, RawTable, decode_text, read_delimited
@@ -95,12 +101,14 @@ from alphalab.factor_library.definition import FeatureField
 from alphalab.factor_library.forward_returns import forward_returns
 from alphalab.factor_library.observations import ObservationFrame, observations_from_dataset
 from alphalab.factor_library.panel import FeaturePanel
+from alphalab.futures.contract import FutureContract
 from alphalab.market.normalization import (
     NormalizationPolicy,
     normalize_wire_bar,
     normalize_wire_quote,
 )
 from alphalab.market.record import MarketInput
+from alphalab.options.contract import OptionContract
 from alphalab.research.engine import ResearchEngine
 from alphalab.research.exceptions import ResearchValidationError
 from alphalab.research.signals import SignalDiagnostics, signal_diagnostics
@@ -118,11 +126,14 @@ __all__ = [
     "StudyResult",
     "backtest",
     "clean_dataset",
+    "convention_from_spec",
+    "future_contract_from_spec",
     "ingest_csv",
     "ingest_rows",
     "inspect_csv",
     "normalize_records",
     "observe",
+    "option_contract_from_spec",
     "replay",
     "run_study",
     "select",
@@ -600,4 +611,145 @@ def run_study(
         feature_lineage=lineage,
         findings=findings,
         warnings=warnings,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The wire/domain contract join (v3.4)
+# --------------------------------------------------------------------------- #
+#
+# ``alphalab.data.assets`` has said since v3.1 that a ``FutureSpec`` "says what a
+# price series is about" while a ``FutureContract`` "opens a position in it", and
+# that joining them "is v3.4's work". This is that join, and it lives here for
+# the reason this module exists at all: ``alphalab.data`` must not import
+# ``alphalab.futures`` or ``alphalab.portfolio``, because that would put a
+# standalone engine on the ingestion path and close a package cycle. A joining
+# layer belongs *above* the things it joins.
+#
+# The conversion is ``float`` -> ``Decimal`` through ``str``, which is the only
+# rendering that does not carry a binary-float artefact into an exact decimal.
+# ``Decimal(0.1)`` is 0.1000000000000000055511151231257827, and a tick size
+# holding that value would put every price off its own grid.
+
+
+def _exact(value: float, field: str, symbol: str) -> Decimal:
+    """A wire ``float`` as the exact ``Decimal`` its printed form names."""
+
+    converted = Decimal(str(value))
+    if converted <= Decimal("0"):
+        raise DataValidationError(f"{symbol}: {field} is {value!r}, which is not positive.")
+    return converted
+
+
+def future_contract_from_spec(spec: FutureSpec, currency: str | None = None) -> FutureContract:
+    """Lift a wire :class:`~alphalab.data.assets.FutureSpec` into the domain.
+
+    Args:
+        spec: The provider's description of one contract month.
+        currency: Settlement currency, when it differs from the one the spec
+            carries. ``None`` uses ``spec.currency``, which is the ordinary
+            case -- this is not a default currency but a way to say "the
+            contract settles somewhere other than where its price series is
+            labelled", which is a real and separate fact (ADR-0019's four
+            currency roles).
+
+    Raises:
+        DataValidationError: If the spec names no ``contract_month``.
+            :class:`~alphalab.futures.contract.FutureContract` requires one
+            because ``futures_symbol`` is derived from it, and inventing one
+            from the expiry would mint an identifier for a month the provider
+            never stated.
+    """
+
+    if spec.contract_month is None:
+        raise DataValidationError(
+            f"{spec.symbol}: the spec states no contract_month, which a FutureContract needs "
+            "to derive its symbol. Deriving one from the expiry would mint an identifier for "
+            "a month the provider never named."
+        )
+    return FutureContract(
+        underlying_asset_id=spec.root,
+        contract_month=spec.contract_month,
+        expiry=spec.expiry,
+        multiplier=int(_exact(spec.multiplier, "multiplier", spec.symbol)),
+        tick_size=_exact(spec.tick_size, "tick_size", spec.symbol),
+        currency=spec.currency if currency is None else currency,
+    )
+
+
+def option_contract_from_spec(spec: OptionSpec) -> OptionContract:
+    """Lift a wire :class:`~alphalab.data.assets.OptionSpec` into the domain.
+
+    The premium currency does not travel: ``OptionContract`` carries none, and
+    :func:`~alphalab.options.contract.open_option_position` takes it as a
+    required argument (v2.17). ``spec.currency`` is what to pass it.
+    """
+
+    return OptionContract(
+        underlying_asset_id=spec.underlying_symbol,
+        strike=_exact(spec.strike, "strike", spec.symbol),
+        expiry=spec.expiry,
+        option_type=spec.option_type,
+        style=spec.style,
+        multiplier=int(_exact(spec.multiplier, "multiplier", spec.symbol)),
+    )
+
+
+def convention_from_spec(
+    spec: EquitySpec | FutureSpec | OptionSpec,
+    calendar_id: str,
+    tick: TickSchedule,
+    lot: LotSpecification,
+    settlement: SettlementRule,
+    settlement_currency: str | None = None,
+) -> MarketConvention:
+    """Build a :class:`~alphalab.conventions.market.MarketConvention` from a spec.
+
+    A spec carries the conventions a data provider knows -- the exchange, the
+    currency, and a multiplier for the two specs that have one. It does **not**
+    carry the venue's calendar, its tick grid or its lot grid, because no price
+    series states them: a tick schedule is the venue's and is tiered on most of
+    them, and a lot size is revised by the exchange. Those are arguments, and a
+    default for any of them would be one market's convention presented as a
+    universal (ADR-0039).
+
+    ``FutureSpec`` is the one spec carrying a ``tick_size`` of its own, and
+    ``TickSchedule.flat(Decimal(str(spec.tick_size)))`` is how to turn it into
+    the argument. It is not read here, because doing so would make this function
+    silently produce a flat grid for a venue that publishes a tiered one.
+
+    An :class:`~alphalab.data.assets.EquitySpec` has no multiplier: one unit is
+    one share, so it takes ``Decimal("1")``, which is stated rather than
+    assumed.
+
+    Args:
+        spec: The provider's description.
+        calendar_id: The venue's calendar, by name. The calendar itself is
+            :class:`alphalab.data.calendar.MarketCalendar` and is supplied
+            separately; AlphaLab ships no holiday data.
+        tick: The venue's price grid.
+        lot: The venue's quantity grid.
+        settlement: How a trade date becomes a settlement date.
+        settlement_currency: Where cash moves, when it differs from where the
+            price is quoted. ``None`` means the two are the same, which is the
+            ordinary case and is a statement rather than a default.
+
+    Raises:
+        DataValidationError: If a numeric field is not positive.
+    """
+
+    multiplier = (
+        Decimal("1")
+        if isinstance(spec, EquitySpec)
+        else _exact(spec.multiplier, "multiplier", spec.symbol)
+    )
+    return MarketConvention(
+        venue=spec.exchange,
+        calendar_id=calendar_id,
+        quote_currency=spec.currency,
+        settlement_currency=spec.currency if settlement_currency is None else settlement_currency,
+        multiplier=multiplier,
+        tick=tick,
+        lot=lot,
+        settlement=settlement,
     )

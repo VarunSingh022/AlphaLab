@@ -24,11 +24,17 @@ def run_benchmark() -> None:
         quote_asset="USDT",
         instrument_type=InstrumentType.PERPETUAL,
         exchange="binance",
+        contract_size=Decimal("1"),
     )
     history = FundingRateHistory(
         instrument_symbol="X",
         rates=tuple(
-            FundingRate(instrument_symbol="X", rate=Decimal("0.0001"), timestamp=float(i * 28800))
+            FundingRate(
+                instrument_symbol="X",
+                rate=Decimal("0.0001"),
+                timestamp=float(i * 28800),
+                interval_hours=8,
+            )
             for i in range(30)
         ),
     )
@@ -44,7 +50,7 @@ def run_benchmark() -> None:
 
     start = time.perf_counter()
     for _ in range(N):
-        compute_funding_payment(Decimal("1"), Decimal("50000"), Decimal("0.0001"))
+        compute_funding_payment(Decimal("1"), Decimal("50000"), Decimal("0.0001"), Decimal("1"))
     duration = time.perf_counter() - start
     print(f"  compute_funding_payment: {duration:.4f}s total, {N / duration:.2f} ops/sec")
 

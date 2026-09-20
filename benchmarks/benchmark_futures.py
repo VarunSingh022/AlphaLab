@@ -26,6 +26,7 @@ def _contract(month_offset_days: int) -> FutureContract:
         expiry=float((month_offset_days + 30) * 86400),
         multiplier=1000,
         tick_size=Decimal("0.01"),
+        currency="USD",
     )
 
 

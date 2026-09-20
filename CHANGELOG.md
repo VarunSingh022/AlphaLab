@@ -14,6 +14,242 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.4.0] - 2026-09-20
+
+**Global markets and multi-asset research: conventions, contracts, and the units
+that make them mean something.**
+
+The fourth capability release on the frozen architecture. v3.1 gave AlphaLab a
+dataset it could trust, v3.2 research methodology and v3.3 the institutional
+answers. This gives it the ability to say what an instrument's numbers *mean*
+outside the market whose conventions had been written into the defaults.
+
+One leaf package is added, five are deepened, and six silently-defaulted market
+conventions become required. No ownership boundary moves, and every v3.1, v3.2
+and v3.3 invariant holds.
+
+The decisions are recorded in
+[`ADR-0039`](docs/ADR/0039-global-markets-conventions-and-the-multi-asset-boundary.md).
+
+## What was missing
+
+Six defaults were US or Binance conventions presented as universals — a futures
+contract's currency, an option's multiplier and exercise style, a funding
+interval, a crypto contract size. `test_no_silent_financial_defaults.py` has
+swept for exactly this shape since v2.17 and found none of them, because it
+sweeps *function parameters* and every one of these is a *dataclass field*.
+
+Four things were absent entirely: settlement-date arithmetic, a tick or lot
+grid, a roll rule, and the implied-volatility inversion. And one thing was
+present and dangerous — `Position.market_value` is `quantity * market_price`,
+and every contract bridge told its caller to apply the multiplier themselves,
+which a caller can do twice.
+
+## Added
+
+### Market conventions — `alphalab.conventions` (new)
+
+A leaf package importing `alphalab.common` and nothing else in `alphalab`. That
+is what lets `options`, `futures`, `crypto`, `portfolio`, `data` and `api` all
+use it: the graph already runs `data → options → portfolio`, so an edge into any
+of those would close a package cycle.
+
+* `MarketConvention` — venue, calendar id, quote currency, settlement currency,
+  multiplier, tick schedule, lot specification, settlement rule. **Every field
+  required.** An instrument nobody described cannot be constructed.
+* `SettlementRule` and `SettlementBasis` (`TRADE_DATE`, `TRADING_DAYS`,
+  `CALENDAR_DAYS`), and `settlement_date`. The basis is required: T+2 trading
+  days across a long weekend is four calendar days.
+* `TickSchedule`, `TickBand`, `TickValue`, `round_to_tick`, `is_on_tick`. A
+  tiered grid — the normal shape outside the US — is expressible, and a tick
+  *size* (a price) and a tick *value* (money) are separate types.
+* `LotSpecification`, `lots_in`, `round_down_to_lot`. A partial lot is refused
+  rather than rounded: an order for 150 where the lot is 100 is either 100 or
+  200, and which is the caller's decision.
+* `contract_notional` — the **one site in AlphaLab** that multiplies a contract
+  count by a multiplier. `ContractNotional` reports money and underlying units as
+  separate fields and carries its inputs so the figure can be audited.
+* `DayCount` (ACT/365F, ACT/360, 30/360 US) and `year_fraction`.
+* `Compounding` (annual through monthly, plus continuous), `compound_factor`,
+  `discount_factor`.
+
+Settlement counts trading days through a one-method structural protocol,
+`TradingDayCalendar`, which `MarketCalendar` already satisfies. The calendar
+authority does not move and is passed in.
+
+### Calendars and sessions — `alphalab.data.calendar`
+
+* `add_trading_days` — the venue's own trading days, forward or backward,
+  bounded and refusing rather than looping.
+* `next_open`, `next_close`, `session_windows_on`. A lunch break is two windows
+  and one envelope, and only the windows can say the market was shut at noon.
+
+### Futures — `alphalab.futures`
+
+* `ContractChain` — the listed months of one root, refusing a chain that mixes
+  multipliers, tick sizes or currencies, or repeats or mis-orders an expiry.
+* `RollPolicy` and `RollTrigger` — `CALENDAR_DAYS_BEFORE_EXPIRY`,
+  `TRADING_DAYS_BEFORE_EXPIRY`, `VOLUME_CROSSOVER`. No default anywhere.
+* `roll_schedule` returning `RollEvent`s that carry the trigger and a readable
+  reason; `active_contract_at`; `continuous_segments` feeding the unchanged
+  `build_continuous_series`.
+* A rule **refuses the input it needs and was not given** — a trading-day
+  trigger without a calendar, a crossover without observations — rather than
+  approximating one from the other.
+* `curve_shape` and `CurveShape`, reading every adjacent pair. A humped curve is
+  `MIXED`; `curve_slope` reads the endpoints and has not changed.
+* `roll_yield`, annualized, with the sign convention stated.
+* `ContractMarginSpec` and `position_margin` — a clearing house's published
+  figures, refused when published after the research instant.
+* `contract_tick_value`, through the one tick-value site.
+
+### Options — `alphalab.options`
+
+* `implied_volatility` and `ImpliedVolatility`, inverting the same expression
+  `black_scholes_price` rounds (now public as `black_scholes_value`).
+  `ImpliedVolatilityError` in **five** cases: at or below the no-arbitrage
+  floor, at or above the ceiling, unreachable at `MAX_VOLATILITY`, vega below
+  `MIN_IDENTIFIABLE_VEGA`, and non-convergence.
+* `ModelAssumptions` and `BLACK_SCHOLES_MERTON` — the four things the model does
+  not do, as a value a figure can travel with.
+* `surface_from_chain`, returning the surface **and every refusal with its
+  reason**; `VolSlice`, `surface_slice`, `surface_expiries`, `term_structure`.
+  Interpolation runs along strikes and never across expiries.
+* `resolve_expiration` and `resolve_strategy_expiration` — `Moneyness`,
+  `SettlementStyle`, `ExpirationPolicy`, `ExpirationOutcome`. Cash and
+  underlying units are two separate signed quantities, and at-the-money is its
+  own state.
+* `signed_quantity`, `net_premium`, `net_greeks`. The leg sign convention is now
+  spelled once, and a regression test keeps it that way.
+
+### FX — `alphalab.portfolio.fx`, `alphalab.portfolio.fx_research`
+
+* `FxRates.cross_rate(base, quote, via=...)` — triangulation as a deliberate act
+  with the route named, marked `derived`, taking the older leg's `as_of`.
+  `convert` still triangulates nothing.
+* `FutureDatedRateError` — a rate dated after the conversion instant is now
+  refused. Listed under "optional future evolution" through v3.3; v3.4's
+  point-in-time rule makes it required.
+* `covered_forward_rate` and `ForwardTerms` — both deposit rates, the spot date,
+  the value date and the day-count basis all required. `forward_points`,
+  `carry_rate`.
+* `currency_exposures`, `hedge_notional` (ratio required, negative refused).
+* `currency_attribution` — a reporting-currency return split into what the
+  assets did and what the currency did, as an identity with no residual.
+
+### Crypto — `alphalab.crypto`
+
+* `VenueSpecification`, `FeeSchedule`, `LiquidityRole`, `PriceSource`,
+  `trading_fee`, `cross_venue_dispersion`. Nothing defaulted.
+* `funding_instants` (anchor required), `accrued_funding`, `FundingAccrual`,
+  `FundingSummary`. A funding instant with no mark is refused, not carried
+  forward.
+* `coverage`, `observation_gaps`, `CoverageReport`, `ObservationGap` — the
+  difference between a 24/7 clock and 24/7 data, reported as counts of absences
+  and never as rows.
+
+### Fixed income — `alphalab.macro.bond`
+
+A **foundation**, and the module says so. `Bond`, `CashFlow`, `cash_flows`,
+`accrued_interest`, `clean_price`, `dirty_price`, `yield_from_clean_price`,
+`macaulay_duration`, `modified_duration`, `convexity`. Duration is years,
+convexity is years squared, and they are never added.
+
+`YieldCurve` gains `discount_factor_at` under a **named** compounding
+convention. It does not gain a bootstrapper.
+
+### The wire/domain contract join — `alphalab.api`
+
+`alphalab/data/assets.py` has said since v3.1 that joining a `FutureSpec` to a
+`FutureContract` "is v3.4's work". It is done, and it is in `alphalab.api`
+rather than in `alphalab.data`: a joining layer belongs *above* the things it
+joins, and `data` importing `futures` or `portfolio` would close a package cycle
+and put a standalone engine on the ingestion path.
+
+* `future_contract_from_spec`, `option_contract_from_spec` — a wire spec lifted
+  into the domain, `float` to `Decimal` through `str` so no binary artefact
+  reaches a tick size. A spec with no `contract_month` is refused rather than
+  having one derived from its expiry.
+* `convention_from_spec` — the calendar id, tick grid and lot grid are
+  **arguments**, because no price series states them.
+
+### Multi-asset — `alphalab.portfolio.contracts`
+
+`ContractHolding`, `contract_exposures`, `settlement_exposures`. A position
+paired with the convention that says what its numbers mean, with the multiplier
+applied once and the notional denominated in the quote currency.
+
+## Changed
+
+Six narrow, documented breaking changes to a public API where correctness
+required it — the class of change v2.17.0 last made, when it "required the
+margin rates and currencies that had been silently defaulted":
+
+| Surface | Was | Now |
+| --- | --- | --- |
+| `FutureContract.currency` | `"USD"` | required |
+| `OptionContract.multiplier` | `100` | required |
+| `OptionContract.style` | `AMERICAN` | required |
+| `data.assets.OptionSpec.style` | `AMERICAN` | required |
+| `FundingRate.interval_hours` | `8` | required |
+| `CryptoInstrument.contract_size` | `Decimal("1")` | required |
+| `compute_funding_payment(contract_size=)` | `Decimal("1")` | required |
+
+`FxRates.convert` now raises `FutureDatedRateError` when given a rate dated after
+the conversion instant. `alphalab.factor_library.primitives` now resolves a
+timezone through `alphalab.data.time.resolve_zone` rather than constructing
+`ZoneInfo` directly — it was the only second site, and it bypassed the domain
+error `resolve_zone` raises when a host has no tz database.
+
+## Tests
+
+`tests/regression/test_v34_invariants.py` — one authority per concept measured
+from the source, the dataclass-field sweep the parameter sweep could not see,
+point-in-time guards, determinism, dimensional correctness, the boundary grep,
+and the assertion that v3.4 added no durable state and no mutable type.
+
+`tests/regression/test_v34_complexity.py` — growth ratios for roll selection,
+segment construction, chain inversion and contract exposure, plus constant-cost
+checks for the two numerical solvers.
+
+`tests/integration/test_v34_capabilities.py` — five asset classes in one book,
+four venues, four currencies, checked at every seam.
+
+Three new sections in `test_shared_names_stay_distinct.py` (calendar protocols,
+three margins, two exposures) and one for the two currency breakdowns.
+
+Total: **4,764 → 5,123** passing, 0 skipped, 0 warnings.
+
+## Benchmarks
+
+`benchmark_conventions.py` and `benchmark_multi_asset.py`. Measured scaling is
+printed beside the linear prediction rather than claimed: roll selection,
+surface construction, contract exposure and crypto coverage all measure linear
+at 10x steps.
+
+## Examples
+
+`31`–`40`: global market conventions; exchange calendars and sessions; futures
+contracts and rolls; continuous futures research; options chains and Greeks;
+implied volatility and the surface; FX research; crypto perpetuals and funding;
+the fixed-income foundation; and a five-asset multi-currency book.
+
+Every one declares its own calendars, rates and prices. AlphaLab ships none.
+
+## Still external
+
+No holiday data, no tick table, no lot schedule, no venue registry, no FX rate
+spot or forward, no deposit or discount curve, no margin figures, and no
+exchange adapter, API client or credential.
+
+## Deliberately not built
+
+A curve bootstrapper, a volatility-surface fit, an American pricing model,
+interpolation across expiries, credit and optionality in the bond surface, and a
+second calendar. Each is recorded in `ROADMAP.md` with the reason.
+
+---
+
 # [3.3.0] - 2026-09-20
 
 **Institutional backtesting: costs, capacity, attribution, risk, scenarios.**
