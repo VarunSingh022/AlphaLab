@@ -13,6 +13,8 @@ import inspect
 from collections.abc import Sequence
 from decimal import Decimal
 
+import pytest
+
 from alphalab.core.enums import AssetType
 
 # --------------------------------------------------------------------------- #
@@ -892,3 +894,180 @@ def test_the_feature_metadata_and_the_feature_definition_answer_different_questi
     assert {"owner", "description", "tags", "depends_on"} <= catalogue
     assert {"kind", "source_field", "window", "parameters"} <= contract
     assert catalogue & contract == {"feature_id"}, "they share the identifier and nothing else"
+
+
+# --------------------------------------------------------------------------- #
+# 16. "capacity" -- a research heuristic, and an execution constraint (v3.3)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_capacity_models_answer_different_questions() -> None:
+    """One degrades a CAGR. The other finds where the market pushes back.
+
+    ``alphalab.research.capacity.estimate_capacity`` reads a
+    :class:`~alphalab.research.protocol.ResearchPayload` -- a return series, a
+    trade count and an AUM -- and reports what the CAGR would be at three fixed
+    capital levels. It sees no prices, no volumes and no positions, so it cannot
+    know which *name* would bind first or why; the degradation is a stated
+    heuristic on trade frequency.
+
+    ``alphalab.execution.capacity.CapacityModel`` reads liquidity: a price, an
+    average daily volume and a weight per name, a turnover, a participation
+    limit and an impact model. It reports the capital at which a named
+    constraint binds, and which asset bound it.
+
+    Merging them is not possible in either direction. The research report has no
+    liquidity to give the execution model, and the execution model has no return
+    series to degrade. They share the English word and nothing else -- neither
+    reads an input of the other's, and neither produces an output the other
+    could consume.
+    """
+
+    from alphalab.execution.capacity import CapacityModel, CapacityResult
+    from alphalab.research.capacity import CapacityReport, estimate_capacity
+
+    research_inputs = set(inspect.signature(estimate_capacity).parameters)
+    execution_inputs = set(CapacityModel.__dataclass_fields__)
+
+    assert research_inputs == {"payload"}
+    assert {"participation_limit", "turnover", "impact_model"} <= execution_inputs
+    assert research_inputs & execution_inputs == set()
+
+    heuristic = set(CapacityReport.__dataclass_fields__)
+    measured = set(CapacityResult.__dataclass_fields__)
+
+    assert {"cagr_at_10m", "cagr_at_100m", "capacity_score"} <= heuristic
+    assert {"capacity", "constraint", "binding_asset_id", "assumptions"} <= measured
+    assert heuristic & measured == set(), "the two reports share no field"
+
+
+def test_only_the_execution_capacity_model_reads_liquidity() -> None:
+    """Which is the reason there are two, stated as an assertion."""
+
+    from alphalab.execution.capacity import AssetLiquidity
+    from alphalab.research.protocol import ResearchPayload
+
+    liquidity = set(AssetLiquidity.__dataclass_fields__)
+    payload = set(ResearchPayload.__dataclass_fields__)
+
+    assert {"average_daily_volume", "price", "weight"} <= liquidity
+    assert "average_daily_volume" not in payload
+
+
+# --------------------------------------------------------------------------- #
+# 17. "stress" -- a perturbed return series, and a shocked book (v3.3)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_stress_surfaces_shock_different_objects() -> None:
+    """One perturbs a curve of numbers. The other shocks positions.
+
+    ``alphalab.research.stress.apply_stress_tests`` edits a **return series**:
+    it subtracts a tenth from one observation and rescales the rest, then
+    measures the drawdown of the result. It never sees a position, a price or a
+    currency, so it cannot express "energy fell twenty percent" or "the euro
+    fell against the dollar" at all.
+
+    ``alphalab.scenario`` shocks a **book**: prices, volatilities, liquidity and
+    exchange rates, each scoped to assets, sectors or currencies, and reports
+    the change in the book's value per asset.
+
+    A merge would have to pick one object to operate on, and would lose the
+    other's entire vocabulary. The research function also has no place to put a
+    scope, an FX rate or a per-asset result.
+    """
+
+    from alphalab.research.stress import StressReport, apply_stress_tests
+    from alphalab.scenario import Scenario, ScenarioResult
+
+    research_inputs = set(inspect.signature(apply_stress_tests).parameters)
+    scenario_inputs = set(inspect.signature(Scenario.apply).parameters)
+
+    assert research_inputs == {"payload"}
+    assert scenario_inputs == {"self", "state"}
+
+    curve_report = set(StressReport.__dataclass_fields__)
+    book_report = set(ScenarioResult.__dataclass_fields__)
+
+    assert {"flash_crash_drawdown", "stress_survival_score"} <= curve_report
+    assert {"base_state", "shocked_state", "change_by_asset"} <= book_report
+    assert curve_report & book_report == set()
+
+
+def test_only_the_scenario_engine_can_express_a_scope_or_an_fx_shock() -> None:
+    from alphalab.scenario import ShockKind
+
+    assert {"PRICE", "VOLATILITY", "FX", "LIQUIDITY"} == {kind.name for kind in ShockKind}
+
+
+def test_the_scenario_package_is_reusable_because_it_names_no_portfolio_class() -> None:
+    """The property that makes one contract serve every portfolio class.
+
+    ``alphalab.scenario`` imports ``alphalab.common`` and nothing else in the
+    package. A scenario that named ``alphalab.portfolio.PortfolioState`` would
+    be usable by exactly one portfolio class, which is the opposite of what the
+    contract is for.
+    """
+
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2] / "alphalab"
+    imported: set[str] = set()
+    for path in sorted((root / "scenario").rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith("alphalab.")
+            ):
+                imported.add(node.module.split(".")[1])
+
+    assert imported <= {"common", "scenario"}, (
+        f"alphalab.scenario reached into {sorted(imported - {'common', 'scenario'})}. "
+        "The contract is generic precisely because it does not."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 18. "impact" -- a slippage-role model, and a liquidity-aware one (v3.3)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_impact_models_differ_in_what_they_are_allowed_to_read() -> None:
+    """``MarketImpactSlippage`` cannot express participation. That is the split.
+
+    ``MarketImpactSlippage`` is a ``SlippageModel``: it sees
+    ``(quantity, price, side)`` and scales a notional. It has no liquidity
+    input, so it cannot say what share of a name's volume an order is taking --
+    and participation is exactly what an impact model and a capacity model both
+    need.
+
+    ``ImpactModel`` reads a ``CostContext``, which carries the liquidity the
+    event showed, and refuses when it is absent rather than inventing a
+    denominator. The two are separate roles in one ``ExecutionCostModel``, and
+    ``MarketImpactSlippage`` stays available in the slippage slot it has always
+    occupied.
+    """
+
+    from alphalab.execution.costs import CostContext, LinearImpact
+    from alphalab.execution.slippage import MarketImpactSlippage
+
+    notional_only = set(inspect.signature(MarketImpactSlippage.calculate).parameters)
+    liquidity_aware = set(inspect.signature(LinearImpact.impact).parameters)
+
+    assert notional_only == {"self", "fill_quantity", "fill_price", "side"}
+    assert liquidity_aware == {"self", "context"}
+    assert "available_liquidity" in CostContext.__dataclass_fields__
+    assert "participation" not in notional_only
+
+
+def test_an_impact_model_refuses_the_liquidity_it_was_not_given() -> None:
+    from alphalab.core.enums import Side
+    from alphalab.execution.costs import CostContext, SquareRootImpact
+    from alphalab.execution.exceptions import ExecutionValidationError
+
+    context = CostContext("AAPL", Side.BUY, Decimal("100"), Decimal("50"), "USD", "SIM", 1.0)
+
+    with pytest.raises(ExecutionValidationError, match="participation rate"):
+        SquareRootImpact(Decimal("0.1")).impact(context)

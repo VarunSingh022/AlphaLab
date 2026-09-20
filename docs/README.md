@@ -304,13 +304,29 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.2.0
+v3.3.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.3.0 — institutional backtesting and portfolio intelligence.** The third
+capability release on the frozen architecture, and the one that answers the
+questions an institution asks before allocating to a strategy.
+`alphalab.execution` gains an itemized six-role cost contract — spread,
+slippage, impact, commission, fee, tax — that keeps costs moving the fill price
+apart from costs debited to cash, plus a capacity model reading the same impact
+assumption a fill is priced with. `alphalab.analytics` gains attribution across
+nine dimensions, each reporting whether its metadata was available rather than
+inventing a bucket, and a risk decomposition whose VaR method is named and whose
+contributions sum to portfolio volatility exactly. `alphalab.scenario` is a new
+standalone package holding one shock contract usable by every portfolio class;
+its historical scenarios — 2008, 2020, 2022 — ship as **contracts requiring
+supplied data**, because AlphaLab ships no market data and invents no historical
+move. `alphalab.common.statistics` gains `sample_covariance`. No boundary moves
+and no ownership changes. See `ADR/0038`.
 
 **v3.2.0 — strategy research and validation.** The second capability release on
 the frozen architecture. v3.1 gave AlphaLab a dataset it could trust; v3.2 gives

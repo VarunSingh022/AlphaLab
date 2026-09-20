@@ -345,6 +345,8 @@ Examples include
 - Feature engineering, factor research, signal diagnostics, walk-forward
   validation, time-series cross-validation, robustness testing, overfitting
   diagnostics and the complete research pipeline (examples 17–24)
+- Execution cost simulation, capacity modelling, portfolio attribution, risk
+  decomposition, stress testing and the scenario engine (examples 25–30)
 
 ---
 

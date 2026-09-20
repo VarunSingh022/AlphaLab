@@ -20,6 +20,12 @@ purged and embargoed cross-validation, robustness perturbations and overfitting
 diagnostics. No boundary moves, no owner changes, and every v3.1 invariant
 holds. ADR-0037.
 
+**v3.3.0** is the third, and answers the questions an institution asks before
+allocating to a strategy: what it costs to trade, how much it can carry, where
+the P&L came from, where the risk comes from, and what a crisis would do to it.
+It deepens `alphalab.execution` and `alphalab.analytics`, adds
+`alphalab.scenario`, and extends `alphalab.common.statistics`. ADR-0038.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
@@ -127,6 +133,61 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.3.0 — institutional backtesting and portfolio intelligence
+
+The third capability release on the frozen architecture, confined to
+`alphalab.execution`, `alphalab.analytics`, the new `alphalab.scenario`, and one
+function added to `alphalab.common.statistics`. ADR-0038.
+
+- **An itemized execution-cost contract** — `ExecutionCostModel` names six roles
+  (spread, slippage, impact, commission, fee, tax) where a fill carried two
+  numbers, and every role is required. `CostSettlement` keeps costs that move
+  the fill price apart from costs debited to cash, because collapsing the two
+  double-counts. The ordering is stated in the module and asserted in tests.
+- **One costing path** — a simulator configured the pre-v3.3 way is a cost model
+  whose other four roles are the named absences, and produces byte-identical
+  reports. `FREE` is how a caller asks for a frictionless run, visibly.
+- **A quoted spread that is a measurement** — `QuotedHalfSpread` reads the
+  event's bid and ask and refuses when the feed quoted neither, rather than
+  assuming one. The pipeline now forwards the event's quote and shown size, so
+  the liquidity-aware roles are reachable from the canonical execution path.
+- **Capacity as a liquidity question** — `CapacityModel` connects capital,
+  position size, ADV, turnover, participation and impact, reports the capital at
+  which a *named* constraint binds, and names the asset that bound it. It reads
+  the same impact model a fill is priced with. No default participation limit,
+  turnover or impact budget: each moves the answer by orders of magnitude.
+- **Attribution across nine dimensions** — strategy, asset, sector, country,
+  currency, venue, broker, factor and execution, extending the existing
+  authority and reusing `split_realized_pnl`. Each carries an `Availability`,
+  and a dimension nothing was supplied for comes back **empty and labelled**
+  rather than as one `UNKNOWN` bucket. Currency deliberately does not total.
+  Factor attribution carries the unexplained residual, which is what makes it
+  reconcile.
+- **Risk decomposition with a named method** — `VaRPolicy` carries method and
+  confidence together (historical, Gaussian, Cornish-Fisher), so a figure cannot
+  travel without its assumptions. `risk_contributions` is the Euler
+  decomposition and sums to portfolio volatility exactly. Concentration,
+  leverage, beta, correlation, factor exposure, liquidity risk, drawdown and
+  tail ratio alongside it. Degenerate samples refuse rather than returning zero.
+- **One scenario contract** — a `Scenario` is a named, ordered list of shocks
+  applied to a `ScenarioState`, a flat projection any portfolio class can
+  produce, so the same object stresses a backtest book, a live book and an
+  optimizer target. Applying returns a new state and never mutates. Identity is
+  derived from content. Unsupported fields are refused, not skipped.
+- **Historical scenarios as contracts, not numbers** — `CRISIS_2008`,
+  `COVID_CRASH_2020`, `RATES_REPRICING_2022` and `COMMODITY_SHOCK_2022` each
+  name their window and the observations they need, and refuse until a caller
+  supplies them from a real dataset. AlphaLab ships no market data and invents
+  no historical move.
+- **`sample_covariance`** — the same `n - 1` estimator as `sample_variance`,
+  built from the same expression, so `sample_covariance(x, x)` is exactly
+  `sample_variance(x)`.
+- **A determinism fix** — `DeterministicLatency` drew from `hash()`, which PEP
+  456 salts per process, so it reproduced within a run and not across runs. It
+  now uses a stable digest, asserted from separate interpreters.
+
+---
 
 ## v3.2.0 — strategy research and validation
 

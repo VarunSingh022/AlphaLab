@@ -42,16 +42,71 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.2.0** |
+| Version | **3.3.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 and v3.2.0 are additive to it.** |
+| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0, v3.2.0 and v3.3.0 are additive to it.** |
 
 ---
 
-# 2. What v3.2.0 and v3.1.0 add, and what v3.0.0 means
+# 2. What v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+
+## v3.3.0 — institutional backtesting and portfolio intelligence
+
+v3.3.0 is a **capability** release confined to two existing packages, one new
+package, and one function added to `alphalab.common.statistics`. It answers the
+questions an institution asks before allocating to a strategy. No boundary
+moves, no ownership changes, and every v3.1 and v3.2 invariant holds. ADR-0038.
+
+Six properties, and each is an invariant now (section 14, items 23-28):
+
+1. **Execution costs are itemized and separated by how they settle.** Six named
+   roles — spread, slippage, impact, commission, fee, tax — and two settlements.
+   `PRICE_EMBEDDED` costs move the fill price; `CASH_CHARGED` costs are debited.
+   A cost is never both, which is the double-count the separation exists to
+   prevent, and the two totals a report carries are exactly the six items.
+2. **The itemization is derived, never stored.** `ExecutionReport` is persisted
+   under ADR-0023 and was not widened. `simulate_costs` is a pure function of
+   the configuration, so any fill's breakdown recomputes exactly and for ever —
+   and there is no second copy to disagree with the first.
+3. **A capacity figure names what binds, and never travels without its
+   assumptions.** Portfolio capacity is the minimum over names, not a mean;
+   `binding_asset_id` says which one. There is no default participation limit,
+   turnover or impact budget, and `impact_budget=None` reports the constraint as
+   *unevaluated* rather than evaluating it against an invented number.
+4. **Missing attribution metadata is reported, never fabricated.** Each of the
+   nine dimensions carries an `Availability`. A dimension nothing was supplied
+   for comes back empty and labelled `NO_METADATA` — never one `UNKNOWN` bucket
+   holding the whole P&L. Country and broker have no source in AlphaLab and are
+   caller-supplied or absent; `venue` is the execution venue and is not read as
+   a broker.
+5. **A VaR figure states its method.** `VaRPolicy` carries method and confidence
+   together, and three legitimate methods are offered because they disagree most
+   exactly where it matters. Risk contributions sum to portfolio volatility
+   exactly; that is what makes the decomposition one. Degenerate samples refuse,
+   because a risk report that turned an undefined measurement into `0.0` would
+   report a riskless portfolio.
+6. **Historical scenarios are contracts, not numbers.** `CRISIS_2008`,
+   `COVID_CRASH_2020`, `RATES_REPRICING_2022` and `COMMODITY_SHOCK_2022` name
+   their window and the observations they need and refuse until a caller
+   supplies them. AlphaLab ships no market data and **invents no historical
+   move** — the rule `NO_RATES` already applies to FX, applied to history.
+
+Two structural consequences. `alphalab.scenario` is a new package that imports
+`alphalab.common` and nothing else in AlphaLab, which is what makes one scenario
+contract usable by every portfolio class rather than by one. And the execution
+pipeline now forwards the market event's quote and shown size to the cost model;
+without that seam the liquidity-aware roles would have been reachable from a
+library call and not from the canonical execution path.
+
+One fix worth naming: `DeterministicLatency` drew its latency from
+`hash(order_id)`, which PEP 456 salts per interpreter. It reproduced within a
+run and differed on the next, so fill timestamps did not reproduce across
+processes while the class name said they did. It now uses a stable digest, and
+the assertion spawns a **separate interpreter** because within one process a
+salted hash is perfectly stable and the failure is invisible.
 
 ## v3.2.0 — strategy research and validation
 
@@ -836,7 +891,31 @@ an ADR.
     for the unbiased sample variance, correlation, ranking and quantile
     bucketing. v3.2 consolidated five private copies of the variance onto it;
     `tests/regression/test_one_research_authority_per_concept.py` reads the
-    source to keep a sixth from appearing.
+    source to keep a sixth from appearing. v3.3 added `sample_covariance` to the
+    same module, built from the same expression so that
+    `sample_covariance(x, x)` is exactly `sample_variance(x)`.
+23. **An execution cost is price-embedded or cash-charged, never both**
+    (v3.3, ADR-0038). Spread, slippage and impact move the fill price;
+    commission, fees and tax go down the one cash channel `apply_fill` takes.
+    The two totals an `ExecutionReport` carries are exactly the six itemized
+    components, asserted on every run in
+    `tests/regression/test_v33_invariants.py`.
+24. **The cost itemization is derived, not stored.** `ExecutionReport` is not
+    widened; `simulate_costs` recomputes any fill's breakdown exactly from the
+    run's configuration.
+25. **A capacity figure carries its assumptions, and names what binds.** No
+    default participation limit, turnover or impact budget exists anywhere.
+26. **Missing attribution metadata is reported as unavailable, never
+    fabricated.** No dimension invents an `UNKNOWN` bucket. Currency attribution
+    does not total across currencies, because that would need a rate AlphaLab
+    will not invent.
+27. **A VaR or CVaR figure names its methodology**, and risk contributions sum
+    to the volatility they decompose. An undefined statistic refuses rather than
+    returning zero.
+28. **A scenario returns a new state and never mutates the one it was given**,
+    its identity is derived from content, and a shock the state cannot express
+    raises rather than being skipped. Historical scenarios ship as contracts
+    requiring supplied data; **no historical observation is invented.**
 
 ## The failure mode to watch for
 
@@ -955,6 +1034,7 @@ of these is a defect.
 | **v3.0.0** | **Architecture frozen. Documentation true. No capability added** |
 | **v3.1.0** | **Universal data ingestion: CSV, detection, validation, cleaning policy, calendars, provenance, the derived dataset version (ADR-0036)** |
 | **v3.2.0** | **Strategy research and validation: typed features with derived identity and lineage, factor research, signal diagnostics, walk-forward, purged and embargoed CV, seeded robustness, transparent overfitting diagnostics, the reproducible study contract (ADR-0037)** |
+| **v3.3.0** | **Institutional backtesting and portfolio intelligence: itemized execution costs, capacity modelling, nine-dimension attribution, risk decomposition with named VaR methodology, the reusable scenario/stress contract (ADR-0038)** |
 
 37 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
@@ -1006,6 +1086,6 @@ Genuinely unresolved, recorded so they are not rediscovered:
 
 ---
 
-*Written at v3.0.0, updated at v3.1.0. If you are reading this long after, check the version in
+*Written at v3.0.0, updated at v3.1.0, v3.2.0 and v3.3.0. If you are reading this long after, check the version in
 `pyproject.toml` first: where this document and the code disagree, the code is
 right, and this document has a bug worth fixing.*

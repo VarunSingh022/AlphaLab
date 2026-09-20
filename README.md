@@ -7,7 +7,7 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-3.2.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.3.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
 [![Tests](https://img.shields.io/badge/Tests-4548%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
@@ -37,22 +37,82 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.2.0 — strategy research and validation, on the v3.0 frozen architecture**
+**Current Release:** **v3.3.0 — institutional backtesting and portfolio intelligence, on the v3.0 frozen architecture**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.2.0 |
+| Version | 3.3.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **4548 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (975 source files) |
+| Tests | **4764 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (999 source files) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **50 / 50 Passing** |
-| Examples | **24 / 24 Passing** |
+| Benchmarks | **51 / 51 Passing** |
+| Examples | **30 / 30 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+## What v3.3.0 is
+
+The third capability release on the frozen architecture. v3.1 gave AlphaLab a
+dataset it could trust and v3.2 gave it research methodology; v3.3 gives it the
+questions an institution asks before allocating to a strategy — what it costs to
+trade, how much it can carry, where the P&L came from, where the risk comes
+from, and what a crisis would do to it.
+
+Two packages are deepened — `alphalab.execution` and `alphalab.analytics` — one
+is added (`alphalab.scenario`), and one module is extended
+(`alphalab.common.statistics`). No boundary moves, no ownership changes, and
+every v3.1 and v3.2 invariant holds. ADR-0038.
+
+**Execution costs, itemized and separated by how they settle.** Six named roles
+— spread, slippage, impact, commission, fee, tax — where there were two numbers.
+Costs that move the fill price are kept apart from costs debited to cash,
+because collapsing them double-counts. The application ordering is stated in the
+module and asserted in tests, and the itemization behind a report recomputes
+exactly from the run's own configuration.
+
+**Capacity, as a liquidity question.** `CapacityModel` connects capital,
+position size, ADV, turnover, participation and impact, and reports the capital
+at which a *named* constraint binds and the asset that bound it. It reads the
+same impact model a fill is priced with, so a capacity study and a backtest
+cannot disagree.
+
+**Attribution across nine dimensions, with availability reported.** Strategy,
+asset, sector, country, currency, venue, broker, factor and execution. A
+dimension nothing was supplied for comes back **empty and labelled**, never as
+one `UNKNOWN` bucket holding the whole P&L. Currency deliberately does not
+total, because its buckets are in different currencies and AlphaLab does not
+invent a rate.
+
+**Risk decomposition, under a method you named.** `VaRPolicy` carries the method
+and confidence together — historical, Gaussian or Cornish-Fisher — so a figure
+cannot travel without the assumptions that produced it. Risk contributions sum
+to portfolio volatility exactly; that is what makes it a decomposition rather
+than a list.
+
+**One scenario contract, reusable by every portfolio class.** Price, volatility,
+FX and liquidity shocks, scoped to assets, sectors or currencies. Applying
+returns a new state and never mutates the one it was given. Identity is derived
+from content, so a stress result is reproducible in any process.
+
+**Historical scenarios ship as contracts, not as numbers.** `CRISIS_2008`,
+`COVID_CRASH_2020`, `RATES_REPRICING_2022` and `COMMODITY_SHOCK_2022` each name
+their window and the observations they need, and refuse to apply until a caller
+supplies them from a real dataset. AlphaLab ships no market data and **invents
+no historical move**: a hard-coded figure would look measured, would not be, and
+would be wrong by however much your universe differed from whatever index it was
+lifted from.
+
+```
+market data -> strategy -> orders -> execution simulation -> fills -> portfolio
+                                                                        |
+                        attribution  <-  risk decomposition  <-  scenario / stress
+```
+
+---
 
 ## What v3.2.0 is
 
@@ -249,6 +309,7 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v3.0.0** | Architecture frozen; documentation truth freeze. No capability added |
 | **v3.1.0** | Universal data ingestion: CSV, schema detection, structured validation, explicit cleaning policies, market calendars, multi-asset semantics, provenance and the derived dataset version (ADR-0036) |
 | **v3.2.0** | Strategy research and validation: typed features with derived identity and lineage, factor research, signal diagnostics, walk-forward, purged and embargoed cross-validation, robustness perturbation, overfitting diagnostics, and the reproducible study contract (ADR-0037) |
+| **v3.3.0** | Institutional backtesting and portfolio intelligence: itemized execution costs, capacity modelling, nine-dimension attribution, risk decomposition with named VaR methodology, and a reusable scenario/stress contract (ADR-0038) |
 
 > **What connectivity means here.** `alphalab.broker.transport.HttpVenueTransport`
 > signs and sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker`
@@ -681,7 +742,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v3.2.0**
+**AlphaLab v3.3.0**
 
 Building deterministic infrastructure for quantitative research.
 

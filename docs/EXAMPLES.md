@@ -200,6 +200,12 @@ numbers are comparable with each other.
 | 22 | Seeded robustness perturbations |
 | 23 | Parameter sweeps, sensitivity, degradation, stability, multiple testing |
 | 24 | The complete pipeline, ending in evidence and a promotion gate |
+| 25 | Execution simulation: six cost roles, two settlements, a stated ordering |
+| 26 | Capacity modelling: the binding constraint, and the sensitivities |
+| 27 | Portfolio attribution: nine dimensions, reconciled, with availability reported |
+| 28 | Risk decomposition: named VaR methods and contributions that sum |
+| 29 | Portfolio stress testing: synthetic shocks, and historical scenarios as contracts |
+| 30 | The scenario engine: one contract, many portfolio shapes |
 
 Read them in order: each assumes the one before it.
 
@@ -214,6 +220,11 @@ the benchmarks under `benchmarks/`.
 
 The **factor library** did not have one either until v3.2, which gave it
 examples `17` and `18`.
+
+v3.3 added examples `25`–`30` for the institutional surfaces: the execution cost
+contract, capacity, attribution, risk decomposition, stress testing and the
+scenario engine. They build their data in memory and use no RNG, so each prints
+the same figures on every machine.
 
 ---
 

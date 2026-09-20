@@ -1,6 +1,6 @@
 # AlphaLab Examples
 
-Twenty-four runnable scripts, each demonstrating one part of AlphaLab against
+Thirty runnable scripts, each demonstrating one part of AlphaLab against
 its real public API. Every one of them runs:
 
 ```bash
@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all twenty-four are executed as a
+paths far more thoroughly under `tests/` — but all thirty are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -41,7 +41,13 @@ API.
 | 21 | `21_time_series_cross_validation.py` | Four schemes side by side; why an embargo only bites on a blocked fold; purging read off the actual series rather than subtracted from dates; and the refusals that keep each scheme's name true |
 | 22 | `22_robustness_testing.py` | Parameter, data and signal perturbation, missing data by deletion, execution delay, a cost charged against turnover rather than against every return, block bootstrap and independent Monte Carlo paths — every one seeded |
 | 23 | `23_overfitting_diagnostics.py` | A nine-window sweep that counts every trial, a cliff against a plateau at the same best score, out-of-sample degradation, period and symbol stability, and the Bonferroni threshold — with no score anywhere |
-| 24 | `24_strategy_research_pipeline.py` | **The complete v3.2 path**: dataset → features → diagnostics → walk-forward and purged k-fold → robustness → overfitting → `StudyResult` → `ValidationEvidence` → a promotion gate, with tamper evidence and the lineage end to end |
+| 24 | `24_strategy_research_pipeline.py` | The complete research pipeline, ending in evidence and a promotion gate |
+| 25 | `25_execution_simulation.py` | The six execution cost roles, the two settlements, and the stated ordering |
+| 26 | `26_capacity_modelling.py` | Capacity as a liquidity question: what binds, and what moves the answer |
+| 27 | `27_portfolio_attribution.py` | Nine attribution dimensions, reconciliation, and reporting what is unavailable |
+| 28 | `28_risk_decomposition.py` | Three VaR methods, the Euler decomposition, and samples that refuse |
+| 29 | `29_portfolio_stress_testing.py` | Synthetic and historical scenarios — and why 2008 ships as a contract |
+| 30 | `30_scenario_engine.py` | One scenario contract applied to five different books |
 
 ## Reading order
 
@@ -92,6 +98,13 @@ ingest it through the shared helper in `examples/_research_panel.py`. That
 helper exists so the eight examples are about research rather than about
 repeating eight lines of ingestion configuration; it fetches nothing and names
 one file with one stated cleaning policy.
+
+`25`–`30` build their own deterministic, hand-written data in memory and read no
+file at all. That is deliberate: an execution cost, a capacity ceiling, an
+attribution reconciliation and a scenario are all statements about numbers the
+example states outright, so the reader can check the arithmetic rather than
+trust a CSV. None of them uses a random number generator, so each prints the
+same figures on every machine and every run.
 
 See `examples/data/README.md` for what each dataset contains.
 

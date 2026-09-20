@@ -65,6 +65,7 @@ __all__ = [
     "percentile",
     "rank_correlation",
     "ranks",
+    "sample_covariance",
     "sample_variance",
     "standard_deviation",
     "standardize",
@@ -171,6 +172,27 @@ def sample_variance(values: Sequence[float]) -> float:
         )
     average = sum(values) / len(values)
     return sum((value - average) ** 2 for value in values) / (len(values) - 1)
+
+
+def sample_covariance(xs: Sequence[float], ys: Sequence[float]) -> float:
+    """The unbiased (``n - 1``) sample covariance of two equal-length series.
+
+    The same estimator as :func:`sample_variance`, and deliberately built from
+    the same expression in the same order, so that ``sample_covariance(x, x)``
+    is exactly ``sample_variance(x)`` -- float-for-float, not merely close. A
+    covariance matrix whose diagonal disagreed with the variances the rest of
+    the repository reports would give a portfolio volatility that no position's
+    own volatility could be reconciled against.
+
+    Raises:
+        AlphaLabValidationError: If the lengths differ or fewer than two pairs
+            are given. A covariance over one observation is undefined, not zero.
+    """
+
+    count = _require_pairs(xs, ys, "A sample covariance")
+    mean_x = sum(xs) / count
+    mean_y = sum(ys) / count
+    return sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=True)) / (count - 1)
 
 
 def standard_deviation(values: Sequence[float]) -> float:

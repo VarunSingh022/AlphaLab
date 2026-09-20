@@ -1158,7 +1158,7 @@ def _process_requests(
             orders.append(order)
             continue
         decision_out = _decide_fill(policy, order, event, current.market_prices[request.asset_id])
-        current, new_reports = _execute_order(current, order, decision_out)
+        current, new_reports = _execute_order(current, order, decision_out, event)
         # A rejected, expired or unfilled execution produces no report. The
         # order never trades, so close it out of the OMS instead of leaving it
         # open forever awaiting a fill, and retire both ledgers it holds. The
@@ -1409,6 +1409,22 @@ def _decide_fill(
     )
 
 
+def _available_quote(event: MarketEvent) -> tuple[Decimal | None, Decimal | None]:
+    """The two sides of the quote the event carried, or ``(None, None)``.
+
+    Only a :class:`~alphalab.market.events.QuoteReceived` carries both. A bar, a
+    tick and a trade each print a price without a spread around it, so no spread
+    was observed and none is supplied -- ``QuotedHalfSpread`` refuses on those
+    feeds rather than inventing one, which is the correct outcome and the reason
+    this returns a pair of ``None`` instead of deriving something from the last
+    trade.
+    """
+
+    if isinstance(event, QuoteReceived):
+        return event.quote.bid, event.quote.ask
+    return None, None
+
+
 def _available_quantity(event: MarketEvent, side: OMSSide) -> Decimal | None:
     """Size the market event showed, on the side the order has to cross."""
 
@@ -1436,10 +1452,20 @@ def _execute_order(
     state: ExecutionPipelineState,
     order: OMSOrder,
     decision: FillDecision,
+    event: MarketEvent | None = None,
 ) -> tuple[ExecutionPipelineState, tuple[ExecutionReport, ...]]:
+    """Simulate the decided fill, priced against what the event actually showed.
+
+    ``event`` is what :func:`_decide_fill` read to size the fill, handed on so
+    the cost model prices it against the same observation. ``None`` means the
+    caller has no event -- the cost model then sees no quote and no depth, and
+    any role needing one refuses rather than inventing it.
+    """
+
     before = len(state.execution.history)
     instruction = _instruction(order, state)
     quantity = decision.quantity if decision.quantity is not None else order.remaining_quantity
+    bid, ask = _available_quote(event) if event is not None else (None, None)
     execution = ExecutionEngine.simulate(
         state.execution,
         state.config.simulator,
@@ -1448,6 +1474,9 @@ def _execute_order(
         instruction.price,
         order.updated_at,
         decision.status,
+        bid=bid,
+        ask=ask,
+        available_liquidity=None if event is None else _available_quantity(event, order.side),
     )
     return replace(state, execution=execution), execution.history[before:]
 

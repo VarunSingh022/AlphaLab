@@ -14,6 +14,139 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.3.0] - 2026-09-20
+
+**Institutional backtesting: costs, capacity, attribution, risk, scenarios.**
+
+The third capability release on the frozen architecture. v3.1 gave AlphaLab a
+dataset it could trust and v3.2 gave it research methodology; this gives it the
+answers an institution asks before allocating to a strategy. Two packages are
+deepened, one is added, and one shared module is extended. No boundary moves, no
+ownership changes, and every v3.1 and v3.2 invariant holds.
+
+The decisions are recorded in
+[`ADR-0038`](docs/ADR/0038-institutional-backtesting-costs-capacity-attribution-risk-and-scenarios.md).
+
+## What was missing
+
+A simulated fill carried two cost numbers — a per-unit concession and a
+commission — and everything else an institution pays was folded into one of them
+or absent. Nothing could say how much capital a strategy could take, because
+nothing read liquidity. Attribution answered strategy, asset and sector and
+stopped. `alphalab.risk` is a pre-trade gate and measures nothing about a book
+already on. And stress testing perturbed a *return series*, so it could not
+express "energy fell twenty percent" or "the euro fell against the dollar" at
+all.
+
+## Added
+
+### Execution costs — `alphalab.execution.costs`
+
+* `ExecutionCostModel` with **six named roles**: spread, slippage, impact,
+  commission, fee, tax. Every role required; `FREE` is how a caller says "none
+  of these", once and visibly.
+* `CostSettlement` separates `PRICE_EMBEDDED` costs (spread, slippage, impact —
+  they move the fill price) from `CASH_CHARGED` ones (commission, fees, tax).
+  Collapsing the two would double-count.
+* `SpreadModel` (`QuotedHalfSpread`, `FixedHalfSpread`, `NoSpread`),
+  `ImpactModel` (`SquareRootImpact`, `LinearImpact`, `NoImpact`), `FeeModel`
+  (`PerTradeFee`, `ProportionalFee`, `NoFee`) and `TaxModel` (`ProportionalTax`,
+  `NoTax`). `SlippageModel` and `CommissionModel` are reused unchanged.
+* The application **ordering is stated** in the module and asserted in tests:
+  concessions from the reference price, cash costs on the post-concession
+  consideration.
+* `ExecutionSimulator.simulate_costs` recomputes any fill's itemization exactly
+  from the run's own configuration, so the breakdown is derivable rather than
+  stored.
+
+### Capacity — `alphalab.execution.capacity`
+
+* `CapacityModel` connecting capital, position size, ADV, turnover,
+  participation and impact, reporting the capital at which a **named** constraint
+  binds and the asset that bound it.
+* `capacity_curve` for sensitivity: participation and impact at the worst name
+  as capital grows.
+* Reads the same `ImpactModel` a fill is priced with, so a capacity study and a
+  backtest cannot disagree about impact.
+
+### Attribution — `alphalab.analytics.attribution`
+
+* `attribute()` extends the existing authority to **nine dimensions**: strategy,
+  asset, sector, country, currency, venue, broker, factor, execution. It reuses
+  `split_realized_pnl` rather than re-deriving the strategy split.
+* `Availability` reports each dimension as `AVAILABLE`, `PARTIAL` or
+  `NO_METADATA`. A dimension nothing was supplied for comes back **empty**.
+* Factor attribution carries the unexplained `residual`, which is what makes it
+  reconcile.
+
+### Risk decomposition — `alphalab.analytics.decomposition`
+
+* `VaRPolicy` carrying **method and confidence together**, with `HISTORICAL`,
+  `GAUSSIAN` and `CORNISH_FISHER`. `HISTORICAL` calls the existing
+  `value_at_risk` rather than reimplementing it.
+* `risk_contributions`: the Euler decomposition, summing to portfolio volatility
+  exactly.
+* `concentration`, `leverage`, `portfolio_beta`, `correlation_matrix`,
+  `covariance_matrix`, `factor_exposure`, `liquidity_risk`, `tail_ratio`, and
+  `decompose` for all of it under one policy.
+
+### Scenarios — `alphalab.scenario` (new package)
+
+* One `Scenario` contract — a named, ordered list of shocks — applied to a
+  `ScenarioState`, a flat projection any portfolio class can produce. The
+  package imports `alphalab.common` and nothing else in AlphaLab.
+* Four shock kinds (price, volatility, FX, liquidity) and four scopes (all,
+  assets, sector, currency).
+* Applying **returns**; it never mutates. Identity is a SHA-256 derived from
+  content. Composition is ordered.
+* Synthetic scenarios: `flash_crash`, `rate_shock`, `fx_shock`,
+  `commodity_shock`, `sector_shock`.
+* Historical scenarios ship as `ScenarioDefinition` **contracts** —
+  `CRISIS_2008`, `COVID_CRASH_2020`, `RATES_REPRICING_2022`,
+  `COMMODITY_SHOCK_2022` — each naming its window and the observations it needs,
+  and refusing until a caller supplies them. **AlphaLab invents no historical
+  move.**
+
+### Elsewhere
+
+* `alphalab.common.statistics.sample_covariance` — the same `n - 1` estimator as
+  `sample_variance`, so `sample_covariance(x, x) == sample_variance(x)` exactly.
+* `benchmarks/benchmark_institutional.py` measuring six surfaces with scaling
+  ceilings.
+* Examples `25`–`30`.
+
+## Fixed
+
+* **`DeterministicLatency` was not deterministic across processes.** It drew
+  from `hash(order_id)`, which PEP 456 salts per interpreter, so the same order
+  id produced a different latency on every run and fill timestamps did not
+  reproduce. It now uses `hashlib.sha256`. Asserted from separate interpreters,
+  because within one process a salted hash is perfectly stable and the failure is
+  invisible.
+
+## Changed
+
+* `ExecutionEngine.simulate` and the execution pipeline now **forward the market
+  event's bid, ask and shown size** to the cost model. Without this the new cost
+  roles were reachable only from a library call and not from the canonical
+  execution path. Each is `None` when the event showed nothing of the kind, and a
+  role that needs one refuses rather than substituting a figure.
+* `ExecutionSimulator` gained an optional `cost_model`. A simulator configured
+  the pre-v3.3 way produces **byte-identical** reports to the ones it produced
+  before; there is one costing path, not a legacy one beside a new one.
+
+## Not changed
+
+`ExecutionReport` keeps its shape — it is persisted under ADR-0023, and the
+itemization is derivable. `PortfolioEngine.apply_fill` keeps its single cash
+channel, so the accounting identity is untouched. `alphalab.risk` stays the
+pre-trade gate. `research.capacity` and `research.stress` keep their names and
+their jobs; the three name collisions this release creates are recorded in
+`tests/regression/test_shared_names_stay_distinct.py` with the argument a merge
+would have to break first.
+
+---
+
 # [3.2.0] - 2026-09-20
 
 **Strategy research and validation: features, factors, signals, folds.**

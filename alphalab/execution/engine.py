@@ -113,8 +113,26 @@ class ExecutionEngine:
         market_price: Decimal,
         timestamp: float,
         status: FillStatus,
+        bid: Decimal | None = None,
+        ask: Decimal | None = None,
+        available_liquidity: Decimal | None = None,
     ) -> ExecutionState:
-        """Fully simulates an execution and updates the state deterministically."""
+        """Fully simulates an execution and updates the state deterministically.
+
+        ``bid``, ``ask`` and ``available_liquidity`` are what the market event
+        showed, and each is ``None`` when it showed nothing of the kind. They
+        are forwarded to the simulator's cost model and used nowhere else.
+
+        Passing them is what makes the quoted-spread and liquidity-aware impact
+        roles of :mod:`alphalab.execution.costs` reachable from the canonical
+        execution path at all: before v3.3 the simulator was handed a price and
+        a quantity and nothing about the depth behind them, so a cost model that
+        needed a participation rate had no denominator and refused. The fill
+        policy has always been given this information -- see
+        :class:`~alphalab.execution.policy.LiquidityContext` -- and this closes
+        the gap so that the decision about *how much* fills and the pricing of
+        *what it costs* read the same event.
+        """
         # 1. Log submission event
         sub_event = ExecutionSubmitted(
             event_id=ExecutionEngine._create_event_id(),
@@ -134,6 +152,9 @@ class ExecutionEngine:
             market_price=market_price,
             timestamp=timestamp,
             status=status,
+            bid=bid,
+            ask=ask,
+            available_liquidity=available_liquidity,
         )
 
         # 3. Apply state change

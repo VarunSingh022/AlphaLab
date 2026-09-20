@@ -10,7 +10,7 @@ Every subsystem follows the same engineering principles (immutable state, pure f
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.2.0 both halves name only packages that exist; where the target half shows a
+> v3.3.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.2)
+# Implementation Status (v3.3)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -68,7 +68,11 @@ one, with rates that arrive across a feed boundary (v2.17). **v3.1.0 adds the
 universal data-ingestion path inside `alphalab.data` and moves no boundary
 (ADR-0036).** **v3.2.0 adds the strategy research and validation path inside
 `alphalab.factor_library` and `alphalab.research`, plus one statistics module in
-`alphalab.common`, and moves no boundary (ADR-0037).** **v3.0.0 adds no
+`alphalab.common`, and moves no boundary (ADR-0037).** **v3.3.0 adds the
+institutional surfaces — itemized execution costs and capacity inside
+`alphalab.execution`, attribution dimensions and risk decomposition inside
+`alphalab.analytics`, one new standalone package `alphalab.scenario`, and one
+function in `alphalab.common.statistics` — and moves no boundary (ADR-0038).** **v3.0.0 adds no
 capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -819,9 +823,29 @@ An independent, deterministic, individually tested library that is reached by
 `feature_store`, `alt_data`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
 `cloud_research`, `cluster_scheduler`, `distributed`, `workbench`,
-`research_assistant`, `live`, `feed`, `brokers`, `plugins`, `scheduler`.
+`research_assistant`, `live`, `feed`, `brokers`, `plugins`, `scheduler`,
+`scenario`.
 (`production`, `integrations` and `kernel` were on this list until v2.17, which
 removed them — see ADR-0034.)
+
+**`scenario` joined this list in v3.3**, and its being there is the design
+rather than an omission. A `Scenario` applies to a `ScenarioState` — a flat
+projection any holder of positions can produce — rather than to a portfolio
+class, which is what lets one contract stress a backtest book, a live book, an
+optimizer target and a hand-built one. A scenario package that imported
+`alphalab.portfolio` would be usable by exactly one of those. It imports
+`alphalab.common` and nothing else in AlphaLab, and
+`tests/regression/test_shared_names_stay_distinct.py` reads the source to keep
+it that way.
+
+**Two packages on the spine were deepened in v3.3 without gaining or losing an
+edge.** `alphalab.execution` gained the cost itemization (`costs.py`) and the
+capacity model (`capacity.py`), both importing only `alphalab.core` and
+`alphalab.common` as the package already did. `alphalab.analytics` gained the
+attribution dimensions and `decomposition.py`, on the same terms. Neither
+reaches into `alphalab.portfolio`: attribution consumes a `TradeRecord` and risk
+decomposition consumes a `PositionRisk`, both of which the caller projects — the
+separation `TradeRecord` has kept from `ExecutionReport` since v2.6.
 
 **`factor_library` left this list in v3.2.** It is now imported by
 `alphalab.research`, which `alphalab.lifecycle` imports, so it is reached by the
