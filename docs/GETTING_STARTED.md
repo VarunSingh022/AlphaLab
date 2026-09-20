@@ -103,8 +103,8 @@ AlphaLab/
 alphalab/     framework source (48 packages)
 benchmarks/   47 performance benchmarks
 configs/      reference configuration files
-docs/         technical documentation and 35 ADRs
-examples/     14 runnable examples
+docs/         technical documentation and 37 ADRs
+examples/     24 runnable examples
 tests/        3956 tests — unit, integration, regression
 ```
 
@@ -342,6 +342,9 @@ Examples include
   settlement (examples 11–14)
 - Universal data ingestion and research from a canonical dataset
   (examples 15–16)
+- Feature engineering, factor research, signal diagnostics, walk-forward
+  validation, time-series cross-validation, robustness testing, overfitting
+  diagnostics and the complete research pipeline (examples 17–24)
 
 ---
 

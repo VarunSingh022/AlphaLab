@@ -1,6 +1,6 @@
 # AlphaLab Example Datasets
 
-Five small synthetic CSV files supporting the example suite. They exist only to
+Six small synthetic CSV files supporting the example suite. They exist only to
 demonstrate the public APIs without needing a market-data provider, and they are
 **not** suitable for research, backtesting conclusions, or production trading.
 
@@ -17,6 +17,7 @@ Everything here is generated, deterministic, and small enough to read by eye.
 | `sample_trades.csv` | `strategy_id, project_id, backtest_id, trade_id, symbol, entry_timestamp, exit_timestamp, entry_price, exit_price, quantity, pnl` | 5 |
 | `sample_portfolio.csv` | `portfolio_id, symbol, weight` | 3 |
 | `messy_ohlcv.csv` | `Ticker, Date, Open, High, Low, Close, Vol` | 11 |
+| `research_panel.csv` | `symbol, timestamp, open, high, low, close, volume, sector` | 2000 |
 
 ### `sample_prices.csv`
 
@@ -109,3 +110,46 @@ Nothing in AlphaLab repairs any of it silently. Each defect is reported as a
 finding or a rejection, and what happens next is the cleaning policy's decision.
 The remaining rows are ordinary, valid daily bars for `AAPL` and `MSFT` in
 January 2025, timestamped in ISO-8601 UTC.
+
+
+### `research_panel.csv`
+
+The panel examples `17`–`24` all read. Ten synthetic names over 200 daily
+sessions, `2024-01-02` onward, timestamped in ISO-8601 UTC: 10 × 200 = 2,000
+rows, every one of which ingests without rejection.
+
+Four things about it are deliberate, and each one is load-bearing for an
+example:
+
+**Weekends are absent.** The series is therefore genuinely unevenly spaced —
+most gaps are one day and some are three. That is what makes example 21's point
+about purging demonstrable: a label horizon read off the actual series gives a
+different answer from one subtracted from dates, and on an evenly spaced
+fixture the two would agree and the distinction would be invisible.
+
+**Sectors have more than one member.** `TECH` (3), `FINANCIALS` (3), `ENERGY`
+(2) and `STAPLES` (2). Group neutralization skips a group of one — demeaning a
+singleton sets it to zero, which deletes the asset rather than neutralizing it
+— so a taxonomy of ten singletons would make example 18's neutralization
+section report nothing.
+
+**There is a shared sector factor.** Each name's return carries a
+sector-specific loading on a common market shock, so `neutralize_group` has
+something real to remove and the before/after numbers differ visibly.
+
+**There is a volatility regime.** Sessions 91–130 are generated at roughly
+twice the volatility of the rest. That is what example 19's regime-conditioned
+diagnostics split on, and the split produces a genuine finding: the
+mean-reversion signal works in the turbulent stretch and not in the calm one.
+
+The OHLC bounds hold by construction — `low <= min(open, close)` and
+`high >= max(open, close)` — so no row is rejected by the data layer's
+validation, and an example that reported "2,000 rows in, 1,576 out" would be
+teaching the wrong lesson about its own fixture.
+
+The file is generated from a fixed seed and committed, rather than generated at
+run time. Examples that agree on their inputs can be compared with each other,
+and a committed file is one an ingestion can hash.
+
+The numbers are synthetic. Any factor result any example prints is a property of
+this fixture and of nothing else.

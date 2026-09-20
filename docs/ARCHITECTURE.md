@@ -10,7 +10,7 @@ Every subsystem follows the same engineering principles (immutable state, pure f
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.1.0 both halves name only packages that exist; where the target half shows a
+> v3.2.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.1)
+# Implementation Status (v3.2)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -66,7 +66,9 @@ simulated fill takes (v2.15, v2.16); every act that changes what is live names
 its principal (v2.16); and a run settles in more than one currency, reporting in
 one, with rates that arrive across a feed boundary (v2.17). **v3.1.0 adds the
 universal data-ingestion path inside `alphalab.data` and moves no boundary
-(ADR-0036).** **v3.0.0 adds no
+(ADR-0036).** **v3.2.0 adds the strategy research and validation path inside
+`alphalab.factor_library` and `alphalab.research`, plus one statistics module in
+`alphalab.common`, and moves no boundary (ADR-0037).** **v3.0.0 adds no
 capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -814,12 +816,25 @@ portfolio was supplied* stays distinguishable from *the book is empty*.
 
 An independent, deterministic, individually tested library that is reached by
 **neither** wired path: `portfolio_optimizer`, `optimizer`, `reporting`,
-`feature_store`, `factor_library`, `alt_data`, `ml`, `deep_learning`,
+`feature_store`, `alt_data`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
 `cloud_research`, `cluster_scheduler`, `distributed`, `workbench`,
 `research_assistant`, `live`, `feed`, `brokers`, `plugins`, `scheduler`.
 (`production`, `integrations` and `kernel` were on this list until v2.17, which
 removed them — see ADR-0034.)
+
+**`factor_library` left this list in v3.2.** It is now imported by
+`alphalab.research`, which `alphalab.lifecycle` imports, so it is reached by the
+lifecycle path; and by `alphalab.api`, which is where an application enters. The
+edge is one-way — nothing in `factor_library` imports `research`, `lifecycle` or
+`api` — and `tests/regression/test_import_graph_stays_acyclic.py` measures that
+on every run.
+
+`feature_store` stayed on the list, and that is the architecture working rather
+than an oversight: it owns registration, versioning and caching and computes
+nothing, so the computation engine writes *through* it via
+`FeatureValueProtocol` without either package importing the other. Its only
+importer remains `ml`.
 
 Six packages often listed as standalone are **not**, and the import graph is the
 authority. `alphalab.broker` is reached from the execution path through
@@ -1729,25 +1744,50 @@ alphalab/research
 
 ### Responsibility
 
-Transforms market data into research outputs.
+Two layers, consuming different things. They are not alternatives and neither
+replaces the other.
 
-Capabilities include:
+**Run evaluation (v2).** Reads a *completed run's* returns, trades and
+parameters through `ResearchPayload` and scores them. Nothing here knows about
+a dataset, and there is nothing it could leak, because everything it touches has
+already happened.
 
-- Statistical analysis
-- Walk-forward testing
-- Bootstrap analysis
-- Monte Carlo simulation
-- Capacity estimation
-- Regime analysis
-- Strategy diagnostics
+- Bias proxies, bootstrap confidence intervals, Monte Carlo drawdowns
+- Capacity estimation, regime analysis, stress tests, diagnostics
+- `walk_forward_analysis` — Sharpe consistency across equal chunks of an
+  existing return series
+- `compute_overall_score` — the aggregate grade `ResearchEngine` produces
+
+**Study methodology (v3.2).** Runs *before* there is a return series to score,
+from a canonical `Dataset` through `alphalab.factor_library`.
+
+- `splits` — `TimeSplit` and `SplitInterval`, carrying the instants in each part
+- `purging` — label windows read off the actual series, purge and embargo
+- `walk_forward` — train / validate / test / roll, rolling or expanding
+- `time_series_cv` — rolling, expanding, purged blocked k-fold, embargoed
+- `signals` — forward-return analysis, quantile profiles, regime conditioning
+- `perturbation` — seeded robustness experiments
+- `overfitting` — sweeps, sensitivity, degradation, stability, Bonferroni
+- `study` — the reproducible experiment contract and its result
+
+The two meet at `alphalab.lifecycle.evidence`, where either can be recorded as
+`ValidationEvidence`, and nowhere else.
+`tests/regression/test_shared_names_stay_distinct.py` records why
+`walk_forward_analysis` and `walk_forward_splits` stay apart, and likewise for
+the two bootstraps, the two Monte Carlos and the two parameter diagnostics.
 
 ### Inputs
 
-Canonical datasets.
+A canonical `Dataset` for the study layer; a `ResearchPayload` for the run
+evaluation layer. Neither fetches its own data: a research function that could
+fetch could fetch *different* data than the one beside it, and no two results
+would be comparable.
 
 ### Outputs
 
-Research results.
+`StudyResult` for the study layer, whose identity is derived from the study and
+the numbers it produced; `ResearchState` and `ResearchScore` for the run
+evaluation layer.
 
 ---
 
@@ -3388,7 +3428,7 @@ common/  persistence/  plugins/  scheduler/
 
 # The lifecycle path — composed by alphalab.lifecycle
 lifecycle/  experiment_tracking/  model_registry/  deployment_manager/
-studio/  enterprise/  research/
+studio/  enterprise/  research/  factor_library/
 
 # Data and venue surfaces reached from the execution path
 data/  marketdata/  broker/
@@ -4457,25 +4497,44 @@ The Feature Store becomes the single source of truth for engineered features.
 
 # Factor Library
 
-Future Version
+**Built.** The computation engine, substantially deepened in v3.2 (ADR-0037).
+
+Feature Store owns registration, versioning, metadata, validation and caching
+and **computes nothing** — that is stated in its own package docstring, and
+`FeatureValueProtocol` is the seam it was designed to be written through.
+Factor Library is the consumer it was designed for. Neither package imports the
+other; `FactorResult` satisfies the protocol structurally, and
+`to_factor_results` is the one place the two vocabularies meet.
 
 ```
-v1.2
+Dataset  ->  ObservationFrame  ->  FeatureSeries  ->  FeaturePanel
+                                        |
+                                        +--> FactorResult --> Feature Store
+                                        |
+                                        +--> ranking / neutralization
+                                             IC / decay / turnover / exposure
+                                                     |
+                                                     v
+                                                  Research
 ```
 
-The Factor Library builds upon the Feature Store.
+Two layers share the `feature_id` vocabulary:
 
-```
-Feature Store
+- **Style factors (v2)** — `compute_momentum`, `compute_value`,
+  `compute_quality`, `compute_carry`, `compute_volatility`,
+  `compute_liquidity`. One asset, one instant, one `FactorResult`, computed from
+  a `PriceSeries` of domain bars or a `FundamentalSnapshot`.
+- **The feature framework (v3.2)** — a typed `FeatureDefinition` with a derived
+  identity, computed over an `ObservationFrame` read from a canonical `Dataset`
+  into a `FeatureSeries` per symbol and a `FeaturePanel` across the universe,
+  with cross-sectional ranking, three named neutralizations, the information
+  coefficient, decay, turnover and exposure on top.
 
-↓
-
-Factor Library
-
-↓
-
-Research
-```
+`feature_applicability` answers, per feature and per `DataAssetClass`, whether a
+computation is meaningful — with a reason. It is advice rather than a gate: the
+computation layer refuses what it cannot compute, and whether a defined number
+is worth reading is a research judgement the library does not make for the
+caller.
 
 Examples
 

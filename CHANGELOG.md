@@ -14,6 +14,172 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.2.0] - 2026-09-20
+
+**Strategy research and validation: features, factors, signals, folds.**
+
+The second capability release on the frozen architecture. v3.1 gave AlphaLab a
+dataset it could trust; this gives it the methodology that turns one into a
+research result nobody has to take on trust. Two packages are deepened and one
+module is added. No boundary moves, no ownership changes, and every v3.1
+invariant holds.
+
+The decisions are recorded in
+[`ADR-0037`](docs/ADR/0037-strategy-research-features-validation-and-overfitting.md).
+
+## What was missing
+
+`alphalab.research` scored a *completed run's* returns and trades. It could say
+how consistent a Sharpe ratio had been across chunks of an existing equity
+curve, and it knew nothing about a dataset, a feature or a training set. Nothing
+in the repository could answer the question research actually starts from:
+**does this signal predict anything, and would the answer survive contact with
+data it was not fitted on?**
+
+Concretely, before v3.2 there was:
+
+* no computational feature definition — `FeatureMetadata` is a catalogue record
+  with an owner and a description, and carries no field, window or parameters;
+* no feature computation at all — Feature Store deliberately computes nothing,
+  and Factor Library held six single-asset style factors and no framework;
+* no forward returns, no information coefficient, no decay, no turnover, no
+  exposure, no ranking, no neutralization;
+* no split generation of any kind, and therefore no purging and no embargo;
+* `walk_forward_analysis`, which cuts a finished return series into equal
+  chunks — a useful diagnostic, and not walk-forward validation;
+* `parameter_robustness`, which derives an instability index from the *number*
+  of parameters and perturbs nothing;
+* no correlation, rank, quantile or z-score anywhere, and five private copies of
+  the unbiased sample variance.
+
+## Added
+
+**`alphalab.common.statistics`** — the one deterministic statistics authority.
+Mean, unbiased sample variance, standard deviation, median, interpolated
+percentile, ranks under four stated tie conventions, Pearson and Spearman
+correlation, single-regressor OLS, standardization, winsorization and quantile
+bucketing under three stated tie-break rules. Every undefined statistic raises
+rather than returning a placeholder: a correlation over one observation, a
+variance over one, and a z-score over a constant series are not zero.
+
+**A typed feature framework** in `alphalab.factor_library`. `FeatureDefinition`
+states the kind, the source field, the window in *periods*, the parameters and
+the missing-data policy, and defaults none of them — a kind that reads a window
+and was not given one raises, and a parameter the kind does not read is refused
+rather than ignored, because an unread parameter would still change the derived
+identity. Nineteen `FeatureKind`s share one contract.
+
+**A derived feature version.** `derive_feature_version` hashes a canonical
+rendering of the definition, following `derive_dataset_version` line for line:
+a scheme tag, `label=value` lines, a fixed field order, SHA-256. Two processes
+describing the same feature agree on its version with no shared state.
+
+**Feature lineage.** An `ObservationFrame` carries the dataset version it was
+read from; every `FeatureSeries` computed from it inherits that, and derives a
+`lineage_id` from the dataset version, the feature version, the symbol and the
+zone. `require_lineage()` refuses a series computed from a dataset with no
+provenance — the rule `Dataset.require_provenance` applies one layer down.
+
+**Factor research.** Cross-sectional ranking and percentile ranking with a
+stated `RankMethod`; quantile bucketing with a stated `TieBreak`; three
+neutralizations that are deliberately *not* one function — `neutralize_mean`,
+`neutralize_group` (exactly the residual of a regression on group dummies) and
+`neutralize_beta`; `information_coefficient` reporting Pearson, Spearman, the
+per-instant series and the sample counts; `factor_decay` across horizons;
+`factor_turnover` under a named convention; `factor_exposure` by asset and by
+any grouping the caller supplies. Every cross-sectional step is recorded on the
+panel as a `FactorTransform`, so a diagnostic can say what it measured.
+
+**Multi-asset applicability.** `feature_applicability` answers, for every
+feature and every `DataAssetClass`, whether the computation means anything —
+with a reason. A volume feature on an index has no such field; a *return* on an
+interest rate is arithmetic that runs and a number that means nothing, because
+a rate is quoted in percent and can be zero or negative.
+
+**Signal diagnostics.** Forward-return analysis at any horizon, quantile
+profiles with per-bucket counts, monotonicity as distinct from spread, and
+`conditional_diagnostics` slicing by labels the caller supplies. No blended
+signal score: the weights would be a judgement, and once blended a reader
+cannot tell a factor with a strong monotone profile and a weak IC from its
+opposite.
+
+**Walk-forward validation.** `walk_forward_splits` produces folds with three
+parts — train, validate, test — under a rolling or expanding window. Each fold
+carries the *timestamps* in each part rather than the bounds they came from, so
+every fold is independently inspectable and purging can be a set operation.
+
+**Time-series cross-validation.** `cross_validation_splits` offers rolling,
+expanding, purged blocked k-fold and embargoed. Purging is defined by the label
+windows, read off the actual series by `label_ends_from_horizon`: twenty
+observations later means twenty observations later, whatever the calendar did.
+The final observations of a series, whose labels are never realized, map to
+infinity and are purged from every training set.
+
+**Robustness testing.** Parameter shifts that always change something, data and
+signal perturbation, missing data by deletion, execution delay, execution cost,
+block bootstrap preserving serial dependence, and independent Monte Carlo paths.
+Every stochastic function takes an explicit seed and has no default;
+`Perturbation` refuses a stochastic kind with no seed *and* a deterministic kind
+with one.
+
+**Overfitting diagnostics.** `parameter_sweep` evaluates and reports every
+configuration, so `trials` is a true count of the search. Sensitivity, neighbour
+drop, out-of-sample degradation, period and symbol stability, and a Bonferroni
+threshold whose assumption is stated. `OverfittingReport` keeps measurements,
+thresholds and findings in separate fields. There is no overfit score.
+
+**A reproducible experiment contract.** `ResearchStudy` states the dataset
+version, universe, features, horizons, split methodology, parameters and seed,
+and derives an identity from that description. `StudyResult` derives its
+identity from the study *and* the numbers, so it is tamper-evident. `run_study`
+compares the dataset it is handed against the one the study names and refuses a
+mismatch.
+
+**`ValidationMethod.STUDY`** and `evidence_from_study`, deriving the dataset
+from the study rather than accepting one. `evidence_id_for` is unchanged: the
+rendering hashes `method.name`, so a new member changes no existing digest and
+every promotion recorded since v2.6 still verifies.
+
+**`alphalab.api`** gains `observe`, `study_panels` and `run_study` — the
+`research(dataset)` that could not be written before v3.2 supplied the missing
+pieces.
+
+## Changed
+
+**Five private copies of the unbiased sample variance** now call
+`alphalab.common.statistics.sample_variance`:
+`analytics.returns.annualized_volatility`,
+`analytics.rolling.rolling_volatility`, `analytics.metrics.sharpe_ratio`,
+`research.metrics.calculate_volatility` and
+`portfolio_optimizer.metrics.calculate_volatility`. The shared function is the
+same expression in the same order, so every published number is unchanged, and
+each caller keeps its own guard — the shared function raises on a sample of
+fewer than two, and the callers still return `0.0`.
+
+`analytics.metrics.sortino_ratio` deliberately does **not** delegate: downside
+semideviation divides by the count of all returns rather than by `n - 1`, which
+is a different estimator rather than the same one on a subset.
+
+## Not added, on purpose
+
+Neutralization against several continuous exposures at once; a deflated Sharpe
+ratio; Šidák and false-discovery-rate corrections; a t-statistic on an
+information coefficient; a half-life fitted to a decay profile; any blended
+score for overfitting, signal quality or research grade. Each is recorded in
+`ROADMAP.md` under deliberate boundaries with the reason it is one.
+
+## Quality
+
+* 4,548 tests — 2,030 unit, 263 integration, 2,255 regression
+* 24 examples, all runnable and all exercising real engine functionality
+* 50 benchmarks
+* Ruff clean, MyPy strict clean, zero skips, zero warnings
+* Package-level import cycles: **0**
+* Runtime dependencies: **none**, and v3.2's statistics are pure standard
+  library
+
+---
+
 # [3.1.0] - 2026-09-20
 
 **Universal data ingestion, provenance, and the dataset version.**

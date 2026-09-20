@@ -184,12 +184,36 @@ Workbench examples illustrate
 
 ---
 
+# Research and validation (v3.2)
+
+Examples `17`–`24` cover the strategy research path added in v3.2. All eight
+read the same committed panel, `examples/data/research_panel.csv`, so their
+numbers are comparable with each other.
+
+| # | Shows |
+|---|---|
+| 17 | Typed feature definitions, derived identity, warmup, missing-data policy, lineage, and the Feature Store seam |
+| 18 | Ranking, three neutralizations, the information coefficient, decay, turnover, exposure |
+| 19 | Forward returns across horizons, quantile profiles, monotonicity, regime conditioning |
+| 20 | Walk-forward: train / validate / test / roll, and purging on both sides |
+| 21 | Rolling, expanding, purged and embargoed cross-validation |
+| 22 | Seeded robustness perturbations |
+| 23 | Parameter sweeps, sensitivity, degradation, stability, multiple testing |
+| 24 | The complete pipeline, ending in evidence and a promotion gate |
+
+Read them in order: each assumes the one before it.
+
+---
+
 # Additional engines
 
-The feature store, factor library, machine learning, cloud research, enterprise,
-and other engines added in v1.34.0–v2.0.0 do not yet have dedicated example
-scripts. Their usage is covered by the unit tests under `tests/unit/<package>/`
-and by the benchmarks under `benchmarks/`.
+The feature store, machine learning, cloud research, enterprise, and other
+engines added in v1.34.0–v2.0.0 do not yet have dedicated example scripts.
+Their usage is covered by the unit tests under `tests/unit/<package>/` and by
+the benchmarks under `benchmarks/`.
+
+The **factor library** did not have one either until v3.2, which gave it
+examples `17` and `18`.
 
 ---
 

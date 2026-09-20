@@ -675,3 +675,220 @@ def test_the_two_datasets_are_a_price_series_and_a_design_matrix() -> None:
     # And only one of them is on the path a run reads.
     assert hasattr(CanonicalDataset, "require_provenance")
     assert not hasattr(DesignMatrix, "require_provenance")
+
+
+# --------------------------------------------------------------------------- #
+# 14. "walk-forward" -- scoring a finished run, and partitioning a time index
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_walk_forwards_run_at_different_ends_of_the_pipeline() -> None:
+    """One reads returns that already exist. The other decides what may be read.
+
+    ``alphalab.research.cross_validation.walk_forward_analysis`` (v2) takes a
+    ``ResearchPayload`` -- a *completed* run's return series -- cuts it into
+    equal chunks and reports how consistent the Sharpe ratio was across them.
+    It knows nothing about a dataset, a model or a training set, and there is
+    nothing it could leak, because everything it touches has already happened.
+
+    ``alphalab.research.walk_forward.walk_forward_splits`` (v3.2) takes a time
+    index and returns folds, each naming the instants that may be trained on,
+    selected on and reported on. Nothing has been run when it is called; its
+    whole job is to decide what the run is allowed to see.
+
+    Merging them is a category error in the direction that matters: the second
+    would inherit the first's assumption that the data is already in hand, and
+    that assumption is exactly what purging exists to break.
+    """
+
+    import inspect
+
+    from alphalab.research.cross_validation import walk_forward_analysis
+    from alphalab.research.walk_forward import walk_forward_splits
+
+    scoring = inspect.signature(walk_forward_analysis)
+    partitioning = inspect.signature(walk_forward_splits)
+
+    assert "payload" in scoring.parameters
+    assert "timestamps" in partitioning.parameters
+    assert set(scoring.parameters) & set(partitioning.parameters) == set()
+
+    # The scoring one returns a report of numbers; the partitioning one returns
+    # folds whose membership can be inspected instant by instant. Rendered by
+    # name because one module uses postponed annotations and the other does not,
+    # so one signature holds a class and the other a string.
+    def _named(annotation: object) -> str:
+        return annotation if isinstance(annotation, str) else getattr(annotation, "__name__", "")
+
+    assert _named(scoring.return_annotation) == "WalkForwardReport"
+    assert _named(partitioning.return_annotation) == "SplitReport"
+
+
+def test_only_the_v32_walk_forward_can_express_a_purge() -> None:
+    """The concrete consequence of keeping them apart."""
+
+    import inspect
+
+    from alphalab.research.cross_validation import walk_forward_analysis
+    from alphalab.research.walk_forward import walk_forward_splits
+
+    assert "policy" in inspect.signature(walk_forward_splits).parameters
+    assert "policy" not in inspect.signature(walk_forward_analysis).parameters
+
+
+# --------------------------------------------------------------------------- #
+# 15. Two resampling pairs: a finished return series, and an index
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_bootstraps_resample_different_things() -> None:
+    """One draws returns independently; the other draws contiguous blocks.
+
+    ``bootstrap_statistics`` (v2) resamples a completed run's returns *with
+    replacement, one at a time*, to put a confidence interval on its Sharpe
+    ratio. That is the right thing there: the question is about the
+    distribution of a statistic of those returns.
+
+    ``block_bootstrap_indices`` (v3.2) draws contiguous **blocks** of
+    positions, because a research result depends on serial dependence -- trends,
+    volatility clustering -- that an IID draw destroys. A confidence interval
+    built from an IID resample of a time series is an interval for a different
+    series.
+
+    Merging them would force one of the two questions to be answered with the
+    other's method.
+    """
+
+    import inspect
+
+    from alphalab.research.bootstrap import bootstrap_statistics
+    from alphalab.research.perturbation import block_bootstrap_indices
+
+    assert "payload" in inspect.signature(bootstrap_statistics).parameters
+    assert "block_size" in inspect.signature(block_bootstrap_indices).parameters
+    assert "payload" not in inspect.signature(block_bootstrap_indices).parameters
+
+
+def test_the_two_monte_carlos_differ_in_whether_paths_are_independent() -> None:
+    """``monte_carlo_simulation`` shuffles one list repeatedly in place, so each
+    path depends on every path before it -- fine for a summary statistic over a
+    thousand of them, and unusable if a caller wants to reproduce path 500 on
+    its own.
+
+    ``monte_carlo_orders`` draws each permutation from ``range(count)`` afresh,
+    so a path is a function of the seed and its index alone. The second is what
+    a reproducible research experiment needs; the first is what the v2 report
+    already promises and must keep promising.
+    """
+
+    import inspect
+
+    from alphalab.research.montecarlo import monte_carlo_simulation
+    from alphalab.research.perturbation import monte_carlo_orders
+
+    assert "payload" in inspect.signature(monte_carlo_simulation).parameters
+    assert "paths" in inspect.signature(monte_carlo_orders).parameters
+
+    # Independence, asserted rather than described.
+    paths = monte_carlo_orders(8, 3, seed=5)
+    assert monte_carlo_orders(8, 3, seed=5) == paths
+    assert all(sorted(path) == list(range(8)) for path in paths), "each path is a permutation"
+    assert len(set(paths)) == len(paths), "and the paths are not the same one repeated"
+
+
+# --------------------------------------------------------------------------- #
+# 16. "parameter robustness" -- counting parameters, and evaluating them
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_parameter_diagnostics_measure_different_things() -> None:
+    """One infers risk from how many parameters there are. The other runs them.
+
+    ``parameter_robustness`` (v2) reads ``len(payload.parameters)`` and derives
+    an instability index from the count -- a structural proxy, and its docstring
+    says so. It perturbs nothing and evaluates nothing.
+
+    ``parameter_sweep`` (v3.2) evaluates every configuration it is given and
+    reports the whole surface, the sensitivity across it and the drop from the
+    best configuration to its neighbour. It is the measurement the proxy stands
+    in for when nobody has run the sweep.
+
+    They are kept apart because the proxy is still the honest answer when there
+    is no sweep to read, and replacing it with a function that *looks* like a
+    measurement would overstate what a payload alone can support.
+    """
+
+    import inspect
+
+    from alphalab.research.overfitting import parameter_sweep
+    from alphalab.research.sensitivity import parameter_robustness
+
+    proxy = inspect.signature(parameter_robustness)
+    measured = inspect.signature(parameter_sweep)
+
+    assert list(proxy.parameters) == ["payload"]
+    assert "evaluate" in measured.parameters, "the sweep actually runs each configuration"
+    assert "configurations" in measured.parameters
+
+
+# --------------------------------------------------------------------------- #
+# 17. "a series of prices" -- domain bars for one asset, and a scalar panel
+# --------------------------------------------------------------------------- #
+
+
+def test_the_price_series_and_the_observation_frame_hold_different_shapes() -> None:
+    """``PriceSeries`` is one asset's domain bars; ``ObservationFrame`` is many
+    assets' single extracted field.
+
+    ``alphalab.factor_library.inputs.PriceSeries`` holds ``Decimal`` OHLCV bars
+    keyed by ``asset_id`` for exactly one asset, and is what the six v2 style
+    factors consume. An ``ObservationFrame`` holds one ``float`` per observation
+    for every symbol at once, which is the shape a panel and a cross-section
+    need and which a ``PriceSeries`` has no room for.
+
+    v3.2 connects them rather than replacing either:
+    ``observations_from_price_series`` reads a ``PriceSeries`` into a frame, so
+    a caller holding the v2 shape never has to rebuild their data.
+    """
+
+    from alphalab.factor_library.inputs import PriceSeries
+    from alphalab.factor_library.observations import (
+        ObservationFrame,
+        observations_from_price_series,
+    )
+
+    series_fields = set(PriceSeries.__dataclass_fields__)
+    frame_fields = set(ObservationFrame.__dataclass_fields__)
+
+    assert series_fields == {"asset_id", "bars"}
+    assert "bars" not in frame_fields
+    assert {"source_field", "series", "dataset_version"} <= frame_fields
+    assert callable(observations_from_price_series), "the bridge exists rather than a merge"
+
+
+def test_the_feature_metadata_and_the_feature_definition_answer_different_questions() -> None:
+    """One is the catalogue record; the other is the computational contract.
+
+    ``FeatureMetadata`` says who owns a feature, what it is called, what it
+    depends on and which version of the *registration* this is. It carries no
+    window, no input field and no parameters, because Feature Store does not
+    compute.
+
+    ``FeatureDefinition`` says exactly how to compute one, and derives its own
+    identity from that. It carries no owner, no description and no tags,
+    because it is not a registry entry.
+
+    A single type would have to be both, and every field one of them does not
+    need would become optional -- which is how a "definition" ends up
+    computable only sometimes.
+    """
+
+    from alphalab.factor_library.definition import FeatureDefinition
+    from alphalab.feature_store.metadata import FeatureMetadata
+
+    catalogue = set(FeatureMetadata.__dataclass_fields__)
+    contract = set(FeatureDefinition.__dataclass_fields__)
+
+    assert {"owner", "description", "tags", "depends_on"} <= catalogue
+    assert {"kind", "source_field", "window", "parameters"} <= contract
+    assert catalogue & contract == {"feature_id"}, "they share the identifier and nothing else"

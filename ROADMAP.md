@@ -13,6 +13,13 @@ meant to permit: a capability release confined to one package, adding the data
 layer `alphalab.data` was named for without moving a boundary or changing an
 owner.
 
+**v3.2.0** is the second, and deepens two packages rather than adding one:
+`alphalab.factor_library` becomes a feature and factor research engine, and
+`alphalab.research` gains the validation methodology — walk-forward splits,
+purged and embargoed cross-validation, robustness perturbations and overfitting
+diagnostics. No boundary moves, no owner changes, and every v3.1 invariant
+holds. ADR-0037.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
@@ -121,6 +128,55 @@ The first capability release on the frozen architecture, confined to
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
 
+## v3.2.0 — strategy research and validation
+
+The second capability release on the frozen architecture, confined to
+`alphalab.factor_library`, `alphalab.research` and one new module in
+`alphalab.common`. ADR-0037.
+
+- **A typed feature framework** — `FeatureDefinition` states the field, the
+  window in *periods*, the parameters and the missing-data policy, and defaults
+  none of them. Nineteen `FeatureKind`s share one contract rather than being a
+  zoo of free functions: returns, rolling statistics, volatility, momentum,
+  mean reversion, moving averages, z-scores, volume ratios, volatility regime,
+  time-of-day, and three cross-sectional forms.
+- **A derived feature version**, hashed from the definition exactly as a
+  dataset version is hashed from its content and configuration. Changing a
+  window changes the identity; describing the same feature twice does not.
+- **Feature lineage** — a `FeatureSeries` carries the dataset version, the
+  feature version and the symbol, and derives a `lineage_id` from the three.
+  `require_lineage()` refuses a series computed from a dataset with no
+  provenance, the rule `Dataset.require_provenance` applies one layer down.
+- **Factor research** — cross-sectional ranking with a stated tie method, three
+  neutralizations that are *not* interchangeable (mean, group, beta), the
+  information coefficient with its sample counts, decay across horizons,
+  turnover under a named convention, and exposure by any grouping the caller
+  supplies.
+- **Signal diagnostics** — forward-return analysis, quantile profiles,
+  monotonicity, and conditioning on regimes the caller labels. No blended
+  "signal score".
+- **Walk-forward validation** — train, validate, test, roll, with rolling or
+  expanding windows and every fold carrying the instants in each of its parts.
+- **Time-series cross-validation** — rolling, expanding, purged blocked k-fold
+  and embargoed. Purging is defined by label windows read off the actual
+  series, not by subtracting dates.
+- **Robustness testing** — parameter, data and signal perturbation, missing
+  data by deletion, execution delay, execution cost, block bootstrap and Monte
+  Carlo. Every stochastic step takes an explicit seed and records it.
+- **Overfitting diagnostics** — parameter sweeps that count every configuration
+  evaluated, sensitivity, neighbour drop, out-of-sample degradation, period and
+  symbol stability, and a Bonferroni threshold whose assumption is stated.
+  Measurements, thresholds and findings are separate fields.
+- **A reproducible experiment contract** — `ResearchStudy` derives an identity
+  from its description and `StudyResult` derives one from the numbers it
+  produced; `run_study` refuses a dataset the study was not written for.
+- **`ValidationMethod.STUDY`** — a study result becomes evidence through
+  `evidence_from_study`, with `evidence_id_for` unchanged, so every promotion
+  recorded since v2.6 still verifies.
+- **`alphalab.common.statistics`** — the one deterministic statistics
+  authority. Five private copies of the unbiased sample variance were
+  consolidated onto it, with every published number unchanged.
+
 ---
 
 # Deliberate boundaries
@@ -226,6 +282,28 @@ Could be built. Nothing depends on any of it, and no commitment is made here.
 
 - **Classification dimensions beyond sector**, and sector-based risk limits.
   `sector_exposure` is visibility; no risk check reads a sector.
+- **Neutralization against several continuous exposures at once.** v3.2 offers
+  mean, group and single-regressor beta, each of which is exact. A general
+  least-squares solve over a rank-deficient or nearly-collinear design — which
+  factor exposures routinely are — produces residuals that look like a result
+  and are numerically meaningless, so it is not offered. Composing two
+  neutralizations is supported, and the transform chain records that this is
+  what was done.
+- **A deflated Sharpe ratio, and corrections beyond Bonferroni.** Šidák and
+  false-discovery-rate corrections need distributional assumptions
+  `alphalab.research` cannot check; a deflated Sharpe needs the variance of the
+  trial statistics *and* normality that daily returns do not satisfy.
+  Bonferroni is offered because its assumption fits in a line, and the report
+  says where it is conservative.
+- **A t-statistic on an information coefficient.** Overlapping forward-return
+  windows make consecutive ICs strongly autocorrelated by construction, so the
+  usual `IC_mean / (IC_std / sqrt(n))` is inflated by a factor this package
+  cannot measure. The per-instant series is reported instead, so a caller who
+  can model the overlap has what they need.
+- **A half-life fitted to a decay profile.** It requires assuming a functional
+  form and fitting it to a handful of noisy points, after which the fit is
+  quoted as though it were measured. The profile and the first negative horizon
+  are reported instead.
 - **A vendor adapter package** implementing one named venue's request shapes over
   the existing transport, which is the smallest step from connectivity to
   integration.

@@ -5,18 +5,30 @@ straight to production. This module supplies the thing a promotion can be made
 to require -- a record of what was measured, over what data, with what seed, and
 whether it met thresholds someone stated in advance.
 
-Evidence is not computed here. AlphaLab already has two deterministic producers
-of it, and both are reused rather than reimplemented:
+Evidence is not computed here. AlphaLab already has three deterministic
+producers of it, and all three are reused rather than reimplemented:
 
 * :class:`~alphalab.analytics.report.PerformanceReport`, compiled by a run
   through the execution path and reachable as
   :attr:`~alphalab.backtesting.state.BacktestResult.report`.
 * :class:`~alphalab.research.research.ResearchScore`, produced by
   :meth:`~alphalab.research.engine.ResearchEngine.run_full_research`.
+* :class:`~alphalab.research.study.StudyResult`, produced by a v3.2 research
+  study running from a canonical dataset through features and diagnostics.
 
-:func:`evidence_from_backtest` and :func:`evidence_from_research` extract a flat
-metric mapping from those reports and record where it came from. The full report
-stays where it was produced; evidence references it by id.
+:func:`evidence_from_backtest`, :func:`evidence_from_research` and
+:func:`evidence_from_study` extract a flat metric mapping from those reports
+and record where it came from. The full report stays where it was produced;
+evidence references it by id.
+
+``evidence_id_for`` did not move
+--------------------------------
+
+v3.2 adds :attr:`ValidationMethod.STUDY` and nothing else to this module's
+digest. The rendering hashes ``method.name``, so a new member changes no
+existing identity: every promotion recorded since v2.6 still verifies, which is
+the property ADR-0017 established and v3.1 preserved through the dataset
+version change.
 
 What a passing outcome does and does not claim
 ----------------------------------------------
@@ -38,6 +50,7 @@ from enum import Enum, auto
 from alphalab.backtesting.state import BacktestResult
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.research.state import ResearchState
+from alphalab.research.study import StudyResult
 
 __all__ = [
     "MetricThreshold",
@@ -49,6 +62,7 @@ __all__ = [
     "evaluate_policy",
     "evidence_from_backtest",
     "evidence_from_research",
+    "evidence_from_study",
     "evidence_id_for",
     "verify_evidence_id",
 ]
@@ -64,6 +78,11 @@ class ValidationMethod(Enum):
     #: Measured outside AlphaLab. The metrics are taken at face value, and the
     #: evidence says so rather than implying this repository computed them.
     EXTERNAL = auto()
+    #: A v3.2 research study: a ``ResearchStudy`` run from a canonical dataset
+    #: through features, diagnostics and validation splits. Distinct from
+    #: ``RESEARCH``, which scores a completed run's returns and trades and
+    #: never sees a dataset.
+    STUDY = auto()
 
 
 def evidence_id_for(
@@ -281,6 +300,52 @@ def evidence_from_research(
         produced_at=produced_at,
         seed=None,
         source_id=state.research_id,
+    )
+
+
+def evidence_from_study(
+    result: StudyResult, subject: str, produced_at: float
+) -> ValidationEvidence:
+    """Record a v3.2 research study's result as evidence.
+
+    The dataset is **derived** from the study rather than supplied, for the
+    reason ADR-0017 gives for :func:`evidence_from_backtest`: a ``dataset_id``
+    a caller typed is hashed into the digest and is only as trustworthy as the
+    typing. A study names its dataset version, the inputs were checked against
+    it when the result was built, and that version is what reaches the digest.
+
+    The seed is the study's own, so evidence from a study with a stochastic
+    step says which seed produced it, and evidence from a study with none says
+    ``None`` rather than implying a reproducibility it does not have.
+
+    Raises:
+        LifecycleInputError: If the study names no dataset version, or if the
+            result's stored identity no longer matches its metrics. Evidence
+            over data nobody can identify is not evidence, and neither are
+            numbers that were edited after they were recorded.
+    """
+
+    if result.dataset_version is None:
+        raise LifecycleInputError(
+            f"Study {result.study.study_name!r} names no dataset version, so there is "
+            "nothing to record as the data it was measured over. Build the study from a "
+            "dataset whose provenance was recorded; inventing an identity here would be a "
+            "guess recorded as a fact."
+        )
+    if not result.verify():
+        raise LifecycleInputError(
+            f"Study result {result.result_id} does not match its own metrics; it was "
+            "altered after it was recorded."
+        )
+
+    return build_evidence(
+        method=ValidationMethod.STUDY,
+        subject=subject,
+        dataset_id=result.dataset_version,
+        metrics=result.metrics,
+        produced_at=produced_at,
+        seed=result.study.seed,
+        source_id=result.result_id,
     )
 
 

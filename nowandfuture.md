@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.1.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.2.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,16 +42,65 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.1.0** |
+| Version | **3.2.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 is additive to it.** |
+| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 and v3.2.0 are additive to it.** |
 
 ---
 
-# 2. What v3.1.0 adds, and what v3.0.0 means
+# 2. What v3.2.0 and v3.1.0 add, and what v3.0.0 means
+
+## v3.2.0 — strategy research and validation
+
+v3.2.0 is a **capability** release confined to two packages and one new module.
+`alphalab.factor_library` becomes the computation engine the architecture always
+designated it to be, and `alphalab.research` gains the validation methodology.
+`alphalab.common.statistics` is added. No boundary moves, no ownership changes,
+and nothing outside those three is redesigned. ADR-0037.
+
+v3.1 gave AlphaLab a dataset it could trust. v3.2 gives it the path from one to
+a research result nobody has to take on trust:
+
+```
+Dataset -> ObservationFrame -> FeaturePanel -> forward returns
+        -> diagnostics -> folds -> robustness -> overfitting
+        -> StudyResult -> ValidationEvidence
+```
+
+Six properties, and each is an invariant now (section 14, items 17-22):
+
+1. **A feature is a specification before it is a number.** `FeatureDefinition`
+   states the field, the window in *periods*, the parameters and the
+   missing-data policy, and defaults none of them. A parameter the kind does
+   not read is refused rather than ignored, because an unread parameter would
+   still change the derived identity and give one computation two names.
+2. **Missing values are never invented.** `MissingPolicy` has `REFUSE` and
+   `SKIP` and no `FILL` — v3.1's rule one layer up.
+3. **Nothing looks ahead**, asserted for every kind by truncation rather than
+   by inspection.
+4. **Purging is defined by information windows.** `label_ends_from_horizon`
+   reads the actual series; a `PurgePolicy` has no default horizon; a scheme
+   whose name is a claim refuses to be built without the thing that makes the
+   claim true.
+5. **An unmeasurable statistic is `None`, never zero**, and every diagnostic
+   carries the sample it rests on.
+6. **There is no score.** Measurements, the caller's stated thresholds, and
+   findings naming which bound each measurement crossed are separate fields.
+
+`ResearchStudy` derives an identity from its description; `StudyResult` derives
+one from the numbers, which makes it tamper-evident; `run_study` compares the
+dataset it is handed against the one the study names. That closes, at the study
+level, the substitution ADR-0017 closed for evidence. `evidence_from_study`
+records a result as `ValidationMethod.STUDY`, and **`evidence_id_for` did not
+move** — a new enum member changes no existing digest, so every promotion
+recorded since v2.6 still verifies.
+
+One structural consequence: `factor_library` gained importers and is therefore
+no longer a standalone engine. `feature_store` did not, which is the
+compute/registry seam working as designed.
 
 ## v3.1.0 — the first release on the frozen architecture
 
@@ -690,6 +739,10 @@ than the summary line, and spawns a **fresh interpreter** with
 | `test_data_quality_contracts.py` | What ingestion does with bad data, one defect at a time |
 | `test_dataset_provenance_and_immutability.py` | Provenance preserved, versions immutable, identity derived |
 | `test_data_ingestion_complexity.py` | That the ingestion path stays linear in row count |
+| `test_research_cannot_see_the_future.py` | That no feature kind reads ahead, and no fold's parts intersect |
+| `test_research_is_reproducible.py` | That no research identity reads a clock and every stochastic step is seeded |
+| `test_one_research_authority_per_concept.py` | One owner per research concept, and the import edges v3.2 added |
+| `test_research_complexity.py` | That the feature and research paths stay near-linear |
 
 ## Performance
 
@@ -704,6 +757,16 @@ prediction of 10×), ~9µs per row in pure Python with no dependencies. Duplicat
 detection uses a hashed set and ordering a per-instrument high-water mark, both
 pinned structurally by `test_data_ingestion_complexity.py`, because the obvious
 implementation of either is a rescan.
+
+**The v3.2 research paths are linear too**, measured at 1,000 / 10,000 /
+100,000 / 1,000,000 observations in
+`benchmarks/benchmark_feature_engineering.py`: reading a field costs ~9.6×,
+~11.0× and ~11.3× per 10× of rows, and a fixed-window feature ~9.7×, ~9.6× and
+~10.7×. A feature is `O(n * w)` rather than `O(n)` on purpose — an incremental
+rolling sum accumulates floating-point drift across a million updates, so the
+same window computed early and late in a long series would not agree.
+`test_research_complexity.py` holds the growth ratios rather than the times, so
+the assertion is about the algorithm rather than the machine.
 
 One term is deliberately left super-linear — see section 17.
 
@@ -749,6 +812,31 @@ an ADR.
     delimiter two candidates fit, a naive timestamp with no zone named, and a
     numeric column that reads as a valid instant in both seconds and
     milliseconds each raise rather than pick.
+17. **No feature reads an observation after the one it is computed for**
+    (v3.2, ADR-0037). Every window is trailing and inclusive of the current
+    observation. Asserted for **every** `FeatureKind` by recomputing on a
+    truncated series and requiring the overlapping values to be identical, in
+    `tests/regression/test_research_cannot_see_the_future.py`.
+18. **No fold's parts intersect, and purging is defined by information
+    windows.** A `PurgePolicy` has no default horizon and cannot be built
+    without one; `label_ends_from_horizon` reads the actual series rather than
+    subtracting dates; a scheme named `PURGED` or `EMBARGOED` refuses to be
+    built without the policy that makes the name true.
+19. **A research identity is derived from content and configuration, never
+    from a clock.** `feature_version`, `lineage_id`, `study_id` and `result_id`
+    all reproduce across processes and machines. `produced_at` is recorded and
+    never hashed, the rule `DatasetProvenance` applies to `retrieved_at`.
+20. **Every stochastic research step takes an explicit seed**, with no default
+    anywhere, and a `Perturbation` refuses both a stochastic kind with no seed
+    and a deterministic kind with one.
+21. **An unmeasurable statistic is `None`, never `0.0`**, and there is **no
+    blended score** for overfitting, signal quality or research grade. A
+    measurement, a threshold and an interpretation are separate fields.
+22. **One statistics authority.** `alphalab.common.statistics` is the only home
+    for the unbiased sample variance, correlation, ranking and quantile
+    bucketing. v3.2 consolidated five private copies of the variance onto it;
+    `tests/regression/test_one_research_authority_per_concept.py` reads the
+    source to keep a sixth from appearing.
 
 ## The failure mode to watch for
 
@@ -763,6 +851,15 @@ The second most expensive: **a document that was true when written and was never
 re-read.** Hence section 13's release checklist and
 `docs/ENGINEERING_GUIDELINES.md`'s note that the version lives in three places
 and the current-state claim in four documents.
+
+v3.2 produced an instance worth recording. `docs/ARCHITECTURE.md` listed
+`factor_library` among the packages "reached by **neither** wired path". That
+was true at v3.1 and became false the moment `alphalab.research` imported it —
+a one-line change in a different file, in a different package, with nothing
+connecting the two but a sentence. The fix was not only to correct the sentence
+but to measure it: `test_one_research_authority_per_concept.py` now asserts that
+the computation engine *has* importers and that `feature_store` still does not.
+A claim about the import graph belongs in a test that reads the import graph.
 
 ---
 
@@ -857,8 +954,9 @@ of these is a defect.
 | v2.14.0 – v2.17.0 | Unification and completion: one `RunEngine`, real transports, the live driver and governance and FX, then settlement multi-currency and the final cleanup |
 | **v3.0.0** | **Architecture frozen. Documentation true. No capability added** |
 | **v3.1.0** | **Universal data ingestion: CSV, detection, validation, cleaning policy, calendars, provenance, the derived dataset version (ADR-0036)** |
+| **v3.2.0** | **Strategy research and validation: typed features with derived identity and lineage, factor research, signal diagnostics, walk-forward, purged and embargoed CV, seeded robustness, transparent overfitting diagnostics, the reproducible study contract (ADR-0037)** |
 
-35 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+37 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---

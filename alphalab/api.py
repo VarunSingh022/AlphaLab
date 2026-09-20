@@ -47,6 +47,25 @@ wrapper would have to fabricate a payload from a dataset it cannot produce one
 from, which would be a plausible-looking function that does not mean anything.
 They are named here so an application imports one module; they are not
 re-implemented here, so there is exactly one research engine.
+
+The v3.2 study path
+-------------------
+
+:func:`run_study` *is* the ``research(dataset)`` that could not be written
+before, because v3.2 supplies the missing pieces: a dataset produces an
+:class:`~alphalab.factor_library.observations.ObservationFrame`, a
+:class:`~alphalab.factor_library.definition.FeatureDefinition` produces a
+panel, and a panel measured against forward returns produces diagnostics with
+their sample sizes attached. It joins ``alphalab.data``,
+``alphalab.factor_library`` and ``alphalab.research``, which is exactly the
+kind of join that belongs here and nowhere lower -- the v3.1 lesson that put
+this module at the top of the graph rather than inside ``alphalab.data``.
+
+It takes the dataset as an argument and **checks** it against the study's
+recorded ``dataset_version`` rather than trusting either. A study that could
+fetch its own data could fetch different data than the study beside it; one
+that accepted any dataset handed to it would let a result name bytes it was
+never measured on.
 """
 
 from __future__ import annotations
@@ -71,6 +90,11 @@ from alphalab.data.quality import DataQualityReport, evaluate_quality
 from alphalab.data.schema import SchemaDetection, detect_schema
 from alphalab.data.source import RawSource, raw_source_from_path
 from alphalab.data.validation import ValidationFinding, validate_records
+from alphalab.factor_library.compute import compute_panel
+from alphalab.factor_library.definition import FeatureField
+from alphalab.factor_library.forward_returns import forward_returns
+from alphalab.factor_library.observations import ObservationFrame, observations_from_dataset
+from alphalab.factor_library.panel import FeaturePanel
 from alphalab.market.normalization import (
     NormalizationPolicy,
     normalize_wire_bar,
@@ -78,6 +102,9 @@ from alphalab.market.normalization import (
 )
 from alphalab.market.record import MarketInput
 from alphalab.research.engine import ResearchEngine
+from alphalab.research.exceptions import ResearchValidationError
+from alphalab.research.signals import SignalDiagnostics, signal_diagnostics
+from alphalab.research.study import ResearchStudy, StudyResult, build_result
 from alphalab.runtime.execution_pipeline import ContextFactory
 from alphalab.runtime.run import RunConfig
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
@@ -87,14 +114,19 @@ __all__ = [
     "DataRequest",
     "DataSelection",
     "ResearchEngine",
+    "ResearchStudy",
+    "StudyResult",
     "backtest",
     "clean_dataset",
     "ingest_csv",
     "ingest_rows",
     "inspect_csv",
     "normalize_records",
+    "observe",
     "replay",
+    "run_study",
     "select",
+    "study_panels",
     "to_market_dataset",
     "validate_dataset",
 ]
@@ -388,4 +420,184 @@ def replay(
 
     return ReplayBacktest.run(
         config, to_market_dataset(dataset, policy), strategy_state, context_factory
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The v3.2 study path
+# --------------------------------------------------------------------------- #
+
+
+def observe(dataset: Dataset, source_field: FeatureField) -> ObservationFrame:
+    """Read one field out of a dataset into the shape features compute over.
+
+    A thin re-export of
+    :func:`~alphalab.factor_library.observations.observations_from_dataset`,
+    named here so an application importing this module has the whole study path
+    in front of it. The frame carries the dataset's derived version, which is
+    what every feature computed from it inherits.
+    """
+
+    return observations_from_dataset(dataset, source_field)
+
+
+def _require_matching_dataset(study: ResearchStudy, dataset: Dataset) -> str:
+    """The study and the dataset must name the same bytes, and are compared.
+
+    Raises:
+        ResearchValidationError: If the study names no dataset version, or if
+            the dataset's version is not the one the study was written for.
+    """
+
+    declared = study.require_dataset()
+    actual = dataset.dataset_version
+    if actual is None:
+        raise ResearchValidationError(
+            f"Study {study.study_name!r} names dataset {declared!r} and the dataset supplied "
+            "carries no provenance, so the two cannot be compared. Ingest through "
+            "ingest_csv or ingest_rows with a RawSource."
+        )
+    if actual != declared:
+        raise ResearchValidationError(
+            f"Study {study.study_name!r} was written for dataset {declared!r} and was handed "
+            f"{actual!r}. Running it anyway would produce a result whose recorded lineage "
+            "names data it was not measured on -- the substitution ADR-0017 closed for "
+            "evidence, closed here for studies."
+        )
+    return declared
+
+
+def study_panels(study: ResearchStudy, dataset: Dataset) -> dict[str, FeaturePanel]:
+    """Compute every feature the study declares, as panels keyed by feature version.
+
+    Each field the study's features read is extracted from the dataset exactly
+    once however many features read it, so ten features on one dataset's closes
+    cost one pass over the records rather than ten.
+
+    Raises:
+        ResearchValidationError: If the dataset is not the one the study names.
+        FactorInputError: For any reason
+            :func:`~alphalab.factor_library.compute.compute_panel` raises --
+            a symbol with too little history, a cross-section too small to
+            measure, a field a record type does not carry.
+    """
+
+    _require_matching_dataset(study, dataset)
+
+    frames: dict[FeatureField, ObservationFrame] = {}
+    panels: dict[str, FeaturePanel] = {}
+    for definition in study.features:
+        field = definition.source_field
+        if field not in frames:
+            frames[field] = observations_from_dataset(dataset, field)
+        panels[definition.feature_version] = compute_panel(definition, frames[field])
+    return panels
+
+
+def run_study(
+    study: ResearchStudy,
+    dataset: Dataset,
+    price_field: FeatureField = FeatureField.CLOSE,
+    buckets: int = 5,
+    minimum_assets: int = 5,
+    produced_at: float = 0.0,
+) -> StudyResult:
+    """Run a study end to end and record its result with full lineage.
+
+    Every feature the study declares is computed into a panel, forward returns
+    are measured at every horizon it declares, and each feature/horizon pair
+    produces a :class:`~alphalab.research.signals.SignalDiagnostics`. The
+    metrics are flattened as ``"<feature_id>.h<horizon>.<quantity>"`` so that a
+    result mapping can be read, compared and hashed without a nested structure
+    to walk.
+
+    A diagnostic that could not be measured contributes a **finding** naming
+    the feature, the horizon and the sample it had, and contributes no metric.
+    That is the rule the whole release follows: an absent measurement is not a
+    zero, and a study that measured nothing reports findings rather than an
+    empty pass.
+
+    ``produced_at`` is recorded on the result and is deliberately not hashed
+    into its identity, so re-running the same study tomorrow reproduces the
+    same ``result_id``.
+
+    Raises:
+        ResearchValidationError: If the dataset is not the one the study names,
+            if the study declares no horizons -- there would be nothing to
+            measure against -- or if no feature/horizon pair produced a single
+            metric.
+    """
+
+    if not study.horizons:
+        raise ResearchValidationError(
+            f"Study {study.study_name!r} declares no forward horizons, so its features have "
+            "nothing to be measured against. A study that only computes features is a "
+            "feature computation; state at least one horizon to make it a study."
+        )
+
+    _require_matching_dataset(study, dataset)
+    panels = study_panels(study, dataset)
+    prices = observations_from_dataset(dataset, price_field)
+
+    metrics: dict[str, float] = {}
+    findings: list[str] = []
+    lineage: dict[str, str] = {}
+
+    for definition in study.features:
+        panel = panels[definition.feature_version]
+        lineage[definition.feature_version] = panel.lineage
+
+        for horizon in study.horizons:
+            prefix = f"{definition.feature_id}.h{horizon}"
+            realized = forward_returns(prices, horizon)
+            measured: SignalDiagnostics = signal_diagnostics(
+                panel, realized, buckets, minimum_assets
+            )
+
+            if measured.rank_ic.mean_rank is None:
+                findings.append(
+                    f"{prefix}: no cross-section held the {minimum_assets} assets an "
+                    f"information coefficient needs; {measured.rank_ic.instants_skipped} "
+                    "instant(s) were skipped."
+                )
+            else:
+                metrics[f"{prefix}.rank_ic"] = measured.rank_ic.mean_rank
+                metrics[f"{prefix}.instants"] = float(measured.rank_ic.instants_measured)
+                metrics[f"{prefix}.observations"] = float(measured.observations)
+                if measured.rank_ic.mean_pearson is not None:
+                    metrics[f"{prefix}.pearson_ic"] = measured.rank_ic.mean_pearson
+                if measured.rank_ic.hit_rate is not None:
+                    metrics[f"{prefix}.ic_hit_rate"] = measured.rank_ic.hit_rate
+
+            if measured.spread is None:
+                findings.append(
+                    f"{prefix}: no cross-section held the {buckets} assets a quantile "
+                    "profile needs, so no spread was measured."
+                )
+            else:
+                metrics[f"{prefix}.spread"] = measured.spread
+            if measured.monotonicity is not None:
+                metrics[f"{prefix}.monotonicity"] = measured.monotonicity
+
+    if not metrics:
+        raise ResearchValidationError(
+            f"Study {study.study_name!r} produced no measurable diagnostic over "
+            f"{len(study.features)} feature(s) and {len(study.horizons)} horizon(s). The "
+            f"findings were:\n  " + "\n  ".join(findings)
+        )
+
+    warnings = []
+    if study.seed is None:
+        warnings.append(
+            "The study records no seed. Nothing in this run drew a random number, so the "
+            "result reproduces; a robustness study built on it will need one."
+        )
+
+    return build_result(
+        study=study,
+        metrics=metrics,
+        produced_at=produced_at,
+        feature_lineage=lineage,
+        findings=findings,
+        warnings=warnings,
     )

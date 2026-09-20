@@ -237,6 +237,15 @@ Additional standalone, individually tested engines added after v1.0.0:
 `macro`, `ml`, `deep_learning`, `reinforcement_learning`, `cloud_research`,
 `cluster_scheduler`. None is wired into `ExecutionPipeline`.
 
+**As of v3.2, `factor_library` is no longer standalone**: `alphalab.research`
+imports it and `alphalab.lifecycle` imports `research`, so it is reached by the
+lifecycle path, and `alphalab.api` reaches it directly.
+`tests/regression/test_one_research_authority_per_concept.py` measures that
+rather than leaving it to a sentence here. `feature_store` remains standalone,
+which is the compute/registry seam working: it computes nothing, so the
+computation engine writes through `FeatureValueProtocol` without either package
+importing the other.
+
 `experiment_tracking`, `model_registry`, `deployment_manager`, `studio`,
 `enterprise` and `research` are imported by `alphalab.lifecycle` as of v2.4 and
 remain usable on their own. `research_assistant` is the one the lifecycle names
@@ -295,13 +304,29 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.1.0
+v3.2.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.2.0 — strategy research and validation.** The second capability release on
+the frozen architecture. v3.1 gave AlphaLab a dataset it could trust; v3.2 gives
+it the methodology that turns one into a research result nobody has to take on
+trust. `alphalab.factor_library` gains a typed feature framework with a derived
+identity and dataset lineage, plus cross-sectional ranking, three named
+neutralizations, the information coefficient, decay, turnover and exposure.
+`alphalab.research` gains walk-forward validation, time-series cross-validation
+with purging and embargo defined by label windows, seeded robustness
+perturbations, transparent overfitting diagnostics, and a reproducible
+`ResearchStudy` / `StudyResult` contract whose identities are derived rather
+than minted. `alphalab.common.statistics` becomes the one statistics authority,
+and five private copies of the unbiased sample variance were consolidated onto
+it with every published number unchanged. `evidence_id_for` is untouched. No
+boundary moves and no ownership changes; `factor_library` gains an importer and
+is therefore no longer a standalone engine. See `ADR/0037`.
 
 **v3.1.0 — universal data ingestion.** The first release after the v3.0
 architecture freeze, and a capability release confined to one package.

@@ -3,6 +3,8 @@
 import math
 from collections.abc import Sequence
 
+from alphalab.common.statistics import sample_variance
+
 
 def calculate_cagr(returns: Sequence[float], periods_per_year: int = 252) -> float:
     if not returns:
@@ -17,11 +19,10 @@ def calculate_cagr(returns: Sequence[float], periods_per_year: int = 252) -> flo
 
 
 def calculate_volatility(returns: Sequence[float], periods_per_year: int = 252) -> float:
+    """Annualized standard deviation, over the one shared unbiased estimator."""
     if len(returns) < 2:
         return 0.0
-    mean = sum(returns) / len(returns)
-    variance = sum((r - mean) ** 2 for r in returns) / (len(returns) - 1)
-    return math.sqrt(variance) * math.sqrt(periods_per_year)
+    return math.sqrt(sample_variance(returns)) * math.sqrt(periods_per_year)
 
 
 def calculate_sharpe(returns: Sequence[float], risk_free_rate: float = 0.0) -> float:

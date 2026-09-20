@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-3.1.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.2.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-4144%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-4548%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -37,22 +37,89 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.1.0 — universal data ingestion, on the v3.0 frozen architecture**
+**Current Release:** **v3.2.0 — strategy research and validation, on the v3.0 frozen architecture**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.1.0 |
+| Version | 3.2.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **4144 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (929 source files) |
+| Tests | **4548 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (975 source files) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **48 / 48 Passing** |
-| Examples | **16 / 16 Passing** |
+| Benchmarks | **50 / 50 Passing** |
+| Examples | **24 / 24 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+## What v3.2.0 is
+
+The second capability release on the frozen architecture. v3.1 gave AlphaLab a
+dataset it could trust; v3.2 gives it the methodology that turns one into a
+research result nobody has to take on trust. Two packages are deepened —
+`alphalab.factor_library` and `alphalab.research` — and one module is added to
+`alphalab.common`. No boundary moves, no ownership changes, and every v3.1
+invariant holds.
+
+The path it adds, end to end:
+
+```
+canonical dataset  ->  observation frame   (one field, carrying the version)
+                   ->  feature panel       (identity derived from dataset + definition)
+                   ->  forward returns     (the one quantity that looks ahead)
+                   ->  diagnostics         (with the sample counts attached)
+                   ->  walk-forward / CV   (purged, embargoed, every fold inspectable)
+                   ->  robustness          (seeded, one change at a time)
+                   ->  overfitting         (measurements, thresholds, findings)
+                   ->  StudyResult         (identity derived from the numbers)
+                   ->  ValidationEvidence  (the frozen digest, unchanged)
+```
+
+Six properties are the point of it:
+
+1. **A feature is a specification before it is a number.** `FeatureDefinition`
+   states the field, the window *in periods*, the parameters and the
+   missing-data policy, and defaults none of them. A kind that reads a window
+   and was given none raises; a parameter the kind does not read is refused
+   rather than ignored, because an unread parameter would still change the
+   derived identity.
+2. **Missing values are never invented.** `MissingPolicy` has `REFUSE` and
+   `SKIP` and no `FILL`. This is v3.1's rule one layer up: a forward fill is a
+   statement that yesterday's value was still true today, which is a claim
+   about the world rather than an arithmetic convenience.
+3. **Nothing looks ahead.** Every window is trailing and inclusive of the
+   current observation. The property is asserted for *every* feature kind by
+   recomputing on a truncated series and requiring the overlapping values to be
+   identical — a feature that peeked would change when the future was removed.
+4. **Purging is defined by information windows, not by subtracting dates.**
+   `label_ends_from_horizon` reads the actual series: twenty observations later
+   means twenty observations later, whether that is twenty-eight calendar days
+   across a holiday or twenty. A `PurgePolicy` has no default horizon and
+   cannot be built without one, because a default would make an unpurged split
+   report that it had been purged.
+5. **An unmeasurable quantity is `None`, never `0.0`.** A zero information
+   coefficient means "measured, and unrelated", which is a finding. An absent
+   one means "not measured", which is not. Every diagnostic carries the sample
+   it rests on.
+6. **There is no score.** No overfit score, no signal score, no research grade.
+   A blended number would have to weight its components, the weights would be a
+   judgement nobody could inspect, and the figure would be unfalsifiable.
+   `OverfittingReport` keeps measurements, the caller's stated thresholds, and
+   findings naming which bound each measurement crossed, in separate fields.
+
+A `ResearchStudy` derives an identity from its description and a `StudyResult`
+derives one from the numbers it produced, so a result is tamper-evident.
+`run_study` compares the dataset it is handed against the one the study names
+and refuses a mismatch — the substitution ADR-0017 closed for evidence, closed
+for studies. `evidence_from_study` records the result as
+`ValidationMethod.STUDY`, and **`evidence_id_for` did not move**, so every
+promotion recorded since v2.6 still verifies.
+
+See [`ADR-0037`](docs/ADR/0037-strategy-research-features-validation-and-overfitting.md),
+and `examples/17_feature_engineering.py` through
+`examples/24_strategy_research_pipeline.py`.
 
 ## What v3.1.0 is
 
@@ -181,6 +248,7 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v2.17.0** | Settlement-level multi-currency, the FX rate feed, the strategy-class registry, and the removal of seven deprecated surfaces (ADR-0034, ADR-0035) |
 | **v3.0.0** | Architecture frozen; documentation truth freeze. No capability added |
 | **v3.1.0** | Universal data ingestion: CSV, schema detection, structured validation, explicit cleaning policies, market calendars, multi-asset semantics, provenance and the derived dataset version (ADR-0036) |
+| **v3.2.0** | Strategy research and validation: typed features with derived identity and lineage, factor research, signal diagnostics, walk-forward, purged and embargoed cross-validation, robustness perturbation, overfitting diagnostics, and the reproducible study contract (ADR-0037) |
 
 > **What connectivity means here.** `alphalab.broker.transport.HttpVenueTransport`
 > signs and sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker`
@@ -403,6 +471,14 @@ The recommended way to learn the framework is through the curated examples.
 | 14 | `14_multi_currency_settlement.py` | FX feed → two settlement currencies → one reported figure |
 | 15 | `15_data_ingestion.py` | **A broken CSV** through detection, validation, an explicit cleaning policy and a quality report, out as a versioned canonical dataset |
 | 16 | `16_research_from_dataset.py` | Research access by dataset version, point-in-time selection, and a backtest that names the exact bytes it read |
+| 17 | `17_feature_engineering.py` | **Typed feature definitions** with derived identity, trailing windows and warmup, missing data skipped or refused, and lineage back to the exact dataset version |
+| 18 | `18_factor_research.py` | Ranking, three neutralizations that are not interchangeable, the information coefficient, decay, turnover and exposure |
+| 19 | `19_signal_diagnostics.py` | Forward-return analysis across horizons, quantile profiles, monotonicity, and regime-conditioned diagnostics |
+| 20 | `20_walk_forward_validation.py` | Train / validate / test / roll, exact fold boundaries, and purging on both sides |
+| 21 | `21_time_series_cross_validation.py` | Rolling, expanding, purged blocked k-fold and embargoed — and why an embargo only bites on a blocked scheme |
+| 22 | `22_robustness_testing.py` | Parameter, data and signal perturbation, missing data, delay, cost, block bootstrap and Monte Carlo — every one seeded |
+| 23 | `23_overfitting_diagnostics.py` | Parameter sweeps that count every trial, cliffs against plateaus, out-of-sample degradation, stability, and multiple-testing risk |
+| 24 | `24_strategy_research_pipeline.py` | **The complete v3.2 path**: dataset → features → diagnostics → validation → robustness → overfitting → study result → evidence → promotion gate |
 
 Run any example:
 
@@ -413,9 +489,12 @@ python examples/01_research.py
 Examples `01`–`10` date from v1.0.0 and exercise the standalone engine APIs;
 `11` (v2.2) drives the integrated execution path, `12` (v2.4) the lifecycle path,
 `13` (v2.13) durable run state across two processes, `14` (v2.17)
-settlement-level multi-currency, and `15`–`16` (v3.1) universal data ingestion
-and research from a canonical dataset. None are part of the automated test
-suite, though all sixteen run.
+settlement-level multi-currency, `15`–`16` (v3.1) universal data ingestion and
+research from a canonical dataset, and `17`–`24` (v3.2) the research and
+validation path. None are part of the automated test suite, though all
+twenty-four run, and `17`–`24` all ingest the same committed panel in
+`examples/data/research_panel.csv` so their numbers are comparable with each
+other.
 
 ---
 
@@ -430,7 +509,7 @@ The complete documentation is available in the `docs/` directory.
 | `docs/SYSTEM_DESIGN.md` | Internal design and subsystem interaction |
 | `docs/STATE_MODEL.md` | Immutable state, snapshots and schemas |
 | `docs/EVENT_MODEL.md` | Event-driven architecture and lifecycle |
-| `docs/ADR/` | Architectural Decision Records — 36 of them |
+| `docs/ADR/` | Architectural Decision Records — 37 of them |
 | `docs/EXAMPLES.md` | Example walkthroughs |
 | `docs/ENGINEERING_GUIDELINES.md` | Engineering standards |
 | `nowandfuture.md` | The long-form project reference: ownership, invariants, boundaries, what must not change casually |
@@ -464,7 +543,8 @@ alphalab/
 │   experiment_tracking/  model_registry/  deployment_manager/
 │   studio/        Strategy definitions and project orchestration
 │   enterprise/    RBAC, principals, audit log (governance reads it)
-│   research/      Research scores, consumed for validation evidence
+│   research/      Run evaluation, and the v3.2 study methodology
+│   factor_library/  The computation engine: features, factors, diagnostics
 │
 ├── Data surfaces
 │   data/          Wire records, and the universal data engine:
@@ -479,7 +559,7 @@ alphalab/
 │
 └── Standalone engines
     reporting/  portfolio_optimizer/  optimizer/
-    feature_store/  factor_library/  alt_data/
+    feature_store/  alt_data/
     ml/  deep_learning/  reinforcement_learning/
     options/  futures/  crypto/  macro/
     cloud_research/  cluster_scheduler/  distributed/
@@ -492,9 +572,9 @@ Additional directories:
 
 ```text
 docs/          Documentation and ADRs
-examples/      16 runnable examples
-benchmarks/    48 performance benchmarks
-tests/         4144 tests — unit, integration, regression
+examples/      24 runnable examples
+benchmarks/    50 performance benchmarks
+tests/         4548 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
 
@@ -504,10 +584,10 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **4144 passing tests** (1754 unit, 239 integration, 2151 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking (929 source files)
+- ✅ **4548 passing tests** (2030 unit, 263 integration, 2255 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking (975 source files)
 - ✅ Ruff linting and formatting
-- ✅ 48 / 48 benchmarks, 16 / 16 examples
+- ✅ 50 / 50 benchmarks, 24 / 24 examples
 - ✅ Source distribution, wheel and `twine check` validation
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
@@ -601,7 +681,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v3.1.0**
+**AlphaLab v3.2.0**
 
 Building deterministic infrastructure for quantitative research.
 

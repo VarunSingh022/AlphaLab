@@ -4,6 +4,8 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from alphalab.common.statistics import sample_variance
+
 
 @dataclass(frozen=True, slots=True)
 class PortfolioMetrics:
@@ -35,8 +37,13 @@ def calculate_max_drawdown(returns: Sequence[float]) -> float:
 
 
 def calculate_volatility(returns: Sequence[float], periods: int = 252) -> float:
+    """Annualized volatility, over the one shared unbiased estimator.
+
+    ``sqrt(var * periods)`` rather than ``sqrt(var) * sqrt(periods)``: the two
+    are equal in exact arithmetic and not always in floating point, and this
+    module has always used the first. Changing it would move published numbers
+    for no reason.
+    """
     if len(returns) < 2:
         return 0.0
-    mean = sum(returns) / len(returns)
-    var = sum((r - mean) ** 2 for r in returns) / (len(returns) - 1)
-    return math.sqrt(var * periods)
+    return math.sqrt(sample_variance(returns) * periods)

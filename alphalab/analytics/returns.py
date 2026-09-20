@@ -3,6 +3,8 @@
 import math
 from decimal import Decimal
 
+from alphalab.common.statistics import sample_variance
+
 
 def total_return(start_value: Decimal, end_value: Decimal) -> float:
     """Calculates the absolute total return between two capital marks."""
@@ -38,11 +40,14 @@ def geometric_return(returns: tuple[float, ...]) -> float:
 
 
 def annualized_volatility(returns: tuple[float, ...], periods: int = 252) -> float:
-    """Calculates annualized standard deviation of returns."""
+    """Calculates annualized standard deviation of returns.
+
+    The dispersion is `alphalab.common.statistics.sample_variance`, which is the
+    one unbiased estimator in the repository rather than a fourth copy of it.
+    Fewer than two returns has no variance; this reports 0.0 rather than raising
+    because a report over an empty window is a normal state for it to be in.
+    """
     if len(returns) < 2:
         return 0.0
 
-    mean_ret = arithmetic_return(returns)
-    variance = sum((r - mean_ret) ** 2 for r in returns) / (len(returns) - 1)
-
-    return math.sqrt(variance) * math.sqrt(periods)
+    return math.sqrt(sample_variance(returns)) * math.sqrt(periods)

@@ -105,6 +105,7 @@ from alphalab.lifecycle.evidence import (
     evaluate_policy,
     evidence_from_backtest,
     evidence_from_research,
+    evidence_from_study,
     evidence_id_for,
     verify_evidence_id,
 )
@@ -221,6 +222,7 @@ __all__ = [
     "evidence_for",
     "evidence_from_backtest",
     "evidence_from_research",
+    "evidence_from_study",
     "evidence_id_for",
     "get_strategy_version",
     "governance_log",

@@ -1,6 +1,17 @@
-"""Advanced risk-adjusted return ratios and VaR calculations."""
+"""Advanced risk-adjusted return ratios and VaR calculations.
+
+``sharpe_ratio`` takes its dispersion from
+:func:`alphalab.common.statistics.sample_variance`, the one unbiased estimator
+in the repository. ``sortino_ratio`` deliberately does not: downside
+semideviation divides the sum of squared *negative* excess returns by the count
+of **all** returns, which is a different estimator rather than the same one
+applied to a subset, and routing it through the shared function would quietly
+change every Sortino ratio AlphaLab has ever reported.
+"""
 
 import math
+
+from alphalab.common.statistics import sample_variance
 
 
 def sharpe_ratio(
@@ -13,8 +24,7 @@ def sharpe_ratio(
     excess_returns = tuple(r - (risk_free_rate / periods) for r in returns)
     mean_excess = sum(excess_returns) / len(excess_returns)
 
-    variance = sum((r - mean_excess) ** 2 for r in excess_returns) / (len(excess_returns) - 1)
-    stdev = math.sqrt(variance)
+    stdev = math.sqrt(sample_variance(excess_returns))
 
     if stdev == 0.0:
         return 0.0

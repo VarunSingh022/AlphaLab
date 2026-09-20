@@ -4,6 +4,7 @@ import math
 
 from alphalab.analytics.metrics import sharpe_ratio
 from alphalab.analytics.returns import geometric_return
+from alphalab.common.statistics import sample_variance
 
 
 def rolling_return(returns: tuple[float, ...], window: int) -> tuple[float, ...]:
@@ -28,9 +29,7 @@ def rolling_volatility(
     result = []
     for i in range(len(returns) - window + 1):
         window_slice = returns[i : i + window]
-        mean_ret = sum(window_slice) / window
-        variance = sum((r - mean_ret) ** 2 for r in window_slice) / (window - 1)
-        result.append(math.sqrt(variance) * math.sqrt(periods))
+        result.append(math.sqrt(sample_variance(window_slice)) * math.sqrt(periods))
 
     return tuple(result)
 
