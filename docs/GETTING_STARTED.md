@@ -101,11 +101,11 @@ If all commands complete successfully, your environment is correctly configured.
 AlphaLab/
 
 alphalab/     framework source (50 packages)
-benchmarks/   53 performance benchmarks
+benchmarks/   54 performance benchmarks
 configs/      reference configuration files
 docs/         technical documentation and 39 ADRs
-examples/     40 runnable examples
-tests/        5123 tests — unit, integration, regression
+examples/     45 runnable examples
+tests/        5399 tests — unit, integration, regression
 ```
 
 ### alphalab/
@@ -351,6 +351,10 @@ Examples include
   continuous futures, options chains and Greeks, implied volatility and the
   volatility surface, FX research, crypto perpetuals and 24/7 coverage, the
   fixed-income foundation, and a multi-asset book (examples 31–40)
+- The strategy progression from research to live money, deployment
+  specifications, runtime health from supplied observations, the
+  expected/paper/live comparison, and reconciliation against a normalized broker
+  state (examples 41–45)
 
 ---
 

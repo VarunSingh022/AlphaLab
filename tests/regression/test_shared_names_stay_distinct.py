@@ -9,6 +9,7 @@ one can read here what they would be giving up.
 Nothing here is a fix. Every entry is a decision to keep two things apart.
 """
 
+import dataclasses
 import inspect
 from collections.abc import Sequence
 from decimal import Decimal
@@ -1247,3 +1248,123 @@ def test_the_two_currency_breakdowns_measure_different_things() -> None:
         if isinstance(node, ast.ImportFrom) and node.module
     }
     assert not [name for name in imported if name.startswith("alphalab.analytics")]
+
+
+# --------------------------------------------------------------------------- #
+# 23. "lifecycle" -- three state machines, three axes (v3.5)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_three_lifecycle_state_machines_ask_three_questions() -> None:
+    """``ModelStage`` asks whether a *registered artifact* may be promoted.
+    ``strategy.state.LifecycleState`` asks whether an *instance in a session* is
+    running. ``StrategyLifecycleStage`` asks how far a *strategy* has travelled
+    from research to live money.
+
+    v3.5 added the third rather than stretching either of the others, because
+    ``ModelStage`` cannot tell research from backtest from validation (all
+    ``NONE``), cannot tell paper from live (both ``PRODUCTION``, separated only
+    by the environment string a deployment named), and has no member for paused
+    at all -- a registry entry does not pause. Collapsing any two of the three
+    makes "what is this strategy doing?" unanswerable.
+    """
+
+    from alphalab.lifecycle.progression import (
+        PROGRESSION_MODEL_STAGES,
+        StrategyLifecycleStage,
+    )
+    from alphalab.model_registry.registry import ModelStage
+    from alphalab.strategy.state import LifecycleState as InstanceState
+
+    progression = {stage.name for stage in StrategyLifecycleStage}
+    promotable = {stage.name for stage in ModelStage}
+    instance = {stage.name for stage in InstanceState}
+
+    # Each holds a member neither of the others can express.
+    assert "PRODUCTION_CANDIDATE" in progression - promotable - instance
+    assert "NONE" in promotable - progression - instance
+    assert "DISPOSED" in instance - progression - promotable
+
+    # The progression is *related* to the promotion axis and does not replace
+    # it: every stage declares which ModelStage values it is consistent with,
+    # and progression_conflicts reports a disagreement rather than resolving it.
+    assert set(PROGRESSION_MODEL_STAGES) == set(StrategyLifecycleStage)
+    assert all(stages <= set(ModelStage) for stages in PROGRESSION_MODEL_STAGES.values())
+
+
+def test_the_progression_names_no_environment_and_the_ledger_still_answers_what_is_live() -> None:
+    """``ROADMAP.md``'s "no per-environment promotion policy" boundary, kept."""
+
+    from alphalab.lifecycle.progression import StrategyProgression
+    from alphalab.lifecycle.views import active_strategy_version
+
+    assert "environment" not in {field.name for field in dataclasses.fields(StrategyProgression)}
+    assert "environment" in inspect.signature(active_strategy_version).parameters
+
+
+# --------------------------------------------------------------------------- #
+# 24. "reconcile" -- the mirror against the venue, and the book against the mirror
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_reconciliations_compare_two_different_pairs() -> None:
+    """``broker.reconcile`` compares ``BrokerState`` -- AlphaLab's *mirror of the
+    venue* -- against records the venue reported. ``reconcile_execution_state``
+    compares AlphaLab's *own execution state* -- the OMS book, the portfolio and
+    the fills it applied -- against that mirror.
+
+    Those are different disagreements with different causes: the venue and the
+    mirror drift because a message was lost, the mirror and the book drift
+    because a fill reached one and not the other. A single function reporting
+    both could not say which had happened, and an empty result from either says
+    nothing about the other.
+    """
+
+    from alphalab.broker.reconciliation import ReconciliationReport
+    from alphalab.broker.reconciliation import reconcile as reconcile_mirror
+    from alphalab.lifecycle.reconciliation import StateReconciliation, reconcile_execution_state
+
+    mirror = set(inspect.signature(reconcile_mirror).parameters)
+    book = set(inspect.signature(reconcile_execution_state).parameters)
+
+    assert mirror == {"state", "remote_orders", "remote_positions", "remote_account"}
+    assert book == {"pipeline", "broker", "mapping", "symbols", "tolerances"}
+    assert mirror & book == set(), "the two take no argument in common"
+
+    mirror_type: type = ReconciliationReport
+    assert mirror_type is not StateReconciliation
+    assert not hasattr(ReconciliationReport, "unreconciled")
+    assert not hasattr(StateReconciliation, "cash_difference")
+
+
+# --------------------------------------------------------------------------- #
+# 25. "health" -- a driver's own sentences, and a specification's thresholds (v3.5)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_health_surfaces_read_different_things() -> None:
+    """``live_health`` inspects a ``LiveRunState`` the current process is
+    driving and reports plain sentences: it knows no thresholds, because a run
+    does not carry any. ``evaluate_health`` judges **supplied observations**
+    against the **runtime requirements a deployment specification declares**,
+    and produces categorised findings with severities.
+
+    Neither is the other's replacement. ``live_health`` can say nothing about a
+    deployment this process is not driving, and ``evaluate_health`` can say
+    nothing without an observation somebody supplied.
+    ``observation_from_live_run`` is the bridge, so the two never disagree about
+    a run they can both see.
+    """
+
+    from alphalab.lifecycle.health import HealthReport, evaluate_health
+    from alphalab.runtime.live import live_health
+
+    assert list(inspect.signature(live_health).parameters) == ["state"]
+    assert inspect.signature(live_health).return_annotation == "tuple[str, ...]"
+
+    evaluated = inspect.signature(evaluate_health)
+    assert list(evaluated.parameters) == ["specification", "observation"]
+    assert evaluated.return_annotation == "HealthReport"
+    assert {"findings", "unevaluated", "specification_id"} <= {
+        field.name for field in dataclasses.fields(HealthReport)
+    }

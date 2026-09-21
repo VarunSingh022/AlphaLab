@@ -1,6 +1,6 @@
 # AlphaLab Examples
 
-Forty runnable scripts, each demonstrating one part of AlphaLab against
+Forty-five runnable scripts, each demonstrating one part of AlphaLab against
 its real public API. Every one of them runs:
 
 ```bash
@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all forty are executed as a
+paths far more thoroughly under `tests/` — but all forty-five are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -58,6 +58,11 @@ API.
 | 38 | `38_crypto_perpetuals_and_funding.py` | Two venues that disagree about funding interval, fees, price source and minimum size; funding instants following a venue's own anchor; accrual against the venue's mark with a missing mark refused; maker rebates in the same sign convention as funding; and a 24/7 clock measured against 24/7 data |
 | 39 | `39_fixed_income_foundation.py` | Cash flows generated backwards from maturity; clean, dirty and accrued as three numbers with the identity checked; the yield inversion and the prices it refuses; duration in years against convexity in years squared; discount factors under a **named** compounding; and the boundary, stated |
 | 40 | `40_multi_asset_portfolio.py` | Five asset classes, four venues, four currencies and one book: sessions read locally, the multiplier applied once, notional in the quote currency, settlement converted with a recorded rate, and the return split into what the assets did and what the currencies did |
+| 41 | `41_strategy_lifecycle_progression.py` | **The v3.5 progression**: the eight stages from research to live money, every refusal and the reason for it, a pause that returns to the stage it interrupted, and the progression checked against the registry's own stage rather than replacing it |
+| 42 | `42_deployment_specification.py` | What a strategy version needs to run **as it was researched**: dataset assumptions by derived identity, the risk limits the pre-trade gate enforces, capital, broker capabilities with no vendor anywhere, a content digest that stops verifying when edited, and the coherence a single field cannot see |
+| 43 | `43_runtime_health.py` | Seven health categories from **supplied** observations: thresholds at, past and before the budget; a reconnecting adapter that warns against a dead one that breaches; and why a clean report with something unevaluated is `UNKNOWN` rather than `HEALTHY` |
+| 44 | `44_expected_paper_live_comparison.py` | A backtest, a paper run and a venue's own records compared: declared alignment, stated tolerances, money per currency, a venue's unmeasured slippage staying **missing** instead of becoming zero, and three pairs so a divergence can be located |
+| 45 | `45_broker_reconciliation.py` | AlphaLab's execution state against a normalized broker state: a lost fill, an order the venue never held, one nobody routed, a resized position, venue symbols joined through a supplied mapping, and a currency the account cannot speak about — unreconciled, not agreed |
 
 ## Reading order
 
@@ -122,6 +127,14 @@ ships none of them. A calendar in example 32 is a calendar that example 32
 wrote; the one holiday it uses to move a settlement date is declared three lines
 above the line that uses it. That is not a limitation of the examples — it is
 the boundary the library draws, made visible.
+
+`41`–`45` follow the same rule for the production side. `42` ingests its own
+rows so the dataset assumption it records names bytes that actually exist;
+`43`'s observations are readings the file states outright, because AlphaLab
+observes nothing on its own; and the broker states in `44` and `45` are
+deterministic fixtures standing in for whatever an application's adapter
+produces. None of the five opens a connection, holds a credential or names a
+venue.
 
 See `examples/data/README.md` for what each dataset contains.
 

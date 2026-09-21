@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-3.4.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.5.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-4548%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-5399%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -28,7 +28,7 @@ It is a library, not a running application: there is no server, daemon, schedule
 AlphaLab ships three kinds of package:
 
 - **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable `ExecutionPipelineState`. `alphalab.runtime.run.RunEngine` owns the *run* over it, and four interchangeable drivers feed it: `TradingSession`, `BacktestEngine`, `ReplayBacktest` and `LiveSession`. Because all four call the same step, a backtest, a replay, a paper run and a live run of one dataset produce identical orders, fills and P&L wherever the venue is the same.
-- **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, the deployment manager, `studio`'s strategy definitions, `enterprise`'s RBAC and `research`/`backtesting`'s reports into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. Every act that changes what is live names its principal. As of v2.16 it is **joined** to the execution path: `run_plan` resolves what an environment has live and `authorize_run` refuses a run that would serve anything else. As of v2.17 `alphalab.strategy.registry` supplies the other half of that join — the identity a deployment names, mapped to the code a run executes.
+- **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, the deployment manager, `studio`'s strategy definitions, `enterprise`'s RBAC and `research`/`backtesting`'s reports into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. Every act that changes what is live names its principal. As of v2.16 it is **joined** to the execution path: `run_plan` resolves what an environment has live and `authorize_run` refuses a run that would serve anything else. As of v2.17 `alphalab.strategy.registry` supplies the other half of that join — the identity a deployment names, mapped to the code a run executes. As of v3.5 the same package carries past the deployment record into the thing a deployment becomes: a strategy's progression from research to live money, the specification of what it needs to run as it was researched, structured runtime health from supplied observations, an expected/paper/live comparison, and deterministic reconciliation against a normalized broker state.
 - **Standalone engine libraries.** The remaining packages (portfolio optimizer, reporting, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, workbench, and the rest) are independent, deterministic, individually tested libraries reached by neither path. They share the engineering model and are **not** fused into a single runtime. That is a decision, not a gap — see ADR-0009.
 
 The framework is designed for researchers, quantitative developers, students, and engineering teams building reproducible trading infrastructure.
@@ -37,22 +37,95 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.4.0 — global markets and multi-asset research, on the v3.0 frozen architecture**
+**Current Release:** **v3.5.0 — strategy execution and production intelligence, on the v3.0 frozen architecture**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.4.0 |
+| Version | 3.5.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **5123 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (1041 source files) |
+| Tests | **5399 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (962 source files) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **53 / 53 Passing** |
-| Examples | **40 / 40 Passing** |
+| Benchmarks | **54 / 54 Passing** |
+| Examples | **45 / 45 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+## What v3.5.0 is
+
+The fifth capability release on the frozen architecture, and the bridge between
+research and real trading. v3.1 gave AlphaLab a dataset it could trust, v3.2
+research methodology, v3.3 the institutional answers and v3.4 what an
+instrument's numbers mean; v3.5 answers the questions asked *after* a strategy
+is deployed.
+
+One package is deepened — `alphalab.lifecycle` — and no boundary moves, no
+ownership changes and no package is added. Every v3.1 through v3.4 invariant
+holds. ADR-0040.
+
+**A progression, not a third status flag.** `StrategyLifecycleStage` names the
+eight stages the roadmap asks for — research, backtest, validation, paper,
+production candidate, live, paused, archived — with a declared transition table,
+an append-only history and an explicit relation to the registry's own
+`ModelStage`. It replaces neither of the two state machines AlphaLab already
+had, because neither can express it: research, backtest and validation are all
+`NONE` to the registry, paper and live are both `PRODUCTION`, and a registry
+entry does not pause. It names **no environment** — what is live *where* stays
+the deployment ledger's single answer.
+
+**A deployment specification that can reproduce its own assumptions.** Strategy
+version, parameters read from the registered version, dataset assumptions by
+*derived* identity, the `RiskLimits` the pre-trade gate actually enforces, a
+capital policy, and typed broker, market and runtime requirements. It identifies
+itself by the same SHA-256 content digest `evidence_id_for` uses, so an edited
+specification stops verifying.
+
+**Runtime health that cannot read a missing observation as a healthy one.**
+Seven categories — stale data, abnormal execution, unexpected position, risk
+breach, heartbeat loss, broker disconnect, divergence from expected state —
+evaluated from **supplied** observations against the budgets a specification
+declares. Every category is either judged or reported as unevaluated, and a
+report with nothing wrong and something unevaluated is `UNKNOWN`, never
+`HEALTHY`. `live_health` is unchanged and still reports the live driver's own
+aggregate in sentences.
+
+**Expected against paper against live.** Trades, fills, slippage, P&L, exposure
+and execution latency, with alignment declared rather than guessed and every
+tolerance stated — a metric with no tolerance is reported not-comparable, not
+matching. Money is compared per currency and never summed across two. A venue's
+unmeasured slippage stays missing instead of becoming zero, which
+`execution_report_from_broker` has called "absent, not zero" since v2.3.
+
+**Reconciliation of the pair nothing compared.** `broker.reconcile` compares
+AlphaLab's mirror of a venue against the venue's records and is unchanged.
+`reconcile_execution_state` compares AlphaLab's *own* execution state — the OMS
+book, the portfolio, the fills it applied — against that mirror, across fourteen
+mismatch classes. Neither side is declared authoritative, nothing is mutated,
+and repeating it over the same pair returns an equal report.
+
+```text
+   research  ->  backtest  ->  validation  ->  paper  ->  candidate  ->  live
+                                   |                                       |
+                                   v                                       v
+                        deployment specification              runtime health
+                    (datasets, risk, capital, broker,        (supplied observations
+                     market, runtime -- with a digest)        vs declared budgets)
+                                   |                                       |
+                                   +------------> comparison <-------------+
+                                        expected / paper / live
+                                                   |
+                                                   v
+                                      reconciliation against the
+                                      normalized broker state
+```
+
+Full detail in [ADR-0040](docs/ADR/0040-strategy-execution-and-production-intelligence.md)
+and [CHANGELOG.md](CHANGELOG.md).
+
+---
 
 ## What v3.4.0 is
 
@@ -376,6 +449,7 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v3.0.0** | Architecture frozen; documentation truth freeze. No capability added |
 | **v3.1.0** | Universal data ingestion: CSV, schema detection, structured validation, explicit cleaning policies, market calendars, multi-asset semantics, provenance and the derived dataset version (ADR-0036) |
 | **v3.2.0** | Strategy research and validation: typed features with derived identity and lineage, factor research, signal diagnostics, walk-forward, purged and embargoed cross-validation, robustness perturbation, overfitting diagnostics, and the reproducible study contract (ADR-0037) |
+| **v3.5.0** | Strategy execution and production intelligence: the research-to-live progression, deployment specifications with a derived identity, structured runtime health from supplied observations, expected/paper/live comparison, and AlphaLab-to-broker reconciliation (ADR-0040) |
 | **v3.4.0** | Global markets and multi-asset research: one market-convention authority, reproducible continuous futures, implied volatility with five refusals, FX cross rates and a look-ahead guard, crypto venue metadata and 24/7 coverage, and a fixed-income foundation (ADR-0039) |
 | **v3.3.0** | Institutional backtesting and portfolio intelligence: itemized execution costs, capacity modelling, nine-dimension attribution, risk decomposition with named VaR methodology, and a reusable scenario/stress contract (ADR-0038) |
 
@@ -639,7 +713,7 @@ The complete documentation is available in the `docs/` directory.
 | `docs/SYSTEM_DESIGN.md` | Internal design and subsystem interaction |
 | `docs/STATE_MODEL.md` | Immutable state, snapshots and schemas |
 | `docs/EVENT_MODEL.md` | Event-driven architecture and lifecycle |
-| `docs/ADR/` | Architectural Decision Records — 37 of them |
+| `docs/ADR/` | Architectural Decision Records — 40 of them |
 | `docs/EXAMPLES.md` | Example walkthroughs |
 | `docs/ENGINEERING_GUIDELINES.md` | Engineering standards |
 | `nowandfuture.md` | The long-form project reference: ownership, invariants, boundaries, what must not change casually |
@@ -696,17 +770,18 @@ alphalab/
     options/  futures/  crypto/  macro/
     cloud_research/  cluster_scheduler/  distributed/
     workbench/  research_assistant/  plugins/  scheduler/
+    scenario/       Price, volatility, FX and liquidity shocks (ADR-0038)
 ```
 
-All 48 top-level packages are accounted for above.
+All 50 top-level packages are accounted for above.
 
 Additional directories:
 
 ```text
 docs/          Documentation and ADRs
-examples/      24 runnable examples
-benchmarks/    53 performance benchmarks
-tests/         4548 tests — unit, integration, regression
+examples/      45 runnable examples
+benchmarks/    54 performance benchmarks
+tests/         5399 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
 
@@ -716,10 +791,10 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **5123 passing tests** (2479 unit, 303 integration, 2341 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking (1041 source files)
+- ✅ **5399 passing tests** (2694 unit, 325 integration, 2380 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking (962 source files)
 - ✅ Ruff linting and formatting
-- ✅ 53 / 53 benchmarks, 40 / 40 examples
+- ✅ 54 / 54 benchmarks, 45 / 45 examples
 - ✅ Source distribution, wheel and `twine check` validation
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
@@ -835,7 +910,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v3.4.0**
+**AlphaLab v3.5.0**
 
 Building deterministic infrastructure for quantitative research.
 

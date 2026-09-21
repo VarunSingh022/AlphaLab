@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.2.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.5.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,16 +42,95 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.4.0** |
+| Version | **3.5.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.4.0 are additive to it.** |
+| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.5.0 are additive to it.** |
 
 ---
 
-# 2. What v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+# 2. What v3.5.0, v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+
+## v3.5.0 — strategy execution and production intelligence
+
+The fifth capability release on the frozen architecture. One package deepened
+(`alphalab.lifecycle`), none added, nothing changed, and no snapshot schema
+touched. ADR-0040.
+
+### What it fixed
+
+Everything after "this environment should be running that strategy version" was
+outside the library. Five specific gaps:
+
+| Gap | What existed | What v3.5 adds |
+| --- | --- | --- |
+| Where a strategy is | `ModelStage` calls research, backtest and validation all `NONE`, paper and live both `PRODUCTION`, and has no member for paused | `StrategyLifecycleStage`, a third axis with a declared transition table |
+| What a deployment needs | a `ReleasePackage`'s flat mapping of strings | `DeploymentSpecification`, typed and self-identifying |
+| Whether it is healthy | `live_health`, a tuple of sentences, no thresholds, only for a run this process drives | `evaluate_health` over supplied observations and declared budgets |
+| Whether it is doing what it should | nothing | `compare_runs` / `compare_expected_paper_live` |
+| Whether the book matches the venue | `broker.reconcile`, which compares the *mirror* to the venue | `reconcile_execution_state`, which compares the *book* to the mirror |
+
+### The three lifecycle state machines
+
+Kept apart on purpose, and pinned as a triple in
+`test_shared_names_stay_distinct.py`:
+
+```text
+ModelStage              promotability of a registered artifact   (unchanged)
+StrategyLifecycleStage  maturity of a strategy                   (v3.5)
+strategy.state.
+  LifecycleState        an instance inside one session           (unchanged)
+```
+
+`PROGRESSION_MODEL_STAGES` states which `ModelStage` values each progression
+stage is consistent with, totally and in the open.
+`progression_conflicts` **reports** a disagreement rather than resolving it —
+the position `run_plan` already takes when a version's stage and the deployment
+ledger disagree. A progression names **no environment**, so the "no
+per-environment promotion policy" boundary is unchanged.
+
+### Where the v3.5 values live, and why it is nowhere
+
+Not on `LifecycleState`. That state has one snapshot owner and one module-local
+schema literal, AlphaLab has no migration framework, and a new field there would
+make every payload written before this release unreadable — to serve a value the
+caller can simply hold. It is the same decision ADR-0030 decision 2 records for
+`RunState`, and the same shape `RunAuthorization` already has.
+
+So v3.5 adds no `capture`, no `restore` and no `SNAPSHOT_SCHEMA`, and
+`test_v35_invariants.py` asserts the absence.
+
+### Missing data, three times over
+
+The rule the release is built around, stated once per capability:
+
+* **Health.** Every field of a `RuntimeObservation` except `observed_at` is
+  optional; `None` means *not observed* and an empty tuple means *observed and
+  empty*. A category that could not be judged is listed in
+  `HealthReport.unevaluated`, and `HealthStatus.UNKNOWN` exists so a
+  clean-but-incomplete report is never `HEALTHY`.
+* **Comparison.** `MISSING_EXPECTED` and `MISSING_OBSERVED` are outcomes, not
+  zeros. A metric with no tolerance is `NOT_COMPARABLE`, not a match. A venue's
+  unmeasured slippage stays `None`.
+* **Reconciliation.** `reconciled` says the two sides agree about what was
+  compared; `fully_reconciled` also requires that nothing was skipped. A
+  currency the broker account cannot speak about is an `UnreconciledArea`.
+
+### Units
+
+Every v3.5 duration names its unit in the field. The comparison layer carries
+latency as `Decimal` seconds because every other quantity it compares is an
+exact `Decimal`; `lifecycle.health` keeps its budgets as `float` seconds because
+it subtracts float timestamps and compares them directly, with no tolerance
+arithmetic. A sweep in `test_v35_invariants.py` enforces the naming.
+
+### What it did not add
+
+No broker client, credential, adapter or vendor name. No remediation: health and
+reconciliation detect and report, and neither declares a side authoritative. No
+supervised live process. No durable state. No package.
 
 ## v3.4.0 — global markets and multi-asset research
 
@@ -369,7 +448,7 @@ All 50 packages, and which path reaches each.
 
 | Package | Owns |
 | --- | --- |
-| `lifecycle` | The composition: registration, evidence, promotion, deployment, rollback, governance, and the join to the execution path |
+| `lifecycle` | The composition: registration, evidence, promotion, deployment, rollback, governance, and the join to the execution path. Since v3.5 also the strategy progression, the deployment specification, runtime health, the expected/paper/live comparison and the AlphaLab-to-broker reconciliation |
 | `experiment_tracking` | Experiment runs, parameters, metric history |
 | `model_registry` | Model versions, stages, promotion, `ArtifactRef`, the content-addressed artifact store |
 | `deployment_manager` | Release packages and the append-only environment ledger |
@@ -876,7 +955,7 @@ than the summary line, and spawns a **fresh interpreter** with
 
 | File | Pins |
 | --- | --- |
-| `test_shared_names_stay_distinct.py` | Thirteen pairs of same-named things that are not one thing |
+| `test_shared_names_stay_distinct.py` | Twenty-five sets of same-named things that are not one thing, including the three lifecycle state machines, the two reconciliations and the two health surfaces |
 | `test_venue_concepts_stay_distinct.py` | Listing exchange vs market-data attribution vs execution venue |
 | `test_no_silent_financial_defaults.py` | An AST sweep of the whole package; each exemption earned by a refusal test |
 | `test_snapshot_field_coverage.py` | Silent state loss when a state gains a field |
@@ -894,6 +973,8 @@ than the summary line, and spawns a **fresh interpreter** with
 | `test_research_complexity.py` | That the feature and research paths stay near-linear |
 | `test_v34_invariants.py` | One authority per concept, the dataclass-field default sweep, point-in-time guards, dimensional correctness, and that v3.4 added no durable state |
 | `test_v34_complexity.py` | That roll selection, segment construction, chain inversion and contract exposure stay linear |
+| `test_v35_invariants.py` | One authority per concept, cross-process determinism of a deployment identity, that a missing observation can never read as healthy, that nothing v3.5 added mutates state or persists any, and the vendor boundary |
+| `test_v35_complexity.py` | That health evaluation, comparison, reconciliation and a progression's history stay near-linear |
 
 ## Performance
 
@@ -1160,8 +1241,9 @@ of these is a defect.
 | **v3.2.0** | **Strategy research and validation: typed features with derived identity and lineage, factor research, signal diagnostics, walk-forward, purged and embargoed CV, seeded robustness, transparent overfitting diagnostics, the reproducible study contract (ADR-0037)** |
 | **v3.3.0** | **Institutional backtesting and portfolio intelligence: itemized execution costs, capacity modelling, nine-dimension attribution, risk decomposition with named VaR methodology, the reusable scenario/stress contract (ADR-0038)** |
 | **v3.4.0** | **Global markets and multi-asset research: one market-convention authority as a leaf over `common`, reproducible continuous futures, implied volatility with five refusals, cross rates and the FX look-ahead guard, crypto venue metadata and 24/7 coverage, a fixed-income foundation, and six US/Binance defaults made required (ADR-0039)** |
+| **v3.5.0** | **Strategy execution and production intelligence: the research-to-live progression as a third axis, deployment specifications with a derived identity, structured runtime health from supplied observations, the expected/paper/live comparison, and AlphaLab-to-broker reconciliation — all inside `alphalab.lifecycle`, with no package added and no snapshot schema touched (ADR-0040)** |
 
-39 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+40 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---
@@ -1211,6 +1293,6 @@ Genuinely unresolved, recorded so they are not rediscovered:
 
 ---
 
-*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0 and v3.4.0. If you are reading this long after, check the version in
+*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0, v3.4.0 and v3.5.0. If you are reading this long after, check the version in
 `pyproject.toml` first: where this document and the code disagree, the code is
 right, and this document has a bug worth fixing.*

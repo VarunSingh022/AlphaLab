@@ -14,6 +14,222 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.5.0] - 2026-09-21
+
+**Strategy execution and production intelligence: the bridge between research
+and real trading.**
+
+The fifth capability release on the frozen architecture. v3.1 gave AlphaLab a
+dataset it could trust, v3.2 research methodology, v3.3 the institutional
+answers and v3.4 what an instrument's numbers mean. This answers the questions
+asked *after* a strategy is deployed.
+
+One package is deepened — `alphalab.lifecycle` — and none is added. No ownership
+boundary moves, no snapshot schema changes, and every v3.1 through v3.4
+invariant holds.
+
+The decisions are recorded in
+[`ADR-0040`](docs/ADR/0040-strategy-execution-and-production-intelligence.md).
+
+## What was missing
+
+AlphaLab could research a strategy, measure it, promote it on evidence and
+record that an environment should be running it. Everything after that was
+outside the library.
+
+There was no way to say **where** a strategy was: `ModelStage` calls research,
+backtest and validation all `NONE`, calls paper and live both `PRODUCTION`, and
+has no member for paused. A deployment recorded *that* something should run and
+never **what it needs** — the data, the capital, the limits, the broker
+capabilities, the budgets — which lived in somebody's head or in a release
+manifest's flat mapping of strings. Health was a list of **sentences** nothing
+could count by kind or compare against yesterday's. Nothing compared a
+**backtest to what actually happened**. And the one reconciliation that existed
+compared AlphaLab's mirror of a venue against that venue's records, never the
+book against the mirror.
+
+## Added
+
+### The strategy progression — `alphalab.lifecycle.progression`
+
+* `StrategyLifecycleStage` — `RESEARCH`, `BACKTEST`, `VALIDATION`, `PAPER`,
+  `PRODUCTION_CANDIDATE`, `LIVE`, `PAUSED`, `ARCHIVED`. A **third axis**, not a
+  replacement: `ModelStage` asks whether a registered artifact is promotable and
+  `strategy.state.LifecycleState` asks whether an instance in a session is
+  running.
+* `LEGAL_PROGRESSION_TRANSITIONS` — every legal move stated once, read by both
+  `illegal_progression_move` (a query) and `advance_progression` (the act).
+  Backward moves are legal; forward skips are not; `ARCHIVED` is terminal.
+* `pause_progression` / `resume_progression` / `resume_target` — only a running
+  stage can be paused, and a pause returns to the stage it interrupted, derived
+  from the append-only history. A paper strategy that pauses **cannot** resume
+  into `LIVE`.
+* `StrategyProgression` and `StageTransition` — an immutable value with a
+  reason, a timestamp and an actor on every move. It names **no environment**:
+  what is live *where* stays the deployment ledger's single answer.
+* `PROGRESSION_MODEL_STAGES` and `progression_conflicts` — the relation to the
+  registry's own stage, stated totally, **reported** when it disagrees rather
+  than resolved.
+
+### Deployment specifications — `alphalab.lifecycle.specification`
+
+* `DeploymentSpecification` — strategy version, parameters, dataset
+  assumptions, `RiskLimits`, `CapitalPolicy`, `BrokerRequirements`,
+  `MarketRequirements`, `RuntimeRequirements`.
+* `specification_id_for` — a SHA-256 content digest, the fourth use of the
+  construction `evidence_id_for`, `compute_checksum` and
+  `derive_dataset_version` share. Tagged by
+  `DEPLOYMENT_SPECIFICATION_SCHEME`. An edited specification stops verifying.
+* `specification_for_version` — the reference and the parameters **derived**
+  from the registered `StrategyVersion`, ADR-0017's rule applied again.
+* `dataset_assumption_from` — goes through `Dataset.require_provenance()`, so a
+  dataset with no lineage is refused rather than given an invented identity.
+* `BrokerCapabilities` / `MarketAvailability` and
+  `unmet_broker_requirements` / `unmet_market_requirements` — capability
+  contracts, declared by an application. No vendor is named anywhere.
+* `validate_specification` — cross-field coherence a single field cannot see: an
+  order cap above the position cap, an exposure cap the leverage cap can never
+  fund, a quote currency the book cannot settle. It reports; it does not refuse,
+  repair or default.
+
+### Runtime health — `alphalab.lifecycle.health`
+
+* `HealthCategory` — stale data, abnormal execution, unexpected position, risk
+  breach, heartbeat loss, broker disconnect, divergence from expected state.
+* `RuntimeObservation`, `ExecutionObservation`, `StateExpectation` — supplied
+  readings. `None` means **not observed**, an empty tuple means observed and
+  empty, and the two produce different reports. An execution's latency is
+  *derived* from two supplied timestamps, so an observation cannot claim one its
+  own timestamps do not support.
+* `evaluate_health` — total over the seven categories: each is evaluated or
+  listed in `HealthReport.unevaluated` with the reason. `observed_at` is
+  supplied; nothing reads a clock.
+* `HealthStatus.UNKNOWN` — a report with no findings and an unevaluated category
+  is never `HEALTHY`. A regression test sweeps every subset of the seven.
+* `HealthFinding` — category, severity, subject, summary and a machine-readable
+  `detail` carrying `observed` and `threshold` wherever two numbers were
+  compared.
+* `observation_from_live_run` — the bridge from `LiveRunState`, deriving only
+  what the run actually holds and leaving the rest to the caller.
+  `runtime.live.live_health` is **unchanged**.
+
+### Expected / paper / live comparison — `alphalab.lifecycle.comparison`
+
+* `compare_runs` and `compare_expected_paper_live` over trades, fills, slippage,
+  execution latency, realized P&L and exposure.
+* `AlignmentKey` — `ORDER_ID` for runs sharing a seeded identifier stream
+  (ADR-0022), `ASSET_AND_TIME` otherwise. Two modes, no default, and no third
+  that infers one.
+* `ComparisonOutcome` — `EXACT_MATCH`, `WITHIN_TOLERANCE`,
+  `MATERIAL_DIFFERENCE`, `MISSING_EXPECTED`, `MISSING_OBSERVED`,
+  `NOT_COMPARABLE`. A metric with no tolerance is not comparable, never
+  matching.
+* Money is compared **per currency** and never summed across two. A venue's
+  unmeasured slippage stays `None` — "absent, not zero", which
+  `execution_report_from_broker` has said since v2.3.
+* `observations_from_backtest` and `observations_from_broker` — read from a
+  finished run and from a normalized `BrokerState`. Exposure is **supplied**,
+  because the comparison layer computes none of its own.
+
+### Reconciliation — `alphalab.lifecycle.reconciliation`
+
+* `reconcile_execution_state` — AlphaLab's execution state (OMS book,
+  portfolio, applied fills) against a normalized `BrokerState`, joined by the
+  `ExternalOrderMap` that already owns the binding.
+* `MismatchCategory` — fourteen classes, each needing a different fix: missing
+  and unexpected orders and fills, quantity, price and status mismatches,
+  execution mismatch, position quantity, unexpected position, instrument, cash
+  and lifecycle state.
+* `SymbolMapping` — how a venue's symbols join AlphaLab's derived identities.
+  Required, with `identity()` as a **named** choice a caller makes.
+* `ReconciliationTolerances` — seven required tolerances, no default set.
+* `StateReconciliation.reconciled` and `.fully_reconciled` — agreeing about what
+  was compared and having compared everything are different facts. A currency
+  the broker account cannot speak about is an `UnreconciledArea`, not a
+  difference of zero.
+* `BROKER_STATUS_EQUIVALENTS` — the relation between the OMS and broker-local
+  status vocabularies, stated once.
+* Neither side is authoritative and nothing is mutated.
+  `broker.reconciliation.reconcile` is **unchanged** and still owns its pair.
+
+### Tolerances — `alphalab.lifecycle.tolerance`
+
+`Tolerance` and `ToleranceOutcome`, shared by all three comparing capabilities.
+At least one bound is required — one that bounds nothing is refused at
+construction — and stating both takes the more forgiving. A relative bound
+permits nothing at zero, deliberately.
+
+## Changed
+
+Nothing. v3.5 is additive: no public surface changed shape, no default moved and
+no snapshot schema was touched. `LIFECYCLE_SNAPSHOT_SCHEMA` is still `2`.
+
+## Fixed
+
+`resume_target` materialized the whole transition log before reversing it, so a
+strategy that paused daily cost time quadratic in its own history — 50,000
+pause/resume cycles took 23.2s. It walks the log backwards by index now: 0.22s,
+a 104x improvement, and linear. Found by
+`benchmarks/benchmark_strategy_execution.py`, held by
+`tests/regression/test_v35_complexity.py`.
+
+## Tests
+
+`tests/regression/test_v35_invariants.py` — one authority per concept measured
+from the source; cross-process determinism of a deployment identity, proven from
+a fresh interpreter; the missing-data sweep over every subset of the health
+categories; the no-mutation and no-durable-state sweeps; the duration-unit
+sweep; and the vendor and dependency boundary.
+
+`tests/regression/test_v35_complexity.py` — growth ratios for health evaluation,
+comparison (including the disjoint worst case), reconciliation, history
+construction and the resume-target read.
+
+`tests/integration/test_v35_capabilities.py` — one ingested dataset driving a
+real backtest, a real paper run and a real live run through `LiveSession`
+against `PaperBroker`, then through the lifecycle, the specification, health,
+the three-way comparison and reconciliation.
+
+Three new sections in `test_shared_names_stay_distinct.py`: the three lifecycle
+state machines, the two reconciliations, the two health surfaces.
+
+Total: **5,123 → 5,399** passing, 0 skipped, 0 warnings.
+
+## Benchmarks
+
+`benchmark_strategy_execution.py` — lifecycle transitions, specification
+identity and validation, health evaluation, the three comparison pairs and
+reconciliation, each at two sizes so the scaling is visible beside the ops/sec.
+
+## Examples
+
+`41`–`45`: the strategy progression; deployment specifications; runtime health;
+expected against paper against live; and reconciliation against a normalized
+broker state.
+
+Example 42 ingests its own rows so its dataset assumption names bytes that
+exist; 44 runs a real backtest and a real paper run; 45 reconciles a real
+backtest's execution state. The broker states in 44 and 45 are deterministic
+fixtures in the files, and none of the five opens a connection.
+
+## Still external
+
+No broker connectivity, client, credential or vendor adapter; no verification
+against a commercial venue; no named vendor's request shapes. A
+`BrokerCapabilities`, a `MarketAvailability` and every `RuntimeObservation` are
+declarations an application supplies.
+
+## Deliberately not built
+
+No remediation — health and reconciliation detect and report, and mutate
+nothing. No supervised live *process*: restart policy, alerting and scheduling
+stay an operator's concern. No per-environment promotion policy: a progression
+names no environment, and the deployment ledger remains the one answer to what
+is live. No durable state: a progression, a specification, a health report and a
+reconciliation are values a caller holds.
+
+---
+
 # [3.4.0] - 2026-09-20
 
 **Global markets and multi-asset research: conventions, contracts, and the units

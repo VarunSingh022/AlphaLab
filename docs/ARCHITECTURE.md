@@ -10,7 +10,7 @@ Every subsystem follows the same engineering principles (immutable state, pure f
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.4.0 both halves name only packages that exist; where the target half shows a
+> v3.5.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -79,7 +79,11 @@ policy inside `alphalab.futures`, implied volatility and expiry resolution
 inside `alphalab.options`, venue metadata and 24/7 coverage inside
 `alphalab.crypto`, bond analytics inside `alphalab.macro`, and cross rates, FX
 research and contract-aware exposure inside `alphalab.portfolio` — and moves no
-boundary (ADR-0039).** **v3.0.0 adds no
+boundary (ADR-0039).** **v3.5.0 adds the production surfaces — the strategy
+progression, the deployment specification, runtime health, the
+expected/paper/live comparison and the AlphaLab-to-broker reconciliation, all
+inside `alphalab.lifecycle` — adds no package, changes no snapshot schema, and
+moves no boundary (ADR-0040).** **v3.0.0 adds no
 capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -357,6 +361,10 @@ a lost response addresses the same order rather than creating a second one.
 | Vendor *broker* adapters | **None.** The canned-response Alpaca / IB / Zerodha clients lived in `alphalab.integrations` and were removed in v2.17 (ADR-0034). Implementing one means implementing that venue's request shapes over `HttpVenueTransport` |
 | **A live driver** | **Implemented (v2.16).** `alphalab.runtime.live.LiveSession` — settle the fills the venue reported, advance the run, route what is newly working — with the venue binding made durable by `alphalab.broker.snapshot`. See ADR-0033 |
 | A supervised live *process* | **Not implemented.** Supervision — restart policy, alerting, scheduling — is an operator's concern and AlphaLab has no opinion about it. `live_health` answers "should a human look at this?"; acting on the answer is the caller's |
+| **Structured runtime health** | **Implemented (v3.5).** `alphalab.lifecycle.health.evaluate_health` — seven categories, severities, machine-readable detail, from **supplied** observations against a specification's declared budgets. It observes nothing on its own and remediates nothing |
+| **Expected / paper / live comparison** | **Implemented (v3.5).** `alphalab.lifecycle.comparison` — trades, fills, slippage, P&L, exposure and latency, with declared alignment and explicit tolerances. It opens no connection and reads no feed |
+| **Reconciliation of the book against the mirror** | **Implemented (v3.5).** `alphalab.lifecycle.reconciliation.reconcile_execution_state` — fourteen mismatch classes across the OMS book, the portfolio and the applied fills. `broker.reconciliation.reconcile` still owns the mirror-against-the-venue pair |
+| Automated remediation of a health finding or a mismatch | **Not implemented, deliberately.** Both detect and report; neither declares a side authoritative and neither mutates anything. Re-sending an order that actually exists would duplicate it, so the decision stays with the caller |
 
 **What changed in v2.15, precisely.** AlphaLab now contains a genuine venue
 transport and a genuine streaming client, and both are exercised end to end over
@@ -1447,7 +1455,12 @@ Features such as:
 - Deterministic replay, and backtest/replay/paper/live parity on one step
 - Broker abstraction with reconciliation and idempotent submission
 - Governance: every act that changes what is live names its principal
-- Health *reporting* (`live_health`)
+- Health *reporting* — `live_health` for a run this process drives, and v3.5's
+  `lifecycle.health.evaluate_health` for structured findings from supplied
+  observations judged against a deployment specification's declared budgets
+- The strategy progression, the deployment specification, the expected / paper /
+  live comparison, and reconciliation of AlphaLab's execution state against a
+  normalized broker state (v3.5)
 
 are considered first-class architectural components rather than optional add-ons.
 

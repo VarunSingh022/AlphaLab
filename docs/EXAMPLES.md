@@ -16,7 +16,8 @@ Examples are intended to be read sequentially by new users and used as reference
 > (v2.17) drives an FX feed into a run that settles two currencies and reports
 > in one. `05_broker_connection.py` was rewritten in v2.17 against the canonical
 > broker boundary, having used `alphalab.integrations` until that package was
-> removed. None are part of the automated test suite, though all fourteen run.
+> removed. None are part of the automated test suite, though all forty-five run
+> as a release gate.
 > For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
 > under `tests/integration/` and `tests/regression/`.
@@ -236,6 +237,28 @@ assumes `31`, `33` and `37`.
 
 ---
 
+# Strategy execution and production intelligence (v3.5)
+
+Examples `41`–`45` cover what happens after a strategy is deployed. `42`
+ingests its own rows so the dataset assumption it records names bytes that
+actually exist; `44` runs a real backtest and a real paper run through the same
+canonical step; `45` reconciles a real backtest's execution state. The broker
+states in `44` and `45` are deterministic fixtures in the files — none of the
+five opens a connection, holds a credential or names a venue.
+
+| # | Shows |
+|---|---|
+| 41 | The eight stages from research to archived, every refusal and its reason, a pause that returns to the stage it interrupted, and the progression checked against the registry's own stage rather than replacing it |
+| 42 | What a strategy version needs to run **as it was researched**: dataset assumptions by derived identity, the risk limits the pre-trade gate enforces, broker capabilities with no vendor anywhere, a content digest that stops verifying when edited, and the coherence a single field cannot see |
+| 43 | Seven health categories from **supplied** observations: at, past and before the threshold; a reconnecting adapter warning where a dead one breaches; and why a clean report with something unevaluated is `UNKNOWN` |
+| 44 | A backtest, a paper run and a venue's records compared: declared alignment, stated tolerances, money per currency, a venue's unmeasured slippage staying missing, and three pairs so a divergence can be located |
+| 45 | Fourteen mismatch classes between the book and the mirror: a lost fill, an order the venue never held, one nobody routed, a resized position, venue symbols joined through a supplied mapping, and a currency the account cannot speak about |
+
+`41` assumes `12`. `42` assumes `15` and `41`. `43` assumes `42`. `44` assumes
+`11`, `25` and `43`, and `45` assumes `05`, `11` and `44`.
+
+---
+
 # Additional engines
 
 The feature store, machine learning, cloud research, enterprise, and other
@@ -256,6 +279,9 @@ v3.4 added `31`–`40` for the global-market surfaces, on the same terms. The
 **futures**, **options**, **crypto** and **macro** engines gained their first
 dedicated examples there too, having been covered only by tests and benchmarks
 since the v1 engine series.
+
+v3.5 added `41`–`45` for the production surfaces, all inside
+`alphalab.lifecycle`, which had one example (`12`) and now has six.
 
 ---
 

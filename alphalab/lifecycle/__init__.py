@@ -87,8 +87,69 @@ should run and :func:`~alphalab.lifecycle.execution.authorize_run` refuses a run
 that would serve anything else. Neither starts a process, constructs a strategy
 or builds a ``RunConfig``: the join is a query with a refusal, not a second
 runtime. See ADR-0033.
+
+What v3.5 adds
+--------------
+
+The same package, carried past the deployment record into the thing a deployment
+becomes. Five capabilities, each an extension of what was already here rather
+than a parallel system, and none of them a runtime:
+
+:mod:`~alphalab.lifecycle.progression`
+    The research-to-live axis the roadmap names --
+    ``RESEARCH -> BACKTEST -> VALIDATION -> PAPER -> PRODUCTION_CANDIDATE ->
+    LIVE -> PAUSED -> ARCHIVED`` -- with declared transitions and a history.
+    Distinct from :class:`~alphalab.model_registry.registry.ModelStage`, which
+    asks whether an artifact is promotable, and from
+    :class:`alphalab.strategy.state.LifecycleState`, which asks whether an
+    instance in a session is running.
+
+:mod:`~alphalab.lifecycle.specification`
+    What a strategy version needs in order to be deployed as it was researched:
+    its parameters, its dataset assumptions by derived identity, the risk limits
+    the pre-trade gate will enforce, the capital, and typed broker, market and
+    runtime requirements. Self-identifying by the same content digest
+    :func:`~alphalab.lifecycle.evidence.evidence_id_for` uses.
+
+:mod:`~alphalab.lifecycle.health`
+    Supplied observations judged against those runtime requirements, producing
+    structured findings with severities. The structured counterpart to
+    :func:`~alphalab.runtime.live.live_health`, which reports a live driver's own
+    aggregate in plain sentences and is unchanged.
+
+:mod:`~alphalab.lifecycle.comparison`
+    Expected against paper against live -- trades, fills, slippage, P&L,
+    exposure and execution latency -- with declared alignment and explicit
+    tolerances.
+
+:mod:`~alphalab.lifecycle.reconciliation`
+    AlphaLab's execution state against a normalized broker state, with
+    deterministic mismatch detection.
+    :func:`alphalab.broker.reconciliation.reconcile` remains the authority for
+    the *other* pair, the venue's records against AlphaLab's mirror of them.
+
+None of the five opens a connection, holds a credential, names a venue or
+changes any state. Detection is not remediation, and a deployment specification
+is still a statement rather than an operation on a machine.
 """
 
+from alphalab.lifecycle.comparison import (
+    MONETARY_METRICS,
+    AlignmentKey,
+    ComparisonEntry,
+    ComparisonMetric,
+    ComparisonOutcome,
+    ComparisonSource,
+    FillObservation,
+    PairComparison,
+    RunObservations,
+    ThreeWayComparison,
+    TradeObservation,
+    compare_expected_paper_live,
+    compare_runs,
+    observations_from_backtest,
+    observations_from_broker,
+)
 from alphalab.lifecycle.deployment import (
     DEPLOYABLE_STAGES,
     deploy_strategy_version,
@@ -133,6 +194,19 @@ from alphalab.lifecycle.governance import (
     approval_for,
     approvals_for,
 )
+from alphalab.lifecycle.health import (
+    ExecutionObservation,
+    HealthCategory,
+    HealthFinding,
+    HealthReport,
+    HealthSeverity,
+    HealthStatus,
+    RuntimeObservation,
+    StateExpectation,
+    UnevaluatedCategory,
+    evaluate_health,
+    observation_from_live_run,
+)
 from alphalab.lifecycle.identity import (
     COMPONENT_EVIDENCE,
     COMPONENT_MODEL,
@@ -143,6 +217,23 @@ from alphalab.lifecycle.identity import (
     StrategyVersionRef,
     parse_ref,
 )
+from alphalab.lifecycle.progression import (
+    INITIAL_STAGE,
+    LEGAL_PROGRESSION_TRANSITIONS,
+    PAUSABLE_STAGES,
+    PROGRESSION_MODEL_STAGES,
+    StageTransition,
+    StrategyLifecycleStage,
+    StrategyProgression,
+    advance_progression,
+    archive_progression,
+    begin_progression,
+    illegal_progression_move,
+    pause_progression,
+    progression_conflicts,
+    resume_progression,
+    resume_target,
+)
 from alphalab.lifecycle.promotion import (
     STAGEABLE_MODEL_STAGES,
     approve_deployment,
@@ -152,7 +243,36 @@ from alphalab.lifecycle.promotion import (
     retire_strategy_version,
     validate_strategy_version,
 )
+from alphalab.lifecycle.reconciliation import (
+    BROKER_STATUS_EQUIVALENTS,
+    Mismatch,
+    MismatchCategory,
+    ReconciliationTolerances,
+    StateReconciliation,
+    SymbolMapping,
+    UnreconciledArea,
+    reconcile_execution_state,
+)
 from alphalab.lifecycle.registration import register_model_version, register_strategy
+from alphalab.lifecycle.specification import (
+    DEPLOYMENT_SPECIFICATION_SCHEME,
+    BrokerCapabilities,
+    BrokerRequirements,
+    CapitalPolicy,
+    DatasetAssumption,
+    DeploymentSpecification,
+    MarketAvailability,
+    MarketRequirements,
+    RuntimeRequirements,
+    build_specification,
+    dataset_assumption_from,
+    specification_for_version,
+    specification_id_for,
+    unmet_broker_requirements,
+    unmet_market_requirements,
+    validate_specification,
+    verify_specification_id,
+)
 from alphalab.lifecycle.state import LifecycleState
 from alphalab.lifecycle.strategy_version import (
     StrategyPromotionRecord,
@@ -165,6 +285,7 @@ from alphalab.lifecycle.strategy_version import (
     replace_strategy_version,
     strategy_names,
 )
+from alphalab.lifecycle.tolerance import Tolerance, ToleranceOutcome
 from alphalab.lifecycle.views import (
     active_model_version,
     active_strategy_version,
@@ -176,48 +297,101 @@ from alphalab.lifecycle.views import (
 )
 
 __all__ = [
+    "BROKER_STATUS_EQUIVALENTS",
     "COMPONENT_EVIDENCE",
     "COMPONENT_MODEL",
     "COMPONENT_RUN",
     "COMPONENT_STRATEGY",
     "DEPLOYABLE_STAGES",
+    "DEPLOYMENT_SPECIFICATION_SCHEME",
+    "INITIAL_STAGE",
+    "LEGAL_PROGRESSION_TRANSITIONS",
     "LIFECYCLE_PERMISSIONS",
+    "MONETARY_METRICS",
+    "PAUSABLE_STAGES",
     "PERMISSION_APPROVE",
     "PERMISSION_DEPLOY",
     "PERMISSION_PROMOTE",
     "PERMISSION_RETIRE",
     "PERMISSION_ROLLBACK",
+    "PROGRESSION_MODEL_STAGES",
     "STAGEABLE_MODEL_STAGES",
+    "AlignmentKey",
     "ApprovalRecord",
+    "BrokerCapabilities",
+    "BrokerRequirements",
+    "CapitalPolicy",
+    "ComparisonEntry",
+    "ComparisonMetric",
+    "ComparisonOutcome",
+    "ComparisonSource",
+    "DatasetAssumption",
     "DeploymentRef",
+    "DeploymentSpecification",
+    "ExecutionObservation",
+    "FillObservation",
     "Governance",
     "GovernedAct",
+    "HealthCategory",
+    "HealthFinding",
+    "HealthReport",
+    "HealthSeverity",
+    "HealthStatus",
     "LifecycleError",
     "LifecycleInputError",
     "LifecycleState",
     "LifecycleTransitionError",
+    "MarketAvailability",
+    "MarketRequirements",
     "MetricThreshold",
+    "Mismatch",
+    "MismatchCategory",
     "ModelRef",
+    "PairComparison",
+    "ReconciliationTolerances",
     "RunAuthorization",
+    "RunObservations",
     "RunPlan",
+    "RuntimeObservation",
+    "RuntimeRequirements",
+    "StageTransition",
+    "StateExpectation",
+    "StateReconciliation",
+    "StrategyLifecycleStage",
+    "StrategyProgression",
     "StrategyPromotionRecord",
     "StrategyVersion",
     "StrategyVersionRef",
     "StrategyVersionRegistry",
+    "SymbolMapping",
+    "ThreeWayComparison",
+    "Tolerance",
+    "ToleranceOutcome",
+    "TradeObservation",
+    "UnevaluatedCategory",
+    "UnreconciledArea",
     "ValidationEvidence",
     "ValidationMethod",
     "ValidationOutcome",
     "ValidationPolicy",
     "active_model_version",
     "active_strategy_version",
+    "advance_progression",
     "approval_for",
     "approvals_for",
     "approvals_of",
     "approve_deployment",
+    "archive_progression",
     "authorize_run",
+    "begin_progression",
     "build_evidence",
+    "build_specification",
+    "compare_expected_paper_live",
+    "compare_runs",
+    "dataset_assumption_from",
     "deploy_strategy_version",
     "environments_running",
+    "evaluate_health",
     "evaluate_policy",
     "evidence_for",
     "evidence_from_backtest",
@@ -226,11 +400,18 @@ __all__ = [
     "evidence_id_for",
     "get_strategy_version",
     "governance_log",
+    "illegal_progression_move",
     "latest_strategy_version",
     "list_strategy_versions",
     "live_environments",
+    "observation_from_live_run",
+    "observations_from_backtest",
+    "observations_from_broker",
     "parse_ref",
+    "pause_progression",
+    "progression_conflicts",
     "promote_strategy_version",
+    "reconcile_execution_state",
     "record_evidence",
     "record_stage_change",
     "register_model_version",
@@ -238,10 +419,18 @@ __all__ = [
     "register_strategy_version",
     "release_manifest",
     "replace_strategy_version",
+    "resume_progression",
+    "resume_target",
     "retire_strategy_version",
     "rollback_environment",
     "run_plan",
+    "specification_for_version",
+    "specification_id_for",
     "strategy_names",
+    "unmet_broker_requirements",
+    "unmet_market_requirements",
+    "validate_specification",
     "validate_strategy_version",
     "verify_evidence_id",
+    "verify_specification_id",
 ]

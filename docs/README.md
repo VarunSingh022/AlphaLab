@@ -304,13 +304,34 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.4.0
+v3.5.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.5.0 — strategy execution and production intelligence.** The fifth
+capability release on the frozen architecture, and the bridge between research
+and real trading. One package is deepened — `alphalab.lifecycle` — and none is
+added. `StrategyLifecycleStage` names the eight stages from research to archived
+as a **third** axis, distinct from the registry's `ModelStage` (which cannot tell
+research from validation, or paper from live, and has no member for paused) and
+from `strategy.state.LifecycleState` (which is about an instance in a session).
+`DeploymentSpecification` records what a strategy version needs in order to run
+as it was researched — dataset assumptions by derived identity, the `RiskLimits`
+the pre-trade gate enforces, capital, and typed broker, market and runtime
+requirements — and identifies itself by the same content digest validation
+evidence uses. `evaluate_health` judges **supplied** observations against those
+budgets across seven categories, and is total over them: a report with nothing
+wrong and something unevaluated is `UNKNOWN`, never `HEALTHY`. `compare_runs`
+and `compare_expected_paper_live` compare a backtest, a paper run and a live
+account with alignment declared and every tolerance stated.
+`reconcile_execution_state` compares AlphaLab's own execution state against a
+normalized broker state across fourteen mismatch classes, declaring neither side
+authoritative and mutating nothing. No boundary moves, no ownership changes and
+no snapshot schema is touched. See `ADR/0040`.
 
 **v3.4.0 — global markets and multi-asset research.** The fourth capability
 release on the frozen architecture, and the one that makes AlphaLab say what an

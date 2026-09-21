@@ -33,6 +33,15 @@ It adds the leaf package `alphalab.conventions`, deepens `alphalab.futures`,
 `alphalab.portfolio`, and makes six silently-defaulted market conventions
 required. ADR-0039.
 
+**v3.5.0** is the fifth, and is the bridge between research and real trading. It
+deepens exactly one package, `alphalab.lifecycle`, carrying it past the
+deployment record into the thing a deployment becomes: the progression from
+research to live money, a specification of what a strategy needs to run as it
+was researched, structured runtime health from supplied observations, an
+expected/paper/live comparison, and deterministic reconciliation against a
+normalized broker state. No package is added, no boundary moves and no snapshot
+schema changes. ADR-0040.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
@@ -140,6 +149,72 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.5.0 — strategy execution and production intelligence
+
+The fifth capability release on the frozen architecture. One package deepened,
+none added, nothing changed. ADR-0040.
+
+- **A progression, and it is a third axis rather than a third status flag** —
+  `StrategyLifecycleStage` names the eight stages from research to archived with
+  a declared transition table, an append-only history and an actor on every
+  move. It replaces neither `ModelStage` (which calls research, backtest and
+  validation all `NONE`, calls paper and live both `PRODUCTION`, and has no
+  member for paused) nor `strategy.state.LifecycleState` (which is about an
+  instance in a session). `PROGRESSION_MODEL_STAGES` relates it to the first,
+  totally and in the open, and `progression_conflicts` **reports** a
+  disagreement rather than resolving it.
+- **A pause that cannot be used to skip a stage** — only a running stage can be
+  paused, and `resume_progression` returns to the stage the pause interrupted,
+  derived from the history. A paper strategy that pauses cannot resume into
+  `LIVE`.
+- **No environment on the progression** — the "no per-environment promotion
+  policy" boundary below is unchanged. `PAPER` and `LIVE` are maturity, not
+  addresses, and the deployment ledger remains the one answer to what is live
+  where.
+- **A deployment specification that can reproduce its own assumptions** —
+  strategy version, parameters read from the registered version, dataset
+  assumptions by *derived* identity, the `RiskLimits` the pre-trade gate
+  actually enforces, a capital policy, and typed broker, market and runtime
+  requirements. It identifies itself by the same SHA-256 content digest
+  `evidence_id_for` uses, so an edited specification stops verifying.
+- **Broker requirements are capabilities** — `BrokerRequirements` says the
+  strategy needs stop orders, IOC, short selling and equities. It does not say
+  which broker, and `BrokerCapabilities` is a declaration an application fills
+  in. No vendor is named anywhere and nothing reaches one.
+- **Runtime health that cannot read a missing observation as a healthy one** —
+  seven categories evaluated from **supplied** observations against the budgets
+  a specification declares. Every category is judged or reported as unevaluated,
+  and `HealthStatus.UNKNOWN` exists so a clean-but-incomplete report is never
+  `HEALTHY`. Findings are categorised, severity-bearing and carry the observed
+  value and the threshold as machine-readable detail.
+- **`live_health` is unchanged** — it still reports the live driver's own
+  aggregate in plain sentences, and `observation_from_live_run` is the bridge,
+  so the two surfaces cannot disagree about a run they can both see.
+- **Expected against paper against live** — trades, fills, slippage, P&L,
+  exposure and execution latency, with alignment declared rather than guessed
+  (`ORDER_ID` for runs sharing a seeded identifier stream, `ASSET_AND_TIME`
+  otherwise) and every tolerance stated. A metric with no tolerance is reported
+  not-comparable, never matching.
+- **A venue's unmeasured slippage stays missing** — `execution_report_from_broker`
+  has called it "absent, not zero" since v2.3, and this is where that became a
+  value rather than a comment. Money is compared per currency and never summed
+  across two.
+- **Reconciliation of the pair nothing compared** — `reconcile_execution_state`
+  compares AlphaLab's own execution state against a normalized `BrokerState`
+  across fourteen mismatch classes. `broker.reconcile` is unchanged and still
+  owns the other pair. Neither side is declared authoritative, nothing is
+  mutated, and repeating it returns an equal report.
+- **Agreement and completeness are different facts** —
+  `StateReconciliation.reconciled` says the two sides agree about what was
+  compared; `fully_reconciled` also requires that nothing was skipped. A
+  currency the broker account cannot speak about is an `UnreconciledArea`.
+- **One tolerance authority** — `Tolerance` is shared by health, comparison and
+  reconciliation. One that bounds nothing is refused at construction.
+- **No durable state added** — a progression, a specification, a health report
+  and a reconciliation are values a caller holds. `LifecycleState` is unchanged
+  and `LIFECYCLE_SNAPSHOT_SCHEMA` is still 2, so every payload written before
+  this release still reads.
 
 ## v3.4.0 — global markets and multi-asset research
 
@@ -343,7 +418,27 @@ future "simplification" would have to break first —
 - **No per-environment promotion policy.** A strategy version has one stage
   across all environments and `PRODUCTION` means "live somewhere". A policy that
   differs between `paper` and `live-eu` is not expressible, and making it so
-  would put a second source of truth beside the deployment ledger.
+  would put a second source of truth beside the deployment ledger. v3.5's
+  `StrategyLifecycleStage` does not change this: it is finer-grained on the
+  *maturity* axis and still one stage per strategy version, naming no
+  environment at all.
+- **No remediation in health or reconciliation.** Both detect and report.
+  Nothing cancels an order, reconnects an adapter, pauses a progression or edits
+  either side of a reconciliation, and neither side is declared authoritative —
+  re-sending an order that actually exists would duplicate it, so that decision
+  stays with the caller.
+- **No default tolerance anywhere.** A metric with none stated is reported
+  not-comparable rather than compared for equality. A hidden `== 0` calls a
+  one-cent difference a break and a hidden `0.01` says a cent is fine for a
+  position count; both are policies nobody chose.
+- **No exposure computed by the comparison layer.** What a book means by
+  exposure depends on whether it holds shares or contracts, so it is supplied by
+  the caller from whichever authority their book calls for. A third exposure
+  site would be the one that forgot the multiplier.
+- **No durable state for the v3.5 values.** Each snapshot subsystem supports
+  exactly one schema version and AlphaLab has no migration framework, so a new
+  field on `LifecycleState` would make every earlier payload unreadable to serve
+  a value the caller can simply hold.
 - **No `SettlementPolicy` object.** `STRICT_MATCH` is the only settlement rule
   because no alternative exists: a permissive mode could only book honestly —
   making the book mixed, which the next valuation refuses without rates — or
@@ -359,8 +454,10 @@ future "simplification" would have to break first —
   of scope per ADR-0018. `alphalab.enterprise` models principals and roles; it
   accepts and stores no credentials.
 - **No supervised live *process*.** Restart policy, alerting and scheduling are
-  an operator's concern. `live_health` answers "should a human look at this?";
-  acting on the answer is the caller's.
+  an operator's concern. `live_health` answers "should a human look at this?"
+  for a run this process is driving, and v3.5's `evaluate_health` answers the
+  same question in structured form from observations somebody supplied; acting
+  on either answer is still the caller's.
 - **No CLI, no server, no daemon, no event bus.** AlphaLab is a library with no
   composition root and no declared entry point, and a test asserts it.
 - **No way to fill a missing price.** `MissingValuePolicy` has `REFUSE` and
@@ -511,6 +608,19 @@ Could be built. Nothing depends on any of it, and no commitment is made here.
   anticipated them; what shipped instead is the allocation contribution ledger
   and `order_shares_by_strategy`, which answers the attribution question without
   a second book.
+- **A durable home for a `StrategyProgression`.** v3.5 keeps it as a value the
+  caller holds, because a field on `LifecycleState` would move
+  `LIFECYCLE_SNAPSHOT_SCHEMA` and AlphaLab has no migration framework. An
+  application that wants one persists it through its own store, exactly as it
+  persists a `RunAuthorization`.
+- **Health evaluated over a window rather than an instant.** `evaluate_health`
+  judges one observation, so "this has been degraded for ten minutes" and "it
+  recovered and broke again" are a caller's to derive from a series of reports.
+  A window needs a retention policy and a clock, and neither belongs in a pure
+  function.
+- **Derived alignment for a comparison.** `AlignmentKey` has two members and no
+  inference. A fuzzy matcher over price, quantity and time would pair records no
+  identity connects and report the pairing as a measurement.
 
 ---
 
