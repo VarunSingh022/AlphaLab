@@ -487,9 +487,9 @@ def main() -> None:
             ),
         ),
     )
-    for label, held in checks:
-        print(f"  [{'ok' if held else 'FAILED'}] {label}")
-    assert all(held for _, held in checks)
+    for label, passed in checks:
+        print(f"  [{'ok' if passed else 'FAILED'}] {label}")
+    assert all(passed for _, passed in checks)
 
     print("\n" + "=" * 68)
     print("Example 45 complete.")

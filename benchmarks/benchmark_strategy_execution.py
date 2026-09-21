@@ -52,6 +52,7 @@ from alphalab.lifecycle import (
     RuntimeObservation,
     RuntimeRequirements,
     StrategyLifecycleStage,
+    StrategyProgression,
     StrategyVersionRef,
     SymbolMapping,
     Tolerance,
@@ -219,11 +220,11 @@ def benchmark_progression() -> None:
     ):
         live = advance_progression(live, stage, "promote", float(index))
 
-    def pause_and_resume(state: object = live) -> object:
-        current = state
+    def pause_and_resume(state: StrategyProgression = live) -> StrategyProgression:
+        current: StrategyProgression = state
         for index in range(cycles):
-            current = pause_progression(current, "halt", float(index))  # type: ignore[arg-type]
-            current = resume_progression(current, "resume", float(index))  # type: ignore[arg-type]
+            current = pause_progression(current, "halt", float(index))
+            current = resume_progression(current, "resume", float(index))
         return current
 
     _timed(f"pause + resume x{cycles:,}", cycles * 2, pause_and_resume)

@@ -117,8 +117,8 @@ def main() -> None:
     print("\n[3] Refusals")
 
     fresh = begin_progression(REFERENCE)
-    reason = illegal_progression_move(fresh, StrategyLifecycleStage.LIVE)
-    print(f"  asking first:  RESEARCH -> LIVE  =>  {reason}")
+    refusal: str | None = illegal_progression_move(fresh, StrategyLifecycleStage.LIVE)
+    print(f"  asking first:  RESEARCH -> LIVE  =>  {refusal}")
     print("  (A query, not an attempt: nothing was written to ask.)")
 
     try:
