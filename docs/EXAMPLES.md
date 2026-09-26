@@ -16,7 +16,7 @@ Examples are intended to be read sequentially by new users and used as reference
 > (v2.17) drives an FX feed into a run that settles two currencies and reports
 > in one. `05_broker_connection.py` was rewritten in v2.17 against the canonical
 > broker boundary, having used `alphalab.integrations` until that package was
-> removed. None are part of the automated test suite, though all forty-nine run
+> removed. None are part of the automated test suite, though all fifty-five run
 > as a release gate.
 > For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
@@ -73,7 +73,8 @@ Examples demonstrate
 - Walk-forward analysis
 - Bootstrap statistics
 - Monte Carlo simulation
-- Regime analysis
+- Regime analysis, and regime detection from declared rules (`53_regime_detection.py`)
+- Event studies anchored where news could first be traded (`50_event_driven_research.py`)
 - Capacity estimation
 
 ---
@@ -282,6 +283,32 @@ environment to decide an identity.
 
 ---
 
+# Point-in-time research and adaptive strategies (v3.7)
+
+Examples `50`–`55` are about **when information became knowable** and what a
+strategy that learns from it did with it. All six read one small world written
+out in `examples/_point_in_time.py` — six names on New York's real sessions,
+earnings releases, a daily news score and quarterly statements with a
+restatement, each ingested with the bytes it stands for — and `54` and `55`
+run one adaptive strategy set up once in `examples/_adaptive_evidence.py`.
+None fetches anything, names a vendor, reads a clock or draws a random number;
+every figure they print is the same on every machine.
+
+| # | Shows |
+|---|---|
+| 50 | One canonical event record; occurred, knowable, in-effect and ingested instants kept apart; after-close and pre-market releases placed in the session they can first be traded; a delivery the feed never recorded ingested and never visible; an event study anchored at the first tradable session, excluded events named, and no p-value |
+| 51 | Alternative data of any category with source identity, version and content digest; availability declared, derived by a stated rule, or unknown and never read; late-arriving data on the publication and ingestion clocks; revisions as vintages; lineage through restrictions; a wire record lifted only with its timestamp's meaning declared; and a knowledge frame joined to prices by a checked join |
+| 52 | Statements by fiscal period, filing and availability; a date-only filing read at the next open; a restatement invisible until published with the original still readable; trailing twelve months, and its refusal for a balance; valuation and ratios with undefined figures explained; a look-ahead price refused; restatement bias by name; a point-in-time value factor |
+| 53 | Regime rules as declared data with the caller's labels: threshold with persistence, trailing quantile, composite, a macro regime from point-in-time prints; transitions and durations; a detector resumed from its recorded state reproducing one pass; and a signal diagnostic conditioned on the regime |
+| 54 | An adaptive strategy through the execution path, ending in exactly the state a research replay reaches; cadence that observes every bar and adapts every fifth; train-then-freeze; the learned state in the run snapshot, restored exactly, an edited checkpoint refused; and a fingerprint that names the starting state |
+| 55 | Checkpoints every ten observations restored in a second interpreter with another hash seed and working directory, continued to the uninterrupted state; a late observation refused and reprocessed from the last checkpoint before it; replays assessed `REPRODUCED`, `INPUTS_DIFFER` and `DIVERGED`; and an adaptive backtest's manifest reproduced by a rerun |
+
+`50` assumes `16` and `32`. `51` assumes `15` and `17`. `52` assumes `18` and
+`51`. `53` assumes `17` and `19`. `54` assumes `11` and `46`, and `55` assumes
+`13`, `47` and `54`.
+
+---
+
 # Additional engines
 
 The feature store, machine learning, cloud research, enterprise, and other
@@ -308,6 +335,10 @@ v3.5 added `41`–`45` for the production surfaces, all inside
 
 v3.6 added `46`–`49` for strategy evaluation, again all inside
 `alphalab.lifecycle`, which now has ten.
+
+v3.7 added `50`–`55` for point-in-time research and adaptive strategies. The
+**alternative data** package, which had none, has four (`50`–`53`); the
+**strategy** package's adaptive engine has two (`54`, `55`).
 
 ---
 

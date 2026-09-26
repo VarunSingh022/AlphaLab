@@ -11,8 +11,18 @@ Two layers, and they consume different things.
   *before* there is a return series to score, from a canonical ``Dataset``
   through ``alphalab.factor_library``.
 
-The two meet at ``alphalab.lifecycle.evidence``, where either can be recorded
-as evidence, and nowhere else. ``walk_forward_analysis`` and
+* **Point-in-time research** (v3.7) -- event studies anchored where
+  information could first be traded (``event_study``), and regime detection
+  from declared rules with a reconstructable state (``classify_regimes``),
+  whose labels condition the v3.2 diagnostics directly. They read
+  ``alphalab.alt_data`` for events and ``alphalab.factor_library`` for prices
+  and features, and never ``alphalab.data``.
+
+The first two meet at ``alphalab.lifecycle.evidence``, where either can be
+recorded as evidence, and nowhere else. ``analyze_regimes`` and
+``classify_regimes`` are the pair most easily confused after the walk-forwards:
+the first scores a finished run's returns by labels somebody supplied, and
+detects nothing; the second detects the labels. ``walk_forward_analysis`` and
 ``walk_forward_splits`` are the pair most easily confused: the first reads a
 finished return series and reports its out-of-sample consistency, the second
 partitions a time index into folds before anything has been run.
@@ -27,6 +37,18 @@ from alphalab.research.capacity import CapacityReport, estimate_capacity
 from alphalab.research.cross_validation import WalkForwardReport, walk_forward_analysis
 from alphalab.research.diagnostics import DiagnosticReport, generate_diagnostics
 from alphalab.research.engine import ResearchEngine
+from alphalab.research.event_study import (
+    EVENT_STUDY_SCHEME,
+    AbnormalReturnModel,
+    EventOutcome,
+    EventStudyDefinition,
+    EventStudyResult,
+    EventWindow,
+    ExcludedEvent,
+    canonical_event_study_key,
+    event_study,
+    event_study_metrics,
+)
 from alphalab.research.events import (
     AnalysisCompleted,
     BiasDetected,
@@ -80,6 +102,27 @@ from alphalab.research.purging import (
     label_ends_from_horizon,
 )
 from alphalab.research.regime import RegimeReport, analyze_regimes
+from alphalab.research.regimes import (
+    REGIME_DEFINITION_SCHEME,
+    REGIME_SERIES_SCHEME,
+    CompositeRule,
+    RegimeCell,
+    RegimeDefinition,
+    RegimeProfile,
+    RegimeRule,
+    RegimeSeries,
+    RegimeState,
+    RegimeStatistics,
+    RegimeTransition,
+    ThresholdRule,
+    TrailingQuantileRule,
+    TransitionFrequency,
+    canonical_regime_key,
+    classify_regimes,
+    initial_regime_state,
+    regime_profile,
+    regime_series_from_features,
+)
 from alphalab.research.research import ResearchScore, compute_overall_score
 from alphalab.research.sensitivity import RobustnessReport, parameter_robustness
 from alphalab.research.signals import (
@@ -121,16 +164,26 @@ from alphalab.research.views import (
 from alphalab.research.walk_forward import WindowMode, walk_forward_splits
 
 __all__ = [
+    "EVENT_STUDY_SCHEME",
+    "REGIME_DEFINITION_SCHEME",
+    "REGIME_SERIES_SCHEME",
     "RESULT_KEY_SCHEME",
     "STUDY_KEY_SCHEME",
+    "AbnormalReturnModel",
     "AnalysisCompleted",
     "BiasDetected",
     "BiasReport",
     "BootstrapReport",
     "CVMethod",
     "CapacityReport",
+    "CompositeRule",
     "DiagnosticReport",
     "DiagnosticsGenerated",
+    "EventOutcome",
+    "EventStudyDefinition",
+    "EventStudyResult",
+    "EventWindow",
+    "ExcludedEvent",
     "InvalidResearchStateError",
     "MonteCarloReport",
     "OverfittingPolicy",
@@ -141,7 +194,15 @@ __all__ = [
     "PurgePolicy",
     "PurgeResult",
     "QuantileBucket",
+    "RegimeCell",
+    "RegimeDefinition",
+    "RegimeProfile",
     "RegimeReport",
+    "RegimeRule",
+    "RegimeSeries",
+    "RegimeState",
+    "RegimeStatistics",
+    "RegimeTransition",
     "ResearchAdapter",
     "ResearchCompleted",
     "ResearchEngine",
@@ -162,8 +223,11 @@ __all__ = [
     "StressReport",
     "StudyResult",
     "SweepResult",
+    "ThresholdRule",
     "TimeSplit",
     "TradePayload",
+    "TrailingQuantileRule",
+    "TransitionFrequency",
     "WalkForwardReport",
     "WindowMode",
     "analyze_regimes",
@@ -179,9 +243,12 @@ __all__ = [
     "calculate_max_drawdown",
     "calculate_sharpe",
     "calculate_volatility",
+    "canonical_event_study_key",
+    "canonical_regime_key",
     "canonical_result_key",
     "canonical_study_key",
     "capacity_report",
+    "classify_regimes",
     "compute_overall_score",
     "conditional_diagnostics",
     "cross_validation_splits",
@@ -192,7 +259,10 @@ __all__ = [
     "diagnostic_report",
     "drop_observations",
     "estimate_capacity",
+    "event_study",
+    "event_study_metrics",
     "generate_diagnostics",
+    "initial_regime_state",
     "label_ends_from_horizon",
     "monte_carlo_orders",
     "monte_carlo_simulation",
@@ -202,6 +272,8 @@ __all__ = [
     "period_stability",
     "perturb_observations",
     "perturb_signal",
+    "regime_profile",
+    "regime_series_from_features",
     "require_chronological",
     "sample_by",
     "sample_degradation",

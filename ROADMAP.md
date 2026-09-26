@@ -52,6 +52,16 @@ evidence contracts a research marketplace such as RedDesk consumes — AlphaLab
 provides them and contains no marketplace logic. No package is added, no
 boundary moves and no snapshot schema changes. ADR-0041.
 
+**v3.7.0** is the seventh, and lets research use information other than prices
+without looking ahead, and a strategy learn without becoming irreproducible. It
+extends the point-in-time core in `alphalab.common`, makes `alphalab.alt_data`
+the point-in-time foundation for events, alternative data and fundamentals — a
+leaf over `common` — and adds knowledge frames to `alphalab.factor_library`,
+event studies and regime detection to `alphalab.research`, the adaptive engine to
+`alphalab.strategy`, adaptive integration to `alphalab.lifecycle` and ingestion
+to `alphalab.api`. No package is added, no boundary moves and no snapshot schema
+changes. ADR-0042.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
@@ -163,6 +173,47 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.7.0 — advanced quant research
+
+The seventh capability release on the frozen architecture. No package added, no
+boundary moved, no schema touched. ADR-0042.
+
+- **When information became knowable, stated** — `PointInTimeStamp` with
+  observed, available, effective and ingested instants and an availability basis
+  (`DECLARED`, `DERIVED` by a named rule, `UNKNOWN`); `VisibilityRule`
+  `PUBLICATION` and `INGESTION`; `PointInTimeIndex`. A record of unknown
+  availability is ingested, counted and never read.
+- **Event-driven research** — one canonical `InformationEvent` with an open
+  dotted vocabulary; session placement (in session, before the open, after the
+  close, between sessions, non-trading day) through a structural calendar
+  protocol; `event_study` anchored at the first observation at or after the
+  instant an event could be traded, corrections and unknown deliveries excluded
+  by name, clustering reported, no p-value.
+- **Alternative data with provenance** — `ExternalObservation` of any category,
+  `ObservationSource` (identity and version in every record, the bytes' digest
+  in the set), versioned `ObservationSet`s with checked vintages and lineage,
+  `AS_KNOWN` / `ORIGINAL` vintage reads and no hindsight policy; ingestion with
+  an explicit availability rule; wire records lifted only with their timestamp's
+  meaning declared.
+- **Fundamental research** — `FundamentalObservation` keeping fiscal period,
+  publication, availability and restatement apart; statements, trailing twelve
+  months, valuation, ratios, growth and restatement bias, each at an instant, with
+  undefined figures explained and units checked; `fundamental_snapshot_as_of`
+  and `fundamental_frame` for the factor engine.
+- **Knowledge frames** — the latest knowable figure per subject on a research
+  clock, not a forward fill, with a checked join to the prices it was sampled on.
+- **Regime detection** — declared threshold, trailing-quantile and composite
+  rules with the caller's labels, persistence in the identity, a reconstructable
+  state, transitions, profiles and conditioned diagnostics.
+- **Adaptive strategies** — immutable learned state with hash-chained lineage,
+  one pure update function, explicit cadence, ordering, timing, warmup and
+  freezing, checkpoints that refuse an edit, reprocessing of late data; three
+  rules; `AdaptiveStrategy` on the execution path ending in its research
+  replay's state; the state in the run snapshot, the digest and the
+  fingerprint; `assess_adaptive_replay`.
+- **Found and fixed before release** — a single-figure vintage read that
+  scanned its series' history on every call (found by the new benchmark).
 
 ## v3.6.0 — strategy evaluation and research-marketplace infrastructure
 
@@ -582,6 +633,20 @@ future "simplification" would have to break first —
 - **No durable state for the v3.6 values**, for the reason v3.5 gave: a field on
   `LifecycleState` would move its schema, and a fingerprint, manifest or report
   is a value the caller can hold. A registered version stores no fingerprint.
+- **No default availability.** A record whose source does not say when it was
+  knowable is `UNKNOWN` and never read — not assumed available when observed,
+  which is how period-end-stamped data looks ahead. There is likewise no
+  default calendar, staleness bound or vintage policy (v3.7).
+- **No hindsight vintage policy.** Reading today's restatement at a past
+  instant is not offered; `restatements` measures hindsight under its own name.
+- **No forward fill of a price, and no knowledge frame joined to prices by a
+  loosened guard.** `align_prices` is a checked join (v3.7).
+- **No regime taxonomy, and no p-value in an event study.** Labels are the
+  caller's words; events cluster in calendar time, so a test assuming
+  independence overstates significance by an unmeasured amount.
+- **No vendor data feed of any kind** for events, alternative data or
+  fundamentals, and no LLM, AI-service, Quant-Mind, OpenBB or RedDesk
+  integration.
 
 ---
 
@@ -636,6 +701,10 @@ Real, and not AlphaLab's engineering to complete.
 - **Runtime observations and resource measurements.** Supplied by whoever
   watched the deployment or timed the run. AlphaLab observes and measures
   nothing on its own.
+- **Events, alternative data and fundamentals.** v3.7 adds the point-in-time
+  contract and **not one record**: the rows, the bytes they were read from, a
+  vendor's line-item names and the price a valuation divides by are the
+  caller's.
 
 ---
 
@@ -696,6 +765,16 @@ Could be built. Nothing depends on any of it, and no commitment is made here.
 - **A vendor adapter package** implementing one named venue's request shapes over
   the existing transport, which is the smallest step from connectivity to
   integration.
+- **Execution-path delivery of external information.** An adaptive strategy on
+  the execution path learns from the market events it is dispatched; external
+  information reaches adaptive state through a research replay and a trained
+  checkpoint. Delivering observations as execution-path events changes the
+  canonical spine and its snapshots, and needs its own ADR (ADR-0042).
+- **Statistical regime models** — hidden Markov, Markov switching — which need
+  an estimation step with an identity and a stated fitting window.
+- **A streaming observation set** for data arriving during a live run, and
+  split-adjusted per-share fundamentals or currency-converted figures (v3.7 reads
+  them as published and refuses a mixed-currency input).
 - **Consolidating the two identical provider-vocabulary `AssetClass` enums** in
   `live.provider` and `marketdata.symbols`. Neither is on the canonical path and
   neither is persisted; the canonical asset taxonomy is `core.enums.AssetType`,
@@ -814,7 +893,9 @@ Economic indicators, central bank events, yield curves, inflation, GDP.
 
 ## PR-040 — Alternative Data
 
-News, sentiment, satellite, shipping, ESG, credit cards.
+News, sentiment, satellite, shipping, ESG, credit cards. Since v3.7 also the
+point-in-time foundation for any category of external information — events,
+observations and fundamentals with source identity and versioned sets (ADR-0042).
 
 ## PR-041 — Machine Learning
 

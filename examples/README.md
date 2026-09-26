@@ -1,6 +1,6 @@
 # AlphaLab Examples
 
-Forty-nine runnable scripts, each demonstrating one part of AlphaLab against
+Fifty-five runnable scripts, each demonstrating one part of AlphaLab against
 its real public API. Every one of them runs:
 
 ```bash
@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all forty-nine are executed as a
+paths far more thoroughly under `tests/` — but all fifty-five are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -67,6 +67,12 @@ API.
 | 47 | `47_reproducible_research_artifacts.py` | What exact inputs produced this result: a manifest whose every identity is read from its owner, a rerun that reproduces, one of other inputs, one that diverges because a live object changed, an unseeded run refused, and a research study with its absent seed stated |
 | 48 | `48_strategy_certification.py` | Eight machine-verifiable properties with four statuses and no score: evidence observed rather than asserted, leverage and drawdown read as the pre-trade gate reads them, resource figures that say how and where they were measured, and what each assessment does not establish |
 | 49 | `49_strategy_portability.py` | One fingerprint across research, paper and two brokers declared as capabilities: eight requirements each satisfied, blocked, unverified or not applicable, a blocker named rather than worked around, and a deployment that quietly retunes the strategy caught |
+| 50 | `50_event_driven_research.py` | **The v3.7 event model**: one canonical record for any release, four instants kept apart (occurred, knowable, in effect, ingested), where a release falls in the trading day, a feed that never recorded its delivery ingested and never visible, and an event study anchored at the first session the news could be traded — excluded events named, no p-value |
+| 51 | `51_alternative_data_provenance.py` | Alternative data of any category with a source identity, a version and the exact bytes: availability declared, derived by a stated rule or honestly unknown, late-arriving data on two clocks, revisions read as vintages, lineage through restrictions, and a knowledge frame joined to prices by a checked join before an IC is measured |
+| 52 | `52_fundamental_research.py` | Statements as they were knowable: a date-only filing read at the next open, a restatement invisible until published with the original still readable, trailing twelve months refused for a balance, valuation and ratios with every undefined figure explained, a look-ahead price refused, and a point-in-time value factor |
+| 53 | `53_regime_detection.py` | Regimes from declared rules with the caller's labels: a threshold with persistence, a trailing quantile that reads only the past, composites, a macro regime from point-in-time prints, a detector resumed from its recorded state reproducing one pass exactly, and a diagnostic conditioned on the regime |
+| 54 | `54_adaptive_strategy.py` | An adaptive strategy on the execution path: a learning rule of four pure functions, the backtest ending in exactly the state a research replay reaches, cadence and freezing, the learned state in the run snapshot restored exactly and an edit refused, and a fingerprint naming the starting state |
+| 55 | `55_reproducible_adaptive_replay.py` | Checkpoints restored in a second interpreter and continued to the uninterrupted state, a late observation refused and reprocessed from the last checkpoint before it, replays assessed as reproduced, of other inputs or diverged, and an adaptive backtest's manifest reproduced by a rerun |
 
 ## Reading order
 
@@ -102,6 +108,12 @@ comparable with each other.
 identity, **47** records what one of its results was made from, **48** states
 what is verifiably true of it, and **49** asks where it can run unchanged. Each
 uses the identities the one before it produced.
+
+`50`–`55` are the v3.7 sequence. **50** and **51** are the foundation — what an
+event and an external observation are, and when each became knowable — and are
+best read first. **52** applies the same rules to financial statements, **53**
+detects regimes over any of it, and **54** and **55** are a pair: **54** builds
+an adaptive strategy and runs it, **55** stops, moves, corrects and reruns it.
 
 `05_broker_connection.py` was rewritten in v2.17 against the canonical broker
 boundary, having used `alphalab.integrations` until that package was removed
@@ -156,6 +168,18 @@ its derived version names them. `47` also reads the committed research panel for
 its study. Example 48's CPU and memory figures are measured on the machine that
 runs it and are labelled `MEASURED` with that machine's description — every
 other number in the four is deterministic.
+
+`50`–`55` share one small world, written out in `examples/_point_in_time.py`:
+six names trading on New York's real sessions in spring 2024 (with the Good
+Friday holiday declared by the example), bars stamped at the 16:00 close, and
+the external information around them — earnings releases, a daily news score,
+quarterly statements and a restatement — as the rows a vendor file would hold,
+each ingested with the bytes it stands for. Nothing is fetched and no vendor is
+named. `54` and `55` run one adaptive strategy, set up once in
+`examples/_adaptive_evidence.py` so the rerun in `55` builds exactly the
+strategy `54` built. `55` writes its checkpoints to a temporary directory it
+removes, and starts one second interpreter. Every figure the six print is
+deterministic.
 
 See `examples/data/README.md` for what each dataset contains.
 

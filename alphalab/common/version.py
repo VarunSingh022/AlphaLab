@@ -7,6 +7,6 @@ from alphalab.common.constants import PACKAGE_NAME
 try:
     __version__ = version(PACKAGE_NAME)
 except PackageNotFoundError:
-    __version__ = "3.6.0"
+    __version__ = "3.7.0"
 
 __all__ = ["__version__"]

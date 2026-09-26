@@ -92,9 +92,11 @@ from alphalab.research.study import StudyResult, canonical_study_key
 from alphalab.runtime.run import ExecutionMode
 from alphalab.runtime.run_snapshot import RunSnapshot
 from alphalab.runtime.run_snapshot import capture as capture_run
+from alphalab.strategy.adaptive import AdaptiveReplay
 
 __all__ = [
     "REPRODUCIBILITY_MANIFEST_SCHEME",
+    "AdaptiveReplayAssessment",
     "DatasetProvenanceView",
     "ExternalInput",
     "ExternalRequirement",
@@ -106,6 +108,7 @@ __all__ = [
     "SeedRole",
     "SourceBytesView",
     "VersionedDataset",
+    "assess_adaptive_replay",
     "assess_reproducibility",
     "canonical_manifest_key",
     "derive_manifest_id",
@@ -224,6 +227,11 @@ class ExternalInput(Enum):
 
     #: A live run's fills, which a venue decided. No rerun recreates them.
     VENUE_EXECUTIONS = auto()
+
+    #: A versioned input a study named beside its dataset (v3.7) -- an event
+    #: set, an observation set, fundamentals, a regime definition -- identified
+    #: in the study's configuration and held, like the dataset, by the caller.
+    AUXILIARY_DATA = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -828,6 +836,15 @@ def external_requirements(manifest: ReproducibilityManifest) -> tuple[ExternalRe
     requirements.append(
         ExternalRequirement(ExternalInput.ENGINE, str(manifest.engine), recreatable=True)
     )
+    if manifest.kind is ResultKind.STUDY:
+        requirements.extend(
+            ExternalRequirement(
+                ExternalInput.AUXILIARY_DATA,
+                f"{role}: {identity}, supplied exactly as the study named it",
+                recreatable=True,
+            )
+            for role, identity in _study_inputs(manifest.configuration)
+        )
     if manifest.kind is ResultKind.RUN:
         requirements.extend(
             (
@@ -860,6 +877,29 @@ def external_requirements(manifest: ReproducibilityManifest) -> tuple[ExternalRe
                 )
             )
     return tuple(requirements)
+
+
+def _study_inputs(configuration: str) -> tuple[tuple[str, str], ...]:
+    """The ``inputs`` section of a study's canonical key, as ``(role, identity)``.
+
+    The section is appended last, after ``parameters``, and only when present
+    (:func:`~alphalab.research.study.canonical_study_key`), so it is read
+    backwards from the end: every line after the last section header, if that
+    header is ``inputs``. Neither header can be a parameter or input line, both
+    of which contain ``=``.
+    """
+
+    collected: list[str] = []
+    for line in reversed(configuration.split("\n")):
+        if line == "inputs":
+            return tuple(
+                (role, identity)
+                for role, _, identity in (entry.partition("=") for entry in reversed(collected))
+            )
+        if line == "parameters":
+            return ()
+        collected.append(line)
+    return ()
 
 
 # --------------------------------------------------------------------------- #
@@ -1029,4 +1069,117 @@ def assess_reproducibility(
         rerun_detail=tuple(detail),
         external_requirements=external_requirements(manifest),
         findings=tuple(findings),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Adaptive replays (v3.7)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveReplayAssessment:
+    """What a rerun of an adaptive replay established.
+
+    Attributes:
+        replay_id: The replay assessed.
+        record_verified: Whether its record holds together -- transitions that
+            chain, decisions that belong to them, a stream identity that
+            recomputes.
+        rerun: What the rerun established; :class:`RerunOutcome`, the same four
+            answers a run or a study gets.
+        detail: Why, in sentences.
+        first_divergence: For ``DIVERGED``, the position of the first
+            observation whose resulting state or decision differs; otherwise
+            ``None``.
+    """
+
+    replay_id: str
+    record_verified: bool
+    rerun: RerunOutcome
+    detail: tuple[str, ...]
+    first_divergence: int | None
+
+
+def assess_adaptive_replay(
+    original: AdaptiveReplay, rerun: AdaptiveReplay | None = None
+) -> AdaptiveReplayAssessment:
+    """Assess an adaptive replay, and a rerun of it if one was produced.
+
+    The adaptive counterpart of :func:`assess_reproducibility`: a rerun of the
+    same configuration, mode, starting state and observation stream either
+    produced the same decisions and the same final state (``REPRODUCED``) or did
+    not (``DIVERGED``, with the first observation at which it did not); a rerun
+    of different inputs establishes nothing (``INPUTS_DIFFER``). A divergence
+    with identical inputs is how a rule that read a clock, drew a random number
+    or kept state of its own shows itself.
+
+    Pure; nothing is re-run here.
+
+    Raises:
+        LifecycleInputError: If a rerun is supplied and either record does not
+            hold together. An altered record is not evidence of reproduction.
+    """
+
+    verified = original.verify()
+    if rerun is None:
+        return AdaptiveReplayAssessment(
+            original.replay_id, verified, RerunOutcome.NOT_ATTEMPTED, (), None
+        )
+    if not verified or not rerun.verify():
+        which = "original" if not verified else "rerun"
+        raise LifecycleInputError(
+            f"The {which} adaptive replay's record does not hold together, so it is not "
+            "evidence of reproduction either way."
+        )
+    differences = [
+        f"{label}: {before} -> {after}"
+        for label, before, after in (
+            (
+                "configuration",
+                original.configuration.configuration_id,
+                rerun.configuration.configuration_id,
+            ),
+            ("mode", original.mode.name, rerun.mode.name),
+            ("initial state", original.initial.state_id, rerun.initial.state_id),
+            ("stream", original.stream_id, rerun.stream_id),
+        )
+        if before != after
+    ]
+    if differences:
+        return AdaptiveReplayAssessment(
+            original.replay_id,
+            verified,
+            RerunOutcome.INPUTS_DIFFER,
+            (*differences, "a rerun of other inputs establishes nothing about reproduction."),
+            None,
+        )
+    if rerun.replay_id == original.replay_id:
+        return AdaptiveReplayAssessment(
+            original.replay_id,
+            verified,
+            RerunOutcome.REPRODUCED,
+            (f"the rerun reached state {rerun.final.state_id} again.",),
+            None,
+        )
+    position = next(
+        index
+        for index, (left, right) in enumerate(
+            zip(
+                zip(original.transitions, original.decisions, strict=True),
+                zip(rerun.transitions, rerun.decisions, strict=True),
+                strict=True,
+            )
+        )
+        if left != right
+    )
+    return AdaptiveReplayAssessment(
+        original.replay_id,
+        verified,
+        RerunOutcome.DIVERGED,
+        (
+            f"the same inputs diverged at observation {position}: the rule is not "
+            "deterministic in something it read.",
+        ),
+        position,
     )

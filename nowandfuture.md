@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.6.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.7.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,16 +42,68 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.6.0** |
+| Version | **3.7.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.6.0 are additive to it.** |
+| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.7.0 are additive to it.** |
 
 ---
 
-# 2. What v3.6.0, v3.5.0, v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+# 2. What v3.7.0, v3.6.0, v3.5.0, v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+
+## v3.7.0 — advanced quant research
+
+The seventh capability release on the frozen architecture: event-driven
+research, alternative data with provenance, point-in-time fundamentals, regime
+detection and adaptive strategies, all resting on one statement of **when a
+piece of information became knowable**. No package added, no boundary moved, no
+snapshot schema touched, no durable state added. ADR-0042.
+
+### What it fixed
+
+| Gap | What existed | What v3.7 adds |
+| --- | --- | --- |
+| When information became knowable | `known_as_of`, which trusts a release date every record is assumed to have | `PointInTimeStamp` — observed, available, effective, ingested — with a basis (`DECLARED`, `DERIVED` by a named rule, `UNKNOWN`) and two visibility rules; `PointInTimeIndex` |
+| Events | a shape per kind, none with an availability instant | one `InformationEvent`, an open dotted vocabulary |
+| Alternative data | typed v1 categories and quality metadata, no identity | `ExternalObservation`, `ObservationSource`, versioned `ObservationSet`s with checked vintages and lineage |
+| Fundamentals | a `FundamentalSnapshot` a caller assembled | `FundamentalObservation` keeping fiscal period, publication, availability and restatement apart; TTM, valuation, ratios, growth, restatement bias — all at an instant |
+| Research on it | features over prices only | knowledge frames with a checked price join, event studies, regime detection |
+| Strategies that learn | a mutable attribute no snapshot could see | the adaptive engine: immutable state with lineage, one pure update function, checkpoints, reprocessing, and the state in the run record |
+
+### `alt_data` left the standalone list, and its edges are measured
+
+v3.7 made `alphalab.alt_data` the point-in-time foundation for external
+information. `research`, `factor_library` and `api` import it — so, exactly as
+`factor_library` did in v3.2, it is now reached by the lifecycle path through
+`research` — and it imports `alphalab.common` and nothing else in AlphaLab.
+`test_v37_invariants.py` asserts that edge set, because a sentence in a document
+is how v3.2's `factor_library` claim went stale (section 14, *the failure mode
+to watch for*).
+
+### Unknown is not "available at observation"
+
+A record whose availability was never established is ingested, identified,
+counted as `unverified` in every selection — and never read. Assuming it was
+available when it was observed is precisely how period-end-stamped
+fundamentals look ahead.
+
+### Two joins that were not loosened
+
+v3.2's diagnostics refuse a factor and returns from different datasets. A
+knowledge frame's identity records the price clock it was sampled on, and
+`align_prices` joins the two by a checked, jointly derived identity; the guard is
+unchanged. The data/research join rule held too: ingestion lives in `alphalab.api`,
+and `alt_data` reaches a calendar through a structural protocol.
+
+### The learned state is in the evidence
+
+An adaptive strategy hands its state to the run snapshot, so `digest_run` — and
+every v3.6 manifest built on it — commits to every update. Its fingerprint names
+its learning configuration and starting state through the existing research
+settings, so the fingerprint key is unchanged and every v3.6 fingerprint still
+verifies.
 
 ## v3.6.0 — strategy evaluation and research-marketplace infrastructure
 
@@ -490,7 +542,7 @@ All 50 packages, and which path reaches each.
 | --- | --- |
 | `core` | The canonical execution domain models: `Side`, `OrderRequest`, `Fill`, `Trade`, `StrategyContribution`, `AssetType`, `OrderType`, `TimeInForce`, and the id validators |
 | `runtime` | The execution step, the run, the four drivers, broker routing, and four snapshot modules |
-| `strategy` | What a strategy *is*: `StrategyProtocol`, `StrategyStateProtocol`, `StrategyContext`, the `Dispatcher`, the `RuntimeSupervisor`, and the strategy-class registry |
+| `strategy` | What a strategy *is*: `StrategyProtocol`, `StrategyStateProtocol`, `StrategyContext`, the `Dispatcher`, the `RuntimeSupervisor`, and the strategy-class registry. Since v3.7 also the adaptive engine — configuration, observation, immutable learned state with lineage, `apply_update`, replay, checkpoint and restore — three rules, and `AdaptiveStrategy`. Still imports only `common` |
 | `allocation` | Intent sizing and netting into `OrderRequest`, the capital budget, the per-order reservation ledger and the contribution ledger |
 | `risk` | Pre-trade checks and limits |
 | `oms` | The order lifecycle. `oms.order.Order` is *the* lifecycle order |
@@ -499,26 +551,28 @@ All 50 packages, and which path reaches each.
 | `analytics` | Performance reports and attribution. Its `CURRENCY` dimension buckets realized P&L per currency and has no total; the *return* decomposition that does is `portfolio.fx_research` and neither derives the other |
 | `market` | The canonical market-data model, the normalization boundary, market sources, streaming |
 | `instrument` | Canonical instrument identity, the registry, classification and its provenance |
-| `common` | Version, `BaseEvent`, deterministic serialization, the seeded identifier source, `AppendOnlyLog` / `PersistentMap` / `PersistentSet`, TLS policy, point-in-time helpers |
+| `common` | Version, `BaseEvent`, deterministic serialization, the seeded identifier source, `AppendOnlyLog` / `PersistentMap` / `PersistentSet`, TLS policy, and the point-in-time core: `known_as_of`, and since v3.7 `PointInTimeStamp`, `AvailabilityBasis`, `VisibilityRule` and `PointInTimeIndex` |
 | `persistence` | The codec spine (`serialize`, typed `decode`, exceptions) and `RunStateStore` |
 | `backtesting` | The dataset type and the two drivers over it |
 | `replay` | The deterministic replay cursor, clock and session lifecycle |
 | `broker` | **One** venue: `BrokerProtocol`, the canonical broker vocabulary, reconciliation, the HMAC transport, `RestVenueBroker`, `PaperBroker` |
 | `data` | The canonical **wire** record, and the Universal Data Engine: source provenance, delimited reading, schema detection, timestamps and frequency, validation findings, cleaning policy, quality reporting, asset-class semantics, market calendars, corporate-action basis, and the derived dataset version. Its only outward edges are `common` and `options` (one leaf enum), which is what keeps the package graph acyclic |
 | `marketdata` | Provider clients, HTTP transport, the WebSocket client, symbols, subscriptions |
-| `api` | **The top of the graph** (v3.1). The application-facing Python API joining the data layer to the execution path: `ingest_csv`, `select`, `to_market_dataset`, `backtest`, `replay`. Nothing imports it, which is what lets it depend on both `data` and `market` without closing a cycle |
+| `api` | **The top of the graph** (v3.1). The application-facing Python API joining the data layer to the execution path: `ingest_csv`, `select`, `to_market_dataset`, `backtest`, `replay`. Since v3.7 also point-in-time ingestion of observations, events and fundamentals with an explicit availability rule, and the lifting of single-timestamp wire records. Nothing imports it, which is what lets it depend on both `data` and `market` without closing a cycle |
 
 ## The lifecycle path
 
 | Package | Owns |
 | --- | --- |
-| `lifecycle` | The composition: registration, evidence, promotion, deployment, rollback, governance, and the join to the execution path. Since v3.5 also the strategy progression, the deployment specification, runtime health, the expected/paper/live comparison and the AlphaLab-to-broker reconciliation. Since v3.6 also strategy fingerprints, reproducibility manifests, certification reports and portability reports — values, never stored |
+| `lifecycle` | The composition: registration, evidence, promotion, deployment, rollback, governance, and the join to the execution path. Since v3.5 also the strategy progression, the deployment specification, runtime health, the expected/paper/live comparison and the AlphaLab-to-broker reconciliation. Since v3.6 also strategy fingerprints, reproducibility manifests, certification reports and portability reports — values, never stored. Since v3.7 an adaptive strategy's configuration and starting state in its fingerprint, study inputs as external requirements, and the adaptive replay assessment |
 | `experiment_tracking` | Experiment runs, parameters, metric history |
 | `model_registry` | Model versions, stages, promotion, `ArtifactRef`, the content-addressed artifact store |
 | `deployment_manager` | Release packages and the append-only environment ledger |
 | `studio` | `StrategyDefinition` — the one record of what a strategy is — plus projects and orchestration |
 | `enterprise` | Principals, RBAC, the audit log. Governance reads it |
-| `research` | Research workflows and `ResearchScore`, which validation evidence extracts from |
+| `research` | Research workflows and `ResearchScore`, which validation evidence extracts from. Since v3.2 the study methodology; since v3.7 event studies and regime detection, reading `alt_data` and never `data` |
+| `factor_library` | The computation engine (v3.2): features, factors, cross-sectional research, signal diagnostics, validation. Since v3.7 knowledge frames over point-in-time information and point-in-time fundamental snapshots. Reached through `research`; imports neither `research`, `lifecycle` nor `api` |
+| `alt_data` | Point-in-time external information (v3.7): `ExternalObservation`, `InformationEvent`, `FundamentalObservation`, `ObservationSource`, versioned `ObservationSet`s and their views, session placement, point-in-time fundamentals; the v1 typed categories and `DataProvenance` stay. Reached through `research` and `factor_library`. Its only outward edge is `common`; a calendar reaches it through `SessionCalendar`, a structural protocol |
 
 ## Leaf libraries — imported by other packages, reached from neither path
 
@@ -529,7 +583,7 @@ All 50 packages, and which path reaches each.
 ## Standalone engines — reached by neither path
 
 `portfolio_optimizer`, `optimizer`, `reporting`, `feature_store`,
-`factor_library`, `alt_data`, `ml`, `deep_learning`, `reinforcement_learning`,
+`ml`, `deep_learning`, `reinforcement_learning`,
 `options`, `futures`, `crypto`, `macro`, `cloud_research`, `cluster_scheduler`,
 `distributed`, `workbench`, `research_assistant`, `live`, `feed`, `brokers`,
 `plugins`, `scheduler`.
@@ -538,6 +592,12 @@ Each is deterministic, individually tested and individually benchmarked. **A
 package with no in-repo consumer is a standalone engine by design, not an
 orphan** — pinned by
 `test_every_zero_consumer_production_package_is_a_standalone_engine`.
+
+`factor_library` left this list in v3.2 and `alt_data` in v3.7: `research`,
+which `lifecycle` imports, imports both. Each edge runs one way and each is
+measured — `test_one_research_authority_per_concept.py` for the first,
+`test_v37_invariants.py` (which asserts `alt_data` imports only `common`) for the
+second.
 
 `conventions` (v3.4) is not on this list and is not on either path either. It is
 a **leaf library imported by other packages** — `macro` and `portfolio` today,
@@ -995,18 +1055,18 @@ retry-on-older-protocol fallback exists.
 ```bash
 ruff check .                              # lint
 ruff format --check .                     # format
-mypy .                                    # strict, 1080 source files (what CI runs)
-pytest -q                                 # 5669 tests, 0 skipped, 0 warnings
-pytest -q -W error::DeprecationWarning    # the same 5669
+mypy .                                    # strict, 1122 source files (what CI runs)
+pytest -q                                 # 6118 tests, 0 skipped, 0 warnings
+pytest -q -W error::DeprecationWarning    # the same 6118
 git diff --check
 python -m build && twine check dist/*
-for f in examples/[0-9]*.py; do python "$f"; done    # 49
-for f in benchmarks/*.py; do python "$f"; done       # 55
+for f in examples/[0-9]*.py; do python "$f"; done    # 55
+for f in benchmarks/*.py; do python "$f"; done       # 57
 ```
 
 `make check` runs the first four.
 
-**5669 tests.** The regression suite is the largest deliberately — most of its
+**6118 tests.** The regression suite is the largest deliberately — most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
 
@@ -1019,7 +1079,7 @@ than the summary line, and spawns a **fresh interpreter** with
 
 | File | Pins |
 | --- | --- |
-| `test_shared_names_stay_distinct.py` | Twenty-nine sets of same-named things that are not one thing, including the three lifecycle state machines, the two reconciliations, the two health surfaces, the five content identities and the three ways of checking a strategy |
+| `test_shared_names_stay_distinct.py` | Thirty-six sets of same-named things that are not one thing, including the three lifecycle state machines, the two reconciliations, the two health surfaces, the five content identities, the three ways of checking a strategy, and v3.7's events, regimes, provenance records, fundamentals, as-of readers, states, observations and replays |
 | `test_venue_concepts_stay_distinct.py` | Listing exchange vs market-data attribution vs execution venue |
 | `test_no_silent_financial_defaults.py` | An AST sweep of the whole package; each exemption earned by a refusal test |
 | `test_snapshot_field_coverage.py` | Silent state loss when a state gains a field |
@@ -1041,6 +1101,8 @@ than the summary line, and spawns a **fresh interpreter** with
 | `test_v35_complexity.py` | That health evaluation, comparison, reconciliation and a progression's history stay near-linear |
 | `test_v36_invariants.py` | One home per v3.6 concept; evidence that carries no verdict; the gate's own leverage and drawdown readings; no clock, entropy or environment on a v3.6 path; every v3.6 identity reproduced in two fresh interpreters with different hash seeds; nothing machine-local in an identity; no durable state; no marketplace operation |
 | `test_v36_complexity.py` | That fingerprinting, source digests, run digests, certification and portability stay linear |
+| `test_v37_invariants.py` | One home per v3.7 concept; `alt_data` a leaf over `common`, `strategy` still over `common` only, research never reading `data`; every selection checked against a brute-force reading of the visibility rule on generated histories, and no vintage, frame point, event anchor, trailing figure or regime label reaching past its instant; no clock, entropy or environment; every identity reproduced in fresh interpreters with different hash seeds and working directories; pre-v3.7 study and fingerprint identities unchanged; no durable state |
+| `test_v37_complexity.py` | That set construction, visibility queries, single-figure reads, knowledge and fundamental frames, regime classification, adaptive replay and event studies stay near-linear |
 
 ## Performance
 
@@ -1065,6 +1127,20 @@ rolling sum accumulates floating-point drift across a million updates, so the
 same window computed early and late in a long series would not agree.
 `test_research_complexity.py` holds the growth ratios rather than the times, so
 the assertion is about the algorithm rather than the machine.
+
+**The v3.7 point-in-time paths are linear**, measured at two sizes each in
+`benchmarks/benchmark_point_in_time_research.py` and
+`benchmark_adaptive_research.py`: a knowledge frame samples ~3.5–4 million
+subject-instants per second, ingestion reads ~100,000 rows per second, and an
+adaptive step costs ~25–40 µs including its derived identities. Every
+many-instant question is a bisection or an incremental timeline. The benchmark
+found one that was not — `vintage_as_of` filtered its series' whole visible
+history on every call — and it was fixed before release with a per-figure index;
+`test_v37_complexity.py` holds it flat across sixteen times the history. Two
+costs remain proportional by design: `select` returns everything visible, so it
+costs the size of its answer, and the single-instant fundamental helpers
+(`trailing_twelve_months`, `latest_fundamental`, `fundamental_inputs_as_of`) read
+a series' visible history per call — the frames are the path for many instants.
 
 One term is deliberately left super-linear — see section 17.
 
@@ -1205,6 +1281,34 @@ an ADR.
     undeclared one is never satisfied, and the fingerprint evaluated is the one
     supplied.
 
+39. **A record of unknown availability is never visible** (v3.7, ADR-0042). It
+    is counted, never read, and never assumed available at its observation
+    instant. Visibility is inclusive, asked under a named rule, and an effective
+    date never makes a fact visible before it was known.
+40. **A revision is a vintage, never an edit**, and no query reads a later
+    revision at an earlier instant. `VintagePolicy` has `AS_KNOWN` and
+    `ORIGINAL` and nothing else; hindsight has one named home, `restatements`.
+41. **`alphalab.alt_data` imports `alphalab.common` and nothing else in
+    `alphalab`**, and the research layer reads it and never `alphalab.data`.
+42. **Availability is declared at ingestion, by an explicit rule** — a column, a
+    stated lag, the next session open after a stated publication, or nothing
+    (`UNKNOWN`). There is no default rule, calendar, staleness bound or vintage
+    policy.
+43. **A knowledge frame is not a forward fill**, and a factor built from
+    external information meets its returns through `align_prices` — a checked
+    join — never through a loosened dataset guard.
+44. **An event is anchored where it could first be traded**: the first
+    observation at or after the first session open at or after the instant it
+    became knowable. A correction is not a second event, and no significance
+    test is reported.
+45. **A regime label reads only its past**, a definition's persistence is part
+    of its identity, and resuming from a recorded state reproduces one pass
+    exactly. AlphaLab ships no regime taxonomy.
+46. **Adaptive state moves only through `apply_update`**, which is pure; a late
+    observation is refused and included only by reprocessing from a checkpoint;
+    a checkpoint whose identity does not recompute is refused; and the learned
+    state reaches the run snapshot and its digest.
+
 ## The failure mode to watch for
 
 The most expensive defects in AlphaLab's history were not unknown problems. They
@@ -1250,12 +1354,18 @@ future "unification" must break first.
 | Five content identities | A deployment's needs, a measurement, an experiment, a strategy version, a result's inputs. Each answers a question the others cannot (v3.6) |
 | `evaluate_policy` / `validate_specification` / `certify_strategy` | A promotion gate, a coherence check, and eight properties with no verdict (v3.6) |
 | Environment parity / portability | A property of AlphaLab (one strategy path everywhere) vs a property of a strategy against a declared environment (v3.6) |
+| `BaseEvent` / `InformationEvent` | A state changed inside AlphaLab vs something happened in the world (v3.7) |
+| `analyze_regimes` / `classify_regimes` / `FeatureKind.VOLATILITY_REGIME` | A score over a return series vs a declared-rule detector vs a feature a detector can read (v3.7) |
+| `DatasetProvenance` / `DataProvenance` / `ObservationSource` | How a market series came to exist vs a vendor's quality vs a source's identity and bytes (v3.7) |
+| `data.feed.FundamentalRecord` / `FundamentalObservation` / `FundamentalSnapshot` | A one-timestamp wire record vs a statement figure with its instants vs a factor input produced at an instant (v3.7) |
+| `known_as_of` / `PointInTimeIndex` / `DataRequest.as_of` | A release date trusted vs a knowledge instant that can be unknown vs a timestamp cut on wire records (v3.7) |
 
 Also deliberate: **no CLI, no server, no daemon, no event bus, no composition
 root, no `SettlementPolicy` object, no migration framework, no per-environment
 promotion policy, no supervised live process, no authentication or credential
 handling, no marketplace logic, no overall certification score, no dependency
-resolver or environment snapshot.** Each is a NON-GOAL with a recorded reason.
+resolver or environment snapshot, no regime taxonomy, no p-value in an event
+study, no default availability rule.** Each is a NON-GOAL with a recorded reason.
 
 ---
 
@@ -1272,6 +1382,7 @@ internal work.
 | **Classification data** | EXTERNAL. v2.11 ships the mechanism and v2.15 its provenance; no taxonomy and no reference-data feed |
 | **What a rerun needs** | EXTERNAL. A reproducibility manifest identifies the dataset bytes, the strategy code, the dependency set, the engine and the live objects a run records by type; AlphaLab stores none of them (v3.6) |
 | **What an environment offers** | EXTERNAL. Every `TargetEnvironment`, runtime observation and resource measurement is declared by whoever knows it (v3.6) |
+| **Alternative data, events and fundamentals** | EXTERNAL. v3.7 ships the point-in-time contract — records, sets, ingestion rules, queries — and no vendor, feed, file, line-item taxonomy or price. The rows and their bytes are the caller's |
 
 The honest summary of connectivity: **the connectivity exists; the vendor
 integration does not.**
@@ -1305,6 +1416,17 @@ of these is a defect.
   **refused on that evidence** — the same trade ADR-0028 refused at +1.78%.
   `alphalab.optimizer` has no in-repo consumer, so the term is off every canonical
   path. Do not reopen this without new measurement.
+- **Execution-path delivery of external information.** The execution path
+  dispatches market events only, so an adaptive strategy on it learns from
+  those; external information reaches adaptive state through a research replay
+  and a trained checkpoint. Delivering observations as execution-path events
+  changes the canonical spine and its snapshots, and needs its own ADR.
+- **Statistical regime models** (hidden Markov, Markov switching), which need an
+  estimation step with an identity and a stated fitting window; v3.7's regimes
+  are declared rules.
+- **A streaming observation set**, and split-adjusted per-share fundamentals or
+  converted-currency figures. v3.7 reads per-share figures and share counts as
+  published, and refuses rather than converts a figure in another currency.
 - **Pipeline-driven `on_fill` / `on_order` / `on_timer`.** Declared and routed;
   the pipeline constructs no such events. Wiring them needs a second dispatch per
   event and would change intent ordering and every parity baseline.
@@ -1335,8 +1457,9 @@ of these is a defect.
 | **v3.4.0** | **Global markets and multi-asset research: one market-convention authority as a leaf over `common`, reproducible continuous futures, implied volatility with five refusals, cross rates and the FX look-ahead guard, crypto venue metadata and 24/7 coverage, a fixed-income foundation, and six US/Binance defaults made required (ADR-0039)** |
 | **v3.5.0** | **Strategy execution and production intelligence: the research-to-live progression as a third axis, deployment specifications with a derived identity, structured runtime health from supplied observations, the expected/paper/live comparison, and AlphaLab-to-broker reconciliation — all inside `alphalab.lifecycle`, with no package added and no snapshot schema touched (ADR-0040)** |
 | **v3.6.0** | **Strategy evaluation: immutable strategy fingerprints, reproducibility manifests with four separate answers, eight certification properties from observed evidence with no score, and portability against declared capabilities — all inside `alphalab.lifecycle`, with no package added, no durable state and no marketplace logic (ADR-0041)** |
+| **v3.7.0** | **Advanced quant research: a point-in-time statement of when information became knowable; canonical events, alternative data with source identity and versioned sets, and point-in-time fundamentals in `alt_data`, now a leaf over `common`; knowledge frames with a checked price join; event studies anchored where news could be traded; regime detection from declared rules; and adaptive strategies whose learned state replays exactly and reaches the run record — no package added, no snapshot schema touched (ADR-0042)** |
 
-41 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+42 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---
@@ -1358,6 +1481,17 @@ Return `Intent`s; never place orders. If it holds durable internal state,
 implement `StrategyStateProtocol` too — both directions of the codec, because the
 shared encoder writes a `Decimal` and a `str` identically and no generic decoder
 can tell them apart afterwards.
+
+**Adding a kind of external information.** Do not add a class: an
+`ExternalObservation` with a new dotted category and metric, or an
+`InformationEvent` with a new `event_type`, is the whole change. Ingest it through
+`alphalab.api` with the availability rule the source actually supports — and
+`AvailabilityNotDeclared` when it supports none, which is honest and makes the
+data unusable for research until somebody establishes when it was knowable.
+
+**Adding an adaptive rule.** Implement the four functions of `AdaptiveRule`,
+keep everything the rule knows in the payload it is handed, and replay it twice:
+`assess_adaptive_replay` reports `DIVERGED` if anything leaked outside.
 
 **Changing something on the execution path.** Read the relevant ADR first, then
 the regression test that pins it. If your change requires breaking an assertion
@@ -1401,6 +1535,6 @@ Genuinely unresolved, recorded so they are not rediscovered:
 
 ---
 
-*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0, v3.4.0, v3.5.0 and v3.6.0. If you are reading this long after, check the version in
+*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0, v3.4.0, v3.5.0, v3.6.0 and v3.7.0. If you are reading this long after, check the version in
 `pyproject.toml` first: where this document and the code disagree, the code is
 right, and this document has a bug worth fixing.*

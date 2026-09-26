@@ -30,7 +30,8 @@ Every component should follow these principles.
 
 # Current State
 
-As of **v3.0.0** the architecture is frozen; **v3.1.0** is additive to it.
+As of **v3.0.0** the architecture is frozen; **v3.1.0** through **v3.7.0** are
+additive to it.
 AlphaLab provides:
 
 - **One execution path with one owner per tier.**
@@ -52,9 +53,13 @@ AlphaLab provides:
 - **Money that refuses rather than guesses.** Per-currency settlement, a
   reporting currency converted on demand with every rate recorded, and no
   default, triangulated, inverted or stale rate anywhere.
+- **Research on data it can trust.** Versioned datasets with provenance (v3.1),
+  the feature, factor and validation methodology (v3.2), and point-in-time
+  events, alternative data, fundamentals, regimes and adaptive strategies that
+  never read information before it was knowable (v3.7).
 - **Standalone engines** for reporting, portfolio optimization, the feature
-  store, the factor library, alternative data, ML / deep learning / RL, options,
-  futures, crypto, macro, cloud research, cluster scheduling and the Workbench.
+  store, ML / deep learning / RL, options, futures, crypto, macro, cloud
+  research, cluster scheduling and the Workbench.
 
 Those standalone engines share the engineering model and are deliberately not
 fused into a single runtime (ADR-0009). AlphaLab is a library, not a running

@@ -66,20 +66,50 @@ recorded ``dataset_version`` rather than trusting either. A study that could
 fetch its own data could fetch different data than the study beside it; one
 that accepted any dataset handed to it would let a result name bytes it was
 never measured on.
+
+Point-in-time external information (v3.7)
+-----------------------------------------
+
+:func:`ingest_observations`, :func:`ingest_events` and
+:func:`ingest_fundamentals` read rows of alternative data, information events
+and statement figures into versioned :mod:`alphalab.alt_data` sets, with the
+bytes they came from named through :func:`observation_source`. Each takes an
+explicit :data:`AvailabilityRule` -- a declared column, a declared lag, the next
+session open after a stated publication, or nothing declared -- because when a
+row became knowable is the one fact a point-in-time study cannot recover later.
+A row whose availability the source does not state is ingested as ``UNKNOWN``
+and never read by research; a row that cannot be read is returned with its
+reason, as a price row is. :func:`lift_wire_records` lifts the single-timestamp
+wire records ``alphalab.data.feed`` defines, with the caller declaring what
+that timestamp meant. These live here for the reason the rest of this module
+does: they join :mod:`alphalab.data`, whose outward edges are pinned, to a
+package that may not import it.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import math
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import Enum, auto
 from pathlib import Path
 
+from alphalab.alt_data.exceptions import AltDataInputError
+from alphalab.alt_data.fundamentals import FiscalPeriod, FundamentalObservation, StatementType
+from alphalab.alt_data.information import InformationEvent
+from alphalab.alt_data.observation import ExternalObservation, ReferencePeriod
+from alphalab.alt_data.observation_set import ObservationSet, SetRecord, build_observation_set
+from alphalab.alt_data.provenance import DataProvenance
+from alphalab.alt_data.sessions import SessionCalendar, place_in_session
+from alphalab.alt_data.source import ObservationSource
 from alphalab.analytics.engine import AnalyticsEngine
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import ReplayBacktest
 from alphalab.backtesting.state import BacktestResult, ReplayResult
+from alphalab.common.exceptions import AlphaLabValidationError
+from alphalab.common.point_in_time import PointInTimeStamp
 from alphalab.conventions.lot import LotSpecification
 from alphalab.conventions.market import MarketConvention
 from alphalab.conventions.settlement import SettlementRule
@@ -90,12 +120,26 @@ from alphalab.data.corporate_actions import PriceBasis
 from alphalab.data.csv_source import CsvDialect, RawTable, decode_text, read_delimited
 from alphalab.data.dataset import Dataset
 from alphalab.data.exceptions import DataValidationError
-from alphalab.data.feed import Bar, CanonicalRecord, Quote
+from alphalab.data.feed import (
+    AlternativeDataRecord,
+    Bar,
+    CanonicalRecord,
+    EconomicEvent,
+    FundamentalRecord,
+    Quote,
+)
 from alphalab.data.ingestion import IngestionRequest, IngestionResult, ingest_table
 from alphalab.data.quality import DataQualityReport, evaluate_quality
 from alphalab.data.schema import SchemaDetection, detect_schema
 from alphalab.data.source import RawSource, raw_source_from_path
-from alphalab.data.validation import ValidationFinding, validate_records
+from alphalab.data.time import DateOnlyPolicy, TimestampFormat, parse_timestamp
+from alphalab.data.validation import (
+    FindingKind,
+    RowRejection,
+    Severity,
+    ValidationFinding,
+    validate_records,
+)
 from alphalab.factor_library.compute import compute_panel
 from alphalab.factor_library.definition import FeatureField
 from alphalab.factor_library.forward_returns import forward_returns
@@ -119,19 +163,35 @@ from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
 __all__ = [
     "AnalyticsEngine",
+    "AvailabilityAfterLag",
+    "AvailabilityAtNextOpen",
+    "AvailabilityFromColumn",
+    "AvailabilityNotDeclared",
+    "AvailabilityRule",
     "DataRequest",
     "DataSelection",
+    "EventColumns",
+    "FundamentalColumns",
+    "ObservationColumns",
+    "PointInTimeIngestion",
     "ResearchEngine",
     "ResearchStudy",
     "StudyResult",
+    "TimestampReading",
+    "WireTimestamp",
     "backtest",
     "clean_dataset",
     "convention_from_spec",
     "future_contract_from_spec",
     "ingest_csv",
+    "ingest_events",
+    "ingest_fundamentals",
+    "ingest_observations",
     "ingest_rows",
     "inspect_csv",
+    "lift_wire_records",
     "normalize_records",
+    "observation_source",
     "observe",
     "option_contract_from_spec",
     "replay",
@@ -753,3 +813,618 @@ def convention_from_spec(
         lot=lot,
         settlement=settlement,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Point-in-time external information (v3.7)
+# --------------------------------------------------------------------------- #
+
+
+def observation_source(
+    raw: RawSource,
+    source_id: str,
+    version: str | None,
+    quality: DataProvenance | None = None,
+) -> ObservationSource:
+    """The identity of an observation source, lifted from the bytes it was read from.
+
+    :class:`~alphalab.alt_data.source.ObservationSource` lives in a package that
+    may not import :mod:`alphalab.data`, so the join is here: the digest of the
+    exact bytes and the instant they were retrieved are carried across from the
+    :class:`~alphalab.data.source.RawSource` the caller recorded, so a set read
+    from them names the same bytes a dataset would.
+    """
+
+    return ObservationSource(
+        source_id=source_id,
+        version=version,
+        content_hash=raw.content_hash,
+        retrieved_at=raw.retrieved_at,
+        quality=quality,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TimestampReading:
+    """How every timestamp column of a row set is read.
+
+    The three decisions :func:`~alphalab.data.time.parse_timestamp` requires,
+    stated once for the row set. None is defaulted, for the reason none is
+    defaulted there: each wrong answer produces a number rather than an error.
+    """
+
+    timestamp_format: TimestampFormat
+    timezone_name: str | None
+    date_policy: DateOnlyPolicy | None
+
+    def read(self, text: str) -> float:
+        """One timestamp, as canonical Unix seconds."""
+
+        return parse_timestamp(text, self.timestamp_format, self.timezone_name, self.date_policy)
+
+
+@dataclass(frozen=True, slots=True)
+class AvailabilityFromColumn:
+    """Each row states the instant it became available, in ``column``.
+
+    A row whose cell is empty has no stated availability. It is ingested with
+    an ``UNKNOWN`` basis -- recorded, counted, and never visible to research --
+    rather than rejected, because its existence is a fact about the source and
+    its missing timestamp is the limitation the record should carry.
+    """
+
+    column: str
+
+
+@dataclass(frozen=True, slots=True)
+class AvailabilityAfterLag:
+    """Every row became available a declared lag after it was observed.
+
+    A documented processing delay -- satellite imagery delivered two days
+    after capture. The instant is *derived*, and the rule is recorded on
+    every stamp.
+    """
+
+    lag_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class AvailabilityAtNextOpen:
+    """Every row became available at the first session open at or after ``column``.
+
+    How a date-only publication is read without look-ahead: a filing dated
+    2024-05-07, read at the end of that day and placed at the next open, is
+    never visible before anyone could have traded on it. The instant is
+    *derived*, and the rule names the calendar.
+    """
+
+    column: str
+    calendar: SessionCalendar
+
+
+@dataclass(frozen=True, slots=True)
+class AvailabilityNotDeclared:
+    """The source says nothing about when its rows became available.
+
+    Every row is ingested with an ``UNKNOWN`` basis and is never visible to
+    research. Declaring this is how a caller records a source's limitation
+    instead of guessing past it.
+    """
+
+
+#: How a row set establishes when each row became knowable.
+type AvailabilityRule = (
+    AvailabilityFromColumn | AvailabilityAfterLag | AvailabilityAtNextOpen | AvailabilityNotDeclared
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationColumns:
+    """How rows of generic external observations are read.
+
+    Attributes:
+        category: The observations' category, for the whole row set.
+        unit: Their unit, for the whole row set.
+        subject: The column naming each row's subject.
+        metric: The column naming what each row measured.
+        value: The column holding the value.
+        observed_at: The column holding the observation instant.
+        availability: How each row's availability is established.
+        effective_at: The column holding an effective instant, or ``None``.
+        revision: The column holding a revision number, or ``None`` when every
+            row is an original (revision 0).
+        period: ``(start, end, label)`` columns of the period each row
+            describes, or ``None``.
+        ingested_at_retrieval: Whether each row's ingestion instant is the
+            source's retrieval instant -- what the ``INGESTION`` visibility
+            rule reads. ``False`` records no ingestion instant.
+    """
+
+    category: str
+    unit: str
+    subject: str
+    metric: str
+    value: str
+    observed_at: str
+    availability: AvailabilityRule
+    effective_at: str | None
+    revision: str | None
+    period: tuple[str, str, str] | None
+    ingested_at_retrieval: bool
+
+
+@dataclass(frozen=True, slots=True)
+class EventColumns:
+    """How rows of information events are read.
+
+    Attributes:
+        subject: The column naming each row's subject.
+        event_type: The column naming what happened.
+        observed_at: The column holding the occurrence instant.
+        availability: How each row's availability is established.
+        measurements: Columns read as measurements, each named for its column.
+            An empty cell means the event carries no such measurement.
+        attributes: Columns read as text attributes. An empty cell means none.
+        effective_at: The column holding an effective instant, or ``None``.
+        revision: The column holding a revision number, or ``None``.
+        ingested_at_retrieval: As :attr:`ObservationColumns.ingested_at_retrieval`.
+    """
+
+    subject: str
+    event_type: str
+    observed_at: str
+    availability: AvailabilityRule
+    measurements: tuple[str, ...]
+    attributes: tuple[str, ...]
+    effective_at: str | None
+    revision: str | None
+    ingested_at_retrieval: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FundamentalColumns:
+    """How rows of financial-statement figures are read.
+
+    Attributes:
+        subject: The column naming the issuer.
+        statement: The column naming the statement, as a
+            :class:`~alphalab.alt_data.fundamentals.StatementType` member name.
+        line_item: The column naming the line item.
+        fiscal_year: The column holding the fiscal year.
+        fiscal_quarter: The column holding the quarter, empty for a full year.
+        period_start: The column holding the period's first instant.
+        period_end: The column holding the period's last instant.
+        value: The column holding the figure.
+        unit: The column holding the figure's unit.
+        published_at: The column holding the publication instant.
+        availability: How each row's availability is established.
+        revision: The column holding the restatement number, or ``None``.
+        ingested_at_retrieval: As :attr:`ObservationColumns.ingested_at_retrieval`.
+    """
+
+    subject: str
+    statement: str
+    line_item: str
+    fiscal_year: str
+    fiscal_quarter: str
+    period_start: str
+    period_end: str
+    value: str
+    unit: str
+    published_at: str
+    availability: AvailabilityRule
+    revision: str | None
+    ingested_at_retrieval: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PointInTimeIngestion[T: SetRecord]:
+    """A versioned set read from rows, and every row that did not become a record.
+
+    Attributes:
+        observations: The set, with its derived version.
+        rejected: Every rejected row, with its line number, its values and the
+            findings that rejected it -- the same
+            :class:`~alphalab.data.validation.RowRejection` a price ingestion
+            returns, so an application reports both the same way.
+    """
+
+    observations: ObservationSet[T]
+    rejected: tuple[RowRejection, ...]
+
+
+class _RowRefused(Exception):
+    """One row's refusal, carried to the loop that records it."""
+
+    def __init__(self, kind: FindingKind, column: str | None, detail: str) -> None:
+        super().__init__(detail)
+        self.kind = kind
+        self.column = column
+        self.detail = detail
+
+
+def _cell(row: Mapping[str, object], column: str) -> str | None:
+    value = row.get(column)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _required(row: Mapping[str, object], column: str) -> str:
+    text = _cell(row, column)
+    if text is None:
+        raise _RowRefused(FindingKind.MISSING_VALUE, column, f"{column!r} is empty")
+    return text
+
+
+def _instant(row: Mapping[str, object], column: str, reading: TimestampReading) -> float:
+    text = _required(row, column)
+    try:
+        return reading.read(text)
+    except DataValidationError as error:
+        raise _RowRefused(FindingKind.UNPARSEABLE_TIMESTAMP, column, str(error)) from error
+
+
+def _optional_instant(
+    row: Mapping[str, object], column: str | None, reading: TimestampReading
+) -> float | None:
+    if column is None or _cell(row, column) is None:
+        return None
+    return _instant(row, column, reading)
+
+
+def _decimal(text: str, column: str) -> Decimal:
+    try:
+        value = Decimal(text)
+    except (ValueError, ArithmeticError) as error:
+        raise _RowRefused(FindingKind.NON_NUMERIC, column, f"{text!r} is not a number") from error
+    if not value.is_finite():
+        raise _RowRefused(FindingKind.NON_FINITE, column, f"{text!r} is not finite")
+    return value
+
+
+def _integer(row: Mapping[str, object], column: str | None) -> int:
+    if column is None:
+        return 0
+    text = _required(row, column)
+    try:
+        return int(text)
+    except ValueError as error:
+        raise _RowRefused(
+            FindingKind.NON_NUMERIC, column, f"{text!r} is not a whole number"
+        ) from error
+
+
+def _stamp(
+    row: Mapping[str, object],
+    observed_at: float,
+    availability: AvailabilityRule,
+    reading: TimestampReading,
+    effective_at: float | None,
+    ingested_at: float | None,
+) -> PointInTimeStamp:
+    if isinstance(availability, AvailabilityFromColumn):
+        declared = _optional_instant(row, availability.column, reading)
+        if declared is None:
+            return PointInTimeStamp.unknown(
+                observed_at, effective_at=effective_at, ingested_at=ingested_at
+            )
+        return PointInTimeStamp.declared(
+            observed_at, declared, effective_at=effective_at, ingested_at=ingested_at
+        )
+    if isinstance(availability, AvailabilityAfterLag):
+        return PointInTimeStamp.derived(
+            observed_at,
+            observed_at + availability.lag_seconds,
+            f"observed_at + {availability.lag_seconds!r}s, the source's declared lag",
+            effective_at=effective_at,
+            ingested_at=ingested_at,
+        )
+    if isinstance(availability, AvailabilityAtNextOpen):
+        published = _instant(row, availability.column, reading)
+        placement = place_in_session(published, availability.calendar)
+        return PointInTimeStamp.derived(
+            observed_at,
+            placement.tradable_at,
+            f"first open of {availability.calendar.calendar_id} at or after the stated "
+            f"publication {published!r}",
+            effective_at=effective_at,
+            ingested_at=ingested_at,
+        )
+    return PointInTimeStamp.unknown(observed_at, effective_at=effective_at, ingested_at=ingested_at)
+
+
+def _check_availability(availability: AvailabilityRule) -> None:
+    if isinstance(availability, AvailabilityAfterLag) and (
+        isinstance(availability.lag_seconds, bool)
+        or not isinstance(availability.lag_seconds, int | float)
+        or not math.isfinite(availability.lag_seconds)
+        or availability.lag_seconds < 0.0
+    ):
+        raise DataValidationError(
+            f"A declared lag of {availability.lag_seconds!r} seconds is not a finite, "
+            "non-negative duration."
+        )
+
+
+def _ingest[T: SetRecord](
+    rows: Sequence[Mapping[str, object]],
+    name: str,
+    source: ObservationSource,
+    build: Callable[[Mapping[str, object]], T],
+) -> PointInTimeIngestion[T]:
+    records: list[T] = []
+    seen: set[str] = set()
+    rejected: list[RowRejection] = []
+    for line, row in enumerate(rows, start=1):
+        values = tuple("" if value is None else str(value) for value in row.values())
+        try:
+            try:
+                record = build(row)
+            except (AltDataInputError, AlphaLabValidationError) as error:
+                raise _RowRefused(FindingKind.INCONSISTENT_RECORD, None, str(error)) from error
+            if record.record_id in seen:
+                raise _RowRefused(
+                    FindingKind.DUPLICATE_TIMESTAMP,
+                    None,
+                    f"the row repeats record {record.record_id} exactly",
+                )
+        except _RowRefused as refusal:
+            finding = ValidationFinding(
+                refusal.kind, Severity.ERROR, line, refusal.column, refusal.detail
+            )
+            rejected.append(RowRejection(line, values, (finding,)))
+            continue
+        seen.add(record.record_id)
+        records.append(record)
+    if not records:
+        reasons = sorted({rejection.findings[0].detail for rejection in rejected})
+        raise DataValidationError(
+            f"No row of {name!r} became a record; {len(rejected)} were rejected, for reasons "
+            f"including {reasons[:3]}."
+        )
+    return PointInTimeIngestion(build_observation_set(name, records, source), tuple(rejected))
+
+
+def ingest_observations(
+    rows: Sequence[Mapping[str, object]],
+    name: str,
+    source: ObservationSource,
+    columns: ObservationColumns,
+    reading: TimestampReading,
+) -> PointInTimeIngestion[ExternalObservation]:
+    """Read rows of external observations into a versioned, point-in-time set.
+
+    Every row either becomes an
+    :class:`~alphalab.alt_data.observation.ExternalObservation` or is returned
+    as a :class:`~alphalab.data.validation.RowRejection` with its line and its
+    reason. Nothing is filled: a missing value is a rejection, and a missing
+    availability instant under :class:`AvailabilityFromColumn` is an ``UNKNOWN``
+    stamp.
+
+    Raises:
+        DataValidationError: If the availability rule is malformed, or no row
+            became a record.
+        AltDataInputError: If two rows claim different values for one revision
+            of one figure -- a contradiction in the source that dropping either
+            row would resolve arbitrarily.
+    """
+
+    _check_availability(columns.availability)
+    ingested = source.retrieved_at if columns.ingested_at_retrieval else None
+
+    def build(row: Mapping[str, object]) -> ExternalObservation:
+        observed = _instant(row, columns.observed_at, reading)
+        period = None
+        if columns.period is not None:
+            start_column, end_column, label_column = columns.period
+            period = ReferencePeriod(
+                _instant(row, start_column, reading),
+                _instant(row, end_column, reading),
+                _required(row, label_column),
+            )
+        return ExternalObservation(
+            category=columns.category,
+            subject=_required(row, columns.subject),
+            metric=_required(row, columns.metric),
+            value=_decimal(_required(row, columns.value), columns.value),
+            unit=columns.unit,
+            stamp=_stamp(
+                row,
+                observed,
+                columns.availability,
+                reading,
+                _optional_instant(row, columns.effective_at, reading),
+                ingested,
+            ),
+            source=source,
+            period=period,
+            revision=_integer(row, columns.revision),
+        )
+
+    return _ingest(rows, name, source, build)
+
+
+def ingest_events(
+    rows: Sequence[Mapping[str, object]],
+    name: str,
+    source: ObservationSource,
+    columns: EventColumns,
+    reading: TimestampReading,
+) -> PointInTimeIngestion[InformationEvent]:
+    """Read rows of information events into a versioned, point-in-time set.
+
+    Raises:
+        DataValidationError: If the availability rule is malformed, or no row
+            became a record.
+    """
+
+    _check_availability(columns.availability)
+    ingested = source.retrieved_at if columns.ingested_at_retrieval else None
+
+    def build(row: Mapping[str, object]) -> InformationEvent:
+        observed = _instant(row, columns.observed_at, reading)
+        measurements = {
+            column: _decimal(text, column)
+            for column in columns.measurements
+            if (text := _cell(row, column)) is not None
+        }
+        attributes = {
+            column: text
+            for column in columns.attributes
+            if (text := _cell(row, column)) is not None
+        }
+        return InformationEvent(
+            event_type=_required(row, columns.event_type),
+            subject=_required(row, columns.subject),
+            stamp=_stamp(
+                row,
+                observed,
+                columns.availability,
+                reading,
+                _optional_instant(row, columns.effective_at, reading),
+                ingested,
+            ),
+            source=source,
+            measurements=measurements,
+            attributes=attributes,
+            revision=_integer(row, columns.revision),
+        )
+
+    return _ingest(rows, name, source, build)
+
+
+def ingest_fundamentals(
+    rows: Sequence[Mapping[str, object]],
+    name: str,
+    source: ObservationSource,
+    columns: FundamentalColumns,
+    reading: TimestampReading,
+) -> PointInTimeIngestion[FundamentalObservation]:
+    """Read rows of statement figures into a versioned, point-in-time set.
+
+    Each row's observation instant is its period's end, and its availability
+    is never before its publication -- a row claiming otherwise is rejected as
+    an inconsistent record rather than trusted.
+
+    Raises:
+        DataValidationError: If the availability rule is malformed, or no row
+            became a record.
+    """
+
+    _check_availability(columns.availability)
+    ingested = source.retrieved_at if columns.ingested_at_retrieval else None
+
+    def build(row: Mapping[str, object]) -> FundamentalObservation:
+        statement_name = _required(row, columns.statement)
+        try:
+            statement = StatementType[statement_name]
+        except KeyError as error:
+            raise _RowRefused(
+                FindingKind.INCONSISTENT_RECORD,
+                columns.statement,
+                f"{statement_name!r} is not one of {[member.name for member in StatementType]}",
+            ) from error
+        quarter_text = _cell(row, columns.fiscal_quarter)
+        period = FiscalPeriod(
+            fiscal_year=_integer(row, columns.fiscal_year),
+            fiscal_quarter=None if quarter_text is None else _integer(row, columns.fiscal_quarter),
+            start=_instant(row, columns.period_start, reading),
+            end=_instant(row, columns.period_end, reading),
+        )
+        return FundamentalObservation(
+            subject=_required(row, columns.subject),
+            statement=statement,
+            line_item=_required(row, columns.line_item),
+            fiscal_period=period,
+            value=_decimal(_required(row, columns.value), columns.value),
+            unit=_required(row, columns.unit),
+            published_at=_instant(row, columns.published_at, reading),
+            stamp=_stamp(row, period.end, columns.availability, reading, None, ingested),
+            source=source,
+            revision=_integer(row, columns.revision),
+        )
+
+    return _ingest(rows, name, source, build)
+
+
+class WireTimestamp(Enum):
+    """What the single timestamp of a wire record means.
+
+    A :class:`~alphalab.data.feed.FundamentalRecord`,
+    :class:`~alphalab.data.feed.EconomicEvent` or
+    :class:`~alphalab.data.feed.AlternativeDataRecord` carries one timestamp,
+    and nothing in the record says whether it is when the figure was
+    *published* or the period it *describes*. The caller declares which; it is
+    not guessed.
+    """
+
+    #: The timestamp is when the record became available. It is also taken as
+    #: the observation instant, since the record states no earlier one.
+    AVAILABILITY = auto()
+
+    #: The timestamp is the observation instant only -- a period end, a
+    #: reference date. Availability is ``UNKNOWN`` and the lifted record is never
+    #: visible to research: the limitation stated, not assumed away.
+    OBSERVATION = auto()
+
+
+def lift_wire_records(
+    records: Sequence[CanonicalRecord],
+    name: str,
+    source: ObservationSource,
+    meaning: WireTimestamp,
+    unit: str,
+) -> ObservationSet[ExternalObservation]:
+    """Lift single-timestamp wire records into a point-in-time observation set.
+
+    Fundamental records become ``fundamental`` observations of their metric,
+    economic events ``economic`` observations of their actual print, and
+    alternative-data records ``sentiment`` observations of their score. Under
+    :attr:`WireTimestamp.OBSERVATION` every lifted record is ``UNKNOWN`` -- the
+    honest reading of a record that says what period it describes and not when
+    anyone knew it. A metric or event name is used as given: one that is not a
+    dotted lowercase identifier is refused rather than rewritten, because a
+    rewritten name is a silent change to the data.
+
+    Raises:
+        DataValidationError: If ``records`` is empty or holds a record type that
+            carries no external observation -- a bar, a quote, a split.
+        AltDataInputError: If a name is not an identifier or a value is not
+            finite.
+    """
+
+    if not records:
+        raise DataValidationError("There are no wire records to lift.")
+    lifted: list[ExternalObservation] = []
+    for record in records:
+        if isinstance(record, FundamentalRecord):
+            category, metric, value = "fundamental", record.metric_name, record.metric_value
+        elif isinstance(record, EconomicEvent):
+            category, metric, value = "economic", record.event_name, record.actual
+        elif isinstance(record, AlternativeDataRecord):
+            category, metric, value = "sentiment", "sentiment_score", record.sentiment_score
+        else:
+            raise DataValidationError(
+                f"A {type(record).__name__} carries no external observation to lift."
+            )
+        stamp = (
+            PointInTimeStamp.declared(record.timestamp, record.timestamp)
+            if meaning is WireTimestamp.AVAILABILITY
+            else PointInTimeStamp.unknown(record.timestamp)
+        )
+        lifted.append(
+            ExternalObservation(
+                category=category,
+                subject=record.symbol,
+                metric=metric,
+                value=Decimal(repr(value)),
+                unit=unit,
+                stamp=stamp,
+                source=source,
+                period=None,
+                revision=0,
+            )
+        )
+    return build_observation_set(name, lifted, source)

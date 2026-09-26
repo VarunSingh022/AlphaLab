@@ -168,6 +168,24 @@ function, and none of them a store, a registry or a workflow:
 
 None of the four persists anything, lists, ranks, sells or publishes a
 strategy, or knows who is asking.
+
+What v3.7 adds
+--------------
+
+Adaptive strategies and point-in-time research reach the same four contracts
+without widening any of them.
+:func:`~alphalab.lifecycle.fingerprint.research_configuration_with_adaptive`
+names an adaptive component's configuration and starting state through the
+research-settings section a fingerprint already hashes, so no fingerprint key
+moved. A study that names auxiliary inputs -- event sets, observation sets,
+fundamentals, regime definitions -- lists each as an external requirement of
+its manifest. :func:`~alphalab.lifecycle.reproducibility.assess_adaptive_replay`
+answers, for a research replay of an adaptive component, the question
+:func:`~alphalab.lifecycle.reproducibility.assess_reproducibility` answers for a
+run: did the same inputs produce the same result, and if not, where did it
+first differ. A run of an adaptive strategy needs nothing new: its captured
+state is in the run's record, so :func:`~alphalab.lifecycle.reproducibility.digest_run`
+already commits to every update it made.
 """
 
 from alphalab.lifecycle.certification import (
@@ -234,6 +252,7 @@ from alphalab.lifecycle.execution import (
     run_plan,
 )
 from alphalab.lifecycle.fingerprint import (
+    ADAPTIVE_SETTING_PREFIX,
     NO_DEPENDENCIES,
     STRATEGY_FINGERPRINT_SCHEME,
     STRATEGY_SOURCE_SCHEME,
@@ -256,6 +275,7 @@ from alphalab.lifecycle.fingerprint import (
     normalize_distribution_name,
     research_configuration,
     research_configuration_for_study,
+    research_configuration_with_adaptive,
     running_engine,
     source_digest,
     verify_fingerprint,
@@ -348,6 +368,7 @@ from alphalab.lifecycle.reconciliation import (
 from alphalab.lifecycle.registration import register_model_version, register_strategy
 from alphalab.lifecycle.reproducibility import (
     REPRODUCIBILITY_MANIFEST_SCHEME,
+    AdaptiveReplayAssessment,
     DatasetProvenanceView,
     ExternalInput,
     ExternalRequirement,
@@ -359,6 +380,7 @@ from alphalab.lifecycle.reproducibility import (
     SeedRole,
     SourceBytesView,
     VersionedDataset,
+    assess_adaptive_replay,
     assess_reproducibility,
     canonical_manifest_key,
     derive_manifest_id,
@@ -412,6 +434,7 @@ from alphalab.lifecycle.views import (
 )
 
 __all__ = [
+    "ADAPTIVE_SETTING_PREFIX",
     "BROKER_STATUS_EQUIVALENTS",
     "CERTIFICATION_REPORT_SCHEME",
     "COMPONENT_EVIDENCE",
@@ -438,6 +461,7 @@ __all__ = [
     "STRATEGY_FINGERPRINT_SCHEME",
     "STRATEGY_SOURCE_SCHEME",
     "UNDECLARED_DEPENDENCIES",
+    "AdaptiveReplayAssessment",
     "AlignmentKey",
     "ApprovalRecord",
     "BrokerCapabilities",
@@ -540,6 +564,7 @@ __all__ = [
     "approvals_of",
     "approve_deployment",
     "archive_progression",
+    "assess_adaptive_replay",
     "assess_reproducibility",
     "authorize_run",
     "begin_progression",
@@ -597,6 +622,7 @@ __all__ = [
     "replace_strategy_version",
     "research_configuration",
     "research_configuration_for_study",
+    "research_configuration_with_adaptive",
     "resource_counts",
     "resume_progression",
     "resume_target",

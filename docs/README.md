@@ -246,6 +246,12 @@ which is the compute/registry seam working: it computes nothing, so the
 computation engine writes through `FeatureValueProtocol` without either package
 importing the other.
 
+**As of v3.7, `alt_data` is no longer standalone either**: `alphalab.research`
+imports it for event studies, `factor_library` for knowledge frames and
+`alphalab.api` for ingestion, so it too is reached by the lifecycle path. It
+imports `alphalab.common` and nothing else, and
+`tests/regression/test_v37_invariants.py` measures that edge set (ADR-0042).
+
 `experiment_tracking`, `model_registry`, `deployment_manager`, `studio`,
 `enterprise` and `research` are imported by `alphalab.lifecycle` as of v2.4 and
 remain usable on their own. `research_assistant` is the one the lifecycle names
@@ -304,13 +310,32 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.6.0
+v3.7.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.7.0 — advanced quant research.** The seventh capability release on the
+frozen architecture, and no package is added. Everything rests on one statement
+AlphaLab could not make before: when a piece of information became knowable.
+`PointInTimeStamp` carries the observed, available, effective and ingested
+instants with an availability basis — declared, derived by a named rule, or
+unknown, which research never reads. `alphalab.alt_data` becomes the
+point-in-time foundation for external information, a leaf over `common`:
+canonical `InformationEvent`s, `ExternalObservation`s of any category with a
+source identity and the bytes they came from, point-in-time
+`FundamentalObservation`s that keep fiscal period, publication, availability and
+restatement apart, and versioned sets with checked vintages. Knowledge frames
+give the v3.2 feature engine the latest knowable figure per subject and a checked
+join to the prices; `event_study` anchors where news could first be traded;
+regime detection applies declared rules with a reconstructable state; and the
+adaptive engine in `alphalab.strategy` keeps learned state immutable, replays it
+exactly, checkpoints it, and hands it to the run snapshot, so a run's digest and
+a strategy's fingerprint commit to what it learned. No boundary moves, no
+durable state is added and no snapshot schema is touched. See `ADR/0042`.
 
 **v3.6.0 — strategy evaluation and research-marketplace infrastructure.** The
 sixth capability release on the frozen architecture. One package is deepened —

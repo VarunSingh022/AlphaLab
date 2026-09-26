@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-3.6.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.7.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-5669%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-6118%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -29,7 +29,7 @@ AlphaLab ships three kinds of package:
 
 - **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable `ExecutionPipelineState`. `alphalab.runtime.run.RunEngine` owns the *run* over it, and four interchangeable drivers feed it: `TradingSession`, `BacktestEngine`, `ReplayBacktest` and `LiveSession`. Because all four call the same step, a backtest, a replay, a paper run and a live run of one dataset produce identical orders, fills and P&L wherever the venue is the same.
 - **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, the deployment manager, `studio`'s strategy definitions, `enterprise`'s RBAC and `research`/`backtesting`'s reports into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. Every act that changes what is live names its principal. As of v2.16 it is **joined** to the execution path: `run_plan` resolves what an environment has live and `authorize_run` refuses a run that would serve anything else. As of v2.17 `alphalab.strategy.registry` supplies the other half of that join — the identity a deployment names, mapped to the code a run executes. As of v3.5 the same package carries past the deployment record into the thing a deployment becomes: a strategy's progression from research to live money, the specification of what it needs to run as it was researched, structured runtime health from supplied observations, an expected/paper/live comparison, and deterministic reconciliation against a normalized broker state. As of v3.6 it also makes a strategy version evaluable by somebody else: an immutable fingerprint of its code, dependencies, parameters, research configuration and engine; a manifest from which a result can be recreated; machine-verifiable certification properties, each with its evidence; and a portability check against declared environment capabilities.
-- **Standalone engine libraries.** The remaining packages (portfolio optimizer, reporting, feature store, factor library, ML / deep learning / RL, options / futures / crypto / macro, alternative data, cloud research, cluster scheduler, workbench, and the rest) are independent, deterministic, individually tested libraries reached by neither path. They share the engineering model and are **not** fused into a single runtime. That is a decision, not a gap — see ADR-0009.
+- **Standalone engine libraries.** The remaining packages (portfolio optimizer, reporting, feature store, ML / deep learning / RL, options / futures / crypto / macro, cloud research, cluster scheduler, workbench, and the rest) are independent, deterministic, individually tested libraries reached by neither path. They share the engineering model and are **not** fused into a single runtime. That is a decision, not a gap — see ADR-0009. The factor library (since v3.2) and alternative data (since v3.7) are no longer on that list: `research` imports both, so the lifecycle path reaches them.
 
 The framework is designed for researchers, quantitative developers, students, and engineering teams building reproducible trading infrastructure.
 
@@ -37,22 +37,97 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.6.0 — strategy evaluation and research-marketplace infrastructure, on the v3.0 frozen architecture**
+**Current Release:** **v3.7.0 — advanced quant research: point-in-time events, alternative data, fundamentals, regimes and adaptive strategies, on the v3.0 frozen architecture**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.6.0 |
+| Version | 3.7.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **5669 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (1080 source files, repository-wide) |
+| Tests | **6118 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (1122 source files, repository-wide) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **55 / 55 Passing** |
-| Examples | **49 / 49 Passing** |
+| Benchmarks | **57 / 57 Passing** |
+| Examples | **55 / 55 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+## What v3.7.0 is
+
+The seventh capability release on the frozen architecture. v3.6 made a strategy
+version evaluable by somebody else; v3.7 lets research use **information other
+than prices without looking ahead**, and lets a strategy **learn without
+becoming irreproducible**. Everything rests on one statement AlphaLab could not
+make before: when a piece of information became knowable.
+
+No package is added. The point-in-time core in `alphalab.common` is extended,
+`alphalab.alt_data` becomes the point-in-time foundation for external
+information — a leaf over `common` that the factor library and the research
+layer read — and new modules land in `factor_library`, `research`, `strategy`,
+`lifecycle` and `api`. No boundary moves, no snapshot schema changes and no
+durable state is added. Every v3.1 through v3.6 invariant holds. ADR-0042.
+
+**Four instants, and a basis.** Every external record carries when it was
+observed, when it became knowable, when it takes effect and when this system
+received it, and whether the availability instant was declared by the source,
+derived by a named rule, or never established — in which case research never
+reads it and every selection counts it. Visibility is asked of the world's clock
+(publication) or this system's (ingestion), so a backfill is visible from its
+arrival.
+
+**Events, alternative data and fundamentals, each one canonical record.** An
+`InformationEvent` for any occurrence — earnings, a CPI print, a split, a
+headline — an `ExternalObservation` for any measured value, whatever its
+category, and a `FundamentalObservation` that keeps fiscal period, publication,
+availability and restatement apart. Revisions are vintages, read `AS_KNOWN` or
+`ORIGINAL` — never today's restatement at a past instant. Sets have derived
+versions naming the source, its version and the bytes; availability is declared
+at ingestion by an explicit rule (a column, a delivery lag, the next session
+open after a date-only filing, or nothing — `UNKNOWN`).
+
+**Research on what was knowable.** Knowledge frames give the v3.2 feature engine
+the latest knowable figure per subject on the price clock — not a forward fill —
+and a checked join to the prices, so an information coefficient names both
+sources. Event studies anchor at the first observation at or after the instant
+an event could be *traded*, not when it happened, exclude corrections and
+unknown deliveries by name, and report clustering instead of a p-value.
+Trailing twelve months, valuation and ratios are point in time, explain every
+undefined figure, and refuse a price observed after the research instant.
+Regimes come from declared rules with the caller's labels, persistence, and a
+state that resumes to exactly the one-pass result.
+
+**Adaptive strategies that replay exactly.** Configuration, observation, learned
+state, update and decision are separate immutable values; one pure function moves
+a state, whose identity is a hash chain over every update. Cadence, ordering,
+warmup, freezing, checkpoints and reprocessing are explicit. An adaptive
+strategy's backtest ends in exactly the state its research replay reaches, its
+learned state is in the run snapshot and the run's digest, its fingerprint names
+its learning configuration and starting state, and two replays are assessed
+`REPRODUCED`, `INPUTS_DIFFER` or `DIVERGED`.
+
+```text
+   vendor rows + bytes --> ingest (explicit availability rule) --> versioned set
+                                                                        |
+        +------------------------------+-------------------------+-----+
+        v                              v                         v
+   event study                  knowledge frame            fundamentals
+   (anchored where              (latest knowable,          (as knowable; TTM,
+    it could be traded)          checked price join)        valuation, ratios)
+                                       |
+                    features, IC, regimes, conditional diagnostics
+                                       |
+   research replay  <==== same apply_update ====>  adaptive strategy backtest
+        |                                                    |
+   checkpoint / restore / reprocess             run snapshot, digest, fingerprint
+        +------------> assess_adaptive_replay / manifest + rerun <-------+
+```
+
+Full detail in [ADR-0042](docs/ADR/0042-point-in-time-research-events-alternative-data-fundamentals-regimes-and-adaptive-strategies.md)
+and [CHANGELOG.md](CHANGELOG.md).
+
+---
 
 ## What v3.6.0 is
 
@@ -531,6 +606,7 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v3.4.0** | Global markets and multi-asset research: one market-convention authority, reproducible continuous futures, implied volatility with five refusals, FX cross rates and a look-ahead guard, crypto venue metadata and 24/7 coverage, and a fixed-income foundation (ADR-0039) |
 | **v3.5.0** | Strategy execution and production intelligence: the research-to-live progression, deployment specifications with a derived identity, structured runtime health from supplied observations, expected/paper/live comparison, and AlphaLab-to-broker reconciliation (ADR-0040) |
 | **v3.6.0** | Strategy evaluation: immutable strategy fingerprints over code, dependencies, parameters, research configuration and engine; reproducibility manifests with separate identity, completeness, rerun and external-dependency answers; eight machine-verifiable certification properties with no overall score; and portability checked against declared environment capabilities (ADR-0041) |
+| **v3.7.0** | Advanced quant research: one point-in-time statement of when information became knowable, canonical events, alternative data with source identity and versioned sets, point-in-time fundamentals, knowledge frames with a checked price join, event studies anchored where news could be traded, regime detection from declared rules, and adaptive strategies whose learned state replays exactly and reaches the run record (ADR-0042) |
 
 > **What connectivity means here.** `alphalab.broker.transport.HttpVenueTransport`
 > signs and sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker`
@@ -688,7 +764,7 @@ Everything below is importable, deterministic, and independently tested, but is
 |---|---|
 | Reporting | `reporting` |
 | Portfolio construction | `portfolio_optimizer`, `optimizer` |
-| Features & factors | `feature_store`, `factor_library`, `alt_data` |
+| Feature registry | `feature_store` |
 | Learning | `ml`, `deep_learning`, `reinforcement_learning` |
 | Asset classes | `options`, `futures`, `crypto`, `macro` |
 | Market conventions | `conventions` — a leaf over `common`, imported *by* `data`-side and `portfolio`-side packages rather than reached from a run |
@@ -708,6 +784,9 @@ import graph is the authority:
   through.
 - `research`, `studio`, `enterprise`, `experiment_tracking`, `model_registry`,
   `deployment_manager` and `backtesting` are imported by `alphalab.lifecycle`.
+- `factor_library` (since v3.2) and `alt_data` (since v3.7) are imported by
+  `research`, so the lifecycle path reaches them. `alt_data` imports
+  `alphalab.common` and nothing else, and `test_v37_invariants.py` measures it.
 - `research_assistant` is the one package the lifecycle *names* without
   importing: it produces a candidate and `to_strategy_definition` lifts it into
   the canonical `StrategyDefinition` the lifecycle takes. The dependency runs
@@ -787,6 +866,12 @@ The recommended way to learn the framework is through the curated examples.
 | 47 | `47_reproducible_research_artifacts.py` | A manifest of everything a result was made from; a rerun that reproduces, one that diverges, and an unseeded run refused |
 | 48 | `48_strategy_certification.py` | Eight machine-verifiable properties, four statuses, no score, and evidence that is observed rather than asserted |
 | 49 | `49_strategy_portability.py` | One fingerprint across research, paper and two brokers declared as capabilities; blockers named, nothing adapted |
+| 50 | `50_event_driven_research.py` | **The v3.7 event model**: four instants kept apart, releases placed in the trading day, and an event study anchored where the news could be traded |
+| 51 | `51_alternative_data_provenance.py` | Alternative data with source identity, version and bytes; availability declared, derived or unknown; revisions as vintages; a checked join to prices |
+| 52 | `52_fundamental_research.py` | Statements as they were knowable: a date-only filing at the next open, a restatement only once published, TTM, valuation and a PIT value factor |
+| 53 | `53_regime_detection.py` | Regimes from declared rules and the caller's labels, with persistence, a resumable state and a regime-conditioned diagnostic |
+| 54 | `54_adaptive_strategy.py` | An adaptive strategy whose backtest ends in its research replay's state; cadence, freezing, snapshot restore and a fingerprint naming its start |
+| 55 | `55_reproducible_adaptive_replay.py` | Checkpoints continued in a second interpreter, a late observation reprocessed, replays assessed, and an adaptive run's manifest reproduced |
 
 Run any example:
 
@@ -800,9 +885,10 @@ Examples `01`–`10` date from v1.0.0 and exercise the standalone engine APIs;
 settlement-level multi-currency, `15`–`16` (v3.1) universal data ingestion and
 research from a canonical dataset, `17`–`24` (v3.2) the research and validation
 path, `25`–`30` (v3.3) institutional backtesting, `31`–`40` (v3.4) global
-markets, `41`–`45` (v3.5) strategy execution, and `46`–`49` (v3.6) strategy
-evaluation. None are part of the automated test suite, though all forty-nine run
-as a release gate; `17`–`24` all ingest the same committed panel in
+markets, `41`–`45` (v3.5) strategy execution, `46`–`49` (v3.6) strategy
+evaluation, and `50`–`55` (v3.7) point-in-time research and adaptive strategies.
+None are part of the automated test suite, though all fifty-five run as a
+release gate; `17`–`24` all ingest the same committed panel in
 `examples/data/research_panel.csv` so their numbers are comparable with each
 other.
 
@@ -819,7 +905,7 @@ The complete documentation is available in the `docs/` directory.
 | `docs/SYSTEM_DESIGN.md` | Internal design and subsystem interaction |
 | `docs/STATE_MODEL.md` | Immutable state, snapshots and schemas |
 | `docs/EVENT_MODEL.md` | Event-driven architecture and lifecycle |
-| `docs/ADR/` | Architectural Decision Records — 41 of them |
+| `docs/ADR/` | Architectural Decision Records — 42 of them |
 | `docs/EXAMPLES.md` | Example walkthroughs |
 | `docs/ENGINEERING_GUIDELINES.md` | Engineering standards |
 | `nowandfuture.md` | The long-form project reference: ownership, invariants, boundaries, what must not change casually |
@@ -834,7 +920,8 @@ alphalab/
 ├── Execution spine (wired by runtime.ExecutionPipeline / runtime.run.RunEngine)
 │   core/          Canonical domain models — Side, OrderRequest, Fill, Trade, ids
 │   runtime/       ExecutionPipeline, RunEngine, drivers, broker routing, snapshots
-│   strategy/      Strategy protocol, dispatcher, supervisor, class registry
+│   strategy/      Strategy protocol, dispatcher, supervisor, class registry,
+│                  and the v3.7 adaptive engine (ADR-0042)
 │   allocation/    Intent sizing / netting → OrderRequest, reservations, contributions
 │   risk/          Pre-trade risk checks and limits
 │   oms/           Order lifecycle (oms.order.Order is canonical)
@@ -856,13 +943,18 @@ alphalab/
 │   experiment_tracking/  model_registry/  deployment_manager/
 │   studio/        Strategy definitions and project orchestration
 │   enterprise/    RBAC, principals, audit log (governance reads it)
-│   research/      Run evaluation, and the v3.2 study methodology
-│   factor_library/  The computation engine: features, factors, diagnostics
+│   research/      Run evaluation, the v3.2 study methodology, and v3.7
+│                  event studies and regime detection
+│   factor_library/  The computation engine: features, factors, diagnostics,
+│                  and v3.7 knowledge frames over point-in-time information
 │
 ├── Data surfaces
 │   data/          Wire records, and the universal data engine:
 │                  ingestion, schema detection, validation, cleaning,
 │                  calendars, corporate actions, provenance, `api`
+│   alt_data/      Point-in-time external information — observations, events,
+│                  fundamentals, versioned sets, sessions. A leaf over common
+│                  (ADR-0042)
 │   marketdata/    Provider clients, transport, WebSocket
 │   feed/  live/   Standalone provider-surface engines
 │
@@ -872,7 +964,7 @@ alphalab/
 │
 └── Standalone engines
     reporting/  portfolio_optimizer/  optimizer/
-    feature_store/  alt_data/
+    feature_store/
     ml/  deep_learning/  reinforcement_learning/
     options/  futures/  crypto/  macro/
     cloud_research/  cluster_scheduler/  distributed/
@@ -886,9 +978,9 @@ Additional directories:
 
 ```text
 docs/          Documentation and ADRs
-examples/      49 runnable examples
-benchmarks/    55 performance benchmarks
-tests/         5669 tests — unit, integration, regression
+examples/      55 runnable examples
+benchmarks/    57 performance benchmarks
+tests/         6118 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
 
@@ -898,10 +990,10 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **5669 passing tests** (2884 unit, 348 integration, 2437 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1080 source files)
+- ✅ **6118 passing tests** (3242 unit, 361 integration, 2515 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1122 source files)
 - ✅ Ruff linting and formatting
-- ✅ 55 / 55 benchmarks, 49 / 49 examples
+- ✅ 57 / 57 benchmarks, 55 / 55 examples
 - ✅ Source distribution, wheel and `twine check` validation
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
@@ -957,6 +1049,13 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
 - **Three ways of checking a strategy** — `evaluate_policy` gates a promotion,
   `validate_specification` checks a specification's coherence, and a
   certification report states eight properties with no verdict.
+- **Two ways of reading "as of"** — `known_as_of` trusts a record's release
+  date and is unchanged; v3.7's `PointInTimeIndex` reads a stamp that can say
+  the availability was never established. **Engine events and information
+  events** — `BaseEvent` says a state changed inside AlphaLab;
+  `InformationEvent` is data about the world. **Two regime tools** — v1's
+  `analyze_regimes` scores a return series; v3.7's `classify_regimes` applies a
+  declared rule (ADR-0042).
 - **Standalone engines with no in-repo consumer** — that is ADR-0009, not an
   orphan.
 - **No marketplace logic.** AlphaLab provides the evidence contracts — a
@@ -987,6 +1086,10 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   caller's declaration (a lock file) — AlphaLab resolves nothing and reads no
   installed environment. Every `TargetEnvironment`, runtime observation and
   resource measurement is supplied by whoever knows it.
+- **Alternative data, events and fundamentals.** v3.7 ships the point-in-time
+  *contract* — records, sets, ingestion rules, queries — and no vendor, feed,
+  file or line-item taxonomy. The rows, the bytes and a price for valuation are
+  the caller's.
 
 ## Optional future evolution — deliberately not built
 
@@ -1001,6 +1104,13 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   environments.
 - A single integrated runtime spanning *all* engines. Reporting, the feature
   store, the factor library and the rest remain standalone by design (ADR-0009).
+- Execution-path delivery of external information. An adaptive strategy on the
+  execution path learns from the market events it is dispatched; external
+  information reaches adaptive state through a research replay and a trained
+  checkpoint. Delivering observations as execution-path events would change the
+  canonical spine and its snapshots (ADR-0042).
+- Statistical regime models (hidden Markov, Markov switching). v3.7's regimes
+  are declared rules; an estimated model needs an identity for its fit.
 - One measured trade left in place: `OptimizerState.pending_trials` stays
   super-linear because the fix was implemented, measured at **+3.9%** on the
   execution pipeline, and refused on that evidence. It is in a standalone package
@@ -1035,7 +1145,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v3.6.0**
+**AlphaLab v3.7.0**
 
 Building deterministic infrastructure for quantitative research.
 

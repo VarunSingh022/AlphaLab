@@ -1534,3 +1534,210 @@ def test_environment_parity_and_portability_are_different_claims() -> None:
     # Read from the module namespace: the names are imported there, not re-exported.
     assert vars(portability)["unmet_broker_requirements"] is unmet_broker_requirements
     assert vars(portability)["unmet_market_requirements"] is unmet_market_requirements
+
+
+# --------------------------------------------------------------------------- #
+# 30. "event" -- an engine's notification, and something that happened (v3.7)
+# --------------------------------------------------------------------------- #
+
+
+def test_an_engine_event_and_an_information_event_are_different_things() -> None:
+    """``BaseEvent`` and every ``events.py`` hold **engine** events: a dataset was
+    ingested, a study completed, an order filled. They describe AlphaLab's own
+    state changes and are emitted by it.
+
+    :class:`~alphalab.alt_data.information.InformationEvent` is **data about the
+    world** -- an earnings release, a CPI print -- that a study reads and a
+    strategy trades on, with the instant it became knowable. It is not a
+    ``BaseEvent``, it does not live in an ``events.py``, and it is not called
+    ``Event``: a merge would give a notification an availability instant and a
+    market release an event id, and neither means anything.
+    """
+
+    from alphalab.alt_data import InformationEvent
+    from alphalab.common.events import BaseEvent
+    from alphalab.market.events import MarketEvent
+    from alphalab.research.events import ResearchEvent
+
+    assert not issubclass(InformationEvent, BaseEvent)
+    assert issubclass(MarketEvent, BaseEvent) and issubclass(ResearchEvent, BaseEvent)
+    information = {field.name for field in dataclasses.fields(InformationEvent)}
+    engine = {field.name for field in dataclasses.fields(BaseEvent)}
+    assert "stamp" in information and "stamp" not in engine
+
+
+# --------------------------------------------------------------------------- #
+# 31. "regime" -- a score over supplied labels, a detector, and a feature (v3.7)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_three_regime_shaped_things_answer_three_questions() -> None:
+    """``research.analyze_regimes`` (v1) **scores a finished run's returns** by
+    labels somebody supplied on the payload -- it detects nothing and blends a
+    score. ``research.classify_regimes`` (v3.7) **detects** labels from signals
+    under a declared rule with a reconstructable state, and scores nothing.
+    ``FeatureKind.VOLATILITY_REGIME`` (v3.2) is **a number** -- short over long
+    volatility -- which a detector may read as its signal.
+
+    Merging the first two would give the detector a blended score; merging the
+    last two would make a feature emit labels, which no panel can rank.
+    """
+
+    import inspect as _inspect
+
+    from alphalab.factor_library.definition import FeatureKind
+    from alphalab.research import RegimeReport, analyze_regimes, classify_regimes
+
+    assert "payload" in _inspect.signature(analyze_regimes).parameters
+    assert "signals" in _inspect.signature(classify_regimes).parameters
+    assert "regime_generalisation_score" in {f.name for f in dataclasses.fields(RegimeReport)}
+    assert FeatureKind.VOLATILITY_REGIME.name == "VOLATILITY_REGIME"
+
+
+# --------------------------------------------------------------------------- #
+# 32. "provenance" -- a market series, a vendor's quality, a source's identity
+# --------------------------------------------------------------------------- #
+
+
+def test_the_three_provenance_records_record_three_different_facts() -> None:
+    """``data.DatasetProvenance`` is how a **market series** came to exist -- its
+    schema roles, frequency, price basis and cleaning policy are required.
+    ``alt_data.DataProvenance`` (v1) is a vendor's **quality** -- coverage and an
+    analyst's confidence -- and identifies nothing. ``alt_data.ObservationSource``
+    (v3.7) is a source's **identity**: which source, which version, which bytes.
+
+    None can carry another's facts without inventing them: a sentiment score has
+    no price basis, and a confidence of 0.7 is not a content digest. The source
+    carries the quality record as an unhashed attachment rather than absorbing
+    it.
+    """
+
+    from alphalab.alt_data import DataProvenance, ObservationSource
+    from alphalab.data.provenance import DatasetProvenance
+
+    dataset = {field.name for field in dataclasses.fields(DatasetProvenance)}
+    quality = {field.name for field in dataclasses.fields(DataProvenance)}
+    source = {field.name for field in dataclasses.fields(ObservationSource)}
+    assert {"price_basis", "cleaning_policy"} <= dataset
+    assert "confidence" in quality and "content_hash" not in quality
+    assert {"source_id", "version", "content_hash", "quality"} <= source
+    assert not {"price_basis", "cleaning_policy", "confidence"} & source
+
+
+# --------------------------------------------------------------------------- #
+# 33. "fundamental" -- a wire record, a statement line item, a factor input
+# --------------------------------------------------------------------------- #
+
+
+def test_the_three_fundamental_shapes_sit_at_three_layers() -> None:
+    """``data.feed.FundamentalRecord`` is a **wire** record: one float, one
+    timestamp, nothing saying whether it is the period end or the publication.
+    ``alt_data.FundamentalObservation`` (v3.7) is a **statement line item** with
+    its fiscal period, publication, availability and restatement number.
+    ``factor_library.FundamentalSnapshot`` (v2) is the **input a style factor
+    reads**, built point-in-time from the second by
+    ``fundamental_snapshot_as_of``.
+
+    The wire record is lifted, never widened: ``api.lift_wire_records`` makes the
+    caller declare what its one timestamp meant.
+    """
+
+    from alphalab.alt_data import FundamentalObservation
+    from alphalab.data.feed import FundamentalRecord
+    from alphalab.factor_library import FundamentalSnapshot
+
+    wire = {field.name for field in dataclasses.fields(FundamentalRecord)}
+    line_item = {field.name for field in dataclasses.fields(FundamentalObservation)}
+    snapshot = {field.name for field in dataclasses.fields(FundamentalSnapshot)}
+    assert wire == {"symbol", "timestamp", "metric_name", "metric_value"}
+    assert {"fiscal_period", "published_at", "stamp", "revision"} <= line_item
+    assert {"earnings_per_share", "book_value_per_share"} <= snapshot
+
+
+# --------------------------------------------------------------------------- #
+# 34. "as of" -- a release date trusted, a knowledge instant, a timestamp cut
+# --------------------------------------------------------------------------- #
+
+
+def test_the_point_in_time_readings_trust_different_things() -> None:
+    """``common.known_as_of`` (v2) **trusts** a record's ``release_date`` and has
+    no notion of an unknown one. ``ObservationView`` (v3.7) reads a
+    ``PointInTimeStamp``: a stated, derived or *unknown* availability, under a
+    publication or an ingestion clock, and never selects the unknown.
+    ``api.DataRequest.as_of`` cuts a dataset on each record's **one timestamp**,
+    which is right for a bar stamped at its close and is why the other two exist.
+
+    Folding the v2 helper into the v3.7 view would change which record a tie
+    returns for every existing caller; folding the view into the v2 helper would
+    lose the unknown.
+    """
+
+    from alphalab.api import DataRequest
+    from alphalab.common.point_in_time import PointInTimeIndex, PointInTimeRecord, known_as_of
+
+    assert hasattr(PointInTimeRecord, "release_date") and not hasattr(PointInTimeRecord, "stamp")
+    assert "release date" in (known_as_of.__doc__ or "")
+    assert "unverified" in {field.name for field in dataclasses.fields(PointInTimeIndex)}
+    assert "as_of" in {field.name for field in dataclasses.fields(DataRequest)}
+
+
+# --------------------------------------------------------------------------- #
+# 35. "state" -- a runtime instance, a learned value, a detector's memory (v3.7)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_three_new_states_are_not_the_runtime_state() -> None:
+    """``strategy.StrategyState`` is an **instance's** runtime record -- status,
+    configuration, subscriptions -- owned by the supervisor. ``AdaptiveState``
+    (v3.7) is what a rule **learned**, an immutable value with a hash-chained
+    lineage that a strategy hands to the run snapshot as its declared state.
+    ``research.RegimeState`` (v3.7) is a detector's **memory** between
+    observations, and lives nowhere near a run.
+
+    None is persisted by a snapshot owner of its own; the adaptive one reaches a
+    snapshot only through ``StrategyStateProtocol``, and ``PIPELINE_SNAPSHOT_SCHEMA``
+    did not move.
+    """
+
+    from alphalab.research import RegimeState
+    from alphalab.runtime.snapshot import PIPELINE_SNAPSHOT_SCHEMA
+    from alphalab.strategy import AdaptiveState, StrategyState
+
+    runtime = {field.name for field in dataclasses.fields(StrategyState)}
+    learned = {field.name for field in dataclasses.fields(AdaptiveState)}
+    detector = {field.name for field in dataclasses.fields(RegimeState)}
+    assert "status" in runtime and "status" not in learned
+    assert "lineage" in learned and "lineage" not in detector
+    assert "candidate" in detector
+    assert PIPELINE_SNAPSHOT_SCHEMA == 3
+
+
+# --------------------------------------------------------------------------- #
+# 36. "observation" and "replay" -- three observations, two replays (v3.7)
+# --------------------------------------------------------------------------- #
+
+
+def test_three_observations_and_two_replays_are_kept_apart() -> None:
+    """``ObservationFrame`` is **one float per instant** for a feature to compute
+    over; ``ExternalObservation`` is **a point-in-time record** with a source and
+    a stamp; ``AdaptiveObservation`` is **an ordered update input** to a learning
+    rule. A knowledge frame turns the second into the first; a strategy turns a
+    market event into the third.
+
+    ``api.replay`` drives a **dataset through the execution path**;
+    ``strategy.replay_updates`` folds an adaptive rule over **observations**.
+    They were named apart on purpose, which is why the adaptive one is not called
+    ``replay``.
+    """
+
+    from alphalab import api, strategy
+    from alphalab.alt_data import ExternalObservation
+    from alphalab.factor_library import ObservationFrame
+    from alphalab.strategy import AdaptiveObservation
+
+    frame = {field.name for field in dataclasses.fields(ObservationFrame)}
+    external = {field.name for field in dataclasses.fields(ExternalObservation)}
+    adaptive = {field.name for field in dataclasses.fields(AdaptiveObservation)}
+    assert "series" in frame and "stamp" in external and "sequence" in adaptive
+    assert not hasattr(strategy, "replay")
+    assert callable(api.replay) and callable(strategy.replay_updates)

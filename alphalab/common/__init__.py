@@ -21,7 +21,14 @@ from alphalab.common.ids import (
 )
 from alphalab.common.metadata import Metadata, copy_metadata
 from alphalab.common.persistent_map import PersistentMap, PersistentSet
-from alphalab.common.point_in_time import PointInTimeRecord
+from alphalab.common.point_in_time import (
+    AvailabilityBasis,
+    PointInTimeIndex,
+    PointInTimeRecord,
+    PointInTimeStamp,
+    StampedRecord,
+    VisibilityRule,
+)
 from alphalab.common.point_in_time import known_as_of as generic_known_as_of
 from alphalab.common.results import Result
 from alphalab.common.serialization import dataclass_to_dict
@@ -61,6 +68,7 @@ __all__ = [
     "AlphaLabSerializationError",
     "AlphaLabValidationError",
     "AppendOnlyLog",
+    "AvailabilityBasis",
     "BaseEvent",
     "DeterministicIdSource",
     "Identifier",
@@ -71,10 +79,14 @@ __all__ = [
     "ParamValue",
     "PersistentMap",
     "PersistentSet",
+    "PointInTimeIndex",
     "PointInTimeRecord",
+    "PointInTimeStamp",
     "RankMethod",
     "Result",
+    "StampedRecord",
     "TieBreak",
+    "VisibilityRule",
     "__version__",
     "bucket_index",
     "copy_metadata",

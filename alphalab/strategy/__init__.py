@@ -1,5 +1,47 @@
-"""AlphaLab Strategy Runtime Core."""
+"""AlphaLab Strategy Runtime Core.
 
+What a strategy *is* -- the hooks, the context, the dispatcher, the supervisor,
+the class registry -- and, from v3.7, what an *adaptive* strategy is: an
+immutable configuration, ordered observations, a learned state that is itself an
+immutable value with a hash-chained lineage, and one pure function,
+``apply_update``, that moves it forward in research replay and on the execution path
+alike. ``AdaptiveStrategy`` hands that state to the run snapshot through
+``StrategyStateProtocol``. The package still imports nothing but
+``alphalab.common``.
+"""
+
+from alphalab.strategy.adaptive import (
+    ADAPTIVE_CONFIGURATION_SCHEME,
+    ADAPTIVE_OBSERVATION_SCHEME,
+    ADAPTIVE_REPLAY_SCHEME,
+    ADAPTIVE_STATE_SCHEME,
+    AdaptationMode,
+    AdaptiveConfiguration,
+    AdaptiveDecision,
+    AdaptiveObservation,
+    AdaptiveReplay,
+    AdaptiveRule,
+    AdaptiveState,
+    AdaptiveStep,
+    AdaptiveTransition,
+    DecisionTiming,
+    StateValue,
+    TransitionKind,
+    UpdateCadence,
+    apply_update,
+    canonical_configuration_key,
+    checkpoint,
+    initial_state,
+    observation_stream,
+    replay_updates,
+    restore,
+)
+from alphalab.strategy.adaptive_rules import (
+    ExponentialMeanRule,
+    RecursiveLeastSquaresRule,
+    TrailingZScoreRule,
+)
+from alphalab.strategy.adaptive_strategy import ADAPTIVE_STRATEGY_STATE_VERSION, AdaptiveStrategy
 from alphalab.strategy.context import (
     ClockProtocol,
     HistoryAccessorProtocol,
@@ -28,6 +70,8 @@ from alphalab.strategy.events import (
     TimerEvent,
 )
 from alphalab.strategy.exceptions import (
+    AdaptiveOrderingError,
+    AdaptiveStateError,
     HookExecutionError,
     InvalidIntentError,
     InvalidTransitionError,
@@ -51,10 +95,29 @@ from alphalab.strategy.validation import validate_intent
 from alphalab.strategy.views import active_strategies, failed_strategies, get_strategy
 
 __all__ = [
+    "ADAPTIVE_CONFIGURATION_SCHEME",
+    "ADAPTIVE_OBSERVATION_SCHEME",
+    "ADAPTIVE_REPLAY_SCHEME",
+    "ADAPTIVE_STATE_SCHEME",
+    "ADAPTIVE_STRATEGY_STATE_VERSION",
+    "AdaptationMode",
+    "AdaptiveConfiguration",
+    "AdaptiveDecision",
+    "AdaptiveObservation",
+    "AdaptiveOrderingError",
+    "AdaptiveReplay",
+    "AdaptiveRule",
+    "AdaptiveState",
+    "AdaptiveStateError",
+    "AdaptiveStep",
+    "AdaptiveStrategy",
+    "AdaptiveTransition",
     "BaseStrategy",
     "ClockProtocol",
+    "DecisionTiming",
     "Dispatcher",
     "DuplicateStrategyError",
+    "ExponentialMeanRule",
     "FillEvent",
     "HistoryAccessorProtocol",
     "HookExecutionError",
@@ -73,10 +136,12 @@ __all__ = [
     "OrderEvent",
     "OrderFacadeProtocol",
     "PortfolioSnapshotProtocol",
+    "RecursiveLeastSquaresRule",
     "RiskViewProtocol",
     "RuntimeState",
     "RuntimeSupervisor",
     "ScopedLoggerProtocol",
+    "StateValue",
     "StrategyClassRegistry",
     "StrategyContext",
     "StrategyDeclaration",
@@ -89,14 +154,24 @@ __all__ = [
     "StrategyState",
     "StrategyStateProtocol",
     "TimerEvent",
+    "TrailingZScoreRule",
+    "TransitionKind",
     "UniverseProtocol",
     "UnknownStrategyError",
+    "UpdateCadence",
     "active_strategies",
+    "apply_update",
+    "canonical_configuration_key",
+    "checkpoint",
     "create_runtime",
     "failed_strategies",
     "get_strategy",
+    "initial_state",
     "instances_for",
+    "observation_stream",
     "register_strategy",
+    "replay_updates",
+    "restore",
     "runtime_for",
     "validate_intent",
 ]

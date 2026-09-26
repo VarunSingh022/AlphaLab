@@ -14,6 +14,211 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.7.0] - 2026-09-26
+
+**Advanced quant research: event-driven research, alternative data with
+provenance, point-in-time fundamentals, regime detection and adaptive
+strategies — all on one statement of when information became knowable.**
+
+The seventh capability release on the frozen architecture. v3.6 made a strategy
+version evaluable by somebody else; this lets research use information other
+than prices without looking ahead, and lets a strategy learn without becoming
+irreproducible.
+
+No package is added. The point-in-time core in `alphalab.common` is extended,
+`alphalab.alt_data` becomes the point-in-time foundation for external
+information and stays a leaf over `common`, and new modules land in
+`factor_library`, `research`, `strategy`, `lifecycle` and `api`. No ownership
+boundary moves, no snapshot schema changes, no durable state is added, and every
+v3.1 through v3.6 invariant holds.
+
+The decisions are recorded in
+[`ADR-0042`](docs/ADR/0042-point-in-time-research-events-alternative-data-fundamentals-regimes-and-adaptive-strategies.md).
+
+## What was missing
+
+Nothing could say **when a piece of information became knowable**. Events had
+no canonical form and none of the shapes that existed recorded an availability
+instant. Alternative data had quality metadata but no source identity, version
+or bytes, and `known_as_of` assumed every record had a release date. Fundamentals
+were a `FundamentalSnapshot` a caller assembled by hand, with nothing keeping a
+fiscal period, a publication, an availability instant and a restatement apart.
+Regimes were labels a caller supplied. And a strategy that learned kept its
+history in a mutable attribute the run snapshot could not see.
+
+## Added
+
+### The point-in-time core — `alphalab.common.point_in_time`
+
+* `PointInTimeStamp`: observed, available, effective and ingested instants, with
+  an `AvailabilityBasis` — `DECLARED`, `DERIVED` by a named rule, or `UNKNOWN`,
+  which is **never visible** and always counted.
+* `VisibilityRule`: `PUBLICATION` (what the world could know) and `INGESTION`
+  (what this system could know). Inclusive; an effective date never makes a
+  fact visible before it was known.
+* `PointInTimeIndex`: selections by bisection over knowledge instants.
+  `known_as_of` is unchanged.
+
+### External information — `alphalab.alt_data`
+
+* `ExternalObservation`, `InformationEvent` and `FundamentalObservation`: one
+  canonical record per kind, an open dotted vocabulary, exact `Decimal` values,
+  revisions as vintages, content-addressed identities.
+* `ObservationSource`: source id and version in every record's identity; the
+  bytes' digest in the identity of the set read from them; retrieval instant and
+  v1 `DataProvenance` recorded, never hashed. `observation_from_release` lifts
+  v1's typed categories.
+* `ObservationSet` with a derived version, checked vintages and lineage through
+  `restrict_subjects`, `restrict_observed`, `known_by` and `originals_only`;
+  `ObservationView` indexed globally, per series and per figure; `VintagePolicy`
+  `AS_KNOWN` / `ORIGINAL` and no hindsight policy (`restatements` is hindsight,
+  by name).
+* `place_in_session` / `place_record`: where an instant falls in a venue's day
+  and when it can first be traded, through a structural calendar protocol.
+* Fundamentals: `FiscalPeriod`, `statement_as_of`, `trailing_twelve_months`
+  (four consecutive quarters; a balance-sheet item refused), `aggregate_timeline`,
+  `fundamental_inputs_as_of`, `valuation_metrics` (a supplied price observed no
+  later than the research instant), `financial_ratios`, `year_over_year_growth`,
+  `restatements`. Undefined figures are `None` with a reason; units are checked;
+  arithmetic runs in an explicit `Decimal` context.
+
+### Research — `alphalab.factor_library`, `alphalab.research`
+
+* Knowledge frames: `observation_frame`, `event_frame` and `fundamental_frame`
+  sample the latest knowable figure per subject on a `ResearchClock` — not a
+  forward fill — with a stated staleness bound and full lineage;
+  `align_prices` is the checked join to the prices a frame was sampled on;
+  `divide_frames`; `fundamental_snapshot_as_of` produces the
+  `FundamentalSnapshot` the v2 style factors read.
+* `event_study`: events anchored at the first observation at or after the first
+  tradable instant after they became knowable; corrections and events of unknown
+  availability excluded by name; `RAW`, `MARKET_ADJUSTED` and `MEAN_ADJUSTED`
+  models; clustering reported; no p-value.
+* Regime detection: `RegimeDefinition` with persistence, `ThresholdRule`,
+  `TrailingQuantileRule`, `CompositeRule`; `classify_regimes`,
+  `regime_series_from_features`, a reconstructable `RegimeState`, transitions,
+  `regime_profile`, and `labels_by_instant` for the v3.2 conditional
+  diagnostics. Labels are the caller's.
+* `ResearchStudy.inputs`: role → identity of every non-price input, rendered
+  only when present, so every earlier study id is unchanged.
+
+### Adaptive strategies — `alphalab.strategy`
+
+* `AdaptiveConfiguration`, `AdaptiveObservation`, `AdaptiveState` (immutable,
+  hash-chained lineage, derived `state_id`), `AdaptiveTransition`,
+  `AdaptiveDecision`; `apply_update`, the one pure function that moves a state;
+  `replay_updates` and `AdaptiveReplay` (`replay_id`, `verify`);
+  `checkpoint` / `restore`, which refuses an edited checkpoint.
+* Cadence (`EVERY_OBSERVATION`, `EVERY_N_OBSERVATIONS`, `MINIMUM_INTERVAL` of
+  event time), strict ordering with late observations refused and reprocessed
+  from a checkpoint, `DecisionTiming`, `AdaptationMode.FROZEN`, and a warmup
+  that withholds rather than zeroes.
+* `ExponentialMeanRule`, `TrailingZScoreRule`, `RecursiveLeastSquaresRule`.
+* `AdaptiveStrategy`: the engine on the execution path. A backtest ends in the
+  state a research replay over the same bars reaches, and the run snapshot —
+  and so `digest_run` — commits to every update.
+
+### Lifecycle and ingestion — `alphalab.lifecycle`, `alphalab.api`
+
+* `research_configuration_with_adaptive`: the adaptive configuration and
+  starting state in a fingerprint's research settings; the canonical key is
+  unchanged. `ExternalInput.AUXILIARY_DATA` lists each study input a rerun needs.
+  `assess_adaptive_replay` answers `REPRODUCED`, `INPUTS_DIFFER` or `DIVERGED`
+  with the first divergent observation.
+* `observation_source`, `ingest_observations`, `ingest_events`,
+  `ingest_fundamentals` with an explicit availability rule
+  (`AvailabilityFromColumn`, `AvailabilityAfterLag`, `AvailabilityAtNextOpen`,
+  `AvailabilityNotDeclared`) and a declared `TimestampReading`;
+  `lift_wire_records` with the wire timestamp's meaning declared.
+
+## Changed
+
+Additive only; every change to an existing surface adds to it. `ResearchStudy`
+gained `inputs` (default empty, and the identity is unchanged when empty);
+`data.validation.FindingKind` gained `INCONSISTENT_RECORD`;
+`lifecycle.ExternalInput` gained `AUXILIARY_DATA`; `alt_data` gained
+`PointInTimeError` and `strategy` `AdaptiveStateError` and
+`AdaptiveOrderingError`; `common.point_in_time` gained the stamp, rule and index
+beside an unchanged `known_as_of`. No default moved, no schema was touched, and
+every v3.6 fingerprint and every earlier study id still verifies.
+
+## Found during this release
+
+* **v3.2's IC and diagnostics refuse a factor and returns from different
+  datasets**, which a factor built from external information always is. The
+  guard stands; `ResearchClock` records the price dataset a frame was sampled
+  on and `align_prices` joins the two by a checked, jointly derived identity.
+* **The first `vintage_as_of` scanned its series' visible history on every
+  call** — found by this release's benchmark, fixed before release with a
+  per-figure index read through the one visibility rule, and held flat by a
+  regression test across sixteen times the history.
+
+## Tests
+
+`tests/regression/test_v37_invariants.py` (63) — one home per concept; the
+`alt_data` leaf, `strategy` and research-layer import rules; **every selection
+checked against a brute-force reading of the rule on generated histories, and no
+vintage read, frame point, event anchor, trailing figure or regime label
+reaching past its instant**; no
+clock, entropy or environment on any v3.7 path; every identity reproduced in
+fresh interpreters with different hash seeds **and working directories**;
+deterministic JSON; no durable state or schema constant; pre-v3.7 study and
+fingerprint identities unchanged; the prohibited-integration, network, secret
+and dependency boundary.
+
+`tests/regression/test_v37_complexity.py` (8) — growth ratios for set
+construction, visibility queries, single-figure reads, knowledge and
+fundamental frames, regime classification, adaptive replay and event studies.
+
+`tests/integration/test_v37_capabilities.py` (13) — ingested events, news and
+filings through event studies, knowledge frames, fundamentals, regimes and a
+study manifest naming every input; an adaptive strategy through the execution
+path matching its research replay, fingerprinted, manifested, reproduced by a
+rerun and certified `DETERMINISTIC`, `REPRODUCIBLE` and `REQUIRED_DATA`.
+
+Unit suites for every new module (358 tests), and seven new sections in
+`test_shared_names_stay_distinct.py`.
+
+Total: **5,669 → 6,118** passing, 0 skipped, 0 warnings.
+
+## Benchmarks
+
+`benchmark_point_in_time_research.py` — ingestion, set construction and
+verification, visibility and vintage queries, knowledge frames and the price
+join, fundamentals and fundamental frames, event studies, regime detection.
+`benchmark_adaptive_research.py` — replays of all three rules at two cadences,
+single steps, the replay record, checkpoint round trips and assessment. Every
+path is linear; an adaptive step — checking the payload and deriving the next
+state's lineage and identity — costs roughly 25–40 µs.
+
+## Examples
+
+`50`–`55`: event-driven research; alternative data with provenance;
+fundamental research; regime detection; an adaptive strategy; reproducible
+adaptive replay (checkpoints restored in a second interpreter, a late
+observation reprocessed, replays assessed, an adaptive backtest's manifest
+reproduced). They share `examples/_point_in_time.py` and
+`examples/_adaptive_evidence.py`, fetch nothing and print the same figures on
+every machine.
+
+## Still external
+
+The data and its bytes, vendor delivery and a vendor's line-item names, prices
+for valuation, calendar holidays, and every rule a caller writes. AlphaLab
+identifies, checks and computes; it fetches nothing and reads no clock.
+
+## Deliberately not built
+
+No vendor API or adapter, credential or network access; no LLM or AI-service
+dependency; no Quant-Mind, OpenBB or RedDesk integration and no marketplace
+logic; no broker SDK. No regime taxonomy, no p-value in an event study, no
+forward fill of prices, and no default availability, calendar, staleness bound
+or vintage policy. Deferred, each a decision of its own: statistical regime
+models, execution-path delivery of external observations, and a streaming
+observation set.
+
+---
+
 # [3.6.0] - 2026-09-26
 
 **Strategy evaluation: fingerprints, reproducible research artifacts,

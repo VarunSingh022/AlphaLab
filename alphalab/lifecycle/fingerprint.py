@@ -72,7 +72,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum, auto
 from types import MappingProxyType
@@ -82,9 +82,11 @@ from alphalab.common.version import __version__
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.strategy_version import StrategyVersion
 from alphalab.model_registry.artifact_store import compute_digest
+from alphalab.strategy.adaptive import AdaptiveConfiguration, AdaptiveState
 from alphalab.strategy.registry import StrategyRegistration
 
 __all__ = [
+    "ADAPTIVE_SETTING_PREFIX",
     "NO_DEPENDENCIES",
     "STRATEGY_FINGERPRINT_SCHEME",
     "STRATEGY_SOURCE_SCHEME",
@@ -107,6 +109,7 @@ __all__ = [
     "normalize_distribution_name",
     "research_configuration",
     "research_configuration_for_study",
+    "research_configuration_with_adaptive",
     "running_engine",
     "source_digest",
     "verify_fingerprint",
@@ -578,6 +581,75 @@ def research_configuration_for_study(
     """
 
     return research_configuration(settings or {}, study_id=study.study_id)
+
+
+#: The prefix every adaptive research setting is written under.
+ADAPTIVE_SETTING_PREFIX: Final = "adaptive."
+
+
+def research_configuration_with_adaptive(
+    settings: Mapping[str, str],
+    adaptive: Sequence[tuple[AdaptiveConfiguration, AdaptiveState]],
+    study: StudyIdentity | None = None,
+) -> ResearchConfiguration:
+    """A research configuration that names each adaptive component's identity.
+
+    An adaptive strategy's behaviour depends on more than its parameters: which
+    rule learns, at what cadence, deciding before or after it learns, after how
+    much warmup -- and the state it starts from, which may be a checkpoint
+    trained in research. Each component contributes two settings, written under
+    :data:`ADAPTIVE_SETTING_PREFIX`:
+
+    ``adaptive.<name>.configuration``
+        the configuration's derived identity;
+    ``adaptive.<name>.initial_state``
+        the derived identity of the state it starts from.
+
+    They enter the fingerprint through the existing research-settings section,
+    so :func:`canonical_fingerprint_key` is unchanged and every v3.6 fingerprint
+    still verifies; a strategy fingerprinted this way changes identity when its
+    learning rule, cadence or starting state does. Numeric parameters a strategy
+    reads from its :class:`~alphalab.studio.strategy.StrategyDefinition` are in
+    the fingerprint already, through its parameters.
+
+    Raises:
+        LifecycleInputError: If no component is given; if a state belongs to
+            another configuration; if two components share a name; or if a
+            caller's own setting collides with an adaptive one.
+    """
+
+    if not adaptive:
+        raise LifecycleInputError(
+            "research_configuration_with_adaptive names no adaptive component; use "
+            "research_configuration for a strategy that does not adapt."
+        )
+    added: list[tuple[str, str]] = []
+    names: set[str] = set()
+    for configuration, state in adaptive:
+        if state.configuration_id != configuration.configuration_id:
+            raise LifecycleInputError(
+                f"The initial state belongs to {state.configuration_id!r}, not to "
+                f"{configuration.configuration_id!r}."
+            )
+        if configuration.name in names:
+            raise LifecycleInputError(
+                f"Two adaptive components are named {configuration.name!r}; each is named apart "
+                "so its settings cannot overwrite another's."
+            )
+        names.add(configuration.name)
+        prefix = f"{ADAPTIVE_SETTING_PREFIX}{configuration.name}"
+        added.append((f"{prefix}.configuration", configuration.configuration_id))
+        added.append((f"{prefix}.initial_state", state.state_id))
+    collisions = sorted(set(settings) & {key for key, _ in added})
+    if collisions:
+        raise LifecycleInputError(
+            f"The setting(s) {collisions} are written by an adaptive component and were also "
+            "supplied by the caller. One key, two values, and the identity would say whichever "
+            "was written last."
+        )
+    return research_configuration(
+        {**settings, **dict(added)}, study_id=None if study is None else study.study_id
+    )
 
 
 # --------------------------------------------------------------------------- #

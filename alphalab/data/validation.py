@@ -109,6 +109,12 @@ class FindingKind(Enum):
     #: The spacing between records is not consistent with one frequency.
     INCONSISTENT_FREQUENCY = auto()
 
+    #: Every field reads, and together they describe a record that cannot be
+    #: true -- knowable before it happened, a period ending before it starts, a
+    #: restatement published before the period closed. Raised by the v3.7
+    #: point-in-time ingestion in :mod:`alphalab.api`, never by a price row.
+    INCONSISTENT_RECORD = auto()
+
 
 @dataclass(frozen=True, slots=True)
 class ValidationFinding:

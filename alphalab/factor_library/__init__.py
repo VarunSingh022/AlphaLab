@@ -21,6 +21,14 @@ Two layers, one vocabulary
 They share the `feature_id` vocabulary and the Feature Store seam;
 `to_factor_results` converts a series into the `FactorResult` values the older
 layer already produces one at a time.
+
+* **Point-in-time inputs** (v3.7) -- `observation_frame`, `event_frame` and
+  `fundamental_frame` sample what was *knowable* about each subject at each
+  research instant from an `alphalab.alt_data` observation set, as a
+  `KnowledgeFrame` whose `ObservationFrame` the feature engine computes over
+  unchanged; `fundamental_snapshot_as_of` builds the style factors'
+  `FundamentalSnapshot` from point-in-time statements. The package reads
+  `alphalab.alt_data` and nothing there reads this package.
 """
 
 from alphalab.factor_library.applicability import (
@@ -66,8 +74,26 @@ from alphalab.factor_library.exceptions import (
 )
 from alphalab.factor_library.exposure import ExposureReport, factor_exposure
 from alphalab.factor_library.forward_returns import ForwardReturnPanel, forward_returns
+from alphalab.factor_library.fundamentals import (
+    SnapshotSpecification,
+    fundamental_frame,
+    fundamental_snapshot_as_of,
+)
 from alphalab.factor_library.ic import InformationCoefficient, information_coefficient
 from alphalab.factor_library.inputs import FundamentalSnapshot, PriceSeries
+from alphalab.factor_library.knowledge import (
+    KNOWLEDGE_FRAME_SCHEME,
+    FrameRatio,
+    KnowledgeFrame,
+    KnowledgeStep,
+    ResearchClock,
+    align_prices,
+    derive_frame_id,
+    divide_frames,
+    event_frame,
+    observation_frame,
+    sample_knowledge,
+)
 from alphalab.factor_library.liquidity import compute_liquidity
 from alphalab.factor_library.momentum import compute_momentum
 from alphalab.factor_library.neutralization import (
@@ -116,6 +142,7 @@ __all__ = [
     "FIELD_AVAILABILITY",
     "FIELD_READERS",
     "KIND_REQUIREMENTS",
+    "KNOWLEDGE_FRAME_SCHEME",
     "MULTIPLICATIVE_CLASSES",
     "RATIO_KINDS",
     "Applicability",
@@ -137,17 +164,23 @@ __all__ = [
     "FeatureScope",
     "FeatureSeries",
     "ForwardReturnPanel",
+    "FrameRatio",
     "FundamentalSnapshot",
     "InformationCoefficient",
     "KindRequirement",
+    "KnowledgeFrame",
+    "KnowledgeStep",
     "MissingPolicy",
     "NeutralizationReport",
     "ObservationFrame",
     "ObservationSeries",
     "PriceSeries",
     "RequiredInput",
+    "ResearchClock",
+    "SnapshotSpecification",
     "TurnoverConvention",
     "Verdict",
+    "align_prices",
     "bucket_panel",
     "canonical_feature_key",
     "canonical_series_key",
@@ -163,23 +196,30 @@ __all__ = [
     "compute_value",
     "compute_volatility",
     "derive_feature_version",
+    "derive_frame_id",
     "derive_series_id",
+    "divide_frames",
+    "event_frame",
     "factor_decay",
     "factor_exposure",
     "factor_turnover",
     "feature_applicability",
     "forward_returns",
+    "fundamental_frame",
+    "fundamental_snapshot_as_of",
     "get_spec",
     "information_coefficient",
     "neutralize_beta",
     "neutralize_group",
     "neutralize_mean",
+    "observation_frame",
     "observations_from_dataset",
     "observations_from_price_series",
     "observations_from_records",
     "percentile_rank_panel",
     "rank_panel",
     "require_applicable",
+    "sample_knowledge",
     "to_factor_results",
     "weights_from_buckets",
 ]

@@ -49,6 +49,7 @@ and nowhere else.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -74,6 +75,9 @@ __all__ = [
 #: of the scheme, as ``DATASET_KEY_SCHEME`` is.
 STUDY_KEY_SCHEME: Final = "alphalab.study.v1"
 RESULT_KEY_SCHEME: Final = "alphalab.study_result.v1"
+
+#: A study input's role: dotted lowercase words.
+_INPUT_ROLE: Final = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,12 +107,20 @@ class ResearchStudy:
             reproducible and :meth:`require_seed` refuses it.
         notes: Free text for a human. Part of the identity, because two studies
             whose notes differ were described differently on purpose.
+        inputs: Every *other* versioned input the study reads, by role --
+            ``"events" -> <event set version>``, ``"fundamentals" -> <set
+            version>``, ``"regime" -> <definition id>``. Added in v3.7 so a
+            study over point-in-time events, alternative data or fundamentals
+            names those exact versions in its identity, as it names its
+            dataset. Rendered into the canonical key only when present, so
+            every study identity derived before v3.7 is unchanged.
 
     Raises:
         ResearchValidationError: If the name is empty or contains ``"@"``, if
             the universe is empty, if it repeats a symbol, if no feature is
-            given, if two features share a derived version, or if a horizon is
-            not positive.
+            given, if two features share a derived version, if a horizon is
+            not positive, or if an input's role is not a dotted lowercase
+            identifier or its identity is blank or spans a line.
     """
 
     study_name: str
@@ -120,9 +132,22 @@ class ResearchStudy:
     parameters: Mapping[str, float] = field(default_factory=dict)
     seed: int | None = None
     notes: str = ""
+    inputs: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
+        object.__setattr__(self, "inputs", MappingProxyType(dict(sorted(self.inputs.items()))))
+        for role, identity in self.inputs.items():
+            if not _INPUT_ROLE.match(role):
+                raise ResearchValidationError(
+                    f"Study input role {role!r} is not a dotted lowercase identifier such as "
+                    "'events' or 'alt.sentiment'."
+                )
+            if not identity.strip() or identity != identity.strip() or "\n" in identity:
+                raise ResearchValidationError(
+                    f"Study input {role!r} names {identity!r}; an input is named by its derived "
+                    "identity, which is one line with no surrounding whitespace."
+                )
         object.__setattr__(self, "universe", tuple(sorted(self.universe)))
         object.__setattr__(self, "horizons", tuple(sorted(self.horizons)))
 
@@ -221,27 +246,33 @@ def canonical_study_key(study: ResearchStudy) -> str:
 
     Public so the rendering can be pinned by a test and read by anyone auditing
     a study id.
+
+    The ``inputs`` section is appended only when the study names an input,
+    which is what keeps every study identity derived before v3.7 unchanged:
+    a study with no inputs renders exactly as it always did.
     """
 
     parameters = study.parameters
-    return "\n".join(
-        [
-            STUDY_KEY_SCHEME,
-            f"name={study.study_name}",
-            f"dataset={study.dataset_version or 'none'}",
-            f"splits={study.splits or 'none'}",
-            f"seed={'none' if study.seed is None else study.seed}",
-            f"notes={study.notes}",
-            "universe",
-            *study.universe,
-            "features",
-            *study.feature_versions,
-            "horizons",
-            *(str(horizon) for horizon in study.horizons),
-            "parameters",
-            *(f"{name}={parameters[name]!r}" for name in sorted(parameters)),
-        ]
-    )
+    lines = [
+        STUDY_KEY_SCHEME,
+        f"name={study.study_name}",
+        f"dataset={study.dataset_version or 'none'}",
+        f"splits={study.splits or 'none'}",
+        f"seed={'none' if study.seed is None else study.seed}",
+        f"notes={study.notes}",
+        "universe",
+        *study.universe,
+        "features",
+        *study.feature_versions,
+        "horizons",
+        *(str(horizon) for horizon in study.horizons),
+        "parameters",
+        *(f"{name}={parameters[name]!r}" for name in sorted(parameters)),
+    ]
+    if study.inputs:
+        lines.append("inputs")
+        lines.extend(f"{role}={identity}" for role, identity in study.inputs.items())
+    return "\n".join(lines)
 
 
 def derive_study_id(study: ResearchStudy) -> str:

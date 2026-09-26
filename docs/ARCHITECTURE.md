@@ -4,13 +4,13 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.6)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.7)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.6.0 both halves name only packages that exist; where the target half shows a
+> v3.7.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.6)
+# Implementation Status (v3.7)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -88,7 +88,15 @@ strategy fingerprints, reproducibility manifests, certification primitives and
 portability checks, again all inside `alphalab.lifecycle` — the evidence
 contracts an external research marketplace consumes, with no marketplace logic
 in AlphaLab; it adds no package, no durable state and no snapshot schema, and
-moves no boundary (ADR-0041).** **v3.0.0 adds no
+moves no boundary (ADR-0041).** **v3.7.0 adds point-in-time research — a
+statement of when information became knowable in `alphalab.common`; canonical
+events, alternative data with source identity and versioned sets, and
+point-in-time fundamentals in `alphalab.alt_data`, now a leaf over `common`;
+knowledge frames in `alphalab.factor_library`; event studies and regime
+detection in `alphalab.research`; the adaptive engine in `alphalab.strategy`;
+adaptive fingerprint settings and replay assessment in `alphalab.lifecycle`; and
+point-in-time ingestion in `alphalab.api` — and adds no package, no durable state
+and no snapshot schema, and moves no boundary (ADR-0042).** **v3.0.0 adds no
 capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -375,6 +383,12 @@ a lost response addresses the same order rather than creating a second one.
 | **Certification primitives** | **Implemented (v3.6).** `alphalab.lifecycle.certification` — eight machine-verifiable properties with four statuses and no overall score, derived only from observed evidence |
 | **Portability** | **Implemented (v3.6).** `alphalab.lifecycle.portability` — one fingerprint against declared environment capabilities; blockers named, nothing adapted. No broker adapter is involved |
 | Marketplace logic (listing, payment, ranking, licensing, tenancy) | **Not implemented, deliberately.** AlphaLab provides the evidence contracts; an external application consumes them (ADR-0041) |
+| **Point-in-time external information** | **Implemented (v3.7).** `alphalab.common.point_in_time` (four instants, an availability basis, two visibility rules, a bisection index) and `alphalab.alt_data` (observations, events, fundamentals, versioned sets with checked vintages, session placement). A record of unknown availability is never visible |
+| **Point-in-time ingestion** | **Implemented (v3.7).** `alphalab.api.ingest_observations` / `ingest_events` / `ingest_fundamentals` with an explicit availability rule and a declared timestamp reading; `lift_wire_records` with the wire timestamp's meaning declared |
+| **Knowledge frames, event studies, fundamentals, regimes** | **Implemented (v3.7).** `factor_library.knowledge` and `factor_library.fundamentals`; `research.event_study` (anchored where news could be traded, no p-value); `alt_data.fundamentals` (TTM, valuation, ratios, restatements at an instant); `research.regimes` (declared rules, persistence, a reconstructable state) |
+| **Adaptive strategies** | **Implemented (v3.7).** `strategy.adaptive`, `strategy.adaptive_rules`, `strategy.adaptive_strategy` — immutable learned state with lineage, one pure update function, checkpoints and reprocessing; the state reaches the run snapshot and `digest_run`; `lifecycle.assess_adaptive_replay` |
+| Execution-path delivery of external information | **Not implemented, deliberately deferred.** The execution path dispatches market events; an adaptive strategy learns from those, and external information reaches adaptive state through a research replay and a trained checkpoint (ADR-0042) |
+| Vendor alternative-data, event or fundamentals feeds | **None.** AlphaLab ships the point-in-time contract and ingests rows a caller supplies, with their bytes; it fetches nothing |
 
 **What changed in v2.15, precisely.** AlphaLab now contains a genuine venue
 transport and a genuine streaming client, and both are exercised end to end over
@@ -845,7 +859,7 @@ portfolio was supplied* stays distinguishable from *the book is empty*.
 
 An independent, deterministic, individually tested library that is reached by
 **neither** wired path: `portfolio_optimizer`, `optimizer`, `reporting`,
-`feature_store`, `alt_data`, `ml`, `deep_learning`,
+`feature_store`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
 `cloud_research`, `cluster_scheduler`, `distributed`, `workbench`,
 `research_assistant`, `live`, `feed`, `brokers`, `plugins`, `scheduler`,
@@ -884,6 +898,13 @@ lifecycle path; and by `alphalab.api`, which is where an application enters. The
 edge is one-way — nothing in `factor_library` imports `research`, `lifecycle` or
 `api` — and `tests/regression/test_import_graph_stays_acyclic.py` measures that
 on every run.
+
+**`alt_data` left this list in v3.7**, for the reason `factor_library` did:
+`alphalab.research` imports it (event studies), and so do `factor_library`
+(knowledge frames) and `api` (ingestion). Its own edge set is the other half of
+the decision — `alphalab.common` and nothing else — which is what lets every
+layer read it, and `tests/regression/test_v37_invariants.py` measures it on
+every run (ADR-0042 decision 1).
 
 `feature_store` stayed on the list, and that is the architecture working rather
 than an oversight: it owns registration, versioning and caching and computes
@@ -1474,6 +1495,8 @@ Features such as:
 - Strategy fingerprints, reproducibility manifests, certification primitives and
   portability checks — machine-verifiable evidence about a strategy version
   (v3.6)
+- Point-in-time correctness for every piece of external information, and
+  adaptive state that replays exactly and reaches the run record (v3.7)
 
 are considered first-class architectural components rather than optional add-ons.
 
@@ -1832,6 +1855,17 @@ from a canonical `Dataset` through `alphalab.factor_library`.
 - `perturbation` — seeded robustness experiments
 - `overfitting` — sweeps, sensitivity, degradation, stability, Bonferroni
 - `study` — the reproducible experiment contract and its result
+
+**Point-in-time research (v3.7).** Reads `alphalab.alt_data` — never
+`alphalab.data` — and asks every question at an instant.
+
+- `event_study` — events anchored at the first observation at or after the
+  first tradable instant after they became knowable; corrections and events of
+  unknown availability excluded by name; no p-value
+- `regimes` — declared threshold, trailing-quantile and composite rules with the
+  caller's labels, persistence, a reconstructable state, and labels for
+  `signals.conditional_diagnostics`
+- `ResearchStudy.inputs` — every non-price input a study read, by identity
 
 The two meet at `alphalab.lifecycle.evidence`, where either can be recorded as
 `ValidationEvidence`, and nowhere else.
@@ -3491,14 +3525,14 @@ common/  persistence/  plugins/  scheduler/
 
 # The lifecycle path — composed by alphalab.lifecycle
 lifecycle/  experiment_tracking/  model_registry/  deployment_manager/
-studio/  enterprise/  research/  factor_library/
+studio/  enterprise/  research/  factor_library/  alt_data/
 
 # Data and venue surfaces reached from the execution path
 data/  marketdata/  broker/
 
 # Standalone engines
 portfolio_optimizer/  optimizer/  reporting/
-feature_store/  factor_library/  alt_data/
+feature_store/
 ml/  deep_learning/  reinforcement_learning/
 options/  futures/  crypto/  macro/
 cloud_research/  cluster_scheduler/  distributed/
@@ -4677,7 +4711,14 @@ No changes are required to Strategy Studio.
 
 # Alternative Data
 
-Alternative datasets integrate through the Universal Data Engine.
+As built (v3.7, ADR-0042): alternative data does **not** pass through the
+market-data `Dataset`. Rows a caller supplies — with the bytes they were read
+from — are ingested by `alphalab.api.ingest_observations`, `ingest_events` or
+`ingest_fundamentals` into a versioned `alphalab.alt_data.ObservationSet`, with
+an explicit availability rule for every row and the timestamp reading of the
+Universal Data Engine's own time module. Research reads the set through a view
+at an instant; a record whose availability was never established is never read.
+Any category is representable without a new class.
 
 Examples
 
@@ -4690,18 +4731,22 @@ Examples
 - Web traffic
 
 ```
-Alternative Provider
+Rows + the bytes they came from (the caller's)
 
 ↓
 
-Universal Data
+alphalab.api ingestion (explicit availability rule)
 
 ↓
 
-Research
+alphalab.alt_data ObservationSet (versioned, vintages checked)
+
+↓
+
+Knowledge frames, event studies, fundamentals, regimes
 ```
 
-Provider-specific logic remains isolated.
+Provider-specific logic remains isolated: AlphaLab ships no vendor adapter.
 
 ---
 
@@ -5305,6 +5350,7 @@ These principles are considered architectural contracts rather than implementati
 | v3.4.0 | Global markets: the market-convention authority, continuous futures, implied volatility, FX cross rates, fixed income (ADR-0039) |
 | v3.5.0 | Strategy execution and production intelligence: progression, deployment specifications, health, comparison, reconciliation (ADR-0040) |
 | v3.6.0 | Strategy evaluation: fingerprints, reproducibility manifests, certification primitives, portability (ADR-0041) |
+| v3.7.0 | Point-in-time research: events, alternative data, fundamentals, knowledge frames, event studies, regimes, adaptive strategies (ADR-0042) |
 
 ---
 
@@ -5324,8 +5370,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v3.6.0
-Status: Implementation Status (v3.6) describes what is built and is authoritative.
+Version: v3.7.0
+Status: Implementation Status (v3.7) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```
