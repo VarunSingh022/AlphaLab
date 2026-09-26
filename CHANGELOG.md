@@ -152,6 +152,21 @@ every v3.6 fingerprint and every earlier study id still verifies.
   call** — found by this release's benchmark, fixed before release with a
   per-figure index read through the one visibility rule, and held flat by a
   regression test across sixteen times the history.
+* **A timing backstop measured the test session rather than the code.**
+  `test_lifecycle_registry_complexity.py` timed its small and large runs one
+  after the other on the wall clock with the collector running. By the time the
+  full suite reaches it the heap holds ~190,000 tracked objects, and every
+  8,000-entry sample triggered a full collection over all of them while the
+  2,000-entry sample mostly did not: a linear registry read 5.1x instead of
+  4.0x, and with every core busy the file failed 8 of 60 comparisons at up to
+  8.9x against its 8x bound — the failure a full-suite run met. The registry is
+  linear: CPU time per operation is flat from 1,000 to 64,000 operations, with
+  no copy-on-branch. The file now times CPU time wherever the platform keeps it
+  finely, with the collector off and the two sizes interleaved; the sizes, the
+  8x bound and every assertion are unchanged, it failed none of 640 comparisons
+  under the same loads, and each test still fails against the defect it guards
+  (11x to 16x). Seven other timing backstops share the old method; see
+  `nowandfuture.md` section 20.
 
 ## Tests
 

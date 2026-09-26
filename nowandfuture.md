@@ -1527,6 +1527,19 @@ Genuinely unresolved, recorded so they are not rediscovered:
   is not maintained on the execution path. Found in v3.6.
 - **KNOWN DEFECT: `ExposureLimit.max_net_exposure` is read by no pre-trade
   check**, and its sign convention is defined nowhere. Found in v3.6.
+- **KNOWN CAVEAT: seven timing backstops still time the wall clock with the
+  collector running.** Found in v3.7 while fixing
+  `test_lifecycle_registry_complexity.py`, which now times CPU time with the
+  collector off and its two sizes interleaved (its `_timings` docstring holds
+  the measurements). Run under load with a heap the size of the suite's, the
+  others can fail on a linear implementation: `test_standalone_state_scaling.py`,
+  which takes a single sample per size, failed 1 of 10 runs on a quiet machine
+  and 6 of 10 with every core busy; `test_v37_complexity.py` 1 of 10 with every
+  core busy; `test_research_complexity.py`, `test_replay_cursor_complexity.py`
+  and `test_v34_complexity.py` through `test_v36_complexity.py` only when the
+  machine was oversubscribed. Moving them to the same method is mechanical.
+  Until then a failure in one of them is re-run once before it is read as a
+  regression; one that reproduces is real.
 - **KNOWN CAVEAT: `ingest_rows` identifies what its caller's source says.** Rows
   recorded with an empty payload share one dataset version whatever they
   contain. A reproducibility manifest refuses such a dataset and a
