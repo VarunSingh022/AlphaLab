@@ -514,11 +514,11 @@ Large unrelated changes should be split into multiple pull requests.
 Before creating a release, verify
 
 - `ruff check .` and `ruff format --check .` pass
-- `mypy .` passes
+- `mypy .` passes — repository-wide, exactly as CI runs it, not `mypy alphalab`
 - `pytest -q` passes, reporting **0 skipped and 0 warnings**
 - `pytest -q -W error::DeprecationWarning` passes
-- All 14 examples run
-- All 54 benchmarks run
+- All 49 examples run
+- All 55 benchmarks run
 - `python -m build` and `twine check dist/*` pass
 - `git diff --check` is clean
 - `CHANGELOG.md` has an entry for the release

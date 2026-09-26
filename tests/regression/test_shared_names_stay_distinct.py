@@ -1368,3 +1368,169 @@ def test_the_two_health_surfaces_read_different_things() -> None:
     assert {"findings", "unevaluated", "specification_id"} <= {
         field.name for field in dataclasses.fields(HealthReport)
     }
+
+
+# --------------------------------------------------------------------------- #
+# 26. "identity" -- five content digests, five different things identified (v3.6)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_five_content_identities_identify_five_different_things() -> None:
+    """A strategy fingerprint is not a specification id, an evidence id, a study
+    id or a manifest id, and none of them can stand in for another.
+
+    * ``specification_id_for`` -- what a *deployment* needs: limits, capital,
+      broker, market and runtime requirements.
+    * ``evidence_id_for`` -- one *measurement*: method, subject, data, seed and
+      metrics. Frozen since v2.6.
+    * ``derive_study_id`` -- one *experiment*: dataset, universe, features,
+      splits and seed.
+    * ``derive_strategy_fingerprint`` -- one *strategy version*: code,
+      dependencies, parameters, research configuration and engine.
+    * ``derive_manifest_id`` -- one *result's inputs*: dataset, strategy,
+      configuration, seed, engine, and the result itself.
+
+    Merging any two would make one of the questions unaskable: a fingerprint
+    that included the capital would change when a deployment was resized, and a
+    specification that included the source would change when a comment was
+    edited.
+    """
+
+    from alphalab.lifecycle.evidence import evidence_id_for
+    from alphalab.lifecycle.fingerprint import derive_strategy_fingerprint
+    from alphalab.lifecycle.reproducibility import derive_manifest_id
+    from alphalab.lifecycle.specification import specification_id_for
+    from alphalab.research.study import derive_study_id
+
+    parameters = {
+        "specification_id_for": set(inspect.signature(specification_id_for).parameters),
+        "evidence_id_for": set(inspect.signature(evidence_id_for).parameters),
+        "derive_study_id": set(inspect.signature(derive_study_id).parameters),
+        "derive_strategy_fingerprint": set(
+            inspect.signature(derive_strategy_fingerprint).parameters
+        ),
+        "derive_manifest_id": set(inspect.signature(derive_manifest_id).parameters),
+    }
+
+    assert {"capital", "broker", "market", "runtime"} <= parameters["specification_id_for"]
+    assert (
+        not {"capital", "broker", "market", "runtime"} & parameters["derive_strategy_fingerprint"]
+    )
+    assert {"code", "dependencies", "engine"} <= parameters["derive_strategy_fingerprint"]
+    assert not {"code", "dependencies", "engine"} & parameters["specification_id_for"]
+    assert "metrics" in parameters["evidence_id_for"]
+    assert "result_id" in parameters["derive_manifest_id"]
+    assert "fingerprint" in parameters["derive_manifest_id"]
+
+
+def test_the_engine_version_is_recorded_by_a_dataset_and_identifies_a_strategy() -> None:
+    """Two answers to "does the engine version identify?", for two things.
+
+    A dataset's version identifies *content*: re-ingesting the same bytes under
+    a new AlphaLab must give the same dataset, so ``engine_version`` is recorded
+    on its provenance and kept out of ``canonical_dataset_key``. A strategy
+    fingerprint identifies the *conditions a strategy was researched under*,
+    and the engine is one of them -- a result from another engine is a result
+    of something else -- so ``EngineIdentity`` is inside it.
+    """
+
+    from alphalab.data.provenance import DatasetProvenance, canonical_dataset_key
+    from alphalab.lifecycle.fingerprint import canonical_fingerprint_key
+
+    assert "engine_version" in {field.name for field in dataclasses.fields(DatasetProvenance)}
+    assert "engine" not in inspect.signature(canonical_dataset_key).parameters
+    assert "engine" in inspect.signature(canonical_fingerprint_key).parameters
+
+
+# --------------------------------------------------------------------------- #
+# 27. "manifest" -- what a release consists of, and what a result was made from
+# --------------------------------------------------------------------------- #
+
+
+def test_a_release_manifest_and_a_reproducibility_manifest_answer_different_questions() -> None:
+    """``lifecycle.deployment.release_manifest`` says what a *deployment*
+    consists of -- the component references a ``ReleasePackage`` checksums.
+    ``ReproducibilityManifest`` says what one *result* was produced from, and
+    whether it was produced again. A release is deployed; a manifest is
+    re-run. Neither stores bytes: the model registry's artifact store is the one
+    place AlphaLab holds any, and a reproducibility manifest lists dataset bytes
+    and strategy code as inputs AlphaLab does *not* hold.
+    """
+
+    from alphalab.deployment_manager.packaging import ReleasePackage
+    from alphalab.lifecycle.deployment import release_manifest
+    from alphalab.lifecycle.reproducibility import ReproducibilityManifest
+
+    release_fields = {field.name for field in dataclasses.fields(ReleasePackage)}
+    manifest_fields = {field.name for field in dataclasses.fields(ReproducibilityManifest)}
+
+    assert {"components", "config", "checksum"} <= release_fields
+    assert {"result_id", "seed", "dataset_version", "engine"} <= manifest_fields
+    assert release_fields & manifest_fields == set()
+    assert inspect.signature(release_manifest).return_annotation == (
+        "tuple[dict[str, str], dict[str, str]]"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 28. "checking a strategy" -- a promotion gate, a coherence check, a certification
+# --------------------------------------------------------------------------- #
+
+
+def test_certification_is_neither_the_promotion_gate_nor_the_coherence_check() -> None:
+    """Three ways of checking a strategy, three different outputs.
+
+    ``evaluate_policy`` gates a **promotion**: thresholds on recorded metrics, a
+    boolean, and the reasons it failed. ``validate_specification`` reports
+    whether a specification's **fields can all be true** at once. A
+    ``CertificationReport`` states **eight properties** with four statuses each
+    and no verdict -- it promotes nothing, gates nothing, and is not a score.
+    """
+
+    from alphalab.lifecycle.certification import CertificationReport, certify_strategy
+    from alphalab.lifecycle.evidence import ValidationOutcome, evaluate_policy
+    from alphalab.lifecycle.specification import validate_specification
+
+    assert inspect.signature(evaluate_policy).return_annotation == "ValidationOutcome"
+    assert "passed" in {field.name for field in dataclasses.fields(ValidationOutcome)}
+    assert inspect.signature(validate_specification).return_annotation == "tuple[str, ...]"
+    assert inspect.signature(certify_strategy).return_annotation == "CertificationReport"
+    assert "passed" not in {field.name for field in dataclasses.fields(CertificationReport)}
+    assert "state" not in inspect.signature(certify_strategy).parameters, (
+        "certification reads a lifecycle state nowhere and writes none"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 29. "the same everywhere" -- environment parity, and strategy portability
+# --------------------------------------------------------------------------- #
+
+
+def test_environment_parity_and_portability_are_different_claims() -> None:
+    """Parity is a property of **AlphaLab**: backtest, replay and paper take one
+    code path and produce identical fills from one dataset
+    (``test_environment_parity.py``). Portability is a property of **a strategy
+    against a declared environment**: whether that environment offers what the
+    strategy's specification requires. Parity is why portability never has to
+    change the strategy's logic; it cannot say whether a broker takes stop
+    orders.
+
+    And portability owns no capability vocabulary: the environment's broker and
+    market are the v3.5 ``BrokerCapabilities`` and ``MarketAvailability``,
+    checked by the v3.5 functions.
+    """
+
+    from alphalab.lifecycle import portability
+    from alphalab.lifecycle.specification import (
+        BrokerCapabilities,
+        MarketAvailability,
+        unmet_broker_requirements,
+        unmet_market_requirements,
+    )
+
+    fields = {field.name: field.type for field in dataclasses.fields(portability.TargetEnvironment)}
+    assert fields["broker"] == BrokerCapabilities.__name__
+    assert fields["market"] == MarketAvailability.__name__
+    # Read from the module namespace: the names are imported there, not re-exported.
+    assert vars(portability)["unmet_broker_requirements"] is unmet_broker_requirements
+    assert vars(portability)["unmet_market_requirements"] is unmet_market_requirements

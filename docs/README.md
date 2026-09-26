@@ -304,13 +304,30 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.5.0
+v3.6.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.6.0 — strategy evaluation and research-marketplace infrastructure.** The
+sixth capability release on the frozen architecture. One package is deepened —
+`alphalab.lifecycle` — and none is added. `StrategyFingerprint` gives a strategy
+version an immutable identity derived from its code, its declared dependencies
+(with their completeness stated), its parameters, its research configuration
+and its engine version, and from nothing environmental. `ReproducibilityManifest`
+names everything one result was produced from, reading each identity from the
+authority that owns it, and `assess_reproducibility` keeps identity, metadata
+completeness, a rerun and external dependencies as four answers. `certify_strategy`
+states eight machine-verifiable properties, each `PASS`, `FAIL`, `NOT_ASSESSED`
+or `INSUFFICIENT_EVIDENCE`, from observed evidence only, with no overall score.
+`evaluate_portability` checks one fingerprint against declared environment
+capabilities and names every blocker. AlphaLab provides these contracts; an
+external research marketplace consumes them, and none of its logic is here. No
+boundary moves, no durable state is added and no snapshot schema is touched. See
+`ADR/0041`.
 
 **v3.5.0 — strategy execution and production intelligence.** The fifth
 capability release on the frozen architecture, and the bridge between research

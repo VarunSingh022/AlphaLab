@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.5.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.6.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,16 +42,80 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.5.0** |
+| Version | **3.6.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.5.0 are additive to it.** |
+| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.6.0 are additive to it.** |
 
 ---
 
-# 2. What v3.5.0, v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+# 2. What v3.6.0, v3.5.0, v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+
+## v3.6.0 — strategy evaluation and research-marketplace infrastructure
+
+The sixth capability release on the frozen architecture. One package deepened
+(`alphalab.lifecycle`), none added, nothing changed, no snapshot schema touched,
+no durable state added. ADR-0041.
+
+### What it fixed
+
+| Gap | What existed | What v3.6 adds |
+| --- | --- | --- |
+| Which strategy this is | `name@N`, registration order; a factory's *name* | `StrategyFingerprint` over code, dependencies, parameters, research configuration and engine |
+| What a result was made from | a run's dataset, seed and configuration, and nothing about code or engine | `ReproducibilityManifest`, every identity read from its owner |
+| What is verifiably true of a strategy | a promotion gate on metric thresholds | eight certification properties, each with its evidence, and no score |
+| Whether it can move | nothing | `evaluate_portability` against declared environment capabilities |
+
+### Who provides and who consumes
+
+AlphaLab **provides** the contracts — a fingerprint, a manifest and its
+assessment, a certification report, a portability report — each a frozen value
+with a derived identity and a deterministic JSON form. An external application
+**consumes** them; a research marketplace such as RedDesk is the motivating one.
+Listing, publishing, payment, ranking, licensing and tenancy are the
+application's. **NON-GOAL**, pinned by `test_v36_invariants.py`, which sweeps the
+four modules for marketplace operations and for any consumer's name.
+
+### Five content identities
+
+```text
+specification_id_for        what a deployment needs          (v3.5)
+evidence_id_for             one measurement                  (v2.4, frozen)
+derive_study_id             one experiment                   (v3.2)
+derive_strategy_fingerprint one strategy version             (v3.6)
+derive_manifest_id          one result's inputs              (v3.6)
+```
+
+None can stand in for another; section 26 of `test_shared_names_stay_distinct.py`
+pins it. The engine version is *recorded* on a dataset's provenance and kept out
+of its identity (content does not change with the engine), and is *inside* a
+strategy fingerprint (a result from another engine is a result of something
+else). Both are deliberate.
+
+### Evidence, never a verdict
+
+Certification takes runs, repeated runs, datasets, manifests, runtime
+observations and resource measurements, and derives every judgement itself
+through the authority that owns it. A supplied measurement claiming to be
+`COUNTED` is refused. Leverage and drawdown are the pre-trade gate's own
+readings. `NOT_ASSESSED` and `INSUFFICIENT_EVIDENCE` are never `PASS`.
+
+### Where v3.6 met pre-existing defects
+
+Building real evidence surfaced three properties of the pre-trade gate — a
+position check that adds a notional to a quantity, a daily-loss limit that is
+never maintained, a net-exposure limit no check reads — and one ingestion
+caveat: `ingest_rows` identifies whatever source its caller records. None is
+changed; each is stated where v3.6 meets it. See section 20.
+
+### The data/research join rule held
+
+`alphalab.api` is still the only module importing both `alphalab.data` and
+`alphalab.research`. The first v3.6 draft broke that twice and the guard caught
+it; the fix is two one-member structural protocols, `StudyIdentity` and
+`VersionedDataset`.
 
 ## v3.5.0 — strategy execution and production intelligence
 
@@ -448,7 +512,7 @@ All 50 packages, and which path reaches each.
 
 | Package | Owns |
 | --- | --- |
-| `lifecycle` | The composition: registration, evidence, promotion, deployment, rollback, governance, and the join to the execution path. Since v3.5 also the strategy progression, the deployment specification, runtime health, the expected/paper/live comparison and the AlphaLab-to-broker reconciliation |
+| `lifecycle` | The composition: registration, evidence, promotion, deployment, rollback, governance, and the join to the execution path. Since v3.5 also the strategy progression, the deployment specification, runtime health, the expected/paper/live comparison and the AlphaLab-to-broker reconciliation. Since v3.6 also strategy fingerprints, reproducibility manifests, certification reports and portability reports — values, never stored |
 | `experiment_tracking` | Experiment runs, parameters, metric history |
 | `model_registry` | Model versions, stages, promotion, `ArtifactRef`, the content-addressed artifact store |
 | `deployment_manager` | Release packages and the append-only environment ledger |
@@ -931,18 +995,18 @@ retry-on-older-protocol fallback exists.
 ```bash
 ruff check .                              # lint
 ruff format --check .                     # format
-mypy .                                    # strict, 929 source files
-pytest -q                                 # 4144 tests, 0 skipped, 0 warnings
-pytest -q -W error::DeprecationWarning    # the same 4144
+mypy .                                    # strict, 1080 source files (what CI runs)
+pytest -q                                 # 5669 tests, 0 skipped, 0 warnings
+pytest -q -W error::DeprecationWarning    # the same 5669
 git diff --check
 python -m build && twine check dist/*
-for f in examples/*.py; do python "$f"; done    # 16
-for f in benchmarks/*.py; do python "$f"; done  # 48
+for f in examples/[0-9]*.py; do python "$f"; done    # 49
+for f in benchmarks/*.py; do python "$f"; done       # 55
 ```
 
 `make check` runs the first four.
 
-**4144 tests.** The regression suite is the largest deliberately — most of its
+**5669 tests.** The regression suite is the largest deliberately — most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
 
@@ -955,7 +1019,7 @@ than the summary line, and spawns a **fresh interpreter** with
 
 | File | Pins |
 | --- | --- |
-| `test_shared_names_stay_distinct.py` | Twenty-five sets of same-named things that are not one thing, including the three lifecycle state machines, the two reconciliations and the two health surfaces |
+| `test_shared_names_stay_distinct.py` | Twenty-nine sets of same-named things that are not one thing, including the three lifecycle state machines, the two reconciliations, the two health surfaces, the five content identities and the three ways of checking a strategy |
 | `test_venue_concepts_stay_distinct.py` | Listing exchange vs market-data attribution vs execution venue |
 | `test_no_silent_financial_defaults.py` | An AST sweep of the whole package; each exemption earned by a refusal test |
 | `test_snapshot_field_coverage.py` | Silent state loss when a state gains a field |
@@ -975,6 +1039,8 @@ than the summary line, and spawns a **fresh interpreter** with
 | `test_v34_complexity.py` | That roll selection, segment construction, chain inversion and contract exposure stay linear |
 | `test_v35_invariants.py` | One authority per concept, cross-process determinism of a deployment identity, that a missing observation can never read as healthy, that nothing v3.5 added mutates state or persists any, and the vendor boundary |
 | `test_v35_complexity.py` | That health evaluation, comparison, reconciliation and a progression's history stay near-linear |
+| `test_v36_invariants.py` | One home per v3.6 concept; evidence that carries no verdict; the gate's own leverage and drawdown readings; no clock, entropy or environment on a v3.6 path; every v3.6 identity reproduced in two fresh interpreters with different hash seeds; nothing machine-local in an identity; no durable state; no marketplace operation |
+| `test_v36_complexity.py` | That fingerprinting, source digests, run digests, certification and portability stay linear |
 
 ## Performance
 
@@ -1121,6 +1187,23 @@ an ADR.
 34. **A rate dated after the instant it is read at is a look-ahead**, refused by
     `FxRates.convert`. `max_age_seconds` bounds the other direction. A cross
     rate is derived only on request and only through a named currency.
+35. **A strategy fingerprint is derived from declared inputs and nothing
+    environmental** (v3.6, ADR-0041). Code, dependencies with their stated
+    completeness, parameters read from the registered version, research
+    configuration and engine — never a mode, broker, venue, deployment,
+    dataset, clock or path, and never the registration number. Every
+    caller-supplied string and number is rendered with `repr`.
+36. **A result's identity is the digest of its complete canonical record, and a
+    reproducibility claim needs the seed.** An unseeded run is refused rather
+    than called reproducible; an absent study seed is recorded, never replaced;
+    a dataset whose provenance records no bytes is refused, and verifies no
+    declared version in a certification.
+37. **Certification derives every verdict from observed evidence** and accepts
+    none. `NOT_ASSESSED` and `INSUFFICIENT_EVIDENCE` are never `PASS`, there is
+    no overall score, and every assessment states what it does not establish.
+38. **Portability adapts nothing.** A missing capability is a named blocker, an
+    undeclared one is never satisfied, and the fingerprint evaluated is the one
+    supplied.
 
 ## The failure mode to watch for
 
@@ -1164,11 +1247,15 @@ future "unification" must break first.
 | `strategy.RuntimeState` | Holds strategy instances. Not a runtime-package state |
 | Two matrix inversions | Different input classes; neither is a shared numerical layer |
 | `AppendOnlyLog` batch operations keeping local copies | One copy in and one value out is O(collection) per *call*, not per element; writing each element through `PersistentMap.set` measured ~30% worse |
+| Five content identities | A deployment's needs, a measurement, an experiment, a strategy version, a result's inputs. Each answers a question the others cannot (v3.6) |
+| `evaluate_policy` / `validate_specification` / `certify_strategy` | A promotion gate, a coherence check, and eight properties with no verdict (v3.6) |
+| Environment parity / portability | A property of AlphaLab (one strategy path everywhere) vs a property of a strategy against a declared environment (v3.6) |
 
 Also deliberate: **no CLI, no server, no daemon, no event bus, no composition
 root, no `SettlementPolicy` object, no migration framework, no per-environment
 promotion policy, no supervised live process, no authentication or credential
-handling.** Each is a NON-GOAL with a recorded reason.
+handling, no marketplace logic, no overall certification score, no dependency
+resolver or environment snapshot.** Each is a NON-GOAL with a recorded reason.
 
 ---
 
@@ -1183,6 +1270,8 @@ internal work.
 | **Named vendor request shapes** | EXTERNAL. Each differs per venue and belongs to an adapter |
 | **FX data** | EXTERNAL. v2.17 ships the rate-feed boundary and not a single rate |
 | **Classification data** | EXTERNAL. v2.11 ships the mechanism and v2.15 its provenance; no taxonomy and no reference-data feed |
+| **What a rerun needs** | EXTERNAL. A reproducibility manifest identifies the dataset bytes, the strategy code, the dependency set, the engine and the live objects a run records by type; AlphaLab stores none of them (v3.6) |
+| **What an environment offers** | EXTERNAL. Every `TargetEnvironment`, runtime observation and resource measurement is declared by whoever knows it (v3.6) |
 
 The honest summary of connectivity: **the connectivity exists; the vendor
 integration does not.**
@@ -1198,6 +1287,9 @@ of these is a defect.
   `sector_exposure` is visibility; no risk check reads a sector.
 - **A vendor adapter package** over the existing transport — the smallest step
   from connectivity to integration.
+- **A lock-file reader, a durable home for v3.6 values, and a rerun harness.**
+  Each could be built beside the contracts v3.6 states; none is needed to state
+  them (ROADMAP, *Optional future evolution*).
 - **Consolidating the two identical `AssetClass` enums** in `live.provider` and
   `marketdata.symbols`. Field-for-field identical, un-aliased, and the one
   collision of this kind the repository has not resolved — `brokers` aliases the
@@ -1242,8 +1334,9 @@ of these is a defect.
 | **v3.3.0** | **Institutional backtesting and portfolio intelligence: itemized execution costs, capacity modelling, nine-dimension attribution, risk decomposition with named VaR methodology, the reusable scenario/stress contract (ADR-0038)** |
 | **v3.4.0** | **Global markets and multi-asset research: one market-convention authority as a leaf over `common`, reproducible continuous futures, implied volatility with five refusals, cross rates and the FX look-ahead guard, crypto venue metadata and 24/7 coverage, a fixed-income foundation, and six US/Binance defaults made required (ADR-0039)** |
 | **v3.5.0** | **Strategy execution and production intelligence: the research-to-live progression as a third axis, deployment specifications with a derived identity, structured runtime health from supplied observations, the expected/paper/live comparison, and AlphaLab-to-broker reconciliation — all inside `alphalab.lifecycle`, with no package added and no snapshot schema touched (ADR-0040)** |
+| **v3.6.0** | **Strategy evaluation: immutable strategy fingerprints, reproducibility manifests with four separate answers, eight certification properties from observed evidence with no score, and portability against declared capabilities — all inside `alphalab.lifecycle`, with no package added, no durable state and no marketplace logic (ADR-0041)** |
 
-40 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+41 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---
@@ -1290,9 +1383,24 @@ Genuinely unresolved, recorded so they are not rediscovered:
 - **UNKNOWN: whether the single-threaded model is sufficient** for a deployment
   running many strategies at high event rates. The design anticipated sharding;
   nothing was built, and nothing has needed it.
+- **KNOWN DEFECT: the pre-trade position check compares different units.**
+  `check_position_limit` adds an asset's notional exposure
+  (`ExposureStatus.asset_exposure` holds market values) to an order's quantity
+  and compares the sum with `PositionLimit.max_quantity`. Found in v3.6; a fix
+  needs position quantities in the persisted risk state — a pipeline snapshot
+  schema decision with its own ADR.
+- **KNOWN DEFECT: `DailyLossLimit` is never enforced.** `RiskState.daily_loss`
+  is not maintained on the execution path. Found in v3.6.
+- **KNOWN DEFECT: `ExposureLimit.max_net_exposure` is read by no pre-trade
+  check**, and its sign convention is defined nowhere. Found in v3.6.
+- **KNOWN CAVEAT: `ingest_rows` identifies what its caller's source says.** Rows
+  recorded with an empty payload share one dataset version whatever they
+  contain. A reproducibility manifest refuses such a dataset and a
+  certification does not count it as verified data (v3.6); the ingestion
+  contract is unchanged.
 
 ---
 
-*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0, v3.4.0 and v3.5.0. If you are reading this long after, check the version in
+*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0, v3.4.0, v3.5.0 and v3.6.0. If you are reading this long after, check the version in
 `pyproject.toml` first: where this document and the code disagree, the code is
 right, and this document has a bug worth fixing.*

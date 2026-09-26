@@ -4,13 +4,13 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.1)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.6)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.5.0 both halves name only packages that exist; where the target half shows a
+> v3.6.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.4)
+# Implementation Status (v3.6)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -83,7 +83,12 @@ boundary (ADR-0039).** **v3.5.0 adds the production surfaces — the strategy
 progression, the deployment specification, runtime health, the
 expected/paper/live comparison and the AlphaLab-to-broker reconciliation, all
 inside `alphalab.lifecycle` — adds no package, changes no snapshot schema, and
-moves no boundary (ADR-0040).** **v3.0.0 adds no
+moves no boundary (ADR-0040).** **v3.6.0 adds strategy evaluation — immutable
+strategy fingerprints, reproducibility manifests, certification primitives and
+portability checks, again all inside `alphalab.lifecycle` — the evidence
+contracts an external research marketplace consumes, with no marketplace logic
+in AlphaLab; it adds no package, no durable state and no snapshot schema, and
+moves no boundary (ADR-0041).** **v3.0.0 adds no
 capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -365,6 +370,11 @@ a lost response addresses the same order rather than creating a second one.
 | **Expected / paper / live comparison** | **Implemented (v3.5).** `alphalab.lifecycle.comparison` — trades, fills, slippage, P&L, exposure and latency, with declared alignment and explicit tolerances. It opens no connection and reads no feed |
 | **Reconciliation of the book against the mirror** | **Implemented (v3.5).** `alphalab.lifecycle.reconciliation.reconcile_execution_state` — fourteen mismatch classes across the OMS book, the portfolio and the applied fills. `broker.reconciliation.reconcile` still owns the mirror-against-the-venue pair |
 | Automated remediation of a health finding or a mismatch | **Not implemented, deliberately.** Both detect and report; neither declares a side authoritative and neither mutates anything. Re-sending an order that actually exists would duplicate it, so the decision stays with the caller |
+| **Strategy fingerprints** | **Implemented (v3.6).** `alphalab.lifecycle.fingerprint` — an immutable identity over code, declared dependencies (with their completeness), parameters, research configuration and engine. Nothing environmental enters it, and nothing reads the installed environment to decide it |
+| **Reproducibility manifests** | **Implemented (v3.6).** `alphalab.lifecycle.reproducibility` — everything one result was produced from, each identity read from its owner, with identity, completeness, rerun and external dependencies assessed separately. Nothing is stored and nothing is re-executed inside the library |
+| **Certification primitives** | **Implemented (v3.6).** `alphalab.lifecycle.certification` — eight machine-verifiable properties with four statuses and no overall score, derived only from observed evidence |
+| **Portability** | **Implemented (v3.6).** `alphalab.lifecycle.portability` — one fingerprint against declared environment capabilities; blockers named, nothing adapted. No broker adapter is involved |
+| Marketplace logic (listing, payment, ranking, licensing, tenancy) | **Not implemented, deliberately.** AlphaLab provides the evidence contracts; an external application consumes them (ADR-0041) |
 
 **What changed in v2.15, precisely.** AlphaLab now contains a genuine venue
 transport and a genuine streaming client, and both are exercised end to end over
@@ -1461,6 +1471,9 @@ Features such as:
 - The strategy progression, the deployment specification, the expected / paper /
   live comparison, and reconciliation of AlphaLab's execution state against a
   normalized broker state (v3.5)
+- Strategy fingerprints, reproducibility manifests, certification primitives and
+  portability checks — machine-verifiable evidence about a strategy version
+  (v3.6)
 
 are considered first-class architectural components rather than optional add-ons.
 
@@ -5287,6 +5300,11 @@ These principles are considered architectural contracts rather than implementati
 | v2.17.0 | Settlement multi-currency, FX feed, strategy registry, seven removals (ADR-0034, ADR-0035) |
 | **v3.0.0** | **Architecture frozen; documentation truth freeze. No capability added** |
 | **v3.1.0** | **Universal data ingestion, provenance and the derived dataset version (ADR-0036)** |
+| v3.2.0 | Strategy research and validation: features, factor research, walk-forward, purged CV, the reproducible study contract (ADR-0037) |
+| v3.3.0 | Institutional backtesting: execution costs, capacity, attribution, risk decomposition, scenarios (ADR-0038) |
+| v3.4.0 | Global markets: the market-convention authority, continuous futures, implied volatility, FX cross rates, fixed income (ADR-0039) |
+| v3.5.0 | Strategy execution and production intelligence: progression, deployment specifications, health, comparison, reconciliation (ADR-0040) |
+| v3.6.0 | Strategy evaluation: fingerprints, reproducibility manifests, certification primitives, portability (ADR-0041) |
 
 ---
 
@@ -5306,8 +5324,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v3.1.0
-Status: Implementation Status (v3.1) describes what is built and is authoritative.
+Version: v3.6.0
+Status: Implementation Status (v3.6) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```

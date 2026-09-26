@@ -16,7 +16,7 @@ Examples are intended to be read sequentially by new users and used as reference
 > (v2.17) drives an FX feed into a run that settles two currencies and reports
 > in one. `05_broker_connection.py` was rewritten in v2.17 against the canonical
 > broker boundary, having used `alphalab.integrations` until that package was
-> removed. None are part of the automated test suite, though all forty-five run
+> removed. None are part of the automated test suite, though all forty-nine run
 > as a release gate.
 > For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
@@ -259,6 +259,29 @@ five opens a connection, holds a credential or names a venue.
 
 ---
 
+# Strategy evaluation (v3.6)
+
+Examples `46`–`49` make one strategy version evaluable by somebody who did not
+write it — the evidence contracts an external research marketplace consumes,
+with none of its logic in AlphaLab. All four evaluate the **same** strategy,
+set up once in `examples/_strategy_evidence.py`: a parameter-driven strategy
+registered in a real `StrategyClassRegistry`, and a dataset ingested from rows
+written in the file with their own bytes recorded as its source. None opens a
+connection, holds a credential, names a venue or reads the installed
+environment to decide an identity.
+
+| # | Shows |
+|---|---|
+| 46 | A strategy fingerprint over five defining inputs — code, dependencies (with a declared completeness), parameters, research configuration, engine — each changing the identity on its own; presentation that does not; a path naming a machine refused; and the same fingerprint from a second interpreter with another hash seed |
+| 47 | A reproducibility manifest naming everything a result was made from; a rerun that reproduces it, one of other inputs, and one whose simulator cost changed without the record noticing; an unseeded run refused; and a study with its absent seed stated |
+| 48 | Eight certification properties from no evidence (all `NOT_ASSESSED`) to complete evidence (all earned), then `FAIL` and `INSUFFICIENT_EVIDENCE` each for a reason — with CPU and memory measured on the running machine and labelled so |
+| 49 | One fingerprint across research, paper and two brokers declared as capabilities: every requirement satisfied, blocked, unverified or not applicable; a retuned deployment caught; and the same code filling the same way in two environments |
+
+`46` assumes `12` and `42`. `47` assumes `16`, `24` and `46`. `48` assumes
+`42`, `43`, `46` and `47`, and `49` assumes `11`, `42` and `46`.
+
+---
+
 # Additional engines
 
 The feature store, machine learning, cloud research, enterprise, and other
@@ -282,6 +305,9 @@ since the v1 engine series.
 
 v3.5 added `41`–`45` for the production surfaces, all inside
 `alphalab.lifecycle`, which had one example (`12`) and now has six.
+
+v3.6 added `46`–`49` for strategy evaluation, again all inside
+`alphalab.lifecycle`, which now has ten.
 
 ---
 

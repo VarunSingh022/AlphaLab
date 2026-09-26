@@ -42,14 +42,28 @@ expected/paper/live comparison, and deterministic reconciliation against a
 normalized broker state. No package is added, no boundary moves and no snapshot
 schema changes. ADR-0040.
 
+**v3.6.0** is the sixth, and makes a strategy version evaluable by somebody who
+did not write it. It deepens `alphalab.lifecycle` again: an immutable strategy
+fingerprint over code, dependencies, parameters, research configuration and
+engine; a reproducibility manifest from which a result can be recreated;
+eight machine-verifiable certification properties with no overall score; and a
+portability check against declared environment capabilities. These are the
+evidence contracts a research marketplace such as RedDesk consumes — AlphaLab
+provides them and contains no marketplace logic. No package is added, no
+boundary moves and no snapshot schema changes. ADR-0041.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
 | **Deliberate boundary** | Not built, on purpose, with a reason and usually a regression test |
 | **External dependency** | Not AlphaLab's engineering to do — data, credentials, a vendor's API |
+| **Known defect** | A real defect, found and stated where it matters, not yet fixed |
 | **Optional future evolution** | Could be built; no commitment; nothing depends on it |
 
-Nothing in the last three classes is a defect, and none of them blocks a release.
+Nothing classed as a deliberate boundary, an external dependency or optional
+future evolution is a defect, and none of them blocks a release. Known defects
+are listed apart, in their own class, so they are never mistaken for
+decisions.
 
 ---
 
@@ -149,6 +163,43 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.6.0 — strategy evaluation and research-marketplace infrastructure
+
+The sixth capability release on the frozen architecture. One package deepened,
+none added, nothing changed. ADR-0041.
+
+- **A strategy fingerprint** — `"<name>@<sha256>"` over five defining inputs:
+  the code (the entry point read from the class registry, and a digest of the
+  source files by relative path), the dependencies (exact pins with a declared
+  `EXACT_CLOSURE`, `DIRECT_ONLY` or `UNDECLARED` completeness), the parameters
+  (read from the registered version), the research configuration and the
+  engine version. Each changes the identity on its own; mapping order, file
+  order and name spelling do not; nothing environmental enters it, so it is the
+  identity a strategy carries from research to live.
+- **A reproducibility manifest** — dataset version and the digest of its bytes,
+  the fingerprint, the run's own recorded configuration, the seed with what it
+  does, the engine, and the result's identity: the digest of the run's complete
+  canonical record. Every field is read from its owner. An unseeded run is
+  refused; a study's absent seed is recorded, never invented; a dataset whose
+  provenance records no bytes is refused.
+- **Four reproducibility answers, not one boolean** — identity, metadata
+  completeness, a rerun (`REPRODUCED`, `DIVERGED`, `INPUTS_DIFFER`,
+  `NOT_ATTEMPTED`) and the external inputs a rerun needs, which are never empty.
+- **Certification primitives** — eight properties (deterministic, reproducible,
+  risk limits, maximum leverage, supported markets, required data, resource
+  usage, runtime behaviour), each `PASS`, `FAIL`, `NOT_ASSESSED` or
+  `INSUFFICIENT_EVIDENCE` with its methodology, evidence and limitations. No
+  overall score. Evidence is observed, never asserted: every verdict is derived
+  inside, and leverage and drawdown are read as the pre-trade gate reads them.
+- **Portability** — one fingerprint against `TargetEnvironment` declarations
+  built from the capability types that already exist, across eight requirements
+  that are each satisfied, blocked, unverified or not applicable. A missing
+  capability is a named blocker, never a substitution; "broker A" and "broker B"
+  are two declarations, never two adapters.
+- **Found, stated, not changed here** — three properties of the pre-trade gate
+  and one of in-memory ingestion that predate this release; see *Known defects*
+  below.
 
 ## v3.5.0 — strategy execution and production intelligence
 
@@ -510,6 +561,27 @@ future "simplification" would have to break first —
   indistinguishable from a partially populated bar without a declaration, and a
   depth book is not a flat table. `RecordType` has `BAR` and `QUOTE` only; a
   caller that builds the records itself can still ingest them.
+- **No marketplace logic.** AlphaLab provides fingerprints, manifests,
+  certification reports and portability reports; listing, publishing, purchase,
+  payment, subscription, ranking, search, seller and buyer accounts, licensing
+  and tenancy belong to the application that consumes them. A regression test
+  sweeps the v3.6 modules for any of it, and none of them names a consumer.
+- **No overall certification score.** A blended figure would decide how many
+  failed properties one passing one outweighs — a policy presented as a
+  measurement. The report states eight properties and stops.
+- **No verdict accepted as evidence.** Certification takes runs, manifests,
+  observations and measurements and derives every judgement itself; it has no
+  field for a health report, an assessment or a status.
+- **No dependency resolver and no environment snapshot.** A dependency closure
+  is declared, with its completeness stated. Listing "whatever is installed
+  here" and calling it exact is the false reproducibility claim the manifest
+  exists to prevent.
+- **No adaptation for portability.** A strategy that needs a capability an
+  environment lacks is not portable there; nothing converts an order type,
+  drops a short or retunes a parameter to make it fit.
+- **No durable state for the v3.6 values**, for the reason v3.5 gave: a field on
+  `LifecycleState` would move its schema, and a fingerprint, manifest or report
+  is a value the caller can hold. A registered version stores no fingerprint.
 
 ---
 
@@ -554,6 +626,42 @@ Real, and not AlphaLab's engineering to complete.
   a sector breakdown requires an operator who declares one. Sector is also the
   only dimension: industry, country, issuer and rating are each a separate
   decision with their own consumers.
+- **What a rerun needs.** A reproducibility manifest identifies the dataset
+  bytes, the strategy code, the dependency set and the engine; AlphaLab stores
+  none of them, and the live objects a run records by type are supplied back by
+  the caller.
+- **What an environment offers.** Every `TargetEnvironment` is an application's
+  declaration of a broker's, a market's and a runtime's capabilities; AlphaLab
+  discovers none of them.
+- **Runtime observations and resource measurements.** Supplied by whoever
+  watched the deployment or timed the run. AlphaLab observes and measures
+  nothing on its own.
+
+---
+
+# Known defects — found, not yet fixed
+
+A class of its own, because unlike everything above these are defects. Each
+predates v3.6, was found by building real evidence for it, and is stated where
+v3.6 meets it rather than silently relied on. Fixing the first three needs
+position quantities in the persisted risk state — a pipeline snapshot schema
+decision that deserves its own ADR (ADR-0041, *Consequences*).
+
+- **The pre-trade position check compares different units.**
+  `check_position_limit` adds an asset's notional exposure
+  (`ExposureStatus.asset_exposure` holds market values) to an order's quantity
+  and compares the sum with `PositionLimit.max_quantity`. A cap near a real
+  share count refuses orders the position does not warrant. Every
+  `RISK_LIMITS` certification states it.
+- **`DailyLossLimit` is never enforced.** `RiskState.daily_loss` is not
+  maintained on the execution path, so the daily-loss check always reads zero.
+- **`ExposureLimit.max_net_exposure` is read by no pre-trade check**, and its
+  sign convention is defined nowhere.
+- **`ingest_rows` identifies what its caller's source says.** It records the
+  `RawSource` it is given (ADR-0036), so rows recorded with an empty payload
+  share one dataset version whatever they contain. Reproducibility manifests
+  refuse such a dataset and certification does not count it as verified data;
+  the ingestion contract itself is unchanged.
 
 ---
 
@@ -621,6 +729,16 @@ Could be built. Nothing depends on any of it, and no commitment is made here.
 - **Derived alignment for a comparison.** `AlignmentKey` has two members and no
   inference. A fuzzy matcher over price, quantity and time would pair records no
   identity connects and report the pairing as a measurement.
+- **A lock-file reader** that turns a caller's lock file into a
+  `DependencyManifest`. It would read a file the caller names and resolve
+  nothing, so it would not break the "no environment snapshot" boundary; it is
+  simply not needed to state the contract.
+- **A durable home for fingerprints, manifests and reports.** An application
+  that wants one persists them through its own store; each has a deterministic
+  JSON form through `alphalab.persistence.serialize`.
+- **A rerun harness.** A rerun is the caller's to perform from a manifest's
+  declared inputs; the lifecycle constructs and executes nothing (ADR-0033
+  decision 5), so a harness would live beside the execution path, not in it.
 
 ---
 

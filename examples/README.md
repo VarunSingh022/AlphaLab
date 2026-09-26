@@ -1,6 +1,6 @@
 # AlphaLab Examples
 
-Forty-five runnable scripts, each demonstrating one part of AlphaLab against
+Forty-nine runnable scripts, each demonstrating one part of AlphaLab against
 its real public API. Every one of them runs:
 
 ```bash
@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all forty-five are executed as a
+paths far more thoroughly under `tests/` — but all forty-nine are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -63,6 +63,10 @@ API.
 | 43 | `43_runtime_health.py` | Seven health categories from **supplied** observations: thresholds at, past and before the budget; a reconnecting adapter that warns against a dead one that breaches; and why a clean report with something unevaluated is `UNKNOWN` rather than `HEALTHY` |
 | 44 | `44_expected_paper_live_comparison.py` | A backtest, a paper run and a venue's own records compared: declared alignment, stated tolerances, money per currency, a venue's unmeasured slippage staying **missing** instead of becoming zero, and three pairs so a divergence can be located |
 | 45 | `45_broker_reconciliation.py` | AlphaLab's execution state against a normalized broker state: a lost fill, an order the venue never held, one nobody routed, a resized position, venue symbols joined through a supplied mapping, and a currency the account cannot speak about — unreconciled, not agreed |
+| 46 | `46_strategy_fingerprints.py` | **The v3.6 fingerprint**: five defining inputs each changing the identity on its own, mapping order and name spelling that do not, a dependency record whose completeness is declared rather than assumed, and the same identity from a second interpreter with a different hash seed |
+| 47 | `47_reproducible_research_artifacts.py` | What exact inputs produced this result: a manifest whose every identity is read from its owner, a rerun that reproduces, one of other inputs, one that diverges because a live object changed, an unseeded run refused, and a research study with its absent seed stated |
+| 48 | `48_strategy_certification.py` | Eight machine-verifiable properties with four statuses and no score: evidence observed rather than asserted, leverage and drawdown read as the pre-trade gate reads them, resource figures that say how and where they were measured, and what each assessment does not establish |
+| 49 | `49_strategy_portability.py` | One fingerprint across research, paper and two brokers declared as capabilities: eight requirements each satisfied, blocked, unverified or not applicable, a blocker named rather than worked around, and a deployment that quietly retunes the strategy caught |
 
 ## Reading order
 
@@ -93,6 +97,11 @@ on the last:
 
 All eight ingest the **same** committed panel, so their numbers are directly
 comparable with each other.
+
+`46`–`49` are the v3.6 sequence and read in order: **46** gives the strategy an
+identity, **47** records what one of its results was made from, **48** states
+what is verifiably true of it, and **49** asks where it can run unchanged. Each
+uses the identities the one before it produced.
 
 `05_broker_connection.py` was rewritten in v2.17 against the canonical broker
 boundary, having used `alphalab.integrations` until that package was removed
@@ -135,6 +144,18 @@ observes nothing on its own; and the broker states in `44` and `45` are
 deterministic fixtures standing in for whatever an application's adapter
 produces. None of the five opens a connection, holds a credential or names a
 venue.
+
+`46`–`49` evaluate one strategy, set up once in `examples/_strategy_evidence.py`
+for the reason `_research_panel.py` exists: so four examples are about
+fingerprints, manifests, certification and portability rather than about
+repeating setup. The strategy is registered in a real `StrategyClassRegistry`
+and reads its sizes from its declared parameters, so the parameters a
+fingerprint hashes are the ones that drive its orders; its dataset is ingested
+from rows written in the file, with those rows' bytes recorded as the source so
+its derived version names them. `47` also reads the committed research panel for
+its study. Example 48's CPU and memory figures are measured on the machine that
+runs it and are labelled `MEASURED` with that machine's description — every
+other number in the four is deterministic.
 
 See `examples/data/README.md` for what each dataset contains.
 

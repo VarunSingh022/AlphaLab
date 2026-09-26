@@ -14,6 +14,226 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.6.0] - 2026-09-26
+
+**Strategy evaluation: fingerprints, reproducible research artifacts,
+certification primitives and portability — the evidence contracts an external
+research marketplace can consume.**
+
+The sixth capability release on the frozen architecture. v3.5 carried a strategy
+from research to live money; this makes a strategy version *evaluable by
+somebody else*: identified immutably, its results recreatable from an explicit
+manifest, its machine-verifiable properties stated with their evidence, and its
+ability to move between environments checked against what each declares.
+
+One package is deepened — `alphalab.lifecycle` — and none is added. No ownership
+boundary moves, no snapshot schema changes, no durable state is added, and every
+v3.1 through v3.5 invariant holds.
+
+**AlphaLab provides the contracts; an application consumes them.** A research
+marketplace such as RedDesk is the motivating consumer. Listing, publishing,
+purchase, payment, subscription, ranking, search, seller and buyer accounts,
+licensing and tenancy are all the application's, and none of it is here — a
+regression test sweeps the new modules for it, and none of them names a
+consumer.
+
+The decisions are recorded in
+[`ADR-0041`](docs/ADR/0041-strategy-evaluation-fingerprints-reproducibility-certification-and-portability.md).
+
+## What was missing
+
+There was **no identity for a strategy version**: `name@N` is registration
+order, a specification id identifies a deployment, an evidence id a measurement,
+a study id an experiment, and a class registry records a factory's *name* —
+nothing said which code, with which dependencies, configured how, researched
+how, on which engine. **A result could not say everything it was made from**:
+a `BacktestResult` knows its data, seed and configuration and nothing about the
+code or the engine, and `ValidationEvidence` cannot grow without breaking its
+frozen digest. **Nothing stated a strategy's verifiable properties** with the
+evidence behind each. And **nothing checked whether a strategy could move** to
+an environment, although AlphaLab's four environments already share one strategy
+code path.
+
+## Added
+
+### Strategy fingerprints — `alphalab.lifecycle.fingerprint`
+
+* `StrategyFingerprint` and `derive_strategy_fingerprint` —
+  `"<name>@<sha256>"` over `canonical_fingerprint_key`, tagged
+  `alphalab.strategy_fingerprint.v1`. Five defining inputs: **code**,
+  **dependencies**, **parameters**, **research configuration**, **engine**,
+  plus the line name and the strategy id. The version number is not an input,
+  and nothing environmental is.
+* `fingerprint_for_version` — name, strategy id and parameters **derived** from
+  the registered `StrategyVersion`.
+* `CodeIdentity` and `code_identity_for` — package, declared version, the entry
+  point **read from** `StrategyRegistration.qualified_name`, and a
+  `source_digest` over relative paths. A path naming a machine is refused.
+* `DependencyManifest`, `DependencyPin`, `DependencyCompleteness` —
+  `EXACT_CLOSURE`, `DIRECT_ONLY`, `UNDECLARED`, declared and inside the
+  identity. Exact pins only; PEP 503 name normalization; an optional artifact
+  digest. AlphaLab reads no installed environment and resolves nothing.
+* `EngineIdentity` and `running_engine`; `ResearchConfiguration`,
+  `research_configuration`, `research_configuration_for_study`.
+* `verify_fingerprint`, `fingerprint_differences` (which inputs moved) and
+  `differing_parameters` — the one parameter comparison every v3.6 module uses.
+* Every caller-supplied string and number is rendered with `repr`, so the
+  rendering is injective; mapping order, file order and distribution-name
+  spelling do not reach the identity.
+
+### Reproducible research artifacts — `alphalab.lifecycle.reproducibility`
+
+* `ReproducibilityManifest` — dataset version and the digest of its bytes, the
+  strategy fingerprint, the recorded configuration, the seed with its
+  `SeedRole`, the engine, and the result's identity — every field read from the
+  authority that owns it. Tagged `alphalab.reproducibility_manifest.v1`.
+* `digest_run` and `RunDigest` — a run's identity is the SHA-256 of its complete
+  canonical record (`runtime.run_snapshot.capture` serialized by
+  `persistence.serialize`), and its recorded configuration is the snapshot's own
+  projection. Nothing re-renders a run.
+* `manifest_for_run` and `manifest_for_study`. An **unseeded run is refused** —
+  its identifiers came from `uuid4`, so no rerun can reproduce its record — and a
+  study with no seed is recorded `ABSENT`, never given one.
+* `assess_reproducibility` keeps four answers apart: identity, metadata
+  completeness (`manifest_gaps`), a rerun (`RerunOutcome`: `NOT_ATTEMPTED`,
+  `REPRODUCED`, `DIVERGED`, `INPUTS_DIFFER`) and external dependencies
+  (`external_requirements`, never empty; a live run's venue executions are not
+  recreatable). A rerun is compared only when both manifests verify — a rerun
+  matching an altered record is not reproduction.
+
+### Certification primitives — `alphalab.lifecycle.certification`
+
+* `certify_strategy` → `CertificationReport` — eight `PropertyAssessment`s:
+  `DETERMINISTIC`, `REPRODUCIBLE`, `RISK_LIMITS`, `MAX_LEVERAGE`,
+  `SUPPORTED_MARKETS`, `REQUIRED_DATA`, `RESOURCE_USAGE`, `RUNTIME_BEHAVIOR`.
+  Each has a status, a methodology, machine-readable evidence, findings and
+  limitations. **No overall score.**
+* `CertificationStatus` — `PASS`, `FAIL`, `NOT_ASSESSED`,
+  `INSUFFICIENT_EVIDENCE`. Missing or inconclusive evidence is never `PASS`.
+* `CertificationEvidence` carries observations — runs, repeated runs, datasets,
+  manifests, runtime observations, resource measurements — and **no verdict**;
+  every judgement is derived inside through `digest_run`,
+  `assess_reproducibility` and `evaluate_health`.
+* Leverage and drawdown are read **as the pre-trade gate reads them**
+  (`RiskState.current_leverage`, `current_drawdown_pct`) at every recorded
+  snapshot; an exposed book with no equity is reported unbounded, not zero.
+* Runs count as evidence only when they executed this strategy alone, matched by
+  the strategy id they record. Their parameters are recorded by type only
+  (ADR-0023), and every run-based assessment says so in its limitations.
+* `ResourceMeasurement`, `ResourceMetric`, `MeasurementBasis` (`COUNTED`,
+  `MEASURED`, `ESTIMATED`), `ResourceBudget`, `resource_counts`. An estimate
+  never meets a budget; there is no default budget.
+* `verify_certification_report`; a deterministic `report_id`.
+
+### Strategy portability — `alphalab.lifecycle.portability`
+
+* `evaluate_portability` → `PortabilityReport` — one fingerprint against
+  `TargetEnvironment` declarations whose capabilities are the owning types:
+  `ExecutionMode`, the v3.5 `BrokerCapabilities` and `MarketAvailability`, and
+  v3.4's `MarketConvention`.
+* Eight `PortabilityRequirement`s — `STRATEGY_LOGIC`, `EXECUTION`, `MARKET`,
+  `DATA`, `CONTRACTS`, `RUNTIME`, `RISK`, `CAPITAL` — each `SATISFIED`,
+  `BLOCKED` (with the blocker named), `NOT_VERIFIED` or `NOT_APPLICABLE`.
+* `PortabilityStatus` — `PORTABLE`, `NOT_PORTABLE`, `INSUFFICIENT_EVIDENCE`.
+  Contract terms declared for only some traded instruments leave `CONTRACTS`
+  unverified.
+  Nothing is adapted: a missing capability is a blocker, never a substitution,
+  and a specification that retunes the fingerprinted parameters is blocked at
+  `STRATEGY_LOGIC`.
+* `RuntimeProfile`; `verify_portability_report`.
+
+## Changed
+
+Nothing. v3.6 is additive: no public surface changed shape, no default moved, no
+snapshot schema was touched, and `LIFECYCLE_SNAPSHOT_SCHEMA` is still `2`.
+
+## Found, and deliberately not changed here
+
+Building real evidence surfaced four properties that predate this release. Each
+is stated where v3.6 meets it, and none is changed, because each fix belongs to
+another authority's own decision:
+
+* **The pre-trade position check compares units that differ.**
+  `check_position_limit` adds an asset's notional exposure
+  (`ExposureStatus.asset_exposure` holds market values) to an order's quantity
+  before comparing with `PositionLimit.max_quantity`. A correct fix needs
+  position quantities in the persisted risk state — a pipeline snapshot schema
+  decision.
+* **`DailyLossLimit` is never enforced**: `RiskState.daily_loss` is not
+  maintained on the execution path.
+* **`ExposureLimit.max_net_exposure` is read by no pre-trade check.**
+* **`ingest_rows` records the source it is given.** Callers that supplied an
+  empty payload — several examples and tests among them — gave different rows
+  under one name *one* dataset version. A reproducibility manifest now refuses a
+  dataset whose provenance records no bytes, certification's `REQUIRED_DATA`
+  does not count one as verifying a declared version, and every v3.6 fixture
+  records the rows' own bytes.
+
+The three risk properties appear as explicit limitations in every `RISK_LIMITS`
+assessment, so no certification claims what the gate does not check.
+
+## Tests
+
+`tests/regression/test_v36_invariants.py` — one home per new concept; no
+redefined canonical type; evidence that carries no verdict; leverage and
+drawdown through the gate's own readings; no clock, entropy or environment on
+any v3.6 path (read from the syntax tree); **every v3.6 identity reproduced in
+two fresh interpreters with different `PYTHONHASHSEED`s**; nothing machine-local
+in an identity or an artifact; no mutation, no durable state; units named; and
+the vendor, marketplace and dependency boundary.
+
+`tests/regression/test_v36_complexity.py` — growth ratios for fingerprinting,
+source digests, run digests, certification, resource usage and portability.
+
+`tests/integration/test_v36_capabilities.py` — one ingested panel through a real
+v3.2 study, a registered version promoted on real backtest evidence and
+deployed, a paper run and a live run against `PaperBroker`, then manifests,
+certification, portability, comparison and reconciliation, checking that
+identity, lineage, parameters, seed, engine and configuration survive every hop
+and that no clock or path reaches an identity.
+
+Unit suites for each module, and four new sections in
+`test_shared_names_stay_distinct.py`: five content identities, two manifests,
+three ways of checking a strategy, and parity against portability.
+
+Total: **5,399 → 5,669** passing, 0 skipped, 0 warnings.
+
+## Benchmarks
+
+`benchmark_strategy_certification.py` — fingerprinting (and repeated
+fingerprinting), source digests, run digests and manifests, manifest
+verification and assessment, full and repeated certification, and portability,
+each at two sizes. Every path is linear: a run digest costs ~50 µs per record,
+and certification ~5 µs per recorded snapshot, most of it building the gate's
+own `RiskState` reading — kept, because `dataclasses.replace` measured no better
+and the construction is what makes the reading the gate's.
+
+## Examples
+
+`46`–`49`: strategy fingerprints; reproducible research artifacts; strategy
+certification; strategy portability. They share `examples/_strategy_evidence.py`,
+which registers one parameter-driven strategy in a real `StrategyClassRegistry`
+and ingests rows written in the file. None opens a connection, holds a
+credential, names a venue or reads the installed environment to decide an
+identity; example 48's CPU and memory figures are measured on the running
+machine and labelled `MEASURED` with that environment.
+
+## Still external
+
+The dataset bytes, the strategy code, the dependency set and the engine a rerun
+needs; the live objects a run records by type; every `TargetEnvironment`,
+`RuntimeObservation` and resource measurement. AlphaLab identifies, checks and
+reports — it stores no bytes, discovers no capability and measures nothing on
+its own.
+
+## Deliberately not built
+
+No marketplace logic of any kind. No dependency resolver and no environment
+snapshot. No persistence of fingerprints, manifests or reports. No re-execution
+inside the library — a rerun is the caller's. No overall certification score.
+
+---
+
 # [3.5.0] - 2026-09-21
 
 **Strategy execution and production intelligence: the bridge between research
