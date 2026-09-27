@@ -186,6 +186,17 @@ run: did the same inputs produce the same result, and if not, where did it
 first differ. A run of an adaptive strategy needs nothing new: its captured
 state is in the run's record, so :func:`~alphalab.lifecycle.reproducibility.digest_run`
 already commits to every update it made.
+
+What v3.8 adds
+--------------
+
+:func:`~alphalab.lifecycle.fingerprint.research_configuration_with_portfolio`
+names the portfolio construction and the capital plan a strategy was researched
+under -- each construction's problem and result identity, each plan's plan and
+allocation identity -- through the same research-settings section, so a
+strategy researched as a constructed, funded portfolio is a different strategy
+when either changes, and no fingerprint key moved. It reads both through
+structural protocols and imports neither package (ADR-0043).
 """
 
 from alphalab.lifecycle.certification import (
@@ -253,11 +264,15 @@ from alphalab.lifecycle.execution import (
 )
 from alphalab.lifecycle.fingerprint import (
     ADAPTIVE_SETTING_PREFIX,
+    CAPITAL_SETTING_PREFIX,
     NO_DEPENDENCIES,
+    PORTFOLIO_SETTING_PREFIX,
     STRATEGY_FINGERPRINT_SCHEME,
     STRATEGY_SOURCE_SCHEME,
     UNDECLARED_DEPENDENCIES,
+    CapitalPlanIdentity,
     CodeIdentity,
+    ConstructionIdentity,
     DependencyCompleteness,
     DependencyManifest,
     DependencyPin,
@@ -276,6 +291,7 @@ from alphalab.lifecycle.fingerprint import (
     research_configuration,
     research_configuration_for_study,
     research_configuration_with_adaptive,
+    research_configuration_with_portfolio,
     running_engine,
     source_digest,
     verify_fingerprint,
@@ -436,6 +452,7 @@ from alphalab.lifecycle.views import (
 __all__ = [
     "ADAPTIVE_SETTING_PREFIX",
     "BROKER_STATUS_EQUIVALENTS",
+    "CAPITAL_SETTING_PREFIX",
     "CERTIFICATION_REPORT_SCHEME",
     "COMPONENT_EVIDENCE",
     "COMPONENT_MODEL",
@@ -455,6 +472,7 @@ __all__ = [
     "PERMISSION_RETIRE",
     "PERMISSION_ROLLBACK",
     "PORTABILITY_REPORT_SCHEME",
+    "PORTFOLIO_SETTING_PREFIX",
     "PROGRESSION_MODEL_STAGES",
     "REPRODUCIBILITY_MANIFEST_SCHEME",
     "STAGEABLE_MODEL_STAGES",
@@ -466,6 +484,7 @@ __all__ = [
     "ApprovalRecord",
     "BrokerCapabilities",
     "BrokerRequirements",
+    "CapitalPlanIdentity",
     "CapitalPolicy",
     "CertificationEvidence",
     "CertificationProperty",
@@ -476,6 +495,7 @@ __all__ = [
     "ComparisonMetric",
     "ComparisonOutcome",
     "ComparisonSource",
+    "ConstructionIdentity",
     "DatasetAssumption",
     "DatasetProvenanceView",
     "DependencyCompleteness",
@@ -623,6 +643,7 @@ __all__ = [
     "research_configuration",
     "research_configuration_for_study",
     "research_configuration_with_adaptive",
+    "research_configuration_with_portfolio",
     "resource_counts",
     "resume_progression",
     "resume_target",

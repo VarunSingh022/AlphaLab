@@ -49,6 +49,18 @@ raises for each. This module does not catch those: a risk report that turned an
 undefined measurement into ``0.0`` would report a riskless portfolio, which is
 the most dangerous possible placeholder. What it does instead is refuse early
 and name the input, so the caller learns which series was too short.
+
+One implementation of the arithmetic (v3.8)
+-------------------------------------------
+
+v3.8 reads the same covariance, the same Euler decomposition, the same factor
+exposure and the same concentration index from portfolio construction, risk
+budgeting and cross-strategy risk. Each now has exactly one implementation, in
+:mod:`alphalab.analytics.risk_model`, and the functions below call it with the
+expressions they were always written as -- so every figure this module has
+published is unchanged, float for float, which
+``tests/regression/test_v38_invariants.py`` checks by recomputing the v3.3
+expressions beside them.
 """
 
 from __future__ import annotations
@@ -63,10 +75,17 @@ from statistics import NormalDist
 from alphalab.analytics.drawdown import calculate_drawdowns
 from alphalab.analytics.exceptions import AnalyticsValidationError
 from alphalab.analytics.metrics import conditional_var, value_at_risk
+from alphalab.analytics.risk_model import (
+    _accumulate_exposures,
+    _correlation_rows,
+    _euler,
+    _EulerTerms,
+    _pairwise_sample_covariance,
+    herfindahl_index,
+)
 from alphalab.common.statistics import (
     linear_regression,
     percentile,
-    sample_covariance,
     sample_variance,
 )
 
@@ -489,13 +508,9 @@ def covariance_matrix(positions: Sequence[PositionRisk]) -> Mapping[str, Mapping
 
     _require_positions(positions)
     ordered = sorted(positions, key=lambda item: item.asset_id)
-    matrix: dict[str, dict[str, float]] = {position.asset_id: {} for position in ordered}
-    for outer, first in enumerate(ordered):
-        for second in ordered[outer:]:
-            value = sample_covariance(first.returns, second.returns)
-            matrix[first.asset_id][second.asset_id] = value
-            matrix[second.asset_id][first.asset_id] = value
-    return matrix
+    names = [position.asset_id for position in ordered]
+    rows = _pairwise_sample_covariance([position.returns for position in ordered])
+    return {name: dict(zip(names, row, strict=True)) for name, row in zip(names, rows, strict=True)}
 
 
 def correlation_matrix(positions: Sequence[PositionRisk]) -> Mapping[str, Mapping[str, float]]:
@@ -519,14 +534,22 @@ def correlation_matrix(positions: Sequence[PositionRisk]) -> Mapping[str, Mappin
                 f"{asset_id} has a constant return series, so every correlation with it "
                 "is undefined. Zero would read as 'measured, and unrelated'."
             )
-    return {
-        first: {
-            second: covariance[first][second]
-            / math.sqrt(covariance[first][first] * covariance[second][second])
-            for second in covariance
-        }
-        for first in covariance
-    }
+    names = list(covariance)
+    rows = _correlation_rows([[covariance[first][second] for second in names] for first in names])
+    return {name: dict(zip(names, row, strict=True)) for name, row in zip(names, rows, strict=True)}
+
+
+def _book_terms(positions: Sequence[PositionRisk]) -> tuple[list[str], _EulerTerms]:
+    """Gross weights, the covariance, and their Euler terms, in asset order."""
+
+    weights = gross_weights(positions)
+    covariance = covariance_matrix(positions)
+    names = list(weights)
+    terms = _euler(
+        [weights[name] for name in names],
+        [[covariance[first][second] for second in names] for first in names],
+    )
+    return names, terms
 
 
 def portfolio_volatility(positions: Sequence[PositionRisk]) -> float:
@@ -539,19 +562,11 @@ def portfolio_volatility(positions: Sequence[PositionRisk]) -> float:
     sample's covariance.
     """
 
-    weights = gross_weights(positions)
-    covariance = covariance_matrix(positions)
-    variance = sum(
-        weights[first] * covariance[first][second] * weights[second]
-        for first in weights
-        for second in weights
-    )
-    # A tiny negative can only arise from floating-point cancellation on a
-    # near-singular matrix; the true quadratic form of a covariance matrix is
-    # non-negative. Clamping at zero is the numerically honest reading, and it
-    # is narrow enough that a genuinely negative variance would be a bug rather
-    # than a rounding artefact.
-    return math.sqrt(max(0.0, variance))
+    # The quadratic form and its clamp at zero live in risk_model._euler: a tiny
+    # negative can only arise from floating-point cancellation on a
+    # near-singular matrix, and the true quadratic form of a covariance matrix
+    # is non-negative.
+    return _book_terms(positions)[1].volatility
 
 
 def risk_contributions(positions: Sequence[PositionRisk]) -> Mapping[str, float]:
@@ -568,27 +583,20 @@ def risk_contributions(positions: Sequence[PositionRisk]) -> Mapping[str, float]
             nothing to apportion.
     """
 
-    weights = gross_weights(positions)
-    covariance = covariance_matrix(positions)
-    total = portfolio_volatility(positions)
-    if total == 0.0:
+    names, terms = _book_terms(positions)
+    if not terms.contributions:
         raise AnalyticsValidationError(
             "Portfolio volatility is zero, so there is no risk to decompose. Every "
             "contribution would be zero over zero rather than an even split."
         )
-    return {
-        asset_id: weights[asset_id]
-        * sum(covariance[asset_id][other] * weights[other] for other in weights)
-        / total
-        for asset_id in weights
-    }
+    return dict(zip(names, terms.contributions, strict=True))
 
 
 def concentration(positions: Sequence[PositionRisk]) -> ConcentrationMetrics:
     """Herfindahl concentration of gross weights."""
 
     weights = gross_weights(positions)
-    index = sum(weight * weight for weight in weights.values())
+    index = herfindahl_index(weights.values())
     largest = max(weights, key=lambda asset_id: (abs(weights[asset_id]), asset_id))
     return ConcentrationMetrics(
         herfindahl=index,
@@ -683,11 +691,10 @@ def factor_exposure(
             "loadings and the positions describe different portfolios."
         )
 
-    exposure: dict[str, float] = {}
-    for asset_id, factors in sorted(loadings.items()):
-        for factor, loading in sorted(factors.items()):
-            exposure[factor] = exposure.get(factor, 0.0) + weights[asset_id] * loading
-    return dict(sorted(exposure.items()))
+    return _accumulate_exposures(
+        (weights[asset_id], sorted(factors.items()))
+        for asset_id, factors in sorted(loadings.items())
+    )
 
 
 def liquidity_risk(

@@ -201,3 +201,125 @@ def test_weights_are_permutation_stable() -> None:
 
     for symbol in SYMBOLS:
         assert forward[symbol] == pytest.approx(backward[symbol], abs=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# v3.8: the rest of the construction engine's silent answers
+# ---------------------------------------------------------------------------
+#
+# v3.8's audit swept the v1 engine for the same shape -- an input that became a
+# plausible number instead of a refusal -- and found four more. Each is pinned
+# here with the value it used to produce.
+
+
+def test_the_adapter_no_longer_reads_a_missing_covariance_as_zero() -> None:
+    """``dict_to_covariance_matrix`` filled a missing pair with 0.0 until v3.8."""
+
+    from alphalab.portfolio_optimizer.adapter import PortfolioAdapter
+
+    partial = {"A": {"A": 0.04, "B": 0.01}, "B": {"A": 0.01, "B": 0.09}}
+    with pytest.raises(OptimizationError, match="A missing covariance is not zero"):
+        PortfolioAdapter.dict_to_covariance_matrix(("A", "B", "C"), partial)
+
+    complete = {"A": {"A": 0.04, "B": 0.01}, "B": {"A": 0.01, "B": 0.09}}
+    assert PortfolioAdapter.dict_to_covariance_matrix(("B", "A"), complete) == (
+        (0.09, 0.01),
+        (0.01, 0.04),
+    )
+
+
+def test_the_adapter_no_longer_reads_a_missing_expected_return_as_zero() -> None:
+    """``dict_to_expected_returns`` forecast 0.0 for a symbol nobody forecast."""
+
+    from alphalab.portfolio_optimizer.adapter import PortfolioAdapter
+
+    with pytest.raises(OptimizationError, match="No expected return supplied for C"):
+        PortfolioAdapter.dict_to_expected_returns(("A", "C"), {"A": 0.1})
+    assert PortfolioAdapter.dict_to_expected_returns(("A",), {"A": 0.1}) == (0.1,)
+
+
+def test_a_sector_cap_the_projection_cannot_see_is_refused_not_ignored() -> None:
+    """``max_sector_exposure`` was a field ``apply_weight_constraints`` never read."""
+
+    from alphalab.portfolio_optimizer import WeightConstraints, apply_weight_constraints
+    from alphalab.portfolio_optimizer.exceptions import PortfolioValidationError
+
+    with pytest.raises(PortfolioValidationError, match="max_sector_exposure"):
+        apply_weight_constraints(
+            {"A": 0.5, "B": 0.5}, WeightConstraints(max_sector_exposure={"Tech": 0.3})
+        )
+
+
+def test_a_shortfall_under_position_caps_is_still_cash() -> None:
+    """The v1 semantic the engine's own test documents, kept on purpose."""
+
+    from alphalab.portfolio_optimizer import WeightConstraints, apply_weight_constraints
+
+    capped = apply_weight_constraints(
+        {"A": 0.5, "B": 0.5}, WeightConstraints(max_position_weight=0.4)
+    )
+    assert capped == {"A": 0.4, "B": 0.4}
+
+
+def test_lower_bounds_forcing_more_than_the_capital_are_refused() -> None:
+    """An excess is capital the target does not have; until v3.8 it was returned."""
+
+    from alphalab.portfolio_optimizer import WeightConstraints, apply_weight_constraints
+    from alphalab.portfolio_optimizer.exceptions import ConstraintViolationError
+
+    with pytest.raises(ConstraintViolationError, match="above the target"):
+        apply_weight_constraints(
+            {"A": 0.5, "B": 0.5},
+            WeightConstraints(long_only=False, min_position_weight=0.6, max_position_weight=1.0),
+        )
+
+
+def test_the_spread_rate_is_part_of_the_estimated_cost() -> None:
+    """``CostModel.spread_rate`` was read by nothing, understating every estimate."""
+
+    from dataclasses import replace
+
+    from alphalab.common.persistent_map import PersistentMap
+    from alphalab.portfolio_optimizer import (
+        CostModel,
+        Portfolio,
+        PortfolioEngine,
+        TargetWeights,
+        expected_costs,
+    )
+
+    state = PortfolioEngine.create(
+        PortfolioEngine.initialize("E"), Portfolio("P", "p", "USD", 0.0), 1.0
+    )
+    state = replace(state, weights=PersistentMap({"P": TargetWeights("P", 1.0, {"A": 1.0})}))
+    model = CostModel(0.0, 0.0, 0.0005, 0.0, 0.0)
+    estimate = expected_costs(
+        PortfolioEngine.estimate_costs(state, "P", {"A": 0.5}, model, 100_000.0, 2.0), "P"
+    )
+
+    assert estimate is not None
+    assert estimate.estimated_spread == pytest.approx(25.0)
+    assert estimate.total_estimated_cost == pytest.approx(25.0)
+
+
+def test_a_constraint_violation_event_reports_what_was_clipped() -> None:
+    """The event carried the constant 1.0 whatever the constraints moved."""
+
+    from alphalab.portfolio_optimizer import (
+        ConstraintViolated,
+        Portfolio,
+        PortfolioEngine,
+        WeightConstraints,
+    )
+
+    state = PortfolioEngine.create(
+        PortfolioEngine.initialize("E"), Portfolio("P", "p", "USD", 0.0), 1.0
+    )
+    state = PortfolioEngine.optimize(state, "P", "EQUAL_WEIGHT", ("A", "B"), {}, 2.0)
+    state = PortfolioEngine.apply_constraints(
+        state, "P", WeightConstraints(max_position_weight=0.4), 3.0
+    )
+    violations = [event for event in state.events if isinstance(event, ConstraintViolated)]
+
+    assert len(violations) == 1
+    assert violations[0].violation_amount == pytest.approx(0.2)

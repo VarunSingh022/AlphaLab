@@ -4,13 +4,13 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.7)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.8)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.7.0 both halves name only packages that exist; where the target half shows a
+> v3.8.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.7)
+# Implementation Status (v3.8)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -96,7 +96,18 @@ knowledge frames in `alphalab.factor_library`; event studies and regime
 detection in `alphalab.research`; the adaptive engine in `alphalab.strategy`;
 adaptive fingerprint settings and replay assessment in `alphalab.lifecycle`; and
 point-in-time ingestion in `alphalab.api` — and adds no package, no durable state
-and no snapshot schema, and moves no boundary (ADR-0042).** **v3.0.0 adds no
+and no snapshot schema, and moves no boundary (ADR-0042).** **v3.8.0 adds
+advanced portfolio and risk — the risk model as values with identities, risk
+budgets along five dimensions and cross-strategy risk in `alphalab.analytics`;
+constrained construction (minimum variance, mean-variance, maximum
+diversification, risk parity, robust mean-variance) by one certified solver, and
+Black–Litterman, in `alphalab.portfolio_optimizer`; multi-strategy books in
+`alphalab.portfolio`; capital plans across strategies, markets, brokers,
+accounts and currencies in `alphalab.allocation`; factor loadings from panels in
+`alphalab.factor_library`; registry classifications in `alphalab.api`; and
+construction and capital identities in fingerprints in `alphalab.lifecycle` — and
+adds no package, no durable state and no snapshot schema; it adds three package
+edges, none a cycle, and moves no ownership boundary (ADR-0043).** **v3.0.0 adds no
 capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -389,6 +400,13 @@ a lost response addresses the same order rather than creating a second one.
 | **Adaptive strategies** | **Implemented (v3.7).** `strategy.adaptive`, `strategy.adaptive_rules`, `strategy.adaptive_strategy` — immutable learned state with lineage, one pure update function, checkpoints and reprocessing; the state reaches the run snapshot and `digest_run`; `lifecycle.assess_adaptive_replay` |
 | Execution-path delivery of external information | **Not implemented, deliberately deferred.** The execution path dispatches market events; an adaptive strategy learns from those, and external information reaches adaptive state through a research replay and a trained checkpoint (ADR-0042) |
 | Vendor alternative-data, event or fundamentals feeds | **None.** AlphaLab ships the point-in-time contract and ingests rows a caller supplies, with their bytes; it fetches nothing |
+| **The risk model** | **Implemented (v3.8).** `alphalab.analytics.risk_model` — `CovarianceMatrix` with currency, period, source, observations and a derived identity; definiteness measured by a rank-revealing Cholesky; ridge and diagonal shrinkage as recorded derivations; `FactorLoadings` and `Classification` that refuse holes. v3.3's decomposition calls the same arithmetic, unchanged bit for bit |
+| **Constrained portfolio construction** | **Implemented (v3.8).** `alphalab.portfolio_optimizer.construct` — minimum variance, mean-variance, maximum diversification, risk parity (equal or stated budgets) and robust mean-variance under bounds, concentration, gross, group, factor, turnover, notional and volatility constraints; one dual active-set solver certifying optimality and naming conflicts; `black_litterman` for a posterior. The v1 closed forms are unchanged |
+| **Risk budgets** | **Implemented (v3.8).** `alphalab.analytics.risk_budget` — Euler contributions of exposure lines grouped by asset, strategy, sector, country and currency, each summing to the portfolio's volatility; limits judged under a stated tolerance, reported and never enforced |
+| **Multi-strategy books** | **Implemented (v3.8).** `alphalab.portfolio.multi_strategy` — sleeves built from each strategy's own `PortfolioState`, holdings aggregated with every strategy's `StrategyContribution`, valued in one reporting currency with every conversion recorded. The accounting engine remains the one book of record |
+| **Cross-strategy risk** | **Implemented (v3.8).** `alphalab.analytics.cross_strategy` — return correlation with its basis, exposure overlap, factor crowding within the portfolio, common exposures, capital concentration and shared capital pools |
+| **Capital allocation** | **Implemented (v3.8).** `alphalab.allocation.capital` — plans across strategies, markets, brokers, accounts and currencies, allocated in each account's own currency, reconciled exactly, refused rather than silently scaled; composes with the reservation ledger (`reserved_capital`) and the execution-path budget (`capital_budget`). A broker is an identifier, never an adapter |
+| Richer construction (estimated shrinkage, EWMA or factor-model covariance, cardinality and lot constraints, costs in the objective, CVaR, multi-period) | **Not implemented, deliberately deferred.** Each is a release decision of its own (ADR-0043) |
 
 **What changed in v2.15, precisely.** AlphaLab now contains a genuine venue
 transport and a genuine streaming client, and both are exercised end to end over
@@ -905,6 +923,18 @@ on every run.
 the decision — `alphalab.common` and nothing else — which is what lets every
 layer read it, and `tests/regression/test_v37_invariants.py` measures it on
 every run (ADR-0042 decision 1).
+
+**`portfolio_optimizer` gained one edge in v3.8 and stayed on the list.** It
+now imports the risk model in `alphalab.analytics` — the one covariance
+authority — besides `alphalab.common`; nothing on either path imports it, so a
+construction answers what to own and turning it into orders stays the caller's
+decision. `alphalab.portfolio` gained `alphalab.core` for the canonical
+`StrategyContribution` a multi-strategy holding carries, and `alphalab.api`
+gained `alphalab.instrument` to read registry classifications; `alphalab.analytics`
+still imports only `common` and `core`, and `alphalab.allocation` reaches FX
+through a structural protocol rather than importing `alphalab.portfolio`.
+`tests/regression/test_v38_invariants.py` measures every one of these edges
+(ADR-0043).
 
 `feature_store` stayed on the list, and that is the architecture working rather
 than an oversight: it owns registration, versioning and caching and computes
@@ -1497,6 +1527,9 @@ Features such as:
   (v3.6)
 - Point-in-time correctness for every piece of external information, and
   adaptive state that replays exactly and reaches the run record (v3.7)
+- Capital allocated across strategies, markets, brokers, accounts and
+  currencies in each account's own currency, reconciled exactly and composed
+  with the reservation ledger and the run budget (v3.8)
 
 are considered first-class architectural components rather than optional add-ons.
 
@@ -1921,22 +1954,34 @@ alphalab/portfolio_optimizer
 
 ### Responsibility
 
-Transforms research outputs into portfolios.
+Transforms research outputs into portfolios: *what should I own* (ADR-0005).
 
-Supports:
+The v1 surface, unchanged:
 
-- Equal Weight
-- Risk Parity
-- Minimum Variance
-- Maximum Sharpe
-- Weight constraints
-- Exposure calculation
-- Rebalancing
-- Transaction cost estimation
+- Closed forms: equal weight, inverse volatility, minimum variance, maximum
+  Sharpe
+- Post-hoc weight constraints (`apply_weight_constraints`, a clip-and-spread
+  projection, documented as a heuristic)
+- Exposure calculation, rebalancing, transaction cost estimation
+
+v3.8 (ADR-0043), over the risk model in `alphalab.analytics`:
+
+- `construct`: minimum variance, mean-variance (with an optional volatility cap),
+  maximum diversification, risk parity with equal or stated budgets, and robust
+  mean-variance over an ellipsoidal or box uncertainty set
+- Constraints solved over, not applied after: bounds, concentration, gross,
+  group, factor (neutral or banded), turnover, notional caps, volatility
+- One dual active-set solver with a KKT certificate; `INFEASIBLE` names the
+  conflicting constraints and carries no weights
+- `black_litterman`: a supplied prior and stated views into a posterior
+
+(Before v3.8 this list named risk parity, which the package did not have:
+inverse volatility is not risk parity.)
 
 ### Owns
 
-Portfolio mathematics.
+Portfolio construction mathematics. Not the risk model, which it reads from
+`alphalab.analytics`, and not accounting.
 
 ### Never Owns
 
@@ -2204,15 +2249,16 @@ Must not depend on:
 
 ## Portfolio Optimizer
 
-May depend on:
+Depends on, as measured by `tests/regression/test_v38_invariants.py`:
 
-- Research outputs
-- Analytics
+- `alphalab.common`
+- `alphalab.analytics` — the risk model, since v3.8 (ADR-0043)
 
 Must never depend on:
 
 - Workbench
 - Broker APIs
+- The execution path, the accounting engine or `ml`
 
 ---
 
@@ -2467,12 +2513,13 @@ These outputs become inputs for portfolio construction.
 
 The Portfolio Optimizer converts research outputs into investable portfolios.
 
-Optimization methods include
+Construction methods include
 
-- Equal Weight
-- Risk Parity
-- Maximum Sharpe
-- Minimum Variance
+- Closed forms (v1): equal weight, inverse volatility, minimum variance,
+  maximum Sharpe
+- Constrained construction (v3.8): minimum variance, mean-variance, maximum
+  diversification, risk parity, robust mean-variance, Black–Litterman, and
+  factor-neutral or group-bounded books
 
 Additional processing includes
 
@@ -4148,14 +4195,18 @@ Protocols define behavior rather than implementation.
 Example
 
 ```
-ResearchProviderProtocol
-
-BrokerProviderProtocol
-
-MarketDataProviderProtocol
-
-OptimizerProtocol
+BrokerProtocol            (alphalab.broker)
+BrokerConnectorProtocol   (alphalab.brokers)
+StrategyProtocol          (alphalab.strategy)
+StrategyStateProtocol     (alphalab.strategy)
+SessionCalendar           (alphalab.alt_data.sessions)
+CurrencyConverter         (alphalab.allocation.capital, satisfied by FxRates)
+ExposureLine              (alphalab.analytics.risk_budget)
 ```
+
+*(Until v3.8 this list named four protocols — research, broker and market-data
+"providers" and an optimizer protocol — none of which exists; the v3.8 audit
+replaced them with protocols that do.)*
 
 Implementations conform to protocols while remaining independent.
 
@@ -4339,23 +4390,28 @@ venue fill returns through the same function a simulated fill takes.
 
 # Custom Optimizers
 
-Portfolio optimization algorithms are interchangeable.
-
-Example
+A construction method is an **objective type**, not a plug-in: `construct`
+accepts `MinimumVariance`, `MeanVariance`, `MaximumDiversification`,
+`RiskParity` and `RobustMeanVariance`, each a frozen value that enters the
+problem's identity, and solves every quadratic one with the same certified
+solver.
 
 ```
-Risk Parity
+ConstructionProblem(covariance, objective, constraints, settings)
 
 ↓
 
-Optimizer Protocol
+construct()  — one solver, a KKT certificate, conflicts named
 
 ↓
 
-Portfolio Engine
+ConstructionResult(status, weights, diagnostics)
 ```
 
-Future optimizers may be added without changing portfolio orchestration.
+There is no optimizer protocol for arbitrary code: an objective the solver
+cannot certify would produce weights nobody could check. A new method is a new
+objective type in `alphalab.portfolio_optimizer.construction`, and a release
+decision (ADR-0043).
 
 ---
 
@@ -5351,6 +5407,7 @@ These principles are considered architectural contracts rather than implementati
 | v3.5.0 | Strategy execution and production intelligence: progression, deployment specifications, health, comparison, reconciliation (ADR-0040) |
 | v3.6.0 | Strategy evaluation: fingerprints, reproducibility manifests, certification primitives, portability (ADR-0041) |
 | v3.7.0 | Point-in-time research: events, alternative data, fundamentals, knowledge frames, event studies, regimes, adaptive strategies (ADR-0042) |
+| v3.8.0 | Advanced portfolio and risk: the risk model, constrained construction, Black–Litterman, risk budgets, multi-strategy books, cross-strategy risk, capital allocation (ADR-0043) |
 
 ---
 
@@ -5370,8 +5427,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v3.7.0
-Status: Implementation Status (v3.7) describes what is built and is authoritative.
+Version: v3.8.0
+Status: Implementation Status (v3.8) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```

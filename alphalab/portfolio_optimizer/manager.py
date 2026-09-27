@@ -75,13 +75,19 @@ class PortfolioManager:
             old_w = state.weights[port_id]
             new_w = apply_weight_constraints(old_w.weights, constraints)
             if new_w != old_w.weights:
-                # Log constraint violation if clipping occurred
+                # Log constraint violation if clipping occurred. The amount is
+                # the total weight the constraints moved, sum |new - old|; until
+                # v3.8 it was the constant 1.0 whatever had been clipped.
+                moved = sum(
+                    abs(new_w.get(asset, 0.0) - old_w.weights.get(asset, 0.0))
+                    for asset in set(new_w) | set(old_w.weights)
+                )
                 evt = ConstraintViolated(
                     PortfolioManager._create_id(),
                     ts,
                     port_id,
                     "WeightLimits",
-                    1.0,
+                    moved,
                 )
                 return replace(
                     state,
@@ -137,8 +143,11 @@ class PortfolioManager:
         comm = trade_value * model.commission_rate
         slip = trade_value * model.slippage_rate
         impact = trade_value * model.market_impact_rate
-        total_cost = comm + slip + impact + model.fixed_exchange_fee
+        spread = trade_value * model.spread_rate
+        total_cost = comm + slip + impact + spread + model.fixed_exchange_fee
 
-        est = TransactionCostEstimate(port_id, trade_value, comm, slip, impact, total_cost)
+        est = TransactionCostEstimate(
+            port_id, trade_value, comm, slip, impact, total_cost, estimated_spread=spread
+        )
 
         return replace(state, cost_estimates=state.cost_estimates.set(port_id, est))

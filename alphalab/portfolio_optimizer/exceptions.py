@@ -21,3 +21,15 @@ class ConstraintViolationError(PortfolioEngineError):
 
 class InvalidPortfolioStateError(PortfolioEngineError):
     """Raised when an illegal lifecycle transition is attempted."""
+
+
+class ConstructionInputError(PortfolioValidationError):
+    """Raised when a construction problem is malformed (v3.8).
+
+    Missing, non-finite, mis-sized, currency- or period-inconsistent inputs,
+    a covariance that is not positive definite, or a constraint an objective
+    cannot express. A well-formed problem whose constraints cannot all hold is
+    *not* this error: it is an ordinary ``INFEASIBLE`` result, because a
+    refused allocation is an outcome a caller plans for, not a mistake in the
+    request.
+    """

@@ -1,4 +1,23 @@
-"""AlphaLab Analytics & Performance Engine."""
+"""AlphaLab Analytics & Performance Engine.
+
+Performance reports and attribution, v3.3's risk decomposition, and since v3.8
+(ADR-0043) the risk model every portfolio and risk computation reads:
+
+* :mod:`~alphalab.analytics.risk_model` -- ``CovarianceMatrix`` (with its
+  currency, period, source and a derived identity; definiteness measured,
+  regularization recorded), ``CorrelationMatrix``, ``FactorLoadings``,
+  ``Classification``, and the one implementation of the Euler decomposition,
+  the factor exposure and the Herfindahl index. v3.3's decomposition calls the
+  same arithmetic and returns the same numbers.
+* :mod:`~alphalab.analytics.risk_budget` -- a book's volatility along asset,
+  strategy, sector, country and currency, each summing to the same total, judged
+  against each ``BudgetLimit`` and reported, never enforced.
+* :mod:`~alphalab.analytics.cross_strategy` -- return correlation with its basis,
+  overlap of holdings, factor crowding within the portfolio, common exposures,
+  capital concentration and shared capital pools.
+
+The package imports ``alphalab.common`` and ``alphalab.core`` and nothing else.
+"""
 
 from alphalab.analytics.attribution import (
     AttributionDimension,
@@ -11,6 +30,25 @@ from alphalab.analytics.attribution import (
     attribute,
     calculate_attribution,
     split_realized_pnl,
+)
+from alphalab.analytics.cross_strategy import (
+    CapitalConcentration,
+    CommonDimension,
+    CommonExposure,
+    CommonExposureReport,
+    ExposureSimilarity,
+    FactorCrowding,
+    FactorCrowdingReport,
+    FactorExposureOverlap,
+    SharedCapitalPool,
+    StrategyCorrelation,
+    StrategyReturns,
+    capital_concentration,
+    capital_overlap,
+    common_exposures,
+    factor_crowding,
+    strategy_overlap,
+    strategy_return_correlation,
 )
 from alphalab.analytics.decomposition import (
     ConcentrationMetrics,
@@ -54,6 +92,37 @@ from alphalab.analytics.returns import (
     geometric_return,
     total_return,
 )
+from alphalab.analytics.risk_budget import (
+    RISK_BUDGET_REPORT_SCHEME,
+    RISK_BUDGET_SCHEME,
+    BucketRisk,
+    BudgetBasis,
+    BudgetCheck,
+    BudgetLimit,
+    BudgetStatus,
+    DimensionRisk,
+    ExposureLine,
+    LineRisk,
+    RiskBudget,
+    RiskBudgetReport,
+    RiskDimension,
+    evaluate_risk_budget,
+)
+from alphalab.analytics.risk_model import (
+    CLASSIFICATION_SCHEME,
+    COVARIANCE_SCHEME,
+    FACTOR_LOADINGS_SCHEME,
+    Classification,
+    CorrelationMatrix,
+    CovarianceMatrix,
+    Definiteness,
+    DefinitenessKind,
+    FactorLoadings,
+    RiskContributions,
+    euler_decomposition,
+    herfindahl_index,
+    portfolio_factor_exposures,
+)
 from alphalab.analytics.rolling import rolling_return, rolling_sharpe, rolling_volatility
 from alphalab.analytics.state import AnalyticsState
 from alphalab.analytics.summary import TradeMetrics, calculate_trade_metrics
@@ -65,6 +134,11 @@ from alphalab.analytics.views import (
 )
 
 __all__ = [
+    "CLASSIFICATION_SCHEME",
+    "COVARIANCE_SCHEME",
+    "FACTOR_LOADINGS_SCHEME",
+    "RISK_BUDGET_REPORT_SCHEME",
+    "RISK_BUDGET_SCHEME",
     "AnalyticsEngine",
     "AnalyticsError",
     "AnalyticsEvent",
@@ -74,19 +148,48 @@ __all__ = [
     "AttributionMetrics",
     "AttributionReport",
     "Availability",
+    "BucketRisk",
+    "BudgetBasis",
+    "BudgetCheck",
+    "BudgetLimit",
+    "BudgetStatus",
+    "CapitalConcentration",
+    "Classification",
+    "CommonDimension",
+    "CommonExposure",
+    "CommonExposureReport",
     "ConcentrationMetrics",
+    "CorrelationMatrix",
+    "CovarianceMatrix",
+    "Definiteness",
+    "DefinitenessKind",
     "DimensionAttribution",
+    "DimensionRisk",
     "DrawdownMetrics",
+    "ExposureLine",
     "ExposureMetrics",
+    "ExposureSimilarity",
+    "FactorCrowding",
+    "FactorCrowdingReport",
+    "FactorExposureOverlap",
+    "FactorLoadings",
     "LeverageMetrics",
+    "LineRisk",
     "LiquidityRisk",
     "PerformanceReport",
     "PortfolioSnapshot",
     "PositionRisk",
     "ReportGenerated",
     "ReturnSummary",
+    "RiskBudget",
+    "RiskBudgetReport",
+    "RiskContributions",
     "RiskDecomposition",
+    "RiskDimension",
     "RiskSummary",
+    "SharedCapitalPool",
+    "StrategyCorrelation",
+    "StrategyReturns",
     "TradeFacts",
     "TradeMetrics",
     "TradeRecord",
@@ -102,19 +205,27 @@ __all__ = [
     "calculate_exposure",
     "calculate_trade_metrics",
     "calmar_ratio",
+    "capital_concentration",
+    "capital_overlap",
+    "common_exposures",
     "concentration",
     "conditional_var",
     "correlation_matrix",
     "covariance_matrix",
     "decompose",
+    "euler_decomposition",
+    "evaluate_risk_budget",
+    "factor_crowding",
     "factor_exposure",
     "geometric_return",
     "gross_weights",
+    "herfindahl_index",
     "latest_performance_summary",
     "leverage",
     "liquidity_risk",
     "percentile_loss",
     "portfolio_beta",
+    "portfolio_factor_exposures",
     "portfolio_volatility",
     "risk_contributions",
     "rolling_return",
@@ -123,6 +234,8 @@ __all__ = [
     "sharpe_ratio",
     "sortino_ratio",
     "split_realized_pnl",
+    "strategy_overlap",
+    "strategy_return_correlation",
     "tail_ratio",
     "total_reports_generated",
     "total_return",

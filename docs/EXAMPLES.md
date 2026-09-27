@@ -16,7 +16,7 @@ Examples are intended to be read sequentially by new users and used as reference
 > (v2.17) drives an FX feed into a run that settles two currencies and reports
 > in one. `05_broker_connection.py` was rewritten in v2.17 against the canonical
 > broker boundary, having used `alphalab.integrations` until that package was
-> removed. None are part of the automated test suite, though all fifty-five run
+> removed. None are part of the automated test suite, though all sixty run
 > as a release gate.
 > For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
@@ -81,14 +81,17 @@ Examples demonstrate
 
 # Portfolio Optimization
 
-Examples include
+`06_portfolio_optimizer.py` (v1) shows the closed forms — equal weight, inverse
+volatility, minimum variance and maximum Sharpe — with the post-hoc weight
+constraints, exposure, rebalancing and the cost estimate (which includes the
+spread since v3.8). Earlier versions of this page listed risk parity here; the
+v1 surface never had it.
 
-- Equal Weight
-- Risk Parity
-- Maximum Sharpe
-- Minimum Variance
-- Constraint handling
-- Rebalancing
+`56_portfolio_construction.py` (v3.8) shows constrained construction: minimum
+variance, mean-variance, maximum diversification, risk parity with equal and
+stated budgets, robust mean-variance, a factor-neutral and sector-capped
+rebalance with gross, turnover and notional limits, an infeasible constraint set
+named, and Black–Litterman. See *Advanced portfolio and risk (v3.8)* below.
 
 ---
 
@@ -309,6 +312,31 @@ every figure they print is the same on every machine.
 
 ---
 
+# Advanced portfolio and risk (v3.8)
+
+Examples `56`–`60` are about **several strategies in one portfolio**: what to
+own, where the risk comes from, what the strategies share and how much capital
+each gets. All five read one small world written out in
+`examples/_portfolio_world.py` — eight instruments on three markets in dollars,
+euros and yen, sixty daily returns measured in dollars from a written-out
+integer recurrence, FX rates from a named desk, and three strategies whose books
+are kept by the canonical accounting engine. `60` also fingerprints the strategy
+`examples/_strategy_evidence.py` defines. None fetches anything, names a vendor
+or reads a clock; every figure they print is the same on every machine.
+
+| # | Shows |
+|---|---|
+| 56 | One risk model with its currency, period, source and definiteness; minimum variance, mean-variance, maximum diversification and risk parity over one constraint set, with binding constraints and risk shares; risk parity with stated budgets and a budget that does not add up refused; robust mean-variance over an ellipsoid and a box; a momentum-neutral, sector-capped rebalance with gross, turnover and notional limits; an infeasible set with its conflict named and no weights; Black–Litterman from an equilibrium prior and one view; and identities that ignore listing order |
+| 57 | A three-currency book valued in dollars; a euro covariance refused for a dollar book; sectors from the instrument registry and countries from a file; risk along asset, strategy, sector, country and currency, each summing to the same volatility; exposure, capital and risk side by side; a budget of maxima, minima and targets judged with a stated tolerance; each currency's exposure in that currency; and a shrunk risk model recorded as derived |
+| 58 | Three strategies' own accounting states in dollars, euros and yen; one book with an identity; every instrument aggregated with its owners, crossed and opposing positions visible; the book valued in dollars and reconciled to the cent; every conversion recorded; reporting in euros refused until a yen/euro cross is derived by name; valuations refused without rates or with a rate from after the valuation; and a strategy removed or replaced as a new book |
+| 59 | Strategies correlated by returns with the basis stated, and returns in two currencies refused; overlap of holdings in the same and opposite directions; factor crowding from the factor library's panels; common exposures by instrument, currency and sector; capital concentration and shared pools |
+| 60 | Accounts at two brokers in three currencies with reservations read from the ledger; weights from a risk-parity construction carried into a plan with its identity; every placement allocated in its account's currency and every account reconciled exactly; capital along five dimensions and limits on each; refusals, and `PRO_RATA` scaling that is stated; an account's allocation as its run's budget, admitting exactly the allocation; and a fingerprint naming the construction and the capital |
+
+`56` assumes `06` and `28`. `57` assumes `28` and `56`. `58` assumes `14` and
+`40`. `59` assumes `18` and `58`, and `60` assumes `11`, `46` and `56`.
+
+---
+
 # Additional engines
 
 The feature store, machine learning, cloud research, enterprise, and other
@@ -339,6 +367,10 @@ v3.6 added `46`–`49` for strategy evaluation, again all inside
 v3.7 added `50`–`55` for point-in-time research and adaptive strategies. The
 **alternative data** package, which had none, has four (`50`–`53`); the
 **strategy** package's adaptive engine has two (`54`, `55`).
+
+v3.8 added `56`–`60` for portfolio construction and risk. The
+**portfolio optimizer**, which had one example (`06`), has two; `analytics`,
+`portfolio` and `allocation` each gained examples for their v3.8 surfaces.
 
 ---
 

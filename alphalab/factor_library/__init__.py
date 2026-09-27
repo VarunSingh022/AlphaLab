@@ -29,6 +29,10 @@ layer already produces one at a time.
   unchanged; `fundamental_snapshot_as_of` builds the style factors'
   `FundamentalSnapshot` from point-in-time statements. The package reads
   `alphalab.alt_data` and nothing there reads this package.
+* **Factor loadings** (v3.8) -- `loadings_from_panels` reads one instant's
+  cross-section of several panels into the risk model's `FactorLoadings`, with
+  every panel's transform chain as the factor's lineage, for construction's
+  factor constraints and cross-strategy crowding (ADR-0043).
 """
 
 from alphalab.factor_library.applicability import (
@@ -95,6 +99,7 @@ from alphalab.factor_library.knowledge import (
     sample_knowledge,
 )
 from alphalab.factor_library.liquidity import compute_liquidity
+from alphalab.factor_library.loadings import loadings_from_panels
 from alphalab.factor_library.momentum import compute_momentum
 from alphalab.factor_library.neutralization import (
     NeutralizationReport,
@@ -209,6 +214,7 @@ __all__ = [
     "fundamental_snapshot_as_of",
     "get_spec",
     "information_coefficient",
+    "loadings_from_panels",
     "neutralize_beta",
     "neutralize_group",
     "neutralize_mean",

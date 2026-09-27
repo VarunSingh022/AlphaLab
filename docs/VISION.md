@@ -30,7 +30,7 @@ Every component should follow these principles.
 
 # Current State
 
-As of **v3.0.0** the architecture is frozen; **v3.1.0** through **v3.7.0** are
+As of **v3.0.0** the architecture is frozen; **v3.1.0** through **v3.8.0** are
 additive to it.
 AlphaLab provides:
 
@@ -57,6 +57,13 @@ AlphaLab provides:
   the feature, factor and validation methodology (v3.2), and point-in-time
   events, alternative data, fundamentals, regimes and adaptive strategies that
   never read information before it was knowable (v3.7).
+- **Portfolio and risk across many strategies.** One risk model that states its
+  currency, period and definiteness; construction solved over stated
+  constraints, with a certified optimum or the conflicting constraints named;
+  risk budgets along five dimensions; several strategies' books kept apart in
+  one portfolio and valued across currencies; cross-strategy risk on a stated
+  basis; and capital allocated across strategies, markets, brokers, accounts and
+  currencies in the currency each account holds (v3.8).
 - **Standalone engines** for reporting, portfolio optimization, the feature
   store, ML / deep learning / RL, options, futures, crypto, macro, cloud
   research, cluster scheduling and the Workbench.

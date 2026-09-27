@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-3.7.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.8.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-6118%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-6713%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -37,22 +37,104 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.7.0 — advanced quant research: point-in-time events, alternative data, fundamentals, regimes and adaptive strategies, on the v3.0 frozen architecture**
+**Current Release:** **v3.8.0 — advanced portfolio and risk: constrained construction, risk budgets, multi-strategy books, cross-strategy risk and capital allocation, on the v3.0 frozen architecture**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.7.0 |
+| Version | 3.8.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **6118 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (1122 source files, repository-wide) |
+| Tests | **6713 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (1154 source files, repository-wide) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **57 / 57 Passing** |
-| Examples | **55 / 55 Passing** |
+| Benchmarks | **58 / 58 Passing** |
+| Examples | **60 / 60 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+## What v3.8.0 is
+
+The eighth capability release on the frozen architecture. v3.7 let research use
+information other than prices without looking ahead; v3.8 answers what a desk
+running **several strategies** asks next — what to own, where the risk comes
+from, what the strategies have in common, and how much capital each one gets —
+with every answer's inputs, units and currency stated.
+
+No package is added. The risk model becomes values with identities in
+`alphalab.analytics`; the construction authority `alphalab.portfolio_optimizer`
+gains one solver, five constrained objectives and Black–Litterman;
+`alphalab.portfolio` gains multi-strategy books; `alphalab.allocation` gains
+capital plans; and `factor_library`, `api` and `lifecycle` gain the joins. Three
+package edges are added, none a cycle; no snapshot schema changes and no durable
+state is added. Every v3.1 through v3.7 invariant holds. ADR-0043.
+
+**One risk model.** A `CovarianceMatrix` says what its returns were measured in,
+per what period, from what source and over how many observations, and whether it
+is positive definite — measured by a rank-revealing Cholesky, never assumed.
+Regularizing it derives a new matrix that names its parent. Factor loadings and
+classifications refuse holes: an absent loading is not zero, and an unclassified
+asset is not put in "unknown". v3.3's decomposition now calls the same arithmetic
+and publishes the same numbers, bit for bit.
+
+**Construction over stated constraints.** Minimum variance, mean-variance,
+maximum diversification, risk parity with equal or stated budgets, and robust
+mean-variance over an ellipsoidal or box uncertainty set — each solved *over*
+its constraints (bounds, concentration, gross, sector/country/currency groups,
+factor-neutral or banded exposures, turnover, notional caps in money, a
+volatility cap) by one dual active-set solver that certifies an optimum by its
+KKT conditions and proves infeasibility by naming the constraints that conflict.
+Black–Litterman turns a supplied equilibrium prior and views with stated
+confidence into a posterior that mean-variance reads. There is no default risk
+aversion, view confidence or market portfolio.
+
+**Risk budgets along five dimensions.** Each exposure line's Euler contribution
+is computed once, and asset, strategy, sector, country and currency are
+groupings of the same lines — so every dimension adds up to the same volatility.
+Limits with a maximum, minimum or target are judged under a stated tolerance; a
+breach is reported, not enforced.
+
+**Many strategies, one book, several currencies.** Each strategy's own accounting
+state becomes a sleeve. The book aggregates every instrument with each
+strategy's contribution kept — crossed and opposing positions visible, never
+netted away — and values everything in one reporting currency at recorded rates,
+reconciling per strategy, per instrument and per currency to the cent.
+
+**Cross-strategy risk with a basis.** Return correlation (currency, period,
+sample and source stated), overlap of holdings, factor crowding within the
+portfolio, common exposures and capital concentration — each measurement says
+what it compares, and "correlation" never means two things.
+
+**Capital allocated where it is.** A plan divides capital across strategies,
+markets, brokers, accounts and currencies in each account's own currency,
+reconciles every account exactly, records every conversion, refuses what cannot
+be met — or scales under a stated `PRO_RATA` and says by how much — reads
+committed capital from the execution path's reservation ledger, and becomes each
+run's budget. A broker is an identifier, never an adapter.
+
+```text
+  returns --> CovarianceMatrix --+--> construct(): min-var, MV, max-div, risk parity,
+  (currency, period, source)     |    robust MV, Black-Litterman; constraints; KKT-certified
+                                 |                 |
+                                 |           weights (result_id)
+                                 |                 v
+                                 |    PlacementWeights --> allocate_capital --> capital_budget --> run
+                                 |                         (per-account currency, reconciled, limits)
+                                 v
+  strategy states --> sleeves --> MultiStrategyBook --> value_book (FX recorded) --> exposure lines
+                                                                                          |
+                       +----------------------------+-----------------------------------+
+                       v                            v                                   v
+              evaluate_risk_budget        overlap, crowding,                  common exposures,
+              (asset, strategy, sector,   return correlation                  capital concentration
+               country, currency)
+```
+
+Full detail in [ADR-0043](docs/ADR/0043-advanced-portfolio-and-risk-construction-risk-budgets-multi-strategy-books-cross-strategy-risk-and-capital-allocation.md)
+and [CHANGELOG.md](CHANGELOG.md).
+
+---
 
 ## What v3.7.0 is
 
@@ -607,6 +689,7 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v3.5.0** | Strategy execution and production intelligence: the research-to-live progression, deployment specifications with a derived identity, structured runtime health from supplied observations, expected/paper/live comparison, and AlphaLab-to-broker reconciliation (ADR-0040) |
 | **v3.6.0** | Strategy evaluation: immutable strategy fingerprints over code, dependencies, parameters, research configuration and engine; reproducibility manifests with separate identity, completeness, rerun and external-dependency answers; eight machine-verifiable certification properties with no overall score; and portability checked against declared environment capabilities (ADR-0041) |
 | **v3.7.0** | Advanced quant research: one point-in-time statement of when information became knowable, canonical events, alternative data with source identity and versioned sets, point-in-time fundamentals, knowledge frames with a checked price join, event studies anchored where news could be traded, regime detection from declared rules, and adaptive strategies whose learned state replays exactly and reaches the run record (ADR-0042) |
+| **v3.8.0** | Advanced portfolio and risk: one risk model with stated currency, period and definiteness; constrained construction — minimum variance, mean-variance, maximum diversification, risk parity, robust, Black–Litterman, factor-neutral — by one certified solver that names conflicts; risk budgets along five dimensions; multi-strategy books with provenance across currencies; cross-strategy correlation, overlap and crowding; and capital allocation across strategies, markets, brokers, accounts and currencies (ADR-0043) |
 
 > **What connectivity means here.** `alphalab.broker.transport.HttpVenueTransport`
 > signs and sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker`
@@ -755,6 +838,12 @@ currency it has not funded is refused rather than financed.
 `alphalab.portfolio.fx_feed` is the boundary rates arrive across — it adds a
 contract, and **AlphaLab ships no FX data**. See ADR-0035.
 
+v3.8's multi-strategy book valuation and capital allocation read the same
+authority: a book is valued in one reporting currency with every conversion kept,
+and capital is allocated in each account's own currency, with only plan-wide
+figures translated. A cross rate is derived only when the caller asks for one,
+naming the currency it goes through. See ADR-0043.
+
 ## Standalone engine libraries
 
 Everything below is importable, deterministic, and independently tested, but is
@@ -787,6 +876,9 @@ import graph is the authority:
 - `factor_library` (since v3.2) and `alt_data` (since v3.7) are imported by
   `research`, so the lifecycle path reaches them. `alt_data` imports
   `alphalab.common` and nothing else, and `test_v37_invariants.py` measures it.
+- `portfolio_optimizer` reads the risk model in `analytics` since v3.8
+  (ADR-0043) and is still reached by neither path: a construction answers what
+  to own, and turning it into orders is the caller's decision.
 - `research_assistant` is the one package the lifecycle *names* without
   importing: it produces a candidate and `to_strategy_definition` lifts it into
   the canonical `StrategyDefinition` the lifecycle takes. The dependency runs
@@ -872,6 +964,11 @@ The recommended way to learn the framework is through the curated examples.
 | 53 | `53_regime_detection.py` | Regimes from declared rules and the caller's labels, with persistence, a resumable state and a regime-conditioned diagnostic |
 | 54 | `54_adaptive_strategy.py` | An adaptive strategy whose backtest ends in its research replay's state; cadence, freezing, snapshot restore and a fingerprint naming its start |
 | 55 | `55_reproducible_adaptive_replay.py` | Checkpoints continued in a second interpreter, a late observation reprocessed, replays assessed, and an adaptive run's manifest reproduced |
+| 56 | `56_portfolio_construction.py` | **The v3.8 construction path**: one stated risk model; minimum variance, mean-variance, maximum diversification, risk parity and robust construction over the same constraints; a factor-neutral, sector-capped rebalance; an infeasible set named; Black–Litterman |
+| 57 | `57_risk_budgeting.py` | A three-currency book's risk along asset, strategy, sector, country and currency, each adding up to the same volatility, judged against a budget |
+| 58 | `58_multi_strategy_portfolio.py` | Three strategies' own books as one, every holding with its owners, valued in dollars and in euros with every conversion recorded — and refused without rates |
+| 59 | `59_cross_strategy_risk.py` | Strategies compared by returns (with the basis stated), by holdings, by factor crowding, by common exposures and by the capital they share |
+| 60 | `60_capital_allocation.py` | Capital across strategies, markets, two brokers, three accounts and three currencies, from a risk-parity construction to each run's budget and a fingerprint |
 
 Run any example:
 
@@ -886,8 +983,10 @@ settlement-level multi-currency, `15`–`16` (v3.1) universal data ingestion and
 research from a canonical dataset, `17`–`24` (v3.2) the research and validation
 path, `25`–`30` (v3.3) institutional backtesting, `31`–`40` (v3.4) global
 markets, `41`–`45` (v3.5) strategy execution, `46`–`49` (v3.6) strategy
-evaluation, and `50`–`55` (v3.7) point-in-time research and adaptive strategies.
-None are part of the automated test suite, though all fifty-five run as a
+evaluation, `50`–`55` (v3.7) point-in-time research and adaptive strategies, and
+`56`–`60` (v3.8) portfolio construction, risk budgets, multi-strategy books,
+cross-strategy risk and capital allocation.
+None are part of the automated test suite, though all sixty run as a
 release gate; `17`–`24` all ingest the same committed panel in
 `examples/data/research_panel.csv` so their numbers are comparable with each
 other.
@@ -905,7 +1004,7 @@ The complete documentation is available in the `docs/` directory.
 | `docs/SYSTEM_DESIGN.md` | Internal design and subsystem interaction |
 | `docs/STATE_MODEL.md` | Immutable state, snapshots and schemas |
 | `docs/EVENT_MODEL.md` | Event-driven architecture and lifecycle |
-| `docs/ADR/` | Architectural Decision Records — 42 of them |
+| `docs/ADR/` | Architectural Decision Records — 43 of them |
 | `docs/EXAMPLES.md` | Example walkthroughs |
 | `docs/ENGINEERING_GUIDELINES.md` | Engineering standards |
 | `nowandfuture.md` | The long-form project reference: ownership, invariants, boundaries, what must not change casually |
@@ -922,12 +1021,15 @@ alphalab/
 │   runtime/       ExecutionPipeline, RunEngine, drivers, broker routing, snapshots
 │   strategy/      Strategy protocol, dispatcher, supervisor, class registry,
 │                  and the v3.7 adaptive engine (ADR-0042)
-│   allocation/    Intent sizing / netting → OrderRequest, reservations, contributions
+│   allocation/    Intent sizing / netting → OrderRequest, reservations, contributions,
+│                  and v3.8 capital plans across accounts and currencies (ADR-0043)
 │   risk/          Pre-trade risk checks and limits
 │   oms/           Order lifecycle (oms.order.Order is canonical)
 │   execution/     Deterministic execution simulator, commission, fill policies
-│   portfolio/     Cash ledger, positions, NAV, per-currency P&L, FX, FX feed
-│   analytics/     Performance report, attribution
+│   portfolio/     Cash ledger, positions, NAV, per-currency P&L, FX, FX feed,
+│                  and v3.8 multi-strategy books (ADR-0043)
+│   analytics/     Performance report, attribution, and the v3.8 risk model,
+│                  risk budgets and cross-strategy risk (ADR-0043)
 │   market/        Canonical market model, normalization, sources, streaming
 │   instrument/    Canonical instrument identity, registry, classification
 │   common/        Version, events, serialization, ids, containers, TLS
@@ -963,7 +1065,10 @@ alphalab/
 │   brokers/       The many-venue connector framework (BrokerConnectorProtocol)
 │
 └── Standalone engines
-    reporting/  portfolio_optimizer/  optimizer/
+    reporting/  optimizer/
+    portfolio_optimizer/  Construction: v1 closed forms, and v3.8 constrained
+                   construction and Black–Litterman over the analytics risk
+                   model (ADR-0043)
     feature_store/
     ml/  deep_learning/  reinforcement_learning/
     options/  futures/  crypto/  macro/
@@ -978,9 +1083,9 @@ Additional directories:
 
 ```text
 docs/          Documentation and ADRs
-examples/      55 runnable examples
-benchmarks/    57 performance benchmarks
-tests/         6118 tests — unit, integration, regression
+examples/      60 runnable examples
+benchmarks/    58 performance benchmarks
+tests/         6713 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
 
@@ -990,10 +1095,10 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **6118 passing tests** (3242 unit, 361 integration, 2515 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1122 source files)
+- ✅ **6713 passing tests** (3538 unit, 381 integration, 2794 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1154 source files)
 - ✅ Ruff linting and formatting
-- ✅ 57 / 57 benchmarks, 55 / 55 examples
+- ✅ 58 / 58 benchmarks, 60 / 60 examples
 - ✅ Source distribution, wheel and `twine check` validation
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
@@ -1056,6 +1161,22 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   `InformationEvent` is data about the world. **Two regime tools** — v1's
   `analyze_regimes` scores a return series; v3.7's `classify_regimes` applies a
   declared rule (ADR-0042).
+- **A projection and an optimization** — v1's `apply_weight_constraints` clips a
+  closed-form answer and spreads the excess; v3.8's `construct` solves *over*
+  the constraints. With only the budget binding the two minimum variances agree;
+  add a cap and the projection is feasible and worse, which a regression test
+  shows numerically (ADR-0043).
+- **Budgets and limits** — `CapitalBudget` bounds the capital a run deploys,
+  `risk.RiskLimits` bounds an order pre-trade, and v3.8's `RiskBudget` — whose
+  limits are `BudgetLimit`s, named apart from `RiskLimits` on purpose — bounds
+  where a finished book's volatility comes from, and only reports.
+- **Two target weights** — v1's `portfolio_optimizer.TargetWeights` are a
+  portfolio's asset weights; v3.8's `allocation.PlacementWeights` are a capital
+  plan's fractions per placement, named apart before release because the two
+  meet in the construction-to-capital workflow.
+- **Correlation of returns, similarity of holdings** — `CorrelationMatrix` and
+  `StrategyCorrelation` always name their currency, period and sample;
+  `ExposureSimilarity` compares what strategies hold and has neither.
 - **Standalone engines with no in-repo consumer** — that is ADR-0009, not an
   orphan.
 - **No marketplace logic.** AlphaLab provides the evidence contracts — a
@@ -1090,6 +1211,11 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   *contract* — records, sets, ingestion rules, queries — and no vendor, feed,
   file or line-item taxonomy. The rows, the bytes and a price for valuation are
   the caller's.
+- **Portfolio and risk inputs.** v3.8 estimates a sample covariance and nothing
+  else: expected-return forecasts, market values for an equilibrium prior,
+  views and their confidence, countries, the operator's sector data, FX rates,
+  account balances, and the mapping from a broker or account identifier to an
+  adapter and its credentials are all the caller's.
 
 ## Optional future evolution — deliberately not built
 
@@ -1111,6 +1237,17 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   canonical spine and its snapshots (ADR-0042).
 - Statistical regime models (hidden Markov, Markov switching). v3.7's regimes
   are declared rules; an estimated model needs an identity for its fit.
+- Richer construction (ADR-0043): covariance estimators beyond the sample
+  (an estimated shrinkage intensity, EWMA, a factor-model covariance),
+  cardinality and lot-size constraints, transaction costs in the objective,
+  CVaR or drawdown objectives, multi-period construction, and exchange-rate
+  return factors for a pure currency-risk dimension. Each is a decision of its
+  own; v3.8's solvers are exact and pure Python, and cubic in the universe.
+- Per-strategy sub-ledgers inside the accounting engine, and per-strategy
+  capital ceilings enforced on the execution path. A multi-strategy book is
+  assembled from each strategy's own state, and an account's `CapitalBudget`
+  enforces its total; a strategy's amount in it is what weight-based sizing
+  reads (ADR-0015 §1).
 - One measured trade left in place: `OptimizerState.pending_trials` stays
   super-linear because the fix was implemented, measured at **+3.9%** on the
   execution pipeline, and refused on that evidence. It is in a standalone package
@@ -1145,7 +1282,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v3.7.0**
+**AlphaLab v3.8.0**
 
 Building deterministic infrastructure for quantitative research.
 

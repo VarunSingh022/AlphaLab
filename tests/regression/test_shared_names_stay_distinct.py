@@ -285,10 +285,16 @@ def test_the_two_matrix_inversions_are_not_a_shared_numerical_layer() -> None:
     elimination without pivoting is the standard backward-stable choice.
 
     Sharing one would join two packages the architecture keeps independent --
-    ``portfolio_optimizer`` imports nothing but ``common`` and its own siblings
-    -- to save about thirty lines, and would push the stricter routine's cost
-    onto the caller that does not need it. ``ml.linalg``'s own docstring already
-    says it is "not a general-purpose linear algebra library".
+    ``portfolio_optimizer`` imports only ``common`` and, since v3.8, the risk
+    model in ``analytics`` (ADR-0043), and never ``ml`` -- to save about thirty
+    lines, and would push the stricter routine's cost onto the caller that does
+    not need it. ``ml.linalg``'s own docstring already says it is "not a
+    general-purpose linear algebra library".
+
+    v3.8's constrained construction does not invert at all: it factors the
+    Hessian by Cholesky (``quadratic._cholesky``), below. The v1 closed forms
+    keep their Gauss-Jordan inverse, because their published weights are
+    pinned float for float and a different factorization would move them.
     """
 
     import alphalab.portfolio_optimizer.optimizer as construction
@@ -329,6 +335,49 @@ def test_each_inversion_is_correct_on_the_input_it_documents() -> None:
     ill_conditioned = ((1e-18, 1.0), (1.0, 1.0))
     assert residual(linalg.matrix_inverse(ill_conditioned), ill_conditioned) < 1e-9
     assert residual(construction._invert_matrix(ill_conditioned), ill_conditioned) > 0.5
+
+
+def test_the_two_cholesky_factorizations_do_two_jobs() -> None:
+    """``analytics.risk_model`` **diagnoses** a covariance; ``quadratic`` **solves** with one.
+
+    The risk model's factorization pivots on the largest remaining diagonal and
+    stops at the ``n * eps * max(diag)`` floor, so it reveals a rank and says
+    *which* kind of matrix it was given -- positive definite, singular, or
+    indefinite -- for ``CovarianceMatrix.definiteness()``. The solver's
+    factorization keeps the natural order, because the dual active-set method
+    starts from ``J = L^-T`` of the Hessian it is handed -- which is not always a
+    covariance (maximum diversification solves in a homogenized space) -- and it
+    refuses outright, returning nothing, on a Hessian that is not positive
+    definite. Black-Litterman reuses the solver's factor rather than keeping a
+    third one.
+    """
+
+    import importlib
+
+    from alphalab.analytics.risk_model import DefinitenessKind, _definiteness
+    from alphalab.portfolio_optimizer.quadratic import _cholesky
+
+    covariance = ((0.04, 0.01), (0.01, 0.09))
+    singular = ((1.0, 1.0), (1.0, 1.0))
+
+    diagnosis = _definiteness(("A", "B"), covariance)
+    assert diagnosis.kind is DefinitenessKind.POSITIVE_DEFINITE and diagnosis.rank == 2
+    assert _definiteness(("A", "B"), singular).kind is DefinitenessKind.SINGULAR
+    assert _definiteness(("A", "B"), singular).rank == 1
+
+    factored = _cholesky(covariance)
+    assert factored is not None
+    lower, _ = factored
+    rebuilt = [sum(lower[i][k] * lower[j][k] for k in range(2)) for i in range(2) for j in range(2)]
+    assert rebuilt == pytest.approx([value for row in covariance for value in row], rel=1e-15)
+    assert _cholesky(singular) is None
+
+    # The package re-exports the function under the module's name, so the
+    # module is read from the import system rather than as an attribute.
+    source = inspect.getsource(
+        importlib.import_module("alphalab.portfolio_optimizer.black_litterman")
+    )
+    assert "_cholesky" in source and "def _cholesky" not in source
 
 
 # --------------------------------------------------------------------------- #
@@ -1741,3 +1790,288 @@ def test_three_observations_and_two_replays_are_kept_apart() -> None:
     assert "series" in frame and "stamp" in external and "sequence" in adaptive
     assert not hasattr(strategy, "replay")
     assert callable(api.replay) and callable(strategy.replay_updates)
+
+
+# --------------------------------------------------------------------------- #
+# 37. "capital allocation" -- a snapshot, a division, a run's ceiling (v3.8)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_three_capital_shapes_answer_three_questions() -> None:
+    """``portfolio_optimizer.CapitalAllocation`` (v1) is a **snapshot** of one
+    portfolio's capital structure in floats: total, invested, cash, margin,
+    leverage. ``allocation.capital`` (v3.8) **divides** capital across
+    strategies, markets, brokers, accounts and currencies, in each account's
+    own currency, and refuses rather than scales. ``allocation.CapitalBudget``
+    is **one run's ceiling** on the execution path.
+
+    The last two compose rather than overlap: ``capital_budget`` turns one
+    placement's allocation into the budget its run is given. Merging the first
+    with either would put floats where the ledger keeps Decimals.
+    """
+
+    from alphalab.allocation import CapitalBudget
+    from alphalab.allocation.capital import (
+        CapitalAllocationPlan,
+        CapitalAllocationResult,
+        capital_budget,
+    )
+    from alphalab.portfolio_optimizer import CapitalAllocation
+
+    snapshot = {field.name: field.type for field in dataclasses.fields(CapitalAllocation)}
+    plan = {field.name for field in dataclasses.fields(CapitalAllocationPlan)}
+    result = {field.name for field in dataclasses.fields(CapitalAllocationResult)}
+
+    assert set(snapshot.values()) <= {"str", "float", str, float}
+    assert {"accounts", "placements", "rule", "oversubscription", "granularity"} <= plan
+    assert not set(snapshot) & (plan | result)
+    assert inspect.signature(capital_budget).return_annotation in ("CapitalBudget", CapitalBudget)
+
+
+# --------------------------------------------------------------------------- #
+# 38. "budget" and "limits" -- capital, risk, orders, a finished book (v3.8)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_risk_budget_is_neither_a_capital_budget_nor_a_limit_on_orders() -> None:
+    """Four things that bound a portfolio, at four moments.
+
+    * ``allocation.CapitalBudget`` -- **how much capital** a run may deploy.
+    * ``risk.RiskLimits`` -- **what an order or position may be**, enforced
+      pre-trade on the execution path.
+    * ``analytics.RiskBudget`` (v3.8) -- **how volatility is shared** across
+      assets, strategies, sectors, countries and currencies, judged on a book
+      after the fact: a breach is reported, never enforced.
+    * ``portfolio_optimizer.RiskConstraints`` (v1) -- thresholds the v1
+      manager checks after construction; it checks drawdown, volatility and
+      turnover, and says so.
+
+    A risk budget's single limit is a ``BudgetLimit``, with ``BudgetBasis``,
+    ``BudgetCheck`` and ``BudgetStatus`` beside it. It was named apart from
+    ``risk.RiskLimits`` before v3.8 shipped: one letter is too little to tell a
+    pre-trade limit from a share of a finished book's volatility.
+    """
+
+    import alphalab.analytics as analytics
+    from alphalab.allocation import CapitalBudget
+    from alphalab.analytics import BudgetLimit, RiskBudget
+    from alphalab.portfolio_optimizer import RiskConstraints
+    from alphalab.risk.limits import RiskLimits
+
+    def names(kind: type) -> set[str]:
+        return {field.name for field in dataclasses.fields(kind)}
+
+    assert "global_capital" in names(CapitalBudget)
+    assert {"order_size", "position", "leverage"} <= names(RiskLimits)
+    assert "limits" in names(RiskBudget)
+    assert {"dimension", "bucket", "basis"} <= names(BudgetLimit)
+    assert "max_volatility_limit" in names(RiskConstraints)
+    assert len({frozenset(names(kind)) for kind in (CapitalBudget, RiskLimits, RiskBudget)}) == 3
+    assert not hasattr(analytics, "RiskLimit") and not hasattr(analytics, "RiskLimits")
+
+
+# --------------------------------------------------------------------------- #
+# 39. "factor exposure" -- a book's, a model's, and a weighting's (v3.8)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_three_factor_exposures_are_one_sum_and_one_average() -> None:
+    """``analytics.decomposition.factor_exposure`` (v3.3) weighs a book of
+    positions by **gross** weight against a bare mapping of loadings.
+    ``analytics.portfolio_factor_exposures`` (v3.8) takes the caller's weights
+    -- normally fractions of capital -- against a ``FactorLoadings`` model with
+    a source, a lineage per factor and an identity. The two are **one
+    arithmetic**, ``risk_model._accumulate_exposures``, and agree exactly on the
+    same weights.
+
+    ``factor_library.factor_exposure`` is not a factor exposure at all in that
+    sense: it is the **mean weight over instants** of a weighting, by asset and
+    group -- no loadings.
+    """
+
+    from alphalab.analytics import FactorLoadings, portfolio_factor_exposures
+    from alphalab.analytics import decomposition as v33
+    from alphalab.factor_library.exposure import factor_exposure as mean_exposure
+
+    assert "_accumulate_exposures" in inspect.getsource(v33.factor_exposure)
+    assert "loadings" not in inspect.signature(mean_exposure).parameters
+
+    book = [
+        v33.PositionRisk("A", Decimal("600"), "USD", (0.01, -0.02, 0.005)),
+        v33.PositionRisk("B", Decimal("-400"), "USD", (0.0, 0.01, -0.01)),
+    ]
+    raw = {"A": {"m": 1.2, "v": -0.3}, "B": {"m": 0.7, "v": 0.4}}
+    model = FactorLoadings.of(raw, source="t", lineage={"m": "t", "v": "t"}, as_of=None)
+
+    assert v33.factor_exposure(book, raw) == dict(
+        portfolio_factor_exposures(v33.gross_weights(book), model)
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 40. "constraints" -- a projection after the fact, and an optimization over them
+# --------------------------------------------------------------------------- #
+
+
+def test_a_clipped_optimum_is_not_the_constrained_optimum() -> None:
+    """``WeightConstraints`` with ``apply_weight_constraints`` (v1) **clips** a
+    solution another function produced and spreads the excess evenly -- a
+    heuristic, and documented as one. A ``ConstraintSet`` given to
+    ``construct`` (v3.8) is **solved over**: the answer is the optimum of the
+    constrained problem, or a named conflict.
+
+    Kept apart because the v1 surface is public and pinned; demonstrated here
+    because the difference is a number, not a style. With only the budget
+    binding, the two minimum variances agree; add a cap, and the projection is
+    feasible and worse.
+    """
+
+    from alphalab.analytics import CovarianceMatrix
+    from alphalab.portfolio_optimizer import (
+        ConstraintSet,
+        ConstructionProblem,
+        ExposureRange,
+        MinimumVariance,
+        SolverSettings,
+        WeightBounds,
+        WeightConstraints,
+        apply_weight_constraints,
+        construct,
+        optimize_minimum_variance,
+    )
+
+    rows = ((0.01, 0.0, 0.0), (0.0, 0.04, 0.0), (0.0, 0.0, 0.09))
+    covariance = CovarianceMatrix.from_rows(
+        ("A", "B", "C"), rows, currency="USD", period="1D", source="t", observations=None
+    )
+
+    def variance(weights: dict[str, float]) -> float:
+        return sum(weights[name] ** 2 * rows[i][i] for i, name in enumerate("ABC"))
+
+    def solved(bounds: WeightBounds) -> dict[str, float]:
+        problem = ConstructionProblem(
+            covariance,
+            MinimumVariance(),
+            ConstraintSet(ExposureRange.exactly(1.0), bounds),
+            SolverSettings(1e-12, 1e-12, 100),
+        )
+        return dict(construct(problem).require_weights())
+
+    closed = optimize_minimum_variance(("A", "B", "C"), rows)
+    assert solved(WeightBounds.unbounded()) == pytest.approx(closed, abs=1e-14)
+
+    projected = apply_weight_constraints(closed, WeightConstraints(max_position_weight=0.5))
+    constrained = solved(WeightBounds.long_only(0.5))
+    for weights in (projected, constrained):
+        assert max(weights.values()) <= 0.5 + 1e-12
+        assert sum(weights.values()) == pytest.approx(1.0, abs=1e-8)
+    assert variance(constrained) < variance(projected) - 1e-4
+
+
+# --------------------------------------------------------------------------- #
+# 41. "correlation" -- of returns, and of what two strategies hold (v3.8)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_return_correlation_and_an_exposure_similarity_are_different_measurements() -> None:
+    """``CorrelationMatrix`` is always **of returns** -- derived from one
+    covariance, in its currency, per its period, over its observations -- and
+    ``StrategyCorrelation`` is that, for strategies' return series.
+    ``ExposureSimilarity`` compares **what two strategies hold**: Jaccard,
+    overlap, cosine and a Pearson over exposure vectors, with no period and no
+    sample. "Correlation" without a basis is not a measurement, so the two
+    never share a type.
+
+    The v3.3 ``correlation_matrix`` and the v3.8 matrix are one derivation,
+    ``risk_model._correlation_rows``, and agree exactly.
+    """
+
+    from alphalab.analytics import (
+        CorrelationMatrix,
+        CovarianceMatrix,
+        ExposureSimilarity,
+        StrategyCorrelation,
+    )
+    from alphalab.analytics import decomposition as v33
+
+    returns_basis = {field.name for field in dataclasses.fields(CorrelationMatrix)}
+    holdings_basis = {field.name for field in dataclasses.fields(ExposureSimilarity)}
+    assert {"currency", "period", "observations", "covariance_id"} <= returns_basis
+    assert not {"currency", "period", "observations"} & holdings_basis
+    assert "correlation" in {field.name for field in dataclasses.fields(StrategyCorrelation)}
+
+    book = [
+        v33.PositionRisk("A", Decimal("600"), "USD", (0.01, -0.02, 0.005, 0.0)),
+        v33.PositionRisk("B", Decimal("-400"), "USD", (0.0, 0.01, -0.01, 0.02)),
+    ]
+    matrix = CovarianceMatrix.sample(
+        {position.asset_id: position.returns for position in book},
+        currency="USD",
+        period="1D",
+        source="t",
+    ).correlation()
+    assert v33.correlation_matrix(book) == {
+        first: dict(row) for first, row in matrix.as_mapping().items()
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 42. "risk contributions" -- one Euler arithmetic, two weightings (v3.8)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_two_risk_decompositions_are_one_arithmetic_on_two_weightings() -> None:
+    """``decomposition.risk_contributions`` (v3.3) decomposes a book of
+    positions weighted by **gross** exposure. ``euler_decomposition`` (v3.8)
+    decomposes **the caller's** weights -- fractions of capital in a risk budget,
+    target weights in a construction -- against a named covariance, and returns
+    the marginal and relative contributions with the total. Both are
+    ``risk_model._euler``; given the same weights they agree float for float.
+    """
+
+    from alphalab.analytics import CovarianceMatrix, euler_decomposition
+    from alphalab.analytics import decomposition as v33
+
+    book = [
+        v33.PositionRisk("A", Decimal("600"), "USD", (0.01, -0.02, 0.005, 0.0)),
+        v33.PositionRisk("B", Decimal("-400"), "USD", (0.0, 0.01, -0.01, 0.02)),
+    ]
+    covariance = CovarianceMatrix.of(
+        v33.covariance_matrix(book), currency="USD", period="1D", source="t", observations=4
+    )
+
+    decomposed = euler_decomposition(v33.gross_weights(book), covariance)
+    assert dict(decomposed.total) == dict(v33.risk_contributions(book))
+    assert decomposed.volatility == v33.portfolio_volatility(book)
+    assert "_euler" in inspect.getsource(v33)
+
+
+# --------------------------------------------------------------------------- #
+# 43. "target weights" -- an asset's fraction of a portfolio, and a placement's
+#     fraction of a plan's capital (v3.8)
+# --------------------------------------------------------------------------- #
+
+
+def test_an_asset_target_and_a_placement_weight_are_named_apart() -> None:
+    """``portfolio_optimizer.TargetWeights`` (v1) is a portfolio's **target
+    asset weights** at an instant, as floats -- what the v1 manager rebalances
+    toward. ``allocation.PlacementWeights`` (v3.8) is a **capital allocation
+    rule**: each placement's fraction of a plan's free capital, as ``Decimal``,
+    with the source it came from.
+
+    The two meet in exactly the workflow v3.8 adds -- a construction's weights
+    becoming a capital plan's rule -- so a module wiring one into the other
+    would import both. The capital rule was therefore named for what it weighs
+    before the release, rather than shipped as a second ``TargetWeights``.
+    """
+
+    import alphalab.allocation as allocation
+    from alphalab.allocation import PlacementWeights
+    from alphalab.portfolio_optimizer import TargetWeights
+
+    asset_targets = {field.name for field in dataclasses.fields(TargetWeights)}
+    placement_rule = {field.name for field in dataclasses.fields(PlacementWeights)}
+
+    assert {"portfolio_id", "timestamp", "weights"} == asset_targets
+    assert {"weights", "source"} == placement_rule
+    assert "TargetWeights" not in allocation.__all__

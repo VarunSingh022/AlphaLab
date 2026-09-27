@@ -60,7 +60,8 @@ design documents is not misled.
 | Every hook is wrapped in a **timeout** (`API` §3.3) | **No timeout.** A hook that raises is isolated and transitions that strategy to `FAILED`; a hook that blocks blocks the caller's own loop. AlphaLab is single-threaded and the caller owns the process. |
 | The plugin loader runs a **static-analysis pass** flagging `datetime.now`, `random`, `os.environ` (`API` §3.4) | **Not implemented.** The rule stands as a documented contract; nothing enforces it mechanically. |
 | `StrategyProtocol` carries an independently versioned **`strategy-api` version** (`API` §7) | **Not implemented.** The protocol is versioned with the package. What *is* versioned independently is a strategy's own durable state, through `StrategyStateProtocol.strategy_state_version` (ADR-0025). |
-| Portfolio keeps **per-strategy sub-ledgers** (`ADVANCED` §1.2) | **One portfolio book.** Per-strategy attribution is the allocation *contribution ledger*: two strategies whose intents net into one order each see their own share and neither claims sole ownership (ADR-0015, ADR-0026). A regression test asserts no second portfolio model exists. |
+| Portfolio keeps **per-strategy sub-ledgers** (`ADVANCED` §1.2) | **One portfolio book.** Per-strategy attribution is the allocation *contribution ledger*: two strategies whose intents net into one order each see their own share and neither claims sole ownership (ADR-0015, ADR-0026). A regression test asserts no second portfolio model exists. Since v3.8, `portfolio.multi_strategy` holds several strategies' *own* books side by side as sleeves of one portfolio — each still its strategy's own `PortfolioState`, never a second book of record (ADR-0043). |
+| Capital allocated by a **fixed, risk-parity or performance-based policy** (`ADVANCED` §1.1) | **Fixed and weighted, explicitly; no performance-based rule.** v3.8's `allocation.capital` divides capital across strategies, markets, brokers, accounts and currencies by `FixedAmounts`, `PlacementWeights` (which a risk-parity construction over strategy returns can supply, with its identity as the source) or `EqualWeights`, and refuses a plan it cannot fund rather than scaling it. No rule reallocates on realized performance (ADR-0043). |
 | **Context pooling** for allocator pressure (`CONTEXT` §6.2) | **Not implemented.** Context construction is reference assembly over state the pipeline already holds, which measured at nothing. |
 | **Hot reload**, dependency injection and a plugin manifest (`ADVANCED` §3) | **Not implemented.** `alphalab.strategy.registry` (v2.17) is the mapping from a declared identity to executable code: a caller registers the class it already has, and the registry never resolves a name to a module. |
 | A **threading model** with sharded workers (`ADVANCED` §8) | **Not implemented.** AlphaLab is single-threaded and deterministic; the caller owns the process and may shard runs itself. |
@@ -85,7 +86,8 @@ rather than in per-subsystem directories:
 | Instrument identity and classification | ADR-0016, ADR-0027 |
 | Broker boundary | ADR-0012, ADR-0031 |
 | Portfolio, currency and FX | ADR-0019, ADR-0020, ADR-0028, ADR-0035 |
-| Allocation | ADR-0015, ADR-0021 |
+| Allocation, and capital allocation across strategies (v3.8) | ADR-0015, ADR-0021, ADR-0043 |
+| Portfolio construction and risk | ADR-0005, ADR-0038, ADR-0043 |
 | Lifecycle and governance | ADR-0013, ADR-0018, ADR-0033 |
 | State, snapshots and durability | `docs/STATE_MODEL.md`, ADR-0014, ADR-0023, ADR-0029 |
 

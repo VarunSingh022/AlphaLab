@@ -1,11 +1,58 @@
-"""AlphaLab Portfolio Construction & Optimization Engine."""
+"""AlphaLab Portfolio Construction & Optimization Engine.
+
+The construction authority (ADR-0005): *what should I own*. The v1 surface --
+four closed-form optimizers, the post-hoc weight constraints and the engine
+state -- is unchanged. v3.8 adds :func:`construct`, one entry point for
+minimum variance, mean-variance, maximum diversification, risk parity and
+robust mean-variance under explicit constraints, with certified statuses and
+diagnostics, and :func:`black_litterman`, the model whose posterior feeds it
+(ADR-0043).
+"""
 
 from alphalab.portfolio_optimizer.adapter import PortfolioAdapter
 from alphalab.portfolio_optimizer.allocation import CapitalAllocation
+from alphalab.portfolio_optimizer.black_litterman import (
+    BLACK_LITTERMAN_SCHEME,
+    BlackLittermanModel,
+    BlackLittermanPosterior,
+    EquilibriumPrior,
+    InvestorView,
+    SuppliedPrior,
+    ViewDiagnostic,
+    black_litterman,
+    view_variance_from_prior,
+)
 from alphalab.portfolio_optimizer.constraints import (
     RiskConstraints,
     WeightConstraints,
     apply_weight_constraints,
+)
+from alphalab.portfolio_optimizer.construction import (
+    CONSTRUCTION_PROBLEM_SCHEME,
+    CONSTRUCTION_RESULT_SCHEME,
+    EXPECTED_RETURNS_SCHEME,
+    BoxUncertainty,
+    ConstraintSet,
+    ConstructionDiagnostics,
+    ConstructionObjective,
+    ConstructionProblem,
+    ConstructionResult,
+    ConstructionStatus,
+    EllipsoidalUncertainty,
+    ExpectedReturns,
+    ExposureRange,
+    FactorBound,
+    GroupBound,
+    MaximumDiversification,
+    MeanVariance,
+    MinimumVariance,
+    NotionalLimits,
+    RiskParity,
+    RobustMeanVariance,
+    SolverSettings,
+    TurnoverLimit,
+    WeightBounds,
+    construct,
 )
 from alphalab.portfolio_optimizer.costs import CostModel, TransactionCostEstimate
 from alphalab.portfolio_optimizer.engine import PortfolioEngine
@@ -21,6 +68,7 @@ from alphalab.portfolio_optimizer.events import (
 )
 from alphalab.portfolio_optimizer.exceptions import (
     ConstraintViolationError,
+    ConstructionInputError,
     InvalidPortfolioStateError,
     OptimizationError,
     PortfolioEngineError,
@@ -63,14 +111,39 @@ from alphalab.portfolio_optimizer.views import (
 from alphalab.portfolio_optimizer.weights import TargetWeights
 
 __all__ = [
+    "BLACK_LITTERMAN_SCHEME",
+    "CONSTRUCTION_PROBLEM_SCHEME",
+    "CONSTRUCTION_RESULT_SCHEME",
+    "EXPECTED_RETURNS_SCHEME",
     "AllocationChanged",
     "AlphaSignalProtocol",
+    "BlackLittermanModel",
+    "BlackLittermanPosterior",
+    "BoxUncertainty",
     "CapitalAllocation",
+    "ConstraintSet",
     "ConstraintViolated",
     "ConstraintViolationError",
+    "ConstructionDiagnostics",
+    "ConstructionInputError",
+    "ConstructionObjective",
+    "ConstructionProblem",
+    "ConstructionResult",
+    "ConstructionStatus",
     "CostModel",
+    "EllipsoidalUncertainty",
+    "EquilibriumPrior",
+    "ExpectedReturns",
+    "ExposureRange",
     "ExposureUpdated",
+    "FactorBound",
+    "GroupBound",
     "InvalidPortfolioStateError",
+    "InvestorView",
+    "MaximumDiversification",
+    "MeanVariance",
+    "MinimumVariance",
+    "NotionalLimits",
     "OptimizationError",
     "Portfolio",
     "PortfolioAdapter",
@@ -87,17 +160,26 @@ __all__ = [
     "Rebalanced",
     "RiskConstraints",
     "RiskModelProtocol",
+    "RiskParity",
+    "RobustMeanVariance",
+    "SolverSettings",
+    "SuppliedPrior",
     "TargetTransaction",
     "TargetWeights",
     "TransactionCostEstimate",
+    "TurnoverLimit",
+    "ViewDiagnostic",
+    "WeightBounds",
     "WeightConstraints",
     "WeightsCalculated",
     "allocation_report",
     "apply_weight_constraints",
+    "black_litterman",
     "calculate_max_drawdown",
     "calculate_volatility",
     "check_schedule_rebalance",
     "check_threshold_rebalance",
+    "construct",
     "expected_costs",
     "exposure_report",
     "optimize_equal_weight",
@@ -109,5 +191,6 @@ __all__ = [
     "validate_portfolio_creation",
     "validate_portfolio_exists",
     "validate_risk_constraints",
+    "view_variance_from_prior",
     "weight_breakdown",
 ]

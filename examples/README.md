@@ -1,6 +1,6 @@
 # AlphaLab Examples
 
-Fifty-five runnable scripts, each demonstrating one part of AlphaLab against
+Sixty runnable scripts, each demonstrating one part of AlphaLab against
 its real public API. Every one of them runs:
 
 ```bash
@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all fifty-five are executed as a
+paths far more thoroughly under `tests/` — but all sixty are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -73,6 +73,11 @@ API.
 | 53 | `53_regime_detection.py` | Regimes from declared rules with the caller's labels: a threshold with persistence, a trailing quantile that reads only the past, composites, a macro regime from point-in-time prints, a detector resumed from its recorded state reproducing one pass exactly, and a diagnostic conditioned on the regime |
 | 54 | `54_adaptive_strategy.py` | An adaptive strategy on the execution path: a learning rule of four pure functions, the backtest ending in exactly the state a research replay reaches, cadence and freezing, the learned state in the run snapshot restored exactly and an edit refused, and a fingerprint naming the starting state |
 | 55 | `55_reproducible_adaptive_replay.py` | Checkpoints restored in a second interpreter and continued to the uninterrupted state, a late observation refused and reprocessed from the last checkpoint before it, replays assessed as reproduced, of other inputs or diverged, and an adaptive backtest's manifest reproduced by a rerun |
+| 56 | `56_portfolio_construction.py` | **The v3.8 construction path**: one stated risk model; minimum variance, mean-variance, maximum diversification, risk parity (equal and stated budgets) and robust mean-variance over the same constraints; a momentum-neutral, sector-capped rebalance with gross, turnover and notional limits; an infeasible set with its conflict named; Black–Litterman; identities that ignore listing order |
+| 57 | `57_risk_budgeting.py` | A three-currency book's risk along asset, strategy, sector (from the instrument registry), country and currency, each adding up to the same volatility; a budget judged with a stated tolerance; a euro covariance refused for a dollar book; a shrunk risk model recorded as derived |
+| 58 | `58_multi_strategy_portfolio.py` | Three strategies' own books in dollars, euros and yen as one book: every holding with its owners, crossed and opposing positions visible, valued in dollars and reconciled to the cent, every conversion recorded; euros refused until a cross is derived by name; valuations refused without rates or with a rate from the future |
+| 59 | `59_cross_strategy_risk.py` | Strategies correlated by returns with the basis stated, and mixed currencies refused; overlap of holdings; factor crowding from the factor library's panels; common exposures by instrument, currency and sector; capital concentration and shared pools |
+| 60 | `60_capital_allocation.py` | Capital across strategies, markets, two brokers, three accounts and three currencies: weights from a risk-parity construction, every account reconciled exactly, limits on five dimensions, refusals and stated `PRO_RATA` scaling, the allocation becoming a run's budget, and a fingerprint naming the construction and the capital |
 
 ## Reading order
 
@@ -114,6 +119,12 @@ event and an external observation are, and when each became knowable — and are
 best read first. **52** applies the same rules to financial statements, **53**
 detects regimes over any of it, and **54** and **55** are a pair: **54** builds
 an adaptive strategy and runs it, **55** stops, moves, corrects and reruns it.
+
+`56`–`60` are the v3.8 sequence and read in order: **56** constructs portfolios
+from one stated risk model, **57** asks where a multi-strategy book's risk comes
+from, **58** is that book — three strategies' own books valued as one across
+three currencies — **59** compares the strategies with each other, and **60**
+divides capital between them and hands each run its budget.
 
 `05_broker_connection.py` was rewritten in v2.17 against the canonical broker
 boundary, having used `alphalab.integrations` until that package was removed
@@ -180,6 +191,19 @@ named. `54` and `55` run one adaptive strategy, set up once in
 strategy `54` built. `55` writes its checkpoints to a temporary directory it
 removes, and starts one second interpreter. Every figure the six print is
 deterministic.
+
+`56`–`60` share one small world, written out in `examples/_portfolio_world.py`:
+eight instruments on three markets — New York in dollars, Frankfurt in euros,
+Tokyo in yen — with sectors registered in an instrument registry from a named
+source and countries from a second named file; sixty daily returns per
+instrument **measured in dollars**, produced by a Park–Miller integer recurrence
+written out in the file so every figure is the same on every machine; FX rates
+from a named desk, with inverse directions derived and marked as derived; and
+three strategies whose books are kept by the canonical accounting engine.
+Instruments are identified by ticker for legible tables, except in `57`, which
+reads sectors from the registry by canonical `asset_id` and says where it
+re-keys. `60` also fingerprints the strategy `_strategy_evidence.py` defines.
+Nothing is fetched and no vendor is named.
 
 See `examples/data/README.md` for what each dataset contains.
 

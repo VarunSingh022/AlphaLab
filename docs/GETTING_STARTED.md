@@ -101,11 +101,11 @@ If all commands complete successfully, your environment is correctly configured.
 AlphaLab/
 
 alphalab/     framework source (50 packages)
-benchmarks/   57 performance benchmarks
+benchmarks/   58 performance benchmarks
 configs/      reference configuration files
-docs/         technical documentation and 42 ADRs
-examples/     55 runnable examples
-tests/        6118 tests — unit, integration, regression
+docs/         technical documentation and 43 ADRs
+examples/     60 runnable examples
+tests/        6713 tests — unit, integration, regression
 ```
 
 ### alphalab/

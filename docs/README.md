@@ -252,6 +252,12 @@ imports it for event studies, `factor_library` for knowledge frames and
 imports `alphalab.common` and nothing else, and
 `tests/regression/test_v37_invariants.py` measures that edge set (ADR-0042).
 
+**As of v3.8, `portfolio_optimizer` reads the risk model in `analytics`** — the
+one covariance authority — and is still standalone: nothing on either path
+imports it, because a construction answers what to own and turning it into
+orders is the caller's decision. `tests/regression/test_v38_invariants.py`
+measures its edge set, `common` and `analytics` (ADR-0043).
+
 `experiment_tracking`, `model_registry`, `deployment_manager`, `studio`,
 `enterprise` and `research` are imported by `alphalab.lifecycle` as of v2.4 and
 remain usable on their own. `research_assistant` is the one the lifecycle names
@@ -310,13 +316,37 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.7.0
+v3.8.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.8.0 — advanced portfolio and risk.** The eighth capability release on
+the frozen architecture, and no package is added. The risk model becomes values
+with identities in `alphalab.analytics`: a `CovarianceMatrix` that names its
+currency, period, source and observations and measures its own definiteness,
+factor loadings and classifications that refuse holes, and one implementation of
+the covariance, the Euler decomposition and the factor exposure, which v3.3's
+decomposition now calls without moving a published number. `construct` in
+`alphalab.portfolio_optimizer` solves minimum variance, mean-variance, maximum
+diversification, risk parity and robust mean-variance *over* stated constraints
+— bounds, concentration, gross, sector/country/currency groups, factor
+neutrality, turnover, notional caps, a volatility cap — with one dual active-set
+solver that certifies an optimum and names the constraints that conflict when
+there is none, and `black_litterman` turns a supplied prior and stated views into
+a posterior. `evaluate_risk_budget` decomposes a book's volatility along asset,
+strategy, sector, country and currency, each adding up to the same total, and
+judges it against limits; `alphalab.portfolio.multi_strategy` keeps several
+strategies' books apart inside one portfolio and values it across currencies at
+recorded rates; `alphalab.analytics.cross_strategy` correlates, overlaps and
+compares strategies on a stated basis; and `alphalab.allocation.capital`
+allocates capital across strategies, markets, brokers, accounts and currencies
+in each account's own currency, reconciled exactly and refused rather than
+silently scaled. Three package edges are added, none a cycle; no durable state
+is added and no snapshot schema is touched. See `ADR/0043`.
 
 **v3.7.0 — advanced quant research.** The seventh capability release on the
 frozen architecture, and no package is added. Everything rests on one statement

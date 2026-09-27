@@ -84,6 +84,18 @@ wire records ``alphalab.data.feed`` defines, with the caller declaring what
 that timestamp meant. These live here for the reason the rest of this module
 does: they join :mod:`alphalab.data`, whose outward edges are pinned, to a
 package that may not import it.
+
+Classifications from the instrument registry (v3.8)
+----------------------------------------------------
+
+:func:`sector_classification` and :func:`currency_classification` read the
+canonical :class:`~alphalab.instrument.registry.InstrumentRegistry` into the
+:class:`~alphalab.analytics.risk_model.Classification` that construction's group
+constraints, risk budgets and cross-strategy breakdowns take. They live here
+because ``alphalab.analytics`` does not import ``alphalab.instrument``: the
+analytics layer is handed a classification, the rule
+:mod:`alphalab.factor_library.exposure` states for the same reason. An
+instrument with no sector is refused, never bucketed.
 """
 
 from __future__ import annotations
@@ -104,6 +116,7 @@ from alphalab.alt_data.provenance import DataProvenance
 from alphalab.alt_data.sessions import SessionCalendar, place_in_session
 from alphalab.alt_data.source import ObservationSource
 from alphalab.analytics.engine import AnalyticsEngine
+from alphalab.analytics.risk_model import Classification
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import ReplayBacktest
@@ -146,6 +159,12 @@ from alphalab.factor_library.forward_returns import forward_returns
 from alphalab.factor_library.observations import ObservationFrame, observations_from_dataset
 from alphalab.factor_library.panel import FeaturePanel
 from alphalab.futures.contract import FutureContract
+from alphalab.instrument.registry import (
+    InstrumentRegistry,
+    classification_history,
+    get_instrument,
+    sector_as_of,
+)
 from alphalab.market.normalization import (
     NormalizationPolicy,
     normalize_wire_bar,
@@ -182,6 +201,7 @@ __all__ = [
     "backtest",
     "clean_dataset",
     "convention_from_spec",
+    "currency_classification",
     "future_contract_from_spec",
     "ingest_csv",
     "ingest_events",
@@ -196,6 +216,7 @@ __all__ = [
     "option_contract_from_spec",
     "replay",
     "run_study",
+    "sector_classification",
     "select",
     "study_panels",
     "to_market_dataset",
@@ -1428,3 +1449,91 @@ def lift_wire_records(
             )
         )
     return build_observation_set(name, lifted, source)
+
+
+# --------------------------------------------------------------------------- #
+# Classifications from the instrument registry (v3.8)
+# --------------------------------------------------------------------------- #
+
+
+def sector_classification(
+    registry: InstrumentRegistry, asset_ids: Sequence[str], as_of: float | None
+) -> Classification:
+    """The registry's sector for every one of ``asset_ids``, as a classification.
+
+    Args:
+        registry: The canonical instrument registry.
+        asset_ids: The instruments to classify.
+        as_of: The instant the classification is read at, through
+            :func:`~alphalab.instrument.registry.sector_as_of` -- a historical
+            question answered from the append-only classification history; or
+            ``None`` to read the label currently on each record.
+
+    The classification's source names the registry and every distinct source
+    recorded in the histories read, so a sector a vendor supplied and one an
+    operator corrected are both traceable from the result.
+
+    Raises:
+        AlphaLabValidationError: If ``asset_ids`` is empty, or an instrument has
+            no sector at that instant -- it is refused by name, never put in a
+            default bucket.
+        InstrumentInputError: If an asset id is not registered.
+    """
+
+    if not asset_ids:
+        raise AlphaLabValidationError(
+            "A sector classification of no instrument classifies nothing."
+        )
+    labels: dict[str, str] = {}
+    unclassified: list[str] = []
+    sources: set[str] = set()
+    for asset_id in sorted(set(asset_ids)):
+        record = get_instrument(registry, asset_id)
+        sector = record.sector if as_of is None else sector_as_of(registry, asset_id, as_of)
+        if sector is None:
+            unclassified.append(asset_id)
+            continue
+        labels[asset_id] = sector
+        history = classification_history(registry, asset_id)
+        sources.update(history.sources if history else ("declared on the instrument record",))
+    if unclassified:
+        instant = "now" if as_of is None else f"at {as_of!r}"
+        raise AlphaLabValidationError(
+            f"{unclassified} have no sector {instant} in the instrument registry. Classify them "
+            "(alphalab.instrument.registry.classify_instrument, with a source); an unclassified "
+            "instrument is not assigned a default sector."
+        )
+    return Classification(
+        dimension="sector",
+        labels=labels,
+        source=f"instrument registry (sources: {', '.join(sorted(sources))})",
+        as_of=as_of,
+    )
+
+
+def currency_classification(
+    registry: InstrumentRegistry, asset_ids: Sequence[str]
+) -> Classification:
+    """Each instrument's trading currency, from its registered record, as a classification.
+
+    ``InstrumentRecord.currency`` is part of the instrument's identity, so it
+    has no history and no instant.
+
+    Raises:
+        AlphaLabValidationError: If ``asset_ids`` is empty.
+        InstrumentInputError: If an asset id is not registered.
+    """
+
+    if not asset_ids:
+        raise AlphaLabValidationError(
+            "A currency classification of no instrument classifies nothing."
+        )
+    return Classification(
+        dimension="currency",
+        labels={
+            asset_id: get_instrument(registry, asset_id).currency
+            for asset_id in sorted(set(asset_ids))
+        },
+        source="instrument registry: InstrumentRecord.currency",
+        as_of=None,
+    )

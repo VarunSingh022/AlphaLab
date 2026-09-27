@@ -14,6 +14,274 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.8.0] - 2026-09-27
+
+**Advanced portfolio and risk: constrained construction, risk budgets,
+multi-strategy books, cross-strategy risk and capital allocation — every
+answer's inputs, units and currency stated.**
+
+The eighth capability release on the frozen architecture. v3.7 let research use
+information other than prices without looking ahead; this answers what a desk
+running several strategies asks next — what to own, where the risk comes from,
+what the strategies have in common, and how much capital each one gets.
+
+No package is added. The risk model becomes values with identities in
+`alphalab.analytics`, which also gains risk budgets and cross-strategy risk;
+`alphalab.portfolio_optimizer` gains constrained construction and Black–Litterman;
+`alphalab.portfolio` gains multi-strategy books; `alphalab.allocation` gains
+capital plans; and `factor_library`, `api` and `lifecycle` gain the joins. Three
+package edges are added — `portfolio_optimizer → analytics`, `portfolio → core`,
+`api → instrument` — none of which closes a cycle. No snapshot schema changes,
+no durable state is added, and every v3.1 through v3.7 invariant holds.
+
+The decisions are recorded in
+[`ADR-0043`](docs/ADR/0043-advanced-portfolio-and-risk-construction-risk-budgets-multi-strategy-books-cross-strategy-risk-and-capital-allocation.md).
+
+## What was missing
+
+Construction was four closed forms and a projection applied afterwards, which
+clipped and spread weights rather than optimizing over constraints and ignored a
+sector cap without saying so; there was no risk parity (inverse volatility is
+not it), no maximum diversification, robust or Black–Litterman construction, no
+factor, group, turnover or gross constraint, and no notion of infeasibility.
+Risk could be decomposed by asset and grouped no other way. A portfolio held one
+book of record per run and could not keep several strategies apart inside it.
+Nothing compared strategies, and nothing divided capital between runs. The
+covariance every one of these would read existed only inside v3.3's functions,
+as a mapping with no currency, period or identity.
+
+## Added
+
+### The risk model — `alphalab.analytics.risk_model`
+
+* `CovarianceMatrix`: assets, values, the **currency** its returns were measured
+  in, the **period** each spans, source, observations and derivation, all in
+  `covariance_id`. `from_rows`, `of` (refuses a missing cell) and `sample`
+  (pairwise, over aligned series). `definiteness()` classifies it as positive
+  definite, singular or indefinite by a rank-revealing Cholesky and reports the
+  rank, pivot ratio and zero-variance assets; `require_positive_definite`.
+  `with_ridge` and `with_diagonal_shrinkage` derive a new matrix naming its
+  parent and rule; `restricted`; `correlation()` gives a `CorrelationMatrix`
+  carrying its basis.
+* `FactorLoadings` (a full rectangle, a lineage per factor) and `Classification`
+  (any dimension, a named source, and an unclassified asset refused rather than
+  bucketed).
+* `euler_decomposition` → `RiskContributions` (marginal, total and relative
+  contributions, with the reconciliation residual), `portfolio_factor_exposures`
+  and `herfindahl_index` — each the one implementation of its arithmetic.
+
+### Construction — `alphalab.portfolio_optimizer`
+
+* `construct(ConstructionProblem)` for `MinimumVariance`, `MeanVariance` (an
+  optional volatility cap, met by bisection on risk aversion and reported as
+  `effective_risk_aversion`), `MaximumDiversification` (long only),
+  `RiskParity` (equal, or exact `Decimal` budgets summing to one) and
+  `RobustMeanVariance` over an `EllipsoidalUncertainty` (with `of_sample_mean`) or
+  a long-only `BoxUncertainty`.
+* `ConstraintSet`: net exposure, `WeightBounds` with overrides, concentration,
+  gross exposure, `GroupBound` over any classification, `FactorBound` (neutral
+  or banded), `TurnoverLimit` from a stated book, `NotionalLimits` in money, and
+  a volatility cap. `SolverSettings` states both tolerances and the step budget.
+* One dual active-set solver (Goldfarb–Idnani) for every quadratic objective:
+  turnover and gross limits as exact facets generated lazily; `OPTIMAL` only
+  when the KKT certificate verifies; `INFEASIBLE` naming the conflicting
+  constraints; no weights for any other status.
+* `ConstructionResult` with `ConstructionDiagnostics` — binding constraints,
+  conflict, largest violation, stationarity, pivot ratio, variance, volatility,
+  expected and worst-case return, diversification ratio, exposures, turnover,
+  Euler contributions, factor and group exposures, budget deviation — and
+  `problem_id` / `result_id`, independent of the order constraints were listed
+  in. `ExpectedReturns` carries its currency, period and source.
+* `black_litterman(BlackLittermanModel)` from an `EquilibriumPrior` (supplied
+  market values and risk aversion) or a `SuppliedPrior`, a required `τ` and
+  `InvestorView`s with stated variances (`view_variance_from_prior` computes the
+  common convention when called) → `BlackLittermanPosterior` with the posterior
+  mean, its uncertainty, the predictive covariance and per-view diagnostics.
+
+### Risk budgets and cross-strategy risk — `alphalab.analytics`
+
+* `evaluate_risk_budget`: exposure lines decomposed once and grouped by `ASSET`,
+  `STRATEGY`, `SECTOR`, `COUNTRY` and `CURRENCY`, every dimension summing to the
+  portfolio's volatility; each bucket's net and gross exposure, capital share,
+  contribution and share, and a currency bucket's native exposure. `RiskBudget`
+  of `BudgetLimit`s (a maximum, minimum and/or target, `ABSOLUTE` or `RELATIVE`)
+  judged `WITHIN`, `AT_LIMIT`, `BREACHED` or `BELOW_MINIMUM` under a tolerance
+  with no default. Reported, never enforced.
+* `strategy_return_correlation` (one currency and period, or refused),
+  `strategy_overlap` (Jaccard, same-direction and opposing overlap, overlap
+  shares, cosine, exposure correlation), `factor_crowding` (alignment,
+  concentration and aligned strategies per factor, and pairwise factor-exposure
+  cosines), `common_exposures` (by instrument, currency or classification),
+  `capital_concentration` and `capital_overlap`.
+
+### Multi-strategy books — `alphalab.portfolio.multi_strategy`
+
+* `StrategySleeve.from_portfolio_state`, `MultiStrategyBook` with `holdings`
+  that keep every strategy's `StrategyContribution`, crossed quantity and
+  opposition, and `with_sleeve` / `with_updated_sleeve` / `without_strategy`.
+* `value_book` into one reporting currency through `FxRates.convert`, every
+  conversion kept, with `StrategyValuation`, `InstrumentValuation`, native and
+  translated exposure per currency, and `valuation_id` — reconciling to the
+  cent; refused without rates, with a missing pair or with a rate dated after the
+  valuation.
+
+### Capital allocation — `alphalab.allocation.capital`
+
+* `CapitalAllocationPlan` of `CapitalAccount`s (identifier, vendor-neutral
+  broker label, currency, available and reserved), `CapitalPlacement`s
+  (strategy, market, account), a rule — `FixedAmounts`, `PlacementWeights` with
+  a required source, or `EqualWeights` — `CapitalLimit`s on strategy, market,
+  broker, account or currency, an `OversubscriptionRule` and a granularity.
+* `allocate_capital`: allocated in each account's currency, plan-wide figures
+  converted through a `CurrencyConverter` (which `FxRates` satisfies) with every
+  conversion recorded, `available = reserved + allocated + unallocated` exactly,
+  refused whole when an account is oversubscribed unless `PRO_RATA` is stated
+  (and then the scale recorded), limits never met by scaling, allocations floored
+  to the granularity.
+* `reserved_capital` reads committed capital from the one reservation ledger;
+  `capital_budget` turns one account's allocation into the `CapitalBudget` its
+  run is given.
+
+### Joins — `alphalab.factor_library`, `alphalab.api`, `alphalab.lifecycle`
+
+* `loadings_from_panels`: a cross-section of factor-library panels as
+  `FactorLoadings`, every transform in the lineage.
+* `api.sector_classification` (current or historical, every source named) and
+  `api.currency_classification`, read from the instrument registry.
+* `research_configuration_with_portfolio`: construction and capital identities
+  in a fingerprint's research settings (`portfolio.<name>.problem|result`,
+  `capital.<name>.plan|allocation`); the fingerprint key is unchanged.
+
+## Changed
+
+Additive, except six narrow corrections to the v1 construction engine, each of
+the class v3.1 and v3.4 set the precedent for — a figure produced where a
+refusal or the stated figure belonged:
+
+* `PortfolioAdapter.dict_to_covariance_matrix` and `dict_to_expected_returns`
+  **refuse a missing entry** with `OptimizationError`; they read it as `0.0`.
+* `apply_weight_constraints` **refuses `max_sector_exposure`**, which it cannot
+  apply and had ignored, and **refuses lower bounds that force the weights above
+  the target**, which it had returned as though the constraints held. A shortfall
+  is still cash, as before.
+* The manager's cost estimate **includes `CostModel.spread_rate`**, which nothing
+  had read; `TransactionCostEstimate` gains `estimated_spread` as its last field,
+  defaulting to zero. Example 06's estimated cost rises from $292.67 to $316.00.
+* `ConstraintViolated` reports the weight the constraints moved,
+  `sum |new − old|`, rather than the constant `1.0`.
+* `validate_risk_constraints` says it checks three of `RiskConstraints`' six
+  fields; its behaviour is unchanged.
+
+v3.3's `covariance_matrix`, `correlation_matrix`, `portfolio_volatility`,
+`risk_contributions`, `concentration` and `factor_exposure` now call the risk
+model's arithmetic, written as the same expressions in the same order: **every
+number they return is unchanged**, compared float for float by a regression
+test. `analytics`, `portfolio`, `portfolio_optimizer`, `allocation`,
+`factor_library`, `lifecycle` and `api` export the new names; no default moved
+and no schema was touched.
+
+## Found during this release
+
+* **Five v1 construction-engine defects**, above — each a number produced where
+  the architecture requires a refusal.
+* **Three per-call rescans in the new code**, found while writing the complexity
+  guards: `FactorLoadings.loading` / `row` and `Classification.label` built a set
+  of every asset on each call, so a factor exposure over a whole universe cost
+  the universe squared (20× for a 4× input); a risk budget scanned a dimension's
+  buckets for every limit; notional limits located each asset by a linear
+  search. Each is now an index, and each guard was run against the defect it
+  guards and failed.
+* **Two names that would have collided in the workflow v3.8 adds**: the capital
+  rule ships as `PlacementWeights`, not a second `TargetWeights`, and a
+  risk-budget limit as `BudgetLimit`, not `RiskLimit` beside `RiskLimits`.
+* **Documentation that described what was not built**: `docs/ARCHITECTURE.md`
+  and `docs/EXAMPLES.md` listed risk parity among v1's methods, and
+  `ARCHITECTURE.md` named four protocols — including an optimizer protocol —
+  that do not exist; `nowandfuture.md` still said a future-dated FX rate was not
+  refused, two releases after it was. Each is corrected.
+
+## Tests
+
+`tests/regression/test_v38_invariants.py` (258) — one home per concept; the
+edge sets of `portfolio_optimizer`, `analytics`, `allocation`, `portfolio`,
+`lifecycle` and `common`; v3.3's decomposition recomputed with its own
+expressions and compared exactly; no clock, entropy, environment or
+platform-dependent transcendental on any v3.8 path; every identity reproduced in
+fresh interpreters with different hash seeds and working directories;
+**constructions checked against their constraints evaluated directly, and against
+an exhaustive exact-rational enumeration that proves infeasibility**; risk
+budgets conserving volatility along every dimension; books reconciling in every
+currency; capital reconciling exactly, never negative and never quietly scaled;
+deterministic JSON; no durable state, schema constant, vendor, network or
+secret-bearing field.
+
+`tests/regression/test_v38_complexity.py` (6) — growth ratios for factor
+crowding, a risk budget with a limit per strategy, book valuation, capital
+allocation, common exposures and overlap, timed with the stabilized method; each
+fails against the defect it guards (11× to 20× for a 4× input, against an 8×
+bound) and all pass with every core busy.
+
+`tests/integration/test_v38_capabilities.py` (20) — three strategies run through
+the execution path in dollars and euros; risk parity across their returns; a
+capital plan funding their production runs from a reservation ledger; their
+sleeves as one book valued through FX; a five-dimension risk budget with
+registry sectors; overlap, crowding from real factor panels, common exposures
+and capital concentration; a factor-neutral, sector-capped rebalance;
+Black–Litterman; every identity rebuilt identically; and a fingerprint naming
+the construction and the capital.
+
+Unit suites for every new module (296 tests), including a solver checked against
+exact rational enumeration on 320 generated programs and Black–Litterman against
+the exact precision form; seven new tests in
+`test_optimizer_inputs_are_refused.py`; and eight new tests in seven new sections
+of `test_shared_names_stay_distinct.py`.
+
+Total: **6,118 → 6,713** passing, 0 skipped, 0 warnings.
+
+## Benchmarks
+
+`benchmark_portfolio_risk.py` — construction for every objective and a
+factor-neutral, capped rebalance at 25 and 50 assets; risk-budget aggregation;
+multi-strategy holdings and identity; multi-currency valuation in two reporting
+currencies; cross-strategy correlation; factor crowding and overlap; capital
+allocation over thousands of placements. Every aggregation is linear; the solver
+is cubic in the universe and takes on the order of ten milliseconds at fifty
+assets.
+
+## Examples
+
+`56`–`60`: portfolio construction; risk budgeting; a multi-strategy,
+multi-currency portfolio; cross-strategy risk; capital allocation across
+strategies, markets, brokers, accounts and currencies. They share
+`examples/_portfolio_world.py` — eight instruments in dollars, euros and yen,
+returns from a written-out integer recurrence, rates from a named desk — fetch
+nothing and print the same figures on every machine.
+
+## Still external
+
+Expected-return forecasts, market values for an equilibrium prior, views and
+their confidence, countries, the operator's sector data, FX rates, account
+balances, and the mapping from a broker or account identifier to an adapter and
+its credentials. AlphaLab estimates a sample covariance and nothing else.
+
+## Deliberately not built
+
+No broker-specific SDK, API or credential — "broker" is an allocation dimension
+and an identifier; no RedDesk logic, marketplace ranking, licensing or payment
+logic; no user or application identity; no Quant-Mind or OpenBB integration; no
+LLM dependency; no network-dependent calculation. No default risk aversion, `τ`,
+view confidence, tolerance, shrinkage intensity or market portfolio; no silent
+scaling of capital; no enforcement in a risk budget; no order generation from a
+construction. Deferred, each a decision of its own: covariance estimators beyond
+the sample, cardinality and lot-size constraints, transaction costs in the
+objective, CVaR or drawdown objectives, multi-period construction, caps on a
+bucket's risk contribution inside other objectives (not a convex constraint;
+risk budgets enter construction as exact budgets or a volatility cap),
+exchange-rate return factors, per-strategy sub-ledgers and per-strategy capital
+ceilings on the execution path.
+
+---
+
 # [3.7.0] - 2026-09-26
 
 **Advanced quant research: event-driven research, alternative data with

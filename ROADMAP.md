@@ -62,6 +62,17 @@ event studies and regime detection to `alphalab.research`, the adaptive engine t
 to `alphalab.api`. No package is added, no boundary moves and no snapshot schema
 changes. ADR-0042.
 
+**v3.8.0** is the eighth, and answers what a desk running several strategies
+asks next: what to own, where the risk comes from, what the strategies share,
+and how much capital each one gets. The risk model becomes values with
+identities in `alphalab.analytics`, which also gains risk budgets and
+cross-strategy risk; `alphalab.portfolio_optimizer` gains constrained
+construction by one certified solver and Black–Litterman;
+`alphalab.portfolio` gains multi-strategy books; `alphalab.allocation` gains
+capital plans; and `factor_library`, `api` and `lifecycle` gain the joins. No
+package is added, three package edges are, none a cycle, and no snapshot schema
+changes. ADR-0043.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
@@ -173,6 +184,48 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.8.0 — advanced portfolio and risk
+
+The eighth capability release on the frozen architecture. No package added,
+three package edges added and pinned, no schema touched. ADR-0043.
+
+- **One risk model** — `CovarianceMatrix` with its currency, period, source,
+  observation count and derivation in its identity; definiteness measured by a
+  rank-revealing Cholesky; ridge and diagonal shrinkage as recorded derivations;
+  `FactorLoadings` and `Classification` that refuse holes. v3.3's decomposition
+  calls the same arithmetic, unchanged bit for bit.
+- **Constrained construction** — `construct` for minimum variance,
+  mean-variance (with an optional volatility cap), maximum diversification,
+  risk parity with equal or stated budgets, and robust mean-variance over an
+  ellipsoidal or box set, under bounds, concentration, gross, group, factor,
+  turnover, notional and volatility constraints; one dual active-set solver,
+  a KKT certificate, conflicts named, no weights unless optimal.
+- **Black–Litterman** — a supplied equilibrium prior or supplied returns, a
+  required `τ` and views with stated variances into a posterior mean,
+  its uncertainty and the predictive covariance.
+- **Risk budgets** — Euler contributions of exposure lines grouped by asset,
+  strategy, sector, country and currency, every dimension summing to the same
+  volatility; limits judged under a stated tolerance and reported.
+- **Multi-strategy books** — sleeves from each strategy's own accounting
+  state, holdings with every strategy's contribution, crossed and opposing
+  positions visible, valued in one reporting currency at recorded rates and
+  reconciled to the cent.
+- **Cross-strategy risk** — return correlation with its basis, overlap of
+  holdings, factor crowding within the portfolio, common exposures, capital
+  concentration and shared pools.
+- **Capital allocation** — plans across strategies, markets, brokers, accounts
+  and currencies, allocated in each account's currency, reconciled exactly,
+  refused rather than silently scaled, composed with the reservation ledger and
+  the run budget. A broker is an identifier.
+- **Lifecycle** — `research_configuration_with_portfolio` puts construction and
+  capital identities in a fingerprint's research settings; the key is
+  unchanged.
+- **Found and fixed before release** — five v1 construction-engine defects (a
+  missing covariance or forecast read as zero, a sector cap ignored, an excess
+  above the target returned, the spread left out of the cost estimate, a
+  constant clipped amount), and three per-call rescans in the new code found
+  while writing the complexity guards.
 
 ## v3.7.0 — advanced quant research
 
@@ -647,6 +700,20 @@ future "simplification" would have to break first —
 - **No vendor data feed of any kind** for events, alternative data or
   fundamentals, and no LLM, AI-service, Quant-Mind, OpenBB or RedDesk
   integration.
+- **No silent scaling of capital.** An account asked for more than it holds
+  refuses the whole plan unless `PRO_RATA` is stated, and then the scale is
+  recorded; a capital limit is never met by scaling (v3.8).
+- **No unconstrained answer behind an infeasible one.** A construction whose
+  constraints cannot all hold is `INFEASIBLE`, names the conflict and carries no
+  weights; nothing is relaxed and no fallback objective is tried (v3.8).
+- **No default risk aversion, `τ`, view confidence, market portfolio,
+  tolerance or shrinkage intensity.** Each is a choice with no neutral value
+  (v3.8).
+- **No enforcement in a risk budget.** A breach is reported with the bucket and
+  the limit named; nothing rebalances (v3.8).
+- **No broker adapter in capital allocation.** A broker and an account are
+  identifiers an application maps to its own adapters and credentials, none of
+  which reach AlphaLab (v3.8).
 
 ---
 
@@ -689,8 +756,10 @@ Real, and not AlphaLab's engineering to complete.
 - **Classification data.** v2.11 supplies the security master's *mechanism* and
   v2.15 its provenance. AlphaLab ships no taxonomy and no reference-data feed, so
   a sector breakdown requires an operator who declares one. Sector is also the
-  only dimension: industry, country, issuer and rating are each a separate
-  decision with their own consumers.
+  registry's only dimension: industry, country, issuer and rating are each a
+  separate decision with their own consumers. v3.8's risk budgets and
+  construction read any classification a caller supplies with a named source —
+  a country file, say — and AlphaLab holds none.
 - **What a rerun needs.** A reproducibility manifest identifies the dataset
   bytes, the strategy code, the dependency set and the engine; AlphaLab stores
   none of them, and the live objects a run records by type are supplied back by
@@ -704,6 +773,11 @@ Real, and not AlphaLab's engineering to complete.
 - **Events, alternative data and fundamentals.** v3.7 adds the point-in-time
   contract and **not one record**: the rows, the bytes they were read from, a
   vendor's line-item names and the price a valuation divides by are the
+  caller's.
+- **Portfolio and risk inputs.** v3.8 estimates a sample covariance and nothing
+  else. Expected-return forecasts, market values for an equilibrium prior, views
+  and their confidence, factor data, FX rates, account balances and the mapping
+  from a broker or account identifier to an adapter and its credentials are the
   caller's.
 
 ---
@@ -738,8 +812,19 @@ decision that deserves its own ADR (ADR-0041, *Consequences*).
 
 Could be built. Nothing depends on any of it, and no commitment is made here.
 
-- **Classification dimensions beyond sector**, and sector-based risk limits.
-  `sector_exposure` is visibility; no risk check reads a sector.
+- **Classification dimensions beyond sector in the registry**, and
+  sector-based *pre-trade* risk limits. v3.8's risk budgets and construction
+  group bounds read any caller classification; no pre-trade check reads one.
+- **Richer portfolio construction** (ADR-0043): covariance estimators beyond
+  the sample (an estimated shrinkage intensity, EWMA, a factor-model
+  covariance), cardinality and lot-size constraints, transaction costs in the
+  objective, CVaR or drawdown objectives, multi-period construction, caps on a
+  bucket's risk contribution inside other objectives (not a convex constraint),
+  and exchange-rate return factors for a pure currency-risk dimension. v3.8's
+  solvers are exact, pure Python and cubic in the universe.
+- **Per-strategy capital ceilings on the execution path.** An account's
+  `CapitalBudget` enforces its total; a strategy's amount in it is what
+  weight-based sizing reads (ADR-0015 §1), not a second ceiling.
 - **Neutralization against several continuous exposures at once.** v3.2 offers
   mean, group and single-regressor beta, each of which is exact. A general
   least-squares solve over a rank-deficient or nearly-collinear design — which
@@ -853,6 +938,17 @@ defaulted to one market's value became required. `FutureContract.currency`,
 `compute_funding_payment`'s `contract_size`. Each produced a number rather than
 an error when it was wrong. `FxRates.convert` additionally began refusing a rate
 dated after the conversion instant, which is a look-ahead it previously allowed.
+
+**v3.8.0** made six, all in the v1 construction engine and all of the same
+class: a figure produced where a refusal or the stated figure belonged.
+`PortfolioAdapter.dict_to_covariance_matrix` and `dict_to_expected_returns`
+refuse a missing entry rather than reading it as `0.0`; `apply_weight_constraints`
+refuses a `max_sector_exposure` it cannot apply and lower bounds that force the
+weights above the target, rather than ignoring the one and returning the other;
+the manager's cost estimate includes `CostModel.spread_rate`, in a new last field
+`TransactionCostEstimate.estimated_spread` defaulting to zero; and
+`ConstraintViolated` reports the weight the constraints moved rather than the
+constant `1.0`.
 
 After v3.0.0, the bar for a change rises: the invariants listed in
 `nowandfuture.md` are frozen, and a change to any of them is a major release with

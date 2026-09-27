@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.7.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.8.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,16 +42,83 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.7.0** |
+| Version | **3.8.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.7.0 are additive to it.** |
+| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.8.0 are additive to it.** |
 
 ---
 
-# 2. What v3.7.0, v3.6.0, v3.5.0, v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+# 2. What v3.8.0, v3.7.0, v3.6.0, v3.5.0, v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+
+## v3.8.0 — advanced portfolio and risk
+
+The eighth capability release on the frozen architecture: portfolio
+construction, risk budgets, multi-strategy books, cross-strategy risk and capital
+allocation — what a desk running several strategies asks after it can research
+one. No package added, three package edges added and measured, no snapshot
+schema touched, no durable state added. ADR-0043.
+
+### What it fixed
+
+| Gap | What existed | What v3.8 adds |
+| --- | --- | --- |
+| A risk model | a covariance recomputed inside v3.3's functions, as a mapping with no currency, period or identity | `CovarianceMatrix`, `FactorLoadings`, `Classification` in `analytics.risk_model`, each with a derived identity; definiteness measured; regularization a recorded derivation |
+| Construction | four closed forms and a clip-and-spread projection that ignored a sector cap | `construct`: minimum variance, mean-variance, maximum diversification, risk parity, robust mean-variance over stated constraints, one certified solver; `black_litterman` |
+| Risk budgets | a decomposition by asset | Euler contributions of exposure lines by asset, strategy, sector, country and currency, each summing to the volatility; limits judged and reported |
+| Several strategies in one portfolio | one `PortfolioState` per run | `MultiStrategyBook` of sleeves, holdings with every strategy's contribution, valued across currencies at recorded rates |
+| Comparing strategies | nothing | return correlation with its basis, overlap of holdings, factor crowding within the portfolio, common exposures, capital concentration |
+| Capital between runs | one run's `CapitalBudget` | capital plans across strategies, markets, brokers, accounts and currencies, allocated in each account's currency and reconciled exactly |
+
+### Three edges, each measured
+
+`portfolio_optimizer` imports the risk model in `analytics` (it still has no
+importer, so it stays a standalone engine); `portfolio` imports `core` for the
+canonical `StrategyContribution` a holding carries; `api` imports `instrument` to
+read registry classifications. `analytics` still imports only `common` and
+`core`; `allocation` reaches FX through `CurrencyConverter`, a structural
+protocol `FxRates` satisfies, and never imports `portfolio`; `lifecycle` reaches
+constructions and plans through protocols. `test_v38_invariants.py` asserts every
+edge set and that the graph has no cycle.
+
+### One arithmetic, and not one moved number
+
+The sample covariance, the Euler decomposition, the factor exposure and the
+Herfindahl index each have one implementation in `analytics.risk_model`. v3.3's
+decomposition now calls them, written as the same expressions in the same
+order, so every number it published is unchanged — pinned by a test that
+recomputes the v3.3 expressions on generated books and compares floats exactly.
+
+### A certified answer or a named conflict
+
+`construct` returns weights only when the dual active-set solver stopped with
+nothing violated and the KKT certificate verifies within the stated tolerances.
+`INFEASIBLE` names the violated constraint and the active constraints that
+exclude it, and carries no weights: nothing is relaxed and no fallback objective
+is tried. The solver is checked against an exhaustive exact-rational enumeration
+of every active set, in the unit suite and the invariant suite.
+
+### Capital where it is
+
+A plan allocates in each account's own currency and converts only plan-wide
+figures; every account reconciles exactly; an oversubscribed account refuses the
+plan unless `PRO_RATA` is stated, and then the scale is recorded; reserved
+capital is read from ADR-0015's reservation ledger; and one account's allocation
+becomes the `CapitalBudget` its run is given, which admits exactly the
+allocation. A broker and an account are identifiers, never adapters.
+
+### Found and corrected
+
+Five defects in the v1 construction engine (a missing covariance or forecast
+read as zero; a sector cap ignored; lower bounds forcing weights above the
+target returned as if valid; the spread left out of the cost estimate; a
+constant clipped amount) and three per-call rescans in the new code, found
+while writing its complexity guards — each guard was then run against the
+defect it guards, and failed. Section 17 of this document said
+a future-dated FX rate was not refused; section 8 and `FxRates.convert` have
+refused it since v3.4, and the stale sentence is gone.
 
 ## v3.7.0 — advanced quant research
 
@@ -543,12 +610,12 @@ All 50 packages, and which path reaches each.
 | `core` | The canonical execution domain models: `Side`, `OrderRequest`, `Fill`, `Trade`, `StrategyContribution`, `AssetType`, `OrderType`, `TimeInForce`, and the id validators |
 | `runtime` | The execution step, the run, the four drivers, broker routing, and four snapshot modules |
 | `strategy` | What a strategy *is*: `StrategyProtocol`, `StrategyStateProtocol`, `StrategyContext`, the `Dispatcher`, the `RuntimeSupervisor`, and the strategy-class registry. Since v3.7 also the adaptive engine — configuration, observation, immutable learned state with lineage, `apply_update`, replay, checkpoint and restore — three rules, and `AdaptiveStrategy`. Still imports only `common` |
-| `allocation` | Intent sizing and netting into `OrderRequest`, the capital budget, the per-order reservation ledger and the contribution ledger |
+| `allocation` | Intent sizing and netting into `OrderRequest`, the capital budget, the per-order reservation ledger and the contribution ledger. Since v3.8 also capital plans across strategies, markets, brokers, accounts and currencies (`allocation.capital`), reading reserved capital from the reservation ledger and producing each run's budget; FX reaches it through a structural protocol, and it still does not import `portfolio` |
 | `risk` | Pre-trade checks and limits |
 | `oms` | The order lifecycle. `oms.order.Order` is *the* lifecycle order |
 | `execution` | The deterministic execution simulator, commission models, fill policies, slippage, latency |
-| `portfolio` | Cash, positions, the transaction ledger, NAV, per-currency P&L, valuation, margin, exposure, FX and the FX feed. Since v3.4 also FX research (cross rates, covered-parity forwards, carry, hedging, currency attribution) and contract-aware exposure |
-| `analytics` | Performance reports and attribution. Its `CURRENCY` dimension buckets realized P&L per currency and has no total; the *return* decomposition that does is `portfolio.fx_research` and neither derives the other |
+| `portfolio` | Cash, positions, the transaction ledger, NAV, per-currency P&L, valuation, margin, exposure, FX and the FX feed. Since v3.4 also FX research (cross rates, covered-parity forwards, carry, hedging, currency attribution) and contract-aware exposure. Since v3.8 also multi-strategy books (`portfolio.multi_strategy`) — sleeves of canonical positions, never a second book of record — which is why it now imports `core` |
+| `analytics` | Performance reports and attribution. Its `CURRENCY` dimension buckets realized P&L per currency and has no total; the *return* decomposition that does is `portfolio.fx_research` and neither derives the other. Since v3.8 the risk model (`risk_model`: covariance, correlation, factor loadings, classifications, Euler contributions), risk budgets (`risk_budget`) and cross-strategy risk (`cross_strategy`). Imports only `common` and `core` |
 | `market` | The canonical market-data model, the normalization boundary, market sources, streaming |
 | `instrument` | Canonical instrument identity, the registry, classification and its provenance |
 | `common` | Version, `BaseEvent`, deterministic serialization, the seeded identifier source, `AppendOnlyLog` / `PersistentMap` / `PersistentSet`, TLS policy, and the point-in-time core: `known_as_of`, and since v3.7 `PointInTimeStamp`, `AvailabilityBasis`, `VisibilityRule` and `PointInTimeIndex` |
@@ -558,20 +625,20 @@ All 50 packages, and which path reaches each.
 | `broker` | **One** venue: `BrokerProtocol`, the canonical broker vocabulary, reconciliation, the HMAC transport, `RestVenueBroker`, `PaperBroker` |
 | `data` | The canonical **wire** record, and the Universal Data Engine: source provenance, delimited reading, schema detection, timestamps and frequency, validation findings, cleaning policy, quality reporting, asset-class semantics, market calendars, corporate-action basis, and the derived dataset version. Its only outward edges are `common` and `options` (one leaf enum), which is what keeps the package graph acyclic |
 | `marketdata` | Provider clients, HTTP transport, the WebSocket client, symbols, subscriptions |
-| `api` | **The top of the graph** (v3.1). The application-facing Python API joining the data layer to the execution path: `ingest_csv`, `select`, `to_market_dataset`, `backtest`, `replay`. Since v3.7 also point-in-time ingestion of observations, events and fundamentals with an explicit availability rule, and the lifting of single-timestamp wire records. Nothing imports it, which is what lets it depend on both `data` and `market` without closing a cycle |
+| `api` | **The top of the graph** (v3.1). The application-facing Python API joining the data layer to the execution path: `ingest_csv`, `select`, `to_market_dataset`, `backtest`, `replay`. Since v3.7 also point-in-time ingestion of observations, events and fundamentals with an explicit availability rule, and the lifting of single-timestamp wire records. Since v3.8 sector and currency classifications read from the instrument registry. Nothing imports it, which is what lets it depend on both `data` and `market` without closing a cycle |
 
 ## The lifecycle path
 
 | Package | Owns |
 | --- | --- |
-| `lifecycle` | The composition: registration, evidence, promotion, deployment, rollback, governance, and the join to the execution path. Since v3.5 also the strategy progression, the deployment specification, runtime health, the expected/paper/live comparison and the AlphaLab-to-broker reconciliation. Since v3.6 also strategy fingerprints, reproducibility manifests, certification reports and portability reports — values, never stored. Since v3.7 an adaptive strategy's configuration and starting state in its fingerprint, study inputs as external requirements, and the adaptive replay assessment |
+| `lifecycle` | The composition: registration, evidence, promotion, deployment, rollback, governance, and the join to the execution path. Since v3.5 also the strategy progression, the deployment specification, runtime health, the expected/paper/live comparison and the AlphaLab-to-broker reconciliation. Since v3.6 also strategy fingerprints, reproducibility manifests, certification reports and portability reports — values, never stored. Since v3.7 an adaptive strategy's configuration and starting state in its fingerprint, study inputs as external requirements, and the adaptive replay assessment. Since v3.8 a construction's and a capital plan's identities in its fingerprint, through protocols rather than imports |
 | `experiment_tracking` | Experiment runs, parameters, metric history |
 | `model_registry` | Model versions, stages, promotion, `ArtifactRef`, the content-addressed artifact store |
 | `deployment_manager` | Release packages and the append-only environment ledger |
 | `studio` | `StrategyDefinition` — the one record of what a strategy is — plus projects and orchestration |
 | `enterprise` | Principals, RBAC, the audit log. Governance reads it |
 | `research` | Research workflows and `ResearchScore`, which validation evidence extracts from. Since v3.2 the study methodology; since v3.7 event studies and regime detection, reading `alt_data` and never `data` |
-| `factor_library` | The computation engine (v3.2): features, factors, cross-sectional research, signal diagnostics, validation. Since v3.7 knowledge frames over point-in-time information and point-in-time fundamental snapshots. Reached through `research`; imports neither `research`, `lifecycle` nor `api` |
+| `factor_library` | The computation engine (v3.2): features, factors, cross-sectional research, signal diagnostics, validation. Since v3.7 knowledge frames over point-in-time information and point-in-time fundamental snapshots. Since v3.8 factor loadings read from its panels into the risk model's type. Reached through `research`; imports neither `research`, `lifecycle` nor `api` |
 | `alt_data` | Point-in-time external information (v3.7): `ExternalObservation`, `InformationEvent`, `FundamentalObservation`, `ObservationSource`, versioned `ObservationSet`s and their views, session placement, point-in-time fundamentals; the v1 typed categories and `DataProvenance` stay. Reached through `research` and `factor_library`. Its only outward edge is `common`; a calendar reaches it through `SessionCalendar`, a structural protocol |
 
 ## Leaf libraries — imported by other packages, reached from neither path
@@ -592,6 +659,11 @@ Each is deterministic, individually tested and individually benchmarked. **A
 package with no in-repo consumer is a standalone engine by design, not an
 orphan** — pinned by
 `test_every_zero_consumer_production_package_is_a_standalone_engine`.
+
+`portfolio_optimizer` stayed on this list in v3.8 while gaining one edge — the
+risk model in `analytics` — because nothing on either path imports it: a
+construction answers what to own, and turning weights into orders stays the
+caller's decision. `test_v38_invariants.py` asserts its edge set.
 
 `factor_library` left this list in v3.2 and `alt_data` in v3.7: `research`,
 which `lifecycle` imports, imports both. Each edge runs one way and each is
@@ -806,6 +878,19 @@ The third is the one that matters: accepting it would move the book's view of th
 market backwards because two packets arrived out of order.
 
 **AlphaLab ships no FX rate.** EXTERNAL.
+
+## Many strategies, several currencies (v3.8)
+
+A multi-strategy book keeps every sleeve's cash, realized P&L and commissions per
+currency, and `value_book` converts each native figure once, through
+`FxRates.convert`, keeping every conversion — so the per-strategy, per-instrument
+and per-currency breakdowns reconcile to the cent, and a missing, stale or
+future-dated rate refuses exactly as it does everywhere else. A capital plan
+allocates in each **account's** currency — settlement truth — and translates only
+what is expressed against the whole plan; the exact identity is the per-account
+one, `available = reserved + allocated + unallocated`. The risk model's
+currency is the currency its returns were measured in, and every consumer
+refuses a mismatch rather than rescaling.
 
 ---
 
@@ -1055,18 +1140,18 @@ retry-on-older-protocol fallback exists.
 ```bash
 ruff check .                              # lint
 ruff format --check .                     # format
-mypy .                                    # strict, 1122 source files (what CI runs)
-pytest -q                                 # 6118 tests, 0 skipped, 0 warnings
-pytest -q -W error::DeprecationWarning    # the same 6118
+mypy .                                    # strict, 1154 source files (what CI runs)
+pytest -q                                 # 6713 tests, 0 skipped, 0 warnings
+pytest -q -W error::DeprecationWarning    # the same 6713
 git diff --check
 python -m build && twine check dist/*
-for f in examples/[0-9]*.py; do python "$f"; done    # 55
-for f in benchmarks/*.py; do python "$f"; done       # 57
+for f in examples/[0-9]*.py; do python "$f"; done    # 60
+for f in benchmarks/*.py; do python "$f"; done       # 58
 ```
 
 `make check` runs the first four.
 
-**6118 tests.** The regression suite is the largest deliberately — most of its
+**6713 tests.** The regression suite is the largest deliberately — most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
 
@@ -1079,7 +1164,7 @@ than the summary line, and spawns a **fresh interpreter** with
 
 | File | Pins |
 | --- | --- |
-| `test_shared_names_stay_distinct.py` | Thirty-six sets of same-named things that are not one thing, including the three lifecycle state machines, the two reconciliations, the two health surfaces, the five content identities, the three ways of checking a strategy, and v3.7's events, regimes, provenance records, fundamentals, as-of readers, states, observations and replays |
+| `test_shared_names_stay_distinct.py` | Forty-three sets of same-named things that are not one thing, including the three lifecycle state machines, the two reconciliations, the two health surfaces, the five content identities, the three ways of checking a strategy, v3.7's events, regimes, provenance records, fundamentals, as-of readers, states, observations and replays, and v3.8's capital shapes, budgets and limits, factor exposures, projection versus optimization, correlation versus similarity, Euler weightings, Cholesky factorizations and target weights |
 | `test_venue_concepts_stay_distinct.py` | Listing exchange vs market-data attribution vs execution venue |
 | `test_no_silent_financial_defaults.py` | An AST sweep of the whole package; each exemption earned by a refusal test |
 | `test_snapshot_field_coverage.py` | Silent state loss when a state gains a field |
@@ -1103,6 +1188,8 @@ than the summary line, and spawns a **fresh interpreter** with
 | `test_v36_complexity.py` | That fingerprinting, source digests, run digests, certification and portability stay linear |
 | `test_v37_invariants.py` | One home per v3.7 concept; `alt_data` a leaf over `common`, `strategy` still over `common` only, research never reading `data`; every selection checked against a brute-force reading of the visibility rule on generated histories, and no vintage, frame point, event anchor, trailing figure or regime label reaching past its instant; no clock, entropy or environment; every identity reproduced in fresh interpreters with different hash seeds and working directories; pre-v3.7 study and fingerprint identities unchanged; no durable state |
 | `test_v37_complexity.py` | That set construction, visibility queries, single-figure reads, knowledge and fundamental frames, regime classification, adaptive replay and event studies stay near-linear |
+| `test_v38_invariants.py` | One home per v3.8 concept; the edge sets of `portfolio_optimizer`, `analytics`, `allocation`, `portfolio`, `lifecycle` and `common`; v3.3's decomposition unchanged float for float; no clock, entropy, environment or platform-dependent transcendental on a v3.8 path; every identity reproduced in fresh interpreters with different hash seeds and working directories; constructions checked against constraints evaluated directly and against exhaustive exact-rational enumeration; risk budgets conserving volatility; books reconciling in every currency; capital reconciling exactly, never negative and never quietly scaled; no durable state, vendor, network or secret field |
+| `test_v38_complexity.py` | That factor crowding, a risk budget with a limit per strategy, book valuation, capital allocation, common exposures and overlap stay near-linear — timed with the stabilized method, and each guard run against its defect |
 
 ## Performance
 
@@ -1141,6 +1228,17 @@ costs remain proportional by design: `select` returns everything visible, so it
 costs the size of its answer, and the single-instant fundamental helpers
 (`trailing_twelve_months`, `latest_fundamental`, `fundamental_inputs_as_of`) read
 a series' visible history per call — the frames are the path for many instants.
+
+**The v3.8 aggregations are linear**, measured at two sizes each in
+`benchmarks/benchmark_portfolio_risk.py`: a risk budget, book valuation, factor
+crowding, overlap and capital allocation each process roughly 110,000 to
+650,000 lines, positions or placements a second at both sizes. Construction is
+not linear and does not claim to be: the dual active-set solver is cubic in the
+universe, a few milliseconds at twenty-five assets and on the order of ten at
+fifty. Writing the complexity guards found three per-call rescans in the new
+code before release — factor-loading and classification lookups that each built
+a set of every asset, a risk-budget limit lookup that scanned buckets, and
+notional limits located by a linear search — and each is now an index.
 
 One term is deliberately left super-linear — see section 17.
 
@@ -1309,6 +1407,36 @@ an ADR.
     a checkpoint whose identity does not recompute is refused; and the learned
     state reaches the run snapshot and its digest.
 
+47. **One covariance authority** (v3.8, ADR-0043). A covariance is estimated by
+    `common.statistics.sample_covariance`, applied pairwise in one loop in
+    `analytics.risk_model`; every consumer reads a `CovarianceMatrix` and checks
+    its currency and period, refusing a mismatch rather than rescaling.
+48. **Nothing is constructed on a covariance that is not positive definite**,
+    and nothing regularizes one on its own initiative: a ridge or a shrinkage is
+    a derivation with its own identity that names its parent.
+49. **A construction carries weights only when it is certified optimal.**
+    `INFEASIBLE` names the conflict, `ITERATION_LIMIT` and `NUMERICAL_FAILURE`
+    say why, and none of them carries a point; no constraint is relaxed and no
+    fallback objective is tried. No risk aversion, `τ`, view confidence, market
+    portfolio, tolerance or shrinkage intensity has a default.
+50. **Absent is not zero in the risk model.** Factor loadings are a full
+    rectangle; an asset without a classification is refused, never put in an
+    "unknown" bucket.
+51. **Every risk-budget dimension partitions the same exposure lines** and sums
+    to the portfolio's volatility; a breach is reported, never enforced.
+52. **A multi-strategy book never merges its sleeves.** Every aggregate carries
+    each strategy's `StrategyContribution`, crossed quantity is reported rather
+    than netted away, and `PortfolioState` stays the one book of record.
+53. **Capital is allocated in the currency the account holds, and every account
+    reconciles exactly**: `available = reserved + allocated + unallocated`. An
+    oversubscribed account refuses the plan unless `PRO_RATA` is stated and
+    recorded; a limit is never met by scaling; a broker is an identifier.
+54. **v3.3's published decomposition numbers do not move.** They are
+    recomputed with the v3.3 expressions and compared float for float.
+55. **`analytics` imports only `common` and `core`, `allocation` never imports
+    `portfolio`, and `portfolio_optimizer` imports only `common` and
+    `analytics`.**
+
 ## The failure mode to watch for
 
 The most expensive defects in AlphaLab's history were not unknown problems. They
@@ -1359,13 +1487,22 @@ future "unification" must break first.
 | `DatasetProvenance` / `DataProvenance` / `ObservationSource` | How a market series came to exist vs a vendor's quality vs a source's identity and bytes (v3.7) |
 | `data.feed.FundamentalRecord` / `FundamentalObservation` / `FundamentalSnapshot` | A one-timestamp wire record vs a statement figure with its instants vs a factor input produced at an instant (v3.7) |
 | `known_as_of` / `PointInTimeIndex` / `DataRequest.as_of` | A release date trusted vs a knowledge instant that can be unknown vs a timestamp cut on wire records (v3.7) |
+| `portfolio_optimizer.CapitalAllocation` / `allocation.capital` / `CapitalBudget` | A float snapshot of one portfolio's capital vs capital divided between runs in each account's currency vs one run's ceiling (v3.8) |
+| `CapitalBudget` / `risk.RiskLimits` / `RiskBudget` (with `BudgetLimit`) / `RiskConstraints` | Capital a run deploys vs what an order may be vs where a finished book's volatility comes from vs v1's post-construction checks (v3.8) |
+| `portfolio_optimizer.TargetWeights` / `allocation.PlacementWeights` | A portfolio's asset weights vs a capital plan's fraction per placement, named apart before release (v3.8) |
+| `apply_weight_constraints` / `construct` | A projection after the fact vs an optimization over the constraints; with a cap the projection is feasible and worse (v3.8) |
+| `CorrelationMatrix` / `ExposureSimilarity` | A correlation of returns with its currency, period and sample vs a comparison of holdings with neither (v3.8) |
+| Three factor exposures | v3.3's gross-weighted book exposure and v3.8's model exposure are one arithmetic; `factor_library.factor_exposure` is a mean weighting over instants (v3.8) |
+| Two Cholesky factorizations | The risk model's pivoted, rank-revealing diagnosis vs the solver's natural-order factor of the Hessian it is handed (v3.8) |
 
 Also deliberate: **no CLI, no server, no daemon, no event bus, no composition
 root, no `SettlementPolicy` object, no migration framework, no per-environment
 promotion policy, no supervised live process, no authentication or credential
 handling, no marketplace logic, no overall certification score, no dependency
 resolver or environment snapshot, no regime taxonomy, no p-value in an event
-study, no default availability rule.** Each is a NON-GOAL with a recorded reason.
+study, no default availability rule, no silent scaling of capital, no
+enforcement in a risk budget, no broker adapter in capital allocation.** Each is
+a NON-GOAL with a recorded reason.
 
 ---
 
@@ -1379,10 +1516,11 @@ internal work.
 | **Verification against a commercial venue** | EXTERNAL. The transports are written to protocol and exercised end to end over real sockets against local servers that verify signatures, timestamp windows, idempotency keys and accept tokens. This environment has no network egress and holds no vendor credentials |
 | **Named vendor request shapes** | EXTERNAL. Each differs per venue and belongs to an adapter |
 | **FX data** | EXTERNAL. v2.17 ships the rate-feed boundary and not a single rate |
-| **Classification data** | EXTERNAL. v2.11 ships the mechanism and v2.15 its provenance; no taxonomy and no reference-data feed |
+| **Classification data** | EXTERNAL. v2.11 ships the mechanism and v2.15 its provenance; no taxonomy and no reference-data feed. v3.8's risk budgets and construction read any caller classification with a named source — a country file, say — and AlphaLab holds none |
 | **What a rerun needs** | EXTERNAL. A reproducibility manifest identifies the dataset bytes, the strategy code, the dependency set, the engine and the live objects a run records by type; AlphaLab stores none of them (v3.6) |
 | **What an environment offers** | EXTERNAL. Every `TargetEnvironment`, runtime observation and resource measurement is declared by whoever knows it (v3.6) |
 | **Alternative data, events and fundamentals** | EXTERNAL. v3.7 ships the point-in-time contract — records, sets, ingestion rules, queries — and no vendor, feed, file, line-item taxonomy or price. The rows and their bytes are the caller's |
+| **Portfolio and risk inputs** | EXTERNAL. v3.8 estimates a sample covariance and nothing else: expected-return forecasts, market values for an equilibrium prior, views and their confidence, factor data, FX rates, account balances, and the mapping from a broker or account identifier to an adapter and its credentials are the caller's |
 
 The honest summary of connectivity: **the connectivity exists; the vendor
 integration does not.**
@@ -1394,8 +1532,18 @@ integration does not.**
 Could be built. **Nothing depends on any of it**, and no commitment is made. None
 of these is a defect.
 
-- **Classification dimensions beyond sector**, and sector-based risk limits.
-  `sector_exposure` is visibility; no risk check reads a sector.
+- **Classification dimensions beyond sector in the registry**, and
+  sector-based *pre-trade* risk limits. v3.8's risk budgets and construction read
+  any caller classification; no pre-trade check reads one.
+- **Richer portfolio construction** (ADR-0043): covariance estimators beyond the
+  sample (an estimated shrinkage intensity, EWMA, a factor-model covariance),
+  cardinality and lot-size constraints, transaction costs in the objective, CVaR
+  or drawdown objectives, multi-period construction, caps on a bucket's risk
+  contribution inside other objectives (not a convex constraint), and
+  exchange-rate return factors for a pure currency-risk dimension.
+- **Per-strategy capital ceilings on the execution path.** An account's
+  `CapitalBudget` enforces its total; a strategy's amount in it is what
+  weight-based sizing reads (ADR-0015 §1), not a second ceiling.
 - **A vendor adapter package** over the existing transport — the smallest step
   from connectivity to integration.
 - **A lock-file reader, a durable home for v3.6 values, and a rerun harness.**
@@ -1406,10 +1554,6 @@ of these is a defect.
   collision of this kind the repository has not resolved — `brokers` aliases the
   canonical `core.enums.AssetType` and `data` renames its own `DataAssetClass`.
   Neither is on the canonical path and neither is persisted.
-- **A look-ahead guard on FX rates.** `max_age_seconds` bounds how *old* a rate
-  may be; a **future-dated** rate is not refused. The feed path cannot produce one
-  (`SUPERSEDED`), and every conversion records the rate's `as_of` and source, so
-  the fact is visible. A caller handing over a table by hand is trusted with it.
 - **A start offset on `AppendOnlyLog`**, which is what
   `OptimizerState.pending_trials` needs to stop being super-linear. It was
   implemented, measured at **+3.9%** on `benchmark_execution_pipeline`, and
@@ -1458,8 +1602,9 @@ of these is a defect.
 | **v3.5.0** | **Strategy execution and production intelligence: the research-to-live progression as a third axis, deployment specifications with a derived identity, structured runtime health from supplied observations, the expected/paper/live comparison, and AlphaLab-to-broker reconciliation — all inside `alphalab.lifecycle`, with no package added and no snapshot schema touched (ADR-0040)** |
 | **v3.6.0** | **Strategy evaluation: immutable strategy fingerprints, reproducibility manifests with four separate answers, eight certification properties from observed evidence with no score, and portability against declared capabilities — all inside `alphalab.lifecycle`, with no package added, no durable state and no marketplace logic (ADR-0041)** |
 | **v3.7.0** | **Advanced quant research: a point-in-time statement of when information became knowable; canonical events, alternative data with source identity and versioned sets, and point-in-time fundamentals in `alt_data`, now a leaf over `common`; knowledge frames with a checked price join; event studies anchored where news could be traded; regime detection from declared rules; and adaptive strategies whose learned state replays exactly and reaches the run record — no package added, no snapshot schema touched (ADR-0042)** |
+| **v3.8.0** | **Advanced portfolio and risk: the risk model as values with identities; constrained construction — minimum variance, mean-variance, maximum diversification, risk parity, robust — by one certified solver that names conflicts, and Black–Litterman; risk budgets along five dimensions; multi-strategy books across currencies; cross-strategy risk; and capital allocation across strategies, markets, brokers, accounts and currencies — no package added, three edges measured, no snapshot schema touched (ADR-0043)** |
 
-42 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+43 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---
@@ -1488,6 +1633,19 @@ can tell them apart afterwards.
 `alphalab.api` with the availability rule the source actually supports — and
 `AvailabilityNotDeclared` when it supports none, which is honest and makes the
 data unusable for research until somebody establishes when it was knowable.
+
+**Adding a construction method.** Add an objective type to
+`portfolio_optimizer.construction` with a `rendering` that enters the problem's
+identity, solve it through `quadratic.solve_quadratic_program` if it is a
+quadratic program, and check it against the exact-rational reference in
+`tests/unit/portfolio_optimizer/qp_reference.py`. Do not add a second solver or a
+fallback: an answer the certificate cannot verify is not an answer.
+
+**Adding a capital rule or dimension.** A rule is a frozen value the plan's
+identity renders; allocate in the account's currency, convert only plan-wide
+figures through the `CurrencyConverter`, and keep
+`available = reserved + allocated + unallocated` exact — the invariant test
+checks it on generated plans.
 
 **Adding an adaptive rule.** Implement the four functions of `AdaptiveRule`,
 keep everything the rule knows in the payload it is handed, and replay it twice:
@@ -1539,7 +1697,13 @@ Genuinely unresolved, recorded so they are not rediscovered:
   and `test_v34_complexity.py` through `test_v36_complexity.py` only when the
   machine was oversubscribed. Moving them to the same method is mechanical.
   Until then a failure in one of them is re-run once before it is read as a
-  regression; one that reproduces is real.
+  regression; one that reproduces is real. v3.8's `test_v38_complexity.py` uses
+  the stabilized method from the start, and passed 30 of 30 comparisons with
+  every core busy.
+- **UNKNOWN: how far the pure-Python construction solver scales.** It is exact
+  and cubic in the universe; the benchmark measures twenty-five and fifty
+  assets. Hundreds of assets are expected to work and to be slow; nothing larger
+  has been measured.
 - **KNOWN CAVEAT: `ingest_rows` identifies what its caller's source says.** Rows
   recorded with an empty payload share one dataset version whatever they
   contain. A reproducibility manifest refuses such a dataset and a
@@ -1548,6 +1712,6 @@ Genuinely unresolved, recorded so they are not rediscovered:
 
 ---
 
-*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0, v3.4.0, v3.5.0, v3.6.0 and v3.7.0. If you are reading this long after, check the version in
+*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0, v3.4.0, v3.5.0, v3.6.0, v3.7.0 and v3.8.0. If you are reading this long after, check the version in
 `pyproject.toml` first: where this document and the code disagree, the code is
 right, and this document has a bug worth fixing.*

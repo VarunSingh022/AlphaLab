@@ -87,11 +87,15 @@ from alphalab.strategy.registry import StrategyRegistration
 
 __all__ = [
     "ADAPTIVE_SETTING_PREFIX",
+    "CAPITAL_SETTING_PREFIX",
     "NO_DEPENDENCIES",
+    "PORTFOLIO_SETTING_PREFIX",
     "STRATEGY_FINGERPRINT_SCHEME",
     "STRATEGY_SOURCE_SCHEME",
     "UNDECLARED_DEPENDENCIES",
+    "CapitalPlanIdentity",
     "CodeIdentity",
+    "ConstructionIdentity",
     "DependencyCompleteness",
     "DependencyManifest",
     "DependencyPin",
@@ -110,6 +114,7 @@ __all__ = [
     "research_configuration",
     "research_configuration_for_study",
     "research_configuration_with_adaptive",
+    "research_configuration_with_portfolio",
     "running_engine",
     "source_digest",
     "verify_fingerprint",
@@ -646,6 +651,117 @@ def research_configuration_with_adaptive(
             f"The setting(s) {collisions} are written by an adaptive component and were also "
             "supplied by the caller. One key, two values, and the identity would say whichever "
             "was written last."
+        )
+    return research_configuration(
+        {**settings, **dict(added)}, study_id=None if study is None else study.study_id
+    )
+
+
+#: The prefixes v3.8's portfolio and capital settings are written under.
+PORTFOLIO_SETTING_PREFIX: Final = "portfolio."
+CAPITAL_SETTING_PREFIX: Final = "capital."
+
+_COMPONENT = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+
+class ConstructionIdentity(Protocol):
+    """Anything carrying a v3.8 construction's derived identities.
+
+    Structural, so this module reaches a construction result without importing
+    :mod:`alphalab.portfolio_optimizer` -- which would put a standalone engine
+    on the lifecycle path for the sake of two strings.
+    :class:`~alphalab.portfolio_optimizer.construction.ConstructionResult`
+    satisfies it as it stands.
+    """
+
+    @property
+    def problem_id(self) -> str: ...
+
+    @property
+    def result_id(self) -> str: ...
+
+    @property
+    def succeeded(self) -> bool: ...
+
+
+class CapitalPlanIdentity(Protocol):
+    """Anything carrying a v3.8 capital allocation's derived identities.
+
+    :class:`~alphalab.allocation.capital.CapitalAllocationResult` satisfies it.
+    """
+
+    @property
+    def plan_id(self) -> str: ...
+
+    @property
+    def result_id(self) -> str: ...
+
+    @property
+    def succeeded(self) -> bool: ...
+
+
+def research_configuration_with_portfolio(
+    settings: Mapping[str, str],
+    *,
+    constructions: Mapping[str, ConstructionIdentity],
+    capital: Mapping[str, CapitalPlanIdentity],
+    study: StudyIdentity | None,
+) -> ResearchConfiguration:
+    """A research configuration that names the portfolio construction and capital behind it.
+
+    A strategy researched as a constructed portfolio -- risk parity over its
+    universe, say, funded by a capital plan -- is a different strategy when the
+    construction or the plan changes, and its fingerprint should say so. Each
+    named component writes two settings:
+
+    ``portfolio.<name>.problem`` / ``portfolio.<name>.result``
+        the construction problem's and result's derived identities;
+    ``capital.<name>.plan`` / ``capital.<name>.allocation``
+        the capital plan's and its allocation's derived identities.
+
+    They enter the fingerprint through the existing research-settings section,
+    exactly as v3.7's adaptive components do, so
+    :func:`canonical_fingerprint_key` is unchanged and every earlier
+    fingerprint still verifies.
+
+    Raises:
+        LifecycleInputError: If no component is given; a name is not an
+            identifier; a construction or allocation did not succeed -- an
+            infeasible construction or a refused plan identifies no portfolio a
+            strategy could have been researched on; or a caller's setting
+            collides with one written here.
+    """
+
+    if not constructions and not capital:
+        raise LifecycleInputError(
+            "research_configuration_with_portfolio names no construction and no capital plan; "
+            "use research_configuration for a strategy that has neither."
+        )
+    added: list[tuple[str, str]] = []
+    for name, construction in sorted(constructions.items()):
+        if not _COMPONENT.match(name):
+            raise LifecycleInputError(f"Construction name {name!r} is not an identifier.")
+        if not construction.succeeded:
+            raise LifecycleInputError(
+                f"Construction {name!r} did not succeed, so it identifies no portfolio."
+            )
+        added.append((f"{PORTFOLIO_SETTING_PREFIX}{name}.problem", construction.problem_id))
+        added.append((f"{PORTFOLIO_SETTING_PREFIX}{name}.result", construction.result_id))
+    for name, plan in sorted(capital.items()):
+        if not _COMPONENT.match(name):
+            raise LifecycleInputError(f"Capital plan name {name!r} is not an identifier.")
+        if not plan.succeeded:
+            raise LifecycleInputError(
+                f"Capital plan {name!r} was refused, so it identifies no allocation."
+            )
+        added.append((f"{CAPITAL_SETTING_PREFIX}{name}.plan", plan.plan_id))
+        added.append((f"{CAPITAL_SETTING_PREFIX}{name}.allocation", plan.result_id))
+    collisions = sorted(set(settings) & {key for key, _ in added})
+    if collisions:
+        raise LifecycleInputError(
+            f"The setting(s) {collisions} are written by a portfolio or capital component and "
+            "were also supplied by the caller. One key, two values, and the identity would say "
+            "whichever was written last."
         )
     return research_configuration(
         {**settings, **dict(added)}, study_id=None if study is None else study.study_id

@@ -3,6 +3,11 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from alphalab.portfolio_optimizer.exceptions import (
+    ConstraintViolationError,
+    PortfolioValidationError,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class WeightConstraints:
@@ -24,6 +29,11 @@ class RiskConstraints:
     max_concentration: float = 1.0
 
 
+#: How close the projection's sum must come to its target: the loop's own
+#: convergence test, stated once and used for the final check too.
+_SUM_TOLERANCE = 1e-9
+
+
 def apply_weight_constraints(
     raw_weights: Mapping[str, float], constraints: WeightConstraints
 ) -> dict[str, float]:
@@ -31,7 +41,35 @@ def apply_weight_constraints(
     Applies hard constraints using an iterative projection algorithm.
     Ensures that weights never exceed max_position_weight or max_asset_exposure
     after convergence.
+
+    This is the v1 post-hoc projection: it clips weights an optimizer already
+    produced and redistributes the excess evenly, which is a heuristic rather
+    than an optimization over the constraints. v3.8's
+    :func:`~alphalab.portfolio_optimizer.construction.construct` solves *over*
+    its constraints instead.
+
+    The target sum is ``1 - cash_reserve_weight``. When the upper bounds cannot
+    reach it, the shortfall is **cash**, by design: a long-only book capped at
+    40% a name in two names is 80% invested. The engine records that clipping
+    happened (``ConstraintViolated``, with the amount clipped).
+
+    Raises:
+        PortfolioValidationError: If ``max_sector_exposure`` is set. This
+            projection has no classification to apply a sector cap with, and
+            until v3.8 it ignored one silently -- a limit that was stated and
+            never enforced. Use a ``ConstraintSet`` with ``GroupBound``.
+        ConstraintViolationError: If the *lower* bounds force the weights to
+            sum above the target -- more capital than the target deploys, which
+            no reading of the constraints makes cash. Until v3.8 it was returned
+            as though the constraints held.
     """
+    if constraints.max_sector_exposure:
+        raise PortfolioValidationError(
+            "WeightConstraints.max_sector_exposure cannot be applied here: this projection "
+            "has no classification of assets into sectors, and a sector cap it cannot see "
+            "would be ignored rather than enforced. Construct with a ConstraintSet whose "
+            "GroupBound names the classification."
+        )
     weights = dict(raw_weights)
 
     # Define effective bounds for each asset
@@ -50,7 +88,7 @@ def apply_weight_constraints(
         diff = target_sum - current_sum
 
         # Check convergence
-        if abs(diff) < 1e-9:
+        if abs(diff) < _SUM_TOLERANCE:
             break
 
         # Determine which assets can absorb more weight or give up weight
@@ -72,4 +110,11 @@ def apply_weight_constraints(
             # Re-clip to ensure step didn't violate boundary
             weights[s] = max(min_w, min(weights[s], upper_bound))
 
+    excess = sum(weights.values()) - target_sum
+    if excess >= _SUM_TOLERANCE:
+        raise ConstraintViolationError(
+            f"The lower bound {min_w!r} on {len(weights)} asset(s) forces the weights to sum to "
+            f"{sum(weights.values())!r}, above the target {target_sum!r}. A shortfall is cash; an "
+            "excess is capital the target does not have, and is refused."
+        )
     return {s: round(float(w), 8) for s, w in weights.items()}

@@ -1,4 +1,13 @@
-"""Public Portfolio API."""
+"""Public Portfolio API.
+
+The accounting engine -- cash, positions, the transaction ledger, NAV,
+per-currency P&L, valuation, margin, exposure, FX and the FX feed -- is the one
+book of record. Since v3.8, :mod:`~alphalab.portfolio.multi_strategy` keeps
+several strategies' sleeves side by side in one portfolio, aggregates each
+instrument with every strategy's contribution, and values the whole in one
+reporting currency at recorded rates (ADR-0043); it applies no fill and keeps no
+ledger.
+"""
 
 from .account import Account as Account
 from .amounts import CurrencyAmounts as CurrencyAmounts
@@ -73,6 +82,16 @@ from .fx_research import forward_points as forward_points
 from .fx_research import hedge_notional as hedge_notional
 from .ledger import TransactionLedger as TransactionLedger
 from .margin import MarginEngine as MarginEngine
+from .multi_strategy import BOOK_VALUATION_SCHEME as BOOK_VALUATION_SCHEME
+from .multi_strategy import MULTI_STRATEGY_BOOK_SCHEME as MULTI_STRATEGY_BOOK_SCHEME
+from .multi_strategy import BookValuation as BookValuation
+from .multi_strategy import HoldingValuation as HoldingValuation
+from .multi_strategy import InstrumentHolding as InstrumentHolding
+from .multi_strategy import InstrumentValuation as InstrumentValuation
+from .multi_strategy import MultiStrategyBook as MultiStrategyBook
+from .multi_strategy import StrategySleeve as StrategySleeve
+from .multi_strategy import StrategyValuation as StrategyValuation
+from .multi_strategy import value_book as value_book
 from .nav import NAVCalculator as NAVCalculator
 from .pnl import PnLEngine as PnLEngine
 from .position import Position as Position
@@ -91,8 +110,11 @@ from .valuation import cash_in as cash_in
 from .valuation import foreign_currencies as foreign_currencies
 
 __all__ = [
+    "BOOK_VALUATION_SCHEME",
+    "MULTI_STRATEGY_BOOK_SCHEME",
     "NO_RATES",
     "Account",
+    "BookValuation",
     "CashDeposited",
     "CashLedger",
     "CashWithdrawn",
@@ -106,12 +128,16 @@ __all__ = [
     "FxConversion",
     "FxRate",
     "FxRates",
+    "HoldingValuation",
+    "InstrumentHolding",
+    "InstrumentValuation",
     "InsufficientFundsError",
     "InvalidTransactionError",
     "MarginEngine",
     "MarketValueUpdated",
     "MissingRateError",
     "MixedCurrencyValuationError",
+    "MultiStrategyBook",
     "NAVCalculator",
     "PnLEngine",
     "PortfolioEngine",
@@ -127,6 +153,8 @@ __all__ = [
     "PositionSide",
     "SettlementExposure",
     "StaleRateError",
+    "StrategySleeve",
+    "StrategyValuation",
     "Transaction",
     "TransactionLedger",
     "TransactionType",
@@ -141,4 +169,5 @@ __all__ = [
     "hedge_notional",
     "holding_notional",
     "settlement_exposures",
+    "value_book",
 ]
