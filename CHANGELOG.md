@@ -14,6 +14,287 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.9.0] - 2026-09-27
+
+**The universal execution contract: what a venue can do, what its reports mean,
+how an order is worked and routed, and what the execution cost — one contract,
+whichever adapter an application brings.**
+
+The ninth capability release on the frozen architecture. v3.8 decided what to
+own and how much capital each strategy gets; this is the path from that
+decision to a venue and back: an order checked against what the venue says it
+can do, worked in children by a stated algorithm, routed by an explained
+decision, every venue report given exactly one meaning, both sides reconciled,
+and the result measured against references that are named.
+
+No package and **no package edge** is added. `alphalab.core` gains the
+capability model and the canonical order-transition table; `alphalab.broker`
+gains normalized venue events, request identities and snapshot reconciliation;
+`alphalab.execution` gains algorithms, route selection and execution quality;
+`alphalab.runtime` sends algorithm children for their parent; and
+`alphalab.lifecycle` gains the joins. The currency-conversion protocols move
+from `allocation.capital` to `alphalab.common.currency`, re-exported unchanged.
+No snapshot schema changes, no durable state is added, and every v3.1 through
+v3.8 invariant holds.
+
+The decisions are recorded in
+[`ADR-0044`](docs/ADR/0044-universal-execution-contract-capabilities-lifecycle-algorithms-routing-and-execution-analytics.md).
+
+## What was missing
+
+v3.5's broker capabilities were one broker-wide, two-valued record with no
+account, so an order could not ask whether *it* could be sent, and "the broker
+says no" read the same as "nobody said". Of everything a venue reports, only a
+fill had a defined meaning; an acknowledgement, a rejection, a cancel, an
+expiry, an amendment, a refused cancel, a position, a balance and a disconnect
+were whatever an adapter chose, and the OMS and the broker mirror held two
+slightly different sets of lifecycle rules. An order went to a venue whole: no
+schedule, slicing, participation or child order. Nothing compared venues or
+said why one was chosen. Nothing measured what an execution achieved — v3.3's
+costs are what a model *assumed*. Cancels and amendments had no identity, and
+the only mirror-to-venue reconciliation compared loose records with no notion of
+when the venue produced them.
+
+## Added
+
+### Capabilities — `alphalab.core.capabilities` (re-exported by `alphalab.broker`)
+
+* `CapabilityDeclaration` of venue features (`STREAMING`, `CANCEL_REPLACE`),
+  `MarketCapability` entries per asset class on one listing venue or
+  `ANY_LISTING_VENUE` (order types, times-in-force, short sales, fractional
+  quantities, extended hours, bracket orders), withdrawn asset classes and
+  `AccountCapability` entries (permitted asset classes, margin, short sales).
+  Every answer a `Support`: `SUPPORTED`, `UNSUPPORTED` or `UNDECLARED`.
+  Contradictory declarations refused; `declaration_id` independent of listing
+  order.
+* `order_requirements` — what one order needs, with short selling and fractional
+  quantities derived from the order — and `ExecutionRequirements`.
+* `check_compatibility` → `CompatibilityReport` of `CapabilityCheck`s (dimension,
+  level, answer, reason): `COMPATIBLE` only when every check is supported,
+  `INCOMPATIBLE`, or `UNDETERMINED` — never compatible. `supports` answers one of
+  thirteen flat capabilities for a stated scope.
+
+### The order lifecycle — `alphalab.core.lifecycle`
+
+* `ExecutionEventKind`: twelve normalized events — eight about an order, two
+  about the account, two about the connection — and their families.
+* `ORDER_TRANSITIONS`, the one table of legal moves, read by
+  `oms.order.Order` and by the venue boundary; `next_order_status`,
+  `reachable_statuses`, `TERMINAL_ORDER_STATUSES`, `WORKING_ORDER_STATUSES`,
+  `CANCEL_REQUESTABLE_STATUSES`.
+* `classify_order_event` → `TRANSITION`, `DUPLICATE`, `STALE` or `CONFLICT`.
+
+### The venue boundary — `alphalab.broker`
+
+* `VenueEvent` and `apply_venue_event` / `apply_venue_events` /
+  `classify_venue_event`: every reported event gets one `LifecycleOutcome` —
+  `APPLIED`, `DUPLICATE`, `STALE`, `CONFLICT`, `UNKNOWN_ORDER` or `INVALID` —
+  with `is_break` and `resync_required`. A fill before its acknowledgement is
+  applied and records the acknowledgement it implies; fills converge in any
+  delivery order; nothing is appended to `BrokerState.events`.
+* `CancelRequest` and `ModifyRequest` with content identities, and
+  `issue_cancel` / `issue_modify` against a caller-held `RequestLedger`: `NEW`,
+  `DUPLICATE` (a retry is not a second request) or `REFUSED`.
+* `VenueSnapshot` and `reconcile_snapshot`: freshness judged first (`CURRENT`,
+  `PREDATES_MIRROR`, `TOO_OLD`, `FROM_THE_FUTURE`), then orders, fills,
+  positions, balances and account identity compared, thirteen divergence kinds,
+  duplicated evidence reported, `reconciliation_id`.
+* `BROKER_STATUS_EQUIVALENTS` (moved from `lifecycle.reconciliation`, the same
+  object re-exported), `BROKER_LOCAL_EQUIVALENTS`, `canonical_status` and
+  `validate_replace_request`.
+
+### Execution algorithms — `alphalab.execution.algorithms`
+
+* `TWAP`, `VWAP` (on a supplied, attributed `VolumeProfile`; an incomplete one
+  refused or, chosen, planned on time and recorded), `Participation` (a share of
+  observed volume, minimum and maximum children, a stated end-of-window rule),
+  `Slicing` (by size or count) and `Iceberg` (one visible tranche; iceberg-like,
+  no venue's reserve order emulated).
+* `Urgency`: the trajectory `F(x) = 1 − sinh(κ(1 − x))/sinh(κ)`, stated not
+  estimated, in 34-digit decimals; whole increments by the largest remainder
+  method; `plan_schedule` → `ExecutionSchedule`.
+* `start_algorithm`, `release_children` (top-up to the trajectory, one child per
+  call), `record_child_execution` (idempotent), `record_child_outcome`,
+  `cancel_algorithm`; `ChildOrder` carries the parent's strategies unchanged.
+  Configuration, run and schedule identities.
+
+### Route selection — `alphalab.execution.routing`
+
+* `select_route` over supplied `VenueQuote`s and `VenueProfile`s (capability
+  declaration, v3.3 cost model, latency) under a `RoutingPolicy` (lowest all-in
+  cost or best quoted price, maximum quote age, optional latency cap, split,
+  partial, excluded venues). Every venue a `RouteCandidate` —
+  `ELIGIBLE`, `INELIGIBLE`, `INSUFFICIENT_EVIDENCE` or `EXCLUDED` — with its
+  reason; decisions `ROUTED`, `PARTIAL`, `INFEASIBLE` or `INSUFFICIENT_EVIDENCE`;
+  split legs re-priced at the quantity taken; `explanation()`; policy, evidence
+  and decision identities independent of listing order.
+
+### Execution quality — `alphalab.execution.quality`
+
+* `OrderExecution` over the canonical `OrderRequest` and `ExecutionReport`s,
+  with `ExecutionBenchmarks`, an `OrderTimeline` and fill midpoints.
+* `implementation_shortfall` (delay, trading, explicit and opportunity
+  components, basis points, and each strategy's share), `measure_slippage`
+  against a named reference, `fill_quality`, `measure_latency` (clock sources
+  named, mixed clocks flagged), `rejection_rate` over resolved submissions,
+  `venue_quality`, and `execution_quality_report` — per-currency totals, and one
+  reporting-currency total only through a supplied converter with every
+  conversion recorded.
+
+### Runtime and lifecycle joins
+
+* `runtime.route_child_order` sends an algorithm child as a venue order for its
+  parent, behind five gates (connection, parent not routed whole, the child the
+  parent's and within what it has unfilled, not already bound, capability);
+  `ChildOrderBindings` (with `from_mirror`) and `child_broker_order_id`.
+  `route_order` gains a keyword-only `capability=` gate; `RoutingRefusal` gains
+  `CAPABILITY_MISMATCH`, `INVALID_CHILD` and `PARENT_ROUTED_DIRECTLY`.
+* `lifecycle.broker_capabilities_from` projects a declaration onto the v3.5
+  `BrokerCapabilities` for the markets a deployment trades, refusing anything
+  undeclared; `reconcile_execution_state(children=)` reconciles a parent worked
+  in children; `research_configuration_with_execution` writes
+  `execution.<name>.algorithm` and `routing.<name>.policy` into a fingerprint's
+  research settings (the fingerprint key is unchanged).
+* `core.split_by_contribution`: the v2.6 strategy split, shared by P&L
+  attribution and execution-cost attribution.
+
+## Changed
+
+Additive, except these corrections — each a state no venue can report, or an
+input the result has no way to describe, now refused:
+
+* `oms.order.Order` asks the transition table, keeping every refusal message it
+  had, and adds the arithmetic a status cannot express: `fill` must complete the
+  order exactly, `partial_fill` must leave quantity working, a fill must be
+  positive, and `replace` must leave something to work. Until now `fill`
+  accepted a short or an excess quantity — a `FILLED` order with quantity still
+  working, or a negative remainder. **A caller that passed
+  `fill_status=FULL_FILL` with a `fill_quantity` short of the order, or a
+  `StaticFill(FULL_FILL, quantity)` below it, now gets `InvalidTransitionError`;
+  use `PARTIAL_FILL`.** A venue overfill reaching `apply_broker_execution` is
+  refused the same way, as `classify_execution` has refused it at the mirror
+  since v2.3.
+* A fill on an order whose cancel is pending keeps it pending — in the OMS table
+  and in `broker.reconciliation.apply_execution`, which had dropped the marker.
+* `validate_cancel_request` refuses every terminal status, `EXPIRED` included;
+  `PaperBroker.replace_order` validates an amendment as an amendment.
+* `broker.reconcile` refuses two remote records for one order or symbol, and a
+  remote account in another currency, instead of collapsing the first and
+  subtracting the second.
+* `split_realized_pnl` computes in a fixed decimal context; every figure under
+  the default context is unchanged.
+
+`broker`, `core`, `common`, `execution`, `runtime` and `lifecycle` export the
+new names; `allocation` re-exports the moved protocols as the same objects. No
+default moved and no schema was touched.
+
+## Found during this release
+
+* **The OMS and the broker mirror disagreed about a fill during a pending
+  cancel.** The OMS refused it — unreachably, since nothing in the OMS entered
+  `CANCEL_PENDING` — and the mirror applied a partial one by forgetting the
+  cancel, which invites a second cancel for an order that has one in flight.
+  One table now decides both.
+* **`validate_cancel_request` left `EXPIRED` out of its list of terminal
+  statuses**, so an expired order could be cancelled; **`PaperBroker.replace_order`
+  reused the cancel validation**, so it accepted an amendment to a quantity at
+  or below what had filled, or to a negative price.
+* **`reconcile` collapsed duplicated remote records silently**, the last one
+  winning, **and subtracted a venue account's cash in another currency** from
+  the mirror's as though they were one unit.
+* **The OMS order's fill arithmetic** accepted the four states listed under
+  *Changed*; a zero fill on an unfilled order divided zero by zero.
+* **The strategy split used the caller's decimal context**: a thread that had
+  lowered its precision raised `InvalidOperation` or rounded shares
+  differently. Found by the context-independence invariant.
+* **Two quadratic paths in the v3.9 draft**, found by the complexity guards: a
+  declaration's identity rendered on every compatibility check (16.0× for a 4×
+  input), now computed once; and duplicate detection by `list.count`, now a
+  `Counter` everywhere. Each guard was run against the defect it guards and
+  failed.
+* **A design decision the ordering invariant forced**: refusing an
+  `ORDER_FILLED` whose quantity left the mirror's order working broke the
+  additivity that makes out-of-order fills converge. The quantities decide; the
+  disagreement is recorded in the decision's reason.
+
+## Tests
+
+`tests/regression/test_v39_invariants.py` (58) — one home per concept; no
+package or package edge added; the OMS and the venue boundary reading one
+table; terminal statuses absorbing; every event stream idempotent under replay
+and convergent under reordering; no applied event making a transition the table
+lacks; compatibility true only when every check is; schedules summing exactly
+and never straying an increment from their trajectory; routes selecting only
+eligible venues, independent of listing order; shortfall decomposing exactly
+with shares summing to it; every injected snapshot divergence reported as what
+it is; every identity reproduced across hash seeds and working directories in
+fresh interpreters; no clock, entropy, environment, transcendental or ambient
+decimal context; no vendor, network, secret-bearing field, snapshot owner,
+schema constant or runtime dependency; every new name exported.
+
+`tests/regression/test_v39_complexity.py` (7) — growth ratios for capability
+checks, a venue event stream, a many-slice schedule, slicing by count, route
+selection, snapshot reconciliation and venue quality, with the stabilized
+method; each fails against the quadratic implementation it guards (10.1× to
+16.0× for a 4× input, against an 8× bound).
+
+`tests/integration/test_v39_capabilities.py` (17) — two strategies netted into
+one parent under `EXTERNAL` routing; a TWAP with a capability check and a route
+decision per child; normalized venue events, a redelivered fill, a partial
+expiry caught up, a rejected order, a capability refusal, a disconnect and a
+reconnect; an iceberg cancelled mid-way with the retried cancel recognised;
+snapshot and book-to-mirror reconciliation, and planted breaks found; shortfall,
+latency, rejection rate and venue quality; attribution across both strategies;
+every identity rebuilt identically.
+
+Unit suites for every new module (585 tests, among them every cell of the
+transition table checked against the OMS and the classifier) and seven new
+sections of `test_shared_names_stay_distinct.py` (7). Pins for `route_order`
+and `reconcile_execution_state` updated to their intent.
+
+Total: **6,713 → 7,387** passing, 0 skipped, 0 warnings.
+
+## Benchmarks
+
+`benchmark_execution_contract.py` — capability checks against thousands of
+declared accounts; every status event classified; a venue event stream over
+thousands of orders; TWAP and VWAP schedules at 100 and 400 slices, straight and
+front-loaded; TWAP, VWAP, participation, slicing and iceberg runs child by
+child; route selection over hundreds of venues with and without a split;
+snapshot reconciliation and cancel requests over thousands of orders; shortfall
+over thousands of fills, venue quality over tens of thousands of outcomes and a
+two-currency quality report. Every path is linear.
+
+## Examples
+
+`61`–`65`: the broker capability model; the normalized execution lifecycle;
+execution algorithms; smart routing from local venue evidence; and execution
+analytics end to end — strategy, order, algorithm, capability check, normalized
+venue reports, reconciliation and measurement in one run. They share
+`examples/_execution_world.py` and a scripted stand-in venue, fetch nothing,
+name no vendor and print the same figures on every machine.
+
+## Still external
+
+Venue connectivity and every vendor protocol; the capability declaration for a
+real venue; quotes, volume profiles, printed volume and benchmark prices; FX
+rates; the mapping from adapter and account labels to credentials. AlphaLab
+defines the contract an adapter meets; the adapter is the application's.
+
+## Deliberately not built
+
+No named broker SDK, API or credential, no OAuth, API key, token or vendor
+message structure; no RedDesk or iluvtrade logic, marketplace, licensing or
+payment logic; no user identity; no LLM dependency; no network-dependent
+routing or analytics; no default urgency, quote age or tolerance; no claim of
+best-execution compliance. Deferred, each a decision of its own: a venue
+sequence number on orders and ordering of amendments, positions and balances by
+it; persisting child bindings and the request ledger; a book-to-mirror
+reconciliation across several brokers' accounts; an optimal split under fixed
+fees or non-linear impact; estimating urgency; randomized iceberg tranches.
+
+---
+
 # [3.8.0] - 2026-09-27
 
 **Advanced portfolio and risk: constrained construction, risk budgets,

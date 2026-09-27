@@ -25,11 +25,11 @@ canonical package. It is re-exported from ``alphalab.allocation`` because
 allocation is what produces it.
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Context, Decimal
 
-__all__ = ["StrategyContribution", "contributions_from"]
+__all__ = ["StrategyContribution", "contributions_from", "split_by_contribution"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,3 +72,60 @@ def _ordered(totals: Mapping[str, Decimal]) -> tuple[StrategyContribution, ...]:
     return tuple(
         StrategyContribution(strategy_id, totals[strategy_id]) for strategy_id in sorted(totals)
     )
+
+
+def split_by_contribution(
+    amount: Decimal,
+    contributions: Sequence[StrategyContribution],
+    quantum: Decimal,
+) -> tuple[tuple[str, Decimal], ...]:
+    """Divide ``amount`` among the strategies that asked for an order, exactly.
+
+    Each strategy's weight is its **signed** contribution over the net::
+
+        weight_i = q_i / sum(q_j)
+
+    and every share but the last is ``amount * weight_i`` rounded to
+    ``quantum``; the last is what remains, so the parts sum to ``amount``
+    exactly and a split can never introduce a residue. A flat net -- which
+    allocation never produces, because a flat net emits no order -- splits
+    equally rather than dividing by zero. The arithmetic runs in a fixed
+    context, never the caller's.
+
+    This is the arithmetic :func:`alphalab.analytics.attribution.split_realized_pnl`
+    has divided a fill's P&L by since v2.6, moved here in v3.9 so that the
+    execution-quality measurements in :mod:`alphalab.execution.quality` divide
+    an order's cost by the same rule without importing :mod:`alphalab.analytics`
+    -- the two are siblings over this package. ``split_realized_pnl`` now calls
+    this with a quantum of ``0.01``, and every figure it returns is unchanged.
+    Signed weights, not absolute ones: see ``split_realized_pnl`` for why.
+    """
+
+    if not contributions:
+        return ()
+
+    ctx = _SPLIT_CONTEXT
+    net = Decimal("0")
+    for c in contributions:
+        net = ctx.add(net, c.quantity)
+    if net == 0:
+        share = ctx.quantize(ctx.divide(amount, Decimal(len(contributions))), quantum)
+        head = tuple((c.strategy_id, share) for c in contributions[:-1])
+        remainder = ctx.subtract(amount, ctx.multiply(share, Decimal(len(head))))
+        return (*head, (contributions[-1].strategy_id, remainder))
+
+    parts: list[tuple[str, Decimal]] = []
+    assigned = Decimal("0")
+    for contribution in contributions[:-1]:
+        share = ctx.quantize(ctx.divide(ctx.multiply(amount, contribution.quantity), net), quantum)
+        parts.append((contribution.strategy_id, share))
+        assigned = ctx.add(assigned, share)
+    parts.append((contributions[-1].strategy_id, ctx.subtract(amount, assigned)))
+    return tuple(parts)
+
+
+#: The arithmetic a split is computed in: 28 significant digits, half-even -- the
+#: values of Python's default decimal context, pinned so a split does not change
+#: when a caller's thread changes its own. Every figure the v2.6 arithmetic
+#: produced under the default context is reproduced exactly.
+_SPLIT_CONTEXT = Context(prec=28, rounding=ROUND_HALF_EVEN)

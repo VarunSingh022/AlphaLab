@@ -103,11 +103,11 @@ alphalab/      Framework source code — 50 packages
 
 tests/         Unit, integration and regression tests
 
-examples/      60 runnable examples
+examples/      65 runnable examples
 
-docs/          Project documentation and 43 ADRs
+docs/          Project documentation and 44 ADRs
 
-benchmarks/    58 performance benchmarks
+benchmarks/    59 performance benchmarks
 
 configs/       Reference configuration files
 ```

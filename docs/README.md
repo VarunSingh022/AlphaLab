@@ -129,6 +129,11 @@ market data in            (alphalab.market.provider v2.5, alphalab.market.stream
 orders out, fills back    (alphalab.runtime.broker_routing v2.3, LiveSession v2.16)
   OMS order → BrokerProtocol → venue → ExecutionPipeline.apply_execution_report
 
+the execution contract    (alphalab.core / broker / execution / runtime, v3.9)
+  capability check → algorithm children → route decision → route_child_order
+    → normalized VenueEvents → mirror → apply_broker_execution (fills on the parent)
+    → snapshot and book-to-mirror reconciliation → execution quality
+
 the lifecycle             (alphalab.lifecycle, v2.4)
   research candidate → experiment run → validation evidence → model version
     → strategy version → promotion → deployment → rollback
@@ -316,13 +321,35 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.8.0
+v3.9.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.9.0 — the universal execution contract.** The ninth capability release
+on the frozen architecture; no package and no package edge is added. What a
+broker can do is declared where it is true — per venue connection, per market,
+per account — as `CapabilityDeclaration` in `alphalab.core`, three-valued, and
+`check_compatibility` reports an order `COMPATIBLE` only when every requirement
+is supported; the v3.5 `BrokerCapabilities` is projected from the same
+declaration. `alphalab.core.lifecycle` states the twelve normalized execution
+events and the one table of legal order transitions that the OMS and the venue
+boundary both read; `alphalab.broker` applies every venue report through it
+with exactly one outcome, gives cancels and amendments identities so a retry is
+never a second request, and reconciles the mirror against a dated venue
+snapshot. `alphalab.execution` gains TWAP, VWAP, participation, slicing and
+iceberg-like algorithms whose children stay their parent's, route selection
+from supplied quotes, declarations, cost models and latencies with every venue
+explained, and execution quality — implementation shortfall split between the
+strategies that asked for the order, slippage against named references, fill
+quality, latency, rejection rate and venue quality, in one currency or through
+recorded FX. `alphalab.runtime` sends children for their parent, and
+`alphalab.lifecycle` reconciles them and writes execution identities into a
+fingerprint. No durable state is added and no snapshot schema is touched. See
+`ADR/0044`.
 
 **v3.8.0 — advanced portfolio and risk.** The eighth capability release on
 the frozen architecture, and no package is added. The risk model becomes values

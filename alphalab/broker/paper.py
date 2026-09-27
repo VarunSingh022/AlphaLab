@@ -38,7 +38,11 @@ from alphalab.broker.reconciliation import (
     classify_execution,
 )
 from alphalab.broker.state import BrokerState, ConnectionStatus
-from alphalab.broker.validation import validate_cancel_request, validate_order_submission
+from alphalab.broker.validation import (
+    validate_cancel_request,
+    validate_order_submission,
+    validate_replace_request,
+)
 from alphalab.common.ids import new_id
 from alphalab.core.enums import OrderStatus as CoreOrderStatus
 from alphalab.core.enums import OrderType as CoreOrderType
@@ -129,7 +133,7 @@ class PaperBroker:
         new_price: Decimal,
         timestamp: float,
     ) -> tuple[BrokerState, tuple[BrokerEvent, ...]]:
-        validate_cancel_request(state, broker_order_id)  # Same validation logic applies
+        validate_replace_request(state, broker_order_id, new_quantity, new_price)
 
         order = state.orders[broker_order_id]
         updated_order = replace(order, quantity=new_quantity, price=new_price, updated_at=timestamp)

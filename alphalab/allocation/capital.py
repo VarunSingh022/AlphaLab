@@ -83,11 +83,12 @@ from dataclasses import dataclass
 from decimal import ROUND_FLOOR, ROUND_HALF_EVEN, Context, Decimal
 from enum import Enum, auto
 from types import MappingProxyType
-from typing import Final, Protocol
+from typing import Final
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.exceptions import AllocationValidationError
 from alphalab.allocation.state import AllocationState
+from alphalab.common.currency import ConversionRecord, CurrencyConverter, RateRecord
 
 __all__ = [
     "CAPITAL_ALLOCATION_SCHEME",
@@ -158,74 +159,11 @@ def _digest(lines: Iterable[str]) -> str:
 # --------------------------------------------------------------------------- #
 # The currency seam
 # --------------------------------------------------------------------------- #
-
-
-class RateRecord(Protocol):
-    """The facts of one rate: what :class:`~alphalab.portfolio.fx.FxRate` carries."""
-
-    @property
-    def base(self) -> str:
-        """The currency converted from."""
-        ...
-
-    @property
-    def quote(self) -> str:
-        """The currency converted to."""
-        ...
-
-    @property
-    def rate(self) -> Decimal:
-        """Units of ``quote`` per unit of ``base``."""
-        ...
-
-    @property
-    def as_of(self) -> float:
-        """The instant the rate was true."""
-        ...
-
-    @property
-    def source(self) -> str:
-        """Who quoted it, in words."""
-        ...
-
-    @property
-    def derived(self) -> bool:
-        """Whether it was derived (an inverse or a cross) rather than quoted."""
-        ...
-
-
-class ConversionRecord(Protocol):
-    """One conversion: what :class:`~alphalab.portfolio.fx.FxConversion` carries."""
-
-    @property
-    def amount(self) -> Decimal:
-        """The figure converted, in the rate's base currency."""
-        ...
-
-    @property
-    def converted(self) -> Decimal:
-        """The result, in the rate's quote currency, rounded once by the converter."""
-        ...
-
-    @property
-    def rate(self) -> RateRecord:
-        """The rate the conversion used."""
-        ...
-
-
-class CurrencyConverter(Protocol):
-    """Converts an amount between two currencies at an instant, or refuses.
-
-    :class:`~alphalab.portfolio.fx.FxRates` satisfies this as it stands. It must
-    refuse -- raise -- rather than invent a rate; ``FxRates`` refuses a missing,
-    stale or future-dated one.
-    """
-
-    def convert(
-        self, amount: Decimal, base: str, quote: str, as_of: float | None
-    ) -> ConversionRecord:
-        """``amount`` of ``base`` in ``quote`` at ``as_of``, with the rate used; or raise."""
-        ...
+#
+# ``RateRecord``, ``ConversionRecord`` and ``CurrencyConverter`` were defined here
+# in v3.8 and moved to :mod:`alphalab.common.currency` in v3.9, unchanged, so that
+# execution-quality measurements convert through the same seam without importing
+# this package. They are re-exported from here as the same objects.
 
 
 @dataclass(frozen=True, slots=True)

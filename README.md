@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-3.8.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.9.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-6713%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-7387%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -37,22 +37,102 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.8.0 — advanced portfolio and risk: constrained construction, risk budgets, multi-strategy books, cross-strategy risk and capital allocation, on the v3.0 frozen architecture**
+**Current Release:** **v3.9.0 — the universal execution contract: broker capabilities, a normalized execution lifecycle, execution algorithms, smart routing and execution analytics, on the v3.0 frozen architecture**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.8.0 |
+| Version | 3.9.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **6713 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (1154 source files, repository-wide) |
+| Tests | **7387 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (1183 source files, repository-wide) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **58 / 58 Passing** |
-| Examples | **60 / 60 Passing** |
+| Benchmarks | **59 / 59 Passing** |
+| Examples | **65 / 65 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+## What v3.9.0 is
+
+The ninth capability release on the frozen architecture. v3.8 decided what to
+own and how much capital each strategy gets; v3.9 is the path from that
+decision to a venue and back — **one execution contract, whichever adapter an
+application brings**: what a venue can do, what its reports mean, how an order is
+worked and where it is sent, and what the execution cost.
+
+No package and no package edge is added. `alphalab.core` gains the capability
+model and the canonical order-transition table; `alphalab.broker` gains
+normalized venue events, request identities and snapshot reconciliation;
+`alphalab.execution` gains algorithms, route selection and execution quality;
+`alphalab.runtime` sends algorithm children for their parent; and `lifecycle`
+gains the joins. No snapshot schema changes and no durable state is added.
+Every v3.1 through v3.8 invariant holds. ADR-0044.
+
+**Capabilities declared where they are true.** An adapter declares its venue
+features, each market it offers (order types, times-in-force, short sales,
+fractional quantities, extended hours, brackets) and each account's permissions
+(asset classes, margin, short sales). Every answer is `SUPPORTED`,
+`UNSUPPORTED` or `UNDECLARED`, and a check is `COMPATIBLE` only when every
+requirement is supported — an answer nobody gave makes it `UNDETERMINED`, never
+compatible. What an order needs is derived from the order: a sale beyond the
+position is a short sale. The v3.5 deployment record is projected from the same
+declaration, so an application declares once.
+
+**One lifecycle, read by both sides.** Twelve normalized event kinds and one
+table of legal transitions, read by the OMS and by the venue boundary. Every
+venue report gets exactly one outcome — applied, duplicate, stale, conflict,
+unknown order or invalid: a redelivered fill and a late acknowledgement change
+nothing and are not faults; a fill against a cancelled order is a break for a
+reconciliation to settle. Fills converge in any delivery order. Cancels and
+amendments carry identities, so a retry is never a second request.
+
+**Execution algorithms, stated completely.** TWAP and VWAP on one trajectory
+with a stated urgency, apportioned to whole increments that sum exactly;
+participation of the volume actually observed; slicing; an iceberg-like tranche.
+Every release tops up to the trajectory, and every child carries the strategies
+that asked for its parent. Children are sent for the parent, and their fills
+settle on it through the canonical execution path.
+
+**Routing from supplied evidence, explained.** Each venue's quote, declared
+capabilities, cost model and latency; the lowest all-in cost or the best quoted
+price; one venue, a re-priced split or a partial route only where allowed. Every
+venue is judged and the reason recorded, and "no route exists" is kept apart
+from "the evidence could not show one".
+
+**Execution measured against named references.** Implementation shortfall
+split into delay, trading, explicit and opportunity costs and divided between
+the strategies that asked for the order; slippage against decision, arrival or
+interval VWAP; fill quality; latency across two clocks; rejection rate; venue
+quality. Per-currency totals always, and one reporting-currency total only at a
+stated, recorded rate.
+
+**Two reconciliations.** The mirror against the venue's own snapshot —
+freshness judged first, then every order, fill, position and balance — and the
+book against the mirror, with a parent worked in children joined to them.
+
+```text
+  strategies --> allocation --> OrderRequest (contributions) --> OMS parent (EXTERNAL)
+                                                                     |
+     CapabilityDeclaration --> check_compatibility --+                v
+                                                     |      TWAP / VWAP / participation / slicing / iceberg
+     VenueQuote + VenueProfile --> select_route -----+----->  ChildOrder --> route_child_order --> venue
+                                                                                                   |
+     VenueEvent --> apply_venue_event (one outcome each) --> mirror --> apply_broker_execution <---+
+                                                                |            (fills on the parent)
+                           reconcile_snapshot (mirror vs venue) +  reconcile_execution_state (book vs mirror)
+                                                                |
+            implementation shortfall, slippage, fill quality, latency, rejection rate, venue quality
+```
+
+AlphaLab names no vendor, holds no credential and opens no connection on any of
+these paths: an adapter is the application's, and AlphaLab's side of it is the
+contract. Full detail in
+[ADR-0044](docs/ADR/0044-universal-execution-contract-capabilities-lifecycle-algorithms-routing-and-execution-analytics.md)
+and [CHANGELOG.md](CHANGELOG.md).
+
+---
 
 ## What v3.8.0 is
 
@@ -690,6 +770,7 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v3.6.0** | Strategy evaluation: immutable strategy fingerprints over code, dependencies, parameters, research configuration and engine; reproducibility manifests with separate identity, completeness, rerun and external-dependency answers; eight machine-verifiable certification properties with no overall score; and portability checked against declared environment capabilities (ADR-0041) |
 | **v3.7.0** | Advanced quant research: one point-in-time statement of when information became knowable, canonical events, alternative data with source identity and versioned sets, point-in-time fundamentals, knowledge frames with a checked price join, event studies anchored where news could be traded, regime detection from declared rules, and adaptive strategies whose learned state replays exactly and reaches the run record (ADR-0042) |
 | **v3.8.0** | Advanced portfolio and risk: one risk model with stated currency, period and definiteness; constrained construction — minimum variance, mean-variance, maximum diversification, risk parity, robust, Black–Litterman, factor-neutral — by one certified solver that names conflicts; risk budgets along five dimensions; multi-strategy books with provenance across currencies; cross-strategy correlation, overlap and crowding; and capital allocation across strategies, markets, brokers, accounts and currencies (ADR-0043) |
+| **v3.9.0** | The universal execution contract: broker capabilities declared at venue, market and account level and checked three-valued; one order-transition table read by the OMS and the venue boundary, with every venue report given one outcome and cancels and amendments given identities; TWAP, VWAP, participation, slicing and iceberg-like algorithms whose children stay their parent's; route selection from supplied venue evidence, explained; implementation shortfall, slippage, fill quality, latency, rejection rate and venue quality; and snapshot reconciliation (ADR-0044) |
 
 > **What connectivity means here.** `alphalab.broker.transport.HttpVenueTransport`
 > signs and sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker`
@@ -772,6 +853,16 @@ what clock reading judges it, and holds no state of its own:
 | `backtesting.BacktestEngine` | a `MarketDataset` |
 | `backtesting.replay.ReplayBacktest` | `alphalab.replay`'s cursor |
 | `runtime.live.LiveSession` | a venue, through the settle/advance/route cycle |
+
+With routing `EXTERNAL` an accepted order stays working in the OMS, holding its
+capital, until a venue reports on it. Since v3.9 that path is one contract
+(ADR-0044): a capability report gates what is sent; `runtime.route_order` sends
+an order whole, or an execution algorithm's children go out through
+`route_child_order` for their parent; every venue report is applied to the
+mirror by `broker.apply_venue_event` with exactly one outcome; and a venue fill
+reaches the book through `apply_broker_execution` — the same step a simulated
+fill takes. `reconcile_snapshot` and `reconcile_execution_state` check the
+mirror against the venue and the book against the mirror.
 
 ## Instrument identity on the production path
 
@@ -969,6 +1060,11 @@ The recommended way to learn the framework is through the curated examples.
 | 58 | `58_multi_strategy_portfolio.py` | Three strategies' own books as one, every holding with its owners, valued in dollars and in euros with every conversion recorded — and refused without rates |
 | 59 | `59_cross_strategy_risk.py` | Strategies compared by returns (with the basis stated), by holdings, by factor crowding, by common exposures and by the capital they share |
 | 60 | `60_capital_allocation.py` | Capital across strategies, markets, two brokers, three accounts and three currencies, from a risk-parity construction to each run's budget and a fingerprint |
+| 61 | `61_broker_capability_model.py` | **The v3.9 execution contract**: capabilities declared at venue, market and account level, three-valued, checked per venue with every reason; contradictions refused; the v3.5 record projected from the same declaration |
+| 62 | `62_normalized_execution_lifecycle.py` | One transition table for the OMS and the venue; every venue report classified once; a fill crossing a cancel, amendments and retries with identities; out-of-order fills converging; a snapshot reconciliation |
+| 63 | `63_execution_algorithms.py` | TWAP and VWAP with a stated urgency, an incomplete profile refused or planned on time, top-up releases, participation of observed volume, slicing and an iceberg-like tranche |
+| 64 | `64_smart_routing.py` | A route chosen from supplied venue evidence with every venue explained; all-in cost against quoted price; a re-priced split; stale, look-ahead and foreign quotes; INFEASIBLE against INSUFFICIENT_EVIDENCE |
+| 65 | `65_execution_analytics.py` | Strategy → order → VWAP → capability check → normalized venue reports → reconciliation → implementation shortfall, slippage, latency, rejections and venue quality, in two currencies |
 
 Run any example:
 
@@ -983,10 +1079,12 @@ settlement-level multi-currency, `15`–`16` (v3.1) universal data ingestion and
 research from a canonical dataset, `17`–`24` (v3.2) the research and validation
 path, `25`–`30` (v3.3) institutional backtesting, `31`–`40` (v3.4) global
 markets, `41`–`45` (v3.5) strategy execution, `46`–`49` (v3.6) strategy
-evaluation, `50`–`55` (v3.7) point-in-time research and adaptive strategies, and
+evaluation, `50`–`55` (v3.7) point-in-time research and adaptive strategies,
 `56`–`60` (v3.8) portfolio construction, risk budgets, multi-strategy books,
-cross-strategy risk and capital allocation.
-None are part of the automated test suite, though all sixty run as a
+cross-strategy risk and capital allocation, and `61`–`65` (v3.9) the execution
+contract — capabilities, the normalized lifecycle, algorithms, routing and
+execution analytics.
+None are part of the automated test suite, though all sixty-five run as a
 release gate; `17`–`24` all ingest the same committed panel in
 `examples/data/research_panel.csv` so their numbers are comparable with each
 other.
@@ -1004,7 +1102,7 @@ The complete documentation is available in the `docs/` directory.
 | `docs/SYSTEM_DESIGN.md` | Internal design and subsystem interaction |
 | `docs/STATE_MODEL.md` | Immutable state, snapshots and schemas |
 | `docs/EVENT_MODEL.md` | Event-driven architecture and lifecycle |
-| `docs/ADR/` | Architectural Decision Records — 43 of them |
+| `docs/ADR/` | Architectural Decision Records — 44 of them |
 | `docs/EXAMPLES.md` | Example walkthroughs |
 | `docs/ENGINEERING_GUIDELINES.md` | Engineering standards |
 | `nowandfuture.md` | The long-form project reference: ownership, invariants, boundaries, what must not change casually |
@@ -1017,15 +1115,18 @@ The complete documentation is available in the `docs/` directory.
 ```text
 alphalab/
 ├── Execution spine (wired by runtime.ExecutionPipeline / runtime.run.RunEngine)
-│   core/          Canonical domain models — Side, OrderRequest, Fill, Trade, ids
-│   runtime/       ExecutionPipeline, RunEngine, drivers, broker routing, snapshots
+│   core/          Canonical domain models — Side, OrderRequest, Fill, Trade, ids,
+│                  and the v3.9 capability model and order-transition table (ADR-0044)
+│   runtime/       ExecutionPipeline, RunEngine, drivers, broker routing (v3.9: children
+│                  sent for their parent), snapshots
 │   strategy/      Strategy protocol, dispatcher, supervisor, class registry,
 │                  and the v3.7 adaptive engine (ADR-0042)
 │   allocation/    Intent sizing / netting → OrderRequest, reservations, contributions,
 │                  and v3.8 capital plans across accounts and currencies (ADR-0043)
 │   risk/          Pre-trade risk checks and limits
-│   oms/           Order lifecycle (oms.order.Order is canonical)
-│   execution/     Deterministic execution simulator, commission, fill policies
+│   oms/           Order lifecycle (oms.order.Order is canonical; reads core's table)
+│   execution/     Deterministic execution simulator, commission, fill policies, and
+│                  the v3.9 algorithms, routing and execution quality (ADR-0044)
 │   portfolio/     Cash ledger, positions, NAV, per-currency P&L, FX, FX feed,
 │                  and v3.8 multi-strategy books (ADR-0043)
 │   analytics/     Performance report, attribution, and the v3.8 risk model,
@@ -1061,7 +1162,9 @@ alphalab/
 │   feed/  live/   Standalone provider-surface engines
 │
 ├── Broker surfaces
-│   broker/        The canonical single-venue boundary (BrokerProtocol)
+│   broker/        The canonical single-venue boundary (BrokerProtocol), and the
+│                  v3.9 normalized venue events, request identities and snapshot
+│                  reconciliation (ADR-0044)
 │   brokers/       The many-venue connector framework (BrokerConnectorProtocol)
 │
 └── Standalone engines
@@ -1083,9 +1186,9 @@ Additional directories:
 
 ```text
 docs/          Documentation and ADRs
-examples/      60 runnable examples
-benchmarks/    58 performance benchmarks
-tests/         6713 tests — unit, integration, regression
+examples/      65 runnable examples
+benchmarks/    59 performance benchmarks
+tests/         7387 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
 
@@ -1095,10 +1198,10 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **6713 passing tests** (3538 unit, 381 integration, 2794 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1154 source files)
+- ✅ **7387 passing tests** (4123 unit, 398 integration, 2866 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1183 source files)
 - ✅ Ruff linting and formatting
-- ✅ 58 / 58 benchmarks, 60 / 60 examples
+- ✅ 59 / 59 benchmarks, 65 / 65 examples
 - ✅ Source distribution, wheel and `twine check` validation
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
@@ -1177,6 +1280,24 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
 - **Correlation of returns, similarity of holdings** — `CorrelationMatrix` and
   `StrategyCorrelation` always name their currency, period and sample;
   `ExposureSimilarity` compares what strategies hold and has neither.
+- **Two capability shapes** — v3.5's `BrokerCapabilities` is a deployment's
+  broker-wide, two-valued summary; v3.9's `CapabilityDeclaration` is scoped to
+  venue, market and account and three-valued. The first is *projected* from the
+  second, and the projection refuses what was never declared (ADR-0044).
+- **An assumption and a measurement** — `ExecutionReport.slippage` and
+  `ExecutionCosts` are what a cost model *assumed* for a fill; v3.9's
+  `measure_slippage` and `implementation_shortfall` measure what an order
+  achieved against a named reference. A routing decision's expected price is a
+  prediction of the same venue; neither is substituted for the other.
+- **Choosing a route and sending one** — `execution.select_route` decides where;
+  `runtime.route_order` and `route_child_order` send; an adapter connects.
+- **A child order is an instruction** — an algorithm's `ChildOrder` is sent as a
+  venue order *for* its parent OMS order, which keeps the reservation and the
+  strategies' contributions; the OMS never holds a child.
+- **Three reconciliations, two pairs** — `broker.reconcile` (the mirror against
+  loose venue records) and v3.9's `reconcile_snapshot` (against a whole,
+  dated snapshot) compare the same pair at two depths of evidence;
+  `lifecycle.reconcile_execution_state` compares the book with the mirror.
 - **Standalone engines with no in-repo consumer** — that is ADR-0009, not an
   orphan.
 - **No marketplace logic.** AlphaLab provides the evidence contracts — a
@@ -1216,6 +1337,11 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   views and their confidence, countries, the operator's sector data, FX rates,
   account balances, and the mapping from a broker or account identifier to an
   adapter and its credentials are all the caller's.
+- **Venues.** v3.9 ships the execution *contract* — capability declarations,
+  normalized venue events, request identities, algorithms, routing and
+  measurement — and no venue: the declaration for a real venue, its quotes,
+  volume profiles, printed volume and benchmark prices, and the adapter that
+  translates its messages into `VenueEvent`s are the application's.
 
 ## Optional future evolution — deliberately not built
 
@@ -1248,6 +1374,13 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   assembled from each strategy's own state, and an account's `CapitalBudget`
   enforces its total; a strategy's amount in it is what weight-based sizing
   reads (ADR-0015 §1).
+- Richer execution (ADR-0044): a venue sequence number on orders, so
+  amendments, positions and balances can be ordered by it (it would change
+  `BROKER_SNAPSHOT_SCHEMA`; a snapshot reconciliation is the check today);
+  persisting child bindings and the request ledger; a book-to-mirror
+  reconciliation across several brokers' accounts; an optimal split under fixed
+  fees or non-linear impact; urgency estimated from risk aversion, volatility and
+  impact; randomized iceberg tranches.
 - One measured trade left in place: `OptimizerState.pending_trials` stays
   super-linear because the fix was implemented, measured at **+3.9%** on the
   execution pipeline, and refused on that evidence. It is in a standalone package
@@ -1282,7 +1415,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v3.8.0**
+**AlphaLab v3.9.0**
 
 Building deterministic infrastructure for quantitative research.
 

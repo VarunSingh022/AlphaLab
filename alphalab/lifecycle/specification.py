@@ -74,6 +74,12 @@ stop orders, immediate-or-cancel, short selling and equities; it does not say
 which broker, and :class:`BrokerCapabilities` is a declaration an application
 fills in for whichever broker it has. AlphaLab holds no adapter, no credential
 and no client, and this module does not change that.
+
+Since v3.9 the authority for what a broker can do is
+:class:`~alphalab.core.capabilities.CapabilityDeclaration`, scoped to markets
+and accounts; :class:`BrokerCapabilities` is the broker-wide summary a
+specification reads, and :func:`broker_capabilities_from` derives it from a
+declaration so the two cannot disagree.
 """
 
 from __future__ import annotations
@@ -84,6 +90,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final
 
+from alphalab.core.capabilities import CapabilityDeclaration, MarketCapability, Support
 from alphalab.core.enums import AssetType, OrderType, TimeInForce
 from alphalab.data.dataset import Dataset
 from alphalab.lifecycle.exceptions import LifecycleInputError
@@ -102,6 +109,7 @@ __all__ = [
     "MarketAvailability",
     "MarketRequirements",
     "RuntimeRequirements",
+    "broker_capabilities_from",
     "build_specification",
     "dataset_assumption_from",
     "specification_for_version",
@@ -340,6 +348,99 @@ def unmet_broker_requirements(
             "them; rounding them would change its sizing."
         )
     return tuple(gaps)
+
+
+def broker_capabilities_from(
+    declaration: CapabilityDeclaration,
+    *,
+    listing_venues: frozenset[str],
+    asset_classes: frozenset[AssetType],
+    account_id: str,
+) -> BrokerCapabilities:
+    """The v3.5 record, projected from a v3.9 capability declaration, for one deployment.
+
+    A :class:`BrokerCapabilities` is broker-wide and two-valued; a
+    :class:`~alphalab.core.capabilities.CapabilityDeclaration` is scoped to
+    markets and accounts and three-valued. The projection answers for exactly the
+    markets the deployment trades -- every asset class in ``asset_classes`` on
+    every venue in ``listing_venues``, under ``account_id`` -- and is
+    conservative wherever the two shapes differ:
+
+    * **asset classes** -- those the broker offers on every one of the venues and
+      the account is permitted;
+    * **order types and times-in-force** -- the *intersection* across those
+      markets: offered only if every traded market accepts it;
+    * **short selling** -- every market permits it and so does the account;
+    * **fractional quantities** -- every market accepts them.
+
+    This is how an application declares once: the declaration it gives its
+    routing and its adapter is the one a specification and a portability check
+    read, through here.
+
+    Raises:
+        LifecycleInputError: If anything the record must state is undeclared --
+            a market, the account, or one of the answers it needs. The v3.5 record
+            cannot say "unknown", and projecting silence as either support or its
+            absence would invent an answer nobody gave; each gap is named so the
+            declaration can be completed.
+    """
+
+    if not listing_venues or not asset_classes:
+        raise LifecycleInputError(
+            "A projection names no listing venue or no asset class, so it describes no market."
+        )
+    gaps: list[str] = []
+    account = declaration.account_for(account_id)
+    if account is None:
+        gaps.append(f"account {account_id!r} is not declared")
+
+    markets: list[MarketCapability] = []
+    offered: set[AssetType] = set()
+    for asset_class in sorted(asset_classes):
+        if asset_class in declaration.unsupported_asset_classes:
+            continue
+        found = [declaration.market_for(asset_class, venue) for venue in sorted(listing_venues)]
+        missing = [
+            venue
+            for venue, market in zip(sorted(listing_venues), found, strict=True)
+            if market is None
+        ]
+        if missing:
+            gaps.append(f"the {asset_class} market is not declared on {missing}")
+            continue
+        markets.extend(market for market in found if market is not None)
+        if account is not None and asset_class in account.asset_classes:
+            offered.add(asset_class)
+
+    def answer(values: list[Support], what: str) -> bool:
+        if any(value is Support.UNDECLARED for value in values):
+            gaps.append(f"{what} is not declared for every traded market and the account")
+        return bool(values) and all(value is Support.SUPPORTED for value in values)
+
+    traded = [m for m in markets if m.asset_class in offered]
+    short_selling = answer(
+        [m.short_selling for m in traded] + ([account.short_selling] if account else []),
+        "short selling",
+    )
+    fractional = answer([m.fractional_quantities for m in traded], "fractional quantities")
+    if gaps:
+        raise LifecycleInputError(
+            f"Declaration {declaration.adapter_id!r} cannot be projected onto a broker-wide "
+            f"record: {'; '.join(gaps)}. State each as supported or unsupported."
+        )
+
+    order_types = frozenset(OrderType)
+    time_in_force = frozenset(TimeInForce)
+    for market in traded:
+        order_types &= market.order_types
+        time_in_force &= market.time_in_force
+    return BrokerCapabilities(
+        order_types=order_types if traded else frozenset(),
+        time_in_force=time_in_force if traded else frozenset(),
+        asset_classes=frozenset(offered),
+        short_selling=short_selling,
+        fractional_quantities=fractional,
+    )
 
 
 @dataclass(frozen=True, slots=True)

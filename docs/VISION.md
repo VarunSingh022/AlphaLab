@@ -30,7 +30,7 @@ Every component should follow these principles.
 
 # Current State
 
-As of **v3.0.0** the architecture is frozen; **v3.1.0** through **v3.8.0** are
+As of **v3.0.0** the architecture is frozen; **v3.1.0** through **v3.9.0** are
 additive to it.
 AlphaLab provides:
 
@@ -64,6 +64,13 @@ AlphaLab provides:
   one portfolio and valued across currencies; cross-strategy risk on a stated
   basis; and capital allocated across strategies, markets, brokers, accounts and
   currencies in the currency each account holds (v3.8).
+- **One execution contract, whichever adapter.** What a venue can do declared
+  where it is true and checked before anything is sent; one table of legal
+  order transitions for the OMS and the venue, with every venue report given
+  exactly one meaning; execution algorithms whose children stay their parent's;
+  routing decided from supplied evidence and explained; and execution measured
+  against named references — with no vendor, credential or connection inside
+  AlphaLab (v3.9).
 - **Standalone engines** for reporting, portfolio optimization, the feature
   store, ML / deep learning / RL, options, futures, crypto, macro, cloud
   research, cluster scheduling and the Workbench.

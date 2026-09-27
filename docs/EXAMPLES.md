@@ -16,8 +16,8 @@ Examples are intended to be read sequentially by new users and used as reference
 > (v2.17) drives an FX feed into a run that settles two currencies and reports
 > in one. `05_broker_connection.py` was rewritten in v2.17 against the canonical
 > broker boundary, having used `alphalab.integrations` until that package was
-> removed. None are part of the automated test suite, though all sixty run
-> as a release gate.
+> removed. None are part of the automated test suite, though all sixty-five
+> run as a release gate.
 > For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
 > under `tests/integration/` and `tests/regression/`.
@@ -337,6 +337,34 @@ or reads a clock; every figure they print is the same on every machine.
 
 ---
 
+# The execution contract (v3.9)
+
+Examples `61`–`65` are about **how an order reaches a venue and what it cost**:
+what a venue can do, what a venue's reports mean, how a parent order is worked
+in children, where each child should go, and what the execution achieved. All
+five read one small world written out in `examples/_execution_world.py` — one
+instrument, three venues behind three adapters that are labels, a morning in
+eight half-hour intervals with expected and printed volume, and a desk of two
+strategies on the canonical execution path with routing left `EXTERNAL`. The
+venue is `ScriptedVenue`, a deterministic stand-in at the external boundary:
+every acknowledgement, fill, expiry, cancel and rejection reaches AlphaLab as a
+normalized `VenueEvent`, the way an application's adapter would hand it over.
+None fetches anything, names a vendor, holds a credential or reads a clock;
+every figure they print is the same on every machine.
+
+| # | Shows |
+|---|---|
+| 61 | Capabilities declared at the venue, market and account levels; SUPPORTED, UNSUPPORTED and UNDECLARED kept apart, and UNDECLARED never read as yes; short selling and fractional quantities derived from the order; a compatibility report per venue with every check's dimension, level and reason; one flat capability answered for a stated scope; contradictory declarations refused; identities that ignore listing order; and the v3.5 deployment record projected from the same declaration — refused where it would have to invent an answer |
+| 62 | The canonical transition table and how a reported status is judged against a held one; one order's reports classified — a fill before its acknowledgement, the late acknowledgement, a redelivered fill, an amendment and its retry, a fill crossing a cancel, a refused cancel, a second cancel, a fill after the cancel landed and an event for an unknown order; positions, balances, a disconnect and a reconnect requiring a resync; fills out of order converging; a snapshot reconciliation that agrees, one that finds the contested fill, and one taken too early to compare; and the OMS refusing by the same table |
+| 63 | TWAP straight and front-loaded and VWAP on a stated profile, apportioned by largest remainder; an incomplete profile refused, or planned on time and recorded as such; a VWAP worked with top-up releases that catch up an expired child; participation of observed volume with a withheld child, an unobserved interval and both end-of-window policies; slicing by size and by count; an iceberg-like tranche with its hidden remainder, cancelled with a crossing fill still counted; and identities in the research record |
+| 64 | Each venue's quote, declaration, cost model and latency; a limit buy routed whole or split and re-priced; best quoted price with a tie broken by latency; a stale quote, an unprofiled venue quoting in euros, a look-ahead quote, a latency cap, a limit outside the touch and an undeclared short-sale capability, each explained; INFEASIBLE, PARTIAL and INSUFFICIENT_EVIDENCE told apart; decision identities that ignore listing order; and the policy in the research record |
+| 65 | Two strategies netted into one parent under `EXTERNAL` routing; a VWAP working it; a capability refusal before anything is sent; each child routed and its venue reports applied to the mirror and settled on the parent, a partial expiry caught up and a redelivered fill booking nothing; a second order rejected by the venue and its reservation freed; the mirror reconciled against the venue's snapshot and the book against the mirror, children included, and a planted break found; implementation shortfall with delay, trading, explicit and opportunity components split between the strategies; slippage against three named references; fill quality; latency across two clocks; rejection rate and venue quality; a euro order's shortfall kept apart and converted only at a stated rate, sterling refused; and every identity reproduced by a rerun |
+
+`61` assumes `05` and `42`. `62` assumes `05`, `45` and `61`. `63` assumes `25`,
+`26` and `62`. `64` assumes `25` and `61`, and `65` assumes `45` and `61`–`64`.
+
+---
+
 # Additional engines
 
 The feature store, machine learning, cloud research, enterprise, and other
@@ -371,6 +399,12 @@ v3.7 added `50`–`55` for point-in-time research and adaptive strategies. The
 v3.8 added `56`–`60` for portfolio construction and risk. The
 **portfolio optimizer**, which had one example (`06`), has two; `analytics`,
 `portfolio` and `allocation` each gained examples for their v3.8 surfaces.
+
+v3.9 added `61`–`65` for the universal execution contract. The **execution**
+package's algorithms, routing and quality measurements have their first
+examples (`63`–`65`), and the **broker** boundary, which had `05` and `45`, gains
+two (`61`, `62`) for its capability model, normalized lifecycle, request
+identities and snapshot reconciliation.
 
 ---
 

@@ -108,6 +108,18 @@ event is about *my* order, a broker one about the venue's handle. Routing
 therefore matches the **module and the name together**, never the bare name;
 matching on the name alone was a real defect, fixed in v2.16 (ADR-0032).
 
+**What a venue reports is not an engine event** (v3.9, ADR-0044).
+`core.lifecycle.ExecutionEventKind` names twelve normalized things a venue can
+say — an acknowledgement, a rejection, a partial or complete fill, a cancel, an
+expiry, an amendment, a refused cancel, a position, a balance, a disconnect and
+a reconnect — and `broker.lifecycle.VenueEvent` carries one. An adapter
+translates its venue's messages into them; `broker.apply_venue_event` judges each
+against the one order-transition table and applies it to the mirror, with
+exactly one outcome. They are evidence from outside, not a record of a state
+change inside AlphaLab: none is appended to `BrokerState.events`, whose event
+types are a closed set its snapshot decodes, and the decisions about them are
+the caller's to keep.
+
 ---
 
 # Event Ordering

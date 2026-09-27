@@ -1,6 +1,6 @@
 # AlphaLab Examples
 
-Sixty runnable scripts, each demonstrating one part of AlphaLab against
+Sixty-five runnable scripts, each demonstrating one part of AlphaLab against
 its real public API. Every one of them runs:
 
 ```bash
@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all sixty are executed as a
+paths far more thoroughly under `tests/` — but all sixty-five are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -78,6 +78,11 @@ API.
 | 58 | `58_multi_strategy_portfolio.py` | Three strategies' own books in dollars, euros and yen as one book: every holding with its owners, crossed and opposing positions visible, valued in dollars and reconciled to the cent, every conversion recorded; euros refused until a cross is derived by name; valuations refused without rates or with a rate from the future |
 | 59 | `59_cross_strategy_risk.py` | Strategies correlated by returns with the basis stated, and mixed currencies refused; overlap of holdings; factor crowding from the factor library's panels; common exposures by instrument, currency and sector; capital concentration and shared pools |
 | 60 | `60_capital_allocation.py` | Capital across strategies, markets, two brokers, three accounts and three currencies: weights from a risk-parity construction, every account reconciled exactly, limits on five dimensions, refusals and stated `PRO_RATA` scaling, the allocation becoming a run's budget, and a fingerprint naming the construction and the capital |
+| 61 | `61_broker_capability_model.py` | **The v3.9 execution contract**: three adapters' capabilities declared at the venue, market and account level where each is true; SUPPORTED, UNSUPPORTED and UNDECLARED kept apart; what an order needs derived from the order; a report per venue with every check's level and reason; contradictory declarations refused; identities that ignore listing order; the v3.5 deployment record projected from the same declaration, and refused where it would have to invent an answer |
+| 62 | `62_normalized_execution_lifecycle.py` | One transition table read by the OMS and the venue boundary; every venue report classified once — applied, duplicate, stale, conflict, unknown order or invalid — through a fill before its acknowledgement, an amendment, a fill crossing a cancel, a refused cancel and a fill after the cancel landed; cancels and amendments with identities so a retry is never a second request; fills out of order converging; a reconnect and the snapshot reconciliation it demands |
+| 63 | `63_execution_algorithms.py` | TWAP and VWAP as one construction with a stated urgency and whole increments by largest remainder; an incomplete volume profile refused or replaced by time and recorded; a schedule worked with top-up releases that catch up an expired child; participation of observed volume with minimum and maximum children and a stated end-of-window rule; slicing and an iceberg-like tranche; strategies carried by every child; identities in the research record |
+| 64 | `64_smart_routing.py` | A route chosen from supplied venue evidence — quote, declared capabilities, cost model, latency — with every venue judged and explained; lowest all-in cost against best quoted price; one venue, a re-priced split and a partial route only where allowed; stale, look-ahead and foreign-currency quotes, a latency cap, a limit and an undeclared capability; INFEASIBLE kept apart from INSUFFICIENT_EVIDENCE; decision identities that ignore listing order |
+| 65 | `65_execution_analytics.py` | **The whole contract end to end**: two strategies netted into one parent, worked by a VWAP, each child capability-checked and sent, every venue report normalized and settled on the parent; the mirror reconciled against the venue and the book against the mirror; implementation shortfall with its components split between the strategies, slippage against three named references, fill quality, latency across two clocks, rejection rate and venue quality; two currencies converted only at a stated rate; every identity reproduced by a rerun |
 
 ## Reading order
 
@@ -125,6 +130,13 @@ from one stated risk model, **57** asks where a multi-strategy book's risk comes
 from, **58** is that book — three strategies' own books valued as one across
 three currencies — **59** compares the strategies with each other, and **60**
 divides capital between them and hands each run its budget.
+
+`61`–`65` are the v3.9 sequence and read in order: **61** states what a venue
+can do, **62** what a venue's reports mean, **63** how a parent order is worked
+in children, **64** where each one should go, and **65** runs all of it end to
+end — strategy, order, algorithm, capability check, normalized venue reports,
+reconciliation — before measuring what the execution cost. Read **65** last: it
+is the one that shows the pieces are one contract.
 
 `05_broker_connection.py` was rewritten in v2.17 against the canonical broker
 boundary, having used `alphalab.integrations` until that package was removed
@@ -204,6 +216,21 @@ Instruments are identified by ticker for legible tables, except in `57`, which
 reads sectors from the registry by canonical `asset_id` and says where it
 re-keys. `60` also fingerprints the strategy `_strategy_evidence.py` defines.
 Nothing is fetched and no vendor is named.
+
+`61`–`65` share one small world, written out in `examples/_execution_world.py`:
+one instrument listed in New York in dollars; three venues reached through three
+adapters labelled `adapter-north`, `adapter-south` and `adapter-east`, each with a
+capability declaration, a cost model of the v3.3 kind and a latency; one morning
+in eight half-hour intervals with the volume a desk's profile expects, the
+volume the tape printed (one half hour's print lost, and `None` rather than
+zero) and the midpoint at each interval's start; and a desk of two strategies on
+the canonical execution path with routing left `EXTERNAL`. The venue itself is
+`ScriptedVenue`, a deterministic stand-in at the external boundary that records
+a submission and does nothing else on its own: every acknowledgement, fill,
+expiry, cancel and rejection is handed to AlphaLab as a normalized event, as an
+application's adapter would. `65`'s second-currency order has its fills written
+out in the file. Nothing is fetched, no clock is read, no vendor is named and no
+credential exists; every figure the five print is deterministic.
 
 See `examples/data/README.md` for what each dataset contains.
 

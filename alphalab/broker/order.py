@@ -27,16 +27,26 @@ canonical lifecycle -- but there is one set of them, shared by every adapter,
 rather than one per package.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, auto
+from types import MappingProxyType
+from typing import Final
 
 from alphalab.core.enums import OrderStatus as CoreOrderStatus
 from alphalab.core.enums import OrderType as CoreOrderType
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.enums import TimeInForce as CoreTimeInForce
+from alphalab.core.lifecycle import TERMINAL_ORDER_STATUSES
 
-__all__ = ["BrokerOrder", "BrokerOrderStatus"]
+__all__ = [
+    "BROKER_LOCAL_EQUIVALENTS",
+    "BROKER_STATUS_EQUIVALENTS",
+    "BrokerOrder",
+    "BrokerOrderStatus",
+    "canonical_status",
+]
 
 
 class BrokerOrderStatus(Enum):
@@ -55,6 +65,65 @@ class BrokerOrderStatus(Enum):
 
     #: Cancel requested; the venue has not confirmed it.
     PENDING_CANCEL = auto()
+
+
+#: Which canonical statuses each broker-local status is *consistent with*.
+#:
+#: A broker-local status describes something in flight between AlphaLab and a
+#: venue, so the canonical status the other side holds may be any of several:
+#: an order ``SUBMITTED`` and not yet acknowledged is ``NEW``, ``PENDING`` or
+#: already ``ACCEPTED`` depending on which message has arrived. Comparing the
+#: two vocabularies for equality would report every in-flight order as a break.
+#:
+#: Stated in v3.5 in :mod:`alphalab.lifecycle.reconciliation`, which compares the
+#: OMS book against this mirror, and moved here in v3.9, beside the statuses it
+#: relates, because the venue-snapshot reconciliation in
+#: :mod:`alphalab.broker.reconciliation` needs the same relation and may not
+#: import the lifecycle package. The lifecycle module re-exports this object.
+BROKER_STATUS_EQUIVALENTS: Final[Mapping[BrokerOrderStatus, frozenset[CoreOrderStatus]]] = (
+    MappingProxyType(
+        {
+            BrokerOrderStatus.PENDING_SUBMIT: frozenset(
+                {CoreOrderStatus.NEW, CoreOrderStatus.PENDING, CoreOrderStatus.ACCEPTED}
+            ),
+            BrokerOrderStatus.SUBMITTED: frozenset(
+                {CoreOrderStatus.NEW, CoreOrderStatus.PENDING, CoreOrderStatus.ACCEPTED}
+            ),
+            BrokerOrderStatus.PENDING_CANCEL: frozenset(
+                {
+                    CoreOrderStatus.CANCEL_PENDING,
+                    CoreOrderStatus.ACCEPTED,
+                    CoreOrderStatus.PARTIALLY_FILLED,
+                }
+            ),
+        }
+    )
+)
+
+#: The *one* canonical status each broker-local status behaves as, for transitions.
+#:
+#: ``PENDING_SUBMIT`` is an order not yet sent, which is ``NEW``; ``SUBMITTED``
+#: is one sent and not acknowledged, which is ``PENDING``; ``PENDING_CANCEL`` is
+#: ``CANCEL_PENDING`` under the name the venue boundary has always used. Where
+#: :data:`BROKER_STATUS_EQUIVALENTS` answers "which statuses could the other side
+#: hold?", this answers "which row of
+#: :data:`~alphalab.core.lifecycle.ORDER_TRANSITIONS` does this order read?" --
+#: and each answer here is a member of the set there.
+BROKER_LOCAL_EQUIVALENTS: Final[Mapping[BrokerOrderStatus, CoreOrderStatus]] = MappingProxyType(
+    {
+        BrokerOrderStatus.PENDING_SUBMIT: CoreOrderStatus.NEW,
+        BrokerOrderStatus.SUBMITTED: CoreOrderStatus.PENDING,
+        BrokerOrderStatus.PENDING_CANCEL: CoreOrderStatus.CANCEL_PENDING,
+    }
+)
+
+
+def canonical_status(status: CoreOrderStatus | BrokerOrderStatus) -> CoreOrderStatus:
+    """The canonical status an order in ``status`` behaves as."""
+
+    if isinstance(status, BrokerOrderStatus):
+        return BROKER_LOCAL_EQUIVALENTS[status]
+    return status
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,12 +177,9 @@ class BrokerOrder:
         """Whether the venue can never report another fill for this order.
 
         A terminal order that receives a fill is a reconciliation failure, not a
-        lifecycle transition -- see :mod:`alphalab.broker.reconciliation`.
+        lifecycle transition -- see :mod:`alphalab.broker.reconciliation`. The set
+        is :data:`~alphalab.core.lifecycle.TERMINAL_ORDER_STATUSES`, the one the
+        OMS reads; no broker-local status is terminal.
         """
 
-        return self.status in {
-            CoreOrderStatus.FILLED,
-            CoreOrderStatus.CANCELLED,
-            CoreOrderStatus.REJECTED,
-            CoreOrderStatus.EXPIRED,
-        }
+        return self.status in TERMINAL_ORDER_STATUSES

@@ -73,6 +73,16 @@ capital plans; and `factor_library`, `api` and `lifecycle` gain the joins. No
 package is added, three package edges are, none a cycle, and no snapshot schema
 changes. ADR-0043.
 
+**v3.9.0** is the ninth, and is the path from a decision to a venue and back as
+one contract, whichever adapter an application brings: what a venue can do,
+declared where it is true and checked before anything is sent; one table of
+legal order transitions for the OMS and the venue, with every venue report given
+exactly one meaning; execution algorithms whose children stay their parent's;
+routing decided from supplied evidence and explained; and execution measured
+against named references. `alphalab.core`, `broker`, `execution`, `runtime` and
+`lifecycle` deepen; no package and no package edge is added, and no snapshot
+schema changes. ADR-0044.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
@@ -184,6 +194,50 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.9.0 — the universal execution contract
+
+The ninth capability release on the frozen architecture. No package and no
+package edge added, no schema touched. ADR-0044.
+
+- **Capabilities declared where they are true** — `CapabilityDeclaration` at
+  venue, market and account level, every answer `SUPPORTED`, `UNSUPPORTED` or
+  `UNDECLARED`; `order_requirements` derives short sales and fractional
+  quantities from the order; `check_compatibility` is `COMPATIBLE` only when
+  every check is supported. The v3.5 `BrokerCapabilities` is projected from a
+  declaration, refusing what was never declared.
+- **One order lifecycle** — twelve normalized `ExecutionEventKind`s and
+  `ORDER_TRANSITIONS`, read by `oms.order.Order` and by the venue boundary; every
+  `VenueEvent` applied with one outcome (applied, duplicate, stale, conflict,
+  unknown order, invalid); fills converge in any delivery order; a fill during a
+  pending cancel keeps the cancel pending.
+- **Idempotent requests** — `CancelRequest` and `ModifyRequest` identified by
+  content and sequence, issued against a `RequestLedger`: a retry is recognised,
+  never sent twice.
+- **Snapshot reconciliation** — the mirror against a dated `VenueSnapshot`,
+  freshness first, then every order, fill, position and balance, thirteen
+  divergence kinds.
+- **Execution algorithms** — TWAP, VWAP, participation, slicing and iceberg-like,
+  with a stated urgency and whole-increment apportionment; top-up releases;
+  children that carry the parent's strategies and settle on the parent through
+  the canonical path, sent by `runtime.route_child_order` behind five gates.
+- **Smart routing** — `select_route` from supplied quotes, declarations, cost
+  models and latencies; every venue judged with a reason; single, split and
+  partial routes; `INFEASIBLE` kept apart from `INSUFFICIENT_EVIDENCE`.
+- **Execution analytics** — implementation shortfall with its components and
+  each strategy's share, slippage against a named reference, fill quality,
+  latency with clock sources, rejection rate, venue quality, and per-currency and
+  FX-converted reports.
+- **Lifecycle** — child orders in book-to-mirror reconciliation, and
+  `research_configuration_with_execution` putting algorithm and routing
+  identities in a fingerprint's research settings; the key is unchanged.
+- **Found and fixed before release** — the OMS and the mirror disagreeing about a
+  fill during a pending cancel; `EXPIRED` missing from the cancel validation;
+  amendments validated as cancels; `reconcile` collapsing duplicated remote
+  records and subtracting cash across currencies; OMS fills that could leave a
+  `FILLED` order working or overfilled; the strategy split computing in the
+  caller's decimal context; and two quadratic paths in the draft, found by the
+  complexity guards.
 
 ## v3.8.0 — advanced portfolio and risk
 
@@ -714,6 +768,24 @@ future "simplification" would have to break first —
 - **No broker adapter in capital allocation.** A broker and an account are
   identifiers an application maps to its own adapters and credentials, none of
   which reach AlphaLab (v3.8).
+- **No capability discovery, and no silence read as support.** A venue's
+  capabilities are declared by the application that has the adapter; an answer
+  nobody gave is `UNDECLARED`, and a check that meets one is `UNDETERMINED` —
+  never compatible (v3.9).
+- **No vendor inside the execution contract.** Adapters translate their venue's
+  messages into normalized events; AlphaLab names no venue, holds no credential,
+  opens no connection and defines no vendor message structure (v3.9).
+- **No venue event in the broker's event log.** Normalized events are judged and
+  applied to the mirror; `BrokerState.events` keeps its closed set of types and
+  the broker snapshot schema is unchanged (v3.9).
+- **No retry of a venue's refusal.** A rejected child fails its algorithm run;
+  what to do next is the caller's decision (v3.9).
+- **No conversion inside a routing decision.** A venue quoting in another
+  currency is ineligible, not converted; routing compares like with like
+  (v3.9).
+- **No default urgency, quote age or tolerance, and no best-execution claim.**
+  Each is a choice with no neutral value; whether an order may be routed away
+  from a venue at all is not something AlphaLab knows (v3.9).
 
 ---
 
@@ -779,6 +851,10 @@ Real, and not AlphaLab's engineering to complete.
   and their confidence, factor data, FX rates, account balances and the mapping
   from a broker or account identifier to an adapter and its credentials are the
   caller's.
+- **Venues.** v3.9 adds the execution *contract* and **not one venue**: the
+  capability declaration for a real venue, its quotes, volume profiles, printed
+  volume and benchmark prices, and the adapter that translates its messages into
+  `VenueEvent`s are the application's.
 
 ---
 
@@ -903,6 +979,19 @@ Could be built. Nothing depends on any of it, and no commitment is made here.
 - **A rerun harness.** A rerun is the caller's to perform from a manifest's
   declared inputs; the lifecycle constructs and executes nothing (ADR-0033
   decision 5), so a harness would live beside the execution path, not in it.
+- **A venue sequence number on orders** (ADR-0044), so amendments, positions and
+  balances delivered out of order can be ordered by it. It would change
+  `BROKER_SNAPSHOT_SCHEMA`; until then delivering them in order is the adapter's
+  stated obligation and a snapshot reconciliation is the check.
+- **Persisting child bindings and the request ledger.** Both are values the
+  caller holds; bindings rebuild from the mirror, and a lost ledger is safe
+  because cancels and amendments are absolute at a venue.
+- **A book-to-mirror reconciliation across several brokers' accounts.**
+  `reconcile_execution_state` compares a pipeline's book with one mirror.
+- **An optimal split** under per-trade fees or non-linear impact; v3.9's sweep is
+  greedy, and each leg's own price shows what it costs.
+- **Urgency estimated** from risk aversion, volatility and impact rather than
+  stated, and **randomized iceberg tranches**.
 
 ---
 
@@ -949,6 +1038,16 @@ the manager's cost estimate includes `CostModel.spread_rate`, in a new last fiel
 `TransactionCostEstimate.estimated_spread` defaulting to zero; and
 `ConstraintViolated` reports the weight the constraints moved rather than the
 constant `1.0`.
+
+**v3.9.0** made five, each a state no venue can report or an input a result
+cannot describe, now refused: `oms.order.Order.fill` must complete the order
+exactly and `partial_fill` must leave quantity working (a `FULL_FILL` short of
+the order, from `fill_status` or `StaticFill`, now raises
+`InvalidTransitionError`), a fill must be positive, and `replace` must leave
+something to work; a fill during a pending cancel keeps the cancel pending in
+the mirror; `validate_cancel_request` refuses `EXPIRED` and `replace_order`
+validates an amendment; and `broker.reconcile` refuses duplicated remote records
+and a remote account in another currency.
 
 After v3.0.0, the bar for a change rises: the invariants listed in
 `nowandfuture.md` are frozen, and a change to any of them is a major release with

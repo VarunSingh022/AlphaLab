@@ -1377,7 +1377,9 @@ def test_the_two_reconciliations_compare_two_different_pairs() -> None:
     book = set(inspect.signature(reconcile_execution_state).parameters)
 
     assert mirror == {"state", "remote_orders", "remote_positions", "remote_account"}
-    assert book == {"pipeline", "broker", "mapping", "symbols", "tolerances"}
+    # v3.9 added ``children`` -- an algorithm's child venue orders, joined to the
+    # one OMS order they work. Still AlphaLab's book against the mirror.
+    assert book == {"pipeline", "broker", "mapping", "symbols", "tolerances", "children"}
     assert mirror & book == set(), "the two take no argument in common"
 
     mirror_type: type = ReconciliationReport
@@ -2075,3 +2077,206 @@ def test_an_asset_target_and_a_placement_weight_are_named_apart() -> None:
     assert {"portfolio_id", "timestamp", "weights"} == asset_targets
     assert {"weights", "source"} == placement_rule
     assert "TargetWeights" not in allocation.__all__
+
+
+# --------------------------------------------------------------------------- #
+# 44. "capabilities" -- a deployment's broker-wide summary, and a venue's
+#     scoped declaration (v3.9)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_capability_summary_is_a_projection_of_the_capability_declaration() -> None:
+    """``lifecycle.BrokerCapabilities`` (v3.5) answers "can this broker run this
+    *deployment*?": broker-wide and two-valued. ``core.CapabilityDeclaration``
+    (v3.9) answers "can this venue take this *order*?": scoped to markets and
+    accounts, and three-valued, so "the broker says no" and "nobody said" differ.
+
+    They are not two authorities. The summary is derived from the declaration by
+    ``broker_capabilities_from``, which refuses to project silence rather than
+    turn it into either answer -- so an application declares once.
+    """
+
+    from alphalab.core.capabilities import CapabilityDeclaration, Support
+    from alphalab.lifecycle.specification import BrokerCapabilities, broker_capabilities_from
+
+    summary = {field.name for field in dataclasses.fields(BrokerCapabilities)}
+    declaration = {field.name for field in dataclasses.fields(CapabilityDeclaration)}
+    assert {"markets", "accounts", "unsupported_features"} <= declaration
+    assert not {"markets", "accounts"} & summary
+    two_valued = {f.name: f.type for f in dataclasses.fields(BrokerCapabilities)}
+    assert two_valued["short_selling"] == "bool"
+    assert two_valued["fractional_quantities"] == "bool"
+    assert Support.UNDECLARED.value == "undeclared"
+    assert inspect.signature(broker_capabilities_from).return_annotation == "BrokerCapabilities"
+
+
+# --------------------------------------------------------------------------- #
+# 45. "execution report" -- a fill for the book, a venue's fill, a normalized
+#     report of anything, an engine notification, and their vocabulary (v3.9)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_five_execution_report_shaped_things_are_five_things() -> None:
+    """``execution.ExecutionReport`` is a fill the *portfolio* consumes.
+    ``broker.BrokerExecution`` (``brokers.ExecutionReport`` under its historical
+    name) is a fill *as the venue reported it*, keyed by the venue's id.
+    ``broker.lifecycle.VenueEvent`` (v3.9) is *any* normalized venue report -- an
+    acknowledgement, a rejection, an amendment, a disconnect -- and carries a
+    ``BrokerExecution`` only when it is a fill. ``execution.events.ExecutionEvent``
+    is the simulator's notification of what it did. ``ExecutionEventKind`` is the
+    vocabulary the normalized report is written in.
+
+    Merging any two would make a fill that reached the venue and a fill that
+    reached the book one record -- and the book-to-mirror reconciliation compares
+    exactly those two.
+    """
+
+    import alphalab.brokers as brokers
+    from alphalab.broker.execution import BrokerExecution
+    from alphalab.broker.lifecycle import VenueEvent
+    from alphalab.core.lifecycle import ExecutionEventKind
+    from alphalab.execution.events import ExecutionEvent
+    from alphalab.execution.report import ExecutionReport
+
+    assert brokers.ExecutionReport is BrokerExecution
+    book_fill: type = ExecutionReport
+    assert book_fill is not BrokerExecution
+    assert {"execution_id", "venue", "currency", "strategy_id"} <= {
+        f.name for f in dataclasses.fields(ExecutionReport)
+    }
+    assert "strategy_id" not in {f.name for f in dataclasses.fields(BrokerExecution)}
+    assert {"kind", "execution", "position", "account"} <= {
+        f.name for f in dataclasses.fields(VenueEvent)
+    }
+    assert not issubclass(VenueEvent, ExecutionEvent)
+    assert len(ExecutionEventKind) == 12
+
+
+# --------------------------------------------------------------------------- #
+# 46. "slippage" and "latency" -- an assumption, and a measurement (v3.9)
+# --------------------------------------------------------------------------- #
+
+
+def test_an_assumed_cost_and_a_measured_one_are_different_functions() -> None:
+    """``SlippageModel`` and ``LatencyModel`` are *assumptions* a simulation is
+    configured with: the concession a fill is priced with, the delay a fill is
+    stamped with. ``measure_slippage`` and ``measure_latency`` (v3.9) are
+    *measurements* of what happened, against a named reference or between two
+    named instants. ``ExecutionReport.slippage`` records the assumed concession
+    and is zero -- unmeasured -- for a venue fill; the measurement never reads it.
+
+    One name for both would let a backtest's assumption be reported as an
+    execution-quality finding.
+    """
+
+    from alphalab.execution import quality
+    from alphalab.execution.latency import LatencyModel
+    from alphalab.execution.slippage import SlippageModel
+
+    assert set(inspect.signature(SlippageModel.calculate).parameters) == {
+        "self",
+        "fill_quantity",
+        "fill_price",
+        "side",
+    }
+    assert "reference" in inspect.signature(quality.measure_slippage).parameters
+    assert set(inspect.signature(LatencyModel.calculate).parameters) == {
+        "self",
+        "order_id",
+        "current_timestamp",
+    }
+    assert {"start", "end"} <= set(inspect.signature(quality.measure_latency).parameters)
+    assert ".slippage" not in inspect.getsource(quality).replace("ExecutionReport.slippage", "")
+
+
+# --------------------------------------------------------------------------- #
+# 47. "routing" -- choosing where, and sending (v3.9)
+# --------------------------------------------------------------------------- #
+
+
+def test_route_selection_and_route_sending_are_two_modules_and_two_decisions() -> None:
+    """``execution.routing.select_route`` decides *where* an order should go,
+    from supplied evidence, and touches no venue. ``runtime.broker_routing``
+    *sends* an order through an adapter and records whether it was sent. Their
+    decisions are ``RouteDecision`` and ``RoutingDecision`` and answer different
+    questions: which venues, at what expected price; and did it go, or why not.
+
+    Keeping them apart is the boundary v3.9 states: AlphaLab selects and
+    instructs; an application's adapter connects.
+    """
+
+    from alphalab.execution.routing import RouteDecision, select_route
+    from alphalab.runtime.broker_routing import RoutingDecision, route_order
+
+    selection: type = RouteDecision
+    assert selection is not RoutingDecision
+    assert "legs" in {f.name for f in dataclasses.fields(RouteDecision)}
+    assert {"routed", "refusal", "reason"} == {f.name for f in dataclasses.fields(RoutingDecision)}
+    assert "broker" not in inspect.signature(select_route).parameters
+    assert "broker" in inspect.signature(route_order).parameters
+
+
+# --------------------------------------------------------------------------- #
+# 48. "order" -- a proposal, a lifecycle order, a venue order, an instruction
+# --------------------------------------------------------------------------- #
+
+
+def test_a_child_order_is_an_instruction_not_a_fourth_order_model() -> None:
+    """``OrderRequest`` proposes; ``oms.Order`` is the order's life; ``BrokerOrder``
+    is it at the venue. ``ChildOrder`` (v3.9) is an execution algorithm's
+    instruction -- what to send, when, for whom -- and has no status, no fill and
+    no lifecycle: it becomes a ``BrokerOrder`` for its parent when routed, and
+    its fills settle on the parent's ``oms.Order``.
+    """
+
+    from alphalab.broker.order import BrokerOrder
+    from alphalab.execution.algorithms import ChildOrder
+    from alphalab.oms.order import Order
+
+    child = {f.name for f in dataclasses.fields(ChildOrder)}
+    assert {"parent_order_id", "sequence", "contributions", "algorithm_id"} <= child
+    assert not {"status", "filled_quantity"} & child
+    assert "status" in {f.name for f in dataclasses.fields(Order)}
+    assert "status" in {f.name for f in dataclasses.fields(BrokerOrder)}
+
+
+# --------------------------------------------------------------------------- #
+# 49. "lifecycle" -- the order lifecycle is a fourth axis (v3.9)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_order_lifecycle_is_about_an_order_not_a_strategy() -> None:
+    """Section 23's three state machines are about strategies and artifacts.
+    ``core.lifecycle.ORDER_TRANSITIONS`` is about one *order*, over the canonical
+    ``OrderStatus``, and it is the table both the OMS and the venue boundary
+    read. It shares no member with the strategy progression.
+    """
+
+    from alphalab.core.enums import OrderStatus
+    from alphalab.core.lifecycle import ORDER_TRANSITIONS
+    from alphalab.lifecycle.progression import StrategyLifecycleStage
+
+    assert set(ORDER_TRANSITIONS) == set(OrderStatus)
+    assert not {s.name for s in OrderStatus} & {s.name for s in StrategyLifecycleStage}
+
+
+# --------------------------------------------------------------------------- #
+# 50. "reconcile" -- one pair, two depths of evidence (extends section 24)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_snapshot_reconciliation_compares_the_mirror_pair_with_more_evidence() -> None:
+    """``reconcile_snapshot`` (v3.9) compares the same pair as ``reconcile`` --
+    the mirror against the venue -- from a whole, timestamped snapshot: stale
+    evidence is not compared, duplicated evidence is reported, and every field is
+    compared on its own. It is not a third pair, and it takes nothing
+    ``reconcile_execution_state`` takes.
+    """
+
+    from alphalab.broker.reconciliation import reconcile, reconcile_snapshot
+    from alphalab.lifecycle.reconciliation import reconcile_execution_state
+
+    snapshot = set(inspect.signature(reconcile_snapshot).parameters)
+    assert {"state", "snapshot", "evaluated_at", "max_age_seconds"} == snapshot
+    assert "state" in inspect.signature(reconcile).parameters
+    assert not snapshot & set(inspect.signature(reconcile_execution_state).parameters)

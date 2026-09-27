@@ -1,6 +1,40 @@
-"""Public core domain API for AlphaLab."""
+"""Public core domain API for AlphaLab.
 
-from alphalab.core.contribution import StrategyContribution, contributions_from
+The canonical execution domain models every package on the execution path reads
+(ADR-0008) -- side, order request, fill, trade, strategy contribution and the
+shared enums -- and, since v3.9, the two contracts both sides of the broker
+boundary read: what a venue can do (:mod:`alphalab.core.capabilities`) and which
+order transitions exist (:mod:`alphalab.core.lifecycle`). See ADR-0044.
+"""
+
+from alphalab.core.capabilities import (
+    ANY_LISTING_VENUE,
+    CAPABILITY_DECLARATION_SCHEME,
+    CAPABILITY_LEVELS,
+    COMPATIBILITY_REPORT_SCHEME,
+    EXECUTION_REQUIREMENTS_SCHEME,
+    ORDER_TYPE_CAPABILITIES,
+    VENUE_FEATURES,
+    AccountCapability,
+    Capability,
+    CapabilityCheck,
+    CapabilityDeclaration,
+    CapabilityLevel,
+    Compatibility,
+    CompatibilityReport,
+    ExecutionRequirements,
+    MarketCapability,
+    RequirementDimension,
+    Support,
+    check_compatibility,
+    order_requirements,
+    supports,
+)
+from alphalab.core.contribution import (
+    StrategyContribution,
+    contributions_from,
+    split_by_contribution,
+)
 from alphalab.core.enums import AssetType, EventType, OrderStatus, OrderType, Side, TimeInForce
 from alphalab.core.exceptions import AlphaLabCoreError, DomainValidationError
 from alphalab.core.fill import Fill
@@ -28,33 +62,83 @@ from alphalab.core.ids import (
     new_uuid,
     validate_uuid_id,
 )
+from alphalab.core.lifecycle import (
+    ACCOUNT_EVENT_KINDS,
+    CANCEL_REQUESTABLE_STATUSES,
+    CONNECTIVITY_EVENT_KINDS,
+    FILL_EVENT_KINDS,
+    ORDER_EVENT_KINDS,
+    ORDER_TRANSITIONS,
+    STATUS_EVENT_KINDS,
+    TERMINAL_ORDER_STATUSES,
+    WORKING_ORDER_STATUSES,
+    EventClassification,
+    ExecutionEventKind,
+    classify_order_event,
+    is_terminal_status,
+    next_order_status,
+    reachable_statuses,
+    working_status_for,
+)
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade
 
 __all__ = [
+    "ACCOUNT_EVENT_KINDS",
+    "ANY_LISTING_VENUE",
+    "CANCEL_REQUESTABLE_STATUSES",
+    "CAPABILITY_DECLARATION_SCHEME",
+    "CAPABILITY_LEVELS",
+    "COMPATIBILITY_REPORT_SCHEME",
+    "CONNECTIVITY_EVENT_KINDS",
+    "EXECUTION_REQUIREMENTS_SCHEME",
+    "FILL_EVENT_KINDS",
+    "ORDER_EVENT_KINDS",
+    "ORDER_TRANSITIONS",
+    "ORDER_TYPE_CAPABILITIES",
+    "STATUS_EVENT_KINDS",
+    "TERMINAL_ORDER_STATUSES",
+    "VENUE_FEATURES",
+    "WORKING_ORDER_STATUSES",
+    "AccountCapability",
     "AccountId",
     "AlphaLabCoreError",
     "AssetId",
     "AssetType",
+    "Capability",
+    "CapabilityCheck",
+    "CapabilityDeclaration",
+    "CapabilityLevel",
+    "Compatibility",
+    "CompatibilityReport",
     "DomainValidationError",
+    "EventClassification",
     "EventId",
     "EventType",
+    "ExecutionEventKind",
+    "ExecutionRequirements",
     "Fill",
     "FillId",
+    "MarketCapability",
     "OrderId",
     "OrderRequest",
     "OrderStatus",
     "OrderType",
     "PortfolioId",
     "PositionId",
+    "RequirementDimension",
     "Side",
     "SignalId",
     "StrategyContribution",
     "StrategyId",
+    "Support",
     "TimeInForce",
     "Trade",
     "TradeId",
+    "check_compatibility",
+    "classify_order_event",
     "contributions_from",
+    "is_terminal_status",
     "new_account_id",
     "new_asset_id",
     "new_event_id",
@@ -66,5 +150,11 @@ __all__ = [
     "new_strategy_id",
     "new_trade_id",
     "new_uuid",
+    "next_order_status",
+    "order_requirements",
+    "reachable_statuses",
+    "split_by_contribution",
+    "supports",
     "validate_uuid_id",
+    "working_status_for",
 ]

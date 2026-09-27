@@ -2,6 +2,7 @@
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.constants import DEFAULT_ENCODING, DEFAULT_SCHEMA_VERSION, PACKAGE_NAME
+from alphalab.common.currency import ConversionRecord, CurrencyConverter, RateRecord
 from alphalab.common.events import BaseEvent
 from alphalab.common.exceptions import (
     AlphaLabError,
@@ -70,6 +71,8 @@ __all__ = [
     "AppendOnlyLog",
     "AvailabilityBasis",
     "BaseEvent",
+    "ConversionRecord",
+    "CurrencyConverter",
     "DeterministicIdSource",
     "Identifier",
     "LinearFit",
@@ -83,6 +86,7 @@ __all__ = [
     "PointInTimeRecord",
     "PointInTimeStamp",
     "RankMethod",
+    "RateRecord",
     "Result",
     "StampedRecord",
     "TieBreak",

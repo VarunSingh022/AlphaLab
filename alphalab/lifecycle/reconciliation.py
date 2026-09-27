@@ -83,13 +83,13 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, auto
 
-from alphalab.broker.order import BrokerOrder, BrokerOrderStatus
+from alphalab.broker.order import BROKER_STATUS_EQUIVALENTS, BrokerOrder, BrokerOrderStatus
 from alphalab.broker.reconciliation import ExternalOrderMap
 from alphalab.broker.state import BrokerState
-from alphalab.core.enums import OrderStatus
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.tolerance import Tolerance, ToleranceOutcome
 from alphalab.oms.order import Order as OMSOrder
+from alphalab.runtime.broker_routing import ChildOrderBindings
 from alphalab.runtime.execution_pipeline import ExecutionPipelineState
 
 __all__ = [
@@ -156,28 +156,6 @@ class MismatchCategory(Enum):
     #: One order is finished on one side and still working on the other, or a
     #: binding names an order that no longer exists.
     LIFECYCLE_STATE_MISMATCH = auto()
-
-
-#: Which OMS statuses each broker-local operational status is consistent with.
-#:
-#: :class:`~alphalab.broker.order.BrokerOrderStatus` covers "the states that
-#: exist between AlphaLab and the venue and nowhere else", so they have no OMS
-#: equivalent and comparing them for equality would report every in-flight order
-#: as a break. This states the relation once, in the open, rather than leaving it
-#: to a chain of ``if``s -- the same shape
-#: :data:`~alphalab.lifecycle.progression.PROGRESSION_MODEL_STAGES` uses for the
-#: other pair of vocabularies v3.5 has to relate.
-BROKER_STATUS_EQUIVALENTS: Mapping[BrokerOrderStatus, frozenset[OrderStatus]] = {
-    BrokerOrderStatus.PENDING_SUBMIT: frozenset(
-        {OrderStatus.NEW, OrderStatus.PENDING, OrderStatus.ACCEPTED}
-    ),
-    BrokerOrderStatus.SUBMITTED: frozenset(
-        {OrderStatus.NEW, OrderStatus.PENDING, OrderStatus.ACCEPTED}
-    ),
-    BrokerOrderStatus.PENDING_CANCEL: frozenset(
-        {OrderStatus.CANCEL_PENDING, OrderStatus.ACCEPTED, OrderStatus.PARTIALLY_FILLED}
-    ),
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,12 +339,111 @@ def _status_conflict(local: OMSOrder, remote: BrokerOrder) -> str:
     return f"the OMS has it {local.status.name} and the broker has it {remote.status.name}."
 
 
+def _compare_children(
+    local_orders: Mapping[str, OMSOrder],
+    broker: BrokerState,
+    children: ChildOrderBindings,
+    symbols: SymbolMapping,
+    tolerances: ReconciliationTolerances,
+) -> tuple[list[Mismatch], int]:
+    """An algorithm's child venue orders against the one OMS order they work.
+
+    Fills are not compared here: each child fill carries the venue's execution
+    id onto the parent's execution report, so :func:`_compare_fills` joins it
+    exactly as it joins a directly routed fill.
+    """
+
+    mismatches: list[Mismatch] = []
+    compared = 0
+    for parent_id in sorted(children.by_parent):
+        local = local_orders.get(parent_id)
+        if local is None:
+            mismatches.append(
+                Mismatch(
+                    MismatchCategory.LIFECYCLE_STATE_MISMATCH,
+                    parent_id,
+                    None,
+                    ", ".join(children.children_of(parent_id)),
+                    "the child bindings name a parent this execution state does not hold.",
+                )
+            )
+            continue
+        working = Decimal("0")
+        working_children: list[str] = []
+        for handle in children.children_of(parent_id):
+            remote = broker.orders.get(handle)
+            if remote is None:
+                mismatches.append(
+                    Mismatch(
+                        MismatchCategory.MISSING_EXPECTED_ORDER,
+                        handle,
+                        f"child of {parent_id}",
+                        None,
+                        "AlphaLab routed this child and the broker does not hold it.",
+                    )
+                )
+                continue
+            compared += 1
+            if remote.oms_order_id != parent_id:
+                mismatches.append(
+                    Mismatch(
+                        MismatchCategory.LIFECYCLE_STATE_MISMATCH,
+                        handle,
+                        parent_id,
+                        remote.oms_order_id,
+                        "the broker order names a different OMS order than its child binding.",
+                    )
+                )
+            resolved = symbols.asset_for(remote.symbol)
+            if resolved != local.asset_id:
+                mismatches.append(
+                    Mismatch(
+                        MismatchCategory.INSTRUMENT_MISMATCH,
+                        handle,
+                        local.asset_id,
+                        remote.symbol if resolved is None else resolved,
+                        "a child trades something other than its parent.",
+                    )
+                )
+            if not remote.is_terminal:
+                working += remote.remaining_quantity
+                working_children.append(handle)
+        if (
+            tolerances.order_quantity.outcome(
+                max(working, local.remaining_quantity), local.remaining_quantity
+            )
+            is ToleranceOutcome.MATERIAL
+        ):
+            mismatches.append(
+                Mismatch(
+                    MismatchCategory.ORDER_QUANTITY_MISMATCH,
+                    parent_id,
+                    str(local.remaining_quantity),
+                    str(working),
+                    "the children working at the venue exceed what the parent has left unfilled.",
+                )
+            )
+        if local.is_closed and working_children:
+            mismatches.append(
+                Mismatch(
+                    MismatchCategory.LIFECYCLE_STATE_MISMATCH,
+                    parent_id,
+                    local.status.name,
+                    ", ".join(working_children),
+                    "the parent is finished and children are still working at the venue; a "
+                    "fill arriving now would land on an order that can no longer take it.",
+                )
+            )
+    return mismatches, compared
+
+
 def _compare_orders(
     pipeline: ExecutionPipelineState,
     broker: BrokerState,
     mapping: ExternalOrderMap,
     symbols: SymbolMapping,
     tolerances: ReconciliationTolerances,
+    children: ChildOrderBindings | None,
 ) -> tuple[list[Mismatch], int]:
     mismatches: list[Mismatch] = []
     local_orders = {str(order.order_id.value): order for order in pipeline.oms.orders.orders()}
@@ -504,6 +581,8 @@ def _compare_orders(
     for broker_order_id in sorted(broker.orders):
         if mapping.oms_id_for(broker_order_id) is not None:
             continue
+        if children is not None and children.parent_of(broker_order_id) is not None:
+            continue
         remote = broker.orders[broker_order_id]
         mismatches.append(
             Mismatch(
@@ -516,6 +595,13 @@ def _compare_orders(
             )
         )
 
+    if children is not None:
+        child_mismatches, child_compared = _compare_children(
+            local_orders, broker, children, symbols, tolerances
+        )
+        mismatches.extend(child_mismatches)
+        compared += child_compared
+
     return mismatches, compared
 
 
@@ -524,6 +610,7 @@ def _compare_fills(
     broker: BrokerState,
     mapping: ExternalOrderMap,
     tolerances: ReconciliationTolerances,
+    children: ChildOrderBindings | None,
 ) -> tuple[list[Mismatch], int]:
     """Fills joined on ``execution_id``, which both sides already share.
 
@@ -594,6 +681,8 @@ def _compare_fills(
             )
 
         bound = mapping.oms_id_for(remote.broker_order_id)
+        if bound is None and children is not None:
+            bound = children.parent_of(remote.broker_order_id)
         if bound is not None and bound != report.order_id:
             mismatches.append(
                 Mismatch(
@@ -762,6 +851,8 @@ def reconcile_execution_state(
     mapping: ExternalOrderMap,
     symbols: SymbolMapping,
     tolerances: ReconciliationTolerances,
+    *,
+    children: ChildOrderBindings | None = None,
 ) -> StateReconciliation:
     """Compare AlphaLab's execution state against a broker's, and report.
 
@@ -782,6 +873,12 @@ def reconcile_execution_state(
             docstring.
         symbols: How venue symbols join AlphaLab instruments.
         tolerances: How close each compared number has to be.
+        children: The venue handles an execution algorithm sent on behalf of an
+            OMS order (v3.9), or ``None`` when no order was worked in children --
+            which is every run before v3.9 and changes nothing. With it, each
+            child is expected at the venue, joined to its parent, and held to the
+            parent's remaining quantity and lifecycle; without it, a child would
+            be reported as an order no binding names.
 
     Returns:
         A :class:`StateReconciliation`. An empty one whose
@@ -807,9 +904,11 @@ def reconcile_execution_state(
             )
 
     order_mismatches, compared_orders = _compare_orders(
-        pipeline, broker, mapping, symbols, tolerances
+        pipeline, broker, mapping, symbols, tolerances, children
     )
-    fill_mismatches, compared_fills = _compare_fills(pipeline, broker, mapping, tolerances)
+    fill_mismatches, compared_fills = _compare_fills(
+        pipeline, broker, mapping, tolerances, children
+    )
     position_mismatches, compared_positions = _compare_positions(
         pipeline, broker, symbols, tolerances
     )

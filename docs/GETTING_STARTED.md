@@ -101,11 +101,11 @@ If all commands complete successfully, your environment is correctly configured.
 AlphaLab/
 
 alphalab/     framework source (50 packages)
-benchmarks/   58 performance benchmarks
+benchmarks/   59 performance benchmarks
 configs/      reference configuration files
-docs/         technical documentation and 43 ADRs
-examples/     60 runnable examples
-tests/        6713 tests — unit, integration, regression
+docs/         technical documentation and 44 ADRs
+examples/     65 runnable examples
+tests/        7387 tests — unit, integration, regression
 ```
 
 ### alphalab/
@@ -357,6 +357,13 @@ Examples include
   state (examples 41–45)
 - Strategy fingerprints, reproducible research artifacts, certification
   primitives and portability across declared environments (examples 46–49)
+- Point-in-time events, alternative data with provenance, fundamentals, regime
+  detection, and adaptive strategies with exact replay (examples 50–55)
+- Portfolio construction, risk budgeting, a multi-strategy portfolio,
+  cross-strategy risk and capital allocation (examples 56–60)
+- Broker capabilities, the normalized execution lifecycle, execution
+  algorithms, smart routing and execution analytics end to end
+  (examples 61–65)
 
 ---
 

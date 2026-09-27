@@ -16,7 +16,8 @@ Around them sit drivers, which own the input and the clock and nothing else:
 cursor, and :class:`~alphalab.runtime.live.LiveSession` over a venue. That is
 what makes backtest, replay, paper and live one loop rather than four; and
 :mod:`alphalab.runtime.broker_routing` is the boundary an order crosses to reach
-a real venue and its fills cross to come back.
+a real venue and its fills cross to come back -- since v3.9 with a capability
+gate, and for an execution algorithm's child orders as well as whole ones.
 
 Removed in v2.17
 ----------------
@@ -43,12 +44,16 @@ package; the canonical names beside them are unchanged.
 """
 
 from alphalab.runtime.broker_routing import (
+    ChildOrderBindings,
+    ChildRoutingResult,
     RoutingConfig,
     RoutingDecision,
     RoutingRefusal,
     RoutingResult,
     apply_broker_execution,
+    child_broker_order_id,
     execution_report_from_broker,
+    route_child_order,
     route_order,
 )
 from alphalab.runtime.exceptions import AlphaLabRuntimeError, RuntimeValidationError
@@ -82,6 +87,8 @@ from alphalab.runtime.session import TradingSession
 
 __all__ = [
     "AlphaLabRuntimeError",
+    "ChildOrderBindings",
+    "ChildRoutingResult",
     "ExecutionMode",
     "ExecutionPipeline",
     "ExecutionPipelineConfig",
@@ -108,7 +115,9 @@ __all__ = [
     "UnpricedAsset",
     "UnpricedReason",
     "apply_broker_execution",
+    "child_broker_order_id",
     "execution_report_from_broker",
     "live_health",
+    "route_child_order",
     "route_order",
 ]

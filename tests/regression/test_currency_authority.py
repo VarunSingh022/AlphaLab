@@ -536,7 +536,11 @@ def test_route_order_is_unchanged_and_carries_no_settlement_knowledge() -> None:
 
     from alphalab.runtime.broker_routing import route_order
 
-    assert list(inspect.signature(route_order).parameters) == [
+    parameters = inspect.signature(route_order).parameters
+    positional = [
+        name for name, p in parameters.items() if p.kind is not inspect.Parameter.KEYWORD_ONLY
+    ]
+    assert positional == [
         "broker_state",
         "broker",
         "oms_order",
@@ -544,6 +548,16 @@ def test_route_order_is_unchanged_and_carries_no_settlement_knowledge() -> None:
         "mapping",
         "config",
     ]
+    # v3.9 added one keyword-only gate, a capability check the caller made. It
+    # carries no currency, and it defaults to "no check", so every call written
+    # against the v2.17 signature routes exactly as it did.
+    keyword_only = {
+        name: p.default
+        for name, p in parameters.items()
+        if p.kind is inspect.Parameter.KEYWORD_ONLY
+    }
+    assert keyword_only == {"capability": None}
+    assert not any("currency" in name for name in parameters)
     assert "base_currency" not in inspect.getsource(route_order)
 
 

@@ -88,8 +88,10 @@ from alphalab.strategy.registry import StrategyRegistration
 __all__ = [
     "ADAPTIVE_SETTING_PREFIX",
     "CAPITAL_SETTING_PREFIX",
+    "EXECUTION_SETTING_PREFIX",
     "NO_DEPENDENCIES",
     "PORTFOLIO_SETTING_PREFIX",
+    "ROUTING_SETTING_PREFIX",
     "STRATEGY_FINGERPRINT_SCHEME",
     "STRATEGY_SOURCE_SCHEME",
     "UNDECLARED_DEPENDENCIES",
@@ -100,7 +102,9 @@ __all__ = [
     "DependencyManifest",
     "DependencyPin",
     "EngineIdentity",
+    "ExecutionAlgorithmIdentity",
     "ResearchConfiguration",
+    "RoutingPolicyIdentity",
     "StrategyFingerprint",
     "StudyIdentity",
     "build_fingerprint",
@@ -114,6 +118,7 @@ __all__ = [
     "research_configuration",
     "research_configuration_for_study",
     "research_configuration_with_adaptive",
+    "research_configuration_with_execution",
     "research_configuration_with_portfolio",
     "running_engine",
     "source_digest",
@@ -762,6 +767,96 @@ def research_configuration_with_portfolio(
             f"The setting(s) {collisions} are written by a portfolio or capital component and "
             "were also supplied by the caller. One key, two values, and the identity would say "
             "whichever was written last."
+        )
+    return research_configuration(
+        {**settings, **dict(added)}, study_id=None if study is None else study.study_id
+    )
+
+
+#: The prefixes v3.9's execution and routing settings are written under.
+EXECUTION_SETTING_PREFIX: Final = "execution."
+ROUTING_SETTING_PREFIX: Final = "routing."
+
+
+class ExecutionAlgorithmIdentity(Protocol):
+    """Anything carrying a v3.9 execution algorithm configuration's identity.
+
+    Structural, so a fingerprint names how a strategy's orders are worked without
+    this module importing :mod:`alphalab.execution`.
+    :class:`~alphalab.execution.algorithms.TWAP`, ``VWAP``, ``Participation``,
+    ``Slicing`` and ``Iceberg`` satisfy it as they stand.
+    """
+
+    @property
+    def configuration_id(self) -> str: ...
+
+
+class RoutingPolicyIdentity(Protocol):
+    """Anything carrying a v3.9 routing policy's identity.
+
+    :class:`~alphalab.execution.routing.RoutingPolicy` satisfies it.
+    """
+
+    @property
+    def policy_id(self) -> str: ...
+
+
+def research_configuration_with_execution(
+    settings: Mapping[str, str],
+    *,
+    algorithms: Mapping[str, ExecutionAlgorithmIdentity],
+    routing: Mapping[str, RoutingPolicyIdentity],
+    study: StudyIdentity | None,
+) -> ResearchConfiguration:
+    """A research configuration that names how the strategy's orders were executed.
+
+    A strategy researched with its orders worked by a twelve-slice TWAP at
+    urgency two, or routed by a lowest-all-in-cost policy, is a different
+    measurement from the same strategy filled at once: the execution
+    configuration changes the fills, and so the result. Each named component
+    writes one setting:
+
+    ``execution.<name>.algorithm``
+        the algorithm configuration's identity;
+    ``routing.<name>.policy``
+        the routing policy's identity.
+
+    They enter the fingerprint through the existing research-settings section,
+    exactly as v3.7's adaptive and v3.8's portfolio components do, so
+    :func:`canonical_fingerprint_key` is unchanged and every earlier fingerprint
+    still verifies. A broker's capability declaration is deliberately *not* a
+    component: what a venue can do is a property of the environment a strategy
+    is deployed to -- :mod:`alphalab.lifecycle.specification` and
+    :mod:`alphalab.lifecycle.portability` read it -- not of the strategy.
+
+    Raises:
+        LifecycleInputError: If no component is given; a name is not an
+            identifier; an identity is not a SHA-256 digest; or a caller's own
+            setting collides with one written here.
+    """
+
+    if not algorithms and not routing:
+        raise LifecycleInputError(
+            "research_configuration_with_execution names no algorithm and no routing policy; "
+            "use research_configuration for a strategy executed neither way."
+        )
+    added: list[tuple[str, str]] = []
+    for name, algorithm in sorted(algorithms.items()):
+        if not _COMPONENT.match(name):
+            raise LifecycleInputError(f"Algorithm name {name!r} is not an identifier.")
+        _require_sha256(algorithm.configuration_id, f"algorithm {name!r}")
+        added.append((f"{EXECUTION_SETTING_PREFIX}{name}.algorithm", algorithm.configuration_id))
+    for name, policy in sorted(routing.items()):
+        if not _COMPONENT.match(name):
+            raise LifecycleInputError(f"Routing policy name {name!r} is not an identifier.")
+        _require_sha256(policy.policy_id, f"routing policy {name!r}")
+        added.append((f"{ROUTING_SETTING_PREFIX}{name}.policy", policy.policy_id))
+    collisions = sorted(set(settings) & {key for key, _ in added})
+    if collisions:
+        raise LifecycleInputError(
+            f"The setting(s) {collisions} are written by an execution component and were also "
+            "supplied by the caller. One key, two values, and the identity would say whichever "
+            "was written last."
         )
     return research_configuration(
         {**settings, **dict(added)}, study_id=None if study is None else study.study_id

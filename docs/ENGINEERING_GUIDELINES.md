@@ -517,8 +517,8 @@ Before creating a release, verify
 - `mypy .` passes — repository-wide, exactly as CI runs it, not `mypy alphalab`
 - `pytest -q` passes, reporting **0 skipped and 0 warnings**
 - `pytest -q -W error::DeprecationWarning` passes
-- All 60 examples run
-- All 58 benchmarks run
+- All 65 examples run
+- All 59 benchmarks run
 - `python -m build` and `twine check dist/*` pass
 - `git diff --check` is clean
 - `CHANGELOG.md` has an entry for the release

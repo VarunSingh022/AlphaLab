@@ -183,7 +183,9 @@ def test_the_two_reconciliation_functions_compare_different_pairs() -> None:
     book = inspect.signature(reconcile_execution_state).parameters
 
     assert set(mirror) == {"state", "remote_orders", "remote_positions", "remote_account"}
-    assert set(book) == {"pipeline", "broker", "mapping", "symbols", "tolerances"}
+    # ``children`` is v3.9's, keyword-only and defaulting to none.
+    assert set(book) == {"pipeline", "broker", "mapping", "symbols", "tolerances", "children"}
+    assert book["children"].default is None
     # The v3.5 function reads a BrokerState as one *side*, not as the thing
     # being corrected, and it takes an ExecutionPipelineState the older one
     # has never seen.

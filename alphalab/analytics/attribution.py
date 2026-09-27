@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, auto
 
-from alphalab.core.contribution import StrategyContribution
+from alphalab.core.contribution import StrategyContribution, split_by_contribution
 
 __all__ = [
     "AttributionDimension",
@@ -92,32 +92,19 @@ def split_realized_pnl(
     rounded, and the last is obtained by subtraction -- the technique
     :meth:`alphalab.portfolio.position.Position._apply_long` already uses to
     split a cost basis, and the reason a split can never introduce a residue.
+
+    Since v3.9 the arithmetic is :func:`alphalab.core.contribution.split_by_contribution`,
+    shared with execution-cost attribution, called here at a cent; every figure
+    this returns is unchanged.
     """
 
-    if not contributions:
-        return ()
-
-    net = sum((c.quantity for c in contributions), Decimal("0"))
-    if net == 0:
-        # Unreachable through allocation, which emits no order for a flat net.
-        # A caller who builds such a record directly gets an equal split rather
-        # than a division by zero.
-        share = _quantize(realized_pnl / Decimal(len(contributions)))
-        head = tuple((c.strategy_id, share) for c in contributions[:-1])
-        return (*head, (contributions[-1].strategy_id, realized_pnl - share * (len(head))))
-
-    parts: list[tuple[str, Decimal]] = []
-    assigned = Decimal("0")
-    for contribution in contributions[:-1]:
-        share = _quantize(realized_pnl * contribution.quantity / net)
-        parts.append((contribution.strategy_id, share))
-        assigned += share
-    parts.append((contributions[-1].strategy_id, realized_pnl - assigned))
-    return tuple(parts)
+    return split_by_contribution(realized_pnl, contributions, _MONEY_QUANTUM)
 
 
-def _quantize(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.01"))
+#: Realized P&L is money, and money is carried to the cent. See
+#: :func:`alphalab.core.contribution.split_by_contribution`, which owns the
+#: arithmetic this module has divided P&L by since v2.6.
+_MONEY_QUANTUM = Decimal("0.01")
 
 
 def calculate_attribution(trades: Sequence[TradeRecord]) -> AttributionMetrics:

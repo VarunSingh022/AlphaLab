@@ -4,13 +4,13 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.8)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.9)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.8.0 both halves name only packages that exist; where the target half shows a
+> v3.9.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.8)
+# Implementation Status (v3.9)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -107,7 +107,15 @@ accounts and currencies in `alphalab.allocation`; factor loadings from panels in
 `alphalab.factor_library`; registry classifications in `alphalab.api`; and
 construction and capital identities in fingerprints in `alphalab.lifecycle` — and
 adds no package, no durable state and no snapshot schema; it adds three package
-edges, none a cycle, and moves no ownership boundary (ADR-0043).** **v3.0.0 adds no
+edges, none a cycle, and moves no ownership boundary (ADR-0043).** **v3.9.0 adds
+the universal execution contract — the capability model and the canonical
+order-transition table in `alphalab.core`; normalized venue events, request
+identities and snapshot reconciliation in `alphalab.broker`; execution
+algorithms, route selection and execution quality in `alphalab.execution`;
+child-order routing for a parent in `alphalab.runtime`; and the capability
+projection, child reconciliation and execution identities in
+`alphalab.lifecycle` — and adds no package, no package edge, no durable state and
+no snapshot schema, and moves no ownership boundary (ADR-0044).** **v3.0.0 adds no
 capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -369,6 +377,36 @@ Two pre-trade gates: an order is never sent on a connection that is not
 again. The client order id is *derived* from the OMS order id, so a retry after
 a lost response addresses the same order rather than creating a second one.
 
+### The execution contract (v3.9)
+
+v3.9 (ADR-0044) gives the boundary a contract every adapter meets the same way.
+A **capability report** — an order's `ExecutionRequirements` checked against the
+venue's `CapabilityDeclaration` — can gate `route_order`, and does gate
+`route_child_order`, which sends an execution algorithm's child as a venue order
+*for* its parent (the parent keeps the reservation and the strategies'
+contributions; a caller-held `ChildOrderBindings` relates children to parents
+many-to-one and leaves the one-to-one `ExternalOrderMap` alone). Every message a
+venue sends is translated by the adapter into a `VenueEvent` and applied by
+`broker.apply_venue_event`, which reads the one transition table the OMS reads:
+
+| Situation | Outcome |
+| --- | --- |
+| A fill before the acknowledgement | `APPLIED`; the acknowledgement it implies is recorded, and the late one is `STALE` |
+| A fill while a cancel is pending | `APPLIED`; the order stays pending cancel until the venue answers the cancel |
+| A refused cancel | `APPLIED`; the order returns to the working status its fills imply |
+| An `ORDER_FILLED` delivered ahead of an earlier partial fill | `APPLIED` by quantity; the disagreement is recorded in the reason |
+| A status the order already holds, or has moved past | `DUPLICATE` or `STALE` — not a break |
+| A cancel for a filled order, a rejection for one that traded | `CONFLICT` — a break |
+| An event for an order the mirror never held | `UNKNOWN_ORDER` — a break |
+| A connection coming up | `APPLIED`, with `resync_required`: reconcile a snapshot before sending |
+
+Cancels and amendments are issued through `broker.issue_cancel` /
+`issue_modify` against a `RequestLedger`, so a retry is recognised rather than
+sent twice. `broker.reconcile_snapshot` compares the mirror with a dated
+`VenueSnapshot` — freshness first, then every order, fill, position and
+balance. Nothing is appended to `BrokerState.events` and the broker snapshot
+schema is unchanged.
+
 ### What "live" does and does not mean here (updated v2.15)
 
 | | Status |
@@ -407,6 +445,12 @@ a lost response addresses the same order rather than creating a second one.
 | **Cross-strategy risk** | **Implemented (v3.8).** `alphalab.analytics.cross_strategy` — return correlation with its basis, exposure overlap, factor crowding within the portfolio, common exposures, capital concentration and shared capital pools |
 | **Capital allocation** | **Implemented (v3.8).** `alphalab.allocation.capital` — plans across strategies, markets, brokers, accounts and currencies, allocated in each account's own currency, reconciled exactly, refused rather than silently scaled; composes with the reservation ledger (`reserved_capital`) and the execution-path budget (`capital_budget`). A broker is an identifier, never an adapter |
 | Richer construction (estimated shrinkage, EWMA or factor-model covariance, cardinality and lot constraints, costs in the objective, CVaR, multi-period) | **Not implemented, deliberately deferred.** Each is a release decision of its own (ADR-0043) |
+| **A universal capability model** | **Implemented (v3.9).** `alphalab.core.capabilities` — `CapabilityDeclaration` at venue, market and account level, every answer `SUPPORTED`, `UNSUPPORTED` or `UNDECLARED`; `order_requirements` derives short sales and fractional quantities from the order; `check_compatibility` is `COMPATIBLE` only when every check is supported. The v3.5 `BrokerCapabilities` is projected from a declaration (`lifecycle.broker_capabilities_from`) |
+| **A normalized execution lifecycle** | **Implemented (v3.9).** `alphalab.core.lifecycle` — twelve `ExecutionEventKind`s and `ORDER_TRANSITIONS`, read by `oms.order.Order` and by `alphalab.broker.lifecycle`, which gives every `VenueEvent` one outcome (applied, duplicate, stale, conflict, unknown order, invalid). `broker.requests` gives cancels and amendments identities; `broker.reconcile_snapshot` compares the mirror with a dated venue snapshot |
+| **Execution algorithms** | **Implemented (v3.9).** `alphalab.execution.algorithms` — TWAP, VWAP, participation, slicing and iceberg-like, with a stated urgency and whole-increment apportionment; children carry the parent's strategy contributions and are sent for the parent by `runtime.route_child_order`, their fills settling on it |
+| **Smart routing** | **Implemented (v3.9).** `alphalab.execution.routing.select_route` — from supplied quotes, capability declarations, cost models and latencies; every venue judged with a reason; single, split and partial routes; decisions independent of listing order. Sending stays with `runtime`, connecting with an adapter |
+| **Execution analytics** | **Implemented (v3.9).** `alphalab.execution.quality` — implementation shortfall with its components and each strategy's share, slippage against a named reference, fill quality, latency with clock sources, rejection rate, venue quality, and per-currency and FX-converted reports |
+| Venue sequence numbers; persisted child bindings and request ledgers; multi-broker book-to-mirror reconciliation; optimal splits; estimated urgency | **Not implemented, deliberately deferred.** Each is a decision of its own (ADR-0044); a sequence number would change `BROKER_SNAPSHOT_SCHEMA` |
 
 **What changed in v2.15, precisely.** AlphaLab now contains a genuine venue
 transport and a genuine streaming client, and both are exercised end to end over
@@ -1530,6 +1574,11 @@ Features such as:
 - Capital allocated across strategies, markets, brokers, accounts and
   currencies in each account's own currency, reconciled exactly and composed
   with the reservation ledger and the run budget (v3.8)
+- One execution contract for every adapter: declared capabilities checked
+  before sending, one transition table for the OMS and the venue, every venue
+  report given one outcome, idempotent cancels and amendments, execution
+  algorithms, explained routing, snapshot reconciliation and execution
+  analytics (v3.9)
 
 are considered first-class architectural components rather than optional add-ons.
 
@@ -3060,6 +3109,14 @@ OrderFilled
 *(`RuntimeStarted` / `RuntimeStopped` / `RuntimeRecovered` belonged to the orphan
 lifecycle state machine inside `alphalab.runtime`, removed in v2.17. The strategy
 runtime's own lifecycle transitions are `alphalab.strategy.events.LifecycleTransitioned`.)*
+
+**A venue's reports are not engine events.** v3.9's `ExecutionEventKind` and
+`broker.VenueEvent` are the normalized vocabulary an adapter translates a venue's
+messages into: evidence from outside, which `broker.apply_venue_event` judges
+against the one order-transition table and applies to the mirror. They are
+appended to no event log — `BrokerState.events` stays the adapter's record of
+what it emitted, with its closed set of types — and the decision about each is
+the caller's to keep (ADR-0044).
 
 ---
 
@@ -5408,6 +5465,7 @@ These principles are considered architectural contracts rather than implementati
 | v3.6.0 | Strategy evaluation: fingerprints, reproducibility manifests, certification primitives, portability (ADR-0041) |
 | v3.7.0 | Point-in-time research: events, alternative data, fundamentals, knowledge frames, event studies, regimes, adaptive strategies (ADR-0042) |
 | v3.8.0 | Advanced portfolio and risk: the risk model, constrained construction, Black–Litterman, risk budgets, multi-strategy books, cross-strategy risk, capital allocation (ADR-0043) |
+| v3.9.0 | The universal execution contract: capabilities, the normalized lifecycle, execution algorithms, smart routing, execution analytics, snapshot reconciliation (ADR-0044) |
 
 ---
 
@@ -5427,8 +5485,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v3.8.0
-Status: Implementation Status (v3.8) describes what is built and is authoritative.
+Version: v3.9.0
+Status: Implementation Status (v3.9) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```
