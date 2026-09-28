@@ -1,8 +1,8 @@
 """Pure functional execution engine."""
 
-from dataclasses import replace
 from decimal import Decimal
 
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import new_id
 from alphalab.execution.events import (
     ExecutionCompleted,
@@ -41,7 +41,7 @@ class ExecutionEngine:
             fill_quantity=report.fill_quantity,
         )
 
-        return replace(
+        return evolve(
             state,
             reports=new_reports,
             history=state.history.append(report),
@@ -67,7 +67,7 @@ class ExecutionEngine:
             remaining_quantity=remaining_quantity,
         )
 
-        return replace(
+        return evolve(
             state,
             reports=new_reports,
             history=state.history.append(report),
@@ -88,7 +88,7 @@ class ExecutionEngine:
             order_id=instruction.order_id,
             reason=reason,
         )
-        return replace(state, events=state.events.append(event))
+        return evolve(state, events=state.events.append(event))
 
     @staticmethod
     def expire(
@@ -102,7 +102,7 @@ class ExecutionEngine:
             timestamp=timestamp,
             order_id=instruction.order_id,
         )
-        return replace(state, events=state.events.append(event))
+        return evolve(state, events=state.events.append(event))
 
     @staticmethod
     def simulate(
@@ -148,7 +148,7 @@ class ExecutionEngine:
             price=instruction.price,
         )
 
-        state_with_sub = replace(state, events=state.events.append(sub_event))
+        state_with_sub = evolve(state, events=state.events.append(sub_event))
 
         # 2. Simulate
         report = simulator.simulate_fill(

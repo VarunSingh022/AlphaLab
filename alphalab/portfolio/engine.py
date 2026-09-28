@@ -45,12 +45,14 @@ that were not. See ADR-0035.
 """
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from decimal import Decimal
+from itertools import pairwise
 from typing import cast
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import in_accounting_context, require_finite
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import new_id
 from alphalab.conventions.economics import CASH_EQUITY, InstrumentEconomics
 from alphalab.portfolio.account import Account
@@ -113,9 +115,11 @@ class PortfolioState:
         # the totals every valuation reads are always the book's own (PRF-001).
         if not isinstance(self.positions, PositionBook):
             object.__setattr__(self, "positions", PositionBook(self.positions))
-        normalized = _pending(self.pending_marks)
-        if normalized != self.pending_marks:
-            object.__setattr__(self, "pending_marks", normalized)
+        pending = self.pending_marks
+        # Checked before it is rebuilt: every fill builds a state, and its
+        # pending marks are almost always already sorted and unique (PRF-006).
+        if type(pending) is not tuple or any(b <= a for a, b in pairwise(pending)):
+            object.__setattr__(self, "pending_marks", _pending(pending))
 
     @property
     def book(self) -> PositionBook:
@@ -176,7 +180,7 @@ class PortfolioEngine:
             commission=Decimal("0.0"),
             currency=currency,
         )
-        return replace(
+        return evolve(
             state, cash=new_cash, ledger=state.ledger.append(tx), events=state.events.append(evt)
         )
 
@@ -212,7 +216,7 @@ class PortfolioEngine:
             commission=Decimal("0.0"),
             currency=currency,
         )
-        return replace(
+        return evolve(
             state, cash=new_cash, ledger=state.ledger.append(tx), events=state.events.append(evt)
         )
 
@@ -323,7 +327,7 @@ class PortfolioEngine:
             currency=to_currency,
         )
         return (
-            replace(
+            evolve(
                 state,
                 cash=cash,
                 ledger=state.ledger.append(debit).append(credit),
@@ -418,8 +422,8 @@ class PortfolioEngine:
         commission = to_money(commission, currency, units)
 
         positions = state.book
-        pos = positions.get(
-            asset_id,
+        held = positions.get(asset_id)
+        pos = (
             Position(
                 asset_id,
                 Decimal("0"),
@@ -430,7 +434,9 @@ class PortfolioEngine:
                 timestamp,
                 minor_units=minor_units,
                 economics=declared,
-            ),
+            )
+            if held is None
+            else held
         )
         if pos.currency != currency:
             raise InvalidTransactionError(
@@ -505,23 +511,27 @@ class PortfolioEngine:
             currency,
         )
 
-        return replace(
-            state,
-            positions=positions,
-            # A position a fill leaves open is priced at the fill until the market
-            # prices it again; a closed one needs no mark at all.
-            pending_marks=(
-                _pending(state.pending_marks, add=(asset_id,))
-                if asset_id in positions
-                else _pending(state.pending_marks, remove=(asset_id,))
-            ),
-            cash=new_cash,
-            ledger=state.ledger.append(tx),
-            events=state.events.append(evt),
+        # A position a fill leaves open is priced at the fill until the market
+        # prices it again; a closed one needs no mark at all.
+        pending = state.pending_marks
+        if asset_id in positions:
+            if asset_id not in pending:
+                pending = _pending(pending, add=(asset_id,))
+        elif asset_id in pending:
+            pending = _pending(pending, remove=(asset_id,))
+        # Built field by field rather than through ``dataclasses.replace``, which
+        # introspects the class on every call: this runs on every fill (PRF-006).
+        return PortfolioState(
+            state.account,
+            new_cash,
+            positions,
+            state.ledger.append(tx),
+            state.events.append(evt),
             # Accrued against the currency the fill actually settled in, never
             # summed across two. See the module docstring and ADR-0035.
-            realized_pnl=state.realized_pnl.add(pnl, currency),
-            commission_paid=state.commission_paid.add(commission, currency),
+            state.realized_pnl.add(pnl, currency),
+            state.commission_paid.add(commission, currency),
+            pending,
         )
 
     @staticmethod
@@ -632,7 +642,7 @@ class PortfolioEngine:
             flow.currency,
             flow.reference,
         )
-        return replace(
+        return evolve(
             state,
             cash=state.cash.settle(amount, flow.currency),
             ledger=state.ledger.append(tx),
@@ -663,7 +673,7 @@ class PortfolioEngine:
         evt = PositionSplit(
             timestamp, state.account.account_id, split.asset_id, split.ratio, after.quantity
         )
-        return replace(
+        return evolve(
             state,
             positions=state.book.set(split.asset_id, after),
             events=state.events.append(evt),
@@ -744,7 +754,7 @@ def _marked(
     events = events.append(MarketValueUpdated(timestamp, state.account.account_id, marked))
     for event in settled:
         events = events.append(event)
-    return replace(
+    return evolve(
         state,
         positions=positions,
         pending_marks=_pending(state.pending_marks, remove=marked),

@@ -32,10 +32,10 @@ run one owner; what is left here is a driver.
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from dataclasses import replace
 
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
 from alphalab.backtesting.state import BacktestResult
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import id_scope, id_source
 from alphalab.market.state import MarketState
 from alphalab.runtime.execution_pipeline import ContextFactory, ExecutionPipelineResult
@@ -188,8 +188,8 @@ class BacktestEngine:
         """
 
         with id_scope(config.seed):
-            state = replace(
-                initialize(replace(config, mode=ExecutionMode.BACKTEST), strategy_state),
+            state = evolve(
+                initialize(evolve(config, mode=ExecutionMode.BACKTEST), strategy_state),
                 source_id=dataset.dataset_id,
             )
             for record in dataset.records:

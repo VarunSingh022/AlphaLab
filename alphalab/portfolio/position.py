@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context, plain
-from alphalab.common.currency_units import MAX_MINOR_UNITS, STANDARD_CURRENCY_UNITS
+from alphalab.common.currency_units import (
+    MAX_MINOR_UNITS,
+    MINOR_UNIT_QUANTA,
+    STANDARD_CURRENCY_UNITS,
+)
 from alphalab.conventions.economics import InstrumentEconomics
 from alphalab.portfolio.exceptions import PortfolioError
 from alphalab.portfolio.money import ZERO_MONEY
@@ -143,7 +147,7 @@ class Position:
         if self.minor_units is None:
             return STANDARD_CURRENCY_UNITS.round(amount, self.currency)
         return amount.quantize(
-            Decimal(1).scaleb(-self.minor_units),
+            MINOR_UNIT_QUANTA[self.minor_units],
             rounding=ROUND_HALF_EVEN,
             context=ACCOUNTING_CONTEXT,
         )
@@ -202,14 +206,23 @@ class Position:
         rounding is applied or needed.
         """
 
+        return self.valuation()[1]
+
+    def valuation(self) -> tuple[Decimal, Decimal]:
+        """``(market_value, unrealized_pnl)``, the market value computed once.
+
+        What a book keeping both totals reads on every change (ledger
+        PRF-006): the two properties each price the position, and together they
+        priced it twice.
+        """
+
+        value = self.market_value
         if self.quantity == 0:
-            return ZERO_MONEY
-
-        if self.side is PositionSide.LONG:
-            return self.market_value - self.basis
-
+            return value, ZERO_MONEY
+        if self.quantity > 0:
+            return value, value - self.basis
         # Short: market_value is negative, basis is the credit received.
-        return self.market_value + self.basis
+        return value, value + self.basis
 
     def update_market_price(
         self,
@@ -301,15 +314,20 @@ class Position:
             if quantity != 0
             else Decimal("0")
         )
-        return replace(
-            self,
-            quantity=quantity,
-            average_cost=average,
-            cost_basis=basis,
-            realized_pnl=realized_total,
-            market_price=price,
-            last_updated=timestamp,
-            opened_at=self.opened_at if isinstance(opened_at, _KeepOpenedAt) else opened_at,
+        # Field by field rather than through ``dataclasses.replace``, which
+        # introspects the class on every call: this runs on every fill (PRF-006).
+        return Position(
+            self.asset_id,
+            quantity,
+            average,
+            price,
+            realized_total,
+            self.currency,
+            timestamp,
+            basis,
+            self.opened_at if isinstance(opened_at, _KeepOpenedAt) else opened_at,
+            self.minor_units,
+            self.economics,
         )
 
     @in_accounting_context

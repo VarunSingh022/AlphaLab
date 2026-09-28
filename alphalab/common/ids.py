@@ -44,13 +44,14 @@ therefore a compatibility event to be versioned and decided rather than a free
 one. See ADR-0022.
 """
 
+import os
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass
 from random import Random
 from typing import NewType
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from alphalab.common.exceptions import AlphaLabValidationError
 
@@ -153,7 +154,23 @@ class DeterministicIdSource:
 
     def __call__(self) -> str:
         self._draws += 1
-        return str(UUID(int=self._random.getrandbits(128), version=4))
+        return _version_4_text(self._random.getrandbits(128))
+
+
+def _version_4_text(bits: int) -> str:
+    """``str(UUID(int=bits, version=4))``, without building the ``UUID``.
+
+    The same two bit operations :class:`uuid.UUID` applies for ``version=4`` --
+    the RFC 4122 variant, then the version -- and the same hexadecimal layout,
+    so the text is identical for every ``bits`` (a regression test compares
+    them). Every event, transaction and order mints one, and the ``UUID``
+    round trip was most of what minting cost (ledger PRF-006).
+    """
+
+    bits = (bits & ~(0xC000 << 48)) | (0x8000 << 48)
+    bits = (bits & ~(0xF000 << 64)) | (4 << 76)
+    text = f"{bits:032x}"
+    return f"{text[:8]}-{text[8:12]}-{text[12:16]}-{text[16:20]}-{text[20:]}"
 
 
 def new_id() -> Identifier:
@@ -161,7 +178,8 @@ def new_id() -> Identifier:
 
     source = _ID_SOURCE.get()
     if source is None:
-        return Identifier(str(uuid4()))
+        # What ``uuid4()`` draws -- sixteen bytes from the OS, read big-endian.
+        return Identifier(_version_4_text(int.from_bytes(os.urandom(16), "big")))
     return Identifier(source())
 
 

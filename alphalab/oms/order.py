@@ -17,8 +17,9 @@ amendment must leave something to work.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields
 from decimal import Decimal
+from typing import Any, Final
 
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, plain
 from alphalab.common.order_terms import OrderTerms, TimeInForce
@@ -116,7 +117,7 @@ class Order:
         status = self._next(
             ExecutionEventKind.ORDER_ACCEPTED, f"Cannot accept order in status: {self.status}"
         )
-        return replace(self, status=status, updated_at=timestamp)
+        return _evolved(self, status=status, updated_at=timestamp)
 
     def reject(self, timestamp: float) -> Order:
         """Transitions order to REJECTED state.
@@ -130,7 +131,7 @@ class Order:
         status = self._next(
             ExecutionEventKind.ORDER_REJECTED, f"Cannot reject order in status: {self.status}"
         )
-        return replace(self, status=status, updated_at=timestamp)
+        return _evolved(self, status=status, updated_at=timestamp)
 
     def cancel(self, timestamp: float) -> Order:
         """Transitions order to CANCELLED state."""
@@ -138,7 +139,7 @@ class Order:
             ExecutionEventKind.ORDER_CANCELLED,
             f"Cannot cancel a closed order. Status: {self.status}",
         )
-        return replace(self, status=status, updated_at=timestamp)
+        return _evolved(self, status=status, updated_at=timestamp)
 
     def expire(self, timestamp: float) -> Order:
         """Transitions order to EXPIRED state."""
@@ -146,7 +147,7 @@ class Order:
             ExecutionEventKind.ORDER_EXPIRED,
             f"Cannot expire a closed order. Status: {self.status}",
         )
-        return replace(self, status=status, updated_at=timestamp)
+        return _evolved(self, status=status, updated_at=timestamp)
 
     def _filled_by(self, fill_qty: Decimal, fill_price: Decimal) -> tuple[Decimal, Decimal]:
         """The filled quantity and average price after a fill, refusing a non-fill."""
@@ -187,7 +188,7 @@ class Order:
                 f"of {self.quantity}, which leaves nothing working; record it as a fill."
             )
 
-        return replace(
+        return _evolved(
             self,
             status=status,
             filled_quantity=new_filled,
@@ -214,7 +215,7 @@ class Order:
                 f"of {self.quantity}; a complete fill executes exactly what is working."
             )
 
-        return replace(
+        return _evolved(
             self,
             status=status,
             filled_quantity=new_filled,
@@ -242,7 +243,7 @@ class Order:
 
         limit = new_limit if new_limit is not None else self.limit_price
 
-        return replace(
+        return _evolved(
             self,
             status=status,
             quantity=new_qty,
@@ -250,3 +251,17 @@ class Order:
             limit_price=limit,
             updated_at=timestamp,
         )
+
+
+#: Every field of an order, in declaration order -- read once, so a transition
+#: builds its successor without ``dataclasses.replace`` re-reading the class
+#: on every call (ledger PRF-006).
+_ORDER_FIELDS: Final = tuple(item.name for item in fields(Order))
+
+
+def _evolved(order: Order, **changes: Any) -> Order:
+    """``dataclasses.replace(order, **changes)``, by a precomputed field list."""
+
+    return type(order)(
+        *[changes[name] if name in changes else getattr(order, name) for name in _ORDER_FIELDS]
+    )

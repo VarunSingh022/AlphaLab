@@ -91,15 +91,21 @@ _REBASE_SLACK: Final = 64
 class _Store[K: Hashable, V]:
     """Append-only backing storage shared by every view of one lineage."""
 
-    __slots__ = ("chains", "entries", "insertions", "live_version", "order")
+    __slots__ = ("chains", "entries", "inserted_at", "keys", "live_version", "reinsertions")
 
     #: Per key, the ``(version, value)`` writes to it, in ascending version order.
     chains: dict[K, list[tuple[int, V | _Missing]]]
-    #: Every insertion -- a first write, or a write after a deletion -- as
-    #: ``(key, version)``, in ascending version order. Never removed.
-    order: list[tuple[K, int]]
-    #: Per key, the versions it was inserted at, ascending.
-    insertions: dict[K, list[int]]
+    #: Every insertion -- a first write, or a write after a deletion -- in
+    #: ascending version order: the key here and, at the same index, the version
+    #: in :attr:`inserted_at`. Two flat lists rather than a list of pairs, so an
+    #: insertion allocates no container the cyclic garbage collector must then
+    #: walk for as long as the store lives (ledger PRF-006). Never removed.
+    keys: list[K]
+    inserted_at: list[int]
+    #: The versions a key was inserted at, ascending -- kept only for a key
+    #: inserted more than once. A key inserted once was inserted at the version
+    #: of its chain's first entry, which is the one record of it needed.
+    reinsertions: dict[K, list[int]]
     #: Version of the view that currently owns this store.
     live_version: int
     #: Total chain entries, which is what a rebase is triggered by.
@@ -108,15 +114,17 @@ class _Store[K: Hashable, V]:
     def __init__(
         self,
         chains: dict[K, list[tuple[int, V | _Missing]]],
-        order: list[tuple[K, int]],
-        insertions: dict[K, list[int]],
+        keys: list[K],
+        inserted_at: list[int],
         live_version: int,
+        entries: int,
     ) -> None:
         self.chains = chains
-        self.order = order
-        self.insertions = insertions
+        self.keys = keys
+        self.inserted_at = inserted_at
+        self.reinsertions = {}
         self.live_version = live_version
-        self.entries = sum(len(chain) for chain in chains.values())
+        self.entries = entries
 
 
 class PersistentMap(Mapping[K, V]):
@@ -131,14 +139,14 @@ class PersistentMap(Mapping[K, V]):
     def __init__(self, items: Mapping[K, V] | Iterable[tuple[K, V]] = ()) -> None:
         pairs = items.items() if isinstance(items, Mapping) else items
         chains: dict[K, list[tuple[int, V | _Missing]]] = {}
-        order: list[tuple[K, int]] = []
+        keys: list[K] = []
         for key, value in pairs:
             if key not in chains:
-                order.append((key, 0))
+                keys.append(key)
             chains[key] = [(0, value)]
-        self._store = _Store(chains, order, {key: [0] for key, _ in order}, 0)
+        self._store = _Store(chains, keys, [0] * len(keys), 0, len(keys))
         self._version = 0
-        self._size = len(order)
+        self._size = len(keys)
 
     # -- construction -------------------------------------------------------
 
@@ -153,9 +161,33 @@ class PersistentMap(Mapping[K, V]):
         return view
 
     def _branch(self) -> PersistentMap[K, V]:
-        """Copy this view's contents into a store it owns outright."""
+        """Copy this view's contents into a store it owns outright.
 
-        return PersistentMap(self.items())
+        For the newest view -- a rebase, which is the common case -- every
+        key's current value is the last entry of its chain and its current
+        insertion the last of its insertions, so the copy reads those directly
+        rather than resolving each key by version (ledger PRF-006). An older
+        view resolves as any read does.
+        """
+
+        store = self._store
+        if self._version != store.live_version:
+            return PersistentMap(self.items())
+        chains = store.chains
+        reinsertions = store.reinsertions
+        fresh: dict[K, list[tuple[int, V | _Missing]]] = {}
+        keys: list[K] = []
+        for key, inserted_at in zip(store.keys, store.inserted_at, strict=True):
+            history = reinsertions.get(key)
+            if history is not None and history[-1] != inserted_at:
+                continue
+            value = chains[key][-1][1]
+            if isinstance(value, _Missing):
+                continue
+            fresh[key] = [(0, value)]
+            keys.append(key)
+        rebased = _Store(fresh, keys, [0] * len(keys), 0, len(keys))
+        return PersistentMap._view(rebased, 0, len(keys))
 
     # -- reads --------------------------------------------------------------
 
@@ -205,20 +237,23 @@ class PersistentMap(Mapping[K, V]):
 
         store = self._store
         version = self._version
-        insertions = store.insertions
+        reinsertions = store.reinsertions
         lookup = self._lookup
-        for key, inserted_at in store.order:
+        for key, inserted_at in zip(store.keys, store.inserted_at, strict=False):
             if inserted_at > version:
-                # ``order`` is in ascending version order; nothing later is
+                # Insertions are in ascending version order; nothing later is
                 # visible to this view.
                 return
-            inserted = insertions[key]
-            if inserted[-1] <= version:
-                current = inserted[-1]
-            else:
-                current = inserted[bisect_right(inserted, version) - 1]
-            if inserted_at != current:
-                continue
+            history = reinsertions.get(key)
+            if history is not None:
+                # Inserted more than once: only the insertion current at this
+                # view's version places the key.
+                if history[-1] <= version:
+                    current = history[-1]
+                else:
+                    current = history[bisect_right(history, version) - 1]
+                if inserted_at != current:
+                    continue
             yield key, lookup(key)
 
     def __iter__(self) -> Iterator[K]:
@@ -265,14 +300,20 @@ class PersistentMap(Mapping[K, V]):
         chain = store.chains.get(key)
         if chain is None:
             store.chains[key] = [(version, value)]
-            store.order.append((key, version))
-            store.insertions[key] = [version]
+            store.keys.append(key)
+            store.inserted_at.append(version)
             size = self._size + 1
         else:
             if isinstance(chain[-1][1], _Missing):
                 # A re-insert: the key moves to the end, as it would in a dict.
-                store.order.append((key, version))
-                store.insertions[key].append(version)
+                store.keys.append(key)
+                store.inserted_at.append(version)
+                history = store.reinsertions.get(key)
+                if history is None:
+                    # Its first insertion was its chain's first write.
+                    store.reinsertions[key] = [chain[0][0], version]
+                else:
+                    history.append(version)
                 size = self._size + 1
             else:
                 size = self._size

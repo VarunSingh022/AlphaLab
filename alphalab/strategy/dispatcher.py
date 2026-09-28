@@ -59,8 +59,8 @@ alias for why nothing narrower is honest.
 """
 
 from collections.abc import Iterable
-from dataclasses import replace
 
+from alphalab.common.evolve import evolve
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import (
     FillEvent,
@@ -131,8 +131,8 @@ class Dispatcher:
             failed_state, trans_evt = RuntimeSupervisor.fail(
                 strategy_state, f"HookExecutionError: on_start: {e!s}", timestamp
             )
-            return replace(failed_state, started=True), (trans_evt,)
-        return replace(strategy_state, started=True), ()
+            return evolve(failed_state, started=True), (trans_evt,)
+        return evolve(strategy_state, started=True), ()
 
     @staticmethod
     def stop(

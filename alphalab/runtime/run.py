@@ -51,12 +51,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, auto
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import in_accounting_context
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import id_source_for, require_seed, use_id_source
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.policy import FillPolicy, ImmediateFill
@@ -227,7 +228,7 @@ class RunConfig:
         # The mode decides routing; a config that disagreed with its own mode
         # would execute one way and describe itself another.
         if self.pipeline.routing is not self.mode.routing:
-            object.__setattr__(self, "pipeline", replace(self.pipeline, routing=self.mode.routing))
+            object.__setattr__(self, "pipeline", evolve(self.pipeline, routing=self.mode.routing))
 
     @property
     def execution_assumptions(self) -> ExecutionAssumptions:
@@ -384,7 +385,7 @@ def _out_of_order(
             "broke the guarantee it declared. Set RunConfig.ordering to "
             "UNORDERED to skip such records instead."
         )
-    return replace(state, skipped=state.skipped.append(SkippedRecord(record, detail))), None
+    return evolve(state, skipped=state.skipped.append(SkippedRecord(record, detail))), None
 
 
 class RunEngine:
@@ -461,7 +462,7 @@ class RunEngine:
                 f"Market data timestamped {record.timestamp} is older than the "
                 f"{limit}s limit at {clock}.",
             )
-            return replace(state, skipped=state.skipped.append(skipped)), None
+            return evolve(state, skipped=state.skipped.append(skipped)), None
 
         previous = state.last_record_timestamp
         if previous is not None and record.timestamp < previous:
@@ -471,9 +472,7 @@ class RunEngine:
         if refusal is not None:
             # Recorded, not raised and not dropped: a price the instrument cannot
             # take is bad data, and a run says what it declined (ACC-007).
-            return replace(
-                state, skipped=state.skipped.append(SkippedRecord(record, refusal))
-            ), None
+            return evolve(state, skipped=state.skipped.append(SkippedRecord(record, refusal))), None
 
         result = ExecutionPipeline.process_record(
             state.pipeline, record, context_factory, state.config.fill_policy, rates
@@ -487,7 +486,7 @@ class RunEngine:
             fills=result.fills,
             equity=result.state.portfolio_snapshots[-1].total_equity,
         )
-        advanced = replace(
+        advanced = evolve(
             state,
             pipeline=result.state,
             processed=state.processed + 1,
@@ -561,7 +560,7 @@ class RunEngine:
         pipeline, _, _ = ExecutionPipeline.process_timer(
             state.pipeline, timer, context_factory, rates
         )
-        return replace(
+        return evolve(
             state,
             pipeline=pipeline,
             current_timestamp=max(state.current_timestamp, timer.timestamp),
@@ -605,7 +604,7 @@ class RunEngine:
         if not wants_slices(pipeline.strategy):
             return state
         closed, _, _ = ExecutionPipeline.close_slice(pipeline, context_factory, rates)
-        return replace(state, pipeline=closed, last_slice_at=at)
+        return evolve(state, pipeline=closed, last_slice_at=at)
 
     @staticmethod
     @in_accounting_context
@@ -625,7 +624,7 @@ class RunEngine:
 
         clock = state.current_timestamp if timestamp is None else timestamp
         pipeline = ExecutionPipeline.apply_cash_flow(state.pipeline, flow, clock, rates)
-        return replace(
+        return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )
 
@@ -645,7 +644,7 @@ class RunEngine:
 
         clock = state.current_timestamp if timestamp is None else timestamp
         pipeline = ExecutionPipeline.apply_split(state.pipeline, split, clock, rates)
-        return replace(
+        return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )
 
@@ -673,7 +672,7 @@ class RunEngine:
         pipeline, _, _ = ExecutionPipeline.stop_strategies(
             state.pipeline, context_factory, clock, rates, strategy_ids
         )
-        return replace(state, pipeline=pipeline)
+        return evolve(state, pipeline=pipeline)
 
     @staticmethod
     @in_accounting_context
@@ -688,7 +687,7 @@ class RunEngine:
         if not state.config.compile_analytics:
             return state
 
-        return replace(
+        return evolve(
             state,
             pipeline=ExecutionPipeline.compile_analytics(
                 state.pipeline,

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from decimal import Decimal
 
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import new_id
 from alphalab.common.persistent_map import PersistentSet
 from alphalab.oms.events import (
@@ -39,75 +39,54 @@ class OMSEngine:
     ) -> OMSState:
         """Append an event."""
 
-        return replace(
+        return evolve(
             state,
             history=state.history.append(event),
             events=state.events.append(event),
         )
 
     @staticmethod
-    def _replace_book(
-        state: OMSState,
-        order: Order,
-    ) -> OMSState:
-        """Replace an order inside the order book."""
-
-        if state.orders.contains(order.order_id):
-            book = state.orders.replace(order)
-        else:
-            book = state.orders.add(order)
-
-        return replace(
-            state,
-            orders=book,
-        )
-
-    @staticmethod
-    def _update_sets(
-        state: OMSState,
-        order: Order,
-    ) -> OMSState:
-        """Update active/completed order sets."""
-
-        working = state.working_by_asset.get(order.asset_id, PersistentSet())
-        if order.is_open:
-            active = state.active_orders.add(order.order_id)
-            completed = state.completed_orders.discard(order.order_id)
-            working = working.add(order.order_id)
-        else:
-            active = state.active_orders.discard(order.order_id)
-            completed = state.completed_orders.add(order.order_id)
-            working = working.discard(order.order_id)
-
-        return replace(
-            state,
-            active_orders=active,
-            completed_orders=completed,
-            working_by_asset=(
-                state.working_by_asset.set(order.asset_id, working)
-                if working
-                else state.working_by_asset.delete(order.asset_id)
-            ),
-        )
-
-    @staticmethod
     def _store(
         state: OMSState,
         order: Order,
+        event: OMSEvent | None = None,
     ) -> OMSState:
-        """Store an updated order."""
+        """Store an updated order -- and append ``event``, when given -- in one new state.
 
-        state = OMSEngine._replace_book(
-            state,
-            order,
+        The book, the active and completed sets, the per-asset working index and
+        the logs change together, so they are written together: one state per
+        transition rather than one per structure (ledger PRF-006). An index
+        entry that does not change is not rewritten, and an asset with no
+        working order costs no empty set.
+        """
+
+        orders = state.orders
+        book = orders.replace(order) if orders.contains(order.order_id) else orders.add(order)
+        order_id = order.order_id
+        asset_id = order.asset_id
+        index = state.working_by_asset
+        held = index.get(asset_id)
+        working: PersistentSet[OrderId] | None
+        if order.is_open:
+            active = state.active_orders.add(order_id)
+            completed = state.completed_orders.discard(order_id)
+            working = PersistentSet((order_id,)) if held is None else held.add(order_id)
+        else:
+            active = state.active_orders.discard(order_id)
+            completed = state.completed_orders.add(order_id)
+            working = None if held is None else held.discard(order_id)
+        if working is not held:
+            index = index.set(asset_id, working) if working else index.delete(asset_id)
+        # Field by field rather than through ``dataclasses.replace``, which
+        # introspects the class on every call: this runs on every transition.
+        return OMSState(
+            book,
+            active,
+            completed,
+            state.history if event is None else state.history.append(event),
+            state.events if event is None else state.events.append(event),
+            index,
         )
-
-        state = OMSEngine._update_sets(
-            state,
-            order,
-        )
-
-        return state
 
     @staticmethod
     def _record(
@@ -117,15 +96,7 @@ class OMSEngine:
     ) -> OMSState:
         """Store order and append event."""
 
-        state = OMSEngine._store(
-            state,
-            order,
-        )
-
-        return OMSEngine._append_event(
-            state,
-            event,
-        )
+        return OMSEngine._store(state, order, event)
 
     @staticmethod
     def _get(
@@ -408,7 +379,7 @@ class OMSEngine:
         order = OMSEngine._get(state, order_id)
         if order.triggered_at is not None:
             return state
-        return OMSEngine._store(state, replace(order, triggered_at=timestamp))
+        return OMSEngine._store(state, evolve(order, triggered_at=timestamp))
 
     @staticmethod
     def replace(

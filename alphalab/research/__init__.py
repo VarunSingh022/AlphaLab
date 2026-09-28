@@ -176,6 +176,16 @@ from alphalab.research.views import (
     warnings,
 )
 from alphalab.research.walk_forward import WindowMode, walk_forward_splits
+from alphalab.research.walk_forward_optimization import (
+    WALK_FORWARD_DESIGN_SCHEME,
+    FoldSelection,
+    ParameterSpace,
+    Refit,
+    WalkForwardDesign,
+    WalkForwardObjective,
+    WalkForwardOptimization,
+    walk_forward_optimize,
+)
 
 __all__ = [
     "EVENT_STUDY_SCHEME",
@@ -183,6 +193,7 @@ __all__ = [
     "REGIME_SERIES_SCHEME",
     "RESULT_KEY_SCHEME",
     "STUDY_KEY_SCHEME",
+    "WALK_FORWARD_DESIGN_SCHEME",
     "AbnormalReturnModel",
     "AnalysisCompleted",
     "BiasDetected",
@@ -201,17 +212,20 @@ __all__ = [
     "EventStudyResult",
     "EventWindow",
     "ExcludedEvent",
+    "FoldSelection",
     "InvalidResearchStateError",
     "MonteCarloReport",
     "MultipleTestingResult",
     "OverfittingPolicy",
     "OverfittingReport",
+    "ParameterSpace",
     "Perturbation",
     "PerturbationKind",
     "PerturbationRun",
     "PurgePolicy",
     "PurgeResult",
     "QuantileBucket",
+    "Refit",
     "RegimeCell",
     "RegimeDefinition",
     "RegimeProfile",
@@ -247,6 +261,9 @@ __all__ = [
     "TradePayload",
     "TrailingQuantileRule",
     "TransitionFrequency",
+    "WalkForwardDesign",
+    "WalkForwardObjective",
+    "WalkForwardOptimization",
     "WalkForwardReport",
     "WindowMode",
     "analyze_regimes",
@@ -308,6 +325,7 @@ __all__ = [
     "symbol_stability",
     "validate_payload",
     "walk_forward_analysis",
+    "walk_forward_optimize",
     "walk_forward_splits",
     "warnings",
 ]

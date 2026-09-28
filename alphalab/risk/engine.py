@@ -1,10 +1,10 @@
 """Pure functional Risk Engine controlling order approvals."""
 
 from collections.abc import Mapping
-from dataclasses import replace
 from decimal import Decimal
 
 from alphalab.common.arithmetic import in_accounting_context
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import new_id
 from alphalab.core.order_request import OrderRequest
 from alphalab.risk.checks import (
@@ -120,7 +120,7 @@ class RiskEngine:
             )
             events = events.append(approve_event)
 
-        new_state = replace(
+        new_state = evolve(
             state,
             history=state.history.append(decision),
             events=events,
@@ -223,7 +223,7 @@ class RiskEngine:
             assert day_start is not None  # set with the trading day, just above
             daily_loss = max(Decimal("0.00"), day_start - nav)
 
-        return replace(
+        return evolve(
             state,
             cash=cash,
             buying_power=max(Decimal("0.00"), cash),
@@ -240,7 +240,7 @@ class RiskEngine:
         event = MarginUpdated(
             RiskEngine._create_id(), timestamp, margin.margin_used, margin.available_margin
         )
-        return replace(
+        return evolve(
             state,
             margin=margin,
             events=state.events.append(event),
@@ -252,7 +252,7 @@ class RiskEngine:
         event = ExposureUpdated(
             RiskEngine._create_id(), timestamp, exposure.gross_exposure, exposure.net_exposure
         )
-        return replace(
+        return evolve(
             state,
             exposure=exposure,
             events=state.events.append(event),

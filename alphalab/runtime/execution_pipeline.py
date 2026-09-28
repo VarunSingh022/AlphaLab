@@ -8,7 +8,7 @@ remains explicit and the canonical core entities are preserved.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, auto
 from types import MappingProxyType
@@ -25,6 +25,7 @@ from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import IdStreamPosition, current_id_position
 from alphalab.common.order_terms import TimeInForce
 from alphalab.common.persistent_map import PersistentMap
@@ -494,7 +495,7 @@ def _populate_context(
                 "substituted: a strategy is never handed a context this pipeline "
                 "cannot vouch for."
             )
-        return replace(
+        return evolve(
             supplied,
             portfolio=portfolio_view,
             orders=OrderView(shares.get(strategy_id, ())),
@@ -770,7 +771,7 @@ class ExecutionPipeline:
         risk = _sync_risk_from_portfolio(
             state.risk, portfolio, state.config.instruments, rates, as_of=timestamp
         )
-        return replace(state, portfolio=portfolio, risk=risk)
+        return evolve(state, portfolio=portfolio, risk=risk)
 
     @staticmethod
     @in_accounting_context
@@ -825,7 +826,7 @@ class ExecutionPipeline:
         risk = _sync_risk_from_portfolio(
             state.risk, portfolio, state.config.instruments, rates, as_of=timestamp
         )
-        return replace(state, portfolio=portfolio, risk=risk), conversion
+        return evolve(state, portfolio=portfolio, risk=risk), conversion
 
     @staticmethod
     @in_accounting_context
@@ -843,7 +844,7 @@ class ExecutionPipeline:
         market = MarketEngine.publish_quote(state.market, quote)
         event = market.events[-1]
         return ExecutionPipeline.process_market_event(
-            replace(state, market=market),
+            evolve(state, market=market),
             event,
             context_factory,
             fill_status,
@@ -894,7 +895,7 @@ class ExecutionPipeline:
 
         market = ExecutionPipeline.publish_record(state.market, record)
         return ExecutionPipeline.process_market_event(
-            replace(state, market=market),
+            evolve(state, market=market),
             market.events[-1],
             context_factory,
             fill_policy=fill_policy,
@@ -967,7 +968,7 @@ class ExecutionPipeline:
         policy: FillPolicy = (
             fill_policy if fill_policy is not None else StaticFill(fill_status, fill_quantity)
         )
-        current = replace(state, market_prices=market_prices, portfolio=portfolio, risk=risk)
+        current = evolve(state, market_prices=market_prices, portfolio=portfolio, risk=risk)
 
         # What the step starts from, kept for the feedback it delivers at its end:
         # who asked for each order (the ledger retires an order's entry when it
@@ -1012,7 +1013,7 @@ class ExecutionPipeline:
             state.strategy, event, populated, event.timestamp
         )
         allocation, requests = _allocate(current, intents, market_prices, rates, event.timestamp)
-        current = replace(current, strategy=strategy, allocation=allocation)
+        current = evolve(current, strategy=strategy, allocation=allocation)
         current, routed = _route_requests(current, event, intents, requests, policy, rates)
         routed = earlier.then(routed)
 
@@ -1096,7 +1097,7 @@ class ExecutionPipeline:
         applied, fills, trades = _apply_reports(
             _record_venue_execution(state, order, report), order, (report,), rates
         )
-        return replace(applied, id_position=current_id_position()), fills, trades
+        return evolve(applied, id_position=current_id_position()), fills, trades
 
     @staticmethod
     @in_accounting_context
@@ -1182,11 +1183,11 @@ class ExecutionPipeline:
                 "ExecutionPipeline.apply_execution_report."
             )
 
-        terminated = replace(
+        terminated = evolve(
             state, oms=_terminate_order(state.oms, order, outcome, reason, timestamp)
         )
         released = _release_if_terminal(terminated, order.order_id, timestamp)
-        return replace(released, id_position=current_id_position())
+        return evolve(released, id_position=current_id_position())
 
     @staticmethod
     @in_accounting_context
@@ -1318,14 +1319,14 @@ class ExecutionPipeline:
             as_of=timestamp,
         )
         strategy, intents = StrategyEngine.stop(state.strategy, populated, timestamp, strategy_ids)
-        current = replace(state, strategy=strategy)
+        current = evolve(state, strategy=strategy)
         if not intents or last is None:
             # With no event processed there is no price to size or judge an
             # order by; the intents are reported and nothing is placed.
-            return replace(current, id_position=current_id_position()), intents, ()
+            return evolve(current, id_position=current_id_position()), intents, ()
 
         allocation, requests = _allocate(current, intents, current.market_prices, rates, timestamp)
-        current = replace(current, allocation=allocation)
+        current = evolve(current, allocation=allocation)
         current, routed = _route_requests(
             current,
             last,
@@ -1336,7 +1337,7 @@ class ExecutionPipeline:
             rest=True,
             at=timestamp,
         )
-        return replace(current, id_position=current_id_position()), intents, routed.orders
+        return evolve(current, id_position=current_id_position()), intents, routed.orders
 
     @staticmethod
     @in_accounting_context
@@ -1421,7 +1422,7 @@ class ExecutionPipeline:
         if split.asset_id in portfolio.positions:
             portfolio = PortfolioEngine.apply_split(portfolio, split, timestamp)
         price = current.market_prices.get(split.asset_id)
-        current = replace(
+        current = evolve(
             current,
             allocation=AllocationEngine.apply_split(
                 current.allocation, split.asset_id, split.ratio
@@ -1461,7 +1462,7 @@ class ExecutionPipeline:
             risk_free_rate,
             periods_per_year,
         )
-        return replace(state, analytics=analytics, id_position=current_id_position())
+        return evolve(state, analytics=analytics, id_position=current_id_position())
 
 
 @dataclass(frozen=True, slots=True)
@@ -1648,7 +1649,7 @@ def _step_result(
     # process_market_event or process_quote, and none of them refreshes it
     # earlier -- a position read halfway through a step would describe neither
     # the state before it nor the state after.
-    current = replace(
+    current = evolve(
         current,
         portfolio_snapshots=current.portfolio_snapshots.append(
             _analytics_snapshot(valuation, event.timestamp)
@@ -1847,14 +1848,14 @@ def _deliver_instant(
         as_of=at,
     )
     strategy, intents = StrategyEngine.process_event(state.strategy, event, populated, at)
-    current = replace(state, strategy=strategy)
+    current = evolve(state, strategy=strategy)
     if not intents or last is None:
-        return replace(current, id_position=current_id_position()), intents, ()
+        return evolve(current, id_position=current_id_position()), intents, ()
 
     contributions_before = current.allocation.contributions
     records_before = len(current.trade_records)
     allocation, requests = _allocate(current, intents, current.market_prices, rates, at)
-    current = replace(current, allocation=allocation)
+    current = evolve(current, allocation=allocation)
     policy = StaticFill(FillStatus.FULL_FILL, None)
     current, routed = _route_requests(
         current, last, intents, requests, policy, rates, rest=True, at=at
@@ -1873,7 +1874,7 @@ def _deliver_instant(
         at=at,
     )
     return (
-        replace(current, id_position=current_id_position()),
+        evolve(current, id_position=current_id_position()),
         (*intents, *feedback_intents),
         routed.then(feedback).orders,
     )
@@ -2087,12 +2088,12 @@ def _deliver_feedback(
         as_of=instant,
     )
     strategy, intents = StrategyEngine.deliver(state.strategy, deliveries, populated, instant)
-    current = replace(state, strategy=strategy)
+    current = evolve(state, strategy=strategy)
     if not intents:
         return current, (), (), _NO_ROUTING
 
     allocation, feedback_requests = _allocate(current, intents, market_prices, rates, instant)
-    current = replace(current, allocation=allocation)
+    current = evolve(current, allocation=allocation)
     current, feedback = _route_requests(
         current, event, intents, feedback_requests, policy, rates, rest=True, at=instant
     )
@@ -2129,7 +2130,7 @@ def _simulate_fill(
     # terminal by the time _release_if_terminal is asked, which is what lets
     # that one function serve every terminal transition.
     if not reports and decision.status in _NON_TRADING_STATUSES:
-        current = replace(
+        current = evolve(
             current,
             oms=_close_unfilled_order(current.oms, order, decision.status, event.timestamp),
         )
@@ -2217,7 +2218,7 @@ def _end_unfilled(
 ) -> ExecutionPipelineState:
     """Cancel an order that will not fill, and free what it held."""
 
-    cancelled = replace(state, oms=OMSEngine.cancel(state.oms, order.order_id, timestamp))
+    cancelled = evolve(state, oms=OMSEngine.cancel(state.oms, order.order_id, timestamp))
     return _release_if_terminal(cancelled, order.order_id, timestamp)
 
 
@@ -2226,7 +2227,7 @@ def _expire(
 ) -> ExecutionPipelineState:
     """Expire an order whose lifetime ended, and free what it held."""
 
-    expired = replace(state, oms=OMSEngine.expire(state.oms, order.order_id, timestamp))
+    expired = evolve(state, oms=OMSEngine.expire(state.oms, order.order_id, timestamp))
     return _release_if_terminal(expired, order.order_id, timestamp)
 
 
@@ -2345,7 +2346,7 @@ def _work_resting(
         return current, (), (), ()
     current, reports = _execute_order(state, order, decision, event, price=price, passive=passive)
     if not reports and decision.status in _NON_TRADING_STATUSES:
-        current = replace(
+        current = evolve(
             current,
             oms=_close_unfilled_order(current.oms, order, decision.status, event.timestamp),
         )
@@ -2425,7 +2426,7 @@ def _work_order(
             return current, (), (), ()
         if order.order_type is OrderType.STOP:
             return _simulate_fill(current, order, event, policy, rates, price=reached)
-        current = replace(current, oms=OMSEngine.trigger(current.oms, order.order_id, timestamp))
+        current = evolve(current, oms=OMSEngine.trigger(current.oms, order.order_id, timestamp))
         order = current.oms.orders.find(order.order_id)
         # Triggered in this event: it meets the market as a limit order now.
         arriving, execution_price = True, reached
@@ -2571,8 +2572,8 @@ def _record_unpriced(
         reason, detail = _classify_unpriced(state, asset_id)
         entry = UnpricedAsset(asset_id, reason, detail, timestamp, timestamp, 1)
     else:
-        entry = replace(existing, last_timestamp=timestamp, occurrences=existing.occurrences + 1)
-    return replace(state, unpriced_assets=state.unpriced_assets.set(asset_id, entry))
+        entry = evolve(existing, last_timestamp=timestamp, occurrences=existing.occurrences + 1)
+    return evolve(state, unpriced_assets=state.unpriced_assets.set(asset_id, entry))
 
 
 def _evaluate_risk(
@@ -2605,7 +2606,7 @@ def _evaluate_risk(
         ).copy_abs(),
         working=_working_exposure(state, rates, timestamp),
     )
-    return replace(state, risk=risk), decision
+    return evolve(state, risk=risk), decision
 
 
 def _price_in_base(
@@ -2678,7 +2679,7 @@ def _release_reservation(
 
     if order_id not in state.allocation.reservations:
         return state
-    return replace(
+    return evolve(
         state,
         allocation=AllocationEngine.release_reservation(state.allocation, order_id, timestamp),
     )
@@ -2715,7 +2716,7 @@ def _retire_dropped_request(
     """
 
     released = _release_reservation(state, order_id, timestamp)
-    return replace(
+    return evolve(
         released,
         allocation=AllocationEngine.retire_contributions(released.allocation, order_id),
     )
@@ -2770,7 +2771,7 @@ def _release_if_terminal(
     if state.oms.orders.find(order_id).is_open:
         return state
     released = _release_reservation(state, str(order_id.value), timestamp)
-    return replace(
+    return evolve(
         released,
         allocation=AllocationEngine.retire_contributions(released.allocation, str(order_id.value)),
     )
@@ -2829,7 +2830,7 @@ def _submit_and_accept_order(
     oms = OMSEngine.submit(state.oms, submitted_order, timestamp)
     oms = OMSEngine.accept(oms, submitted_order.order_id, timestamp)
     accepted = oms.orders.find(submitted_order.order_id)
-    return replace(state, oms=oms), accepted
+    return evolve(state, oms=oms), accepted
 
 
 def _execute_order(
@@ -2872,7 +2873,7 @@ def _execute_order(
         available_liquidity=None if event is None else _available_quantity(event, order.side),
         passive=passive,
     )
-    return replace(state, execution=execution), execution.history[before:]
+    return evolve(state, execution=execution), execution.history[before:]
 
 
 def _apply_reports(
@@ -2892,7 +2893,7 @@ def _apply_reports(
         # Each contributing strategy's own position (FEA-001), read while the
         # order's contributions are still on the ledger.
         signed = report.fill_quantity if order.side is OMSSide.BUY else -report.fill_quantity
-        current = replace(
+        current = evolve(
             current,
             allocation=AllocationEngine.record_fill(
                 current.allocation, report.order_id, report.asset_id, signed
@@ -2916,7 +2917,7 @@ def _apply_reports(
         allocation_state = AllocationEngine.apply_execution(
             current.allocation, report.order_id, executed_notional, report.timestamp
         )
-        current = replace(current, allocation=allocation_state)
+        current = evolve(current, allocation=allocation_state)
         # If this report took the order terminal, whatever the reference price
         # reserved but the execution price did not consume is capital committed
         # to nothing. Free it here -- see _release_if_terminal.
@@ -2925,7 +2926,7 @@ def _apply_reports(
         trades.append(trade)
 
     return (
-        replace(
+        evolve(
             current,
             fills=current.fills.extend(fills),
             trades=current.trades.extend(trades),
@@ -2964,7 +2965,7 @@ def _record_venue_execution(
         )
     else:
         execution = ExecutionEngine.execute(state.execution, report)
-    return replace(state, execution=execution)
+    return evolve(state, execution=execution)
 
 
 def _apply_report_to_oms(
@@ -2980,7 +2981,7 @@ def _apply_report_to_oms(
         )
     else:
         return state
-    return replace(state, oms=oms)
+    return evolve(state, oms=oms)
 
 
 def _require_settlement_currency(state: ExecutionPipelineState, report: ExecutionReport) -> None:
@@ -3075,7 +3076,7 @@ def _apply_report_to_portfolio(
         state.risk, portfolio, state.config.instruments, rates, as_of=report.timestamp
     )
     record = _trade_record(report, portfolio.events[before:], opened_at, contributions, sector)
-    return replace(
+    return evolve(
         state,
         portfolio=portfolio,
         risk=risk,
@@ -3113,7 +3114,7 @@ def _withdraw_partial_remainder(
     if current.status is not OrderStatus.PARTIALLY_FILLED:
         return state
 
-    withdrawn = replace(state, oms=OMSEngine.cancel(state.oms, order.order_id, timestamp))
+    withdrawn = evolve(state, oms=OMSEngine.cancel(state.oms, order.order_id, timestamp))
     return _release_if_terminal(withdrawn, order.order_id, timestamp)
 
 
@@ -3562,7 +3563,7 @@ def _after_book_change(
         state.risk, portfolio, state.config.instruments, rates, as_of=timestamp
     )
     snapshot = _portfolio_snapshot(portfolio, state.config.currency, timestamp, rates)
-    return replace(
+    return evolve(
         state,
         portfolio=portfolio,
         risk=risk,

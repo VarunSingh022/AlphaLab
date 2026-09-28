@@ -225,9 +225,14 @@ def _package_edges(package: str) -> set[str]:
 
 
 def test_the_construction_authority_reads_only_common_and_the_risk_model() -> None:
-    """ADR-0043: ``portfolio_optimizer``'s one new edge is ``analytics``."""
+    """ADR-0043: ``portfolio_optimizer``'s one new edge is ``analytics``.
 
-    assert _package_edges("portfolio_optimizer") == {"common", "analytics"}
+    v3.11 (ledger OFE-002, ADR-0046) adds ``conventions``: rounding a
+    constructed portfolio to lots reads the instrument's declared economics
+    and lot grid -- a package that itself reads only ``common``.
+    """
+
+    assert _package_edges("portfolio_optimizer") == {"common", "analytics", "conventions"}
 
 
 def test_analytics_still_imports_neither_portfolio_nor_allocation_nor_instrument() -> None:

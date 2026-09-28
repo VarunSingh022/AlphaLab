@@ -102,9 +102,50 @@ def _add(total: Decimal, amount: Decimal, count: int) -> Decimal:
 
 
 def _entry(position: Position) -> tuple[Decimal, Decimal, Decimal]:
-    value = position.market_value
-    pnl = position.unrealized_pnl
+    value, pnl = position.valuation()
     return value, pnl, ZERO_MONEY if position.pays_notional else value - pnl
+
+
+def _difference(new: Decimal, old: Decimal) -> Decimal:
+    try:
+        return _EXACT.subtract(new, old)
+    except decimal.Inexact as exc:
+        raise PortfolioError(
+            f"A book entry's change from {old} to {new} exceeds the {_EXACT.prec} significant "
+            "digits totals are kept to exactly."
+        ) from exc
+
+
+def _moved(
+    totals: CurrencyTotals,
+    long: bool,
+    old: tuple[Decimal, Decimal, Decimal],
+    new: tuple[Decimal, Decimal, Decimal],
+) -> CurrencyTotals:
+    """``totals`` with one open position re-valued on the same side, counts unchanged.
+
+    ``total + (new - old)`` is the same exact number, written the same way, as
+    removing the old entry and adding the new one: both are exact, and the
+    exponent of an exact sum is the smallest of its operands' either way. One
+    update instead of two (ledger PRF-006).
+    """
+
+    open_positions = totals.longs + totals.shorts
+    long_value = totals.long_value
+    short_value = totals.short_value
+    if long:
+        long_value = _add(long_value, _difference(new[0], old[0]), totals.longs)
+    else:
+        short_value = _add(short_value, _difference(new[0], old[0]), totals.shorts)
+    return CurrencyTotals(
+        totals.positions,
+        totals.longs,
+        totals.shorts,
+        long_value,
+        short_value,
+        _add(totals.unrealized_pnl, _difference(new[1], old[1]), open_positions),
+        _add(totals.uncarried_value, _difference(new[2], old[2]), open_positions),
+    )
 
 
 def _apply(
@@ -232,14 +273,40 @@ class PositionBook(Mapping[str, Position]):
             raise PortfolioError(
                 f"A position for {position.asset_id!r} cannot be booked under {asset_id!r}."
             )
-        totals = dict(self._totals)
         entries = self._entries
         previous = self._positions.get(asset_id)
+        entry = _entry(position)
+        if (
+            previous is not None
+            and previous.currency == position.currency
+            and (
+                (previous.quantity > 0 and position.quantity > 0)
+                or (previous.quantity < 0 and position.quantity < 0)
+            )
+        ):
+            # Re-valued, resized or re-marked on the same side: the counts
+            # stand, and each total moves by the entry's change.
+            currency = position.currency
+            return PositionBook._of(
+                self._positions.set(asset_id, position),
+                entries.set(asset_id, entry),
+                MappingProxyType(
+                    {
+                        **self._totals,
+                        currency: _moved(
+                            self._totals[currency],
+                            position.quantity > 0,
+                            entries[asset_id],
+                            entry,
+                        ),
+                    }
+                ),
+            )
+        totals = dict(self._totals)
         if previous is not None:
             totals[previous.currency] = _apply(
                 totals[previous.currency], previous, entries[asset_id], -1
             )
-        entry = _entry(position)
         totals[position.currency] = _apply(
             totals.get(position.currency, _NO_TOTALS), position, entry, 1
         )

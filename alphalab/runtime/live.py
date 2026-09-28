@@ -99,7 +99,7 @@ it unchanged.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from alphalab.broker.events import BrokerEvent
@@ -122,6 +122,7 @@ from alphalab.broker.requests import (
 from alphalab.broker.state import BrokerState, ConnectionStatus
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import in_accounting_context
+from alphalab.common.evolve import evolve
 from alphalab.core.capabilities import CompatibilityReport
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.algorithms import ChildOrder
@@ -404,7 +405,7 @@ class LiveSession:
         """Open the venue connection. Nothing routes until this succeeds."""
 
         broker_state, events = broker.connect(state.broker, timestamp)
-        return replace(state, broker=broker_state), events
+        return evolve(state, broker=broker_state), events
 
     @staticmethod
     @in_accounting_context
@@ -419,7 +420,7 @@ class LiveSession:
         """
 
         broker_state, events = broker.disconnect(state.broker, reason, timestamp)
-        return replace(state, broker=broker_state), events
+        return evolve(state, broker=broker_state), events
 
     @staticmethod
     @in_accounting_context
@@ -473,7 +474,7 @@ class LiveSession:
             broker_state, decision, log = apply_execution(
                 current.broker, execution, current.reconciliation
             )
-            current = replace(current, broker=broker_state, reconciliation=log)
+            current = evolve(current, broker=broker_state, reconciliation=log)
 
             if decision.is_break:
                 outcomes.append(SettledExecution(execution, decision))
@@ -489,11 +490,11 @@ class LiveSession:
             pipeline, fills, _trades = apply_broker_execution(
                 current.run.pipeline, oms_order, execution, current.routing, rates
             )
-            current = replace(current, run=replace(current.run, pipeline=pipeline))
+            current = evolve(current, run=evolve(current.run, pipeline=pipeline))
             outcomes.append(SettledExecution(execution, decision, fills))
 
         settled = tuple(outcomes)
-        return replace(current, settled=current.settled.extend(settled)), settled
+        return evolve(current, settled=current.settled.extend(settled)), settled
 
     @staticmethod
     @in_accounting_context
@@ -522,7 +523,7 @@ class LiveSession:
                 current.mapping,
                 config=current.routing,
             )
-            current = replace(current, broker=result.broker_state, mapping=result.mapping)
+            current = evolve(current, broker=result.broker_state, mapping=result.mapping)
             events.extend(result.events)
             attempts.append(
                 RoutedOrder(
@@ -536,7 +537,7 @@ class LiveSession:
 
         routed = tuple(attempts)
         return (
-            replace(current, routed=current.routed.extend(routed)),
+            evolve(current, routed=current.routed.extend(routed)),
             routed,
             tuple(events),
         )
@@ -578,7 +579,7 @@ class LiveSession:
 
         current, settled = LiveSession.settle(state, executions, rates)
         run_state, result = RunEngine.advance(current.run, record, context_factory, now, rates)
-        current = replace(current, run=run_state)
+        current = evolve(current, run=run_state)
         if not route:
             return current, LiveStep(settled=settled, routed=(), result=result, events=())
         current, routed, events = LiveSession.route_working_orders(current, broker, clock)
@@ -607,7 +608,7 @@ class LiveSession:
         for :meth:`advance`.
         """
 
-        current = replace(
+        current = evolve(
             state, run=RunEngine.stop(state.run, context_factory, now, rates, strategy_ids)
         )
         if not route:
@@ -636,7 +637,7 @@ class LiveSession:
         for :meth:`advance`.
         """
 
-        current = replace(state, run=RunEngine.close_slice(state.run, context_factory, rates))
+        current = evolve(state, run=RunEngine.close_slice(state.run, context_factory, rates))
         if not route:
             return current, (), ()
         return LiveSession.route_working_orders(current, broker, now)
@@ -655,7 +656,7 @@ class LiveSession:
         venue's own record of it is the broker mirror's, which its adapter keeps.
         """
 
-        return replace(state, run=RunEngine.apply_cash_flow(state.run, flow, timestamp, rates))
+        return evolve(state, run=RunEngine.apply_cash_flow(state.run, flow, timestamp, rates))
 
     @staticmethod
     @in_accounting_context
@@ -672,7 +673,7 @@ class LiveSession:
         what becomes of them and reports it.
         """
 
-        return replace(state, run=RunEngine.apply_split(state.run, split, timestamp, rates))
+        return evolve(state, run=RunEngine.apply_split(state.run, split, timestamp, rates))
 
     @staticmethod
     @in_accounting_context
@@ -707,7 +708,7 @@ class LiveSession:
                     "double it."
                 )
             held.add(order_id)
-        return replace(state, held=frozenset(held))
+        return evolve(state, held=frozenset(held))
 
     @staticmethod
     @in_accounting_context
@@ -738,7 +739,7 @@ class LiveSession:
             config=state.routing,
             capability=capability,
         )
-        return replace(state, broker=result.broker_state, children=result.children), result
+        return evolve(state, broker=result.broker_state, children=result.children), result
 
     @staticmethod
     @in_accounting_context
@@ -759,7 +760,7 @@ class LiveSession:
             broker_state, events = broker.cancel_order(
                 broker_state, request.broker_order_id, request.requested_at
             )
-        return replace(state, broker=broker_state, requests=ledger), decision, events
+        return evolve(state, broker=broker_state, requests=ledger), decision, events
 
     @staticmethod
     @in_accounting_context
@@ -784,7 +785,7 @@ class LiveSession:
                 request.price,
                 request.requested_at,
             )
-        return replace(state, broker=broker_state, requests=ledger), decision, events
+        return evolve(state, broker=broker_state, requests=ledger), decision, events
 
     @staticmethod
     def resume(state: LiveRunState) -> object:
@@ -808,7 +809,7 @@ class LiveSession:
         called ``finalize`` is not where they belong.
         """
 
-        return replace(state, run=RunEngine.finalize(state.run))
+        return evolve(state, run=RunEngine.finalize(state.run))
 
 
 def live_health(state: LiveRunState) -> tuple[str, ...]:

@@ -1,7 +1,6 @@
 """Pure functional Allocation Engine."""
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from decimal import ROUND_DOWN, ROUND_HALF_EVEN, Decimal
 from types import MappingProxyType
 from typing import Final
@@ -32,6 +31,7 @@ from alphalab.allocation.validation import (
     validate_net_quantity,
 )
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import new_id
 from alphalab.common.order_terms import OrderTerms
 from alphalab.common.persistent_map import PersistentMap
@@ -155,7 +155,7 @@ class AllocationEngine:
                 )
 
         if not valid_intents:
-            return replace(state, events=events), ()
+            return evolve(state, events=events), ()
 
         # 2. Sizing, one intent at a time: a refusal names its intent and the
         # rest of the batch is sized. A model that sizes by value reads what one
@@ -302,7 +302,7 @@ class AllocationEngine:
             # returned state differs from the input only by these events --
             # history, reservations and notional_allocated are untouched, so a
             # rejected allocation changes no prior reservation.
-            return replace(state, events=events), ()
+            return evolve(state, events=events), ()
 
         # 6. Finalization
         events = events.append(
@@ -323,7 +323,7 @@ class AllocationEngine:
             reservations = reservations.set(order.order_id, order.quantity * unit.copy_abs())
             contributions = contributions.set(order.order_id, order.contributions)
 
-        new_state = replace(
+        new_state = evolve(
             state,
             history=state.history.extend(orders),
             events=events,
@@ -366,7 +366,7 @@ class AllocationEngine:
 
         if order_id not in state.contributions:
             return state
-        return replace(state, contributions=state.contributions.delete(order_id))
+        return evolve(state, contributions=state.contributions.delete(order_id))
 
     @staticmethod
     @in_accounting_context
@@ -393,7 +393,7 @@ class AllocationEngine:
             held = positions.get(strategy_id, PersistentMap())
             total = held.get(asset_id, Decimal("0")) + share
             positions = positions.set(strategy_id, held.set(asset_id, total))
-        return replace(state, strategy_positions=positions)
+        return evolve(state, strategy_positions=positions)
 
     @staticmethod
     @in_accounting_context
@@ -413,7 +413,7 @@ class AllocationEngine:
             quantity = held.get(asset_id)
             if quantity is not None:
                 restated = restated.set(strategy_id, held.set(asset_id, quantity * ratio))
-        return state if restated is positions else replace(state, strategy_positions=restated)
+        return state if restated is positions else evolve(state, strategy_positions=restated)
 
     @staticmethod
     def strategy_position(state: AllocationState, strategy_id: str, asset_id: str) -> Decimal:
@@ -469,7 +469,7 @@ class AllocationEngine:
         evt = AllocationExecutionApplied(
             AllocationEngine._create_id(), timestamp, order_id, executed_notional
         )
-        return replace(
+        return evolve(
             state,
             notional_allocated=state.notional_allocated - consumed,
             reservations=reservations,
@@ -502,7 +502,7 @@ class AllocationEngine:
         evt = AllocationReservationReleased(
             AllocationEngine._create_id(), timestamp, order_id, released
         )
-        return replace(
+        return evolve(
             state,
             notional_allocated=state.notional_allocated - released,
             reservations=state.reservations.delete(order_id),

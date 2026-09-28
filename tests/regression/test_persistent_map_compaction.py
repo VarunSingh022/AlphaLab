@@ -81,7 +81,7 @@ def test_a_long_linear_history_iterates_its_live_keys_not_its_past() -> None:
     # The store behind the newest view holds a bounded multiple of what it shows.
     store = index._store
     assert store.entries <= 2 * len(index) + 64 + 2
-    assert len(store.order) <= store.entries
+    assert len(store.keys) == len(store.inserted_at) <= store.entries
 
 
 def test_an_older_view_is_untouched_by_a_rebase_of_its_successor() -> None:

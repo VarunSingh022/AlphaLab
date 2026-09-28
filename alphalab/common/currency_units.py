@@ -48,6 +48,7 @@ __all__ = [
     "ISO_4217_MINOR_UNITS",
     "ISO_4217_TABLE_NOTE",
     "MAX_MINOR_UNITS",
+    "MINOR_UNIT_QUANTA",
     "STANDARD_CURRENCY_UNITS",
     "CurrencyUnits",
     "UnknownCurrencyUnitsError",
@@ -247,6 +248,10 @@ ISO_4217_MINOR_UNITS: Final[Mapping[str, int]] = MappingProxyType(dict(sorted(_I
 #: settled on a ledger AlphaLab has met needs more.
 MAX_MINOR_UNITS: Final = 18
 
+#: ``Decimal(1).scaleb(-n)`` for every admissible ``n``, built once: the minor unit
+#: is read on every money rounding, and a ``Decimal`` is immutable (PRF-006).
+MINOR_UNIT_QUANTA: Final = tuple(Decimal(1).scaleb(-n) for n in range(MAX_MINOR_UNITS + 1))
+
 #: A currency code: upper-case letters and digits, optionally with ``.``, ``_``
 #: or ``-`` after the first character (``USDT``, ``1INCH``, ``USDC.E``).
 _CODE = re.compile(r"^[A-Z0-9][A-Z0-9._-]{0,15}$")
@@ -372,7 +377,7 @@ class CurrencyUnits(Mapping[str, int]):
     def quantum(self, currency: str) -> Decimal:
         """The minor unit itself: ``Decimal('0.01')`` for USD, ``Decimal('1')`` for JPY."""
 
-        return Decimal(1).scaleb(-self.minor_units(currency))
+        return MINOR_UNIT_QUANTA[self.minor_units(currency)]
 
     def round(self, amount: Decimal, currency: str) -> Decimal:
         """``amount`` rounded half-even to ``currency``'s minor unit.
