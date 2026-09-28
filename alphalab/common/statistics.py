@@ -63,6 +63,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum, auto
+from statistics import NormalDist
 
 from alphalab.common.exceptions import AlphaLabValidationError
 
@@ -71,14 +72,20 @@ from alphalab.common.exceptions import AlphaLabValidationError
 #: so a correlation computed from it is wrong in its leading digits.
 _SMALLEST_SQUARABLE = math.sqrt(sys.float_info.min)
 
+_STANDARD_NORMAL = NormalDist()
+
 __all__ = [
     "LinearFit",
     "RankMethod",
+    "StandardizedMoments",
     "TieBreak",
     "bucket_index",
     "linear_regression",
     "mean",
     "median",
+    "newey_west_standard_error",
+    "normal_cdf",
+    "normal_quantile",
     "pearson_correlation",
     "percentile",
     "rank_correlation",
@@ -87,6 +94,7 @@ __all__ = [
     "sample_variance",
     "standard_deviation",
     "standardize",
+    "standardized_moments",
     "winsorize",
 ]
 
@@ -271,6 +279,147 @@ def standard_deviation(values: Sequence[float]) -> float:
     """
 
     return math.sqrt(sample_variance(values))
+
+
+@dataclass(frozen=True, slots=True)
+class StandardizedMoments:
+    """The third and fourth standardized moments of a sample.
+
+    Attributes:
+        skewness: ``sum(z**3) / n``, with ``z`` each value's deviation from the
+            mean divided by the **sample** (``n - 1``) standard deviation.
+        kurtosis: ``sum(z**4) / n`` on the same ``z``. *Not* excess kurtosis: a
+            normal distribution has ``3``. Subtract three for the excess figure;
+            the two are never mixed under one name here.
+        observations: ``n``.
+    """
+
+    skewness: float
+    kurtosis: float
+    observations: int
+
+
+def standardized_moments(values: Sequence[float]) -> StandardizedMoments:
+    """Skewness and kurtosis, standardized by the repository's one dispersion.
+
+    The moments are averaged over ``n`` and standardized by
+    :func:`sample_variance`'s ``n - 1`` deviation, so they are consistent with
+    every other dispersion figure AlphaLab reports. It is the estimator the
+    Cornish-Fisher VaR in :mod:`alphalab.analytics.decomposition` has used since
+    v3.5 -- moved here in v3.11 so that it and the probabilistic Sharpe ratio in
+    :mod:`alphalab.research.sharpe_inference` are the same arithmetic rather
+    than two estimators sharing a name.
+
+    Raises:
+        AlphaLabValidationError: If fewer than two values are given, any is not
+            finite, or the series is constant -- a constant has no shape to
+            measure, and a zero would read as "measured, and symmetric".
+    """
+
+    if len(values) < 2:
+        raise AlphaLabValidationError(
+            f"Standardized moments are undefined over {len(values)} observation(s); "
+            "at least 2 are needed."
+        )
+    deviation = math.sqrt(sample_variance(values))
+    if deviation == 0.0:
+        raise AlphaLabValidationError(
+            f"Standardized moments are undefined for a constant series of {len(values)} "
+            "values: they divide by a dispersion of zero."
+        )
+    average = _average(values)
+    count = len(values)
+    standardized = [(value - average) / deviation for value in values]
+    return StandardizedMoments(
+        skewness=sum(value**3 for value in standardized) / count,
+        kurtosis=sum(value**4 for value in standardized) / count,
+        observations=count,
+    )
+
+
+def normal_cdf(x: float) -> float:
+    """The standard normal cumulative distribution function.
+
+    :meth:`statistics.NormalDist.cdf` from the standard library, which is not a
+    runtime dependency.
+
+    Raises:
+        AlphaLabValidationError: If ``x`` is ``nan``.
+    """
+
+    if math.isnan(x):
+        raise AlphaLabValidationError("The normal CDF of nan is undefined.")
+    return _STANDARD_NORMAL.cdf(x)
+
+
+def normal_quantile(probability: float) -> float:
+    """The inverse standard normal CDF, strictly inside ``(0, 1)``.
+
+    :meth:`statistics.NormalDist.inv_cdf`, Wichura's AS241 to full double
+    precision.
+
+    Raises:
+        AlphaLabValidationError: If ``probability`` is not strictly inside
+            ``(0, 1)``, where the quantile is infinite rather than large.
+    """
+
+    if not 0.0 < probability < 1.0:
+        raise AlphaLabValidationError(
+            f"A normal quantile is defined strictly inside (0, 1); got {probability!r}."
+        )
+    return _STANDARD_NORMAL.inv_cdf(probability)
+
+
+def newey_west_standard_error(values: Sequence[float], lag: int) -> float:
+    """The standard error of the mean of an autocorrelated series (Newey-West 1987).
+
+    The long-run variance is the Bartlett-weighted sum of autocovariances::
+
+        S = g0 + 2 * sum_{j=1..L} (1 - j / (L + 1)) * gj,
+        gj = (1/T) * sum_{t=j..T-1} (x_t - mean) (x_{t-j} - mean)
+
+    and the standard error is ``sqrt(S / T)``. The Bartlett weights make ``S``
+    non-negative by construction. ``lag=0`` is the ordinary standard error with
+    the *population* (``1/T``) variance -- Newey and West's estimator, not the
+    ``n - 1`` sample variance used everywhere else here; the two differ by
+    ``sqrt((T - 1) / T)`` and the difference is stated rather than hidden by
+    mixing them.
+
+    The series is taken as regularly spaced: observation ``t - j`` is ``j``
+    steps before ``t``. A series with gaps has a different lag structure, and
+    this cannot see the gaps.
+
+    Raises:
+        AlphaLabValidationError: If ``lag`` is negative, the series has at most
+            ``lag + 1`` values (the highest autocovariance would rest on one
+            product), any value is not finite, or the long-run variance is zero
+            -- a series with no variation has no standard error to report.
+    """
+
+    if isinstance(lag, bool) or not isinstance(lag, int) or lag < 0:
+        raise AlphaLabValidationError(f"A Newey-West lag is a non-negative integer, got {lag!r}.")
+    count = len(values)
+    if count <= lag + 1:
+        raise AlphaLabValidationError(
+            f"A Newey-West standard error at lag {lag} needs more than {lag + 1} observations; "
+            f"{count} were given."
+        )
+    _require_finite(values, "A Newey-West standard error")
+    average = _average(values)
+    deviations = [value - average for value in values]
+    long_run = math.fsum(d * d for d in deviations) / count
+    for step in range(1, lag + 1):
+        weight = 1.0 - step / (lag + 1)
+        autocovariance = (
+            math.fsum(deviations[t] * deviations[t - step] for t in range(step, count)) / count
+        )
+        long_run += 2.0 * weight * autocovariance
+    if not long_run > 0.0:
+        raise AlphaLabValidationError(
+            f"The long-run variance of these {count} values is {long_run!r}: a series with no "
+            "variation has no standard error, and zero would read as infinite precision."
+        )
+    return math.sqrt(long_run / count)
 
 
 def median(values: Sequence[float]) -> float:
@@ -470,10 +619,11 @@ def linear_regression(ys: Sequence[float], xs: Sequence[float]) -> LinearFit:
     """Fit ``y = intercept + slope * x`` by ordinary least squares.
 
     One regressor and an intercept, which is what beta neutralization and a
-    market-exposure residualization need. Multiple continuous regressors are
-    deliberately not offered here; see
-    :mod:`alphalab.factor_library.neutralization` for which neutralizations
-    AlphaLab implements and why the list stops where it does.
+    market-exposure residualization need. Several regressors are
+    :func:`alphalab.common.linalg.least_squares` (v3.11), which solves by QR
+    and refuses an ill-conditioned design; this closed form stays because it is
+    exact for the one-regressor case and every published beta was computed by
+    it.
 
     Raises:
         AlphaLabValidationError: If the lengths differ, if fewer than two pairs

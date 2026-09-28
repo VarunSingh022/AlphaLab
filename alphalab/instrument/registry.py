@@ -54,10 +54,22 @@ the intent, cannot reach an identity field, and leaves the refusal exactly as
 strict as it was -- re-registering a stale, unclassified record over a
 classified one is still refused, so a stale declaration cannot silently
 un-classify an instrument. See ADR-0027.
+
+Resolution is at an instant (v3.11)
+-----------------------------------
+A provider symbol can name different instruments at different dates -- a
+rename, a ticker reused after a delisting (ledger DAT-004). A
+:class:`~alphalab.instrument.record.DatedAlias` declares a symbol's meaning over
+an interval, and :meth:`InstrumentRegistry.resolve_at` answers at the instant a
+record is stamped with, which is what the wire boundary asks. The refusal rule
+extends to time: two dated aliases of one provider symbol may not share an
+instant, and a static alias -- which claims every instant -- may not coexist
+with a dated one for the same symbol.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
@@ -68,7 +80,7 @@ from alphalab.instrument.classification import (
     SectorClassification,
 )
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
-from alphalab.instrument.record import InstrumentRecord, normalize_sector_label
+from alphalab.instrument.record import DatedAlias, InstrumentRecord, normalize_sector_label
 
 __all__ = [
     "InstrumentRegistry",
@@ -78,6 +90,7 @@ __all__ = [
     "classify_instruments",
     "get_instrument",
     "register_alias",
+    "register_dated_alias",
     "register_instrument",
     "register_instruments",
     "sector_as_of",
@@ -114,6 +127,9 @@ class InstrumentRegistry:
     classifications: PersistentMap[str, ClassificationHistory] = field(
         default_factory=PersistentMap
     )
+    dated: PersistentMap[str, PersistentMap[str, tuple[tuple[DatedAlias, str], ...]]] = field(
+        default_factory=PersistentMap
+    )
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -125,6 +141,8 @@ class InstrumentRegistry:
             object.__setattr__(self, "by_provider", PersistentMap(self.by_provider))
         if not isinstance(self.classifications, PersistentMap):
             object.__setattr__(self, "classifications", PersistentMap(self.classifications))
+        if not isinstance(self.dated, PersistentMap):
+            object.__setattr__(self, "dated", PersistentMap(self.dated))
 
     def resolve(self, provider: str, symbol: str) -> str | None:
         """The ``asset_id`` ``provider`` means by ``symbol``, or ``None``.
@@ -139,6 +157,31 @@ class InstrumentRegistry:
         if symbols is None:
             return None
         return symbols.get(symbol)
+
+    def dated_windows(self, provider: str, symbol: str) -> tuple[tuple[DatedAlias, str], ...]:
+        """Every dated meaning of one provider symbol, in time order, with its ``asset_id``."""
+
+        symbols = self.dated.get(provider)
+        if symbols is None:
+            return ()
+        return symbols.get(symbol, ())
+
+    def resolve_at(self, provider: str, symbol: str, timestamp: float) -> str | None:
+        """The ``asset_id`` ``provider`` means by ``symbol`` at ``timestamp``, or ``None``.
+
+        A static alias answers at every instant. Otherwise the dated alias whose
+        interval covers ``timestamp`` answers, and ``None`` means nothing is
+        registered for that symbol *at that instant* -- which the wire boundary
+        reports with the intervals that are registered.
+        """
+
+        static = self.resolve(provider, symbol)
+        if static is not None:
+            return static
+        for alias, asset_id in self.dated_windows(provider, symbol):
+            if alias.covers(timestamp):
+                return asset_id
+        return None
 
     def record_for(self, asset_id: str) -> InstrumentRecord | None:
         """The instrument ``asset_id`` identifies, or ``None`` if unregistered."""
@@ -170,6 +213,13 @@ def _with_alias(
         raise InstrumentInputError("provider symbol cannot be empty.")
 
     symbols: PersistentMap[str, str] = registry.by_provider.get(provider, PersistentMap())
+    dated = registry.dated_windows(provider, symbol)
+    if dated:
+        raise InstrumentRegistrationError(
+            f"Provider '{provider}' symbol '{symbol}' has dated meanings "
+            f"({', '.join(alias.describe() for alias, _ in dated)}); a static alias claims "
+            "every instant and would contradict them. Declare this meaning as a DatedAlias."
+        )
     existing = symbols.get(symbol)
     if existing is not None and existing != asset_id:
         raise InstrumentRegistrationError(
@@ -182,6 +232,40 @@ def _with_alias(
 
     return replace(
         registry, by_provider=registry.by_provider.set(provider, symbols.set(symbol, asset_id))
+    )
+
+
+def _with_dated_alias(
+    registry: InstrumentRegistry, alias: DatedAlias, asset_id: str
+) -> InstrumentRegistry:
+    """Index one dated meaning, refusing any instant claimed twice."""
+
+    static = registry.resolve(alias.provider, alias.symbol)
+    if static is not None:
+        raise InstrumentRegistrationError(
+            f"Provider '{alias.provider}' symbol '{alias.symbol}' is a static alias of "
+            f"'{static}', which claims every instant; the dated alias {alias.describe()} "
+            "would contradict or repeat it."
+        )
+    windows = registry.dated_windows(alias.provider, alias.symbol)
+    if (alias, asset_id) in windows:
+        return registry
+    for held, held_asset in windows:
+        if held.overlaps(alias):
+            raise InstrumentRegistrationError(
+                f"The dated alias {alias.describe()} for '{asset_id}' overlaps "
+                f"{held.describe()} for '{held_asset}'. One provider symbol names one "
+                "instrument at any instant."
+            )
+    ordered = tuple(
+        sorted(
+            (*windows, (alias, asset_id)),
+            key=lambda item: -math.inf if item[0].valid_from is None else item[0].valid_from,
+        )
+    )
+    symbols = registry.dated.get(alias.provider, PersistentMap())
+    return replace(
+        registry, dated=registry.dated.set(alias.provider, symbols.set(alias.symbol, ordered))
     )
 
 
@@ -216,6 +300,8 @@ def register_instrument(
     )
     for provider, symbol in record.aliases.items():
         updated = _with_alias(updated, provider, symbol, record.asset_id)
+    for alias in record.dated_aliases:
+        updated = _with_dated_alias(updated, alias, record.asset_id)
     return updated
 
 
@@ -246,6 +332,27 @@ def register_alias(
 
     get_instrument(registry, asset_id)
     return _with_alias(registry, provider, symbol, asset_id)
+
+
+def register_dated_alias(
+    registry: InstrumentRegistry, asset_id: str, alias: DatedAlias
+) -> InstrumentRegistry:
+    """Point one provider's symbol at a registered instrument over an interval.
+
+    The dated counterpart of :func:`register_alias`: a lookup key, never an
+    identity input, and refused if any instant it covers is already claimed.
+
+    Raises:
+        InstrumentInputError: If ``asset_id`` is not registered.
+        InstrumentRegistrationError: If the symbol is a static alias, or any
+            instant of the interval already resolves through another dated
+            alias of the same symbol.
+    """
+
+    get_instrument(registry, asset_id)
+    if not isinstance(alias, DatedAlias):
+        raise InstrumentInputError(f"alias must be a DatedAlias, got {alias!r}.")
+    return _with_dated_alias(registry, alias, asset_id)
 
 
 def classify_instrument(

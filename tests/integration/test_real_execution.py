@@ -1,6 +1,6 @@
 """Real execution: the transport, the adapter, and the venue round trip.
 
-Every test here drives :class:`~alphalab.broker.transport.HttpVenueTransport`
+Every test here drives :class:`~tests.reference_adapter.transport.HttpVenueTransport`
 over a real TCP socket into a real HTTP server. Nothing stubs the transport,
 nothing returns a canned ``accepted``, and the only thing that is not a venue is
 the venue's identity. See ``tests/integration/venue_server.py``.
@@ -34,14 +34,6 @@ from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.order import BrokerOrder
 from alphalab.broker.reconciliation import ExecutionOutcome, ExternalOrderMap
 from alphalab.broker.state import BrokerState, ConnectionStatus
-from alphalab.broker.transport import (
-    HttpVenueTransport,
-    VenueCredentials,
-    VenueProtocolError,
-    VenueResponse,
-    VenueTransportError,
-)
-from alphalab.broker.venue import RestVenueBroker, VenueConfig
 from alphalab.core.enums import OrderStatus, OrderType, Side
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.runtime.broker_routing import (
@@ -61,6 +53,14 @@ from tests.integration.harness import (
     running_strategy_state,
 )
 from tests.integration.venue_server import VenueScript, fill, record_fill, run_venue
+from tests.reference_adapter.transport import (
+    HttpVenueTransport,
+    VenueCredentials,
+    VenueProtocolError,
+    VenueResponse,
+    VenueTransportError,
+)
+from tests.reference_adapter.venue import RestVenueBroker, VenueConfig
 
 #: Where these tests route, and what a venue fill is denominated in. Named: a
 #: routing configuration has no default venue or currency (ledger API-003).

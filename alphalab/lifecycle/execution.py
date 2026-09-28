@@ -19,7 +19,7 @@ an environment has nothing live. That is a *query with a refusal*, not a second
 runtime: it builds no state, holds none, and starts nothing.
 
 **It does not construct the strategy.** The lifecycle records a
-:class:`~alphalab.studio.strategy.StrategyDefinition` -- author metadata and
+:class:`~alphalab.strategy.definition.StrategyDefinition` -- author metadata and
 parameter bounds -- and not code. Turning that into a
 :class:`~alphalab.strategy.protocol.StrategyProtocol` requires knowing which
 class implements it, and inventing a registry of strategy classes here would be
@@ -66,7 +66,7 @@ from alphalab.lifecycle.state import LifecycleState
 from alphalab.lifecycle.strategy_version import StrategyVersion
 from alphalab.lifecycle.views import active_strategy_version, evidence_for
 from alphalab.model_registry.registry import ModelStage
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy.definition import StrategyDefinition
 
 __all__ = [
     "RunAuthorization",
@@ -110,7 +110,7 @@ class RunPlan:
 
         Typed as itself since v2.17, having been ``object``. The vagueness was
         never a boundary -- this package already imports
-        :class:`~alphalab.studio.strategy.StrategyDefinition` and already stores
+        :class:`~alphalab.strategy.definition.StrategyDefinition` and already stores
         one on every :class:`~alphalab.lifecycle.strategy_version.StrategyVersion`
         -- and it cost the caller the only thing this property is for: a
         ``StrategyDefinition`` satisfies

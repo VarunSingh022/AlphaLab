@@ -23,6 +23,7 @@ from alphalab.broker import (
 )
 from alphalab.broker.adapter import BrokerAdapter
 from alphalab.core.enums import OrderStatus, OrderType, Side, TimeInForce
+from alphalab.execution.costs import FREE
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,7 @@ def test_canonical_order_status_propagates_from_broker_adapter_through_paper_bro
 
     # Step 2: submit the order through the real PaperBroker state machine.
     state = BrokerEngine.initialize("PAPER-DOMAIN-CHECK", Decimal("100000.00"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     connected_state, _ = broker.connect(state, timestamp=1000.0)
     filled_state, events = broker.submit_order(connected_state, broker_order, timestamp=1000.0)
 

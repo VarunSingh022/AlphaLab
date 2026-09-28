@@ -61,7 +61,7 @@ Reuse, and what is deliberately not re-modelled
 whole rather than restated -- the pre-trade gate reads that type, so a
 specification that described limits in its own shape would be describing
 something the gate does not enforce. Parameters are
-:attr:`~alphalab.studio.strategy.StrategyDefinition.parameters`, read from the
+:attr:`~alphalab.strategy.definition.StrategyDefinition.parameters`, read from the
 registered version by :func:`specification_for_version` rather than typed again.
 Dataset assumptions are the derived version string that already flows through
 ``RunState.source_id`` and ``ValidationEvidence.dataset_id``.
@@ -90,6 +90,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final
 
+from alphalab.common.types import ParamValue
 from alphalab.core.capabilities import CapabilityDeclaration, MarketCapability, Support
 from alphalab.core.enums import AssetType, OrderType, TimeInForce
 from alphalab.data.dataset import Dataset
@@ -587,7 +588,7 @@ def _rendered_risk(risk: RiskLimits) -> list[str]:
 
 def specification_id_for(
     strategy: StrategyVersionRef,
-    parameters: Mapping[str, float],
+    parameters: Mapping[str, ParamValue],
     datasets: Sequence[DatasetAssumption],
     risk: RiskLimits,
     capital: CapitalPolicy,
@@ -665,7 +666,7 @@ class DeploymentSpecification:
         specification_id: The digest of this specification's own content.
         strategy: Which strategy version this is a deployment specification for.
         parameters: The strategy's parameters, spelled as
-            :attr:`~alphalab.studio.strategy.StrategyDefinition.parameters`
+            :attr:`~alphalab.strategy.definition.StrategyDefinition.parameters`
             spells them. Read from the registered version by
             :func:`specification_for_version` rather than restated, so a
             specification cannot configure something the version does not
@@ -684,7 +685,7 @@ class DeploymentSpecification:
 
     specification_id: str
     strategy: StrategyVersionRef
-    parameters: Mapping[str, float]
+    parameters: Mapping[str, ParamValue]
     datasets: tuple[DatasetAssumption, ...]
     risk: RiskLimits
     capital: CapitalPolicy
@@ -725,7 +726,7 @@ class DeploymentSpecification:
 
 def build_specification(
     strategy: StrategyVersionRef,
-    parameters: Mapping[str, float],
+    parameters: Mapping[str, ParamValue],
     datasets: Sequence[DatasetAssumption],
     risk: RiskLimits,
     capital: CapitalPolicy,

@@ -83,11 +83,11 @@ def test_normalize_bar_marks_unreported_fields_as_unreported() -> None:
         Decimal("11.0"),
     )
     assert bar.volume == Decimal("5000.0")
-    # Neither is on the wire: zero here means "not reported".
-    assert bar.vwap == Decimal("0")
-    assert bar.trade_count == 0
+    # Neither is on the wire, so neither is reported (v3.11: None, not zero).
+    assert bar.vwap is None
+    assert bar.trade_count is None
     # The timeframe is the policy's, not a guess from the data.
-    assert bar.timeframe is TimeFrame.M5
+    assert bar.timeframe == TimeFrame.M5
 
 
 def test_normalize_book_preserves_level_order_and_reports_no_order_count() -> None:

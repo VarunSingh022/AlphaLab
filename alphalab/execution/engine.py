@@ -116,8 +116,13 @@ class ExecutionEngine:
         bid: Decimal | None = None,
         ask: Decimal | None = None,
         available_liquidity: Decimal | None = None,
+        *,
+        passive: bool = False,
     ) -> ExecutionState:
         """Fully simulates an execution and updates the state deterministically.
+
+        ``passive`` is a resting order's fill; see
+        :meth:`~alphalab.execution.simulator.ExecutionSimulator.simulate_fill`.
 
         ``bid``, ``ask`` and ``available_liquidity`` are what the market event
         showed, and each is ``None`` when it showed nothing of the kind. They
@@ -155,6 +160,7 @@ class ExecutionEngine:
             bid=bid,
             ask=ask,
             available_liquidity=available_liquidity,
+            passive=passive,
         )
 
         # 3. Apply state change

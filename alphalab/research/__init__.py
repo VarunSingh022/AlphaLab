@@ -69,6 +69,12 @@ from alphalab.research.metrics import (
     calculate_volatility,
 )
 from alphalab.research.montecarlo import MonteCarloReport, monte_carlo_simulation
+from alphalab.research.multiple_testing import (
+    Correction,
+    ErrorRate,
+    MultipleTestingResult,
+    correct_p_values,
+)
 from alphalab.research.overfitting import (
     OverfittingPolicy,
     OverfittingReport,
@@ -125,6 +131,14 @@ from alphalab.research.regimes import (
 )
 from alphalab.research.research import ResearchScore, compute_overall_score
 from alphalab.research.sensitivity import RobustnessReport, parameter_robustness
+from alphalab.research.sharpe_inference import (
+    DeflatedSharpe,
+    SharpeInference,
+    deflated_sharpe_ratio,
+    expected_maximum_sharpe,
+    per_period_sharpe,
+    probabilistic_sharpe_ratio,
+)
 from alphalab.research.signals import (
     QuantileBucket,
     SignalDiagnostics,
@@ -177,8 +191,11 @@ __all__ = [
     "CVMethod",
     "CapacityReport",
     "CompositeRule",
+    "Correction",
+    "DeflatedSharpe",
     "DiagnosticReport",
     "DiagnosticsGenerated",
+    "ErrorRate",
     "EventOutcome",
     "EventStudyDefinition",
     "EventStudyResult",
@@ -186,6 +203,7 @@ __all__ = [
     "ExcludedEvent",
     "InvalidResearchStateError",
     "MonteCarloReport",
+    "MultipleTestingResult",
     "OverfittingPolicy",
     "OverfittingReport",
     "Perturbation",
@@ -216,6 +234,7 @@ __all__ = [
     "ResearchStudy",
     "ResearchValidationError",
     "RobustnessReport",
+    "SharpeInference",
     "SignalDiagnostics",
     "SplitInterval",
     "SplitReport",
@@ -251,7 +270,9 @@ __all__ = [
     "classify_regimes",
     "compute_overall_score",
     "conditional_diagnostics",
+    "correct_p_values",
     "cross_validation_splits",
+    "deflated_sharpe_ratio",
     "delay_signal",
     "derive_result_id",
     "derive_study_id",
@@ -261,6 +282,7 @@ __all__ = [
     "estimate_capacity",
     "event_study",
     "event_study_metrics",
+    "expected_maximum_sharpe",
     "generate_diagnostics",
     "initial_regime_state",
     "label_ends_from_horizon",
@@ -269,9 +291,11 @@ __all__ = [
     "overall_score",
     "parameter_robustness",
     "parameter_sweep",
+    "per_period_sharpe",
     "period_stability",
     "perturb_observations",
     "perturb_signal",
+    "probabilistic_sharpe_ratio",
     "regime_profile",
     "regime_series_from_features",
     "require_chronological",

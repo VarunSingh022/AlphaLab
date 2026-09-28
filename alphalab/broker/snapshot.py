@@ -28,7 +28,9 @@ What is captured, and what is deliberately not
 
 Captured: the connection's identity and status, the account and positions the
 venue last reported, every order AlphaLab believes the venue holds, every
-execution already applied, the order mapping, and the reconciliation log.
+execution already applied, the number of the last absolute report applied per
+order, position and balance (since schema 2), the order mapping, and the
+reconciliation log.
 
 **Not captured: the adapter.** A :class:`~alphalab.broker.protocol.BrokerProtocol`
 is a live object holding a socket, credentials and a transport, and none of
@@ -53,6 +55,16 @@ for the lifecycle: that constant also versions ``BaseEvent``, so bumping it
 would version every event in the system as a side effect of one subsystem's
 change. There is no unversioned shape to recognise here -- nothing before v2.16
 wrote one -- so a payload without ``schema_version`` is refused outright.
+
+========  =======  ==============================================================
+Version   Release  What changed
+========  =======  ==============================================================
+1         v2.16    First durable broker state.
+2         v3.11    ``venue_sequences``: the venue's number of the last absolute
+                   report applied per amended order, position and the balances
+                   (ledger BRK-002). A version-1 mirror applied no numbered
+                   report, so the upgrade records none.
+========  =======  ==============================================================
 """
 
 from __future__ import annotations
@@ -90,7 +102,7 @@ from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.enums import AssetType, OrderType, Side, TimeInForce
 from alphalab.core.enums import OrderStatus as CoreOrderStatus
-from alphalab.persistence.upgrade import SchemaHistory
+from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
 
 __all__ = [
     "BROKER_SCHEMA_HISTORY",
@@ -109,7 +121,8 @@ class BrokerSnapshotDecodeError(BrokerError):
 
 
 #: Schema version this module reads and writes. New in v2.16; see ADR-0033.
-BROKER_SNAPSHOT_SCHEMA: Final = 1
+#: Version 2 (v3.11) carries the venue sequences.
+BROKER_SNAPSHOT_SCHEMA: Final = 2
 
 _SUBSYSTEM: Final = "broker"
 
@@ -163,6 +176,8 @@ class BrokerSnapshot:
     order_bindings: Mapping[str, str] = field(default_factory=dict)
     breaks: tuple[ExecutionDecision, ...] = ()
     duplicates: tuple[ExecutionDecision, ...] = ()
+    #: See :attr:`~alphalab.broker.state.BrokerState.venue_sequences`.
+    venue_sequences: Mapping[str, int] = field(default_factory=dict)
     schema_version: int = BROKER_SNAPSHOT_SCHEMA
 
 
@@ -201,6 +216,7 @@ def capture(
         order_bindings=bindings,
         breaks=reconciliation.breaks.to_tuple(),
         duplicates=reconciliation.duplicates.to_tuple(),
+        venue_sequences=dict(state.venue_sequences),
         schema_version=BROKER_SNAPSHOT_SCHEMA,
     )
 
@@ -236,6 +252,10 @@ def restore(snapshot: BrokerSnapshot) -> tuple[BrokerState, ExternalOrderMap, Re
     for oms_order_id, broker_order_id in snapshot.order_bindings.items():
         mapping = mapping.bind(oms_order_id, broker_order_id)
 
+    sequences: PersistentMap[str, int] = PersistentMap()
+    for key, number in snapshot.venue_sequences.items():
+        sequences = sequences.set(key, number)
+
     state = BrokerState(
         broker_name=snapshot.broker_name,
         connection_status=snapshot.connection_status,
@@ -246,6 +266,7 @@ def restore(snapshot: BrokerSnapshot) -> tuple[BrokerState, ExternalOrderMap, Re
         events=AppendOnlyLog(record.event for record in snapshot.events),
         metadata=dict(snapshot.metadata),
         last_heartbeat=snapshot.last_heartbeat,
+        venue_sequences=sequences,
     )
     log = ReconciliationLog(
         breaks=AppendOnlyLog(snapshot.breaks), duplicates=AppendOnlyLog(snapshot.duplicates)
@@ -430,6 +451,14 @@ def _event(record: Any) -> BrokerEvent:
         raise BrokerSnapshotDecodeError(f"{tag} could not be decoded: {payload!r}") from exc
 
 
+def _venue_sequence(key: str, value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise BrokerSnapshotDecodeError(
+            f"venue_sequences[{key!r}] is not a non-negative integer: {value!r}"
+        )
+    return value
+
+
 def _decision(payload: Any) -> ExecutionDecision:
     data = payload if isinstance(payload, Mapping) else {}
     if not data:
@@ -441,9 +470,26 @@ def _decision(payload: Any) -> ExecutionDecision:
     )
 
 
+def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
+    """Version 2 records venue sequences; a version-1 mirror applied none."""
+
+    return {**payload, "venue_sequences": {}}
+
+
 #: How every broker payload a release has written is read by this one. See
 #: :mod:`alphalab.persistence.upgrade`.
-BROKER_SCHEMA_HISTORY = SchemaHistory(_SUBSYSTEM, BROKER_SNAPSHOT_SCHEMA)
+BROKER_SCHEMA_HISTORY = SchemaHistory(
+    _SUBSYSTEM,
+    BROKER_SNAPSHOT_SCHEMA,
+    (
+        SchemaStep(
+            1,
+            "version 2 records the venue's number of the last absolute report applied per "
+            "order, position and the balances; a version-1 mirror applied none",
+            upgrade=_v1_to_v2,
+        ),
+    ),
+)
 
 
 def from_primitives(payload: Mapping[str, Any]) -> BrokerSnapshot:
@@ -453,7 +499,8 @@ def from_primitives(payload: Mapping[str, Any]) -> BrokerSnapshot:
         BrokerSnapshotDecodeError: If the payload is not an object, is missing a
             field, or holds a value of the wrong type.
         StateDecodeError: If it declares a schema version this build does not
-            read. There is no migration path and no unversioned shape.
+            read. A version-1 payload is upgraded (see the module docstring);
+            there is no unversioned shape.
     """
 
     if not isinstance(payload, Mapping):
@@ -479,5 +526,9 @@ def from_primitives(payload: Mapping[str, Any]) -> BrokerSnapshot:
         order_bindings={str(k): str(v) for k, v in _mapping(payload, "order_bindings").items()},
         breaks=tuple(_decision(entry) for entry in _sequence(payload, "breaks")),
         duplicates=tuple(_decision(entry) for entry in _sequence(payload, "duplicates")),
+        venue_sequences={
+            str(key): _venue_sequence(str(key), value)
+            for key, value in _mapping(payload, "venue_sequences").items()
+        },
         schema_version=BROKER_SNAPSHOT_SCHEMA,
     )

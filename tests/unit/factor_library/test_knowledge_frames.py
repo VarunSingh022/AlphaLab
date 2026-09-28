@@ -393,7 +393,7 @@ def test_prices_align_to_a_frame_sampled_on_their_clock() -> None:
     )
 
     aligned = align_prices(prices, knowledge)
-    returns = forward_returns(aligned, 1)
+    returns = forward_returns(aligned, 1, lag=0, delistings=())
     rank = FeatureDefinition(
         feature_id="cpi_rank",
         kind=FeatureKind.CROSS_SECTIONAL_RANK,

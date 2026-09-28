@@ -84,18 +84,20 @@ from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side
 from alphalab.core.order_request import OrderRequest
 from alphalab.persistence.decode import (
+    MARKET_TERMS_PAYLOAD,
     as_decimal,
     as_decimal_mapping,
     as_float,
     as_int,
     as_mapping,
+    as_order_terms,
     as_sequence,
     as_str,
     as_value_enum,
     require,
 )
 from alphalab.persistence.exceptions import StateDecodeError
-from alphalab.persistence.upgrade import SchemaHistory
+from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
 
 __all__ = [
     "ALLOCATION_SCHEMA_HISTORY",
@@ -113,7 +115,7 @@ __all__ = [
 #: v2.6 gave for the portfolio and v2.8 for the lifecycle: that constant also
 #: versions ``BaseEvent``, so bumping it would version every
 #: event in the system as a side effect of one subsystem's change.
-ALLOCATION_SNAPSHOT_SCHEMA: Final = 1
+ALLOCATION_SNAPSHOT_SCHEMA: Final = 2
 
 _SUBSYSTEM: Final = "allocation"
 
@@ -165,6 +167,10 @@ class AllocationSnapshot:
     notional_allocated: Decimal
     reservations: Mapping[str, Decimal]
     contributions: Mapping[str, tuple[StrategyContribution, ...]]
+    #: Strategy -> asset -> its own signed position, or ``None`` when the run's
+    #: positions were never recorded (schema 2; see
+    #: :attr:`~alphalab.allocation.state.AllocationState.strategy_positions`).
+    strategy_positions: Mapping[str, Mapping[str, Decimal]] | None = None
     schema_version: int = ALLOCATION_SNAPSHOT_SCHEMA
 
 
@@ -183,6 +189,11 @@ def capture(state: AllocationState) -> AllocationSnapshot:
         notional_allocated=state.notional_allocated,
         reservations=dict(state.reservations),
         contributions=dict(state.contributions),
+        strategy_positions=None
+        if state.strategy_positions is None
+        else {
+            strategy_id: dict(assets) for strategy_id, assets in state.strategy_positions.items()
+        },
     )
 
 
@@ -207,6 +218,14 @@ def restore(snapshot: AllocationSnapshot) -> AllocationState:
         notional_allocated=snapshot.notional_allocated,
         reservations=PersistentMap(snapshot.reservations),
         contributions=PersistentMap(snapshot.contributions),
+        strategy_positions=None
+        if snapshot.strategy_positions is None
+        else PersistentMap(
+            {
+                strategy_id: PersistentMap(assets)
+                for strategy_id, assets in snapshot.strategy_positions.items()
+            }
+        ),
     )
 
 
@@ -256,6 +275,7 @@ def _order_request(value: Any, index: int) -> OrderRequest:
         price=as_decimal(require(payload, "price"), f"{where}.price"),
         timestamp=as_float(require(payload, "timestamp"), f"{where}.timestamp"),
         contributions=_contributions(require(payload, "contributions"), f"{where}.contributions"),
+        terms=as_order_terms(require(payload, "terms"), f"{where}.terms"),
     )
 
 
@@ -298,7 +318,46 @@ def _ledger(payload: Mapping[str, Any]) -> dict[str, tuple[StrategyContribution,
 
 #: How every allocation payload a release has written is read by this one. See
 #: :mod:`alphalab.persistence.upgrade`.
-ALLOCATION_SCHEMA_HISTORY = SchemaHistory(_SUBSYSTEM, ALLOCATION_SNAPSHOT_SCHEMA)
+def _strategy_positions(value: Any) -> dict[str, dict[str, Decimal]] | None:
+    if value is None:
+        return None
+    where = "strategy_positions"
+    return {
+        str(strategy_id): as_decimal_mapping(assets, f"{where}[{strategy_id!r}]")
+        for strategy_id, assets in as_mapping(value, where).items()
+    }
+
+
+def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
+    """Give each allocated request its terms, and record that positions were not kept.
+
+    Allocation could emit only a market order good for the day until v3.11
+    (ledger EXE-003), so that is what each version-1 request was. A version-1
+    allocation kept no per-strategy positions (ledger FEA-001), and the payload
+    holds nothing they could be rebuilt from, so they are ``None`` -- not
+    recorded -- rather than empty, which would say every strategy is flat.
+    """
+
+    history = [
+        {**request, "terms": dict(MARKET_TERMS_PAYLOAD)} if isinstance(request, dict) else request
+        for request in payload.get("history", ())
+    ]
+    return {**payload, "history": history, "strategy_positions": None}
+
+
+ALLOCATION_SCHEMA_HISTORY = SchemaHistory(
+    _SUBSYSTEM,
+    ALLOCATION_SNAPSHOT_SCHEMA,
+    (
+        SchemaStep(
+            1,
+            "version 2 records each allocated request's order terms and each strategy's own "
+            "positions; every version-1 request was a market order good for the day, and its "
+            "positions were not kept",
+            upgrade=_v1_to_v2,
+        ),
+    ),
+)
 
 
 def from_primitives(payload: Mapping[str, Any]) -> AllocationSnapshot:
@@ -322,5 +381,6 @@ def from_primitives(payload: Mapping[str, Any]) -> AllocationSnapshot:
         notional_allocated=as_decimal(require(payload, "notional_allocated"), "notional_allocated"),
         reservations=as_decimal_mapping(require(payload, "reservations"), "reservations"),
         contributions=_ledger(payload),
+        strategy_positions=_strategy_positions(require(payload, "strategy_positions")),
         schema_version=ALLOCATION_SNAPSHOT_SCHEMA,
     )

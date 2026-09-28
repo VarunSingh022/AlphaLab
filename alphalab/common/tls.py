@@ -1,12 +1,12 @@
 """The TLS policy every outbound AlphaLab connection is made with.
 
-**One policy, one definition.** Two packages open TLS connections to somebody
+**One policy, one definition.** Every TLS connection AlphaLab opens to somebody
 else's server -- :mod:`alphalab.marketdata.websocket` for a ``wss://`` market
-feed and :mod:`alphalab.broker.transport` for an ``https://`` order submission
--- and a security floor that is written down twice is a security floor that can
-drift. It lives here because it belongs to neither of them: it is shared
-infrastructure, which is what :mod:`alphalab.common` is for, and both packages
-already depend on this one.
+feed, :mod:`alphalab.marketdata.transport` for ``https://`` history -- and every
+adapter that wants the same floor for an order submission (the test suite's
+reference REST adapter uses it) reads it from here. A security floor that is
+written down twice is a security floor that can drift; it lives in
+:mod:`alphalab.common` because it belongs to no one package.
 
 Why an explicit floor is necessary
 ----------------------------------

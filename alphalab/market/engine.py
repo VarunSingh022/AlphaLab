@@ -90,7 +90,7 @@ class MarketEngine:
 
         return replace(
             state,
-            latest_bars=state.latest_bars.set(f"{bar.asset_id}_{bar.timeframe.value}", bar),
+            latest_bars=state.latest_bars.set(f"{bar.asset_id}_{bar.timeframe.code}", bar),
             history=state.history.append(event),
             events=state.events.append(event),
         )

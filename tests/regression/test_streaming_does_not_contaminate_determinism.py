@@ -118,8 +118,8 @@ def test_constructing_a_streaming_source_draws_no_identifier() -> None:
 def test_constructing_a_venue_transport_and_broker_draws_no_identifier() -> None:
     """The same property for the execution transport."""
 
-    from alphalab.broker.transport import HttpVenueTransport, VenueCredentials
-    from alphalab.broker.venue import RestVenueBroker, VenueConfig
+    from tests.reference_adapter.transport import HttpVenueTransport, VenueCredentials
+    from tests.reference_adapter.venue import RestVenueBroker, VenueConfig
 
     source = DeterministicIdSource(_SEED)
     with use_id_source(source):
@@ -143,8 +143,8 @@ def test_a_seeded_backtest_is_byte_identical_with_the_live_modules_imported() ->
     loaded = [
         importlib.import_module(name)
         for name in (
-            "alphalab.broker.transport",
-            "alphalab.broker.venue",
+            "tests.reference_adapter.transport",
+            "tests.reference_adapter.venue",
             "alphalab.market.stream",
             "alphalab.marketdata.websocket",
         )

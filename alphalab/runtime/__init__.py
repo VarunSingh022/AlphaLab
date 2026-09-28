@@ -56,6 +56,7 @@ from alphalab.runtime.broker_routing import (
     execution_report_from_broker,
     route_child_order,
     route_order,
+    venue_order_type,
 )
 from alphalab.runtime.exceptions import (
     AlphaLabRuntimeError,
@@ -70,6 +71,7 @@ from alphalab.runtime.execution_pipeline import (
     SettlementRefusal,
     UnpricedAsset,
     UnpricedReason,
+    wants_slices,
 )
 from alphalab.runtime.live import (
     LiveRunState,
@@ -130,4 +132,6 @@ __all__ = [
     "live_health",
     "route_child_order",
     "route_order",
+    "venue_order_type",
+    "wants_slices",
 ]

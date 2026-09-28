@@ -91,7 +91,7 @@ from alphalab.risk.limits import (
     PositionLimit,
     RiskLimits,
 )
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 
 # --------------------------------------------------------------------------- #
 # A dataset with real provenance, so the assumption names actual bytes

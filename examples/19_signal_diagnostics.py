@@ -85,7 +85,9 @@ def main() -> None:
     # Step 02 : Does it predict, and at what horizon?
     # ------------------------------------------------------------------
 
-    horizons = signal_horizons(signal, frame, [1, 3, 5, 10, 20], buckets=5, minimum_assets=5)
+    horizons = signal_horizons(
+        signal, frame, [1, 3, 5, 10, 20], buckets=5, minimum_assets=5, lag=0, delistings=()
+    )
 
     print()
     print("Step 02 - Forward-return analysis across horizons")
@@ -153,7 +155,7 @@ def main() -> None:
 
     conditional = conditional_diagnostics(
         signal,
-        forward_returns(frame, chosen),
+        forward_returns(frame, chosen, lag=0, delistings=()),
         labels,
         buckets=5,
         minimum_assets=5,
@@ -182,7 +184,7 @@ def main() -> None:
     print("Step 05 - What is refused")
 
     demanding = signal_diagnostics(
-        signal, forward_returns(frame, chosen), buckets=5, minimum_assets=40
+        signal, forward_returns(frame, chosen, lag=0, delistings=()), buckets=5, minimum_assets=40
     )
     print(f"  minimum_assets=40 on a universe of {len(signal.symbols)}:")
     print(f"    rank IC       : {demanding.rank_ic.mean_rank}")
@@ -191,13 +193,16 @@ def main() -> None:
     print("    relationship, which is a finding nobody made.")
 
     try:
-        signal_diagnostics(signal, forward_returns(frame, chosen), buckets=1)
+        signal_diagnostics(signal, forward_returns(frame, chosen, lag=0, delistings=()), buckets=1)
     except ResearchValidationError as error:
         print(f"  one bucket      : {str(error)[:64]}...")
 
     try:
         conditional_diagnostics(
-            signal, forward_returns(frame, chosen), labels, minimum_instants=10_000
+            signal,
+            forward_returns(frame, chosen, lag=0, delistings=()),
+            labels,
+            minimum_instants=10_000,
         )
     except ResearchValidationError as error:
         print(f"  thin regime     : {str(error)[:64]}...")

@@ -63,6 +63,7 @@ from alphalab.options import (
     occ_symbol,
     surface_from_chain,
 )
+from alphalab.options.carry import dividend_yield
 from alphalab.portfolio.contracts import ContractHolding, contract_exposures
 from alphalab.portfolio.position import Position
 from tests.regression._timing import growth
@@ -199,7 +200,9 @@ def _option_chain(strikes: int) -> tuple[OptionChain, dict[str, Decimal]]:
     )
     chain = OptionChain("UND", 0.0, contracts)
     prices = {
-        occ_symbol(contract): Decimal(str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0)))
+        occ_symbol(contract): Decimal(
+            str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0, carry=dividend_yield(0.0)))
+        )
         for contract in contracts
     }
     return chain, prices
@@ -209,8 +212,12 @@ def test_inverting_a_chain_into_a_surface_is_near_linear_in_contracts() -> None:
     small_chain, small_prices = _option_chain(50)
     large_chain, large_prices = _option_chain(500)
     growth = _growth(
-        lambda: surface_from_chain(small_chain, small_prices, Decimal("150"), 0.04, 0.0),
-        lambda: surface_from_chain(large_chain, large_prices, Decimal("150"), 0.04, 0.0),
+        lambda: surface_from_chain(
+            small_chain, small_prices, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
+        lambda: surface_from_chain(
+            large_chain, large_prices, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
     )
     assert growth < LINEAR_BOUND, f"surface construction grew {growth:.1f}x for 10x strikes"
 
@@ -223,11 +230,19 @@ def test_one_implied_volatility_costs_a_bounded_amount_regardless_of_the_input()
     contract = OptionContract(
         "UND", Decimal("150"), 365.25 * DAY, OptionType.CALL, ExerciseStyle.EUROPEAN, 100
     )
-    near = Decimal(str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0)))
-    far = Decimal(str(black_scholes_value(contract, 150.0, 4.0, 0.04, 1.0)))
+    near = Decimal(
+        str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0, carry=dividend_yield(0.0)))
+    )
+    far = Decimal(
+        str(black_scholes_value(contract, 150.0, 4.0, 0.04, 1.0, carry=dividend_yield(0.0)))
+    )
     ratio = _growth(
-        lambda: implied_volatility(contract, near, Decimal("150"), 0.04, 0.0),
-        lambda: implied_volatility(contract, far, Decimal("150"), 0.04, 0.0),
+        lambda: implied_volatility(
+            contract, near, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
+        lambda: implied_volatility(
+            contract, far, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
         floor=1e-6,
     )
     assert ratio < 5.0, f"a high-volatility inversion cost {ratio:.1f}x a low one"

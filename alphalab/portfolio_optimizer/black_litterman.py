@@ -59,6 +59,7 @@ from types import MappingProxyType
 from typing import Final
 
 from alphalab.analytics.risk_model import CovarianceMatrix
+from alphalab.common.arithmetic import canonical_text
 from alphalab.portfolio_optimizer.construction import ExpectedReturns
 from alphalab.portfolio_optimizer.exceptions import ConstructionInputError
 from alphalab.portfolio_optimizer.quadratic import _cholesky, _cholesky_solve
@@ -75,7 +76,8 @@ __all__ = [
     "view_variance_from_prior",
 ]
 
-BLACK_LITTERMAN_SCHEME: Final = "alphalab.black_litterman.v1"
+#: Version 2 (v3.11, ledger DET-006): market values render by value.
+BLACK_LITTERMAN_SCHEME: Final = "alphalab.black_litterman.v2"
 
 _CONTEXT: Final = Context(prec=28, rounding=ROUND_HALF_EVEN)
 
@@ -156,7 +158,10 @@ class EquilibriumPrior:
             "prior=equilibrium",
             f"currency={self.currency!r}",
             f"risk_aversion={self.risk_aversion!r}",
-            *(f"market_value[{asset!r}]={value}" for asset, value in self.market_values.items()),
+            *(
+                f"market_value[{asset!r}]={canonical_text(value)}"
+                for asset, value in self.market_values.items()
+            ),
         ]
 
 

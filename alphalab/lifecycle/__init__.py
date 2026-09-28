@@ -237,6 +237,12 @@ from alphalab.lifecycle.deployment import (
     release_manifest,
     rollback_environment,
 )
+from alphalab.lifecycle.environment import (
+    engine_source_digest,
+    running_build,
+    source_tree_digest,
+    tz_database_version,
+)
 from alphalab.lifecycle.evidence import (
     MetricThreshold,
     ValidationEvidence,
@@ -254,6 +260,7 @@ from alphalab.lifecycle.evidence import (
 from alphalab.lifecycle.exceptions import (
     LifecycleError,
     LifecycleInputError,
+    LifecyclePermissionError,
     LifecycleTransitionError,
 )
 from alphalab.lifecycle.execution import (
@@ -278,6 +285,7 @@ from alphalab.lifecycle.fingerprint import (
     DependencyCompleteness,
     DependencyManifest,
     DependencyPin,
+    EngineBuild,
     EngineIdentity,
     ExecutionAlgorithmIdentity,
     ResearchConfiguration,
@@ -311,6 +319,8 @@ from alphalab.lifecycle.governance import (
     ApprovalRecord,
     Governance,
     GovernedAct,
+    PermissionAuthority,
+    StaticPermissions,
     approval_for,
     approvals_for,
 )
@@ -511,6 +521,7 @@ __all__ = [
     "DependencyPin",
     "DeploymentRef",
     "DeploymentSpecification",
+    "EngineBuild",
     "EngineIdentity",
     "EnvironmentPortability",
     "ExecutionAlgorithmIdentity",
@@ -527,6 +538,7 @@ __all__ = [
     "HealthStatus",
     "LifecycleError",
     "LifecycleInputError",
+    "LifecyclePermissionError",
     "LifecycleState",
     "LifecycleTransitionError",
     "MarketAvailability",
@@ -537,6 +549,7 @@ __all__ = [
     "MismatchCategory",
     "ModelRef",
     "PairComparison",
+    "PermissionAuthority",
     "PortabilityReport",
     "PortabilityRequirement",
     "PortabilityStatus",
@@ -565,6 +578,7 @@ __all__ = [
     "StageTransition",
     "StateExpectation",
     "StateReconciliation",
+    "StaticPermissions",
     "StrategyFingerprint",
     "StrategyLifecycleStage",
     "StrategyProgression",
@@ -614,6 +628,7 @@ __all__ = [
     "derive_strategy_fingerprint",
     "differing_parameters",
     "digest_run",
+    "engine_source_digest",
     "environments_running",
     "evaluate_health",
     "evaluate_policy",
@@ -662,11 +677,14 @@ __all__ = [
     "retire_strategy_version",
     "rollback_environment",
     "run_plan",
+    "running_build",
     "running_engine",
     "source_digest",
+    "source_tree_digest",
     "specification_for_version",
     "specification_id_for",
     "strategy_names",
+    "tz_database_version",
     "unmet_broker_requirements",
     "unmet_market_requirements",
     "validate_specification",

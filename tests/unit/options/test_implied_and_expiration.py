@@ -41,6 +41,7 @@ from alphalab.options import (
     surface_slice,
     term_structure,
 )
+from alphalab.options.carry import dividend_yield
 
 YEAR = 365.25 * 86400
 
@@ -66,11 +67,13 @@ def _contract(
 # --------------------------------------------------------------------------- #
 
 
-def test_the_assumptions_name_the_four_things_the_model_does_not_do() -> None:
+def test_the_assumptions_name_what_the_model_does_and_does_not_do() -> None:
     assert BLACK_SCHOLES_MERTON.model is PricingModel.BLACK_SCHOLES
     assert not BLACK_SCHOLES_MERTON.prices_early_exercise
-    assert not BLACK_SCHOLES_MERTON.models_dividends
+    # Since v3.11 every call states the underlying's carry (NUM-005).
+    assert BLACK_SCHOLES_MERTON.models_dividends
     assert not BLACK_SCHOLES_MERTON.models_volatility_smile
+    assert "discrete dividend is not modelled" in BLACK_SCHOLES_MERTON.note
 
 
 def test_the_year_basis_matches_what_the_pricer_actually_uses() -> None:
@@ -82,7 +85,7 @@ def test_the_year_basis_matches_what_the_pricer_actually_uses() -> None:
 
 
 def test_the_identity_is_deterministic_and_readable() -> None:
-    assert BLACK_SCHOLES_MERTON.identity == "BLACK_SCHOLES/365.25d/none"
+    assert BLACK_SCHOLES_MERTON.identity == "BLACK_SCHOLES/365.25d/D"
     assert BLACK_SCHOLES_MERTON.identity == BLACK_SCHOLES_MERTON.identity
 
 
@@ -96,8 +99,10 @@ def test_the_unrounded_value_is_the_price_the_pricer_rounds() -> None:
 
     contract = _contract()
     for volatility in (0.05, 0.25, 0.8):
-        raw = black_scholes_value(contract, 150.0, volatility, 0.05, 1.0)
-        rounded = black_scholes_price(contract, Decimal("150"), volatility, 0.05, 0.0)
+        raw = black_scholes_value(contract, 150.0, volatility, 0.05, 1.0, carry=dividend_yield(0.0))
+        rounded = black_scholes_price(
+            contract, Decimal("150"), volatility, 0.05, 0.0, carry=dividend_yield(0.0)
+        )
         assert Decimal(str(round(raw, 4))) == rounded
 
 
@@ -108,25 +113,35 @@ def test_a_round_trip_recovers_the_volatility_it_was_priced_at(
     option_type: OptionType, volatility: float, strike: str
 ) -> None:
     contract = _contract(option_type, strike)
-    price = black_scholes_value(contract, 150.0, volatility, 0.04, 1.0)
-    recovered = implied_volatility(contract, Decimal(str(price)), Decimal("150"), 0.04, 0.0)
+    price = black_scholes_value(contract, 150.0, volatility, 0.04, 1.0, carry=dividend_yield(0.0))
+    recovered = implied_volatility(
+        contract, Decimal(str(price)), Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+    )
     assert recovered.value == pytest.approx(volatility, abs=1e-6)
     assert abs(recovered.residual) <= 1e-9
 
 
 def test_the_result_carries_the_model_it_was_inverted_under() -> None:
     contract = _contract()
-    price = black_scholes_price(contract, Decimal("150"), 0.25, 0.04, 0.0)
-    assert implied_volatility(contract, price, Decimal("150"), 0.04, 0.0).assumptions is (
-        BLACK_SCHOLES_MERTON
+    price = black_scholes_price(
+        contract, Decimal("150"), 0.25, 0.04, 0.0, carry=dividend_yield(0.0)
     )
+    assert implied_volatility(
+        contract, price, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+    ).assumptions is (BLACK_SCHOLES_MERTON)
 
 
 def test_the_inversion_is_deterministic_including_the_iteration_count() -> None:
     contract = _contract()
-    price = black_scholes_price(contract, Decimal("150"), 0.25, 0.04, 0.0)
-    first = implied_volatility(contract, price, Decimal("150"), 0.04, 0.0)
-    second = implied_volatility(contract, price, Decimal("150"), 0.04, 0.0)
+    price = black_scholes_price(
+        contract, Decimal("150"), 0.25, 0.04, 0.0, carry=dividend_yield(0.0)
+    )
+    first = implied_volatility(
+        contract, price, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+    )
+    second = implied_volatility(
+        contract, price, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+    )
     assert first == second
 
 
@@ -139,19 +154,25 @@ def test_a_price_at_or_below_the_no_arbitrage_floor_is_refused() -> None:
     contract = _contract(strike="100")
     floor = 150.0 - 100.0 * math.exp(-0.04)
     with pytest.raises(ImpliedVolatilityError, match="no-arbitrage floor"):
-        implied_volatility(contract, Decimal(str(floor)), Decimal("150"), 0.04, 0.0)
+        implied_volatility(
+            contract, Decimal(str(floor)), Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        )
 
 
 def test_a_price_at_or_above_the_ceiling_is_refused() -> None:
     with pytest.raises(ImpliedVolatilityError, match="ceiling"):
-        implied_volatility(_contract(), Decimal("150"), Decimal("150"), 0.04, 0.0)
+        implied_volatility(
+            _contract(), Decimal("150"), Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        )
 
 
 def test_a_put_has_its_own_ceiling_at_the_discounted_strike() -> None:
     contract = _contract(OptionType.PUT, "150")
     discounted = 150.0 * math.exp(-0.04)
     with pytest.raises(ImpliedVolatilityError, match="ceiling"):
-        implied_volatility(contract, Decimal(str(discounted)), Decimal("150"), 0.04, 0.0)
+        implied_volatility(
+            contract, Decimal(str(discounted)), Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        )
 
 
 def test_a_vanishing_vega_is_refused_rather_than_fitted_to_noise() -> None:
@@ -165,7 +186,9 @@ def test_a_vanishing_vega_is_refused_rather_than_fitted_to_noise() -> None:
 
     contract = _contract(strike="250", expiry=86400.0)
     with pytest.raises(ImpliedVolatilityError, match="Vega at the solution"):
-        implied_volatility(contract, Decimal("1e-12"), Decimal("150"), 0.04, 0.0)
+        implied_volatility(
+            contract, Decimal("1e-12"), Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        )
 
 
 def test_a_price_the_model_cannot_reach_at_all_is_its_own_refusal() -> None:
@@ -174,17 +197,28 @@ def test_a_price_the_model_cannot_reach_at_all_is_its_own_refusal() -> None:
 
     contract = _contract(strike="400", expiry=3600.0)
     with pytest.raises(ImpliedVolatilityError, match="does not reach"):
-        implied_volatility(contract, Decimal("1e-20"), Decimal("150"), 0.04, 0.0)
+        implied_volatility(
+            contract, Decimal("1e-20"), Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        )
 
 
 def test_an_expired_contract_is_refused_before_anything_else() -> None:
     with pytest.raises(OptionInputError, match="expired"):
-        implied_volatility(_contract(expiry=0.0), Decimal("5"), Decimal("150"), 0.04, 1.0)
+        implied_volatility(
+            _contract(expiry=0.0),
+            Decimal("5"),
+            Decimal("150"),
+            0.04,
+            1.0,
+            carry=dividend_yield(0.0),
+        )
 
 
 def test_a_non_positive_spot_is_refused() -> None:
     with pytest.raises(OptionInputError, match="spot must be positive"):
-        implied_volatility(_contract(), Decimal("5"), Decimal("0"), 0.04, 0.0)
+        implied_volatility(
+            _contract(), Decimal("5"), Decimal("0"), 0.04, 0.0, carry=dividend_yield(0.0)
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -203,10 +237,14 @@ def _chain(strikes: tuple[str, ...] = ("130", "150", "170")) -> OptionChain:
 def test_a_surface_built_from_a_chain_accounts_for_every_contract() -> None:
     chain = _chain()
     prices = {
-        occ_symbol(contract): Decimal(str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0)))
+        occ_symbol(contract): Decimal(
+            str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0, carry=dividend_yield(0.0)))
+        )
         for contract in chain.contracts
     }
-    surface, refusals = surface_from_chain(chain, prices, Decimal("150"), 0.04, 0.0)
+    surface, refusals = surface_from_chain(
+        chain, prices, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+    )
     assert len(surface.points) + len(refusals) == len(chain.contracts)
     assert refusals == ()
     assert all(point.implied_vol == pytest.approx(0.25, abs=1e-6) for point in surface.points)
@@ -215,7 +253,9 @@ def test_a_surface_built_from_a_chain_accounts_for_every_contract() -> None:
 def test_an_unquotable_wing_is_reported_rather_than_dropped() -> None:
     chain = _chain()
     prices = {occ_symbol(chain.contracts[0]): Decimal("0.0001")}  # below its floor
-    surface, refusals = surface_from_chain(chain, prices, Decimal("150"), 0.04, 0.0)
+    surface, refusals = surface_from_chain(
+        chain, prices, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+    )
     assert len(surface.points) + len(refusals) == 3
     assert len(refusals) == 3
     assert any("floor" in refusal.reason for refusal in refusals)
@@ -445,6 +485,10 @@ def test_a_bull_call_spreads_payoff_is_capped_above_the_short_strike() -> None:
 
 def test_the_greeks_the_pricer_returns_are_deterministic() -> None:
     contract = _contract()
-    first = black_scholes_greeks(contract, Decimal("150"), 0.25, 0.04, 0.0)
-    second = black_scholes_greeks(contract, Decimal("150"), 0.25, 0.04, 0.0)
+    first = black_scholes_greeks(
+        contract, Decimal("150"), 0.25, 0.04, 0.0, carry=dividend_yield(0.0)
+    )
+    second = black_scholes_greeks(
+        contract, Decimal("150"), 0.25, 0.04, 0.0, carry=dividend_yield(0.0)
+    )
     assert first == second

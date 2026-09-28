@@ -30,8 +30,6 @@ from typing import Any
 from alphalab.broker.account import BrokerAccount
 from alphalab.broker.reconciliation import ExternalOrderMap
 from alphalab.broker.state import BrokerState, ConnectionStatus
-from alphalab.broker.transport import HttpVenueTransport, VenueCredentials
-from alphalab.broker.venue import RestVenueBroker, VenueConfig
 from alphalab.core.enums import AssetType
 from alphalab.data.time import BarStamp
 from alphalab.instrument.record import InstrumentRecord
@@ -65,6 +63,8 @@ from alphalab.strategy.protocol import BaseStrategy
 from tests.integration.harness import context_factory, pipeline_config, running_strategy_state
 from tests.integration.stream_server import StreamScript, quote, run_stream
 from tests.integration.venue_server import fill, record_fill, run_venue
+from tests.reference_adapter.transport import HttpVenueTransport, VenueCredentials
+from tests.reference_adapter.venue import RestVenueBroker, VenueConfig
 
 #: Where these tests route, and what a venue fill is denominated in. Named: a
 #: routing configuration has no default venue or currency (ledger API-003).

@@ -15,6 +15,7 @@ from alphalab.broker import BrokerEngine, PaperBroker
 from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.state import BrokerState, ConnectionStatus
 from alphalab.core.enums import OrderStatus
+from alphalab.execution.costs import FREE
 from alphalab.market.source import SequenceSource
 from alphalab.runtime.broker_routing import (
     RoutingConfig,
@@ -225,7 +226,7 @@ def _live_session_with_a_working_order() -> RunState:
 
 
 def _connected_broker() -> tuple[BrokerState, PaperBroker]:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     state = BrokerEngine.initialize("VENUE", Decimal("1000000.00"), "USD")
     state, _ = broker.connect(state, 1000.0)
     return state, broker
@@ -263,7 +264,7 @@ def test_routing_the_same_order_twice_never_creates_a_second_venue_order() -> No
 def test_an_order_is_never_sent_on_a_connection_that_cannot_trade() -> None:
     session = _live_session_with_a_working_order()
     order = session.working_orders[0]
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     disconnected = BrokerEngine.initialize("VENUE", Decimal("1000000.00"), "USD")
 
     result = route_order(disconnected, broker, order, 1000.0, config=ROUTING)
@@ -292,7 +293,7 @@ def test_only_a_connected_venue_accepts_orders(status: ConnectionStatus) -> None
 def test_a_refused_routing_can_be_retried_once_connected() -> None:
     session = _live_session_with_a_working_order()
     order = session.working_orders[0]
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     state = BrokerEngine.initialize("VENUE", Decimal("1000000.00"), "USD")
 
     refused = route_order(state, broker, order, 1000.0, config=ROUTING)

@@ -29,6 +29,7 @@ from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.api import backtest, to_market_dataset
 from alphalab.backtesting.state import BacktestResult
+from alphalab.common.types import ParamValue
 from alphalab.core.enums import AssetType
 from alphalab.data.dataset import Dataset
 from alphalab.data.time import BarStamp
@@ -61,17 +62,18 @@ from alphalab.strategy import (
     AdaptiveStrategy,
     DecisionTiming,
     StrategyClassRegistry,
+    StrategyDefinition,
     TrailingZScoreRule,
     UpdateCadence,
     runtime_for,
 )
 from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
+from alphalab.strategy.definition import numeric_parameters
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import StrategyProtocol
 from alphalab.strategy.runtime import create_runtime, register_strategy
 from alphalab.strategy.state import RuntimeState
 from alphalab.strategy.supervisor import RuntimeSupervisor
-from alphalab.studio.strategy import StrategyDefinition
 
 STRATEGY_ID = "EX-ADAPTIVE"
 PROVIDER = "pit-vendor"
@@ -139,7 +141,7 @@ def configuration_for(
     )
 
 
-CONFIGURATION = configuration_for(DEFINITION.parameters)
+CONFIGURATION = configuration_for(DEFINITION.numbers())
 
 
 class Reversion(AdaptiveStrategy):
@@ -169,11 +171,17 @@ class Reversion(AdaptiveStrategy):
         )
 
 
-def reversion_factory(strategy_id: str, parameters: Mapping[str, float], /) -> StrategyProtocol:
+def reversion_factory(
+    strategy_id: str, parameters: Mapping[str, ParamValue], /
+) -> StrategyProtocol:
     """How the class registry builds the strategy from its registered parameters."""
 
     return Reversion(
-        strategy_id, configuration_for(parameters), RULE, AdaptationMode.LEARNING, None
+        strategy_id,
+        configuration_for(numeric_parameters(parameters)),
+        RULE,
+        AdaptationMode.LEARNING,
+        None,
     )
 
 

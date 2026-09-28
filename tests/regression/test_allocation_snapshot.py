@@ -178,8 +178,29 @@ def test_the_state_under_test_is_realistically_populated() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_constant_is_one() -> None:
-    assert ALLOCATION_SNAPSHOT_SCHEMA == 1
+def test_the_schema_constant_is_two() -> None:
+    """Version 2 (v3.11) records each allocated request's order terms."""
+
+    assert ALLOCATION_SNAPSHOT_SCHEMA == 2
+
+
+def test_a_version_one_request_is_a_market_order_good_for_the_day() -> None:
+    from alphalab.common.order_terms import MARKET
+
+    state = _netted_state()
+    payload = _payload(state)
+    for request in payload["history"]:
+        del request["terms"]
+    del payload["strategy_positions"]
+    payload["schema_version"] = 1
+
+    upgraded = from_primitives(payload)
+
+    assert upgraded.history and all(request.terms == MARKET for request in upgraded.history)
+    # Nothing recorded what each strategy held, so the upgrade says so rather
+    # than inventing a flat book (FEA-001): a target is then refused.
+    assert upgraded.strategy_positions is None
+    assert upgraded == replace(capture(state), strategy_positions=None)
 
 
 def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
@@ -192,7 +213,7 @@ def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
     source = inspect.getsource(allocation_snapshot)
 
     assert not hasattr(allocation_snapshot, "DEFAULT_SCHEMA_VERSION")
-    assert "ALLOCATION_SNAPSHOT_SCHEMA: Final = 1" in source
+    assert "ALLOCATION_SNAPSHOT_SCHEMA: Final = 2" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -200,7 +221,7 @@ def test_capture_declares_the_version() -> None:
     state = _netted_state()
 
     assert capture(state).schema_version == ALLOCATION_SNAPSHOT_SCHEMA
-    assert _payload(state)["schema_version"] == 1
+    assert _payload(state)["schema_version"] == 2
 
 
 def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
@@ -213,7 +234,7 @@ def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
         from_primitives(payload)
 
 
-@pytest.mark.parametrize("version", [2, 3, 99, 0, -1])
+@pytest.mark.parametrize("version", [3, 4, 99, 0, -1])
 def test_an_unreadable_version_is_refused_naming_it(version: int) -> None:
     payload = _payload(_netted_state())
     payload["schema_version"] = version
@@ -233,7 +254,7 @@ def test_a_malformed_version_is_refused(version: object) -> None:
 
 def test_the_refusal_names_the_allocation_subsystem() -> None:
     payload = _payload(_netted_state())
-    payload["schema_version"] = 2
+    payload["schema_version"] = 3
 
     with pytest.raises(StateDecodeError) as excinfo:
         from_primitives(payload)
@@ -390,6 +411,7 @@ def test_the_payload_carries_exactly_the_projected_fields() -> None:
         "notional_allocated",
         "reservations",
         "contributions",
+        "strategy_positions",
         "schema_version",
     }
 

@@ -73,7 +73,7 @@ from alphalab.persistence.decode import (
 )
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy.definition import StrategyDefinition
 
 __all__ = [
     "LIFECYCLE_SCHEMA_HISTORY",
@@ -449,7 +449,7 @@ def _definition(value: Any, where: str) -> StrategyDefinition:
         version=as_str(require(payload, "version"), f"{where}.version"),
         author=as_str(require(payload, "author"), f"{where}.author"),
         description=as_str(require(payload, "description"), f"{where}.description"),
-        parameters=_float_mapping(require(payload, "parameters"), f"{where}.parameters"),
+        parameters=_param_mapping(require(payload, "parameters"), f"{where}.parameters"),
         metadata=as_str_mapping(require(payload, "metadata"), f"{where}.metadata"),
     )
 

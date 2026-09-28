@@ -77,6 +77,7 @@ from alphalab.lifecycle import (
     manifest_for_run,
     register_strategy,
     research_configuration_with_adaptive,
+    running_build,
 )
 from alphalab.strategy import (
     AdaptationMode,
@@ -300,14 +301,18 @@ def main() -> None:
         ENGINE,
     )
     result, strategy = run_backtest(prices, None)
-    manifest = manifest_for_run(result, prices, fingerprint, ENGINE)
+    manifest = manifest_for_run(result, prices, fingerprint, ENGINE, build=running_build())
     print(f"manifest {manifest.manifest_id[:16]}..., result {manifest.result_id[:16]}...")
     rerun, _ = run_backtest(prices, None)
-    fresh = assess_reproducibility(manifest, manifest_for_run(rerun, prices, fingerprint, ENGINE))
+    fresh = assess_reproducibility(
+        manifest, manifest_for_run(rerun, prices, fingerprint, ENGINE, build=running_build())
+    )
     print(f"a rerun with a fresh strategy: {fresh.rerun.name}")
 
     stale, _ = run_backtest(prices, strategy.adaptive_state)
-    outcome = assess_reproducibility(manifest, manifest_for_run(stale, prices, fingerprint, ENGINE))
+    outcome = assess_reproducibility(
+        manifest, manifest_for_run(stale, prices, fingerprint, ENGINE, build=running_build())
+    )
     record = stale.state.strategy.strategies[STRATEGY_ID]
     print(f"a rerun whose strategy starts where the first run ended: {outcome.rerun.name}")
     print(f"  the strategy {record.status.name}: {str(record.last_error).split('. ', 1)[0]}")

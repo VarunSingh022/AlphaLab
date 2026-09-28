@@ -32,6 +32,7 @@ from alphalab.options import (
     strikes_for_expiry,
     time_to_expiry_years,
 )
+from alphalab.options.carry import dividend_yield
 from alphalab.portfolio.position import Position
 
 ONE_YEAR = 365.25 * 86400
@@ -169,7 +170,7 @@ def test_black_scholes_call_matches_textbook_reference() -> None:
         style=ExerciseStyle.AMERICAN,
         multiplier=100,
     )
-    price = black_scholes_price(contract, Decimal("100"), 0.2, 0.05, 0.0)
+    price = black_scholes_price(contract, Decimal("100"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0))
     assert price == pytest.approx(Decimal("10.4506"), abs=Decimal("0.001"))
 
 
@@ -183,7 +184,7 @@ def test_black_scholes_put_matches_textbook_reference() -> None:
         style=ExerciseStyle.AMERICAN,
         multiplier=100,
     )
-    price = black_scholes_price(contract, Decimal("100"), 0.2, 0.05, 0.0)
+    price = black_scholes_price(contract, Decimal("100"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0))
     assert price == pytest.approx(Decimal("5.5735"), abs=Decimal("0.001"))
 
 
@@ -207,8 +208,10 @@ def test_put_call_parity_holds() -> None:
         style=ExerciseStyle.AMERICAN,
         multiplier=100,
     )
-    call_price = black_scholes_price(call, Decimal("100"), 0.2, 0.05, 0.0)
-    put_price = black_scholes_price(put, Decimal("100"), 0.2, 0.05, 0.0)
+    call_price = black_scholes_price(
+        call, Decimal("100"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0)
+    )
+    put_price = black_scholes_price(put, Decimal("100"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0))
 
     expected_diff = Decimal("100") - Decimal("100") * Decimal(str(math.exp(-0.05 * 1.0)))
     assert (call_price - put_price) == pytest.approx(expected_diff, abs=Decimal("0.01"))
@@ -217,17 +220,24 @@ def test_put_call_parity_holds() -> None:
 def test_black_scholes_rejects_expired_contract() -> None:
     contract = _call(expiry=500.0)
     with pytest.raises(OptionInputError):
-        black_scholes_price(contract, Decimal("150"), 0.2, 0.05, valuation_timestamp=1000.0)
+        black_scholes_price(
+            contract,
+            Decimal("150"),
+            0.2,
+            0.05,
+            valuation_timestamp=1000.0,
+            carry=dividend_yield(0.0),
+        )
 
 
 def test_black_scholes_rejects_non_positive_spot() -> None:
     with pytest.raises(OptionInputError):
-        black_scholes_price(_call(), Decimal("0"), 0.2, 0.05, 0.0)
+        black_scholes_price(_call(), Decimal("0"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0))
 
 
 def test_black_scholes_rejects_non_positive_volatility() -> None:
     with pytest.raises(OptionInputError):
-        black_scholes_price(_call(), Decimal("150"), 0.0, 0.05, 0.0)
+        black_scholes_price(_call(), Decimal("150"), 0.0, 0.05, 0.0, carry=dividend_yield(0.0))
 
 
 def test_time_to_expiry_years_is_positive_for_future_expiry() -> None:
@@ -248,7 +258,9 @@ def test_call_delta_matches_textbook_reference() -> None:
         style=ExerciseStyle.AMERICAN,
         multiplier=100,
     )
-    greeks = black_scholes_greeks(contract, Decimal("100"), 0.2, 0.05, 0.0)
+    greeks = black_scholes_greeks(
+        contract, Decimal("100"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0)
+    )
     assert greeks.delta == pytest.approx(0.6368, abs=0.001)
 
 
@@ -269,8 +281,12 @@ def test_put_delta_is_call_delta_minus_one() -> None:
         style=ExerciseStyle.AMERICAN,
         multiplier=100,
     )
-    call_greeks = black_scholes_greeks(call, Decimal("100"), 0.2, 0.05, 0.0)
-    put_greeks = black_scholes_greeks(put, Decimal("100"), 0.2, 0.05, 0.0)
+    call_greeks = black_scholes_greeks(
+        call, Decimal("100"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0)
+    )
+    put_greeks = black_scholes_greeks(
+        put, Decimal("100"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0)
+    )
     assert put_greeks.delta == pytest.approx(call_greeks.delta - 1.0, abs=1e-9)
 
 
@@ -291,8 +307,12 @@ def test_gamma_is_identical_for_call_and_put() -> None:
         style=ExerciseStyle.AMERICAN,
         multiplier=100,
     )
-    call_greeks = black_scholes_greeks(call, Decimal("100"), 0.2, 0.05, 0.0)
-    put_greeks = black_scholes_greeks(put, Decimal("100"), 0.2, 0.05, 0.0)
+    call_greeks = black_scholes_greeks(
+        call, Decimal("100"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0)
+    )
+    put_greeks = black_scholes_greeks(
+        put, Decimal("100"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0)
+    )
     assert call_greeks.gamma == pytest.approx(put_greeks.gamma, abs=1e-9)
 
 
@@ -305,7 +325,9 @@ def test_deep_itm_call_delta_approaches_one() -> None:
         style=ExerciseStyle.AMERICAN,
         multiplier=100,
     )
-    greeks = black_scholes_greeks(contract, Decimal("1000"), 0.2, 0.05, 0.0)
+    greeks = black_scholes_greeks(
+        contract, Decimal("1000"), 0.2, 0.05, 0.0, carry=dividend_yield(0.0)
+    )
     assert greeks.delta > 0.99
 
 

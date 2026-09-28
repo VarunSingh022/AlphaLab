@@ -80,7 +80,7 @@ def _shift_bar(bar: Bar, adjustment: Decimal) -> Bar:
         high=bar.high + adjustment,
         low=bar.low + adjustment,
         close=bar.close + adjustment,
-        vwap=bar.vwap + adjustment,
+        vwap=None if bar.vwap is None else bar.vwap + adjustment,
     )
 
 
@@ -92,7 +92,7 @@ def _scale_bar(bar: Bar, ratio: Decimal) -> Bar:
         high=bar.high * ratio,
         low=bar.low * ratio,
         close=bar.close * ratio,
-        vwap=bar.vwap * ratio,
+        vwap=None if bar.vwap is None else bar.vwap * ratio,
     )
 
 

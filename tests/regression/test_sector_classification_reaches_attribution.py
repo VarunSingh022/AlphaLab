@@ -24,11 +24,11 @@ from typing import Any
 
 import pytest
 
-from alphalab.allocation.snapshot import ALLOCATION_SNAPSHOT_SCHEMA
 from alphalab.analytics.attribution import calculate_attribution
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import ReplayBacktest
 from alphalab.broker.execution import BrokerExecution
+from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
 from alphalab.common.ids import current_id_position, id_scope
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.instrument.registry import (
@@ -37,7 +37,6 @@ from alphalab.instrument.registry import (
     register_instrument,
 )
 from alphalab.market.source import SequenceSource
-from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
 from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.runtime.broker_routing import (
     RoutingConfig,
@@ -491,8 +490,9 @@ def test_a_run_with_no_registry_is_unchanged_in_every_field() -> None:
         # release's deliberate bump and not something this one did.
         # RUN_SNAPSHOT_SCHEMA was here and is not any more: v3.10 moved it to 2
         # for the analytics basis.
-        (ALLOCATION_SNAPSHOT_SCHEMA, 1),
-        (OMS_SNAPSHOT_SCHEMA, 1),
+        # ALLOCATION_SNAPSHOT_SCHEMA and OMS_SNAPSHOT_SCHEMA were here and are not
+        # any more: v3.11 moved both to 2 for order terms (EXE-003).
+        (DEFAULT_SCHEMA_VERSION, 1),
         # PORTFOLIO_SNAPSHOT_SCHEMA was here and is not any more: it moved to 3
         # in v2.17 (ADR-0035). Pinning another release's constant makes every
         # future bump edit unrelated files.
@@ -662,12 +662,14 @@ def test_the_runtime_reads_the_registry_through_record_for_and_nothing_else() ->
     assert ".resolve(" not in source
     assert "register_instrument" not in source
     assert "classify_instrument" not in source
-    # Four keyed reads, and no fifth. One for the unpriced path; one in
+    # Five keyed reads, and no sixth. One for the unpriced path; one in
     # `_sector_of`, the single rule both the fill reader and the exposure reader
-    # go through; one in `_currency_of`, its v2.12 sibling (ADR-0028); and one on
+    # go through; one in `_currency_of`, its v2.12 sibling (ADR-0028); one on
     # `_settlement_refusal`'s cold path, which a healthy run never takes and
-    # which buys a message naming the instrument rather than only its id.
-    assert source.count("record_for(") == 4
+    # which buys a message naming the instrument rather than only its id; and
+    # (v3.11, FEA-001) one in `_instrument_grid`, once per distinct asset a
+    # batch of intents names, for the lot grid and minimum notional it declares.
+    assert source.count("record_for(") == 5
 
 
 def test_sector_resolution_is_a_keyed_lookup_and_never_a_scan() -> None:
@@ -829,7 +831,7 @@ def test_sector_exposure_survives_a_round_trip_without_moving_the_schema() -> No
     payload = deserialize(serialize(capture_pipeline(state)))
     restored = restore_pipeline(pipeline_from_primitives(payload), objects)
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 4
+    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 5
     assert payload["risk"]["exposure"]["sector_exposure"] == {
         "Technology": "1000.00",
         "Financials": "-400.00",

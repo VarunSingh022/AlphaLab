@@ -32,11 +32,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from enum import Enum
+from types import MappingProxyType
 from typing import Any
 
+from alphalab.common.exceptions import AlphaLabValidationError
+from alphalab.common.order_terms import OrderTerms, OrderType, TimeInForce
 from alphalab.persistence.exceptions import StateDecodeError
 
 __all__ = [
+    "MARKET_TERMS_PAYLOAD",
     "as_bool",
     "as_decimal",
     "as_decimal_mapping",
@@ -46,6 +50,7 @@ __all__ = [
     "as_named_enum",
     "as_optional_decimal",
     "as_optional_str",
+    "as_order_terms",
     "as_sequence",
     "as_str",
     "as_str_mapping",
@@ -221,3 +226,45 @@ def as_named_enum[EnumT: Enum](enum_cls: type[EnumT], value: Any, field: str) ->
             f"{field} names no {enum_cls.__name__} member: {name!r}; expected one of {members}"
         )
     return member
+
+
+#: How a market order good for the day -- what every order was until v3.11 --
+#: is written. What an upgrade step supplies for an order request or an order
+#: whose payload predates :class:`~alphalab.common.order_terms.OrderTerms`.
+MARKET_TERMS_PAYLOAD: Mapping[str, Any] = MappingProxyType(
+    {
+        "expire_at": None,
+        "limit_price": None,
+        "order_type": OrderType.MARKET.value,
+        "stop_price": None,
+        "time_in_force": TimeInForce.DAY.value,
+    }
+)
+
+
+def as_order_terms(value: Any, field: str) -> OrderTerms:
+    """Decode :class:`~alphalab.common.order_terms.OrderTerms`, refusing terms that do not hold.
+
+    The terms are checked on construction -- a limit order names its limit --
+    and a payload that fails the check is refused as undecodable, never
+    repaired.
+    """
+
+    payload = as_mapping(value, field)
+    raw_expiry = require(payload, "expire_at")
+    try:
+        return OrderTerms(
+            order_type=as_value_enum(
+                OrderType, require(payload, "order_type"), f"{field}.order_type"
+            ),
+            limit_price=as_optional_decimal(
+                require(payload, "limit_price"), f"{field}.limit_price"
+            ),
+            stop_price=as_optional_decimal(require(payload, "stop_price"), f"{field}.stop_price"),
+            time_in_force=as_value_enum(
+                TimeInForce, require(payload, "time_in_force"), f"{field}.time_in_force"
+            ),
+            expire_at=None if raw_expiry is None else as_float(raw_expiry, f"{field}.expire_at"),
+        )
+    except AlphaLabValidationError as exc:
+        raise StateDecodeError(f"{field} are not valid order terms: {exc}") from exc

@@ -134,6 +134,7 @@ from alphalab.market.events import (
     TickReceived,
     TradeReceived,
 )
+from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.level import OrderBookLevel
 from alphalab.market.quote import Quote
 from alphalab.market.snapshot import OrderBookSnapshot
@@ -144,6 +145,7 @@ from alphalab.oms.snapshot import capture as capture_oms
 from alphalab.oms.snapshot import from_primitives as oms_from_primitives
 from alphalab.oms.snapshot import restore as restore_oms
 from alphalab.persistence.decode import (
+    MARKET_TERMS_PAYLOAD,
     as_bool,
     as_decimal,
     as_decimal_mapping,
@@ -151,7 +153,9 @@ from alphalab.persistence.decode import (
     as_int,
     as_mapping,
     as_named_enum,
+    as_optional_decimal,
     as_optional_str,
+    as_order_terms,
     as_sequence,
     as_str,
     as_value_enum,
@@ -202,12 +206,14 @@ from alphalab.strategy.events import (
     FillEvent,
     LifecycleTransitioned,
     OrderEvent,
+    SliceClosed,
     StrategyRuntimeEvent,
     TimerEvent,
 )
 from alphalab.strategy.protocol import StrategyProtocol, StrategyStateProtocol
 from alphalab.strategy.state import LifecycleState, StrategyState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
+from alphalab.strategy.subscription import SUBSCRIBE_ALL
 
 __all__ = [
     "NOT_ASKED",
@@ -255,8 +261,15 @@ __all__ = [
 #:
 #: Version 4 (v3.10) records the minor units the account books money at
 #: (``config.account.currency_units``, see :mod:`alphalab.common.currency_units`).
-#: Every earlier version is read through :data:`PIPELINE_SCHEMA_HISTORY`.
-PIPELINE_SNAPSHOT_SCHEMA: Final = 4
+#:
+#: Version 5 (v3.11) writes a bar's interval as its code (``"30m"``) rather than
+#: as a member of the closed enumeration it replaced (``"TimeFrame.M1"``), and
+#: allows a bar's ``vwap`` and ``trade_count`` to be ``null`` -- not reported
+#: (ledger DAT-005). Each strategy record says whether the strategy is owed its
+#: ``on_start`` (``started``, ledger EXE-005), and its subscriptions are the
+#: routing rather than a note (ledger EXE-007). Every earlier version is read
+#: through :data:`PIPELINE_SCHEMA_HISTORY`.
+PIPELINE_SNAPSHOT_SCHEMA: Final = 5
 
 _SUBSYSTEM: Final = "pipeline"
 
@@ -358,6 +371,107 @@ def _v3_risk_limits(limits: dict[str, Any], where: str) -> dict[str, Any]:
     return upgraded
 
 
+#: The interval code of each member of the enumeration ``TimeFrame`` was until
+#: v3.11, as the version-4 encoder wrote them.
+_V4_TIMEFRAME_CODES: Final = {
+    "TimeFrame.M1": "1m",
+    "TimeFrame.M5": "5m",
+    "TimeFrame.M15": "15m",
+    "TimeFrame.H1": "1h",
+    "TimeFrame.H4": "4h",
+    "TimeFrame.D1": "1d",
+    "TimeFrame.W1": "1w",
+    "TimeFrame.MN1": "1M",
+}
+
+
+def _v4_intervals(value: Any) -> Any:
+    """Rewrite every bar's ``TimeFrame.<member>`` as the member's interval code.
+
+    Bars sit in the market record's latest bars and inside its history and event
+    logs; every mapping holding a ``timeframe`` in the version-4 spelling is one,
+    and nothing else in a version-4 payload is spelled that way. A bar's
+    ``vwap`` and ``trade_count`` are carried as written: a version-4 zero may
+    have meant "not reported", but it may equally have been a reported zero,
+    and the payload does not say which -- so it is not guessed.
+    """
+
+    if isinstance(value, dict):
+        rewritten = {key: _v4_intervals(item) for key, item in value.items()}
+        code = rewritten.get("timeframe")
+        if isinstance(code, str) and code in _V4_TIMEFRAME_CODES:
+            rewritten["timeframe"] = _V4_TIMEFRAME_CODES[code]
+        return rewritten
+    if isinstance(value, list):
+        return [_v4_intervals(item) for item in value]
+    return value
+
+
+def _v4_strategy(record: dict[str, Any], where: str) -> dict[str, Any]:
+    """Carry one version-4 strategy record into version 5.
+
+    Two facts, each read as what the version-4 run *did*:
+
+    * **It owes no** ``on_start``. v3.10 never delivered the hook, and a
+      continued run delivering it mid-run would call setup on a strategy that
+      has been trading; ``started`` is ``True``.
+    * **It received every event.** v3.10 recorded subscriptions and routed on
+      none of them, so the faithful reading of a declaration it never enforced is
+      ``"*"`` -- the precedent the version-4 upgrade set for a daily loss limit
+      v3.9 never enforced. A declaration other than ``"*"`` is not carried, and
+      :class:`SchemaUpgradeWarning` names it.
+    """
+
+    declared = record.get("subscriptions")
+    if declared != [SUBSCRIBE_ALL]:
+        warnings.warn(
+            SchemaUpgradeWarning(
+                f"{where}.subscriptions {declared!r} were recorded and never enforced before "
+                "schema version 5, so the upgraded strategy keeps receiving every event, as "
+                "it did: its subscriptions are ['*']. Resubscribe to have them enforced."
+            ),
+            stacklevel=2,
+        )
+    return {**record, "subscriptions": [SUBSCRIBE_ALL], "started": True}
+
+
+def _v4_risk_event(record: Any) -> Any:
+    """A version-4 risk event, its request given the terms every request then had."""
+
+    if not isinstance(record, dict):
+        return record
+    event = record.get("event")
+    if isinstance(event, dict) and isinstance(event.get("request"), dict):
+        request = {**event["request"], "terms": dict(MARKET_TERMS_PAYLOAD)}
+        return {**record, "event": {**event, "request": request}}
+    return record
+
+
+def _v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
+    """Write each bar's interval as its code, restate each strategy's routing, and give
+    each order request its terms.
+
+    See :func:`_v4_intervals` and :func:`_v4_strategy`. Every request a
+    version-4 run made was a market order good for the day -- the pipeline could
+    make no other (ledger EXE-003) -- so a request inside a risk event is given
+    exactly those terms. The allocation and OMS payloads nested here carry their
+    own versions and are upgraded by their own histories.
+    """
+
+    strategies = [
+        _v4_strategy(dict(record), f"strategy[{index}]")
+        for index, record in enumerate(payload["strategy"])
+    ]
+    risk = dict(payload["risk"])
+    risk["events"] = [_v4_risk_event(record) for record in risk.get("events", ())]
+    return {
+        **payload,
+        "market": _v4_intervals(payload["market"]),
+        "strategy": strategies,
+        "risk": risk,
+    }
+
+
 #: How every pipeline payload a release has written is read by this one.
 #:
 #: A version-1 payload is still missing nothing: it records every field its
@@ -386,6 +500,13 @@ PIPELINE_SCHEMA_HISTORY: Final = SchemaHistory(
             3,
             "version 4 records the account's minor units and each report's analytics basis",
             upgrade=_v3_to_v4,
+        ),
+        SchemaStep(
+            4,
+            "version 5 writes a bar's interval as its code, allows an unreported vwap, "
+            "records whether each strategy is owed on_start and routes on its subscriptions, "
+            "and gives each order request its terms",
+            upgrade=_v4_to_v5,
         ),
     ),
 )
@@ -438,7 +559,7 @@ _MARKET_EVENTS: Mapping[str, type[MarketEvent]] = _types(
     QuoteReceived, TickReceived, TradeReceived, BarClosed, BookUpdated, SnapshotCreated
 )
 _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
-    LifecycleTransitioned, FillEvent, OrderEvent, TimerEvent
+    LifecycleTransitioned, FillEvent, OrderEvent, TimerEvent, SliceClosed
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -575,6 +696,9 @@ class StrategyRecord:
     last_error: str | None
     instance_type: str
     state: StrategyStateRecord | _NotAsked | None = NOT_ASKED
+    #: Whether the strategy is owed no ``on_start`` (schema 5). See
+    #: :attr:`~alphalab.strategy.state.StrategyState.started`.
+    started: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -845,6 +969,7 @@ def _capture_strategies(state: StrategyRuntimeState) -> tuple[StrategyRecord, ..
             last_error=strategy.last_error,
             instance_type=_type_name(strategy.instance),
             state=_capture_state(strategy.instance, strategy_id),
+            started=strategy.started,
         )
         for strategy_id, strategy in state.strategies.items()
     )
@@ -1055,6 +1180,7 @@ def _restore_strategies(
             config=record.config,
             subscriptions=frozenset(record.subscriptions),
             last_error=record.last_error,
+            started=record.started,
         )
     return StrategyRuntimeState(
         strategies=strategies, events=tuple(record.event for record in events)
@@ -1325,10 +1451,19 @@ def _bar(value: Any, where: str) -> Bar:
         low=as_decimal(require(payload, "low"), f"{where}.low"),
         close=as_decimal(require(payload, "close"), f"{where}.close"),
         volume=as_decimal(require(payload, "volume"), f"{where}.volume"),
-        vwap=as_decimal(require(payload, "vwap"), f"{where}.vwap"),
-        trade_count=as_int(require(payload, "trade_count"), f"{where}.trade_count"),
-        timeframe=as_named_enum(TimeFrame, require(payload, "timeframe"), f"{where}.timeframe"),
+        vwap=as_optional_decimal(require(payload, "vwap"), f"{where}.vwap"),
+        trade_count=_optional_int(require(payload, "trade_count"), f"{where}.trade_count"),
+        timeframe=_timeframe(require(payload, "timeframe"), f"{where}.timeframe"),
     )
+
+
+def _timeframe(value: Any, where: str) -> TimeFrame:
+    """Decode an interval from its code (schema 5); earlier codes were upgraded to it."""
+
+    try:
+        return TimeFrame.parse(as_str(value, where))
+    except MarketValidationError as error:
+        raise StateDecodeError(f"{where}: {error}") from None
 
 
 def _book(value: Any, where: str) -> OrderBookSnapshot:
@@ -1372,6 +1507,7 @@ def _order_request(value: Any, where: str) -> OrderRequest:
         contributions=_sequence_of(
             require(payload, "contributions"), f"{where}.contributions", _contribution
         ),
+        terms=as_order_terms(require(payload, "terms"), f"{where}.terms"),
     )
 
 
@@ -1667,10 +1803,22 @@ _MARKET_FIELDS: Mapping[str, Any] = {
     "bar": _bar,
     "snapshot": _book,
 }
+
+
+def _assets(value: Any, where: str) -> tuple[str, ...]:
+    return tuple(
+        as_str(item, f"{where}[{index}]") for index, item in enumerate(as_sequence(value, where))
+    )
+
+
 _STRATEGY_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,
     "fill_quantity": as_decimal,
     "fill_price": as_decimal,
+    "attributed_quantity": as_optional_decimal,
+    "quantity": as_optional_decimal,
+    "filled_quantity": as_optional_decimal,
+    "assets": _assets,
 }
 _RISK_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,
@@ -1799,6 +1947,7 @@ def _strategy_record(value: Any, where: str, version: int) -> StrategyRecord:
         last_error=as_optional_str(require(payload, "last_error"), f"{where}.last_error"),
         instance_type=as_str(require(payload, "instance_type"), f"{where}.instance_type"),
         state=state,
+        started=as_bool(require(payload, "started"), f"{where}.started"),
     )
 
 

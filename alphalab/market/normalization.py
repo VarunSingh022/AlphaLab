@@ -38,9 +38,9 @@ Venue/currency Not present on the wire; supplied by the
                trade is refused by a policy that names no currency.
 Bar timeframe  Not present on the wire; supplied by the policy, and a bar is
                refused by a policy that names none. ``vwap`` and
-               ``trade_count`` default to ``0`` / ``0`` because a wire bar
-               carries neither -- absent, not zero-valued, and readers should
-               treat them as unknown.
+               ``trade_count`` are ``None`` because a wire bar carries
+               neither (v3.11; until then a zero stood in for "not
+               reported").
 Trade side     Not represented. Wire trades carry no aggressor flag, so the
                canonical :class:`~alphalab.market.tick.Tick` records the print
                without inferring a direction.
@@ -62,8 +62,8 @@ Three different failures, three different answers:
 * **Missing** -- a field the wire shape has no room for (venue, currency,
   timeframe, vwap, order counts). Currency and timeframe are supplied by the
   policy or the record is refused; the venue is supplied or recorded as
-  ``"UNKNOWN"``; vwap and order counts are documented above as unknown rather
-  than measured.
+  ``"UNKNOWN"``; a bar's vwap and trade count are ``None``, and a book level's
+  order count is documented above as unknown rather than measured.
 * **Stale** -- a well-formed record that is simply too old to act on. Not an
   error: :func:`is_stale` and :func:`reject_stale` let a caller decide, because
   what counts as stale is a property of the strategy, not of the data.
@@ -82,7 +82,7 @@ from alphalab.data.feed import Quote as WireQuote
 from alphalab.data.feed import Trade as WireTrade
 from alphalab.data.time import BarStamp
 from alphalab.instrument.registry import InstrumentRegistry
-from alphalab.market.bar import TIMEFRAME_SECONDS, Bar, TimeFrame
+from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.exceptions import InstrumentResolutionError, MarketValidationError
 from alphalab.market.level import OrderBookLevel
 from alphalab.market.quote import Quote
@@ -224,28 +224,41 @@ class NormalizationPolicy:
                 "against the empty provider and refused."
             )
 
-    def asset_id(self, symbol: str) -> str:
-        """The asset id this policy assigns to a provider ``symbol``.
+    def asset_id(self, symbol: str, timestamp: float) -> str:
+        """The asset id this policy assigns to a provider ``symbol`` at ``timestamp``.
+
+        Resolved at the record's own instant (v3.11, ledger DAT-004): a symbol
+        that was renamed or reused names different instruments at different
+        dates, and the registry's dated aliases say which.
 
         Raises:
             InstrumentResolutionError: If the policy resolves against a registry
-                and ``symbol`` is not registered for its provider. The refusal
-                happens here, at the wire boundary, rather than travelling to
-                the execution adapter as an unusable identifier.
+                and ``symbol`` is not registered for its provider at
+                ``timestamp``. The refusal happens here, at the wire boundary,
+                rather than travelling to the execution adapter as an unusable
+                identifier.
         """
 
         if isinstance(self.identity, UnresolvedIdentity):
             return self.identity.symbols.asset_id(symbol)
 
-        resolved = self.identity.resolve(self.provider, symbol)
-        if resolved is None:
+        resolved = self.identity.resolve_at(self.provider, symbol, timestamp)
+        if resolved is not None:
+            return resolved
+        windows = self.identity.dated_windows(self.provider, symbol)
+        if windows:
             raise InstrumentResolutionError(
-                f"Provider {self.provider!r} symbol {symbol!r} is not a registered "
-                "instrument. Register it with the InstrumentRegistry before "
-                "normalizing its records; an unregistered symbol has no canonical "
-                "asset_id, and passing it through would fail later at the fill."
+                f"Provider {self.provider!r} symbol {symbol!r} names no instrument at "
+                f"{timestamp!r}: it is registered only for "
+                f"{', '.join(alias.describe() for alias, _ in windows)}. A record outside "
+                "every interval its symbol was valid for cannot be attributed."
             )
-        return resolved
+        raise InstrumentResolutionError(
+            f"Provider {self.provider!r} symbol {symbol!r} is not a registered "
+            "instrument. Register it with the InstrumentRegistry before "
+            "normalizing its records; an unregistered symbol has no canonical "
+            "asset_id, and passing it through would fail later at the fill."
+        )
 
 
 def _currency(policy: NormalizationPolicy, record: str) -> str:
@@ -280,7 +293,7 @@ def normalize_wire_quote(quote: WireQuote, policy: NormalizationPolicy) -> Quote
     """
 
     canonical = Quote(
-        asset_id=policy.asset_id(quote.symbol),
+        asset_id=policy.asset_id(quote.symbol, quote.timestamp),
         timestamp=quote.timestamp,
         bid=to_decimal(quote.bid),
         ask=to_decimal(quote.ask),
@@ -309,7 +322,7 @@ def normalize_wire_trade(
     """
 
     canonical = Tick(
-        asset_id=policy.asset_id(trade.symbol),
+        asset_id=policy.asset_id(trade.symbol, trade.timestamp),
         timestamp=trade.timestamp,
         price=to_decimal(trade.price),
         quantity=to_decimal(trade.size),
@@ -324,24 +337,26 @@ def normalize_wire_trade(
 def normalize_wire_bar(bar: WireBar, policy: NormalizationPolicy) -> Bar:
     """Lift a wire OHLCV bar into the canonical bar.
 
-    ``vwap`` and ``trade_count`` are set to zero because the wire bar carries
-    neither. They mean "not reported", not "zero".
+    ``vwap`` and ``trade_count`` are ``None``: the wire bar carries neither, and
+    until v3.11 the zero written in their place could not be told from a reported
+    zero (ledger DAT-005).
 
     Raises:
         MarketValidationError: If ``policy`` names no timeframe or does not say
             where in its interval a wire bar is stamped, or the bar is invalid.
     """
 
+    end = _bar_end(bar.timestamp, policy)
     canonical = Bar(
-        asset_id=policy.asset_id(bar.symbol),
-        timestamp=_bar_end(bar.timestamp, policy),
+        asset_id=policy.asset_id(bar.symbol, end),
+        timestamp=end,
         open=to_decimal(bar.open),
         high=to_decimal(bar.high),
         low=to_decimal(bar.low),
         close=to_decimal(bar.close),
         volume=to_decimal(bar.volume),
-        vwap=Decimal("0"),
-        trade_count=0,
+        vwap=None,
+        trade_count=None,
         timeframe=_timeframe(policy),
     )
     validate_bar(canonical)
@@ -366,11 +381,11 @@ def _bar_end(timestamp: float, policy: NormalizationPolicy) -> float:
     if policy.bar_stamp is BarStamp.INTERVAL_END:
         return timestamp
     timeframe = _timeframe(policy)
-    seconds = TIMEFRAME_SECONDS.get(timeframe)
+    seconds = timeframe.seconds
     if seconds is None:
         raise MarketValidationError(
-            f"Start-stamped {timeframe.name} bars must be moved to the end of their "
-            "interval, and that timeframe has no fixed length to move them by."
+            f"Start-stamped {timeframe.code} bars must be moved to the end of their "
+            "interval, and an interval counted in months has no fixed length to move them by."
         )
     return timestamp + seconds
 
@@ -389,7 +404,7 @@ def normalize_wire_book(
     """
 
     canonical = OrderBookSnapshot(
-        asset_id=policy.asset_id(book.symbol),
+        asset_id=policy.asset_id(book.symbol, book.timestamp),
         timestamp=book.timestamp,
         bids=_levels(book.bids),
         asks=_levels(book.asks),

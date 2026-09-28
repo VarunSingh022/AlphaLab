@@ -25,6 +25,7 @@ from alphalab.broker import (
 from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.order import BrokerOrder
 from alphalab.core.enums import OrderStatus, OrderType, Side
+from alphalab.execution.costs import FREE
 
 
 class _OMSOrder:
@@ -41,7 +42,7 @@ class _OMSOrder:
 def _working_state(quantity: str = "100") -> tuple[BrokerState, PaperBroker, BrokerOrder]:
     """A connected paper venue holding one accepted limit order."""
     state = BrokerEngine.initialize("PAPER", Decimal("1000000.00"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     state, _ = broker.connect(state, 1000.0)
     order = BrokerAdapter.to_broker_order(
         _OMSOrder("OMS-1", quantity), "B-1", BrokerOrderType.LIMIT, 1000.0
@@ -255,7 +256,7 @@ def test_an_empty_log_and_a_clean_report_are_the_only_proof_of_agreement() -> No
 def test_a_paper_broker_satisfies_the_canonical_contract() -> None:
     from alphalab.broker.protocol import BrokerProtocol
 
-    assert isinstance(PaperBroker(), BrokerProtocol)
+    assert isinstance(PaperBroker(FREE), BrokerProtocol)
 
 
 def test_both_broker_packages_route_one_order_type() -> None:

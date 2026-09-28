@@ -90,6 +90,7 @@ from decimal import ROUND_FLOOR, ROUND_HALF_EVEN, Context, Decimal
 from enum import StrEnum, unique
 from typing import Final
 
+from alphalab.common.arithmetic import canonical_text
 from alphalab.core.capabilities import (
     CapabilityDeclaration,
     CompatibilityReport,
@@ -116,11 +117,12 @@ __all__ = [
     "select_route",
 ]
 
-#: Scheme tag of a routing policy's identity.
-ROUTING_POLICY_SCHEME: Final = "alphalab.routing_policy.v1"
+#: Scheme tag of a routing policy's identity. Version 2 (v3.11, ledger DET-006)
+#: renders every ``Decimal`` by value, so ``0.5`` and ``0.50`` state one policy.
+ROUTING_POLICY_SCHEME: Final = "alphalab.routing_policy.v2"
 
-#: Scheme tag of a route decision's identity.
-ROUTE_DECISION_SCHEME: Final = "alphalab.route_decision.v1"
+#: Scheme tag of a route decision's identity; version 2 as the policy's.
+ROUTE_DECISION_SCHEME: Final = "alphalab.route_decision.v2"
 
 #: Fixed arithmetic, never the caller's thread context.
 _CONTEXT: Final = Context(prec=34, rounding=ROUND_HALF_EVEN)
@@ -139,6 +141,12 @@ def _digest(lines: Iterable[str]) -> str:
 def _require_text(value: str, field: str) -> None:
     if not value.strip():
         raise ExecutionValidationError(f"{field} cannot be empty.")
+
+
+def _value(amount: Decimal | None) -> str:
+    """An amount in an identity: by value (:func:`canonical_text`), or ``None``."""
+
+    return "None" if amount is None else canonical_text(amount)
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,8 +198,9 @@ class VenueQuote:
 
     def _render(self) -> str:
         return (
-            f"quote={self.venue!r}|{self.asset_id!r}|{self.bid}|{self.ask}|{self.bid_size}"
-            f"|{self.ask_size}|{self.currency!r}|{self.as_of!r}|{self.source!r}"
+            f"quote={self.venue!r}|{self.asset_id!r}|{_value(self.bid)}|{_value(self.ask)}"
+            f"|{_value(self.bid_size)}|{_value(self.ask_size)}|{self.currency!r}|{self.as_of!r}"
+            f"|{self.source!r}"
         )
 
 
@@ -282,7 +291,7 @@ class RoutingPolicy:
                 ROUTING_POLICY_SCHEME,
                 f"objective={self.objective}",
                 f"max_quote_age_seconds={self.max_quote_age_seconds!r}",
-                f"max_latency_seconds={self.max_latency_seconds}",
+                f"max_latency_seconds={_value(self.max_latency_seconds)}",
                 f"allow_split={self.allow_split}",
                 f"allow_partial={self.allow_partial}",
                 f"excluded={','.join(sorted(repr(v) for v in self.excluded_venues))}",
@@ -338,9 +347,9 @@ class RouteRequest:
 
     def _render(self) -> str:
         return (
-            f"request={self.order_id!r}|{self.asset_id!r}|{self.side}|{self.quantity}"
-            f"|{self.limit_price}|{self.currency!r}|{self.requirements.requirements_id}"
-            f"|{self.quantity_increment}|{self.decided_at!r}"
+            f"request={self.order_id!r}|{self.asset_id!r}|{self.side}|{_value(self.quantity)}"
+            f"|{_value(self.limit_price)}|{self.currency!r}|{self.requirements.requirements_id}"
+            f"|{_value(self.quantity_increment)}|{self.decided_at!r}"
         )
 
 
@@ -477,12 +486,14 @@ class RouteDecision:
                 f"evidence={self.evidence_id}",
                 f"status={self.status}",
                 *(
-                    f"candidate={c.venue!r}|{c.status}|{c.executable_quantity}|{c.quoted_price}"
-                    f"|{c.expected_price}|{c.all_in_price}|{c.rank}"
+                    f"candidate={c.venue!r}|{c.status}|{_value(c.executable_quantity)}"
+                    f"|{_value(c.quoted_price)}|{_value(c.expected_price)}"
+                    f"|{_value(c.all_in_price)}|{c.rank}"
                     for c in self.candidates
                 ),
                 *(
-                    f"leg={leg.venue!r}|{leg.quantity}|{leg.expected_price}|{leg.all_in_price}"
+                    f"leg={leg.venue!r}|{_value(leg.quantity)}|{_value(leg.expected_price)}"
+                    f"|{_value(leg.all_in_price)}"
                     for leg in self.legs
                 ),
             ]

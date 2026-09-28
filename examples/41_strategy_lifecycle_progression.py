@@ -61,13 +61,13 @@ from alphalab.lifecycle import (
 )
 from alphalab.lifecycle.strategy_version import StrategyVersion
 from alphalab.model_registry import ModelStage
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 
 REFERENCE = StrategyVersionRef("momentum", 4)
 
-#: Who moved the strategy, at each step. A real caller passes an
-#: ``enterprise.Principal.principal_id``; ``""`` would be honest for a move no
-#: principal requested, and is what the record carries when none is given.
+#: Who moved the strategy, at each step. A real caller passes its identity
+#: system's actor identifier; ``""`` would be honest for a move no actor
+#: requested, and is what the record carries when none is given.
 RESEARCHER = "quant-7"
 OPERATOR = "ops-2"
 

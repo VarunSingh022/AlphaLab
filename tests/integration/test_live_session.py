@@ -6,8 +6,8 @@ itself -- "a live session driven by this module still produces working orders
 and stops".
 
 Every test here drives :class:`~alphalab.runtime.live.LiveSession` through
-:class:`~alphalab.broker.venue.RestVenueBroker` over
-:class:`~alphalab.broker.transport.HttpVenueTransport` into the real HTTP venue
+:class:`~tests.reference_adapter.venue.RestVenueBroker` over
+:class:`~tests.reference_adapter.transport.HttpVenueTransport` into the real HTTP venue
 in ``tests/integration/venue_server.py``, which verifies the HMAC signature, the
 timestamp window and the idempotency key. Nothing here stubs a transport and
 nothing returns a canned ``accepted``.
@@ -39,8 +39,6 @@ from alphalab.broker.snapshot import capture as capture_broker
 from alphalab.broker.snapshot import from_primitives as broker_from_primitives
 from alphalab.broker.snapshot import restore as restore_broker
 from alphalab.broker.state import BrokerState, ConnectionStatus
-from alphalab.broker.transport import HttpVenueTransport, VenueCredentials
-from alphalab.broker.venue import RestVenueBroker, VenueConfig
 from alphalab.persistence import deserialize, serialize
 from alphalab.runtime.broker_routing import RoutingConfig, RoutingRefusal
 from alphalab.runtime.execution_pipeline import ExecutionRouting
@@ -54,6 +52,8 @@ from tests.integration.harness import (
     running_strategy_state,
 )
 from tests.integration.venue_server import fill, record_fill, run_venue
+from tests.reference_adapter.transport import HttpVenueTransport, VenueCredentials
+from tests.reference_adapter.venue import RestVenueBroker, VenueConfig
 
 _KEY = "TESTKEY-0001"
 _SECRET = "test-signing-secret-not-a-real-credential"
@@ -361,6 +361,9 @@ def test_the_live_state_holds_no_accounting_of_its_own() -> None:
     from dataclasses import fields
 
     names = {f.name for f in fields(LiveRunState)}
+    # v3.11 added the algorithm bindings and the request ledger (BRK-003), and
+    # the orders held for an algorithm (LIV-001): identities and what was asked
+    # or decided, not amounts.
     assert names == {
         "run",
         "broker",
@@ -369,6 +372,9 @@ def test_the_live_state_holds_no_accounting_of_its_own() -> None:
         "routing",
         "routed",
         "settled",
+        "children",
+        "requests",
+        "held",
     }
     # No cursor, no cash, no positions, no orders of its own.
     for forbidden in ("processed", "cash", "positions", "orders", "steps", "pipeline"):
@@ -376,7 +382,11 @@ def test_the_live_state_holds_no_accounting_of_its_own() -> None:
 
 
 def test_the_run_state_gained_no_broker_fields() -> None:
-    """ADR-0030 decision 2 fixes ``RunState`` at eight fields. Pinned."""
+    """ADR-0030 decision 2 fixed ``RunState`` at eight fields; ADR-0046 adds a ninth.
+
+    The slice cursor (ledger EXE-004) is continuation state, as the record cursor
+    is, and ADR-0030's own performance budget is why it is here and not on the
+    pipeline state. Pinned."""
 
     from dataclasses import fields
 
@@ -391,6 +401,7 @@ def test_the_run_state_gained_no_broker_fields() -> None:
         "source_id",
         "steps",
         "skipped",
+        "last_slice_at",
     }
 
 
@@ -399,8 +410,9 @@ def test_the_run_snapshot_schema_did_not_move() -> None:
 
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 
-    # Moved to 2 by v3.10's analytics basis, not by the live driver.
-    assert RUN_SNAPSHOT_SCHEMA == 2
+    # Moved to 2 by v3.10's analytics basis and to 3 by v3.11's order terms, not
+    # by the live driver.
+    assert RUN_SNAPSHOT_SCHEMA == 3
 
 
 # ---------------------------------------------------------------------------

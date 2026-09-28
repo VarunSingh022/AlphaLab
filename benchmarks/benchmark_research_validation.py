@@ -170,7 +170,7 @@ def run_benchmark() -> None:
             _records(size, symbols), FeatureField.CLOSE, "UTC", "bench@v1"
         )
         panel = compute_panel(definition, frame)
-        realized = forward_returns(frame, 5)
+        realized = forward_returns(frame, 5, lag=0, delistings=())
         duration, coefficient = _timed(partial(information_coefficient, panel, realized, 5))
         pairs = coefficient.observations
         print(
@@ -186,7 +186,7 @@ def run_benchmark() -> None:
     print("5. The full signal diagnostic, 10,000 instants x 100 assets")
     frame = observations_from_records(_records(10_000, 100), FeatureField.CLOSE, "UTC", "bench@v1")
     panel = compute_panel(definition, frame)
-    realized = forward_returns(frame, 5)
+    realized = forward_returns(frame, 5, lag=0, delistings=())
     duration, measured = _timed(partial(signal_diagnostics, panel, realized, 5, 5))
     print(f"   seconds         : {duration:.4f}")
     print(f"   observations    : {measured.observations:,}")

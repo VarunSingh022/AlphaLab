@@ -59,6 +59,7 @@ from alphalab.strategy.context import (
     StrategyContext,
     UniverseProtocol,
 )
+from alphalab.strategy.definition import StrategyDefinition, numeric_parameters
 from alphalab.strategy.dispatcher import Dispatcher
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
@@ -67,6 +68,7 @@ from alphalab.strategy.events import (
     IntentKind,
     LifecycleTransitioned,
     OrderEvent,
+    SliceClosed,
     StrategyRuntimeEvent,
     TimerEvent,
 )
@@ -77,8 +79,15 @@ from alphalab.strategy.exceptions import (
     InvalidIntentError,
     InvalidTransitionError,
     StrategyRuntimeError,
+    StrategyValidationError,
 )
-from alphalab.strategy.protocol import BaseStrategy, StrategyProtocol, StrategyStateProtocol
+from alphalab.strategy.protocol import (
+    BaseStrategy,
+    SliceStrategyProtocol,
+    StrategyProtocol,
+    StrategyStateProtocol,
+    defines_on_slice,
+)
 from alphalab.strategy.registry import (
     DuplicateStrategyError,
     StrategyClassRegistry,
@@ -91,6 +100,7 @@ from alphalab.strategy.registry import (
 )
 from alphalab.strategy.runtime import create_runtime, register_strategy
 from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.subscription import SUBSCRIBE_ALL, Subscriptions, Topic
 from alphalab.strategy.supervisor import RuntimeSupervisor
 from alphalab.strategy.validation import validate_intent
 from alphalab.strategy.views import active_strategies, failed_strategies, get_strategy
@@ -101,6 +111,7 @@ __all__ = [
     "ADAPTIVE_REPLAY_SCHEME",
     "ADAPTIVE_STATE_SCHEME",
     "ADAPTIVE_STRATEGY_STATE_VERSION",
+    "SUBSCRIBE_ALL",
     "AdaptationMode",
     "AdaptiveConfiguration",
     "AdaptiveDecision",
@@ -143,10 +154,13 @@ __all__ = [
     "RuntimeState",
     "RuntimeSupervisor",
     "ScopedLoggerProtocol",
+    "SliceClosed",
+    "SliceStrategyProtocol",
     "StateValue",
     "StrategyClassRegistry",
     "StrategyContext",
     "StrategyDeclaration",
+    "StrategyDefinition",
     "StrategyEngine",
     "StrategyFactory",
     "StrategyProtocol",
@@ -155,7 +169,10 @@ __all__ = [
     "StrategyRuntimeEvent",
     "StrategyState",
     "StrategyStateProtocol",
+    "StrategyValidationError",
+    "Subscriptions",
     "TimerEvent",
+    "Topic",
     "TrailingZScoreRule",
     "TransitionKind",
     "UniverseProtocol",
@@ -166,10 +183,12 @@ __all__ = [
     "canonical_configuration_key",
     "checkpoint",
     "create_runtime",
+    "defines_on_slice",
     "failed_strategies",
     "get_strategy",
     "initial_state",
     "instances_for",
+    "numeric_parameters",
     "observation_stream",
     "register_strategy",
     "replay_updates",

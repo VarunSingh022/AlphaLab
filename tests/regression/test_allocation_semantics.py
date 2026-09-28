@@ -258,8 +258,14 @@ def test_equal_weight_sizing_refuses_fewer_than_one_asset() -> None:
 
 
 def test_an_intent_is_a_delta_by_construction() -> None:
+    """A delta unless it says otherwise; v3.11 added the two target kinds (FEA-001)."""
+
     assert Intent("S1", "AAPL", Decimal("1")).kind is IntentKind.DELTA
-    assert [member.value for member in IntentKind] == ["delta"]
+    assert [member.value for member in IntentKind] == [
+        "delta",
+        "target_quantity",
+        "target_weight",
+    ]
 
 
 def test_emitting_the_same_intent_twice_asks_twice() -> None:
@@ -277,7 +283,7 @@ def test_emitting_the_same_intent_twice_asks_twice() -> None:
 def test_allocation_refuses_an_intent_of_another_kind() -> None:
     impostor = replace(Intent("S1", "AAPL", Decimal("1")), kind="target")  # type: ignore[arg-type]
 
-    with pytest.raises(AllocationValidationError, match="order deltas"):
+    with pytest.raises(AllocationValidationError, match="must be an IntentKind"):
         validate_intent(impostor)
 
 

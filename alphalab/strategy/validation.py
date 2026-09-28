@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+from alphalab.common.order_terms import OrderTerms
 from alphalab.strategy.events import Intent
 from alphalab.strategy.exceptions import InvalidIntentError
 
@@ -21,3 +22,7 @@ def validate_intent(intent: Intent) -> None:
         )
     if intent.timestamp < 0:
         raise InvalidIntentError("Intent timestamp cannot be negative.")
+    if not isinstance(intent.terms, OrderTerms):
+        raise InvalidIntentError(
+            f"Intent terms must be OrderTerms, got {type(intent.terms).__name__}."
+        )

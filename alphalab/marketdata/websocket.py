@@ -77,10 +77,10 @@ from urllib.parse import urlsplit
 
 from alphalab.common.constants import DEFAULT_ENCODING
 
-# Re-exported unchanged: the TLS floor is shared with
-# ``alphalab.broker.transport``, so it is defined once in ``alphalab.common``
-# and named here for callers who reach it through this module. Defining a
-# second copy is how two security floors come to disagree.
+# Re-exported unchanged: the TLS floor is shared with every outbound
+# connection, so it is defined once in ``alphalab.common`` and named here for
+# callers who reach it through this module. Defining a second copy is how two
+# security floors come to disagree.
 from alphalab.common.tls import MINIMUM_TLS_VERSION, tls_context
 from alphalab.marketdata.exceptions import MarketDataError
 
@@ -552,10 +552,9 @@ def _read_handshake(raw: socket.socket, url: str) -> dict[str, str]:
 class WebSocketTransport:
     """Opens WebSocket connections. The seam a streaming source depends on.
 
-    One method, for the same reason
-    :class:`~alphalab.broker.transport.VenueTransport` has one: everything a
-    stream does after connecting is done *on* the connection, and naming those
-    operations here would put the protocol into the factory.
+    One method: everything a stream does after connecting is done *on* the
+    connection, and naming those operations here would put the protocol into
+    the factory.
 
     :class:`~alphalab.market.stream.StreamingSource` depends on this rather than
     on :func:`connect_websocket` directly, so that the reconnect loop can be

@@ -64,6 +64,12 @@ from alphalab.instrument.classification import (
     ClassificationHistory,
     SectorClassification,
 )
+from alphalab.instrument.economics import (
+    CASH_EQUITY,
+    InstrumentEconomics,
+    SettlementStyle,
+    economics_for,
+)
 from alphalab.instrument.exceptions import (
     InstrumentError,
     InstrumentInputError,
@@ -76,6 +82,7 @@ from alphalab.instrument.identity import (
     derive_asset_id,
 )
 from alphalab.instrument.record import (
+    DatedAlias,
     InstrumentRecord,
     normalize_key_field,
     normalize_sector_label,
@@ -88,6 +95,7 @@ from alphalab.instrument.registry import (
     classify_instruments,
     get_instrument,
     register_alias,
+    register_dated_alias,
     register_instrument,
     register_instruments,
     sector_as_of,
@@ -95,25 +103,31 @@ from alphalab.instrument.registry import (
 
 __all__ = [
     "ALPHALAB_INSTRUMENT_NAMESPACE",
+    "CASH_EQUITY",
     "INSTRUMENT_KEY_SCHEME",
     "OPERATOR",
     "ClassificationHistory",
+    "DatedAlias",
+    "InstrumentEconomics",
     "InstrumentError",
     "InstrumentInputError",
     "InstrumentRecord",
     "InstrumentRegistrationError",
     "InstrumentRegistry",
     "SectorClassification",
+    "SettlementStyle",
     "canonical_instrument_key",
     "classification_history",
     "classification_of",
     "classify_instrument",
     "classify_instruments",
     "derive_asset_id",
+    "economics_for",
     "get_instrument",
     "normalize_key_field",
     "normalize_sector_label",
     "register_alias",
+    "register_dated_alias",
     "register_instrument",
     "register_instruments",
     "sector_as_of",

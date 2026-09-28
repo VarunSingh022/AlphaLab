@@ -88,6 +88,7 @@ from typing import Final
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.exceptions import AllocationValidationError
 from alphalab.allocation.state import AllocationState
+from alphalab.common.arithmetic import canonical_text
 from alphalab.common.currency import ConversionRecord, CurrencyConverter, RateRecord
 
 __all__ = [
@@ -118,8 +119,11 @@ __all__ = [
     "reserved_capital",
 ]
 
-CAPITAL_PLAN_SCHEME: Final = "alphalab.capital_plan.v1"
-CAPITAL_ALLOCATION_SCHEME: Final = "alphalab.capital_allocation.v1"
+#: Version 2 (v3.11, ledger DET-006) renders every Decimal by value
+#: (:func:`~alphalab.common.arithmetic.canonical_text`), so a weight declared
+#: ``0.5`` and one declared ``0.50`` identify one plan.
+CAPITAL_PLAN_SCHEME: Final = "alphalab.capital_plan.v2"
+CAPITAL_ALLOCATION_SCHEME: Final = "alphalab.capital_allocation.v2"
 
 #: Every allocation computation's arithmetic: never the caller's thread context.
 _CONTEXT: Final = Context(prec=28, rounding=ROUND_HALF_EVEN)
@@ -143,6 +147,12 @@ def _amount(value: object, what: str) -> Decimal:
             f"{what} is {value!r}; it must be a non-negative, finite Decimal."
         )
     return value
+
+
+def _optional(value: Decimal | None) -> str:
+    """An optional amount in an identity: by value, or ``None``."""
+
+    return "None" if value is None else canonical_text(value)
 
 
 def _share(value: object, what: str) -> Decimal:
@@ -299,7 +309,7 @@ class FixedAmounts:
         return [
             "rule=fixed_amounts",
             *(
-                f"amount[{placement.rendering()}]={amount}"
+                f"amount[{placement.rendering()}]={canonical_text(amount)}"
                 for placement, amount in self.amounts.items()
             ),
         ]
@@ -339,7 +349,7 @@ class PlacementWeights:
             "rule=placement_weights",
             f"source={self.source!r}",
             *(
-                f"weight[{placement.rendering()}]={weight}"
+                f"weight[{placement.rendering()}]={canonical_text(weight)}"
                 for placement, weight in self.weights.items()
             ),
         ]
@@ -363,7 +373,7 @@ class EqualWeights:
             )
 
     def rendering(self) -> list[str]:
-        return ["rule=equal_weights", f"fraction={self.fraction}"]
+        return ["rule=equal_weights", f"fraction={canonical_text(self.fraction)}"]
 
 
 type AllocationRule = FixedAmounts | PlacementWeights | EqualWeights
@@ -424,8 +434,8 @@ class CapitalLimit:
 
     def rendering(self) -> str:
         return (
-            f"limit={self.dimension.name}|{self.bucket!r}|max={self.maximum_share}|"
-            f"min={self.minimum_share}"
+            f"limit={self.dimension.name}|{self.bucket!r}|max={_optional(self.maximum_share)}|"
+            f"min={_optional(self.minimum_share)}"
         )
 
 
@@ -532,10 +542,10 @@ class CapitalAllocationPlan:
                 f"base={self.base_currency!r}",
                 f"as_of={self.as_of!r}",
                 f"oversubscription={self.oversubscription.name}",
-                f"granularity={self.granularity}",
+                f"granularity={canonical_text(self.granularity)}",
                 *(
                     f"account={account.account_id!r}|{account.broker_id!r}|{account.currency!r}|"
-                    f"{account.available}|{account.reserved}"
+                    f"{canonical_text(account.available)}|{canonical_text(account.reserved)}"
                     for account in self.accounts
                 ),
                 *(f"placement={placement.rendering()}" for placement in self.placements),
@@ -699,7 +709,8 @@ class CapitalAllocationResult:
             ["placements=None"]
             if self.placements is None
             else [
-                f"placement={entry.placement.rendering()}={entry.allocated}|{entry.base_amount}"
+                f"placement={entry.placement.rendering()}={canonical_text(entry.allocated)}|"
+                f"{canonical_text(entry.base_amount)}"
                 for entry in self.placements
             ]
         )
@@ -708,12 +719,13 @@ class CapitalAllocationResult:
                 CAPITAL_ALLOCATION_SCHEME,
                 f"plan={self.plan_id}",
                 f"status={self.status.name}",
-                f"total_free={self.total_free}",
+                f"total_free={canonical_text(self.total_free)}",
                 *placements,
                 *(f"reason={reason!r}" for reason in self.reasons),
                 *(
-                    f"conversion={c.amount}|{c.base}|{c.quote}|{c.rate}|{c.rate_as_of!r}|"
-                    f"{c.source!r}|{c.derived}|{c.converted}"
+                    f"conversion={canonical_text(c.amount)}|{c.base}|{c.quote}|"
+                    f"{canonical_text(c.rate)}|{c.rate_as_of!r}|{c.source!r}|{c.derived}|"
+                    f"{canonical_text(c.converted)}"
                     for c in self.conversions
                 ),
             ]

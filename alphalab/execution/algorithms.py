@@ -101,6 +101,7 @@ from enum import StrEnum, unique
 from itertools import pairwise
 from typing import Final
 
+from alphalab.common.arithmetic import canonical_text
 from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import OrderStatus, OrderType, Side
@@ -140,14 +141,16 @@ __all__ = [
     "start_algorithm",
 ]
 
-#: Scheme tag of an algorithm configuration's identity.
-ALGORITHM_CONFIGURATION_SCHEME: Final = "alphalab.execution_algorithm.v1"
+#: Scheme tag of an algorithm configuration's identity. Version 2 (v3.11, ledger
+#: DET-006) renders every ``Decimal`` by value -- an urgency of ``2`` and one of
+#: ``2.0`` configure one algorithm -- as do the two schemes below.
+ALGORITHM_CONFIGURATION_SCHEME: Final = "alphalab.execution_algorithm.v2"
 
 #: Scheme tag of one run's identity: configuration, terms and parent together.
-ALGORITHM_RUN_SCHEME: Final = "alphalab.execution_algorithm_run.v1"
+ALGORITHM_RUN_SCHEME: Final = "alphalab.execution_algorithm_run.v2"
 
 #: Scheme tag of a planned schedule's identity.
-EXECUTION_SCHEDULE_SCHEME: Final = "alphalab.execution_schedule.v1"
+EXECUTION_SCHEDULE_SCHEME: Final = "alphalab.execution_schedule.v2"
 
 #: The steepest trajectory accepted. At ``kappa = 100`` the first percent of the
 #: clock already carries ``1 - e^-1`` of the parent; anything steeper is "send it
@@ -165,6 +168,12 @@ _ONE = Decimal("1")
 
 def _digest(lines: Iterable[str]) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _value(amount: Decimal | None) -> str:
+    """An amount in an identity: by value (:func:`canonical_text`), or ``None``."""
+
+    return "None" if amount is None else canonical_text(amount)
 
 
 def _add(left: Decimal, right: Decimal) -> Decimal:
@@ -521,7 +530,7 @@ type ExecutionAlgorithm = TWAP | VWAP | Participation | Slicing | Iceberg
 
 
 def _render_interval(interval: IntervalVolume) -> str:
-    return f"{interval.start!r}|{interval.end!r}|{interval.volume}"
+    return f"{interval.start!r}|{interval.end!r}|{_value(interval.volume)}"
 
 
 def _render_algorithm(algorithm: ExecutionAlgorithm) -> list[str]:
@@ -529,31 +538,31 @@ def _render_algorithm(algorithm: ExecutionAlgorithm) -> list[str]:
         return [
             "algorithm=twap",
             f"slices={algorithm.slices}",
-            f"urgency={algorithm.urgency.kappa}",
+            f"urgency={_value(algorithm.urgency.kappa)}",
         ]
     if isinstance(algorithm, VWAP):
         return [
             "algorithm=vwap",
             f"missing_volume={algorithm.missing_volume}",
-            f"urgency={algorithm.urgency.kappa}",
+            f"urgency={_value(algorithm.urgency.kappa)}",
             f"profile.source={algorithm.profile.source!r}",
             *(f"profile.interval={_render_interval(i)}" for i in algorithm.profile.intervals),
         ]
     if isinstance(algorithm, Participation):
         return [
             "algorithm=participation",
-            f"rate={algorithm.rate}",
-            f"min_child={algorithm.min_child_quantity}",
-            f"max_child={algorithm.max_child_quantity}",
+            f"rate={_value(algorithm.rate)}",
+            f"min_child={_value(algorithm.min_child_quantity)}",
+            f"max_child={_value(algorithm.max_child_quantity)}",
             f"at_end={algorithm.at_end}",
         ]
     if isinstance(algorithm, Slicing):
         return [
             "algorithm=slicing",
-            f"slice_quantity={algorithm.slice_quantity}",
+            f"slice_quantity={_value(algorithm.slice_quantity)}",
             f"slice_count={algorithm.slice_count}",
         ]
-    return ["algorithm=iceberg", f"display={algorithm.display_quantity}"]
+    return ["algorithm=iceberg", f"display={_value(algorithm.display_quantity)}"]
 
 
 def algorithm_configuration_id(algorithm: ExecutionAlgorithm) -> str:
@@ -621,9 +630,9 @@ class AlgorithmTerms:
         return [
             f"start={self.start!r}",
             f"end={self.end!r}",
-            f"increment={self.quantity_increment}",
+            f"increment={_value(self.quantity_increment)}",
             f"order_type={self.order_type}",
-            f"limit={self.limit_price}",
+            f"limit={_value(self.limit_price)}",
         ]
 
 
@@ -684,7 +693,8 @@ class ExecutionSchedule:
                 EXECUTION_SCHEDULE_SCHEME,
                 f"basis={self.basis}",
                 *(
-                    f"slice={s.index}|{s.start!r}|{s.end!r}|{s.weight}|{s.quantity}|{s.target}"
+                    f"slice={s.index}|{s.start!r}|{s.end!r}|{_value(s.weight)}|"
+                    f"{_value(s.quantity)}|{_value(s.target)}"
                     for s in self.slices
                 ),
             ]
@@ -1009,9 +1019,10 @@ def _run_id(parent: OrderRequest, algorithm: ExecutionAlgorithm, terms: Algorith
             ALGORITHM_RUN_SCHEME,
             f"configuration={algorithm_configuration_id(algorithm)}",
             *terms._render(),
-            f"parent={parent.order_id!r}|{parent.asset_id!r}|{parent.side}|{parent.quantity}"
-            f"|{parent.price}|{parent.timestamp!r}|{parent.strategy_id!r}",
-            *(f"contribution={c.strategy_id!r}|{c.quantity}" for c in parent.contributions),
+            f"parent={parent.order_id!r}|{parent.asset_id!r}|{parent.side}|"
+            f"{_value(parent.quantity)}|{_value(parent.price)}|{parent.timestamp!r}|"
+            f"{parent.strategy_id!r}",
+            *(f"contribution={c.strategy_id!r}|{_value(c.quantity)}" for c in parent.contributions),
         ]
     )
 

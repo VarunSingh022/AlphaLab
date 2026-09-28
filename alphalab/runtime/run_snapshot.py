@@ -71,7 +71,7 @@ from alphalab.oms.order import Order as OMSOrder
 # The order decoder belongs to the module that owns the type. Imported rather
 # than repeated: a second implementation of one decoding contract is how two
 # readers come to disagree about the same payload.
-from alphalab.oms.snapshot import _order
+from alphalab.oms.snapshot import _order, order_v1_to_v2
 from alphalab.persistence.decode import (
     as_bool,
     as_decimal,
@@ -130,8 +130,11 @@ __all__ = [
 #: Version 2 (v3.10) carries the analytics basis the run declares:
 #: ``years_elapsed`` may be ``null`` (derive it from the equity curve) and
 #: ``periods_per_year`` is new -- and whether the run stops when a strategy fails
-#: (``halt_on_strategy_failure``). Version 1 is upgraded by :data:`RUN_SCHEMA_HISTORY`.
-RUN_SNAPSHOT_SCHEMA: Final = 2
+#: (``halt_on_strategy_failure``). Version 3 (v3.11) writes the orders each
+#: recorded step carries in the OMS's version-2 form, with their time in force,
+#: expiry and stop trigger (ledger EXE-003). Earlier versions are upgraded by
+#: :data:`RUN_SCHEMA_HISTORY`.
+RUN_SNAPSHOT_SCHEMA: Final = 3
 
 _SUBSYSTEM: Final = "run"
 
@@ -174,6 +177,9 @@ class RunSnapshot:
     skipped: tuple[SkippedRecordRecord, ...]
     periods_per_year: float | None = None
     halt_on_strategy_failure: bool = False
+    #: The instant of the last slice the run closed, or ``None`` (ledger
+    #: EXE-004): what stops a restored run closing one instant twice.
+    last_slice_at: float | None = None
     schema_version: int = RUN_SNAPSHOT_SCHEMA
 
 
@@ -221,6 +227,7 @@ def capture(state: RunState) -> RunSnapshot:
         processed=state.processed,
         current_timestamp=state.current_timestamp,
         last_record_timestamp=state.last_record_timestamp,
+        last_slice_at=state.last_slice_at,
         source_id=state.source_id,
         steps=state.steps.to_tuple(),
         skipped=tuple(
@@ -277,6 +284,7 @@ def restore(snapshot: RunSnapshot, objects: RunObjects) -> RunState:
         processed=snapshot.processed,
         current_timestamp=snapshot.current_timestamp,
         last_record_timestamp=snapshot.last_record_timestamp,
+        last_slice_at=snapshot.last_slice_at,
         source_id=snapshot.source_id,
         steps=AppendOnlyLog(snapshot.steps),
         skipped=AppendOnlyLog(
@@ -360,6 +368,25 @@ def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
     return {**payload, "periods_per_year": None, "halt_on_strategy_failure": False}
 
 
+def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
+    """Carry each recorded step's orders into the OMS's version-2 form, and record no slice.
+
+    A step keeps copies of the orders its record produced; they are OMS orders,
+    and they upgrade by the OMS's own rule
+    (:func:`~alphalab.oms.snapshot.order_v1_to_v2`) -- every one of them a day
+    order with no expiry and no stop, which is what a version-2 run could place.
+    A version-2 run closed no slice: no driver could (ledger EXE-004).
+    """
+
+    steps = [
+        {**step, "orders": [order_v1_to_v2(order) for order in step.get("orders", ())]}
+        if isinstance(step, dict)
+        else step
+        for step in payload.get("steps", ())
+    ]
+    return {**payload, "steps": steps, "last_slice_at": None}
+
+
 RUN_SCHEMA_HISTORY = SchemaHistory(
     _SUBSYSTEM,
     RUN_SNAPSHOT_SCHEMA,
@@ -368,6 +395,12 @@ RUN_SCHEMA_HISTORY = SchemaHistory(
             1,
             "version 2 records the analytics basis the run declares",
             upgrade=_v1_to_v2,
+        ),
+        SchemaStep(
+            2,
+            "version 3 writes each step's orders in the OMS's version-2 form, and the "
+            "instant of the last slice the run closed",
+            upgrade=_v2_to_v3,
         ),
     ),
 )
@@ -419,6 +452,7 @@ def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
         last_record_timestamp=_optional_float(
             require(payload, "last_record_timestamp"), "last_record_timestamp"
         ),
+        last_slice_at=_optional_float(require(payload, "last_slice_at"), "last_slice_at"),
         source_id=as_optional_str(require(payload, "source_id"), "source_id"),
         steps=sequence("steps", _step),
         skipped=sequence("skipped", _skipped),

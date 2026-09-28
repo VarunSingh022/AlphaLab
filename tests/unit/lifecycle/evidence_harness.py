@@ -44,6 +44,7 @@ from alphalab.lifecycle import (
     CodeIdentity,
     DependencyManifest,
     DeploymentSpecification,
+    EngineBuild,
     EngineIdentity,
     MarketAvailability,
     MarketRequirements,
@@ -64,10 +65,10 @@ from alphalab.model_registry import ModelStage
 from alphalab.risk.limits import RiskLimits
 from alphalab.runtime.execution_pipeline import ExecutionRouting
 from alphalab.runtime.run import ExecutionMode, RunConfig
+from alphalab.strategy import StrategyDefinition
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.studio.strategy import StrategyDefinition
 from tests.integration.harness import (
     START_CASH,
     context_factory,
@@ -288,6 +289,10 @@ CODE = CodeIdentity(
 )
 
 ENGINE = EngineIdentity("alphalab", "3.6.0")
+
+#: A fixed engine build, so manifests built by tests are complete and their
+#: identities do not depend on the checkout or the host's tz database.
+BUILD = EngineBuild(source_digest="ab" * 32, tz_database="2025b")
 
 RESEARCH: ResearchConfiguration = research_configuration(
     {"validation": "single in-sample backtest", "costs": "ExecutionSimulator defaults"}

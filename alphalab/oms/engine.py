@@ -396,6 +396,21 @@ class OMSEngine:
     # =====================================================
 
     @staticmethod
+    def trigger(state: OMSState, order_id: OrderId, timestamp: float) -> OMSState:
+        """Record that a working stop-limit order's stop was reached at ``timestamp``.
+
+        Not a lifecycle transition -- the order's status does not move, and it
+        goes on working as a limit order -- so no event is logged; the fact lives
+        on the order, which a snapshot carries. A stop is reached once: an order
+        already triggered is returned unchanged.
+        """
+
+        order = OMSEngine._get(state, order_id)
+        if order.triggered_at is not None:
+            return state
+        return OMSEngine._store(state, replace(order, triggered_at=timestamp))
+
+    @staticmethod
     def replace(
         state: OMSState,
         order_id: OrderId,

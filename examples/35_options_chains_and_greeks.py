@@ -70,6 +70,7 @@ from alphalab.options import (
     resolve_strategy_expiration,
     strikes_for_expiry,
 )
+from alphalab.options.carry import dividend_yield
 
 YEAR = 365.25 * 86400
 VALUATION = datetime(2026, 1, 2, tzinfo=UTC).timestamp()
@@ -137,8 +138,12 @@ def main() -> None:
     for strike in ("140", "150", "160"):
         for kind in (OptionType.CALL, OptionType.PUT):
             contract = option(strike, kind)
-            price = black_scholes_price(contract, SPOT, VOL, RATE, VALUATION)
-            sensitivities = black_scholes_greeks(contract, SPOT, VOL, RATE, VALUATION)
+            price = black_scholes_price(
+                contract, SPOT, VOL, RATE, VALUATION, carry=dividend_yield(0.0)
+            )
+            sensitivities = black_scholes_greeks(
+                contract, SPOT, VOL, RATE, VALUATION, carry=dividend_yield(0.0)
+            )
             label = f"{strike} {kind.name.lower()}"
             print(
                 f"  {label:<14} {price:>9} {sensitivities.delta:>9.4f} "
@@ -168,7 +173,9 @@ def main() -> None:
 
     for multiplier, label in ((100, "US equity"), (50, "Nifty index"), (10, "Eurostoxx")):
         contract = option("150", multiplier=multiplier)
-        per_unit = black_scholes_price(contract, SPOT, VOL, RATE, VALUATION)
+        per_unit = black_scholes_price(
+            contract, SPOT, VOL, RATE, VALUATION, carry=dividend_yield(0.0)
+        )
         strategy = OptionStrategy((OptionLeg(contract, Side.BUY, 1),))
         payoff = compute_payoff_at_expiry(strategy, Decimal("170"))
         print(
@@ -188,11 +195,15 @@ def main() -> None:
     spread = OptionStrategy((long_leg, short_leg))
 
     prices = {
-        occ_symbol(leg.contract): black_scholes_price(leg.contract, SPOT, VOL, RATE, VALUATION)
+        occ_symbol(leg.contract): black_scholes_price(
+            leg.contract, SPOT, VOL, RATE, VALUATION, carry=dividend_yield(0.0)
+        )
         for leg in spread.legs
     }
     by_leg = {
-        occ_symbol(leg.contract): black_scholes_greeks(leg.contract, SPOT, VOL, RATE, VALUATION)
+        occ_symbol(leg.contract): black_scholes_greeks(
+            leg.contract, SPOT, VOL, RATE, VALUATION, carry=dividend_yield(0.0)
+        )
         for leg in spread.legs
     }
 

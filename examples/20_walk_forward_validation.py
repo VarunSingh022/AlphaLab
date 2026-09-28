@@ -177,7 +177,7 @@ def main() -> None:
     # ------------------------------------------------------------------
 
     signal = compute_panel(MOMENTUM, frame)
-    realized = forward_returns(frame, HORIZON)
+    realized = forward_returns(frame, HORIZON, lag=0, delistings=())
 
     print()
     print("Step 06 - The signal measured fold by fold")

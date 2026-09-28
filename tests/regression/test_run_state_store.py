@@ -460,8 +460,8 @@ def test_the_retrieved_payload_still_decodes_through_its_own_owner(store: RunSta
 
     decoded = deserialize(retrieved)
     assert isinstance(decoded, dict)
-    assert decoded["schema_version"] == 2, "RUN_SNAPSHOT_SCHEMA, untouched by the store"
-    assert decoded["pipeline"]["schema_version"] == 4, "PIPELINE_SNAPSHOT_SCHEMA"
+    assert decoded["schema_version"] == 3, "RUN_SNAPSHOT_SCHEMA, untouched by the store"
+    assert decoded["pipeline"]["schema_version"] == 5, "PIPELINE_SNAPSHOT_SCHEMA"
 
 
 @pytest.mark.parametrize("store", BACKENDS, indirect=True)
@@ -776,6 +776,8 @@ def test_no_existing_snapshot_schema_moved() -> None:
     and ``PORTFOLIO_SNAPSHOT_SCHEMA`` moved to 3 in v2.17 for settlement-level
     multi-currency (ADR-0035), on the same terms, and ``PORTFOLIO_SNAPSHOT_SCHEMA``
     to 4 in v3.10 for per-currency minor units (upgraded from 3, not refused).
+    v3.11 moved ``RUN_SNAPSHOT_SCHEMA`` to 3 and the allocation and OMS constants
+    to 2 for order terms (EXE-003), each upgraded from the one before.
     What ADR-0029 promised is that *its* change moved nothing, and that is what
     remains asserted -- against the values those constants hold now, not the
     values they held then.
@@ -795,7 +797,7 @@ def test_no_existing_snapshot_schema_moved() -> None:
         OMS_SNAPSHOT_SCHEMA,
         PORTFOLIO_SNAPSHOT_SCHEMA,
         DEFAULT_SCHEMA_VERSION,
-    ) == (4, 2, 1, 1, 4, 1)
+    ) == (5, 3, 2, 2, 4, 1)
 
 
 def test_a_v212_payload_is_unchanged_by_being_stored(tmp_path: Path) -> None:

@@ -15,7 +15,10 @@ the confidence together for the same reason: "a figure cannot travel without the
 assumptions that produced it".
 
 Nothing here changes a number. It describes the one model this package
-implements, and names the four things that model does not do.
+implements, and names what that model does and does not do. Since v3.11 the
+model takes the underlying's carry (a dividend yield, a foreign rate or a
+futures contract's zero carry; ledger NUM-005), so ``models_dividends`` is
+``True``.
 """
 
 from __future__ import annotations
@@ -37,7 +40,8 @@ class PricingModel(Enum):
     """
 
     #: Closed-form European pricing on a lognormal underlying with a constant
-    #: volatility and a constant continuously-compounded rate.
+    #: volatility, a constant continuously-compounded rate and a stated
+    #: continuous carry -- generalized Black-Scholes-Merton.
     BLACK_SCHOLES = auto()
 
 
@@ -56,8 +60,10 @@ class ModelAssumptions:
             model is priced as though it were European, which understates a deep
             in-the-money American put.
         models_dividends: Whether a dividend or carry yield on the underlying is
-            an input. ``False`` here: there is no dividend-yield argument, so a
-            dividend-paying underlying is priced as though it paid none.
+            an input. ``True`` since v3.11: every call states a
+            :class:`~alphalab.options.carry.Carry` -- a continuous dividend
+            yield, a foreign rate or a futures contract. A *discrete* dividend
+            is not modelled.
         models_volatility_smile: Whether volatility varies by strike within the
             model. ``False`` here: one volatility is an input per call. A smile
             is expressed by supplying a different volatility per strike, which
@@ -102,11 +108,11 @@ BLACK_SCHOLES_MERTON: Final = ModelAssumptions(
     model=PricingModel.BLACK_SCHOLES,
     year_basis_days=365.25,
     prices_early_exercise=False,
-    models_dividends=False,
+    models_dividends=True,
     models_volatility_smile=False,
     note=(
-        "European closed form on a lognormal underlying. An American contract is priced as "
-        "though it were European, a dividend-paying underlying as though it paid none, and "
-        "one volatility applies at every strike."
+        "European closed form on a lognormal underlying with a stated continuous carry. An "
+        "American contract is priced as though it were European, a discrete dividend is not "
+        "modelled, and one volatility applies at every strike."
     ),
 )

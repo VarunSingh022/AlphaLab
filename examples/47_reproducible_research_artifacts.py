@@ -81,6 +81,7 @@ from alphalab.lifecycle import (
     manifest_gaps,
     register_strategy,
     research_configuration,
+    running_build,
     verify_manifest,
 )
 from alphalab.persistence.serializer import serialize
@@ -118,7 +119,7 @@ def main() -> None:
 
     print("\n[1] What exact inputs produced this result?")
     result = run_backtest(dataset)
-    manifest = manifest_for_run(result, dataset, fingerprint, ENGINE)
+    manifest = manifest_for_run(result, dataset, fingerprint, ENGINE, build=running_build())
     show(manifest)
     recorded = json.loads(manifest.configuration)
     print(f"  (mode {recorded['mode']}, fill policy {recorded['fill_policy_type']},")
@@ -140,11 +141,15 @@ def main() -> None:
     # ----------------------------------------------------------------- #
 
     print("\n[3] Produce it again")
-    rerun = manifest_for_run(run_backtest(dataset), dataset, fingerprint, ENGINE)
+    rerun = manifest_for_run(
+        run_backtest(dataset), dataset, fingerprint, ENGINE, build=running_build()
+    )
     reproduced = assess_reproducibility(manifest, rerun)
     print(f"  same declared inputs       : {reproduced.rerun.name}")
 
-    other_seed = manifest_for_run(run_backtest(dataset, seed=1), dataset, fingerprint, ENGINE)
+    other_seed = manifest_for_run(
+        run_backtest(dataset, seed=1), dataset, fingerprint, ENGINE, build=running_build()
+    )
     differ = assess_reproducibility(manifest, other_seed)
     print(f"  another seed               : {differ.rerun.name} -- {differ.rerun_detail[0]}")
 
@@ -155,6 +160,7 @@ def main() -> None:
         dataset,
         fingerprint,
         ENGINE,
+        build=running_build(),
     )
     diverged = assess_reproducibility(manifest, slipped)
     print(f"  a simulator's hidden cost  : {diverged.rerun.name}")
@@ -174,7 +180,7 @@ def main() -> None:
         research,
         ENGINE,
     )
-    loose_manifest = manifest_for_run(result, dataset, loose, ENGINE)
+    loose_manifest = manifest_for_run(result, dataset, loose, ENGINE, build=running_build())
     print(f"  complete manifest gaps : {manifest_gaps(manifest)}")
     for gap in manifest_gaps(loose_manifest):
         print(f"  loose manifest gap     : {gap[:70]}...")
@@ -185,7 +191,9 @@ def main() -> None:
 
     print("\n[5] An unseeded run")
     try:
-        manifest_for_run(run_backtest(dataset, seed=None), dataset, fingerprint, ENGINE)
+        manifest_for_run(
+            run_backtest(dataset, seed=None), dataset, fingerprint, ENGINE, build=running_build()
+        )
     except LifecycleInputError as error:
         print(f"  refused: {str(error)[:96]}...")
 
@@ -203,15 +211,22 @@ def main() -> None:
             FeatureDefinition("mom_10", FeatureKind.MOMENTUM, FeatureField.CLOSE, window=10),
         ),
         horizons=(1, 5),
+        implementation_lag=0,
     )
-    study_result = run_study(study, panel, produced_at=1.0)
-    study_manifest = manifest_for_study(study_result, panel, ENGINE)
+    study_result = run_study(study, panel, produced_at=1.0, delistings=())
+    study_manifest = manifest_for_study(study_result, panel, ENGINE, build=running_build())
     print(f"  study         : {study_result.study_id[:40]}...")
     print(f"  metrics       : {len(study_result.metrics)}")
     print(f"  seed          : {study_manifest.seed} ({study_manifest.seed_role.name})")
     print("  (No stochastic step, so no seed -- recorded as absent, never invented.)")
     again = assess_reproducibility(
-        study_manifest, manifest_for_study(run_study(study, panel, produced_at=99.0), panel, ENGINE)
+        study_manifest,
+        manifest_for_study(
+            run_study(study, panel, produced_at=99.0, delistings=()),
+            panel,
+            ENGINE,
+            build=running_build(),
+        ),
     )
     print(f"  rerun a day later : {again.rerun.name}  (produced_at is not an input)")
 

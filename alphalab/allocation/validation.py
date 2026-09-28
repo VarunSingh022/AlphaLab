@@ -18,10 +18,8 @@ def validate_intent(intent: Intent) -> None:
         raise AllocationValidationError("Intent strength must be between 0.0 and 1.0.")
     if intent.timestamp < 0.0:
         raise AllocationValidationError("Intent timestamp cannot be negative.")
-    if intent.kind is not IntentKind.DELTA:
-        raise AllocationValidationError(
-            f"Allocation sizes order deltas; an intent of kind {intent.kind!r} is not one."
-        )
+    if not isinstance(intent.kind, IntentKind):
+        raise AllocationValidationError(f"Intent kind must be an IntentKind, got {intent.kind!r}.")
 
 
 def validate_net_quantity(quantity: Decimal, enforce_long_only: bool = False) -> None:

@@ -28,6 +28,7 @@ from alphalab.broker import BrokerAdapter, BrokerEngine, BrokerOrderType, PaperB
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.execution.costs import FREE
 from alphalab.market.engine import MarketEngine
 from alphalab.market.quote import Quote
 from alphalab.market.state import MarketState
@@ -68,7 +69,7 @@ def _publish(count: int, universe: int) -> float:
 def _submit(count: int) -> float:
     orders = [_OMSOrder(f"OMS-{i}", "AAPL", "BUY", "1", "10.00") for i in range(count)]
     state = BrokerEngine.initialize("BENCH", Decimal("100000000000.00"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     broker_orders = [
         BrokerAdapter.to_broker_order(order, f"B-{i}", BrokerOrderType.MARKET, float(i))
         for i, order in enumerate(orders)
@@ -121,7 +122,7 @@ def test_publishing_shares_structure_instead_of_copying_the_index() -> None:
 
 def test_a_submitted_order_is_invisible_to_the_state_before_it() -> None:
     state = BrokerEngine.initialize("B", Decimal("1000000"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     order = BrokerAdapter.to_broker_order(
         _OMSOrder("OMS-1", "AAPL", "BUY", "1", "10.00"), "B-1", BrokerOrderType.LIMIT, 1.0
     )

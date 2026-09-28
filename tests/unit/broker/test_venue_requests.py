@@ -23,6 +23,7 @@ from alphalab.broker.requests import (
 from alphalab.broker.validation import validate_cancel_request, validate_replace_request
 from alphalab.core.enums import OrderStatus, OrderType
 from alphalab.core.lifecycle import ExecutionEventKind
+from alphalab.execution.costs import FREE
 from tests.unit.broker.venue_fixtures import execution, mirror, order
 
 E = ExecutionEventKind
@@ -213,11 +214,11 @@ def test_an_expired_order_can_no_longer_be_cancelled() -> None:
     with pytest.raises(InvalidBrokerStateError):
         validate_cancel_request(state, "B-1")
     with pytest.raises(InvalidBrokerStateError):
-        PaperBroker().cancel_order(state, "B-1", 2.0)
+        PaperBroker(FREE).cancel_order(state, "B-1", 2.0)
 
 
 def test_the_reference_adapter_refuses_an_amendment_below_what_has_filled() -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     state = BrokerEngine.initialize("PAPER", Decimal("100000"), "USD")
     state, _ = broker.connect(state, 1.0)
 

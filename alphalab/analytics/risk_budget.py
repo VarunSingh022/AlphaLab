@@ -87,6 +87,7 @@ from alphalab.analytics.risk_model import (
     RiskContributions,
     euler_decomposition,
 )
+from alphalab.common.arithmetic import canonical_text
 
 __all__ = [
     "RISK_BUDGET_REPORT_SCHEME",
@@ -106,7 +107,9 @@ __all__ = [
 ]
 
 RISK_BUDGET_SCHEME: Final = "alphalab.risk_budget.v1"
-RISK_BUDGET_REPORT_SCHEME: Final = "alphalab.risk_budget_report.v1"
+#: Version 2 (v3.11, ledger DET-006): the capital and every line value --
+#: ``Decimal`` amounts -- render by value.
+RISK_BUDGET_REPORT_SCHEME: Final = "alphalab.risk_budget_report.v2"
 
 #: Money divided into a weight, in an explicit context rather than the thread's.
 _CONTEXT: Final = Context(prec=28, rounding=ROUND_HALF_EVEN)
@@ -500,11 +503,11 @@ class RiskBudgetReport:
                 f"budget={self.budget_id}",
                 f"covariance={self.covariance_id}",
                 f"currency={self.reporting_currency!r}",
-                f"capital={self.capital}",
+                f"capital={canonical_text(self.capital)}",
                 f"volatility={self.volatility!r}",
                 *(
                     f"line={line.strategy_id!r}|{line.asset_id!r}|{line.currency!r}|"
-                    f"{line.native_value}|{line.value}"
+                    f"{canonical_text(line.native_value)}|{canonical_text(line.value)}"
                     for line in self.lines
                 ),
                 *(

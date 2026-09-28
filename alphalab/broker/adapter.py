@@ -1,10 +1,12 @@
 """Adapter translating OMS structures to Broker structures."""
 
+from decimal import Decimal
 from typing import Any, Protocol
 
 from alphalab.broker.order import BrokerOrder, BrokerOrderStatus
 from alphalab.core.enums import OrderType as CoreOrderType
 from alphalab.core.enums import Side as CoreSide
+from alphalab.core.enums import TimeInForce
 
 
 class OMSOrderProtocol(Protocol):
@@ -35,9 +37,16 @@ class BrokerAdapter:
         broker_order_id: str,
         order_type: CoreOrderType,
         timestamp: float,
+        *,
+        stop_price: Decimal | None = None,
+        time_in_force: TimeInForce = TimeInForce.DAY,
     ) -> BrokerOrder:
-        """Converts an OMS order request into an immutable BrokerOrder."""
-        from decimal import Decimal
+        """Converts an OMS order request into an immutable BrokerOrder.
+
+        ``stop_price`` and ``time_in_force`` carry a stop or a lifetime other than
+        the day to the venue (ledger EXE-003); a venue order with no stop records
+        ``0``, as it always has.
+        """
 
         side = CoreSide.BUY if str(oms_order.side).upper() == "BUY" else CoreSide.SELL
 
@@ -54,4 +63,6 @@ class BrokerAdapter:
             status=BrokerOrderStatus.PENDING_SUBMIT,
             created_at=timestamp,
             updated_at=timestamp,
+            tif=time_in_force,
+            stop_price=Decimal("0") if stop_price is None else stop_price,
         )

@@ -72,6 +72,7 @@ from alphalab.lifecycle import (
     DependencyCompleteness,
     DependencyManifest,
     DependencyPin,
+    EngineBuild,
     EngineIdentity,
     MarketAvailability,
     MarketRequirements,
@@ -132,6 +133,7 @@ SEED = 360_360
 START = datetime(2020, 1, 1, tzinfo=UTC)
 START_CASH = Decimal("1000000")
 ENGINE = EngineIdentity("alphalab", "3.6.0")
+BUILD = EngineBuild(source_digest="ab" * 32, tz_database="2025b")
 
 INSTRUMENT = InstrumentRecord(SYMBOL, AssetType.EQUITY, "XNYS", "USD", aliases={PROVIDER: SYMBOL})
 ASSET_ID = INSTRUMENT.asset_id
@@ -363,14 +365,14 @@ def benchmark_manifests() -> None:
     for days in (250, 1_000):
         dataset = _dataset(days)
         result, rerun_result = _run(dataset), _run(dataset)
-        manifest = manifest_for_run(result, dataset, fingerprint, ENGINE)
-        rerun = manifest_for_run(rerun_result, dataset, fingerprint, ENGINE)
+        manifest = manifest_for_run(result, dataset, fingerprint, ENGINE, build=BUILD)
+        rerun = manifest_for_run(rerun_result, dataset, fingerprint, ENGINE, build=BUILD)
 
         def digest(result: BacktestResult = result) -> object:
             return digest_run(result)
 
         def build(result: BacktestResult = result, dataset: Dataset = dataset) -> object:
-            return manifest_for_run(result, dataset, fingerprint, ENGINE)
+            return manifest_for_run(result, dataset, fingerprint, ENGINE, build=BUILD)
 
         def verify(manifest: ReproducibilityManifest = manifest) -> object:
             return [verify_manifest(manifest) for _ in range(10_000)]
@@ -410,8 +412,8 @@ def benchmark_certification() -> None:
         dataset = _dataset(days)
         specification = _specification(dataset, (ASSET_ID,))
         result = _run(dataset)
-        manifest = manifest_for_run(result, dataset, fingerprint, ENGINE)
-        rerun = manifest_for_run(_run(dataset), dataset, fingerprint, ENGINE)
+        manifest = manifest_for_run(result, dataset, fingerprint, ENGINE, build=BUILD)
+        rerun = manifest_for_run(_run(dataset), dataset, fingerprint, ENGINE, build=BUILD)
         observations = tuple(
             RuntimeObservation(
                 observed_at=1_000.0 + index,

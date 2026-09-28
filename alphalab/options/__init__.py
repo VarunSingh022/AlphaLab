@@ -18,6 +18,7 @@ which says whether a contract was exercised, assigned or abandoned and moves
 cash and underlying units as two separate signed quantities.
 """
 
+from alphalab.options.carry import FUTURES_CARRY, Carry, CarryKind, dividend_yield, foreign_rate
 from alphalab.options.chain import (
     OptionChain,
     by_expiry,
@@ -76,6 +77,9 @@ from alphalab.options.volatility_surface import (
 
 __all__ = [
     "BLACK_SCHOLES_MERTON",
+    "FUTURES_CARRY",
+    "Carry",
+    "CarryKind",
     "ExerciseStyle",
     "ExpirationOutcome",
     "ExpirationPolicy",
@@ -106,7 +110,9 @@ __all__ = [
     "calls",
     "compute_payoff_at_expiry",
     "compute_pnl",
+    "dividend_yield",
     "expiries",
+    "foreign_rate",
     "implied_vol_at",
     "implied_volatility",
     "intrinsic_value",

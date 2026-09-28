@@ -36,6 +36,8 @@ Run
     python examples/22_robustness_testing.py
 """
 
+from dataclasses import replace
+
 from _research_panel import banner, lineage, load_panel
 
 from alphalab.api import observe
@@ -51,7 +53,6 @@ from alphalab.factor_library import (
     rank_panel,
     weights_from_buckets,
 )
-from alphalab.factor_library.forward_returns import ForwardReturnPanel
 from alphalab.factor_library.observations import ObservationFrame
 from alphalab.research import (
     Perturbation,
@@ -88,7 +89,7 @@ def _measure(
     if delay:
         panel = delay_signal(panel, delay)
     measured = signal_diagnostics(
-        panel, forward_returns(frame, HORIZON), buckets=5, minimum_assets=5
+        panel, forward_returns(frame, HORIZON, lag=0, delistings=()), buckets=5, minimum_assets=5
     )
     return {
         "rank_ic": measured.rank_ic.mean_rank if measured.rank_ic.mean_rank is not None else 0.0,
@@ -186,7 +187,10 @@ def main() -> None:
     for sigma in (0.01, 0.05):
         noisy = perturb_signal(panel, sigma, seed=SEED)
         measured = signal_diagnostics(
-            noisy, forward_returns(frame, HORIZON), buckets=5, minimum_assets=5
+            noisy,
+            forward_returns(frame, HORIZON, lag=0, delistings=()),
+            buckets=5,
+            minimum_assets=5,
         )
         data_runs.append(
             PerturbationRun(
@@ -275,7 +279,7 @@ def main() -> None:
     # Step 06 : Execution cost
     # ------------------------------------------------------------------
 
-    realized = forward_returns(frame, HORIZON)
+    realized = forward_returns(frame, HORIZON, lag=0, delistings=())
 
     print()
     print("Step 06 - Execution cost")
@@ -285,14 +289,9 @@ def main() -> None:
     # is arithmetic rather than a finding, and it is the reason a long/short
     # book's cost has to be charged against its turnover instead.
     charged = apply_cost(realized.rows, 0.0010)
-    after = ForwardReturnPanel(
-        horizon=realized.horizon,
-        rows=charged,
-        dataset_version=realized.dataset_version,
-        timezone_name=realized.timezone_name,
-        symbols=realized.symbols,
-        unrealized_instants=realized.unrealized_instants,
-    )
+    # The same panel with its returns charged: every other field -- horizon, lag,
+    # delistings, provenance -- is carried over rather than restated.
+    after = replace(realized, rows=charged)
     flat = signal_diagnostics(panel, after, buckets=5, minimum_assets=5)
 
     before = signal_diagnostics(panel, realized, buckets=5, minimum_assets=5)

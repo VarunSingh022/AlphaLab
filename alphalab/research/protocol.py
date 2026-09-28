@@ -25,7 +25,7 @@ the read-only views it hands a strategy.
 package-wide norm rather than an oversight:
 :class:`~alphalab.portfolio.engine.PortfolioState`,
 :class:`~alphalab.portfolio.cash.CashLedger` and
-:class:`~alphalab.studio.strategy.StrategyDefinition` are all frozen dataclasses
+:class:`~alphalab.strategy.definition.StrategyDefinition` are all frozen dataclasses
 holding a ``Mapping`` and none of them is hashable either. Equality is what these
 values are compared by, and equality is unaffected -- a ``MappingProxyType``
 compares equal to the dictionary it wraps, so a payload built from a literal

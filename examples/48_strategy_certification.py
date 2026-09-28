@@ -99,6 +99,7 @@ from alphalab.lifecycle import (
     manifest_for_run,
     register_strategy,
     research_configuration,
+    running_build,
     specification_for_version,
     verify_certification_report,
 )
@@ -226,8 +227,10 @@ def main() -> None:
 
     print("\n[2] Everything observed")
     result = run_backtest(dataset)
-    manifest = manifest_for_run(result, dataset, fingerprint, ENGINE)
-    rerun = manifest_for_run(run_backtest(dataset), dataset, fingerprint, ENGINE)
+    manifest = manifest_for_run(result, dataset, fingerprint, ENGINE, build=running_build())
+    rerun = manifest_for_run(
+        run_backtest(dataset), dataset, fingerprint, ENGINE, build=running_build()
+    )
     measurements = measure(dataset)
     evidence = CertificationEvidence(
         runs=(result,),

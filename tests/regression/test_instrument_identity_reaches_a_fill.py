@@ -48,7 +48,6 @@ from alphalab.market.normalization import (
 )
 from alphalab.market.provider import ProviderHistorySource
 from alphalab.marketdata.feed import Bar as WireBar
-from alphalab.marketdata.timeframe import Timeframe
 from alphalab.runtime.session import TradingSession
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
@@ -95,7 +94,7 @@ class _CountingProvider:
         self.calls = 0
 
     def request_history(
-        self, symbol: str, timeframe: Timeframe, start: float, end: float
+        self, symbol: str, timeframe: TimeFrame, start: float, end: float
     ) -> tuple[WireBar, ...]:
         self.calls += 1
         return ()
@@ -121,7 +120,7 @@ def test_a_registered_instrument_reaches_a_fill_through_the_real_path() -> None:
     """
 
     source = ProviderHistorySource.of(
-        _adapter(), ["BTCUSDT"], Timeframe.MINUTE, 1_700_000_000.0, 1_700_000_240.0, "BTC", POLICY
+        _adapter(), ["BTCUSDT"], TimeFrame.M1, 1_700_000_000.0, 1_700_000_240.0, "BTC", POLICY
     )
     state = TradingSession.initialize(
         _session_config(), running_strategy_state(STRATEGY, _BuyFirstBar(ASSET))
@@ -141,7 +140,7 @@ def test_the_asset_id_that_reaches_the_fill_is_the_one_the_registry_derived() ->
 
     assert INSTRUMENTS.resolve(PROVIDER, "BTCUSDT") == ASSET
     source = ProviderHistorySource.of(
-        _adapter(), ["BTCUSDT"], Timeframe.MINUTE, 1_700_000_000.0, 1_700_000_240.0, "BTC", POLICY
+        _adapter(), ["BTCUSDT"], TimeFrame.M1, 1_700_000_000.0, 1_700_000_240.0, "BTC", POLICY
     )
 
     assert {record.asset_id for record in source.records()} == {ASSET}
@@ -234,7 +233,7 @@ def test_the_unresolved_mode_still_produces_an_id_core_refuses() -> None:
 def test_a_production_source_refuses_the_unresolved_identity_mode() -> None:
     with pytest.raises(InstrumentResolutionError) as error:
         ProviderHistorySource.of(
-            _adapter(), ["BTCUSDT"], Timeframe.MINUTE, 0.0, 1.0, "BTC", _unresolved_policy()
+            _adapter(), ["BTCUSDT"], TimeFrame.M1, 0.0, 1.0, "BTC", _unresolved_policy()
         )
 
     message = str(error.value)
@@ -249,7 +248,7 @@ def test_the_refusal_happens_before_the_provider_is_called() -> None:
 
     with pytest.raises(InstrumentResolutionError):
         ProviderHistorySource.of(
-            provider, ["BTCUSDT"], Timeframe.MINUTE, 0.0, 1.0, "BTC", _unresolved_policy()
+            provider, ["BTCUSDT"], TimeFrame.M1, 0.0, 1.0, "BTC", _unresolved_policy()
         )
 
     assert provider.calls == 0, "the provider was called before the policy was checked"
@@ -273,7 +272,7 @@ def test_no_unresolved_variant_reaches_a_production_source(identity: UnresolvedI
     )
 
     with pytest.raises(InstrumentResolutionError):
-        ProviderHistorySource.of(provider, ["BTCUSDT"], Timeframe.MINUTE, 0.0, 1.0, "BTC", policy)
+        ProviderHistorySource.of(provider, ["BTCUSDT"], TimeFrame.M1, 0.0, 1.0, "BTC", policy)
     assert provider.calls == 0
 
 
@@ -291,9 +290,7 @@ def test_an_unresolved_policy_is_not_a_production_configuration() -> None:
     assert isinstance(unresolved.identity, UnresolvedIdentity)
     provider = _CountingProvider()
     with pytest.raises(InstrumentResolutionError):
-        ProviderHistorySource.of(
-            provider, ["BTCUSDT"], Timeframe.MINUTE, 0.0, 1.0, "BTC", unresolved
-        )
+        ProviderHistorySource.of(provider, ["BTCUSDT"], TimeFrame.M1, 0.0, 1.0, "BTC", unresolved)
     assert provider.calls == 0
 
 

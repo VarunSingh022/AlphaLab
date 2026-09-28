@@ -92,6 +92,7 @@ from alphalab.analytics.risk_model import (
     euler_decomposition,
     portfolio_factor_exposures,
 )
+from alphalab.common.arithmetic import canonical_text
 from alphalab.portfolio_optimizer.exceptions import ConstructionInputError, OptimizationError
 from alphalab.portfolio_optimizer.quadratic import (
     AbsoluteSumLimit,
@@ -132,7 +133,9 @@ __all__ = [
     "construct",
 ]
 
-CONSTRUCTION_PROBLEM_SCHEME: Final = "alphalab.construction_problem.v1"
+#: Version 2 (v3.11, ledger DET-006): money and risk budgets -- the ``Decimal``
+#: inputs -- are rendered by value, so ``100`` and ``100.00`` state one problem.
+CONSTRUCTION_PROBLEM_SCHEME: Final = "alphalab.construction_problem.v2"
 CONSTRUCTION_RESULT_SCHEME: Final = "alphalab.construction_result.v1"
 EXPECTED_RETURNS_SCHEME: Final = "alphalab.expected_returns.v1"
 
@@ -657,9 +660,9 @@ class ConstraintSet:
         if self.notional_limits is None:
             lines.append("notional=None")
         else:
-            lines.append(f"notional.capital={self.notional_limits.capital}")
+            lines.append(f"notional.capital={canonical_text(self.notional_limits.capital)}")
             lines.extend(
-                f"notional[{_render(asset)}]={amount}"
+                f"notional[{_render(asset)}]={canonical_text(amount)}"
                 for asset, amount in self.notional_limits.maximum_notional.items()
             )
         return lines
@@ -772,7 +775,10 @@ class RiskParity:
             return ["objective=risk_parity", "budgets=equal"]
         return [
             "objective=risk_parity",
-            *(f"budget[{_render(asset)}]={budget}" for asset, budget in self.budgets.items()),
+            *(
+                f"budget[{_render(asset)}]={canonical_text(budget)}"
+                for asset, budget in self.budgets.items()
+            ),
         ]
 
 

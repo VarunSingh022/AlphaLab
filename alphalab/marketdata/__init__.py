@@ -8,9 +8,15 @@ What remains of this package in v3.10 is what the canonical market model
 * :mod:`~alphalab.marketdata.websocket` -- an RFC 6455 client, the streaming
   half, used by :mod:`alphalab.market.stream`;
 * :mod:`~alphalab.marketdata.feed` -- the wire records (a re-export of
-  :mod:`alphalab.data.feed`), and :class:`~alphalab.marketdata.timeframe.Timeframe`,
-  the resolution a :class:`~alphalab.market.provider.BarHistoryProvider` is
-  asked for.
+  :mod:`alphalab.data.feed`).
+
+Until v3.11 it also held ``Timeframe`` (``TICK``, ``SECOND``, ``MINUTE``,
+``HOURLY``, ``DAILY``), the resolution a
+:class:`~alphalab.market.provider.BarHistoryProvider` was asked for -- a second
+vocabulary for the interval :class:`~alphalab.market.bar.TimeFrame` already
+named, with no way to say a request for minutes and a policy labelling the
+result as days disagreed. A provider is now asked for a
+:class:`~alphalab.market.bar.TimeFrame`, the one interval type (ledger DAT-005).
 
 Until v3.10 it also shipped vendor-named clients (Binance, Databento, NSE,
 Polygon, Yahoo -- four of them ``NotImplementedError`` stubs) and a v1 provider
@@ -24,7 +30,6 @@ SCF-002; ADR-0045).
 
 from alphalab.marketdata.exceptions import MarketDataError
 from alphalab.marketdata.feed import Bar, OrderBook, OrderBookLevel, Quote, Trade
-from alphalab.marketdata.timeframe import Timeframe
 from alphalab.marketdata.transport import HttpTransport, StaticTransport, Transport
 from alphalab.marketdata.websocket import (
     WebSocketConnection,
@@ -41,7 +46,6 @@ __all__ = [
     "OrderBookLevel",
     "Quote",
     "StaticTransport",
-    "Timeframe",
     "Trade",
     "Transport",
     "WebSocketConnection",

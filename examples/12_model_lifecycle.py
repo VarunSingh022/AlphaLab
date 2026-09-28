@@ -53,9 +53,6 @@ from typing import Any
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.backtesting import BacktestEngine, ExecutionMode, MarketDataset, RunConfig
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.experiment_tracking import complete_run, log_metrics, start_run
 from alphalab.lifecycle import (
@@ -76,7 +73,7 @@ from alphalab.lifecycle import (
     rollback_environment,
     validate_strategy_version,
 )
-from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance, StaticPermissions
 from alphalab.market.quote import Quote
 from alphalab.model_registry import ArtifactRef, ModelStage, deployment_metadata, promote
 from alphalab.portfolio.account import Account
@@ -109,16 +106,8 @@ from alphalab.strategy.supervisor import RuntimeSupervisor
 #: that adding governance did not turn every existing test into a governance
 #: test.
 _ACTOR = "release-engineer"
-_ENTERPRISE = grant_role(
-    define_role(
-        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
-        "release",
-        LIFECYCLE_PERMISSIONS,
-    ),
-    _ACTOR,
-    "release",
-)
-GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
+_PERMISSIONS = StaticPermissions({_ACTOR: LIFECYCLE_PERMISSIONS})
+GOVERNANCE = Governance(_PERMISSIONS, _ACTOR)
 
 # The execution path identifies a strategy instance and an asset by UUID. The
 # lifecycle names a strategy *line* and numbers its versions. Two different

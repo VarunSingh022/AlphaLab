@@ -29,11 +29,6 @@ import pytest
 
 from alphalab.broker.account import BrokerAccount
 from alphalab.broker.state import BrokerState, ConnectionStatus
-from alphalab.broker.transport import HttpVenueTransport, VenueCredentials
-from alphalab.broker.venue import RestVenueBroker, VenueConfig
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import complete_run, log_metrics, start_run
 from alphalab.lifecycle import (
     LIFECYCLE_PERMISSIONS,
@@ -42,6 +37,7 @@ from alphalab.lifecycle import (
     LifecycleState,
     LifecycleTransitionError,
     MetricThreshold,
+    StaticPermissions,
     StrategyVersionRef,
     ValidationMethod,
     ValidationPolicy,
@@ -66,7 +62,7 @@ from alphalab.runtime.live import LiveSession, live_health
 from alphalab.runtime.live_snapshot import capture as capture_live
 from alphalab.runtime.live_snapshot import from_primitives as live_from_primitives
 from alphalab.runtime.run import ExecutionMode, RunConfig
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 from tests.integration.harness import (
     ScriptedStrategy,
     context_factory,
@@ -75,6 +71,8 @@ from tests.integration.harness import (
     running_strategy_state,
 )
 from tests.integration.venue_server import fill, record_fill, run_venue
+from tests.reference_adapter.transport import HttpVenueTransport, VenueCredentials
+from tests.reference_adapter.venue import RestVenueBroker, VenueConfig
 
 _KEY = "TESTKEY-0001"
 _SECRET = "test-signing-secret-not-a-real-credential"
@@ -87,19 +85,14 @@ METRICS = {"sharpe_ratio": 1.4, "max_drawdown": 0.1}
 EURUSD = FxRate("EUR", "USD", Decimal("1.10"), 2.0, "ECB")
 
 
-def _enterprise() -> EnterpriseState:
-    state = EnterpriseState()
-    state, _ = register_principal(state, "releaser", "Release Engineer", 0.0)
-    state, _ = register_principal(state, "approver", "Head of Trading", 0.0)
-    state = define_role(state, "release", LIFECYCLE_PERMISSIONS - {PERMISSION_APPROVE})
-    state = define_role(state, "approve", {PERMISSION_APPROVE})
-    state = grant_role(state, "releaser", "release")
-    return grant_role(state, "approver", "approve")
-
-
-ENTERPRISE = _enterprise()
-RELEASER = Governance(ENTERPRISE, "releaser", frozenset({_ENVIRONMENT}))
-APPROVER = Governance(ENTERPRISE, "approver")
+PERMISSIONS = StaticPermissions(
+    {
+        "releaser": LIFECYCLE_PERMISSIONS - {PERMISSION_APPROVE},
+        "approver": frozenset({PERMISSION_APPROVE}),
+    }
+)
+RELEASER = Governance(PERMISSIONS, "releaser", frozenset({_ENVIRONMENT}))
+APPROVER = Governance(PERMISSIONS, "approver")
 
 
 def _governed_lifecycle() -> tuple[LifecycleState, StrategyVersionRef]:
@@ -238,9 +231,9 @@ def test_each_capability_refuses_on_its_own_terms() -> None:
     lifecycle, ref = _governed_lifecycle()
 
     # 2. An unapproved deployment to a gated environment.
-    from alphalab.enterprise.exceptions import EnterprisePermissionError
+    from alphalab.lifecycle.exceptions import LifecyclePermissionError
 
-    with pytest.raises(EnterprisePermissionError, match=r"lifecycle\.approve"):
+    with pytest.raises(LifecyclePermissionError, match=r"lifecycle\.approve"):
         approve_deployment(lifecycle, RELEASER, ref.name, ref.version, _ENVIRONMENT, 9.0)
 
     # 1. A run serving a version the environment does not have live.
@@ -273,14 +266,17 @@ def test_no_capability_moved_another_ones_boundary() -> None:
     from alphalab.runtime.snapshot import PIPELINE_SNAPSHOT_SCHEMA
 
     # The live driver added no field to the run and moved no run schema; the
-    # run schema moved to 2 in v3.10 for the analytics basis.
-    assert len(fields(RunState)) == 8
-    assert RUN_SNAPSHOT_SCHEMA == 2
+    # run schema moved to 2 in v3.10 for the analytics basis, and to 3 in v3.11
+    # for the terms of the orders each step records.
+    # (ADR-0046 gave the run a ninth field in v3.11: the slice cursor.)
+    assert len(fields(RunState)) == 9
+    assert RUN_SNAPSHOT_SCHEMA == 3
 
     # FX added no field to run configuration and moved no pipeline schema (v3.10
-    # moved it to 4, for minor units and the analytics basis).
+    # moved it to 4, for minor units and the analytics basis; v3.11 to 5, for a
+    # bar's interval code).
     assert "fx_rates" not in {f.name for f in fields(ExecutionPipelineConfig)}
-    assert PIPELINE_SNAPSHOT_SCHEMA == 4
+    assert PIPELINE_SNAPSHOT_SCHEMA == 5
 
     # Governance moved exactly one schema, and only its own.
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION

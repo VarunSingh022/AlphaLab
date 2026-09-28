@@ -90,6 +90,7 @@ from alphalab.core import (
     reachable_statuses,
 )
 from alphalab.core.enums import OrderStatus, OrderType, Side
+from alphalab.execution.costs import FREE
 from alphalab.oms import InvalidTransitionError, Order, OrderId
 
 E = ExecutionEventKind
@@ -161,7 +162,7 @@ def submitted(state: BrokerState, handle: str, quantity: str, price: str, at: fl
         created_at=at,
         updated_at=at,
     )
-    state, _ = ScriptedVenue().submit_order(state, order, at)
+    state, _ = ScriptedVenue(FREE).submit_order(state, order, at)
     return state
 
 

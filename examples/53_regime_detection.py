@@ -291,7 +291,7 @@ def main() -> None:
         ),
         knowledge.frame,
     )
-    returns = forward_returns(align_prices(closes, knowledge), 1)
+    returns = forward_returns(align_prices(closes, knowledge), 1, lag=0, delistings=())
     by_regime = conditional_diagnostics(
         signal, returns, detected.labels_by_instant(), buckets=2, minimum_assets=5
     )

@@ -226,7 +226,7 @@ def test_the_information_coefficient_is_near_linear_in_instants() -> None:
             _records(instants, 10), FeatureField.CLOSE, "UTC", "bench@v1"
         )
         panel = compute_feature(SMA_20, frame)
-        realized = forward_returns(frame, 5)
+        realized = forward_returns(frame, 5, lag=0, delistings=())
         indexed = FeaturePanel.of(panel)
         return lambda: information_coefficient(indexed, realized, 5)
 

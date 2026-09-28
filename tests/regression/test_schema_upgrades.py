@@ -91,12 +91,8 @@ def test_a_v3_9_portfolio_holding_fractional_yen_is_refused_not_rounded() -> Non
 @pytest.mark.parametrize(
     ("fixture", "module"),
     [
-        ("oms.json", "alphalab.oms.snapshot"),
-        ("allocation.json", "alphalab.allocation.snapshot"),
-        ("instrument.json", "alphalab.instrument.snapshot"),
         ("lifecycle.json", "alphalab.lifecycle.snapshot"),
         ("fx_feed.json", "alphalab.portfolio.fx_feed"),
-        ("broker.json", "alphalab.broker.snapshot"),
     ],
 )
 def test_every_unchanged_v3_9_subsystem_still_reads(fixture: str, module: str) -> None:
@@ -108,6 +104,112 @@ def test_every_unchanged_v3_9_subsystem_still_reads(fixture: str, module: str) -
 
     # Nothing moved in these subsystems, so a re-capture writes what was read.
     assert deserialize(serialize(snapshot)) == payload
+
+
+_V2_ORDER = {"time_in_force": "day", "expire_at": None, "triggered_at": None}
+
+
+def test_a_v3_9_oms_is_upgraded_to_day_orders_with_nothing_else_changed() -> None:
+    """v3.11 moved the OMS schema to 2: each order records its lifetime (EXE-003).
+
+    Every order a v3.9 pipeline placed was a market order, worked once whatever
+    its lifetime; ``DAY`` is what it was placed and routed as, and it had no
+    expiry and no stop. The upgrade adds exactly that, to the book and to every
+    order an ``OrderSubmitted`` event carries, and changes nothing else.
+    """
+
+    from alphalab.oms.snapshot import from_primitives
+
+    payload = _load("oms.json")
+    recaptured = deserialize(serialize(from_primitives(payload)))
+
+    expected = copy.deepcopy(payload)
+    expected["schema_version"] = 2
+    expected["orders"] = [{**order, **_V2_ORDER} for order in payload["orders"]]
+    for log in ("history", "events"):
+        for record in expected[log]:
+            if "order" in record["event"]:
+                record["event"]["order"] = {**record["event"]["order"], **_V2_ORDER}
+    assert recaptured == expected
+
+
+def test_a_v3_9_allocation_is_upgraded_to_market_terms_with_nothing_else_changed() -> None:
+    """v3.11 moved the allocation schema to 2: each request records its terms."""
+
+    from alphalab.allocation.snapshot import from_primitives
+
+    payload = _load("allocation.json")
+    recaptured = deserialize(serialize(from_primitives(payload)))
+
+    market = {
+        "expire_at": None,
+        "limit_price": None,
+        "order_type": "market",
+        "stop_price": None,
+        "time_in_force": "day",
+    }
+    assert recaptured == {
+        **payload,
+        "schema_version": 2,
+        "history": [{**request, "terms": market} for request in payload["history"]],
+        # Nothing recorded what each strategy held: not an empty book, unknown
+        # (FEA-001), so a target is refused rather than sized against zero.
+        "strategy_positions": None,
+    }
+
+
+def test_a_v3_9_instrument_registry_is_upgraded_with_no_alias_invented() -> None:
+    """v3.11 moved the instrument schema to 2 (dated aliases, later aliases, economics).
+
+    A version-1 record declared no dated alias, its writer kept no later alias,
+    and it declared no economics -- so the upgrade records exactly that, and a
+    re-capture writes the version-1 content with those fields and version 2.
+    Declaring nothing is not the same as declaring a cash equity: an equity is
+    read as one, a future or an option is refused (ACC-005), and the upgrade
+    must not pre-empt that by writing a multiplier nobody stated.
+    """
+
+    from alphalab.instrument.snapshot import from_primitives, restore
+
+    payload = _load("instrument.json")
+    snapshot = from_primitives(payload)
+    recaptured = deserialize(serialize(snapshot))
+
+    assert recaptured["schema_version"] == 2
+    expected = [
+        {
+            **entry,
+            "dated_aliases": [],
+            "later_aliases": [],
+            "later_dated_aliases": [],
+            "economics": None,
+        }
+        for entry in payload["instruments"]
+    ]
+    assert recaptured["instruments"] == expected
+    registry = restore(snapshot)
+    assert registry.dated == {}
+    assert all(record.economics is None for record in registry.instruments.values())
+
+
+def test_a_v3_9_broker_mirror_is_upgraded_with_no_sequence_invented() -> None:
+    """v3.11 moved the broker schema to 2 (venue sequences, BRK-002).
+
+    A version-1 mirror applied no numbered report, so the upgrade records none,
+    and a re-capture writes the version-1 content with an empty record at
+    version 2.
+    """
+
+    from alphalab.broker.snapshot import from_primitives, restore
+
+    payload = _load("broker.json")
+    snapshot = from_primitives(payload)
+    recaptured = deserialize(serialize(snapshot))
+
+    assert recaptured == {**payload, "schema_version": 2, "venue_sequences": {}}
+    state, mapping, _ = restore(snapshot)
+    assert state.venue_sequences == {}
+    assert mapping.to_broker == payload["order_bindings"]
 
 
 def _run_objects(strategy_id: str, asset_id: str) -> Any:
@@ -141,12 +243,20 @@ def test_a_v3_9_backtest_run_is_upgraded_restored_and_continues() -> None:
 
     # The v3.9 run declared a daily loss limit, which v3.9 never enforced and
     # recorded no trading day for: the upgrade drops it, and says so.
-    with pytest.warns(SchemaUpgradeWarning, match=r"daily_loss of 100000000 was not carried"):
+    # And it routed every event to its strategy whatever the strategy declared:
+    # the declaration is replaced by '*', and that is said too (ledger EXE-007).
+    with (
+        pytest.warns(SchemaUpgradeWarning, match=r"daily_loss of 100000000 was not carried"),
+        pytest.warns(SchemaUpgradeWarning, match=r"subscriptions \['quotes'\] were recorded"),
+    ):
         snapshot = from_primitives(payload)
     assert payload == original, "an upgrade must not modify the payload it reads"
 
     state = restore(snapshot, _run_objects("GOLDEN-STRAT", asset_id))
     assert state.processed == 6
+    (strategy,) = state.pipeline.strategy.strategies.values()
+    assert strategy.subscriptions == frozenset({"*"})
+    assert strategy.started, "a strategy trading under v3.9 is owed no on_start"
     assert state.config.pipeline.risk_limits.daily_loss is None
     assert state.config.periods_per_year is None  # v3.9 declared none
     assert state.config.years_elapsed == 1.0  # kept exactly as recorded
@@ -160,9 +270,16 @@ def test_a_v3_9_backtest_run_is_upgraded_restored_and_continues() -> None:
     )
     assert continued.processed == 7
     recaptured = deserialize(serialize(capture(continued)))
-    assert recaptured["schema_version"] == RUN_SNAPSHOT_SCHEMA == 2
-    assert recaptured["pipeline"]["schema_version"] == 4
+    assert recaptured["schema_version"] == RUN_SNAPSHOT_SCHEMA == 3
+    assert recaptured["pipeline"]["schema_version"] == 5
     assert recaptured["pipeline"]["portfolio"]["schema_version"] == 4
+    assert recaptured["pipeline"]["oms"]["schema_version"] == 2
+    assert recaptured["pipeline"]["allocation"]["schema_version"] == 2
+    # Every order the v3.9 run recorded -- in the book and in each step -- is
+    # the day order it was.
+    for step in recaptured["steps"]:
+        for order in step["orders"]:
+            assert (order["time_in_force"], order["expire_at"]) == ("day", None)
 
 
 def _record(quote: Any) -> Any:
@@ -174,11 +291,17 @@ def _record(quote: Any) -> Any:
 def test_a_v3_9_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
     from alphalab.runtime.live_snapshot import from_primitives
 
-    with pytest.warns(SchemaUpgradeWarning, match="daily_loss"):
+    with (
+        pytest.warns(SchemaUpgradeWarning, match="daily_loss"),
+        pytest.warns(SchemaUpgradeWarning, match="subscriptions"),
+    ):
         snapshot = from_primitives(_load("live.json"))
 
-    assert snapshot.run.schema_version == 2
-    assert snapshot.run.pipeline.schema_version == 4
+    assert snapshot.schema_version == 2
+    assert snapshot.requests == ()  # version 1 recorded none
+    assert snapshot.run.schema_version == 3
+    assert snapshot.run.pipeline.schema_version == 5
+    assert snapshot.broker.schema_version == 2
     assert snapshot.broker.order_bindings
 
 
@@ -189,7 +312,10 @@ def test_the_v3_9_run_store_file_is_read_and_its_payload_upgraded() -> None:
     payload = store.get(RunStateRef("golden-run", 1))
 
     assert payload == (FIXTURES / "run_backtest.json").read_text(encoding="utf-8").rstrip("\n")
-    with pytest.warns(SchemaUpgradeWarning, match="daily_loss"):
+    with (
+        pytest.warns(SchemaUpgradeWarning, match="daily_loss"),
+        pytest.warns(SchemaUpgradeWarning, match="subscriptions"),
+    ):
         assert from_primitives(deserialize(payload)).processed == 6
 
 

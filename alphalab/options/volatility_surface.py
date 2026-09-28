@@ -34,6 +34,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.options.carry import Carry
 from alphalab.options.chain import OptionChain
 from alphalab.options.contract import occ_symbol
 from alphalab.options.exceptions import OptionInputError, OptionsError
@@ -194,6 +195,8 @@ def surface_from_chain(
     spot: Decimal,
     risk_free_rate: float,
     valuation_timestamp: float,
+    *,
+    carry: Carry,
 ) -> tuple[VolatilitySurface, tuple[SurfaceRefusal, ...]]:
     """Invert a whole chain into a surface, and say what could not be inverted.
 
@@ -205,6 +208,7 @@ def surface_from_chain(
         spot: The underlying at the same instant.
         risk_free_rate: Continuously-compounded annual rate. Required.
         valuation_timestamp: When the quotes were observed.
+        carry: The underlying's carry, the same for every contract in the chain.
 
     Returns:
         ``(surface, refusals)``. The surface holds one point per contract that
@@ -231,7 +235,7 @@ def surface_from_chain(
             continue
         try:
             inverted: ImpliedVolatility = implied_volatility(
-                contract, price, spot, risk_free_rate, valuation_timestamp
+                contract, price, spot, risk_free_rate, valuation_timestamp, carry=carry
             )
         except OptionsError as error:
             refusals.append(

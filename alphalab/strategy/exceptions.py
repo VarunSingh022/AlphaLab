@@ -15,6 +15,15 @@ class InvalidIntentError(StrategyRuntimeError):
     """Raised when a strategy emits a malformed Intent."""
 
 
+class StrategyValidationError(StrategyRuntimeError):
+    """Raised when a strategy's declared definition is malformed.
+
+    A blank identity, a parameter that is not a string, integer, float or
+    boolean, or metadata that is not text: each would make a definition that
+    cannot be serialized exactly or matched reliably.
+    """
+
+
 class HookExecutionError(StrategyRuntimeError):
     """Raised when a strategy hook throws an unhandled exception or exceeds timeout."""
 

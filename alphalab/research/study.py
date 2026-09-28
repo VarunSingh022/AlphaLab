@@ -114,13 +114,22 @@ class ResearchStudy:
             names those exact versions in its identity, as it names its
             dataset. Rendered into the canonical key only when present, so
             every study identity derived before v3.7 is unchanged.
+        implementation_lag: Observations between a feature's instant and the
+            entry its forward return is measured from (v3.11, ledger DAT-003).
+            ``0`` enters at the observation the feature was computed from.
+            ``None`` -- the value of every study described before v3.11 --
+            declares none, and :func:`alphalab.api.run_study` refuses to
+            measure such a study rather than assume one. Rendered into the
+            canonical key only when declared, which keeps every earlier study
+            identity unchanged.
 
     Raises:
         ResearchValidationError: If the name is empty or contains ``"@"``, if
             the universe is empty, if it repeats a symbol, if no feature is
             given, if two features share a derived version, if a horizon is
-            not positive, or if an input's role is not a dotted lowercase
-            identifier or its identity is blank or spans a line.
+            not positive, if an input's role is not a dotted lowercase
+            identifier or its identity is blank or spans a line, or if the
+            implementation lag is not a whole number of at least 0.
     """
 
     study_name: str
@@ -133,8 +142,15 @@ class ResearchStudy:
     seed: int | None = None
     notes: str = ""
     inputs: Mapping[str, str] = field(default_factory=dict)
+    implementation_lag: int | None = None
 
     def __post_init__(self) -> None:
+        lag = self.implementation_lag
+        if lag is not None and (isinstance(lag, bool) or not isinstance(lag, int) or lag < 0):
+            raise ResearchValidationError(
+                f"An implementation lag is a whole number of observations of at least 0, got "
+                f"{lag!r}."
+            )
         object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
         object.__setattr__(self, "inputs", MappingProxyType(dict(sorted(self.inputs.items()))))
         for role, identity in self.inputs.items():
@@ -249,7 +265,9 @@ def canonical_study_key(study: ResearchStudy) -> str:
 
     The ``inputs`` section is appended only when the study names an input,
     which is what keeps every study identity derived before v3.7 unchanged:
-    a study with no inputs renders exactly as it always did.
+    a study with no inputs renders exactly as it always did. The
+    ``implementation_lag`` line is appended only when one is declared, for the
+    same reason (v3.11).
     """
 
     parameters = study.parameters
@@ -272,6 +290,11 @@ def canonical_study_key(study: ResearchStudy) -> str:
     if study.inputs:
         lines.append("inputs")
         lines.extend(f"{role}={identity}" for role, identity in study.inputs.items())
+    if study.implementation_lag is not None:
+        # ``:`` rather than ``=``: every input and parameter line holds ``=``, and
+        # "implementation_lag" is a legal input role, so an ``=`` here would let
+        # a study naming such an input render exactly as one declaring a lag.
+        lines.append(f"implementation_lag:{study.implementation_lag}")
     return "\n".join(lines)
 
 

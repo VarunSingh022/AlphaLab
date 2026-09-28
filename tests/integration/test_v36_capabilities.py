@@ -57,9 +57,7 @@ from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
 from alphalab.data.time import BarStamp, TimeFrequency
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
+from alphalab.execution.costs import FREE
 from alphalab.factor_library.definition import FeatureDefinition, FeatureField, FeatureKind
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instruments
@@ -138,7 +136,7 @@ from alphalab.lifecycle import (
     verify_manifest,
     verify_portability_report,
 )
-from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance, StaticPermissions
 from alphalab.lifecycle.strategy_version import StrategyVersion, get_strategy_version
 from alphalab.market.bar import TimeFrame
 from alphalab.market.normalization import NormalizationPolicy
@@ -150,17 +148,17 @@ from alphalab.runtime.execution_pipeline import ExecutionRouting
 from alphalab.runtime.live import LiveRunState, LiveSession
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunEngine
 from alphalab.runtime.session import TradingSession
+from alphalab.strategy import StrategyDefinition
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.studio.strategy import StrategyDefinition
 from tests.integration.harness import (
     START_CASH,
     context_factory,
     pipeline_config,
     running_strategy_state,
 )
-from tests.unit.lifecycle.evidence_harness import CLEANING, csv_payload, equity_convention
+from tests.unit.lifecycle.evidence_harness import BUILD, CLEANING, csv_payload, equity_convention
 
 STRATEGY_ID = "V36-PANEL-MOMENTUM"
 PROVIDER = "v36-panel-vendor"
@@ -274,8 +272,9 @@ def study_result(panel: Dataset) -> StudyResult:
         universe=SYMBOLS,
         features=(FeatureDefinition("mom_5", FeatureKind.MOMENTUM, FeatureField.CLOSE, window=5),),
         horizons=(1, 5),
+        implementation_lag=0,
     )
-    return run_study(study, panel, buckets=2, minimum_assets=5, produced_at=10.0)
+    return run_study(study, panel, buckets=2, minimum_assets=5, produced_at=10.0, delistings=())
 
 
 # --------------------------------------------------------------------------- #
@@ -334,7 +333,7 @@ def paper(records: tuple[MarketRecord, ...], panel: Dataset) -> BacktestResult:
 
 @pytest.fixture(scope="module")
 def live(records: tuple[MarketRecord, ...], panel: Dataset) -> LiveRunState:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     account = BrokerAccount(
         account_id="ACC-V36",
         cash=START_CASH,
@@ -380,16 +379,8 @@ def live(records: tuple[MarketRecord, ...], panel: Dataset) -> LiveRunState:
 # The lifecycle record, the fingerprint and the specification
 # --------------------------------------------------------------------------- #
 
-_ENTERPRISE = grant_role(
-    define_role(
-        register_principal(EnterpriseState(), "release-engineer", "Release Engineer", 0.0)[0],
-        "release",
-        LIFECYCLE_PERMISSIONS,
-    ),
-    "release-engineer",
-    "release",
-)
-GOVERNANCE = Governance(_ENTERPRISE, "release-engineer")
+_PERMISSIONS = StaticPermissions({"release-engineer": LIFECYCLE_PERMISSIONS})
+GOVERNANCE = Governance(_PERMISSIONS, "release-engineer")
 
 DEFINITION = StrategyDefinition(
     strategy_id=STRATEGY_ID,
@@ -487,14 +478,14 @@ def specification(
 def manifest(
     expected: BacktestResult, panel: Dataset, fingerprint: StrategyFingerprint
 ) -> ReproducibilityManifest:
-    return manifest_for_run(expected, panel, fingerprint, ENGINE)
+    return manifest_for_run(expected, panel, fingerprint, ENGINE, build=BUILD)
 
 
 @pytest.fixture(scope="module")
 def rerun(
     expected_again: BacktestResult, panel: Dataset, fingerprint: StrategyFingerprint
 ) -> ReproducibilityManifest:
-    return manifest_for_run(expected_again, panel, fingerprint, ENGINE)
+    return manifest_for_run(expected_again, panel, fingerprint, ENGINE, build=BUILD)
 
 
 def _positions_of(result: BacktestResult) -> dict[str, Decimal]:
@@ -763,7 +754,7 @@ def test_the_paper_run_is_another_result_of_the_same_strategy(
 ) -> None:
     """Moving environments changes the result's record and never the strategy's identity."""
 
-    paper_manifest = manifest_for_run(paper, panel, fingerprint, ENGINE)
+    paper_manifest = manifest_for_run(paper, panel, fingerprint, ENGINE, build=BUILD)
     assessment = assess_reproducibility(manifest, paper_manifest)
 
     assert paper_manifest.fingerprint == manifest.fingerprint == fingerprint
@@ -776,7 +767,7 @@ def test_the_paper_run_is_another_result_of_the_same_strategy(
 def test_the_study_that_informed_the_strategy_has_its_own_manifest(
     study_result: StudyResult, panel: Dataset, fingerprint: StrategyFingerprint
 ) -> None:
-    study_manifest = manifest_for_study(study_result, panel, ENGINE, fingerprint)
+    study_manifest = manifest_for_study(study_result, panel, ENGINE, fingerprint, build=BUILD)
 
     assert study_manifest.kind is ResultKind.STUDY
     assert study_manifest.seed_role is SeedRole.ABSENT
@@ -1026,7 +1017,7 @@ def test_a_different_wall_clock_changes_no_identity(
     monkeypatch.setattr(time, "time", lambda: 2_000_000_000.0)
     monkeypatch.setattr(time, "perf_counter", lambda: 99_999.0)
 
-    again = manifest_for_run(expected, panel, fingerprint, ENGINE)
+    again = manifest_for_run(expected, panel, fingerprint, ENGINE, build=BUILD)
     assert again.manifest_id == manifest.manifest_id
     first = certify_strategy(fingerprint, specification, CertificationEvidence(manifest=manifest))
     second = certify_strategy(fingerprint, specification, CertificationEvidence(manifest=again))
@@ -1039,7 +1030,9 @@ def test_a_different_recorded_engine_is_a_different_result_record_and_says_so(
     fingerprint: StrategyFingerprint,
     manifest: ReproducibilityManifest,
 ) -> None:
-    later = manifest_for_run(expected, panel, fingerprint, EngineIdentity("alphalab", "99.0.0"))
+    later = manifest_for_run(
+        expected, panel, fingerprint, EngineIdentity("alphalab", "99.0.0"), build=BUILD
+    )
     assessment = assess_reproducibility(manifest, later)
 
     assert later.result_id == manifest.result_id

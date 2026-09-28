@@ -16,6 +16,8 @@ from decimal import Decimal
 
 import pytest
 
+from alphalab.options.carry import dividend_yield
+
 PACKAGE = pathlib.Path(__file__).resolve().parents[2] / "alphalab"
 
 
@@ -241,7 +243,6 @@ def test_the_currency_roles_are_named_not_defaulted() -> None:
 
     from dataclasses import fields, replace
 
-    from alphalab.broker.venue import VenueConfig
     from alphalab.market.bar import Bar
     from alphalab.market.normalization import NormalizationPolicy
     from alphalab.reinforcement_learning.environment import TradingEnvConfig
@@ -250,8 +251,8 @@ def test_the_currency_roles_are_named_not_defaulted() -> None:
         ExecutionPipelineConfig,
         _require_settlement_currency,
     )
-    from alphalab.studio.config import StudioConfig
     from tests.integration.harness import pipeline_config
+    from tests.reference_adapter.venue import VenueConfig
 
     for owner, parameter in (
         (RoutingConfig, "venue"),
@@ -261,7 +262,10 @@ def test_the_currency_roles_are_named_not_defaulted() -> None:
     ):
         declared = inspect.signature(owner).parameters[parameter]
         assert declared.default is inspect.Parameter.empty, f"{owner.__name__}.{parameter}"
-    assert "default_currency" not in {field.name for field in fields(StudioConfig)}
+    # StudioConfig.default_currency went with Strategy Studio itself (v3.11, SCF-001).
+    import importlib.util
+
+    assert importlib.util.find_spec("alphalab.studio") is None
 
     # The pipeline's currency is its account's unless it names one.
     configured = pipeline_config("S")
@@ -443,7 +447,9 @@ def test_every_v34_computation_repeats_exactly() -> None:
     contract = OptionContract(
         "AAPL", Decimal("150"), 365.25 * 86400, OptionType.CALL, ExerciseStyle.EUROPEAN, 100
     )
-    price = black_scholes_price(contract, Decimal("150"), 0.25, 0.04, 0.0)
+    price = black_scholes_price(
+        contract, Decimal("150"), 0.25, 0.04, 0.0, carry=dividend_yield(0.0)
+    )
     venue = VenueSpecification(
         "binance",
         8,
@@ -469,8 +475,12 @@ def test_every_v34_computation_repeats_exactly() -> None:
         assert contract_notional(convention, Decimal("10"), Decimal("75.5")) == contract_notional(
             convention, Decimal("10"), Decimal("75.5")
         )
-        assert implied_volatility(contract, price, Decimal("150"), 0.04, 0.0) == (
-            implied_volatility(contract, price, Decimal("150"), 0.04, 0.0)
+        assert implied_volatility(
+            contract, price, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ) == (
+            implied_volatility(
+                contract, price, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+            )
         )
         assert fee(venue, Decimal("1000"), LiquidityRole.TAKER) == fee(
             venue, Decimal("1000"), LiquidityRole.TAKER

@@ -59,6 +59,7 @@ alias for why nothing narrower is honest.
 """
 
 from collections.abc import Iterable
+from dataclasses import replace
 
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import (
@@ -66,6 +67,7 @@ from alphalab.strategy.events import (
     Intent,
     LifecycleTransitioned,
     OrderEvent,
+    SliceClosed,
     StrategyInboundEvent,
     TimerEvent,
 )
@@ -110,6 +112,58 @@ class Dispatcher:
     """Stateless router mapping events to strategy hooks."""
 
     @staticmethod
+    def start(
+        strategy_state: StrategyState, context: StrategyContext, timestamp: float
+    ) -> tuple[StrategyState, tuple[LifecycleTransitioned, ...]]:
+        """Deliver ``on_start``, once, and record that it was delivered.
+
+        Returns the strategy marked ``started`` -- or, when the hook raised,
+        ``FAILED`` with the reason, exactly as a hook raising on an event fails
+        it. A strategy that is not running, or has already started, is returned
+        unchanged.
+        """
+
+        if strategy_state.status is not LifecycleState.RUNNING or strategy_state.started:
+            return strategy_state, ()
+        try:
+            strategy_state.instance.on_start(context)
+        except Exception as e:
+            failed_state, trans_evt = RuntimeSupervisor.fail(
+                strategy_state, f"HookExecutionError: on_start: {e!s}", timestamp
+            )
+            return replace(failed_state, started=True), (trans_evt,)
+        return replace(strategy_state, started=True), ()
+
+    @staticmethod
+    def stop(
+        strategy_state: StrategyState, context: StrategyContext, timestamp: float
+    ) -> tuple[StrategyState, tuple[Intent, ...], tuple[LifecycleTransitioned, ...]]:
+        """Deliver ``on_shutdown`` then ``on_stop``, and move the strategy to ``STOPPED``.
+
+        The intents ``on_shutdown`` returns are validated as any hook's are. A
+        hook that raises, or an invalid intent, fails the strategy instead: its
+        shutdown intents are dropped, as a failing event hook's are. A strategy
+        that is not running or paused is returned unchanged.
+        """
+
+        if strategy_state.status not in {LifecycleState.RUNNING, LifecycleState.PAUSED}:
+            return strategy_state, (), ()
+        instance = strategy_state.instance
+        try:
+            intents = tuple(instance.on_shutdown(context) or ())
+            for intent in intents:
+                validate_intent(intent)
+            instance.on_stop(context)
+        except Exception as e:
+            failed_state, trans_evt = RuntimeSupervisor.fail(
+                strategy_state, f"HookExecutionError: on_shutdown/on_stop: {e!s}", timestamp
+            )
+            return failed_state, (), (trans_evt,)
+        stopping, first = RuntimeSupervisor.stop(strategy_state, timestamp)
+        stopped, second = RuntimeSupervisor.complete_drain(stopping, timestamp)
+        return stopped, intents, (first, second)
+
+    @staticmethod
     def dispatch_event(
         strategy_state: StrategyState,
         event: StrategyInboundEvent,
@@ -147,6 +201,12 @@ class Dispatcher:
                 intents_iter = instance.on_order(context, event)
             elif isinstance(event, TimerEvent):
                 intents_iter = instance.on_timer(context, event)
+            elif isinstance(event, SliceClosed):
+                # Optional: SliceStrategyProtocol is separate so every strategy
+                # written against the ten hooks still satisfies StrategyProtocol.
+                on_slice = getattr(instance, "on_slice", None)
+                if on_slice is not None:
+                    intents_iter = on_slice(context, event)
             else:
                 hook = market_hook_for(event)
                 if hook is not None:

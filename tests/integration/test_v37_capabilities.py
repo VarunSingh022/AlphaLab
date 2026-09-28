@@ -169,6 +169,7 @@ from alphalab.strategy import (
     AdaptiveObservation,
     AdaptiveStrategy,
     DecisionTiming,
+    StrategyDefinition,
     TrailingZScoreRule,
     UpdateCadence,
     initial_state,
@@ -177,14 +178,13 @@ from alphalab.strategy import (
 )
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
-from alphalab.studio.strategy import StrategyDefinition
 from tests.integration.harness import (
     START_CASH,
     context_factory,
     pipeline_config,
     running_strategy_state,
 )
-from tests.unit.lifecycle.evidence_harness import CLEANING, csv_payload
+from tests.unit.lifecycle.evidence_harness import BUILD, CLEANING, csv_payload
 
 STRATEGY_ID = "V37-ADAPTIVE"
 PROVIDER = "v37-vendor"
@@ -543,7 +543,7 @@ def test_knowledge_frames_feed_the_feature_engine_with_lineage(
     )
     panel = compute_panel(rank, knowledge.frame)
     aligned = align_prices(observations_from_dataset(prices, FeatureField.CLOSE), knowledge)
-    returns = forward_returns(aligned, 1)
+    returns = forward_returns(aligned, 1, lag=0, delistings=())
     ic = information_coefficient(panel, returns, minimum_assets=5)
 
     assert panel.dataset_version == knowledge.frame_id == returns.dataset_version
@@ -666,7 +666,10 @@ def test_regimes_are_detected_from_a_feature_and_condition_a_diagnostic(
         knowledge.frame,
     )
     returns = forward_returns(
-        align_prices(observations_from_dataset(prices, FeatureField.CLOSE), knowledge), 1
+        align_prices(observations_from_dataset(prices, FeatureField.CLOSE), knowledge),
+        1,
+        lag=0,
+        delistings=(),
     )
 
     conditioned = conditional_diagnostics(
@@ -733,7 +736,7 @@ def study_result(
 def test_the_study_manifest_names_every_point_in_time_input(
     study_result: StudyResult, prices: Dataset
 ) -> None:
-    manifest = manifest_for_study(study_result, prices, running_engine())
+    manifest = manifest_for_study(study_result, prices, running_engine(), build=BUILD)
     auxiliary = [
         requirement.detail
         for requirement in external_requirements(manifest)
@@ -780,7 +783,7 @@ def _configuration(parameters: Mapping[str, float]) -> AdaptiveConfiguration:
     )
 
 
-CONFIGURATION = _configuration(DEFINITION.parameters)
+CONFIGURATION = _configuration(DEFINITION.numbers())
 RULE = TrailingZScoreRule()
 STREAM = f"{PROVIDER}:{ASSETS[TRADED]}"
 
@@ -911,8 +914,8 @@ def lifecycle(
     )
     engine = running_engine()
     fingerprint = fingerprint_for_version(version, code, NO_DEPENDENCIES, research, engine)
-    manifest = manifest_for_run(first, prices, fingerprint, engine)
-    rerun = manifest_for_run(second, prices, fingerprint, engine)
+    manifest = manifest_for_run(first, prices, fingerprint, engine, build=BUILD)
+    rerun = manifest_for_run(second, prices, fingerprint, engine, build=BUILD)
     specification = specification_for_version(
         version,
         datasets=(dataset_assumption_from(prices, "prices"),),

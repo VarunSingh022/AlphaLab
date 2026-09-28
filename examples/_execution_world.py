@@ -69,6 +69,7 @@ from alphalab.execution import (
     VenueQuote,
     VolumeProfile,
 )
+from alphalab.execution.costs import FREE
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.market.quote import Quote
 from alphalab.portfolio.account import Account
@@ -311,7 +312,7 @@ def connected_venue(name: str, cash: Decimal) -> BrokerState:
     """A fresh mirror of one venue account, connected a minute before the open."""
 
     state = BrokerEngine.initialize(name, cash, "USD")
-    state, _ = ScriptedVenue().connect(state, OPEN - 60.0)
+    state, _ = ScriptedVenue(FREE).connect(state, OPEN - 60.0)
     return state
 
 

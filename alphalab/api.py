@@ -160,7 +160,11 @@ from alphalab.data.validation import (
 )
 from alphalab.factor_library.compute import compute_panel
 from alphalab.factor_library.definition import FeatureField
-from alphalab.factor_library.forward_returns import forward_returns
+from alphalab.factor_library.forward_returns import (
+    Delisting,
+    delisting_set_id,
+    forward_returns,
+)
 from alphalab.factor_library.observations import ObservationFrame, observations_from_dataset
 from alphalab.factor_library.panel import FeaturePanel
 from alphalab.futures.contract import FutureContract
@@ -604,6 +608,8 @@ def run_study(
     buckets: int = 5,
     minimum_assets: int = 5,
     produced_at: float = 0.0,
+    *,
+    delistings: Sequence[Delisting],
 ) -> StudyResult:
     """Run a study end to end and record its result with full lineage.
 
@@ -624,11 +630,21 @@ def run_study(
     into its identity, so re-running the same study tomorrow reproduces the
     same ``result_id``.
 
+    Forward returns are measured at the study's declared
+    :attr:`~alphalab.research.study.ResearchStudy.implementation_lag`, and
+    realize the terminal return of every symbol in ``delistings`` (v3.11,
+    ledger DAT-002/DAT-003). A non-empty delisting set is an input like any
+    other versioned one: the study must name it as
+    ``inputs["delistings"] = delisting_set_id(delistings)``, so its identity
+    says which terminal returns it was measured with. ``()`` states that none
+    applies, and a study that names a delisting set cannot be run without it.
+
     Raises:
         ResearchValidationError: If the dataset is not the one the study names,
             if the study declares no horizons -- there would be nothing to
-            measure against -- or if no feature/horizon pair produced a single
-            metric.
+            measure against -- or no implementation lag, if the delisting set
+            is not the one the study names, or if no feature/horizon pair
+            produced a single metric.
     """
 
     if not study.horizons:
@@ -636,6 +652,22 @@ def run_study(
             f"Study {study.study_name!r} declares no forward horizons, so its features have "
             "nothing to be measured against. A study that only computes features is a "
             "feature computation; state at least one horizon to make it a study."
+        )
+
+    if study.implementation_lag is None:
+        raise ResearchValidationError(
+            f"Study {study.study_name!r} declares no implementation_lag, so its forward "
+            "returns would silently assume entry at the observation each feature was computed "
+            "from. State the lag on the study -- 0 is allowed, and says exactly that."
+        )
+    named = study.inputs.get("delistings")
+    supplied = delisting_set_id(delistings) if delistings else None
+    if named != supplied:
+        raise ResearchValidationError(
+            f"Study {study.study_name!r} names the delisting set {named!r} and was given "
+            f"{supplied!r}. A study measured with terminal returns must say which, as "
+            "inputs['delistings'] = delisting_set_id(delistings), and one that names a set "
+            "must be given it."
         )
 
     _require_matching_dataset(study, dataset)
@@ -652,7 +684,9 @@ def run_study(
 
         for horizon in study.horizons:
             prefix = f"{definition.feature_id}.h{horizon}"
-            realized = forward_returns(prices, horizon)
+            realized = forward_returns(
+                prices, horizon, lag=study.implementation_lag, delistings=delistings
+            )
             measured: SignalDiagnostics = signal_diagnostics(
                 panel, realized, buckets, minimum_assets
             )
@@ -671,6 +705,8 @@ def run_study(
                     metrics[f"{prefix}.pearson_ic"] = measured.rank_ic.mean_pearson
                 if measured.rank_ic.hit_rate is not None:
                     metrics[f"{prefix}.ic_hit_rate"] = measured.rank_ic.hit_rate
+                if measured.rank_ic.rank_t_statistic is not None:
+                    metrics[f"{prefix}.rank_ic_nw_t"] = measured.rank_ic.rank_t_statistic
 
             if measured.spread is None:
                 findings.append(

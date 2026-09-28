@@ -44,7 +44,6 @@ from alphalab.market.normalization import NormalizationPolicy
 from alphalab.market.provider import ProviderHistorySource
 from alphalab.market.source import MarketDataSource, OrderingGuarantee, SequenceSource
 from alphalab.marketdata.feed import Bar as WireBar
-from alphalab.marketdata.timeframe import Timeframe
 from alphalab.marketdata.transport import StaticTransport, Transport
 from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.portfolio.snapshot import capture, from_primitives, restore
@@ -110,11 +109,11 @@ class _RestBarProvider:
         self._transport = transport
 
     def request_history(
-        self, symbol: str, timeframe: Timeframe, start: float, end: float
+        self, symbol: str, timeframe: TimeFrame, start: float, end: float
     ) -> tuple[WireBar, ...]:
         body = self._transport.get(
             BARS_URL,
-            {"symbol": symbol, "interval": timeframe.name, "start": str(start), "end": str(end)},
+            {"symbol": symbol, "interval": timeframe.code, "start": str(start), "end": str(end)},
         )
         return tuple(
             WireBar(
@@ -140,7 +139,7 @@ def _source(payload: bytes | None = None, source_id: str = "REST-BTC") -> Provid
     return ProviderHistorySource.of(
         _adapter(payload),
         ["BTCUSDT"],
-        Timeframe.MINUTE,
+        TimeFrame.M1,
         1_700_000_000.0,
         1_700_000_240.0,
         source_id,
@@ -234,7 +233,7 @@ def test_the_records_carry_canonical_domain_values_not_wire_values() -> None:
     assert isinstance(bar.volume, Decimal)
     assert bar.open == Decimal("50000.00")
     assert bar.asset_id == ASSET
-    assert bar.timeframe is TimeFrame.M1
+    assert bar.timeframe == TimeFrame.M1
 
 
 def test_precision_goes_through_str_not_through_the_float() -> None:
@@ -252,8 +251,8 @@ def test_unreported_fields_stay_unreported() -> None:
     """A wire bar carries no vwap and no trade count; none is invented."""
 
     bar = _first_bar(_source())
-    assert bar.vwap == Decimal("0")
-    assert bar.trade_count == 0
+    assert bar.vwap is None
+    assert bar.trade_count is None
 
 
 def test_record_identity_is_deterministic_in_the_source_id() -> None:
@@ -284,7 +283,7 @@ def test_an_empty_provider_response_is_refused() -> None:
 
 def test_no_symbols_is_refused() -> None:
     with pytest.raises(MarketValidationError, match="at least one symbol"):
-        ProviderHistorySource.of(_adapter(), [], Timeframe.MINUTE, 0.0, 1.0, "EMPTY", POLICY)
+        ProviderHistorySource.of(_adapter(), [], TimeFrame.M1, 0.0, 1.0, "EMPTY", POLICY)
 
 
 def test_a_provider_returning_history_out_of_order_is_refused() -> None:
@@ -414,3 +413,23 @@ def test_a_restored_portfolio_reports_the_same_valuation() -> None:
     assert restored.cash.balance("USD") == portfolio.cash.balance("USD")
     assert restored.realized_pnl == portfolio.realized_pnl
     assert replace(restored) == portfolio
+
+
+def test_a_request_at_an_interval_the_policy_does_not_label_is_refused() -> None:
+    """v3.11 (DAT-005): one interval type from the request to the canonical bar.
+
+    Bars fetched at five minutes and labelled one-minute by the policy would be
+    mislabelled with nothing downstream able to tell; until v3.11 the request
+    and the label were two unrelated vocabularies and could not even be compared.
+    """
+
+    with pytest.raises(MarketValidationError, match="asked for 5m bars and the policy labels"):
+        ProviderHistorySource.of(
+            _adapter(),
+            ["BTCUSDT"],
+            TimeFrame.M5,
+            1_700_000_000.0,
+            1_700_000_240.0,
+            "REST-BTC",
+            POLICY,
+        )

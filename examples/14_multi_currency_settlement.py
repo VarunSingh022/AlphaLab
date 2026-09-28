@@ -56,6 +56,7 @@ from typing import Any
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
+from alphalab.common.types import ParamValue
 from alphalab.core.enums import AssetType
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.instrument.record import InstrumentRecord
@@ -77,6 +78,7 @@ from alphalab.risk.limits import (
     RiskLimits,
 )
 from alphalab.runtime.execution_pipeline import ExecutionPipeline, ExecutionPipelineConfig
+from alphalab.strategy import StrategyDefinition
 from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
@@ -87,7 +89,6 @@ from alphalab.strategy.registry import (
 )
 from alphalab.strategy.state import RuntimeState
 from alphalab.strategy.supervisor import RuntimeSupervisor
-from alphalab.studio.strategy import StrategyDefinition
 
 # Two instruments, in two currencies. The registry is the authority on which:
 # ``asset_id`` is derived from the four fields below, so changing the currency
@@ -110,7 +111,7 @@ STRATEGY_ID = "eu-momentum-1"
 class EuropeanMomentum(BaseStrategy):
     """Buys once, trims once. The point is the path, not the decision."""
 
-    def __init__(self, strategy_id: str, parameters: Mapping[str, float]) -> None:
+    def __init__(self, strategy_id: str, parameters: Mapping[str, ParamValue]) -> None:
         self._strategy_id = strategy_id
         self._size = Decimal(str(parameters["size"]))
         self._asset_id = str(parameters.get("asset_id", SAP.asset_id))

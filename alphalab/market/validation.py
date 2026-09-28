@@ -35,8 +35,13 @@ def validate_bar(bar: Bar) -> None:
         raise MarketValidationError("Bar high cannot be less than low.")
     if bar.volume < Decimal("0"):
         raise MarketValidationError("Bar volume cannot be negative.")
-    if bar.trade_count < 0:
+    if bar.trade_count is not None and bar.trade_count < 0:
         raise MarketValidationError("Bar trade count cannot be negative.")
+    if bar.vwap is not None and not bar.low <= bar.vwap <= bar.high:
+        raise MarketValidationError(
+            f"Bar vwap {bar.vwap} lies outside its own range [{bar.low}, {bar.high}]; a "
+            "volume-weighted average of prices traded in the bar cannot."
+        )
     if not is_valid_timestamp(bar.timestamp):
         raise MarketValidationError("Invalid timestamp for bar.")
 

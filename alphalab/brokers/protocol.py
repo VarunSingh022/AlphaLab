@@ -4,8 +4,7 @@ This is **not** the canonical venue boundary. That is
 :class:`alphalab.broker.protocol.BrokerProtocol`, which every method of takes a
 :class:`~alphalab.broker.state.BrokerState` -- *one* broker -- and which
 :mod:`alphalab.runtime.broker_routing`, :class:`~alphalab.runtime.live.LiveSession`,
-:class:`~alphalab.broker.venue.RestVenueBroker` and
-:class:`~alphalab.broker.paper.PaperBroker` all speak.
+every venue adapter and :class:`~alphalab.broker.paper.PaperBroker` all speak.
 
 This protocol sits one layer out. Every method takes a
 :class:`~alphalab.brokers.state.BrokerConnectorState`, which holds many brokers

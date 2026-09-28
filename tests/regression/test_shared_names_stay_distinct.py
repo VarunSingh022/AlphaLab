@@ -459,35 +459,36 @@ def test_no_second_portfolio_model_came_back_with_the_removed_kernel() -> None:
 
 
 def test_the_strategy_declaration_has_one_definition_and_lifecycle_takes_it() -> None:
-    """It reads like an upward dependency. It is the single-model rule.
+    """One strategy-declaration type, owned by ``alphalab.strategy`` (v3.11).
 
-    ``alphalab.lifecycle`` and ``alphalab.experiment_tracking`` import from
-    ``alphalab.studio``, which the layer sketch in ``ARCHITECTURE.md`` places
-    above them. The alternative is worse and is the defect this repository keeps
-    removing: a second strategy-declaration type, so a candidate produced by
-    ``research_assistant`` would need translating before it could reach a
-    strategy version. ``register_strategy``'s own docstring says so.
+    Until v3.11 ``StrategyDefinition`` lived in ``alphalab.studio``, so the
+    lifecycle imported from a package the layer sketch placed above it. Studio
+    is gone (SCF-001) and the record lives with the strategy runtime. The rule
+    it kept is unchanged: there is one declaration, and a candidate produced by
+    ``research_assistant`` reaches a strategy version without being translated.
 
-    What makes it safe is that ``StrategyDefinition`` is not orchestration. It
-    is a frozen dataclass of author metadata and parameter bounds that imports
-    nothing but the standard library, so taking it drags no Studio machinery
-    along. The two ``studio_bridge`` modules are named for exactly this seam.
+    The declaration stays a leaf inside its package -- the standard library,
+    ``alphalab.common`` and the package's own exceptions -- so taking it drags no
+    runtime machinery into the lifecycle.
     """
 
-    import alphalab.studio.strategy as declaration
+    import alphalab.strategy.definition as declaration
     from alphalab.lifecycle.registration import register_strategy
-    from alphalab.studio.strategy import StrategyDefinition
+    from alphalab.research_assistant import to_strategy_definition
+    from alphalab.strategy import StrategyDefinition
 
-    source = inspect.getsource(declaration)
-    assert "from alphalab." not in source, (
-        "the strategy declaration must stay a leaf, or importing it would drag "
-        "the Studio engine into the lifecycle"
-    )
+    imported = {
+        line.split()[1]
+        for line in inspect.getsource(declaration).splitlines()
+        if line.startswith("from alphalab.")
+    }
+    assert imported <= {"alphalab.common.types", "alphalab.strategy.exceptions"}, imported
 
     import typing
 
     hints = typing.get_type_hints(register_strategy)
     assert hints["definition"] is StrategyDefinition
+    assert typing.get_type_hints(to_strategy_definition)["return"] is StrategyDefinition
 
     # And there is no second one waiting to be introduced.
     import alphalab.lifecycle as lifecycle
@@ -1736,7 +1737,7 @@ def test_the_three_new_states_are_not_the_runtime_state() -> None:
     assert "status" in runtime and "status" not in learned
     assert "lineage" in learned and "lineage" not in detector
     assert "candidate" in detector
-    assert PIPELINE_SNAPSHOT_SCHEMA == 4  # moved by v3.10, not by adaptive state
+    assert PIPELINE_SNAPSHOT_SCHEMA == 5  # moved by v3.10 and v3.11, not by adaptive state
 
 
 # --------------------------------------------------------------------------- #

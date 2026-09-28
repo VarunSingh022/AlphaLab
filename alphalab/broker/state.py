@@ -63,6 +63,11 @@ class BrokerState:
         metadata: Adapter-specific attributes with no canonical field.
         last_heartbeat: Unix timestamp of the most recent heartbeat; ``0.0``
             when none has been received.
+        venue_sequences: The venue's number of the last absolute report applied,
+            per amended order (``order:<broker_order_id>``), per position
+            (``position:<symbol>``) and for the balances (``account``). Empty
+            for a venue that numbers nothing, and cleared when a new connection
+            session starts. New in v3.11; see :mod:`alphalab.broker.lifecycle`.
     """
 
     broker_name: str
@@ -74,3 +79,4 @@ class BrokerState:
     events: AppendOnlyLog[BrokerEvent] = field(default_factory=AppendOnlyLog)
     metadata: Mapping[str, str] = field(default_factory=dict)
     last_heartbeat: float = 0.0
+    venue_sequences: PersistentMap[str, int] = field(default_factory=PersistentMap)

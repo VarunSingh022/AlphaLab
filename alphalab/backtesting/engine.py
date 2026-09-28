@@ -45,6 +45,7 @@ from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 __all__ = [
     "BacktestEngine",
     "advance",
+    "close_slice",
     "finalize",
     "id_scope",
     "id_source",
@@ -93,6 +94,23 @@ def advance(
     return RunEngine.advance(state, record, context_factory)
 
 
+def close_slice(
+    state: RunState,
+    context_factory: ContextFactory,
+    *,
+    before: float | None = None,
+) -> RunState:
+    """Close the instant of the last record -- when ``before`` shows it complete.
+
+    See :meth:`~alphalab.runtime.run.RunEngine.close_slice` (ledger EXE-004). A
+    caller stepping a dataset by hand calls this with each record's timestamp
+    before advancing it, and once without one at the end of the data, as
+    :meth:`BacktestEngine.run` does.
+    """
+
+    return RunEngine.close_slice(state, context_factory, before=before)
+
+
 def finalize(state: RunState) -> BacktestResult:
     """Compile analytics (if configured) and freeze the run into a result.
 
@@ -138,6 +156,17 @@ class BacktestEngine:
         return advance(state, record, context_factory)
 
     @staticmethod
+    def close_slice(
+        state: RunState,
+        context_factory: ContextFactory,
+        *,
+        before: float | None = None,
+    ) -> RunState:
+        """Close the last record's instant when complete. See :func:`close_slice`."""
+
+        return close_slice(state, context_factory, before=before)
+
+    @staticmethod
     def finalize(state: RunState) -> BacktestResult:
         """Compile analytics and freeze the run. See :func:`finalize`."""
 
@@ -153,7 +182,9 @@ class BacktestEngine:
         """Run ``dataset`` end to end and return the finished result.
 
         The run records the dataset it consumed as its ``source_id``, and
-        declares :attr:`~alphalab.runtime.run.ExecutionMode.BACKTEST`.
+        declares :attr:`~alphalab.runtime.run.ExecutionMode.BACKTEST`. Each
+        instant's slice is closed when the next instant's first record arrives,
+        and the last when the data ends (ledger EXE-004).
         """
 
         with id_scope(config.seed):
@@ -162,5 +193,7 @@ class BacktestEngine:
                 source_id=dataset.dataset_id,
             )
             for record in dataset.records:
+                # The first record of an instant completes the one before it.
+                state = close_slice(state, context_factory, before=record.timestamp)
                 state, _ = advance(state, record, context_factory)
-            return finalize(state)
+            return finalize(close_slice(state, context_factory))

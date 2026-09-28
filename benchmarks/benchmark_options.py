@@ -14,6 +14,7 @@ from alphalab.options import (
     black_scholes_price,
     compute_payoff_at_expiry,
 )
+from alphalab.options.carry import dividend_yield
 
 ONE_YEAR = 365.25 * 86400
 
@@ -50,13 +51,15 @@ def run_benchmark() -> None:
 
     start = time.perf_counter()
     for _ in range(N):
-        black_scholes_price(contract, Decimal("155.00"), 0.25, 0.05, 0.0)
+        black_scholes_price(contract, Decimal("155.00"), 0.25, 0.05, 0.0, carry=dividend_yield(0.0))
     duration = time.perf_counter() - start
     print(f"  black_scholes_price : {duration:.4f}s total, {N / duration:.2f} ops/sec")
 
     start = time.perf_counter()
     for _ in range(N):
-        black_scholes_greeks(contract, Decimal("155.00"), 0.25, 0.05, 0.0)
+        black_scholes_greeks(
+            contract, Decimal("155.00"), 0.25, 0.05, 0.0, carry=dividend_yield(0.0)
+        )
     duration = time.perf_counter() - start
     print(f"  black_scholes_greeks: {duration:.4f}s total, {N / duration:.2f} ops/sec")
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
+from alphalab.common.order_terms import MARKET, OrderTerms
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side
 
@@ -38,6 +39,8 @@ class OrderRequest:
         price: Reference price used for notional/budget checks.
         timestamp: Unix timestamp the request was produced. Defaults to ``0.0``
             for callers that do not track it.
+        terms: How the order is to be executed. A market order good for the day
+            unless stated -- what every request was until v3.11 (ledger EXE-003).
     """
 
     order_id: str
@@ -48,6 +51,7 @@ class OrderRequest:
     price: Decimal
     timestamp: float = 0.0
     contributions: tuple[StrategyContribution, ...] = field(default_factory=tuple)
+    terms: OrderTerms = MARKET
 
     @property
     def notional_value(self) -> Decimal:

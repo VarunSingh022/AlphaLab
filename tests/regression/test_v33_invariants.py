@@ -23,6 +23,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from decimal import Decimal
+from typing import TypedDict
 
 import pytest
 
@@ -66,6 +67,14 @@ from alphalab.scenario import ScenarioExposure, ScenarioState, scenario
 # --------------------------------------------------------------------------- #
 
 
+class _Market(TypedDict):
+    """What a quoted market event shows the cost model, typed so ``**`` is checked."""
+
+    bid: Decimal
+    ask: Decimal
+    available_liquidity: Decimal
+
+
 def instrument(side: Side = Side.BUY) -> OrderInstruction:
     return OrderInstruction(
         order_id="ORD-1",
@@ -98,7 +107,7 @@ def test_the_report_s_two_cost_figures_are_exactly_the_six_items() -> None:
     """The itemization and the report cannot drift apart."""
 
     sim = simulator()
-    kwargs = {
+    kwargs: _Market = {
         "bid": Decimal("49.95"),
         "ask": Decimal("50.05"),
         "available_liquidity": Decimal("4000"),
@@ -115,7 +124,7 @@ def test_a_price_embedded_cost_is_in_the_price_and_never_also_in_cash() -> None:
     """The double-count this separation exists to prevent."""
 
     sim = simulator()
-    kwargs = {
+    kwargs: _Market = {
         "bid": Decimal("49.95"),
         "ask": Decimal("50.05"),
         "available_liquidity": Decimal("4000"),
@@ -136,7 +145,7 @@ def test_a_price_embedded_cost_is_in_the_price_and_never_also_in_cash() -> None:
 
 def test_the_all_in_cost_is_the_two_channels_and_nothing_else() -> None:
     sim = simulator()
-    kwargs = {
+    kwargs: _Market = {
         "bid": Decimal("49.95"),
         "ask": Decimal("50.05"),
         "available_liquidity": Decimal("4000"),
@@ -179,7 +188,7 @@ def test_a_simulator_configured_the_pre_v33_way_is_unchanged() -> None:
 
 def test_a_sell_and_a_buy_pay_the_concession_in_opposite_directions() -> None:
     sim = simulator()
-    kwargs = {
+    kwargs: _Market = {
         "bid": Decimal("49.95"),
         "ask": Decimal("50.05"),
         "available_liquidity": Decimal("4000"),

@@ -7,6 +7,7 @@ behaviour, and by result, so identical code cannot silently be given different
 inputs.
 """
 
+import inspect
 from decimal import Decimal
 
 from alphalab.backtesting.dataset import MarketDataset
@@ -92,8 +93,9 @@ def test_backtest_and_session_take_the_same_canonical_step() -> None:
     assert "RunEngine" in backtesting_engine.advance.__code__.co_names
     assert "RunEngine" in session_module.TradingSession.advance.__code__.co_names
 
-    # And that one place is where the pipeline step actually happens.
-    assert "process_record" in RunEngine.advance.__code__.co_names
+    # And that one place is where the pipeline step actually happens -- inside
+    # the accounting-context pin every run entry point wears since v3.11.
+    assert "process_record" in inspect.unwrap(RunEngine.advance).__code__.co_names
 
 
 def test_the_canonical_types_are_shared_not_mirrored() -> None:

@@ -47,7 +47,7 @@ from alphalab.risk.limits import (
     PositionLimit,
     RiskLimits,
 )
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 
 REF = StrategyVersionRef("momentum", 2)
 PARAMETERS = {"fast": 10.0, "slow": 30.0}

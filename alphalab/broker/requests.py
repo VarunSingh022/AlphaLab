@@ -32,7 +32,11 @@ The numbers are the caller's, like a FIX ``ClOrdID`` chain: a retry reuses one
 and a new request increments it. :attr:`CancelRequest.request_id` and
 :attr:`ModifyRequest.request_id` are SHA-256 digests tagged
 :data:`VENUE_REQUEST_SCHEME`, so the same request identifies itself the same way
-in every process, and nothing random or clock-derived enters it.
+in every process, and nothing random or clock-derived enters it. An amendment's
+quantity and price enter by value
+(:func:`~alphalab.common.arithmetic.canonical_text`): until v3.11 they entered as
+spelled, so a retry of an amendment to ``100`` spelled ``100.0`` was a different
+request with a reused revision, and was refused (ledger DET-006).
 
 The ledger
 ----------
@@ -55,11 +59,16 @@ v2.3. A new amendment changes nothing in the mirror: the venue's
 ``ORDER_REPLACED`` event does, when it confirms one
 (:mod:`alphalab.broker.lifecycle`).
 
-The ledger is a value the caller holds, like ``ExternalOrderMap``, and it is not
-part of the broker snapshot. Losing it across a restart is safe in the direction
-that matters: a cancel or an amendment is absolute at a venue, so re-sending one
-cannot trade twice, and a mirror still ``PENDING_CANCEL`` answers ``DUPLICATE``
-for a cancel on its own evidence.
+The ledger is a value, like ``ExternalOrderMap``. It is not part of the broker
+snapshot, because it is AlphaLab's record of what it asked rather than the
+venue's state; a live run holds it on
+:attr:`~alphalab.runtime.live.LiveRunState.requests` and, since v3.11, persists
+it with the live envelope (:mod:`alphalab.runtime.live_snapshot`), so a
+restarted run recognises a retry exactly. A ledger that *is* lost -- a caller
+driving this module without the live session -- fails in the safe direction: a
+cancel or an amendment is absolute at a venue, so re-sending one cannot trade
+twice, and a mirror still ``PENDING_CANCEL`` answers ``DUPLICATE`` for a cancel
+on its own evidence.
 """
 
 from __future__ import annotations
@@ -74,6 +83,7 @@ from typing import Final
 from alphalab.broker.exceptions import BrokerValidationError
 from alphalab.broker.order import BrokerOrderStatus, canonical_status
 from alphalab.broker.state import BrokerState
+from alphalab.common.arithmetic import canonical_text
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.enums import OrderStatus
 
@@ -88,8 +98,9 @@ __all__ = [
     "issue_modify",
 ]
 
-#: Scheme tag of a request's identity. Changing it is an ADR.
-VENUE_REQUEST_SCHEME: Final = "alphalab.venue_request.v1"
+#: Scheme tag of a request's identity. Changing it is an ADR. Version 2 (v3.11)
+#: renders an amendment's quantity and price by value.
+VENUE_REQUEST_SCHEME: Final = "alphalab.venue_request.v2"
 
 
 def _digest(lines: list[str]) -> str:
@@ -188,8 +199,8 @@ class ModifyRequest:
                 "kind=modify",
                 f"order={self.broker_order_id!r}",
                 f"revision={self.revision}",
-                f"quantity={self.quantity}",
-                f"price={self.price}",
+                f"quantity={canonical_text(self.quantity)}",
+                f"price={canonical_text(self.price)}",
             ]
         )
 

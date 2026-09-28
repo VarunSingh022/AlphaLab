@@ -25,9 +25,6 @@ import pytest
 from alphalab.backtesting import BacktestEngine, BacktestResult
 from alphalab.common.ids import id_scope
 from alphalab.deployment_manager import active_release, deployment_history, verify_checksum
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import (
     ExperimentTracker,
     complete_run,
@@ -57,7 +54,7 @@ from alphalab.lifecycle import (
     rollback_environment,
     validate_strategy_version,
 )
-from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance, StaticPermissions
 from alphalab.model_registry import ModelStage, deployment_metadata, get_version, promote
 from alphalab.research import ResearchEngine, ResearchPayload, TradePayload
 from alphalab.research_assistant import (
@@ -77,16 +74,8 @@ from tests.integration.harness import context_factory, scripted_run
 #: that adding governance did not turn every existing test into a governance
 #: test.
 _ACTOR = "release-engineer"
-_ENTERPRISE = grant_role(
-    define_role(
-        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
-        "release",
-        LIFECYCLE_PERMISSIONS,
-    ),
-    _ACTOR,
-    "release",
-)
-GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
+_PERMISSIONS = StaticPermissions({_ACTOR: LIFECYCLE_PERMISSIONS})
+GOVERNANCE = Governance(_PERMISSIONS, _ACTOR)
 
 #: The execution path identifies a strategy and an asset by UUID: those are
 #: `alphalab.core` identities, and deliberately not the lifecycle's. The

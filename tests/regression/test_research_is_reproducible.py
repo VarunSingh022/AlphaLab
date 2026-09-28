@@ -270,11 +270,14 @@ def test_a_diagnostic_does_not_depend_on_the_order_symbols_arrived_in() -> None:
     backward = _frame(paths, sorted(paths, reverse=True))
 
     first = signal_diagnostics(
-        compute_panel(MOMENTUM, forward), forward_returns(forward, 1), buckets=3, minimum_assets=3
+        compute_panel(MOMENTUM, forward),
+        forward_returns(forward, 1, lag=0, delistings=()),
+        buckets=3,
+        minimum_assets=3,
     )
     second = signal_diagnostics(
         compute_panel(MOMENTUM, backward),
-        forward_returns(backward, 1),
+        forward_returns(backward, 1, lag=0, delistings=()),
         buckets=3,
         minimum_assets=3,
     )
@@ -327,7 +330,7 @@ def test_an_information_coefficient_reproduces_bit_for_bit() -> None:
 
     frame = _frame(_paths())
     panel = compute_panel(MOMENTUM, frame)
-    realized = forward_returns(frame, 3)
+    realized = forward_returns(frame, 3, lag=0, delistings=())
 
     first = information_coefficient(panel, realized, minimum_assets=3)
     second = information_coefficient(panel, realized, minimum_assets=3)

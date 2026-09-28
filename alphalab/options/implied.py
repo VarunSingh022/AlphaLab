@@ -20,11 +20,11 @@ The five refusals
 -----------------
 
 =========================== ===============================================
-At or below the floor       ``max(S - K e^{-rT}, 0)`` for a call. No positive
-                            volatility prices this low; volatility only adds
-                            value.
-At or above the ceiling     ``S`` for a call, ``K e^{-rT}`` for a put. The
-                            limit as volatility grows without bound.
+At or below the floor       ``max(S e^{(b-r)T} - K e^{-rT}, 0)`` for a call.
+                            No positive volatility prices this low;
+                            volatility only adds value.
+At or above the ceiling     ``S e^{(b-r)T}`` for a call, ``K e^{-rT}`` for a
+                            put. The limit as volatility grows without bound.
 Not reached by              The ceiling is the limit at *infinite*
 :data:`MAX_VOLATILITY`      volatility; a price the model does not reach at
                             1000% annualized is past anything a listed market
@@ -45,8 +45,10 @@ One formula, inverted
 
 The solver evaluates :func:`alphalab.options.pricing.black_scholes_value` --
 the same expression :func:`~alphalab.options.pricing.black_scholes_price`
-rounds and returns. It is not a second implementation of Black-Scholes, and a
-test requires the two to agree on the same inputs.
+rounds and returns, under the same :class:`~alphalab.options.carry.Carry`. It is
+not a second implementation of Black-Scholes, and a test requires the two to
+agree on the same inputs. A volatility implied under one carry is only
+meaningful under that carry, so the result records it.
 """
 
 from __future__ import annotations
@@ -56,6 +58,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final
 
+from alphalab.options.carry import Carry
 from alphalab.options.contract import OptionContract
 from alphalab.options.enums import OptionType
 from alphalab.options.exceptions import OptionInputError, OptionPricingError
@@ -133,6 +136,8 @@ class ImpliedVolatility:
         iterations: Bisection steps taken. Deterministic for given inputs.
         assumptions: The model the inversion was performed under. An implied
             volatility is only meaningful against the model that implied it.
+        carry: The underlying's carry the inversion assumed -- an index option's
+            volatility implied without its dividend yield is a different number.
     """
 
     value: float
@@ -141,6 +146,7 @@ class ImpliedVolatility:
     vega: float
     iterations: int
     assumptions: ModelAssumptions
+    carry: Carry
 
     @property
     def residual(self) -> float:
@@ -150,15 +156,16 @@ class ImpliedVolatility:
 
 
 def _bounds(
-    contract: OptionContract, spot: float, rate: float, years: float
+    contract: OptionContract, spot: float, rate: float, years: float, carry: Carry
 ) -> tuple[float, float]:
-    """The no-arbitrage floor and ceiling of a European price."""
+    """The no-arbitrage floor and ceiling of a European price under ``carry``."""
 
     strike = float(contract.strike)
     discounted_strike = strike * math.exp(-rate * years)
+    carried_spot = spot * math.exp((carry.cost_of_carry(rate) - rate) * years)
     if contract.option_type is OptionType.CALL:
-        return max(spot - discounted_strike, 0.0), spot
-    return max(discounted_strike - spot, 0.0), discounted_strike
+        return max(carried_spot - discounted_strike, 0.0), carried_spot
+    return max(discounted_strike - carried_spot, 0.0), discounted_strike
 
 
 def implied_volatility(
@@ -167,8 +174,10 @@ def implied_volatility(
     spot: Decimal,
     risk_free_rate: float,
     valuation_timestamp: float,
+    *,
+    carry: Carry,
 ) -> ImpliedVolatility:
-    """The volatility under which Black-Scholes reproduces ``market_price``.
+    """The volatility under which Black-Scholes-Merton reproduces ``market_price``.
 
     Args:
         contract: The contract quoted.
@@ -180,10 +189,11 @@ def implied_volatility(
             fraction. Required: a rate is a market observation and
             :mod:`alphalab.options` invents none.
         valuation_timestamp: When the price was observed.
+        carry: The underlying's carry. Required, and recorded on the result.
 
     Raises:
-        OptionInputError: If the contract has expired, or the spot is not
-            positive.
+        OptionInputError: If the contract has expired, the spot is not
+            positive, or the carry is not a :class:`~alphalab.options.carry.Carry`.
         ImpliedVolatilityError: If the price is at or outside the no-arbitrage
             bounds, if vega at the solution is below
             :data:`MIN_IDENTIFIABLE_VEGA`, or if the bracket did not close.
@@ -191,10 +201,12 @@ def implied_volatility(
 
     if spot <= Decimal("0"):
         raise OptionInputError(f"spot must be positive, got {spot}.")
+    if not isinstance(carry, Carry):
+        raise OptionInputError(f"carry must be a Carry, got {carry!r}.")
     years = time_to_expiry_years(contract, valuation_timestamp)
     spot_f, target = float(spot), float(market_price)
 
-    floor, ceiling = _bounds(contract, spot_f, risk_free_rate, years)
+    floor, ceiling = _bounds(contract, spot_f, risk_free_rate, years, carry)
     if target <= floor:
         raise ImpliedVolatilityError(
             f"{contract.option_type.name} at strike {contract.strike} is quoted {target}, at "
@@ -209,10 +221,13 @@ def implied_volatility(
             "volatility grows without bound. No finite volatility reaches it."
         )
 
+    def price_at(volatility: float) -> float:
+        return black_scholes_value(contract, spot_f, volatility, risk_free_rate, years, carry=carry)
+
     low, high = MIN_VOLATILITY, MIN_VOLATILITY
     for _ in range(64):
         high = min(high * 4.0 if high > MIN_VOLATILITY else 0.01, MAX_VOLATILITY)
-        if black_scholes_value(contract, spot_f, high, risk_free_rate, years) >= target:
+        if price_at(high) >= target:
             break
         if high >= MAX_VOLATILITY:
             raise ImpliedVolatilityError(
@@ -226,7 +241,7 @@ def implied_volatility(
     volatility = (low + high) / 2.0
     for iterations in range(1, MAX_ITERATIONS + 1):  # noqa: B007 - the count is reported
         volatility = (low + high) / 2.0
-        value = black_scholes_value(contract, spot_f, volatility, risk_free_rate, years)
+        value = price_at(volatility)
         if abs(value - target) <= PRICE_TOLERANCE or (high - low) <= 1e-15:
             break
         if value < target:
@@ -241,7 +256,7 @@ def implied_volatility(
         )
 
     greeks: Greeks = black_scholes_greeks(
-        contract, spot, volatility, risk_free_rate, valuation_timestamp
+        contract, spot, volatility, risk_free_rate, valuation_timestamp, carry=carry
     )
     if abs(greeks.vega) < MIN_IDENTIFIABLE_VEGA:
         raise ImpliedVolatilityError(
@@ -254,8 +269,9 @@ def implied_volatility(
     return ImpliedVolatility(
         value=volatility,
         market_price=target,
-        repriced=black_scholes_value(contract, spot_f, volatility, risk_free_rate, years),
+        repriced=price_at(volatility),
         vega=greeks.vega,
         iterations=iterations,
         assumptions=BLACK_SCHOLES_MERTON,
+        carry=carry,
     )

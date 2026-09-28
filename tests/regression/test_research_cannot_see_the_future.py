@@ -174,8 +174,8 @@ def test_the_truncation_fixture_can_detect_a_quantity_that_looks_ahead() -> None
     horizon = 5
     boundary = START + (PREFIX - horizon) * DAY
 
-    full = forward_returns(_frame(LENGTH), horizon)
-    truncated = forward_returns(_frame(PREFIX), horizon)
+    full = forward_returns(_frame(LENGTH), horizon, lag=0, delistings=())
+    truncated = forward_returns(_frame(PREFIX), horizon, lag=0, delistings=())
 
     assert full.cross_section(boundary), "the full series realizes this instant's outcome"
     assert not truncated.cross_section(boundary), (

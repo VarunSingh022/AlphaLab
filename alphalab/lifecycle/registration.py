@@ -29,7 +29,7 @@ from alphalab.lifecycle.identity import ModelRef, StrategyVersionRef
 from alphalab.lifecycle.state import LifecycleState
 from alphalab.lifecycle.strategy_version import register_strategy_version
 from alphalab.model_registry.registry import ArtifactRef, ParamValue, get_version, register_model
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy.definition import StrategyDefinition
 
 __all__ = ["register_model_version", "register_strategy"]
 
@@ -97,8 +97,8 @@ def register_strategy(
     """Registers a strategy version, checking the model and run it cites.
 
     The definition is the canonical
-    :class:`~alphalab.studio.strategy.StrategyDefinition`, so a candidate from
-    :func:`~alphalab.research_assistant.studio_bridge.to_strategy_definition`
+    :class:`~alphalab.strategy.definition.StrategyDefinition`, so a candidate from
+    :func:`~alphalab.research_assistant.definition.to_strategy_definition`
     reaches a strategy version without a second parameter format in between.
 
     Raises:

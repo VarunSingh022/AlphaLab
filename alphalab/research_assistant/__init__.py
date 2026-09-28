@@ -16,13 +16,14 @@ pure function of its inputs:
 - workflow: chain all of the above in one call, optionally recording each
   candidate into an ``alphalab.experiment_tracking`` tracker
   (``run_research_workflow``).
-- studio_bridge: lift a chosen candidate into the canonical
-  ``alphalab.studio`` ``StrategyDefinition`` (``to_strategy_definition``).
+- definition: lift a chosen candidate into the canonical
+  ``alphalab.strategy`` ``StrategyDefinition`` (``to_strategy_definition``).
 
 The assistant does not implement backtesting, optimisation, or model training
 -- it orchestrates the engines that do.
 """
 
+from alphalab.research_assistant.definition import to_strategy_definition
 from alphalab.research_assistant.evaluation import (
     CandidateEvaluation,
     Evaluator,
@@ -42,7 +43,6 @@ from alphalab.research_assistant.generation import (
     generate_candidates,
 )
 from alphalab.research_assistant.report import AssistantReport, build_report, render_markdown
-from alphalab.research_assistant.studio_bridge import to_strategy_definition
 from alphalab.research_assistant.workflow import ResearchWorkflowResult, run_research_workflow
 
 __all__ = [

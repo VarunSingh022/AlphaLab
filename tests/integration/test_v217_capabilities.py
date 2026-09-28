@@ -32,10 +32,8 @@ from typing import Any
 
 import pytest
 
+from alphalab.common.types import ParamValue
 from alphalab.core.enums import AssetType
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import complete_run, log_metrics, start_run
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.lifecycle import (
@@ -44,6 +42,7 @@ from alphalab.lifecycle import (
     Governance,
     LifecycleState,
     MetricThreshold,
+    StaticPermissions,
     StrategyVersionRef,
     ValidationMethod,
     ValidationPolicy,
@@ -73,12 +72,12 @@ from alphalab.portfolio.fx_feed import restore as restore_feed
 from alphalab.portfolio.valuation import PortfolioValuation
 from alphalab.runtime.execution_pipeline import ExecutionPipeline
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunEngine
+from alphalab.strategy import StrategyDefinition
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
 from alphalab.strategy.registry import StrategyClassRegistry, runtime_for
 from alphalab.strategy.supervisor import RuntimeSupervisor
-from alphalab.studio.strategy import StrategyDefinition
 from tests.integration.harness import (
     context_factory,
     dataset_of_quotes,
@@ -111,7 +110,7 @@ class CrossoverStrategy(BaseStrategy):
     ``StrategyContext`` would prove nothing about the run it was placed in.
     """
 
-    def __init__(self, strategy_id: str, parameters: Mapping[str, float]) -> None:
+    def __init__(self, strategy_id: str, parameters: Mapping[str, ParamValue]) -> None:
         self.strategy_id = strategy_id
         self.size = Decimal(str(parameters.get("size", 0.0)))
         self.seen_equity: list[Decimal] = []
@@ -157,19 +156,14 @@ def _definition(size: float = 5.0) -> StrategyDefinition:
 # --------------------------------------------------------------------------- #
 
 
-def _enterprise() -> EnterpriseState:
-    state = EnterpriseState()
-    state, _ = register_principal(state, "releaser", "Release Engineer", 0.0)
-    state, _ = register_principal(state, "approver", "Head of Trading", 0.0)
-    state = define_role(state, "release", LIFECYCLE_PERMISSIONS - {PERMISSION_APPROVE})
-    state = define_role(state, "approve", {PERMISSION_APPROVE})
-    state = grant_role(state, "releaser", "release")
-    return grant_role(state, "approver", "approve")
-
-
-ENTERPRISE = _enterprise()
-RELEASER = Governance(ENTERPRISE, "releaser", frozenset({_ENVIRONMENT}))
-APPROVER = Governance(ENTERPRISE, "approver")
+PERMISSIONS = StaticPermissions(
+    {
+        "releaser": LIFECYCLE_PERMISSIONS - {PERMISSION_APPROVE},
+        "approver": frozenset({PERMISSION_APPROVE}),
+    }
+)
+RELEASER = Governance(PERMISSIONS, "releaser", frozenset({_ENVIRONMENT}))
+APPROVER = Governance(PERMISSIONS, "approver")
 
 
 def _governed_lifecycle(size: float = 5.0) -> tuple[LifecycleState, StrategyVersionRef]:
@@ -494,7 +488,7 @@ def test_no_capability_moved_another_ones_boundary() -> None:
 
     # --- The registry added no field to any run or pipeline state, and no
     # dependency on anything above alphalab.strategy.
-    assert len({f.name for f in fields(RunState)}) == 8, "ADR-0030 decision 2"
+    assert len({f.name for f in fields(RunState)}) == 9, "ADR-0030 decision 2, ADR-0046"
     assert len(fields(ExecutionPipelineState)) == 16, "ADR-0030's performance budget"
     assert "registry" not in {f.name for f in fields(ExecutionPipelineState)}
     registry_imports = {
@@ -511,14 +505,16 @@ def test_no_capability_moved_another_ones_boundary() -> None:
     assert "rates" not in {f.name for f in fields(ExecutionPipelineState)}
 
     # --- Multi-currency moved exactly one pipeline schema, and only its own
-    # (to 3; v3.10 moved it again, to 4, for minor units and analytics basis).
-    assert PIPELINE_SNAPSHOT_SCHEMA == 4
+    # (to 3; v3.10 moved it again, to 4, for minor units and analytics basis, and
+    # v3.11 to 5, for a bar's interval code).
+    assert PIPELINE_SNAPSHOT_SCHEMA == 5
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
     from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 
-    # RUN_SNAPSHOT_SCHEMA moved to 2 in v3.10 (the analytics basis), not here.
-    assert (OMS_SNAPSHOT_SCHEMA, RUN_SNAPSHOT_SCHEMA, DEFAULT_SCHEMA_VERSION) == (1, 2, 1)
+    # RUN_SNAPSHOT_SCHEMA moved to 2 in v3.10 (the analytics basis) and to 3 in
+    # v3.11 with OMS_SNAPSHOT_SCHEMA to 2 (order terms) -- not here.
+    assert (OMS_SNAPSHOT_SCHEMA, RUN_SNAPSHOT_SCHEMA, DEFAULT_SCHEMA_VERSION) == (2, 3, 1)
 
     # --- And the feed took no dependency on the execution path.
     from alphalab.portfolio import fx_feed

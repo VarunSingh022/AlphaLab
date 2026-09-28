@@ -1,13 +1,10 @@
 """Rich experiment run tracking: multi-metric histories, mixed-type parameters.
 
-alphalab.studio.results.ExperimentResult supports only float-valued parameters and
-a single final target_metric -- fine for a simple hyperparameter-to-score record,
-but not for tracking a training run's metric HISTORY (loss per epoch from
+A training run's metric HISTORY (loss per epoch from
 alphalab.deep_learning.train_network, or reward per episode from
-alphalab.reinforcement_learning), or hyperparameters that aren't just floats (an
-optimizer name, a boolean flag). ExperimentRun and ExperimentTracker provide that,
-independently of alphalab.studio -- see studio_bridge.py for the integration point
-if the simpler studio.ExperimentResult shape is what's specifically wanted instead.
+alphalab.reinforcement_learning) and hyperparameters that aren't just floats (an
+optimizer name, a boolean flag) are what ExperimentRun and ExperimentTracker
+record.
 
 Container choice
 ----------------

@@ -10,6 +10,7 @@ from alphalab.broker import (
     BrokerOrderType,
     PaperBroker,
 )
+from alphalab.execution.costs import FREE
 
 
 @dataclass(frozen=True)
@@ -23,7 +24,7 @@ class MockOMSOrder:
 
 def run_benchmark() -> None:
     state = BrokerEngine.initialize("PAPER-BENCH", Decimal("100000000.00"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
 
     N = 100_000
     print(f"Starting Broker Benchmark: Submitting {N} Market Orders...")

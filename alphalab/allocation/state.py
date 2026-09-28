@@ -42,3 +42,12 @@ class AllocationState:
     contributions: PersistentMap[str, tuple[StrategyContribution, ...]] = field(
         default_factory=PersistentMap
     )
+    #: Each strategy's own signed position per asset: its share of every fill of
+    #: an order it contributed to, divided by contribution exactly as realized
+    #: P&L is. What a target intent is measured against (ledger FEA-001).
+    #: ``None`` when the run's positions were never recorded -- a run upgraded
+    #: from before v3.11 -- in which case a target intent is refused rather than
+    #: measured against a guess.
+    strategy_positions: PersistentMap[str, PersistentMap[str, Decimal]] | None = field(
+        default_factory=PersistentMap
+    )

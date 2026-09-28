@@ -49,12 +49,14 @@ against its own timestamp, under which no record is ever stale.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from enum import Enum, auto
 
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.arithmetic import in_accounting_context
 from alphalab.common.ids import id_source_for, require_seed, use_id_source
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.policy import FillPolicy, ImmediateFill
@@ -76,8 +78,9 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineState,
     ExecutionRouting,
     UnpricedAsset,
+    wants_slices,
 )
-from alphalab.strategy.events import LifecycleTransitioned
+from alphalab.strategy.events import LifecycleTransitioned, TimerEvent
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
 __all__ = [
@@ -257,10 +260,11 @@ class RunState:
     it has read, what it declined to act on, what each record produced, and
     which stream it read.
 
-    Four of these eight fields are what a *continuation* needs: ``pipeline``,
-    ``processed``, ``current_timestamp`` and ``last_record_timestamp``. The rest
-    is provenance and observability, carried because ADR-0023's Class 1 includes
-    it rather than because a decision reads it.
+    Five of these nine fields are what a *continuation* needs: ``pipeline``,
+    ``processed``, ``current_timestamp``, ``last_record_timestamp`` and -- since
+    v3.11 -- ``last_slice_at``. The rest is provenance and observability,
+    carried because ADR-0023's Class 1 includes it rather than because a
+    decision reads it.
     """
 
     config: RunConfig
@@ -283,6 +287,15 @@ class RunState:
     source_id: str | None = None
     steps: AppendOnlyLog[RunStep] = field(default_factory=AppendOnlyLog)
     skipped: AppendOnlyLog[SkippedRecord] = field(default_factory=AppendOnlyLog)
+    #: The instant of the last slice this run closed, or ``None`` before the
+    #: first (ledger EXE-004). A cursor, as ``last_record_timestamp`` is, and on
+    #: the run rather than the pipeline for the same reason -- ADR-0030's
+    #: performance budget, which the pipeline state spends eleven times a record.
+    #: A slice is closed once: asked again for the same instant -- by a
+    #: restarted live session, say -- the run does nothing, so no strategy
+    #: decides twice on one instant. Set only when a strategy was there to
+    #: receive the slice, which keeps a run without one exactly what it was.
+    last_slice_at: float | None = None
 
     @property
     def working_orders(self) -> tuple[OMSOrder, ...]:
@@ -376,6 +389,7 @@ class RunEngine:
     """The canonical owner of a record-driven run."""
 
     @staticmethod
+    @in_accounting_context
     def initialize(config: RunConfig, strategy_state: StrategyRuntimeState) -> RunState:
         """Fund the portfolio and build the state a run starts from."""
 
@@ -399,6 +413,7 @@ class RunEngine:
         return ExecutionPipeline.publish_record(market, record)
 
     @staticmethod
+    @in_accounting_context
     def advance(
         state: RunState,
         record: MarketRecord,
@@ -514,6 +529,98 @@ class RunEngine:
         return use_id_source(id_source_for(state.pipeline.id_position))
 
     @staticmethod
+    @in_accounting_context
+    def fire_timer(
+        state: RunState,
+        timer: TimerEvent,
+        context_factory: ContextFactory,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Deliver a timer the driver decided is due (ledger EXE-005).
+
+        Strategies subscribed to ``timers`` receive it; what they ask for rests
+        until each asset's next event. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.process_timer`.
+        The run's clock moves to the timer's instant when that is later.
+        """
+
+        pipeline, _, _ = ExecutionPipeline.process_timer(
+            state.pipeline, timer, context_factory, rates
+        )
+        return replace(
+            state,
+            pipeline=pipeline,
+            current_timestamp=max(state.current_timestamp, timer.timestamp),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def close_slice(
+        state: RunState,
+        context_factory: ContextFactory,
+        rates: FxRates = NO_RATES,
+        *,
+        before: float | None = None,
+    ) -> RunState:
+        """Close the instant of the last record the run published (ledger EXE-004).
+
+        Strategies subscribed to ``slices`` that define ``on_slice`` see the
+        instant complete -- every price, every asset it was about -- and what
+        they ask for rests until each asset's next event; see
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.close_slice`.
+
+        Only the driver knows an instant is complete, so the driver calls this.
+        ``before`` is how it does so without looking ahead: called with the
+        timestamp of the record about to be advanced, the slice is closed only
+        when the last published instant is earlier -- the first record of the
+        next instant completes the previous one. Called without it, the last
+        instant is closed as it stands, which is right at the end of the data
+        and is the caller's judgement anywhere else. A slice is closed once;
+        asking again for the same instant does nothing.
+        """
+
+        pipeline = state.pipeline
+        events = pipeline.market.events
+        if not len(events):
+            return state
+        at = events[-1].timestamp
+        if before is not None and at >= before:
+            return state
+        if state.last_slice_at is not None and at <= state.last_slice_at:
+            return state
+        if not wants_slices(pipeline.strategy):
+            return state
+        closed, _, _ = ExecutionPipeline.close_slice(pipeline, context_factory, rates)
+        return replace(state, pipeline=closed, last_slice_at=at)
+
+    @staticmethod
+    @in_accounting_context
+    def stop(
+        state: RunState,
+        context_factory: ContextFactory,
+        now: float | None = None,
+        rates: FxRates = NO_RATES,
+        strategy_ids: Iterable[str] | None = None,
+    ) -> RunState:
+        """Stop the run's strategies: ``on_shutdown``, then ``on_stop``, then ``STOPPED``.
+
+        The one place a run delivers the two hooks (ledger EXE-005), and a
+        deliberate act rather than a side effect of :meth:`finalize`: a backtest
+        that finalizes one segment of its data may be continued with the next,
+        and a stopped strategy is dispatched nothing more. ``now`` is the instant
+        the strategies are stopped, defaulting to the run's current timestamp.
+        Shutdown orders rest until their asset's next event -- see
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.stop_strategies`.
+        """
+
+        clock = state.current_timestamp if now is None else now
+        pipeline, _, _ = ExecutionPipeline.stop_strategies(
+            state.pipeline, context_factory, clock, rates, strategy_ids
+        )
+        return replace(state, pipeline=pipeline)
+
+    @staticmethod
+    @in_accounting_context
     def finalize(state: RunState) -> RunState:
         """Compile analytics, if the run is configured to, and return the run.
 

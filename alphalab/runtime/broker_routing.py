@@ -29,18 +29,14 @@ What is implemented, and what is not
 Implemented and tested here, and unchanged since v2.3: the mapping in both
 directions, the pre-trade gates, and idempotent submission.
 
-Until v2.14 this section read "Not implemented anywhere in AlphaLab: a transport
-to any real venue", and that is no longer true.
-:class:`~alphalab.broker.venue.RestVenueBroker` over
-:class:`~alphalab.broker.transport.HttpVenueTransport` reaches a venue over
-authenticated HTTP, and because it is a
-:class:`~alphalab.broker.protocol.BrokerProtocol` the functions below route to
-it without knowing which adapter they have --
+A transport to a real venue is an adapter, and an adapter is the application's:
+it holds the venue's credentials and speaks its protocol. From v2.14 to v3.10
+the library carried one, a REST adapter over authenticated HTTP; v3.11 moved it
+into the test suite as a worked example (ledger BRK-007), where it still routes
+through the functions below without their knowing which adapter they have --
+because it is a :class:`~alphalab.broker.protocol.BrokerProtocol`.
 :class:`~alphalab.broker.paper.PaperBroker` remains the reference simulation.
-
-What is still *not* implemented: verification against any commercial venue, and
-any named vendor's request shapes. See ``docs/ARCHITECTURE.md`` for the
-distinction between implemented, adapter-only, and future work, and ADR-0031.
+See ``docs/ARCHITECTURE.md`` and ADR-0031.
 
 Pre-trade gates
 ---------------
@@ -160,8 +156,11 @@ class RoutingConfig:
         currency: Currency execution reports are denominated in. A venue fill
             does not say, so this is what it settles in -- and a currency the
             pipeline does not settle is refused, never converted.
-        order_type: Order instruction used when routing. Defaults to ``MARKET``,
-            matching what the execution path submits to the OMS.
+        order_type: The venue order type a *market* order is sent as. Defaults
+            to ``MARKET``. Since v3.11 an order that asked for a limit, a stop or
+            a stop-limit is sent as what it asked for (ledger EXE-003); until
+            then every order was a market order, and this was the type all of
+            them were sent as. See :func:`venue_order_type`.
 
     ``venue`` and ``currency`` are required. Until v3.10 they defaulted to
     ``"LIVE"`` and ``"USD"``, and every routing function took the whole
@@ -234,6 +233,22 @@ def routable(oms_order: OMSOrder) -> _RoutableOrder:
         quantity=oms_order.remaining_quantity,
         price=price,
     )
+
+
+def venue_order_type(oms_order: OMSOrder, routing: RoutingConfig) -> OrderType:
+    """The order type a venue is sent an OMS order as.
+
+    A limit, stop or stop-limit order is sent as itself: its terms are what the
+    strategy asked for, and a venue executing it as anything else would be
+    executing another order (ledger EXE-003). A market order is sent as the
+    session's :attr:`RoutingConfig.order_type` -- ``MARKET`` unless the session
+    names the type a venue wants a market order expressed as, which is what that
+    setting has meant since v2.15.
+    """
+
+    if oms_order.order_type is OrderType.MARKET:
+        return routing.order_type
+    return oms_order.order_type
 
 
 def broker_order_id_for(oms_order: OMSOrder) -> str:
@@ -313,7 +328,12 @@ def route_order(
         return RoutingResult(broker_state, identities, None, refused)
 
     broker_order = BrokerAdapter.to_broker_order(
-        routable(oms_order), broker_order_id_for(oms_order), routing.order_type, timestamp
+        routable(oms_order),
+        broker_order_id_for(oms_order),
+        venue_order_type(oms_order, routing),
+        timestamp,
+        stop_price=oms_order.stop_price,
+        time_in_force=oms_order.time_in_force,
     )
     new_state, events = broker.submit_order(broker_state, broker_order, timestamp)
 

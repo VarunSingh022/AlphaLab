@@ -105,7 +105,7 @@ def test_supervisor_valid_transitions() -> None:
     s2, _ = RuntimeSupervisor.initialize(s1, 2.0)
     assert s2.status == LifecycleState.INITIALIZED
 
-    s3, _ = RuntimeSupervisor.subscribe(s2, frozenset(), 3.0)
+    s3, _ = RuntimeSupervisor.subscribe(s2, frozenset({"*"}), 3.0)
     assert s3.status == LifecycleState.SUBSCRIBED
 
 

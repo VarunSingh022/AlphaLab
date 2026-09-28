@@ -238,7 +238,15 @@ def test_allocation_still_does_not_import_portfolio() -> None:
     """FX reaches capital allocation through a structural protocol, not an import."""
 
     assert "portfolio" not in _package_edges("allocation")
-    assert _package_edges("allocation") == {"common", "core", "persistence", "strategy"}
+    # v3.11 (FEA-001): a target is rounded to the instrument's lot grid, which
+    # the conventions package states; conventions imports only common.
+    assert _package_edges("allocation") == {
+        "common",
+        "conventions",
+        "core",
+        "persistence",
+        "strategy",
+    }
 
 
 def test_portfolio_gains_only_core_for_the_contribution_record() -> None:

@@ -108,6 +108,27 @@ class ExecutionSimulator:
             tax_model=NoTax(),
         )
 
+    @property
+    def passive_costs(self) -> ExecutionCostModel:
+        """What a *resting* fill is priced by: the cash charges and no price concession.
+
+        A limit order that rested and was filled at its own price did not cross
+        the spread, walk the book or move the market; it was the liquidity. Its
+        spread, slippage and impact are therefore nothing, and its commission,
+        fees and tax are what the configuration charges. Since v3.11 (ledger
+        EXE-003), for fills :func:`simulate_fill` is told are passive.
+        """
+
+        costs = self.costs
+        return ExecutionCostModel(
+            spread_model=NoSpread(),
+            slippage_model=NoSlippage(),
+            impact_model=NoImpact(),
+            commission_model=costs.commission_model,
+            fee_model=costs.fee_model,
+            tax_model=costs.tax_model,
+        )
+
     def context(
         self,
         instruction: OrderInstruction,
@@ -148,8 +169,13 @@ class ExecutionSimulator:
         bid: Decimal | None = None,
         ask: Decimal | None = None,
         available_liquidity: Decimal | None = None,
+        *,
+        passive: bool = False,
     ) -> ExecutionCosts:
         """Itemize what this fill costs, without producing a report.
+
+        ``passive`` itemizes a resting fill -- see :attr:`passive_costs`; a
+        report says which a fill was by its ``liquidity_flag``.
 
         The breakdown behind :attr:`~alphalab.execution.report.ExecutionReport.slippage`
         and :attr:`~alphalab.execution.report.ExecutionReport.commission`. Pure,
@@ -157,7 +183,8 @@ class ExecutionSimulator:
         was priced with.
         """
 
-        return self.costs.quote(
+        model = self.passive_costs if passive else self.costs
+        return model.quote(
             self.context(
                 instruction, fill_quantity, market_price, timestamp, bid, ask, available_liquidity
             )
@@ -173,6 +200,8 @@ class ExecutionSimulator:
         bid: Decimal | None = None,
         ask: Decimal | None = None,
         available_liquidity: Decimal | None = None,
+        *,
+        passive: bool = False,
     ) -> ExecutionReport:
         """Simulates a fill deterministically.
 
@@ -181,13 +210,20 @@ class ExecutionSimulator:
         They reach the cost model and nothing else: a cost role that needs one
         of them refuses when it is absent rather than substituting a figure, so
         a feed without sizes cannot silently produce an impact charge.
+
+        ``passive`` prices a resting order's fill at ``market_price`` itself --
+        its limit, or better -- charging only commission, fees and tax (see
+        :attr:`passive_costs`), and flags it ``MAKER``. Otherwise the fill takes
+        liquidity and is flagged ``TAKER``, as every simulated fill was before
+        v3.11.
         """
 
         context = self.context(
             instruction, fill_quantity, market_price, timestamp, bid, ask, available_liquidity
         )
-        costs = self.costs.quote(context)
-        fill_price = self.costs.fill_price(context, costs)
+        model = self.passive_costs if passive else self.costs
+        costs = model.quote(context)
+        fill_price = model.fill_price(context, costs)
 
         if status in (FillStatus.FULL_FILL, FillStatus.PARTIAL_FILL):
             validate_execution_parameters(
@@ -210,7 +246,7 @@ class ExecutionSimulator:
             commission=costs.cash_charged,
             # The per-unit concession, which is already inside fill_price.
             slippage=costs.price_concession,
-            liquidity_flag="TAKER",
+            liquidity_flag="MAKER" if passive else "TAKER",
             venue=instruction.venue,
             currency=instruction.currency,
             status=status,

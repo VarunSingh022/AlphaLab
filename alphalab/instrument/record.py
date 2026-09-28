@@ -41,18 +41,37 @@ ADR-0027.
 second provider's spelling of an instrument must not change what that instrument
 is. They are exempt from the key-field rules for the same reason: an alias has
 to reproduce the provider's own spelling verbatim, whatever that spelling is.
+
+Symbols change, and are reused (v3.11)
+--------------------------------------
+A static alias says a provider's symbol names this instrument for all time.
+Tickers do not behave that way: ``FB`` became ``META`` on 2022-06-09, and a
+ticker freed by a delisting is later issued to an unrelated company, so one
+provider symbol names different instruments at different dates (ledger
+DAT-004). A :class:`DatedAlias` says which, over a half-open interval
+``[valid_from, valid_to)``, and the registry resolves a record's symbol *at the
+record's own instant*.
+
+The guidance that makes this work: make the **canonical** ``symbol`` a
+permanent identifier -- a FIGI, a CUSIP, a vendor's permanent number -- so the
+instrument's ``asset_id`` survives a ticker change, and let the tickers be dated
+aliases of it. A canonical symbol that is itself a ticker gives the renamed
+company a new identity, which is a different instrument to every fill recorded
+before the rename.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from alphalab.core.enums import AssetType
+from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.identity import canonical_instrument_key, derive_asset_id
 
-__all__ = ["InstrumentRecord", "normalize_key_field", "normalize_sector_label"]
+__all__ = ["DatedAlias", "InstrumentRecord", "normalize_key_field", "normalize_sector_label"]
 
 
 def normalize_key_field(value: str, field_name: str) -> str:
@@ -172,6 +191,95 @@ def normalize_sector_label(value: str, field_name: str = "sector") -> str:
     return stripped
 
 
+def _bound(value: float | None, name: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise InstrumentInputError(f"{name} must be a finite timestamp or None, got {value!r}.")
+    return float(value)
+
+
+@dataclass(frozen=True, slots=True)
+class DatedAlias:
+    """A provider's symbol for an instrument over ``[valid_from, valid_to)``.
+
+    Attributes:
+        provider: Whose symbol space this is.
+        symbol: The provider's spelling, verbatim.
+        valid_from: The first instant the symbol means this instrument, or
+            ``None`` for "since before the data begins".
+        valid_to: The first instant it no longer does, or ``None`` for "still".
+            Half-open, so a rename at ``t`` is ``valid_to=t`` on the old symbol
+            and ``valid_from=t`` on the new one, with no instant claimed twice.
+
+    Raises:
+        InstrumentInputError: If the provider or symbol is blank, a bound is not
+            a finite number, or the interval is empty.
+    """
+
+    provider: str
+    symbol: str
+    valid_from: float | None
+    valid_to: float | None
+
+    def __post_init__(self) -> None:
+        for name in ("provider", "symbol"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise InstrumentInputError(f"A dated alias's {name} cannot be empty.")
+        start = _bound(self.valid_from, "valid_from")
+        end = _bound(self.valid_to, "valid_to")
+        if start is not None and end is not None and not start < end:
+            raise InstrumentInputError(
+                f"The dated alias {self.provider}:{self.symbol} is valid from {start!r} to "
+                f"{end!r}, which is empty; an alias that names nothing at any instant is a "
+                "declaration of nothing."
+            )
+        object.__setattr__(self, "valid_from", start)
+        object.__setattr__(self, "valid_to", end)
+
+    def covers(self, timestamp: float) -> bool:
+        """Whether the alias is in effect at ``timestamp``."""
+
+        return (self.valid_from is None or self.valid_from <= timestamp) and (
+            self.valid_to is None or timestamp < self.valid_to
+        )
+
+    def overlaps(self, other: DatedAlias) -> bool:
+        """Whether two intervals share any instant."""
+
+        starts_before_other_ends = (
+            self.valid_from is None or other.valid_to is None or self.valid_from < other.valid_to
+        )
+        other_starts_before_this_ends = (
+            other.valid_from is None or self.valid_to is None or other.valid_from < self.valid_to
+        )
+        return starts_before_other_ends and other_starts_before_this_ends
+
+    def describe(self) -> str:
+        """``provider:symbol [from, to)`` for a message."""
+
+        start = "-inf" if self.valid_from is None else repr(self.valid_from)
+        end = "+inf" if self.valid_to is None else repr(self.valid_to)
+        return f"{self.provider}:{self.symbol} [{start}, {end})"
+
+
+def _sorted_dated(aliases: Sequence[DatedAlias]) -> tuple[DatedAlias, ...]:
+    for alias in aliases:
+        if not isinstance(alias, DatedAlias):
+            raise InstrumentInputError(f"dated_aliases must hold DatedAlias values, got {alias!r}.")
+    return tuple(
+        sorted(
+            aliases,
+            key=lambda alias: (
+                alias.provider,
+                alias.symbol,
+                -math.inf if alias.valid_from is None else alias.valid_from,
+            ),
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class InstrumentRecord:
     """One declared instrument, and the canonical identity derived from it.
@@ -196,8 +304,20 @@ class InstrumentRecord:
             record constructed directly carries whatever it is given, exactly as
             it did before v2.11. It is deliberately not part of the identity key
             -- see the module docstring.
-        aliases: Provider name -> that provider's symbol for this instrument.
-            Verbatim, not normalized, and not part of the identity key.
+        aliases: Provider name -> that provider's symbol for this instrument,
+            for all time. Verbatim, not normalized, and not part of the
+            identity key.
+        dated_aliases: Provider symbols that name this instrument only over an
+            interval of time -- a ticker before or after a rename, a ticker
+            later reused. Not part of the identity key; sorted on construction.
+            See the module docstring.
+        economics: What a unit of it is worth, costs and settles as -- its
+            multiplier, settlement style, quantity grid and minimum notional
+            (ledger ACC-005) -- or ``None`` when not declared, which
+            :func:`~alphalab.instrument.economics.economics_for` reads as a cash
+            equity for the asset types that are one and refuses for a future or
+            an option. Not part of the identity key: an exchange revising a lot
+            size re-identifies nothing.
         asset_id: The derived canonical identifier. UUIDv5, and therefore
             accepted by :func:`~alphalab.core.ids.validate_uuid_id`.
     """
@@ -208,12 +328,18 @@ class InstrumentRecord:
     currency: str
     sector: str | None = None
     aliases: Mapping[str, str] = field(default_factory=dict)
+    dated_aliases: tuple[DatedAlias, ...] = ()
+    economics: InstrumentEconomics | None = None
     asset_id: str = field(init=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.asset_type, AssetType):
             raise InstrumentInputError(
                 f"asset_type must be an AssetType, got {type(self.asset_type).__name__}."
+            )
+        if self.economics is not None and not isinstance(self.economics, InstrumentEconomics):
+            raise InstrumentInputError(
+                f"economics must be InstrumentEconomics, got {type(self.economics).__name__}."
             )
 
         symbol = normalize_key_field(self.symbol, "symbol")
@@ -224,6 +350,7 @@ class InstrumentRecord:
         object.__setattr__(self, "exchange", exchange)
         object.__setattr__(self, "currency", currency)
         object.__setattr__(self, "aliases", dict(self.aliases))
+        object.__setattr__(self, "dated_aliases", _sorted_dated(tuple(self.dated_aliases)))
         object.__setattr__(
             self,
             "asset_id",

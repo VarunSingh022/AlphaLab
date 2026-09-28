@@ -2,8 +2,9 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_EVEN, Decimal
 from types import MappingProxyType
+from typing import Final
 
 from alphalab.allocation.allocator import IntentAllocator
 from alphalab.allocation.budget import CapitalBudget
@@ -23,19 +24,22 @@ from alphalab.allocation.exceptions import (
     UnknownReservationError,
 )
 from alphalab.allocation.netting import NettingEngine
-from alphalab.allocation.sizing import SizingModel
+from alphalab.allocation.sizing import QUANTITY_QUANTUM, SizingModel
 from alphalab.allocation.state import AllocationState
 from alphalab.allocation.validation import (
     validate_intent,
     validate_long_only,
     validate_net_quantity,
 )
-from alphalab.common.arithmetic import in_accounting_context
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context
 from alphalab.common.ids import new_id
-from alphalab.core.contribution import StrategyContribution
+from alphalab.common.order_terms import OrderTerms
+from alphalab.common.persistent_map import PersistentMap
+from alphalab.conventions.lot import LotSpecification, round_down_to_lot
+from alphalab.core.contribution import StrategyContribution, split_by_contribution
 from alphalab.core.enums import Side
 from alphalab.core.order_request import OrderRequest
-from alphalab.strategy.events import Intent
+from alphalab.strategy.events import Intent, IntentKind
 
 
 class AllocationEngine:
@@ -62,6 +66,9 @@ class AllocationEngine:
         budget_prices: Mapping[str, Decimal] = MappingProxyType({}),
         *,
         positions: Mapping[str, Decimal] | None = None,
+        working: Mapping[tuple[str, str], Decimal] = MappingProxyType({}),
+        lots: Mapping[str, LotSpecification] = MappingProxyType({}),
+        minimum_notionals: Mapping[str, Decimal] = MappingProxyType({}),
     ) -> tuple[AllocationState, tuple[OrderRequest, ...]]:
         """
                 Processes a batch of intents, sizes them, applies cross-strategy netting,
@@ -109,6 +116,18 @@ class AllocationEngine:
                 has always been and which importing an ``FxRates`` here would have ended:
                 measured, it pulled all eighteen portfolio modules into a package that
                 previously imported none of them.
+
+        **Target intents** (ledger FEA-001) are not sized by ``sizing_model``: the
+                order is the difference between the target and what the strategy
+                already has -- its own position from :attr:`AllocationState.strategy_positions`
+                plus ``working``, its signed share of each order still working, keyed
+                ``(strategy_id, asset_id)`` -- rounded toward zero onto the asset's
+                ``lots`` grid. A difference that rounds to nothing asks for nothing;
+                one whose value is below the asset's ``minimum_notionals`` is refused
+                and recorded, never scaled up. Every netted order for an asset with a
+                declared lot must itself be a whole number of lots, or it is refused
+                with the reason: rounding a strategy's stated delta would place an
+                order nobody asked for.
         """
         events = state.events.append(
             AllocationStarted(AllocationEngine._create_id(), timestamp, len(intents))
@@ -133,28 +152,45 @@ class AllocationEngine:
 
         # 2. Sizing, one intent at a time: a refusal names its intent and the
         # rest of the batch is sized.
-        sized_deltas: list[tuple[str, str, Decimal]] = []
+        sized_deltas: list[tuple[str, str, OrderTerms, Decimal]] = []
         for intent in valid_intents:
             try:
-                quantity = IntentAllocator.size_intent(
-                    intent, state.budget, market_prices, sizing_model
-                )
+                if intent.kind is IntentKind.DELTA:
+                    quantity = IntentAllocator.size_intent(
+                        intent, state.budget, market_prices, sizing_model
+                    )
+                else:
+                    quantity = _target_delta(
+                        state,
+                        intent,
+                        market_prices,
+                        budget_prices,
+                        working,
+                        lots.get(intent.instrument),
+                        minimum_notionals.get(intent.instrument),
+                    )
             except SizingRefusedError as refusal:
                 events = events.append(
                     AllocationRejected(AllocationEngine._create_id(), timestamp, str(refusal))
                 )
                 continue
-            sized_deltas.append((intent.strategy_id, intent.instrument, quantity))
+            if intent.kind is not IntentKind.DELTA and quantity == 0:
+                # The strategy already holds its target, to the nearest lot.
+                continue
+            sized_deltas.append((intent.strategy_id, intent.instrument, intent.terms, quantity))
 
-        # 3. Netting
-        net_quantities = NettingEngine.net_quantities(sized_deltas)
-        contributions_by_asset = NettingEngine.contributions_by_asset(sized_deltas)
+        # 3. Netting, per asset and terms: only equal terms net (EXE-003).
+        net_quantities = NettingEngine.net_by_terms(sized_deltas)
+        contributions_by_key = NettingEngine.contributions_by_terms(sized_deltas)
 
         # 4. Enforce constraints & Budget Pre-check
         total_notional = Decimal("0.00")
         orders: list[OrderRequest] = []
+        # Long-only judges each order against the position the batch's earlier
+        # orders for the same asset leave, since one asset can now take two.
+        projected = dict(positions) if positions is not None else None
 
-        for asset_id, net_qty in net_quantities.items():
+        for (asset_id, terms), net_qty in net_quantities.items():
             if constraints.enforce_integer_quantities:
                 # Nearest unit, ties to even, before anything reads the quantity:
                 # long-only judges the order that will be sent.
@@ -164,11 +200,20 @@ class AllocationEngine:
 
             try:
                 validate_net_quantity(net_qty)
+                lot = lots.get(asset_id)
+                if lot is not None and not lot.admits(net_qty):
+                    raise AllocationValidationError(
+                        f"An order for {net_qty} of {asset_id} is not a whole number of its "
+                        f"{lot.lot_size} lots at or above {lot.minimum_quantity}; it is "
+                        "refused rather than rounded to an order nobody asked for."
+                    )
                 if not constraints.allow_shorting:
-                    if positions is None:
+                    if projected is None:
                         validate_net_quantity(net_qty, enforce_long_only=True)
                     else:
-                        validate_long_only(asset_id, net_qty, positions.get(asset_id, Decimal("0")))
+                        held = projected.get(asset_id, Decimal("0"))
+                        validate_long_only(asset_id, net_qty, held)
+                        projected[asset_id] = held + net_qty
             except AllocationValidationError as e:
                 events = events.append(
                     AllocationRejected(AllocationEngine._create_id(), timestamp, str(e))
@@ -205,7 +250,8 @@ class AllocationEngine:
                     quantity=abs_qty,
                     price=price,
                     timestamp=timestamp,
-                    contributions=contributions_by_asset.get(asset_id, ()),
+                    contributions=contributions_by_key.get((asset_id, terms), ()),
+                    terms=terms,
                 )
             )
 
@@ -310,6 +356,46 @@ class AllocationEngine:
 
     @staticmethod
     @in_accounting_context
+    def record_fill(
+        state: AllocationState, order_id: str, asset_id: str, signed_quantity: Decimal
+    ) -> AllocationState:
+        """Add a fill to the positions of the strategies that asked for its order.
+
+        The fill is divided by contribution --
+        :func:`~alphalab.core.contribution.split_by_contribution`, the rule
+        realized P&L is divided by -- so a strategy's position is its own share
+        of every order it took part in. Read the contributions before the order
+        is retired: an order with none (placed outside allocation) is nobody's,
+        and a run whose positions were never recorded (``None``) is left so.
+        """
+
+        positions = state.strategy_positions
+        contributions = state.contributions.get(order_id)
+        if positions is None or not contributions or signed_quantity == 0:
+            return state
+        for strategy_id, share in split_by_contribution(
+            signed_quantity, contributions, _POSITION_QUANTUM
+        ):
+            held = positions.get(strategy_id, PersistentMap())
+            total = held.get(asset_id, Decimal("0")) + share
+            positions = positions.set(strategy_id, held.set(asset_id, total))
+        return replace(state, strategy_positions=positions)
+
+    @staticmethod
+    def strategy_position(state: AllocationState, strategy_id: str, asset_id: str) -> Decimal:
+        """A strategy's own signed position in an asset; zero when it holds none.
+
+        Raises:
+            SizingRefusedError: If the run's positions were never recorded.
+        """
+
+        positions = state.strategy_positions
+        if positions is None:
+            raise SizingRefusedError(_UNRECORDED)
+        return positions.get(strategy_id, PersistentMap()).get(asset_id, Decimal("0"))
+
+    @staticmethod
+    @in_accounting_context
     def apply_execution(
         state: AllocationState,
         order_id: str,
@@ -388,3 +474,65 @@ class AllocationEngine:
             reservations=state.reservations.delete(order_id),
             events=state.events.append(evt),
         )
+
+
+#: The unit a fill is divided among strategies in for their positions; every
+#: part but the last is rounded to it and the last takes the remainder, so the
+#: parts sum to the fill exactly.
+_POSITION_QUANTUM: Final = Decimal("1E-12")
+
+_UNRECORDED: Final = (
+    "This run's per-strategy positions were not recorded -- it began before v3.11 -- so a "
+    "target cannot be measured against them; state a delta instead."
+)
+
+
+def _target_delta(
+    state: AllocationState,
+    intent: Intent,
+    market_prices: Mapping[str, Decimal],
+    budget_prices: Mapping[str, Decimal],
+    working: Mapping[tuple[str, str], Decimal],
+    lot: LotSpecification | None,
+    minimum_notional: Decimal | None,
+) -> Decimal:
+    """The signed quantity that takes a strategy from what it has to its target.
+
+    Raises:
+        SizingRefusedError: If the positions were never recorded, the asset has
+            no positive price, or the order is below the minimum notional.
+    """
+
+    held = AllocationEngine.strategy_position(state, intent.strategy_id, intent.instrument)
+    price = market_prices.get(intent.instrument, Decimal("0"))
+    if not price.is_finite() or price <= 0:
+        raise SizingRefusedError(
+            f"Cannot rebalance {intent.strategy_id} in {intent.instrument}: it has no positive "
+            f"price (got {price}), and a target is reached by an order that must be priced."
+        )
+    ctx = ACCOUNTING_CONTEXT
+    scale = ctx.multiply(intent.target, intent.strength)
+    if intent.kind is IntentKind.TARGET_QUANTITY:
+        target = scale
+    else:
+        capital = state.budget.available_strategy_capital(intent.strategy_id)
+        target = ctx.divide(
+            ctx.multiply(capital, scale), budget_prices.get(intent.instrument, price)
+        )
+    committed = ctx.add(held, working.get((intent.strategy_id, intent.instrument), Decimal("0")))
+    # Toward zero: a target is approached, never overshot by rounding.
+    delta = ctx.subtract(target, committed).quantize(
+        QUANTITY_QUANTUM, rounding=ROUND_DOWN, context=ctx
+    )
+    if lot is not None:
+        delta = round_down_to_lot(delta, lot)
+    if delta == 0:
+        return delta
+    notional = ctx.multiply(abs(delta), price)
+    if minimum_notional is not None and notional < minimum_notional:
+        raise SizingRefusedError(
+            f"Rebalancing {intent.strategy_id} to its target in {intent.instrument} needs "
+            f"{delta}, worth {notional}, below the {minimum_notional} minimum; it is refused "
+            "rather than scaled up."
+        )
+    return delta

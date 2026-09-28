@@ -51,10 +51,12 @@ from alphalab.data import (
 )
 from alphalab.data.time import BarStamp
 from alphalab.factor_library import (
+    Delisting,
     FeatureDefinition,
     FeatureField,
     FeatureKind,
     bucket_panel,
+    delisting_set_id,
     factor_decay,
     factor_exposure,
     factor_turnover,
@@ -88,6 +90,7 @@ from alphalab.research import (
     signal_diagnostics,
     walk_forward_splits,
 )
+from alphalab.research.study import canonical_study_key
 
 RETRIEVED_AT = 1_726_000_000.0
 PRODUCED_AT = 1_726_000_100.0
@@ -168,6 +171,7 @@ def study(dataset: Dataset) -> ResearchStudy:
         splits="walk_forward(mode=ROLLING,train=60,validation=20,test=20,step=20)",
         seed=SEED,
         notes="the v3.2 capability test",
+        implementation_lag=0,
     )
 
 
@@ -219,7 +223,7 @@ def test_a_study_refuses_a_dataset_it_was_not_written_for(
     elsewhere = replace(study, dataset_version="SOMETHING-ELSE@deadbeef")
 
     with pytest.raises(ResearchValidationError, match="was written for dataset"):
-        run_study(elsewhere, dataset)
+        run_study(elsewhere, dataset, delistings=())
 
 
 def test_a_study_over_an_unversioned_dataset_is_refused(study: ResearchStudy) -> None:
@@ -254,7 +258,7 @@ def test_a_study_over_an_unversioned_dataset_is_refused(study: ResearchStudy) ->
     assert unversioned.provenance is None
     assert not unversioned.is_versioned
     with pytest.raises(ResearchValidationError, match="carries no provenance"):
-        run_study(study, unversioned)
+        run_study(study, unversioned, delistings=())
 
 
 # --------------------------------------------------------------------------- #
@@ -265,7 +269,7 @@ def test_a_study_over_an_unversioned_dataset_is_refused(study: ResearchStudy) ->
 def test_a_study_runs_end_to_end_and_names_everything_it_used(
     dataset: Dataset, study: ResearchStudy
 ) -> None:
-    result = run_study(study, dataset, produced_at=PRODUCED_AT)
+    result = run_study(study, dataset, produced_at=PRODUCED_AT, delistings=())
 
     assert result.verify()
     assert result.dataset_version == study.dataset_version
@@ -282,8 +286,8 @@ def test_a_study_runs_end_to_end_and_names_everything_it_used(
 def test_the_result_reproduces_and_does_not_move_with_the_clock(
     dataset: Dataset, study: ResearchStudy
 ) -> None:
-    first = run_study(study, dataset, produced_at=PRODUCED_AT)
-    second = run_study(study, dataset, produced_at=PRODUCED_AT + 1_000_000.0)
+    first = run_study(study, dataset, produced_at=PRODUCED_AT, delistings=())
+    second = run_study(study, dataset, produced_at=PRODUCED_AT + 1_000_000.0, delistings=())
 
     assert first.result_id == second.result_id
     assert first.metrics == second.metrics
@@ -292,7 +296,7 @@ def test_the_result_reproduces_and_does_not_move_with_the_clock(
 def test_a_result_whose_numbers_were_edited_stops_verifying(
     dataset: Dataset, study: ResearchStudy
 ) -> None:
-    result = run_study(study, dataset, produced_at=PRODUCED_AT)
+    result = run_study(study, dataset, produced_at=PRODUCED_AT, delistings=())
     tampered = replace(result, metrics={**dict(result.metrics), "mom_20.h5.rank_ic": 0.99})
 
     assert result.verify()
@@ -301,7 +305,55 @@ def test_a_result_whose_numbers_were_edited_stops_verifying(
 
 def test_a_study_with_no_horizon_is_refused(dataset: Dataset, study: ResearchStudy) -> None:
     with pytest.raises(ResearchValidationError, match="declares no forward horizons"):
-        run_study(replace(study, horizons=()), dataset)
+        run_study(replace(study, horizons=()), dataset, delistings=())
+
+
+def test_a_study_with_no_implementation_lag_is_refused(
+    dataset: Dataset, study: ResearchStudy
+) -> None:
+    """v3.11 (DAT-003): the entry assumption is declared, never assumed."""
+
+    with pytest.raises(ResearchValidationError, match="declares no implementation_lag"):
+        run_study(replace(study, implementation_lag=None), dataset, delistings=())
+
+
+def test_the_lag_is_part_of_the_identity_and_of_the_numbers(
+    dataset: Dataset, study: ResearchStudy
+) -> None:
+    lagged = replace(study, implementation_lag=1)
+    assert lagged.study_id != study.study_id
+    assert canonical_study_key(lagged).endswith("\nimplementation_lag:1")
+    undeclared = replace(study, implementation_lag=None)
+    assert "implementation_lag" not in canonical_study_key(undeclared)
+
+    immediate = run_study(study, dataset, produced_at=PRODUCED_AT, delistings=())
+    delayed = run_study(lagged, dataset, produced_at=PRODUCED_AT, delistings=())
+    assert immediate.metrics["mom_20.h5.rank_ic"] != delayed.metrics["mom_20.h5.rank_ic"]
+    # OFE-006: the overlap-corrected t-statistic is a recorded metric.
+    assert "mom_20.h5.rank_ic_nw_t" in immediate.metrics
+
+
+def test_a_delisting_set_must_be_the_one_the_study_names(
+    dataset: Dataset, study: ResearchStudy
+) -> None:
+    """v3.11 (DAT-002): terminal returns are a versioned input, named in the identity."""
+
+    last = observe(dataset, FeatureField.CLOSE).timestamps[-1]
+    event = Delisting(SYMBOLS[0], last + 86_400.0, -1.0)
+
+    with pytest.raises(ResearchValidationError, match="names the delisting set None"):
+        run_study(study, dataset, delistings=(event,))
+
+    named = replace(study, inputs={"delistings": delisting_set_id((event,))})
+    measured = run_study(named, dataset, produced_at=PRODUCED_AT, delistings=(event,))
+    plain = run_study(study, dataset, produced_at=PRODUCED_AT, delistings=())
+    # SYM0's last five h5 windows now span its delisting and realize its terminal
+    # return, where before they silently dropped out of the sample.
+    assert measured.metrics["mom_20.h5.observations"] == plain.metrics["mom_20.h5.observations"] + 5
+    assert measured.result_id != plain.result_id
+
+    with pytest.raises(ResearchValidationError, match="was given None"):
+        run_study(named, dataset, delistings=())
 
 
 # --------------------------------------------------------------------------- #
@@ -315,7 +367,9 @@ def test_the_diagnostics_report_the_sample_every_number_rests_on(
     frame = observe(dataset, FeatureField.CLOSE)
     panel = study_panels(study, dataset)[MOMENTUM.feature_version]
 
-    measured = signal_diagnostics(panel, forward_returns(frame, 5), buckets=5, minimum_assets=5)
+    measured = signal_diagnostics(
+        panel, forward_returns(frame, 5, lag=0, delistings=()), buckets=5, minimum_assets=5
+    )
 
     assert measured.observations > 0
     assert measured.instants > 0
@@ -331,7 +385,7 @@ def test_a_decay_profile_shrinks_its_sample_as_the_horizon_grows(
     frame = observe(dataset, FeatureField.CLOSE)
     panel = study_panels(study, dataset)[MOMENTUM.feature_version]
 
-    profile = factor_decay(panel, frame, [1, 5, 20], minimum_assets=5)
+    profile = factor_decay(panel, frame, [1, 5, 20], minimum_assets=5, lag=0, delistings=())
     counts = profile.instants_by_horizon
 
     assert counts[1] > counts[5] > counts[20]
@@ -344,7 +398,7 @@ def test_delaying_the_signal_changes_the_measurement(
 
     frame = observe(dataset, FeatureField.CLOSE)
     panel = study_panels(study, dataset)[MOMENTUM.feature_version]
-    realized = forward_returns(frame, 5)
+    realized = forward_returns(frame, 5, lag=0, delistings=())
 
     baseline = signal_diagnostics(panel, realized, buckets=5, minimum_assets=5)
     delayed = signal_diagnostics(delay_signal(panel, 5), realized, buckets=5, minimum_assets=5)
@@ -389,7 +443,7 @@ def test_conditioning_by_a_caller_supplied_regime_slices_the_sample(
     }
 
     measured = conditional_diagnostics(
-        panel, forward_returns(frame, 5), regimes, buckets=5, minimum_assets=5
+        panel, forward_returns(frame, 5, lag=0, delistings=()), regimes, buckets=5, minimum_assets=5
     )
 
     assert sorted(measured) == ["first_half", "second_half"]
@@ -464,7 +518,7 @@ def test_a_sweep_and_a_stability_report_feed_one_overfitting_report(
     """Measurements, thresholds and findings, produced by the real pipeline."""
 
     frame = observe(dataset, FeatureField.CLOSE)
-    realized = forward_returns(frame, 5)
+    realized = forward_returns(frame, 5, lag=0, delistings=())
     instants = list(frame.timestamps)
 
     def evaluate(configuration: str) -> float:
@@ -524,7 +578,7 @@ def test_a_sweep_and_a_stability_report_feed_one_overfitting_report(
 def test_a_study_result_becomes_evidence_that_names_the_exact_data(
     dataset: Dataset, study: ResearchStudy
 ) -> None:
-    result = run_study(study, dataset, produced_at=PRODUCED_AT)
+    result = run_study(study, dataset, produced_at=PRODUCED_AT, delistings=())
 
     evidence = evidence_from_study(result, "strategy://v32@1", PRODUCED_AT)
 
@@ -538,7 +592,7 @@ def test_a_study_result_becomes_evidence_that_names_the_exact_data(
 def test_evidence_from_a_tampered_result_is_refused(dataset: Dataset, study: ResearchStudy) -> None:
     from alphalab.lifecycle.exceptions import LifecycleInputError
 
-    result = run_study(study, dataset, produced_at=PRODUCED_AT)
+    result = run_study(study, dataset, produced_at=PRODUCED_AT, delistings=())
     tampered = replace(result, metrics={**dict(result.metrics), "mom_20.h5.rank_ic": 9.99})
 
     with pytest.raises(LifecycleInputError, match="altered after it was recorded"):
@@ -546,7 +600,7 @@ def test_evidence_from_a_tampered_result_is_refused(dataset: Dataset, study: Res
 
 
 def test_a_policy_can_gate_a_promotion_on_a_study(dataset: Dataset, study: ResearchStudy) -> None:
-    result = run_study(study, dataset, produced_at=PRODUCED_AT)
+    result = run_study(study, dataset, produced_at=PRODUCED_AT, delistings=())
     evidence = evidence_from_study(result, "strategy://v32@1", PRODUCED_AT)
 
     generous = ValidationPolicy(

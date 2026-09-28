@@ -1,16 +1,23 @@
-"""Black-Scholes European option pricing and Greeks.
+"""Generalized Black-Scholes-Merton European option pricing and Greeks.
 
 Uses only the standard library (`math.erf` for the normal CDF) since AlphaLab has
 zero runtime dependencies -- no numpy or scipy. This is a European-style closed-form
 model; it does not account for early exercise premium on American contracts. Callers
 pricing American contracts should treat this as an approximation, consistent with
 `OptionContract.style` being informational rather than affecting this model.
+
+Every function takes the underlying's :class:`~alphalab.options.carry.Carry` --
+a dividend yield, a foreign rate or a futures contract's zero carry -- as a
+required keyword, since v3.11 (ledger NUM-005). ``carry=dividend_yield(0.0)``
+reproduces the v3.10 figures exactly: with ``b = r`` the generalized formula is
+the one this module computed before.
 """
 
 import math
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 
+from alphalab.options.carry import Carry
 from alphalab.options.contract import OptionContract
 from alphalab.options.enums import OptionType
 from alphalab.options.exceptions import OptionInputError
@@ -46,9 +53,9 @@ def time_to_expiry_years(contract: OptionContract, valuation_timestamp: float) -
 
 
 def _d1_d2(
-    spot: float, strike: float, rate: float, volatility: float, years: float
+    spot: float, strike: float, carry_rate: float, volatility: float, years: float
 ) -> tuple[float, float]:
-    d1 = (math.log(spot / strike) + (rate + 0.5 * volatility**2) * years) / (
+    d1 = (math.log(spot / strike) + (carry_rate + 0.5 * volatility**2) * years) / (
         volatility * math.sqrt(years)
     )
     d2 = d1 - volatility * math.sqrt(years)
@@ -61,8 +68,10 @@ def black_scholes_value(
     volatility: float,
     risk_free_rate: float,
     years: float,
+    *,
+    carry: Carry,
 ) -> float:
-    """The Black-Scholes value as a ``float``, before any rounding.
+    """The generalized Black-Scholes-Merton value as a ``float``, before any rounding.
 
     :func:`black_scholes_price` is this, quantized to four decimal places and
     floored at zero, and :mod:`alphalab.options.implied` inverts *this* rather
@@ -82,18 +91,25 @@ def black_scholes_value(
     """
 
     strike_f = float(contract.strike)
-    d1, d2 = _d1_d2(spot, strike_f, risk_free_rate, volatility, years)
+    carry_rate = carry.cost_of_carry(risk_free_rate)
+    d1, d2 = _d1_d2(spot, strike_f, carry_rate, volatility, years)
     discount = math.exp(-risk_free_rate * years)
+    carried = spot * math.exp((carry_rate - risk_free_rate) * years)
     if contract.option_type is OptionType.CALL:
-        return spot * _norm_cdf(d1) - strike_f * discount * _norm_cdf(d2)
-    return strike_f * discount * _norm_cdf(-d2) - spot * _norm_cdf(-d1)
+        return carried * _norm_cdf(d1) - strike_f * discount * _norm_cdf(d2)
+    return strike_f * discount * _norm_cdf(-d2) - carried * _norm_cdf(-d1)
 
 
-def _validate_pricing_inputs(spot: Decimal, volatility: float) -> None:
+def _validate_pricing_inputs(spot: Decimal, volatility: float, carry: Carry) -> None:
     if spot <= Decimal("0"):
         raise OptionInputError(f"spot must be positive, got {spot}.")
     if volatility <= 0.0:
         raise OptionInputError(f"volatility must be positive, got {volatility}.")
+    if not isinstance(carry, Carry):
+        raise OptionInputError(
+            f"carry must be a Carry -- dividend_yield(q), foreign_rate(r_f) or "
+            f"FUTURES_CARRY -- got {carry!r}."
+        )
 
 
 def black_scholes_price(
@@ -102,18 +118,27 @@ def black_scholes_price(
     volatility: float,
     risk_free_rate: float,
     valuation_timestamp: float,
+    *,
+    carry: Carry,
 ) -> Decimal:
-    """Computes the Black-Scholes theoretical price of one contract's underlying share.
+    """Computes the theoretical price of one contract's underlying share.
 
     Multiply the result by `contract.multiplier` for the total per-contract premium.
 
+    Args:
+        carry: What holding the underlying earns or costs. Required: a
+            dividend-free stock is ``dividend_yield(0.0)``, said out loud.
+
     Raises:
-        OptionInputError: If spot or volatility are not positive, or the contract
-            has already expired as of valuation_timestamp.
+        OptionInputError: If spot or volatility are not positive, the carry is
+            not a :class:`~alphalab.options.carry.Carry`, or the contract has
+            already expired as of valuation_timestamp.
     """
-    _validate_pricing_inputs(spot, volatility)
+    _validate_pricing_inputs(spot, volatility, carry)
     years = time_to_expiry_years(contract, valuation_timestamp)
-    price = black_scholes_value(contract, float(spot), volatility, risk_free_rate, years)
+    price = black_scholes_value(
+        contract, float(spot), volatility, risk_free_rate, years, carry=carry
+    )
     return Decimal(str(max(price, 0.0))).quantize(_PRICE_QUANT, rounding=ROUND_HALF_EVEN)
 
 
@@ -123,39 +148,53 @@ def black_scholes_greeks(
     volatility: float,
     risk_free_rate: float,
     valuation_timestamp: float,
+    *,
+    carry: Carry,
 ) -> Greeks:
-    """Computes Black-Scholes Greeks for one contract's underlying share.
+    """Computes generalized Black-Scholes-Merton Greeks for one contract's underlying share.
 
     theta is expressed per calendar day; delta, gamma, vega, and rho are expressed
     per unit (i.e. per $1 of underlying, per 1.0 of volatility, per 1.0 of rate).
 
+    Rho is the sensitivity to the domestic rate with the carry's *yield* held
+    fixed -- a dividend yield or a foreign rate stays put while the rate moves --
+    and for a futures contract, whose carry is zero at any rate, it is ``-T``
+    times the value.
+
     Raises:
-        OptionInputError: If spot or volatility are not positive, or the contract
-            has already expired as of valuation_timestamp.
+        OptionInputError: If spot or volatility are not positive, the carry is
+            not a :class:`~alphalab.options.carry.Carry`, or the contract has
+            already expired as of valuation_timestamp.
     """
-    _validate_pricing_inputs(spot, volatility)
+    _validate_pricing_inputs(spot, volatility, carry)
     years = time_to_expiry_years(contract, valuation_timestamp)
 
     spot_f, strike_f = float(spot), float(contract.strike)
-    d1, d2 = _d1_d2(spot_f, strike_f, risk_free_rate, volatility, years)
+    carry_rate = carry.cost_of_carry(risk_free_rate)
+    d1, d2 = _d1_d2(spot_f, strike_f, carry_rate, volatility, years)
     discount = math.exp(-risk_free_rate * years)
+    carry_discount = math.exp((carry_rate - risk_free_rate) * years)
     pdf_d1 = _norm_pdf(d1)
 
-    gamma = pdf_d1 / (spot_f * volatility * math.sqrt(years))
-    vega = spot_f * pdf_d1 * math.sqrt(years)
+    gamma = carry_discount * pdf_d1 / (spot_f * volatility * math.sqrt(years))
+    vega = spot_f * carry_discount * pdf_d1 * math.sqrt(years)
+    decay = -(spot_f * carry_discount * pdf_d1 * volatility) / (2.0 * math.sqrt(years))
+    yield_drag = (carry_rate - risk_free_rate) * spot_f * carry_discount
+    strike_carry = risk_free_rate * strike_f * discount
 
     if contract.option_type is OptionType.CALL:
-        delta = _norm_cdf(d1)
-        theta_per_year = -(spot_f * pdf_d1 * volatility) / (
-            2.0 * math.sqrt(years)
-        ) - risk_free_rate * strike_f * discount * _norm_cdf(d2)
+        delta = carry_discount * _norm_cdf(d1)
+        theta_per_year = decay - yield_drag * _norm_cdf(d1) - strike_carry * _norm_cdf(d2)
         rho = strike_f * years * discount * _norm_cdf(d2)
     else:
-        delta = _norm_cdf(d1) - 1.0
-        theta_per_year = -(spot_f * pdf_d1 * volatility) / (
-            2.0 * math.sqrt(years)
-        ) + risk_free_rate * strike_f * discount * _norm_cdf(-d2)
+        delta = carry_discount * (_norm_cdf(d1) - 1.0)
+        theta_per_year = decay + yield_drag * _norm_cdf(-d1) + strike_carry * _norm_cdf(-d2)
         rho = -strike_f * years * discount * _norm_cdf(-d2)
+
+    if not carry.moves_with_rate:
+        rho = -years * black_scholes_value(
+            contract, spot_f, volatility, risk_free_rate, years, carry=carry
+        )
 
     return Greeks(
         delta=delta,

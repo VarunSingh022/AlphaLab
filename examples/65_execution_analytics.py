@@ -131,6 +131,7 @@ from alphalab.execution import (
     start_algorithm,
     venue_quality,
 )
+from alphalab.execution.costs import FREE
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.lifecycle import (
     ReconciliationTolerances,
@@ -240,7 +241,7 @@ def _morning() -> Morning:
     marks: list[TimelineMark] = []
     midpoints: dict[str, Decimal] = {}
     outcomes: list[OrderOutcome] = []
-    broker = ScriptedVenue()
+    broker = ScriptedVenue(FREE)
     venue = connected_venue(VENUE, DESK_CASH)
     children = ChildOrderBindings()
 

@@ -111,7 +111,9 @@ def _populated() -> tuple[ExecutionPipelineState, RuntimeObjects, tuple[Any, ...
         routing=ExecutionRouting.EXTERNAL,
         instruments=InstrumentRegistry(),
     )
-    state = ExecutionPipeline.initialize(config, running_strategy_state(STRATEGY_ID, strategy), 1.0)
+    state = ExecutionPipeline.initialize(
+        config, running_strategy_state(STRATEGY_ID, strategy, frozenset({"quotes"})), 1.0
+    )
     for timestamp in (2.0, 3.0, 4.0, 5.0):
         state = ExecutionPipeline.process_quote(
             state, sized_quote(ASSET_ID, timestamp, Decimal("100"), Decimal("100")), context_factory
@@ -195,15 +197,16 @@ def test_the_state_under_test_exercises_every_durable_field() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_constant_is_four() -> None:
-    """Moved three times: v2.10 for the strategy-state field (ADR-0025 decision
+def test_the_schema_constant_is_five() -> None:
+    """Moved four times: v2.10 for the strategy-state field (ADR-0025 decision
     8), v2.17 for the two configuration fields settlement-level multi-currency
     added (ADR-0035), and v3.10 for the account's minor units and each report's
-    analytics basis. Every earlier version is upgraded by
+    analytics basis, and v3.11 for a bar's interval code (DAT-005). Every
+    earlier version is upgraded by
     ``PIPELINE_SCHEMA_HISTORY`` rather than refused.
     """
 
-    assert PIPELINE_SNAPSHOT_SCHEMA == 4
+    assert PIPELINE_SNAPSHOT_SCHEMA == 5
 
 
 def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
@@ -214,7 +217,7 @@ def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
     source = inspect.getsource(pipeline_snapshot)
 
     assert not hasattr(pipeline_snapshot, "DEFAULT_SCHEMA_VERSION")
-    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 4" in source
+    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 5" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -222,7 +225,7 @@ def test_capture_declares_the_version() -> None:
     state, _, _ = _state()
 
     assert capture(state).schema_version == PIPELINE_SNAPSHOT_SCHEMA
-    assert _payload(state)["schema_version"] == 4
+    assert _payload(state)["schema_version"] == 5
 
 
 def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
@@ -236,7 +239,7 @@ def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
         from_primitives(payload)
 
 
-@pytest.mark.parametrize("version", [5, 99, 0, -1])
+@pytest.mark.parametrize("version", [6, 99, 0, -1])
 def test_an_unreadable_version_is_refused_naming_it(version: int) -> None:
     state, _, _ = _state()
     payload = _payload(state)
@@ -259,7 +262,7 @@ def test_a_malformed_version_is_refused(version: object) -> None:
 def test_the_refusal_names_the_pipeline_subsystem() -> None:
     state, _, _ = _state()
     payload = _payload(state)
-    payload["schema_version"] = 5
+    payload["schema_version"] = 6
 
     with pytest.raises(StateDecodeError) as excinfo:
         from_primitives(payload)
@@ -347,6 +350,7 @@ def test_the_strategy_runtime_metadata_survives_without_its_instance() -> None:
     assert decoded.status is original.status is LifecycleState.RUNNING
     assert decoded.config == original.config
     assert decoded.subscriptions == original.subscriptions == frozenset({"quotes"})
+    assert decoded.started == original.started
     assert decoded.last_error == original.last_error
     assert decoded.instance is objects.strategies[STRATEGY_ID], "the caller's object, not a copy"
 
@@ -396,11 +400,11 @@ def test_the_nested_snapshots_declare_their_own_versions() -> None:
 @pytest.mark.parametrize(
     ("subsystem", "error", "match"),
     [
-        ("allocation", StateDecodeError, "allocation snapshot declares schema version 2"),
+        ("allocation", StateDecodeError, "allocation snapshot declares schema version 3"),
         # The OMS decoder raises its own error type, which every OMS caller
         # catches; v2.9 deliberately kept that rather than flattening a nested
         # failure into an opaque pipeline one.
-        ("oms", OMSSnapshotDecodeError, "oms snapshot declares schema version 2"),
+        ("oms", OMSSnapshotDecodeError, "oms snapshot declares schema version 3"),
         ("portfolio", StateDecodeError, "portfolio snapshot declares schema version 5"),
     ],
 )
@@ -973,7 +977,10 @@ def test_every_strategy_state_field_is_carried_or_supplied() -> None:
     from alphalab.strategy.state import StrategyState
 
     carried = {field.name for field in fields(StrategyRecord)}
-    missing = {field.name for field in fields(StrategyState)} - carried - {"instance"}
+    # ``routing`` is derived from ``subscriptions`` on construction, not carried.
+    derived = {field.name for field in fields(StrategyState) if not field.init}
+    assert derived == {"routing"}
+    missing = {field.name for field in fields(StrategyState)} - carried - {"instance"} - derived
 
     assert not missing, f"StrategyState fields absent from StrategyRecord: {sorted(missing)}"
     assert "instance_type" in carried

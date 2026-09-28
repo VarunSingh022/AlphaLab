@@ -67,8 +67,9 @@ The order of a step, and why
 How fills arrive is not this module's business
 ----------------------------------------------
 
-:meth:`~alphalab.broker.venue.RestVenueBroker.poll_executions` is deliberately
-not part of :class:`~alphalab.broker.protocol.BrokerProtocol` -- "how fills
+A pull-based adapter's ``poll_executions`` (the reference REST adapter in the
+test suite has one) is deliberately not part of
+:class:`~alphalab.broker.protocol.BrokerProtocol` -- "how fills
 arrive is a venue's business", and a push-based venue delivers the same
 :class:`~alphalab.broker.execution.BrokerExecution` values with no polling at
 all. So :meth:`LiveSession.advance` *takes* the executions that arrived, and the
@@ -110,17 +111,32 @@ from alphalab.broker.reconciliation import (
     ReconciliationLog,
     apply_execution,
 )
+from alphalab.broker.requests import (
+    CancelRequest,
+    ModifyRequest,
+    RequestDecision,
+    RequestLedger,
+    issue_cancel,
+    issue_modify,
+)
 from alphalab.broker.state import BrokerState, ConnectionStatus
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.arithmetic import in_accounting_context
+from alphalab.core.capabilities import CompatibilityReport
 from alphalab.core.fill import Fill as CoreFill
+from alphalab.execution.algorithms import ChildOrder
 from alphalab.market.record import MarketRecord
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order as OMSOrder
+from alphalab.portfolio.fx import NO_RATES, FxRates
 from alphalab.runtime.broker_routing import (
+    ChildOrderBindings,
+    ChildRoutingResult,
     RoutingConfig,
     RoutingDecision,
     RoutingRefusal,
     apply_broker_execution,
+    route_child_order,
     route_order,
 )
 from alphalab.runtime.exceptions import RuntimeValidationError
@@ -229,6 +245,18 @@ class LiveRunState:
         reconciliation: Every fill the broker layer refused, kept so none is lost.
         routed: Every routing attempt this run has made, in order.
         settled: Every returning fill this run has seen, in order.
+        children: Which venue handles are an execution algorithm's children, and
+            of which OMS order (:meth:`LiveSession.route_child`). Held here since
+            v3.11 rather than by the caller, and rebuilt exactly from the mirror
+            on restore: every child handle names its parent.
+        requests: Every cancel and amendment this run has issued
+            (:meth:`LiveSession.cancel`, :meth:`LiveSession.amend`), so a retry
+            is recognised as one -- across a restart too, since v3.11 persists
+            it with the live envelope.
+        held: The OMS orders an execution algorithm works (:meth:`LiveSession.hold`):
+            never routed whole, only ever through their children. Since v3.11,
+            and persisted: a restarted run that forgot a hold would send the
+            parent whole on its next step.
     """
 
     run: RunState
@@ -238,6 +266,9 @@ class LiveRunState:
     reconciliation: ReconciliationLog = field(default_factory=ReconciliationLog)
     routed: AppendOnlyLog[RoutedOrder] = field(default_factory=AppendOnlyLog)
     settled: AppendOnlyLog[SettledExecution] = field(default_factory=AppendOnlyLog)
+    children: ChildOrderBindings = field(default_factory=ChildOrderBindings)
+    requests: RequestLedger = field(default_factory=RequestLedger)
+    held: frozenset[str] = frozenset()
 
     @property
     def connected(self) -> bool:
@@ -245,29 +276,45 @@ class LiveRunState:
 
         return self.broker.connection_status.can_trade
 
+    def _at_venue(self, order: OMSOrder) -> bool:
+        order_id = str(order.order_id.value)
+        return self.mapping.broker_id_for(order_id) is not None or bool(
+            self.children.children_of(order_id)
+        )
+
     @property
     def unrouted_orders(self) -> tuple[OMSOrder, ...]:
-        """Working orders the venue does not hold yet.
+        """Working orders to be sent whole that the venue does not hold yet.
 
-        Read from the OMS and the mapping rather than stored again, so the run
-        and its venue binding cannot disagree about what is outstanding.
+        Read from the OMS, the mapping and the algorithm bindings rather than
+        stored again, so the run and its venue binding cannot disagree about
+        what is outstanding. A parent an execution algorithm is working in
+        children is at the venue: until v3.11 the bindings were the caller's,
+        this property could not see them, and :meth:`LiveSession.advance` would
+        have sent the whole parent as well. A parent :attr:`held` for an
+        algorithm is not to be sent whole at all, children or none (ledger
+        LIV-001).
         """
 
         return tuple(
             order
             for order in self.run.working_orders
-            if self.mapping.broker_id_for(str(order.order_id.value)) is None
+            if not self._at_venue(order) and str(order.order_id.value) not in self.held
+        )
+
+    @property
+    def held_orders(self) -> tuple[OMSOrder, ...]:
+        """Working orders held for an execution algorithm, whether or not a child is out yet."""
+
+        return tuple(
+            order for order in self.run.working_orders if str(order.order_id.value) in self.held
         )
 
     @property
     def orders_at_venue(self) -> tuple[OMSOrder, ...]:
-        """Working orders already bound to a venue handle."""
+        """Working orders the venue holds: bound to a handle, or worked in children."""
 
-        return tuple(
-            order
-            for order in self.run.working_orders
-            if self.mapping.broker_id_for(str(order.order_id.value)) is not None
-        )
+        return tuple(order for order in self.run.working_orders if self._at_venue(order))
 
     @property
     def open_breaks(self) -> tuple[ExecutionDecision, ...]:
@@ -317,6 +364,7 @@ class LiveSession:
     """
 
     @staticmethod
+    @in_accounting_context
     def initialize(
         config: RunConfig,
         strategy_state: StrategyRuntimeState,
@@ -348,6 +396,7 @@ class LiveSession:
         )
 
     @staticmethod
+    @in_accounting_context
     def connect(
         state: LiveRunState, broker: BrokerProtocol, timestamp: float
     ) -> tuple[LiveRunState, tuple[BrokerEvent, ...]]:
@@ -357,6 +406,7 @@ class LiveSession:
         return replace(state, broker=broker_state), events
 
     @staticmethod
+    @in_accounting_context
     def disconnect(
         state: LiveRunState, broker: BrokerProtocol, reason: str, timestamp: float
     ) -> tuple[LiveRunState, tuple[BrokerEvent, ...]]:
@@ -371,10 +421,19 @@ class LiveSession:
         return replace(state, broker=broker_state), events
 
     @staticmethod
+    @in_accounting_context
     def settle(
-        state: LiveRunState, executions: Iterable[BrokerExecution]
+        state: LiveRunState,
+        executions: Iterable[BrokerExecution],
+        rates: FxRates = NO_RATES,
     ) -> tuple[LiveRunState, tuple[SettledExecution, ...]]:
         """Apply the fills the venue has reported, through the canonical path.
+
+        ``rates`` reaches the portfolio with each fill, exactly as
+        :meth:`~alphalab.runtime.run.RunEngine.advance` passes it to a simulated
+        one, and is read only when the book holds more than one currency. Until
+        v3.11 it was not taken here, so a multi-currency live run could not
+        settle a fill denominated in a foreign currency (ledger EXE-009).
 
         **Two ledgers, two questions, and they are not the same question.**
         :attr:`~alphalab.broker.state.BrokerState.executions` answers "has the
@@ -383,8 +442,9 @@ class LiveSession:
         *portfolio* booked it?". Both are keyed by ``execution_id`` and both
         refuse their own repeat, and a fill can be in one and not the other --
         which is the normal case, not an edge one:
-        :meth:`~alphalab.broker.venue.RestVenueBroker.poll_executions` applies
-        every fill it fetches to the broker state before returning it, so by the
+        an adapter's poll -- the reference REST adapter's ``poll_executions``,
+        for one -- applies every fill it fetches to the broker state before
+        returning it, so by the
         time a caller hands it here the venue-side ledger already holds it and
         the portfolio has never seen it.
 
@@ -426,7 +486,7 @@ class LiveSession:
                 continue
 
             pipeline, fills, _trades = apply_broker_execution(
-                current.run.pipeline, oms_order, execution, current.routing
+                current.run.pipeline, oms_order, execution, current.routing, rates
             )
             current = replace(current, run=replace(current.run, pipeline=pipeline))
             outcomes.append(SettledExecution(execution, decision, fills))
@@ -435,6 +495,7 @@ class LiveSession:
         return replace(current, settled=current.settled.extend(settled)), settled
 
     @staticmethod
+    @in_accounting_context
     def route_working_orders(
         state: LiveRunState, broker: BrokerProtocol, timestamp: float
     ) -> tuple[LiveRunState, tuple[RoutedOrder, ...], tuple[BrokerEvent, ...]]:
@@ -480,6 +541,7 @@ class LiveSession:
         )
 
     @staticmethod
+    @in_accounting_context
     def advance(
         state: LiveRunState,
         record: MarketRecord,
@@ -487,13 +549,24 @@ class LiveSession:
         broker: BrokerProtocol,
         now: float | None = None,
         executions: Sequence[BrokerExecution] = (),
+        rates: FxRates = NO_RATES,
+        *,
+        route: bool = True,
     ) -> tuple[LiveRunState, LiveStep]:
         """One whole live step: settle what came back, advance, route what is new.
 
         ``executions`` are the fills that arrived since the last step, from
         wherever the venue delivers them. ``now`` is the session's clock, used
         by the staleness gate and as the timestamp routing is recorded at; it
-        defaults to the record's own timestamp.
+        defaults to the record's own timestamp. ``rates`` is the FX table the
+        step's fills and marks are converted at -- the settled venue fills and
+        the run step alike.
+
+        ``route=False`` stops the step before routing, so the caller can decide
+        about the orders it created first -- :meth:`hold` the ones an execution
+        algorithm is to work, then :meth:`route_working_orders` for the rest.
+        Until v3.11 there was no such pause: the step that created an order sent
+        it whole, before any algorithm could be bound to it (ledger LIV-001).
 
         The order is the contract, and it is the same one the execution step
         keeps: what is already known is applied before anything is dispatched.
@@ -502,12 +575,182 @@ class LiveSession:
 
         clock = now if now is not None else record.timestamp
 
-        current, settled = LiveSession.settle(state, executions)
-        run_state, result = RunEngine.advance(current.run, record, context_factory, now)
+        current, settled = LiveSession.settle(state, executions, rates)
+        run_state, result = RunEngine.advance(current.run, record, context_factory, now, rates)
         current = replace(current, run=run_state)
+        if not route:
+            return current, LiveStep(settled=settled, routed=(), result=result, events=())
         current, routed, events = LiveSession.route_working_orders(current, broker, clock)
 
         return current, LiveStep(settled=settled, routed=routed, result=result, events=events)
+
+    @staticmethod
+    @in_accounting_context
+    def stop(
+        state: LiveRunState,
+        broker: BrokerProtocol,
+        context_factory: ContextFactory,
+        now: float,
+        rates: FxRates = NO_RATES,
+        strategy_ids: Iterable[str] | None = None,
+        *,
+        route: bool = True,
+    ) -> tuple[LiveRunState, tuple[RoutedOrder, ...], tuple[BrokerEvent, ...]]:
+        """Stop strategies and send what their ``on_shutdown`` asked for.
+
+        :meth:`~alphalab.runtime.run.RunEngine.stop` at ``now``, then
+        :meth:`route_working_orders`, so a strategy flattening itself as it
+        stops has its orders at the venue in the same call. Nothing else is
+        cancelled: orders already at the venue stay there, as they do on
+        :meth:`disconnect`. ``route=False`` leaves the routing to the caller, as
+        for :meth:`advance`.
+        """
+
+        current = replace(
+            state, run=RunEngine.stop(state.run, context_factory, now, rates, strategy_ids)
+        )
+        if not route:
+            return current, (), ()
+        return LiveSession.route_working_orders(current, broker, now)
+
+    @staticmethod
+    @in_accounting_context
+    def close_slice(
+        state: LiveRunState,
+        broker: BrokerProtocol,
+        context_factory: ContextFactory,
+        now: float,
+        rates: FxRates = NO_RATES,
+        *,
+        route: bool = True,
+    ) -> tuple[LiveRunState, tuple[RoutedOrder, ...], tuple[BrokerEvent, ...]]:
+        """Close the instant of the last record, and send what the strategies ask for.
+
+        :meth:`~alphalab.runtime.run.RunEngine.close_slice`, then
+        :meth:`route_working_orders` at ``now``. A live session cannot know an
+        instant is complete by looking ahead, so the caller says when -- at a
+        bar's close, say, once every instrument's bar is in (ledger EXE-004). A
+        slice is closed once, so a session restarted inside an instant does not
+        decide on it twice. ``route=False`` leaves the routing to the caller, as
+        for :meth:`advance`.
+        """
+
+        current = replace(state, run=RunEngine.close_slice(state.run, context_factory, rates))
+        if not route:
+            return current, (), ()
+        return LiveSession.route_working_orders(current, broker, now)
+
+    @staticmethod
+    @in_accounting_context
+    def hold(state: LiveRunState, order_ids: Iterable[str]) -> LiveRunState:
+        """Mark working orders as an execution algorithm's to work: never sent whole.
+
+        A held order reaches the venue only as the children
+        :meth:`route_child` sends for it; :meth:`route_working_orders` passes
+        over it, now and after a restart, since the hold is persisted. Call it
+        between an :meth:`advance` with ``route=False`` and the routing of the
+        rest (ledger LIV-001).
+
+        Raises:
+            RuntimeValidationError: If an id names no working order of this run,
+                or an order the venue already holds whole -- a hold cannot
+                recall what has been sent.
+        """
+
+        working = {str(order.order_id.value): order for order in state.run.working_orders}
+        held = set(state.held)
+        for order_id in order_ids:
+            order = working.get(order_id)
+            if order is None:
+                raise RuntimeValidationError(
+                    f"Order {order_id!r} is not a working order of this run, so there is "
+                    "nothing for an execution algorithm to work."
+                )
+            if state.mapping.broker_id_for(order_id) is not None:
+                raise RuntimeValidationError(
+                    f"Order {order_id!r} is already at the venue whole; holding it now "
+                    "would not recall it, and working it in children as well would "
+                    "double it."
+                )
+            held.add(order_id)
+        return replace(state, held=frozenset(held))
+
+    @staticmethod
+    @in_accounting_context
+    def route_child(
+        state: LiveRunState,
+        broker: BrokerProtocol,
+        parent: OMSOrder,
+        child: ChildOrder,
+        timestamp: float,
+        *,
+        capability: CompatibilityReport | None,
+    ) -> tuple[LiveRunState, ChildRoutingResult]:
+        """Send one execution-algorithm child for ``parent``, through the run's own bindings.
+
+        :func:`~alphalab.runtime.broker_routing.route_child_order` with the run's
+        mapping, bindings and routing, so a child bound here is one a restored
+        run knows about. Every gate is that function's; a refusal changes nothing.
+        """
+
+        result = route_child_order(
+            state.broker,
+            broker,
+            parent,
+            child,
+            timestamp,
+            mapping=state.mapping,
+            children=state.children,
+            config=state.routing,
+            capability=capability,
+        )
+        return replace(state, broker=result.broker_state, children=result.children), result
+
+    @staticmethod
+    @in_accounting_context
+    def cancel(
+        state: LiveRunState, broker: BrokerProtocol, request: CancelRequest
+    ) -> tuple[LiveRunState, RequestDecision, tuple[BrokerEvent, ...]]:
+        """Ask the venue to cancel an order -- once, however often this is retried.
+
+        :func:`~alphalab.broker.requests.issue_cancel` decides against the run's
+        request ledger, and only a ``NEW`` request reaches the adapter's
+        ``cancel_order``. A retry of the same attempt is a ``DUPLICATE`` and
+        sends nothing, before and after a restart alike.
+        """
+
+        broker_state, ledger, decision = issue_cancel(state.broker, state.requests, request)
+        events: tuple[BrokerEvent, ...] = ()
+        if decision.send:
+            broker_state, events = broker.cancel_order(
+                broker_state, request.broker_order_id, request.requested_at
+            )
+        return replace(state, broker=broker_state, requests=ledger), decision, events
+
+    @staticmethod
+    @in_accounting_context
+    def amend(
+        state: LiveRunState, broker: BrokerProtocol, request: ModifyRequest
+    ) -> tuple[LiveRunState, RequestDecision, tuple[BrokerEvent, ...]]:
+        """Ask the venue to amend an order's quantity and price -- once per revision.
+
+        :func:`~alphalab.broker.requests.issue_modify` decides against the run's
+        request ledger, and only a ``NEW`` request reaches the adapter's
+        ``replace_order``. Whether the venue can amend in place at all is the
+        caller's capability check, as ``issue_modify`` documents.
+        """
+
+        broker_state, ledger, decision = issue_modify(state.broker, state.requests, request)
+        events: tuple[BrokerEvent, ...] = ()
+        if decision.send:
+            broker_state, events = broker.replace_order(
+                broker_state,
+                request.broker_order_id,
+                request.quantity,
+                request.price,
+                request.requested_at,
+            )
+        return replace(state, broker=broker_state, requests=ledger), decision, events
 
     @staticmethod
     def resume(state: LiveRunState) -> object:
@@ -522,6 +765,7 @@ class LiveSession:
         return RunEngine.resume(state.run)
 
     @staticmethod
+    @in_accounting_context
     def finalize(state: LiveRunState) -> LiveRunState:
         """Close the run out. The venue binding is left exactly as it is.
 

@@ -21,6 +21,7 @@ from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, plain
+from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.core.enums import OrderStatus, OrderType, Side
 from alphalab.core.lifecycle import (
     WORKING_ORDER_STATUSES,
@@ -33,7 +34,22 @@ from alphalab.oms.ids import OrderId
 
 @dataclass(frozen=True, slots=True)
 class Order:
-    """Immutable snapshot of a market order and its lifecycle state."""
+    """Immutable snapshot of an order and its lifecycle state.
+
+    ``order_type``, ``limit_price`` and ``stop_price`` were fields from the start
+    and were always ``MARKET``, ``None`` and ``None`` on the canonical path until
+    v3.11, when an order began carrying the
+    :class:`~alphalab.common.order_terms.OrderTerms` it was asked with (ledger
+    EXE-003). The three fields after ``metadata`` are v3.11's.
+
+    Attributes:
+        time_in_force: How long it works. See
+            :class:`~alphalab.common.order_terms.TimeInForce`.
+        expire_at: When a good-til-date order -- or a day order whose session
+            close was supplied -- stops working.
+        triggered_at: When a stop-limit order's stop was reached; ``None`` until
+            it is. A triggered stop-limit order works as a limit order.
+    """
 
     order_id: OrderId
     strategy_id: str
@@ -54,6 +70,21 @@ class Order:
     updated_at: float
 
     metadata: Mapping[str, str] = field(default_factory=dict)
+    time_in_force: TimeInForce = TimeInForce.DAY
+    expire_at: float | None = None
+    triggered_at: float | None = None
+
+    @property
+    def terms(self) -> OrderTerms:
+        """The terms the order was asked with."""
+
+        return OrderTerms(
+            self.order_type,
+            self.limit_price,
+            self.stop_price,
+            self.time_in_force,
+            self.expire_at,
+        )
 
     @property
     def is_open(self) -> bool:

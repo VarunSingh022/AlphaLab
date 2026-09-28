@@ -28,16 +28,24 @@ exceeded.
 The multiple-testing correction, and its assumption
 ---------------------------------------------------
 
-:attr:`OverfittingReport.bonferroni_alpha` is the only correction offered, and
-it is offered because it is the only one whose assumption can be stated in one
-line: for ``k`` configurations tried, a nominal significance of ``alpha``
-becomes ``alpha / k``. It is conservative when the trials are correlated --
-which, for a parameter sweep over neighbouring windows, they strongly are --
-and the report says so rather than leaving a reader to assume otherwise. A
-Šidák or a false-discovery-rate correction needs distributional assumptions
-this module cannot check, and a deflated Sharpe ratio needs the variance of the
-trial statistics *and* an assumption of normality that daily returns do not
-satisfy.
+:attr:`OverfittingReport.bonferroni_alpha` is the correction this report
+carries, because it is the one whose assumption can be stated in one line: for
+``k`` configurations tried, a nominal significance of ``alpha`` becomes
+``alpha / k``. It is conservative when the trials are correlated -- which, for
+a parameter sweep over neighbouring windows, they strongly are -- and the
+report says so rather than leaving a reader to assume otherwise.
+
+Since v3.11 (ledger OFE-005) the others exist beside it, each with the
+assumption it needs stated rather than skipped:
+:mod:`alphalab.research.multiple_testing` adjusts a family of p-values by Holm
+(the same assumption as Bonferroni, never less powerful), Benjamini-Hochberg
+(positive dependence) or Benjamini-Yekutieli (any dependence), and
+:mod:`alphalab.research.sharpe_inference` computes the probabilistic Sharpe
+ratio -- corrected for skewness and kurtosis, so the normality objection no
+longer applies, though independence of returns is still assumed -- and the
+deflated Sharpe ratio of the best of ``N`` trials. The report computes no
+p-values itself; those modules do, from the returns and the trials a caller
+holds.
 
 What ``trials`` must count
 --------------------------

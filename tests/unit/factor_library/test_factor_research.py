@@ -287,7 +287,9 @@ def _perfect_panel_and_returns(
 def test_a_perfect_predictor_reports_a_rank_ic_of_one() -> None:
     panel, frame = _perfect_panel_and_returns()
 
-    result = information_coefficient(panel, forward_returns(frame, 1), minimum_assets=3)
+    result = information_coefficient(
+        panel, forward_returns(frame, 1, lag=0, delistings=()), minimum_assets=3
+    )
 
     assert result.mean_rank == pytest.approx(1.0)
     assert result.hit_rate == pytest.approx(1.0)
@@ -298,7 +300,9 @@ def test_a_perfect_predictor_reports_a_rank_ic_of_one() -> None:
 def test_the_ic_reports_the_sample_it_was_measured_on() -> None:
     panel, frame = _perfect_panel_and_returns()
 
-    result = information_coefficient(panel, forward_returns(frame, 1), minimum_assets=3)
+    result = information_coefficient(
+        panel, forward_returns(frame, 1, lag=0, delistings=()), minimum_assets=3
+    )
 
     assert result.horizon == 1
     assert result.minimum_assets == 3
@@ -309,7 +313,9 @@ def test_the_ic_reports_the_sample_it_was_measured_on() -> None:
 def test_a_cross_section_below_the_threshold_is_counted_not_averaged_in() -> None:
     panel, frame = _perfect_panel_and_returns(assets=4)
 
-    result = information_coefficient(panel, forward_returns(frame, 1), minimum_assets=10)
+    result = information_coefficient(
+        panel, forward_returns(frame, 1, lag=0, delistings=()), minimum_assets=10
+    )
 
     assert result.instants_measured == 0
     assert result.instants_skipped > 0
@@ -322,7 +328,9 @@ def test_a_cross_section_below_the_threshold_is_counted_not_averaged_in() -> Non
 def test_a_two_asset_ic_is_refused_because_it_is_always_plus_or_minus_one() -> None:
     panel, frame = _perfect_panel_and_returns()
     with pytest.raises(FactorInputError, match="perfectly correlated"):
-        information_coefficient(panel, forward_returns(frame, 1), minimum_assets=2)
+        information_coefficient(
+            panel, forward_returns(frame, 1, lag=0, delistings=()), minimum_assets=2
+        )
 
 
 def test_correlating_across_two_datasets_is_refused() -> None:
@@ -330,7 +338,9 @@ def test_correlating_across_two_datasets_is_refused() -> None:
     other = _frame({f"S{index}": [100.0, 101.0, 102.0] for index in range(6)}, "ds@v2")
 
     with pytest.raises(FactorInputError, match="measure one dataset's factor"):
-        information_coefficient(panel, forward_returns(other, 1), minimum_assets=3)
+        information_coefficient(
+            panel, forward_returns(other, 1, lag=0, delistings=()), minimum_assets=3
+        )
 
 
 def test_a_constant_cross_section_is_unmeasurable_rather_than_zero() -> None:
@@ -338,7 +348,7 @@ def test_a_constant_cross_section_is_unmeasurable_rather_than_zero() -> None:
 
     panel, frame = _perfect_panel_and_returns()
     flat = _panel_of({stamp: dict.fromkeys(panel.symbols, 1.0) for stamp in panel.timestamps})
-    realized = forward_returns(frame, 1)
+    realized = forward_returns(frame, 1, lag=0, delistings=())
 
     result = information_coefficient(flat, realized, minimum_assets=3)
 
@@ -354,7 +364,7 @@ def test_a_constant_cross_section_is_unmeasurable_rather_than_zero() -> None:
 def test_a_forward_return_looks_exactly_the_horizon_ahead() -> None:
     frame = _frame({"A": [100.0, 110.0, 121.0, 133.1]})
 
-    realized = forward_returns(frame, 2)
+    realized = forward_returns(frame, 2, lag=0, delistings=())
 
     assert realized.cross_section(START)["A"] == pytest.approx(121.0 / 100.0 - 1.0)
     assert realized.cross_section(START + DAY)["A"] == pytest.approx(133.1 / 110.0 - 1.0)
@@ -364,7 +374,7 @@ def test_a_forward_return_looks_exactly_the_horizon_ahead() -> None:
 def test_the_tail_of_the_sample_has_no_forward_return_and_says_how_much() -> None:
     frame = _frame({"A": [1.0, 2.0, 3.0, 4.0, 5.0]})
 
-    realized = forward_returns(frame, 2)
+    realized = forward_returns(frame, 2, lag=0, delistings=())
 
     assert len(realized) == 3
     assert realized.unrealized_instants == 2
@@ -373,13 +383,13 @@ def test_the_tail_of_the_sample_has_no_forward_return_and_says_how_much() -> Non
 def test_a_zero_horizon_is_refused() -> None:
     frame = _frame({"A": [1.0, 2.0, 3.0]})
     with pytest.raises(FactorInputError, match="horizon of zero is the present"):
-        forward_returns(frame, 0)
+        forward_returns(frame, 0, lag=0, delistings=())
 
 
 def test_a_horizon_longer_than_the_sample_is_refused() -> None:
     frame = _frame({"A": [1.0, 2.0, 3.0]})
-    with pytest.raises(FactorInputError, match="no forward return at that horizon"):
-        forward_returns(frame, 5)
+    with pytest.raises(FactorInputError, match="no forward return 5 period"):
+        forward_returns(frame, 5, lag=0, delistings=())
 
 
 # --------------------------------------------------------------------------- #
@@ -390,7 +400,7 @@ def test_a_horizon_longer_than_the_sample_is_refused() -> None:
 def test_a_decay_profile_measures_every_horizon_on_its_own_sample() -> None:
     panel, frame = _perfect_panel_and_returns(instants=12)
 
-    profile = factor_decay(panel, frame, [1, 2, 4], minimum_assets=3)
+    profile = factor_decay(panel, frame, [1, 2, 4], minimum_assets=3, lag=0, delistings=())
 
     assert sorted(profile.horizons) == [1, 2, 4]
     counts = profile.instants_by_horizon
@@ -400,7 +410,7 @@ def test_a_decay_profile_measures_every_horizon_on_its_own_sample() -> None:
 def test_a_persistently_correct_factor_never_turns_negative() -> None:
     panel, frame = _perfect_panel_and_returns(instants=12)
 
-    profile = factor_decay(panel, frame, [1, 2, 4], minimum_assets=3)
+    profile = factor_decay(panel, frame, [1, 2, 4], minimum_assets=3, lag=0, delistings=())
 
     assert profile.first_negative_horizon is None
     assert all(value == pytest.approx(1.0) for value in profile.mean_rank_by_horizon.values())
@@ -409,14 +419,14 @@ def test_a_persistently_correct_factor_never_turns_negative() -> None:
 def test_a_repeated_horizon_is_refused() -> None:
     panel, frame = _perfect_panel_and_returns()
     with pytest.raises(FactorInputError, match="repeat one"):
-        factor_decay(panel, frame, [1, 1])
+        factor_decay(panel, frame, [1, 1], lag=0, delistings=())
 
 
 def test_a_decay_across_two_datasets_is_refused() -> None:
     panel, _ = _perfect_panel_and_returns()
     other = _frame({f"S{index}": [100.0, 101.0, 102.0] for index in range(6)}, "ds@v2")
     with pytest.raises(FactorInputError, match="across two datasets"):
-        factor_decay(panel, other, [1])
+        factor_decay(panel, other, [1], lag=0, delistings=())
 
 
 # --------------------------------------------------------------------------- #

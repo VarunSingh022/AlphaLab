@@ -222,7 +222,7 @@ def test_an_oms_state_still_projects_through_its_snapshot() -> None:
     projected = to_serializable(OMSState())
 
     assert isinstance(projected, dict)
-    assert projected["schema_version"] == 1
+    assert projected["schema_version"] == 2  # v3.11: order terms
     assert "orders" in projected
 
 

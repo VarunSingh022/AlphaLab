@@ -12,9 +12,8 @@ Two families of reference
 Surveying the repository finds ``*Ref`` used for two different jobs:
 
 ============================================  =====================================
-:class:`~alphalab.model_registry.registry.ArtifactRef`,   bytes AlphaLab **never holds** --
-:class:`~alphalab.enterprise.models.SecretRef`            an address plus a digest.
-                                                          ``SecretRef`` says it outright:
+:class:`~alphalab.model_registry.registry.ArtifactRef`    bytes AlphaLab **never holds** --
+                                                          an address plus a digest:
                                                           *an address, not a value*.
 :class:`~alphalab.lifecycle.identity.ModelRef`,           a typed identity for something
 ``StrategyVersionRef``, ``DeploymentRef``                 AlphaLab **does hold**, so two

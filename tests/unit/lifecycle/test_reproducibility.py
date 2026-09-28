@@ -47,6 +47,7 @@ from alphalab.lifecycle import (
 from alphalab.research.study import ResearchStudy, StudyResult, build_result
 from alphalab.runtime.run import ExecutionMode
 from tests.unit.lifecycle.evidence_harness import (
+    BUILD,
     CODE,
     ENGINE,
     SEED,
@@ -113,7 +114,7 @@ def test_the_recorded_configuration_holds_no_machine_path_or_clock(dataset: Data
 def test_a_run_manifest_names_each_input_by_its_owners_identity(dataset: Dataset) -> None:
     result = run_backtest(dataset)
     fp = fingerprint()
-    manifest = manifest_for_run(result, dataset, fp, ENGINE)
+    manifest = manifest_for_run(result, dataset, fp, ENGINE, build=BUILD)
     provenance = dataset.require_provenance()
     digest = digest_run(result)
 
@@ -132,7 +133,7 @@ def test_a_run_manifest_names_each_input_by_its_owners_identity(dataset: Dataset
 def test_the_manifest_key_is_scheme_tagged_and_commits_to_the_fingerprint(
     dataset: Dataset,
 ) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     key = canonical_manifest_key(
         manifest.kind,
         manifest.result_id,
@@ -150,33 +151,44 @@ def test_the_manifest_key_is_scheme_tagged_and_commits_to_the_fingerprint(
 
 
 def test_the_same_inputs_give_the_same_manifest(dataset: Dataset) -> None:
-    first = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
-    second = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    first = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
+    second = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     assert first.manifest_id == second.manifest_id
     assert first == second
 
 
 def test_each_changed_input_changes_the_manifest(dataset: Dataset) -> None:
-    base = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    base = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     other_data = ingest(closes=(Decimal("100"), Decimal("101"), Decimal("99"), Decimal("98")))
     changed = {
-        "dataset": manifest_for_run(run_backtest(other_data), other_data, fingerprint(), ENGINE),
+        "dataset": manifest_for_run(
+            run_backtest(other_data), other_data, fingerprint(), ENGINE, build=BUILD
+        ),
         "seed": manifest_for_run(
-            run_backtest(dataset, seed=SEED + 1), dataset, fingerprint(), ENGINE
+            run_backtest(dataset, seed=SEED + 1), dataset, fingerprint(), ENGINE, build=BUILD
         ),
         "strategy": manifest_for_run(
             run_backtest(dataset),
             dataset,
             fingerprint(code=replace(CODE, version="1.0.1")),
             ENGINE,
+            build=BUILD,
         ),
         "engine": manifest_for_run(
-            run_backtest(dataset), dataset, fingerprint(), EngineIdentity("alphalab", "3.6.1")
+            run_backtest(dataset),
+            dataset,
+            fingerprint(),
+            EngineIdentity("alphalab", "3.6.1"),
+            build=BUILD,
         ),
         "outputs": manifest_for_run(
-            run_backtest(dataset, plan={1: Decimal("5")}), dataset, fingerprint(), ENGINE
+            run_backtest(dataset, plan={1: Decimal("5")}),
+            dataset,
+            fingerprint(),
+            ENGINE,
+            build=BUILD,
         ),
     }
 
@@ -192,9 +204,9 @@ def test_a_changed_configuration_changes_the_manifest(dataset: Dataset) -> None:
     from tests.unit.lifecycle.evidence_harness import RISK
 
     tighter = replace(RISK, leverage=LeverageLimit(Decimal("999")))
-    base = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    base = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     changed = manifest_for_run(
-        run_backtest(dataset, risk_limits=tighter), dataset, fingerprint(), ENGINE
+        run_backtest(dataset, risk_limits=tighter), dataset, fingerprint(), ENGINE, build=BUILD
     )
 
     assert changed.configuration_id != base.configuration_id
@@ -203,14 +215,16 @@ def test_a_changed_configuration_changes_the_manifest(dataset: Dataset) -> None:
 
 def test_an_unseeded_run_is_refused_rather_than_called_reproducible(dataset: Dataset) -> None:
     with pytest.raises(LifecycleInputError, match="unseeded"):
-        manifest_for_run(run_backtest(dataset, seed=None), dataset, fingerprint(), ENGINE)
+        manifest_for_run(
+            run_backtest(dataset, seed=None), dataset, fingerprint(), ENGINE, build=BUILD
+        )
 
 
 def test_a_dataset_the_run_did_not_read_is_refused(dataset: Dataset) -> None:
     other = ingest(name="OTHER")
 
     with pytest.raises(LifecycleInputError, match="never measured on"):
-        manifest_for_run(run_backtest(dataset), other, fingerprint(), ENGINE)
+        manifest_for_run(run_backtest(dataset), other, fingerprint(), ENGINE, build=BUILD)
 
 
 def test_a_dataset_whose_provenance_records_no_bytes_is_refused() -> None:
@@ -257,14 +271,14 @@ def test_a_dataset_whose_provenance_records_no_bytes_is_refused() -> None:
     assert first.dataset_version != second.dataset_version, "the rows identify the version"
 
     with pytest.raises(LifecycleInputError, match="empty source payload"):
-        manifest_for_run(run_backtest(first), first, fingerprint(), ENGINE)
+        manifest_for_run(run_backtest(first), first, fingerprint(), ENGINE, build=BUILD)
 
 
 def test_a_dataset_without_provenance_is_refused(dataset: Dataset) -> None:
     bare = replace(dataset, provenance=None)
 
     with pytest.raises(DataValidationError):
-        manifest_for_run(run_backtest(dataset), bare, fingerprint(), ENGINE)
+        manifest_for_run(run_backtest(dataset), bare, fingerprint(), ENGINE, build=BUILD)
 
 
 def test_a_fingerprint_of_a_strategy_the_run_did_not_execute_is_refused(
@@ -275,18 +289,18 @@ def test_a_fingerprint_of_a_strategy_the_run_did_not_execute_is_refused(
     other = fingerprint(replace(VERSION, definition=replace(DEFINITION, strategy_id="ELSE")))
 
     with pytest.raises(LifecycleInputError, match="executed"):
-        manifest_for_run(run_backtest(dataset), dataset, other, ENGINE)
+        manifest_for_run(run_backtest(dataset), dataset, other, ENGINE, build=BUILD)
 
 
 def test_an_altered_fingerprint_is_refused(dataset: Dataset) -> None:
     altered = replace(fingerprint(), parameters={"entry": 1.0})
 
     with pytest.raises(LifecycleInputError, match="altered"):
-        manifest_for_run(run_backtest(dataset), dataset, altered, ENGINE)
+        manifest_for_run(run_backtest(dataset), dataset, altered, ENGINE, build=BUILD)
 
 
 def test_an_edited_manifest_stops_verifying(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     assert not verify_manifest(replace(manifest, seed=1))
     assert not verify_manifest(replace(manifest, configuration=manifest.configuration + " "))
@@ -301,8 +315,8 @@ def test_an_edited_manifest_stops_verifying(dataset: Dataset) -> None:
 
 
 def test_a_rerun_of_the_same_inputs_reproduces(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
-    rerun = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
+    rerun = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     assessment = assess_reproducibility(manifest, rerun)
 
@@ -313,7 +327,7 @@ def test_a_rerun_of_the_same_inputs_reproduces(dataset: Dataset) -> None:
 
 
 def test_no_rerun_establishes_nothing_about_reproduction(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     assessment = assess_reproducibility(manifest)
 
@@ -323,9 +337,13 @@ def test_no_rerun_establishes_nothing_about_reproduction(dataset: Dataset) -> No
 
 
 def test_a_rerun_of_other_inputs_is_not_a_failure_or_a_success(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     newer_engine = manifest_for_run(
-        run_backtest(dataset), dataset, fingerprint(), EngineIdentity("alphalab", "3.7.0")
+        run_backtest(dataset),
+        dataset,
+        fingerprint(),
+        EngineIdentity("alphalab", "3.7.0"),
+        build=BUILD,
     )
 
     assessment = assess_reproducibility(manifest, newer_engine)
@@ -338,9 +356,9 @@ def test_a_rerun_of_other_inputs_is_not_a_failure_or_a_success(dataset: Dataset)
 def test_the_same_declared_inputs_with_a_different_result_diverged(dataset: Dataset) -> None:
     """A live object changed without the record noticing: the result tells."""
 
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     changed_behaviour = manifest_for_run(
-        run_backtest(dataset, plan={1: Decimal("5")}), dataset, fingerprint(), ENGINE
+        run_backtest(dataset, plan={1: Decimal("5")}), dataset, fingerprint(), ENGINE, build=BUILD
     )
 
     assessment = assess_reproducibility(manifest, changed_behaviour)
@@ -350,7 +368,7 @@ def test_the_same_declared_inputs_with_a_different_result_diverged(dataset: Data
 
 
 def test_an_altered_rerun_manifest_is_not_evidence(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     with pytest.raises(LifecycleInputError, match="does not verify"):
         assess_reproducibility(manifest, replace(manifest, seed=SEED + 5))
@@ -359,9 +377,9 @@ def test_an_altered_rerun_manifest_is_not_evidence(dataset: Dataset) -> None:
 def test_a_rerun_is_never_compared_against_an_altered_manifest(dataset: Dataset) -> None:
     """Editing the original's result to match a rerun must not read as reproduction."""
 
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     diverged = manifest_for_run(
-        run_backtest(dataset, plan={1: Decimal("5")}), dataset, fingerprint(), ENGINE
+        run_backtest(dataset, plan={1: Decimal("5")}), dataset, fingerprint(), ENGINE, build=BUILD
     )
     doctored = replace(manifest, result_id=diverged.result_id)
 
@@ -382,6 +400,7 @@ def test_gaps_name_approximate_code_and_dependency_identities(dataset: Dataset) 
         dataset,
         fingerprint(code=undeclared_code, dependencies=direct),
         ENGINE,
+        build=BUILD,
     )
 
     gaps = manifest_gaps(manifest)
@@ -395,7 +414,7 @@ def test_gaps_name_approximate_code_and_dependency_identities(dataset: Dataset) 
 def test_external_requirements_are_never_empty_and_say_what_is_not_held(
     dataset: Dataset,
 ) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     inputs = [requirement.input for requirement in external_requirements(manifest)]
 
@@ -415,7 +434,11 @@ def test_external_requirements_are_never_empty_and_say_what_is_not_held(
 
 def test_an_engine_that_differs_from_the_fingerprints_is_a_finding(dataset: Dataset) -> None:
     manifest = manifest_for_run(
-        run_backtest(dataset), dataset, fingerprint(), EngineIdentity("alphalab", "3.7.0")
+        run_backtest(dataset),
+        dataset,
+        fingerprint(),
+        EngineIdentity("alphalab", "3.7.0"),
+        build=BUILD,
     )
 
     findings = assess_reproducibility(manifest).findings
@@ -447,7 +470,7 @@ def test_a_study_manifest_takes_its_configuration_from_the_studys_own_identity(
 ) -> None:
     result = _study_result(dataset, seed=11)
 
-    manifest = manifest_for_study(result, dataset, ENGINE)
+    manifest = manifest_for_study(result, dataset, ENGINE, build=BUILD)
 
     assert manifest.kind is ResultKind.STUDY
     assert manifest.result_id == result.result_id
@@ -462,7 +485,7 @@ def test_a_study_manifest_takes_its_configuration_from_the_studys_own_identity(
 def test_a_study_with_no_seed_records_the_absence_and_invents_nothing(dataset: Dataset) -> None:
     result = _study_result(dataset, seed=None)
 
-    manifest = manifest_for_study(result, dataset, ENGINE)
+    manifest = manifest_for_study(result, dataset, ENGINE, build=BUILD)
 
     assert manifest.seed is None
     assert manifest.seed_role is SeedRole.ABSENT
@@ -475,6 +498,7 @@ def test_a_study_with_no_seed_records_the_absence_and_invents_nothing(dataset: D
             _study_result(dataset, seed=0),
             dataset,
             ENGINE,
+            build=BUILD,
         ).manifest_id
     )
 
@@ -483,7 +507,7 @@ def test_a_study_manifest_refuses_an_altered_result(dataset: Dataset) -> None:
     result = _study_result(dataset, seed=11)
 
     with pytest.raises(LifecycleInputError, match="altered"):
-        manifest_for_study(replace(result, metrics={"x": 1.0}), dataset, ENGINE)
+        manifest_for_study(replace(result, metrics={"x": 1.0}), dataset, ENGINE, build=BUILD)
 
 
 def test_a_study_fingerprint_must_name_this_study_if_it_names_one(dataset: Dataset) -> None:
@@ -493,9 +517,11 @@ def test_a_study_fingerprint_must_name_this_study_if_it_names_one(dataset: Datas
     matching = fingerprint(research=research_configuration_for_study(result.study))
     mismatched = fingerprint(research=research_configuration_for_study(other.study))
 
-    assert manifest_for_study(result, dataset, ENGINE, matching).fingerprint == matching
+    assert (
+        manifest_for_study(result, dataset, ENGINE, matching, build=BUILD).fingerprint == matching
+    )
     with pytest.raises(LifecycleInputError, match="researched under study"):
-        manifest_for_study(result, dataset, ENGINE, mismatched)
+        manifest_for_study(result, dataset, ENGINE, mismatched, build=BUILD)
 
 
 def test_a_study_rerun_reproduces_through_the_same_comparison(dataset: Dataset) -> None:
@@ -503,7 +529,8 @@ def test_a_study_rerun_reproduces_through_the_same_comparison(dataset: Dataset) 
     second = _study_result(dataset, seed=11)
 
     assessment = assess_reproducibility(
-        manifest_for_study(first, dataset, ENGINE), manifest_for_study(second, dataset, ENGINE)
+        manifest_for_study(first, dataset, ENGINE, build=BUILD),
+        manifest_for_study(second, dataset, ENGINE, build=BUILD),
     )
 
     assert assessment.rerun is RerunOutcome.REPRODUCED
@@ -516,7 +543,7 @@ def test_a_study_rerun_reproduces_through_the_same_comparison(dataset: Dataset) 
 def test_a_live_run_manifest_says_its_venue_cannot_be_recreated(dataset: Dataset) -> None:
     """A manifest built by hand around a LIVE configuration, to read the rule."""
 
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     recorded = json.loads(manifest.configuration)
     recorded["mode"] = "ExecutionMode.LIVE"
     live = replace(manifest, configuration=json.dumps(recorded, sort_keys=True))
@@ -531,7 +558,11 @@ def test_a_live_run_manifest_says_its_venue_cannot_be_recreated(dataset: Dataset
 
 def test_no_dependencies_declared_exactly_is_complete(dataset: Dataset) -> None:
     manifest = manifest_for_run(
-        run_backtest(dataset), dataset, fingerprint(dependencies=NO_DEPENDENCIES), ENGINE
+        run_backtest(dataset),
+        dataset,
+        fingerprint(dependencies=NO_DEPENDENCIES),
+        ENGINE,
+        build=BUILD,
     )
 
     assert manifest_gaps(manifest) == ()

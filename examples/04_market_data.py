@@ -52,7 +52,6 @@ from alphalab.market import (
     latest_bar,
 )
 from alphalab.marketdata import Bar as WireBar
-from alphalab.marketdata import Timeframe
 
 #: 2025-01-02 14:30:00 UTC, the first minute of the regular session.
 SESSION_OPEN = 1_735_828_200.0
@@ -73,9 +72,9 @@ class ExampleVendorBars:
     """
 
     def request_history(
-        self, symbol: str, timeframe: Timeframe, start: float, end: float
+        self, symbol: str, timeframe: TimeFrame, start: float, end: float
     ) -> tuple[WireBar, ...]:
-        if timeframe is not Timeframe.MINUTE:
+        if timeframe != TimeFrame.M1:
             return ()
         return tuple(
             WireBar(symbol, SESSION_OPEN + 60.0 * index, *row)
@@ -124,7 +123,7 @@ def main() -> None:
     source = ProviderHistorySource.of(
         ExampleVendorBars(),
         ["AAPL"],
-        Timeframe.MINUTE,
+        TimeFrame.M1,
         SESSION_OPEN,
         SESSION_OPEN + 3 * 60.0,
         "EXAMPLE-AAPL-1M",
@@ -163,7 +162,7 @@ def main() -> None:
         )
     print()
 
-    last = latest_bar(state, aapl.asset_id, TimeFrame.M1.value)
+    last = latest_bar(state, aapl.asset_id, TimeFrame.M1.code)
     assert last is not None
     print(f"Latest bar        : close {last.close} {policy.currency} at {_clock(last.timestamp)}")
     print(f"Market events     : {len(state.events)}")

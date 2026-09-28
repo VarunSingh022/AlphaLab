@@ -65,6 +65,7 @@ from alphalab.options import (
     occ_symbol,
     resolve_expiration,
 )
+from alphalab.options.carry import dividend_yield
 from alphalab.portfolio.contracts import ContractHolding, contract_exposures, settlement_exposures
 from alphalab.portfolio.fx import FxRate, FxRates
 from alphalab.portfolio.fx_research import currency_attribution
@@ -350,8 +351,12 @@ def _nikkei_call() -> OptionContract:
 
 def test_an_option_priced_and_inverted_round_trips_on_a_non_us_multiplier() -> None:
     contract = _nikkei_call()
-    price = black_scholes_price(contract, Decimal("38000"), 0.22, 0.01, 0.0)
-    recovered = implied_volatility(contract, price, Decimal("38000"), 0.01, 0.0)
+    price = black_scholes_price(
+        contract, Decimal("38000"), 0.22, 0.01, 0.0, carry=dividend_yield(0.0)
+    )
+    recovered = implied_volatility(
+        contract, price, Decimal("38000"), 0.01, 0.0, carry=dividend_yield(0.0)
+    )
     assert recovered.value == pytest.approx(0.22, abs=1e-4)
     assert not recovered.assumptions.prices_early_exercise
 
