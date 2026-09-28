@@ -67,6 +67,7 @@ from alphalab.market.record import MarketRecord
 from alphalab.market.source import OrderingGuarantee
 from alphalab.market.state import MarketState
 from alphalab.oms.order import Order as OMSOrder
+from alphalab.portfolio.corporate_actions import CashFlow, Split
 from alphalab.portfolio.fx import NO_RATES, FxRates
 from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.exceptions import AlphaLabRuntimeError
@@ -78,6 +79,7 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineState,
     ExecutionRouting,
     UnpricedAsset,
+    price_refusal,
     wants_slices,
 )
 from alphalab.strategy.events import LifecycleTransitioned, TimerEvent
@@ -427,9 +429,13 @@ class RunEngine:
 
         1. the staleness gate, judged against ``now``;
         2. the ordering gate, judged against ``last_record_timestamp``;
-        3. :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.process_record`;
-        4. a :class:`RunStep` recording what the record produced;
-        5. the run cursor.
+        3. the price gate (since v3.11): a price the instrument's declared
+           economics do not admit -- a non-positive one, unless they allow
+           negative prices -- is recorded as skipped
+           (:func:`~alphalab.runtime.execution_pipeline.price_refusal`);
+        4. :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.process_record`;
+        5. a :class:`RunStep` recording what the record produced;
+        6. the run cursor.
 
         ``now`` is the run's clock. It defaults to the record's own timestamp,
         under which no record is ever stale -- the right answer for a historical
@@ -460,6 +466,14 @@ class RunEngine:
         previous = state.last_record_timestamp
         if previous is not None and record.timestamp < previous:
             return _out_of_order(state, record, previous)
+
+        refusal = price_refusal(state.pipeline, record.payload)
+        if refusal is not None:
+            # Recorded, not raised and not dropped: a price the instrument cannot
+            # take is bad data, and a run says what it declined (ACC-007).
+            return replace(
+                state, skipped=state.skipped.append(SkippedRecord(record, refusal))
+            ), None
 
         result = ExecutionPipeline.process_record(
             state.pipeline, record, context_factory, state.config.fill_policy, rates
@@ -592,6 +606,48 @@ class RunEngine:
             return state
         closed, _, _ = ExecutionPipeline.close_slice(pipeline, context_factory, rates)
         return replace(state, pipeline=closed, last_slice_at=at)
+
+    @staticmethod
+    @in_accounting_context
+    def apply_cash_flow(
+        state: RunState,
+        flow: CashFlow,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Book a dividend, interest, a fee or a funding payment at ``timestamp`` (ACC-006).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.apply_cash_flow`.
+        The driver supplies cash flows as it supplies records: they are
+        reference data, and which the run receives is its business.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.apply_cash_flow(state.pipeline, flow, clock, rates)
+        return replace(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def apply_split(
+        state: RunState,
+        split: Split,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Apply a split, reverse split or stock dividend at ``timestamp`` (ACC-006).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.apply_split`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.apply_split(state.pipeline, split, clock, rates)
+        return replace(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
 
     @staticmethod
     @in_accounting_context

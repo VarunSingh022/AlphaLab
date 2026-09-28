@@ -33,7 +33,7 @@ from alphalab.common.ids import id_scope
 from alphalab.common.order_terms import MARKET, OrderTerms
 from alphalab.conventions.lot import LotSpecification
 from alphalab.core.enums import AssetType
-from alphalab.instrument.economics import InstrumentEconomics, SettlementStyle
+from alphalab.instrument.economics import InstrumentEconomics, SettlementModel
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.persistence import deserialize, serialize
@@ -156,7 +156,7 @@ def _refusals(state: ExecutionPipelineState) -> list[str]:
 def _economics(lot: str | None = None, minimum_notional: str | None = None) -> InstrumentEconomics:
     return InstrumentEconomics(
         Decimal("1"),
-        SettlementStyle.CASH_EQUITY,
+        SettlementModel.CASH_EQUITY,
         lot=None if lot is None else LotSpecification(Decimal(lot), Decimal(lot)),
         minimum_notional=None if minimum_notional is None else Decimal(minimum_notional),
     )
@@ -398,6 +398,7 @@ def test_the_working_share_is_computed_only_when_a_target_is_asked_for() -> None
     assert pipeline_module._instrument_grid(state, deltas) == (
         pipeline_module._NO_LOTS,
         pipeline_module._NO_MINIMUMS,
+        pipeline_module._NO_MULTIPLIERS,
     )
 
 
@@ -421,20 +422,39 @@ def test_a_run_whose_positions_were_never_recorded_refuses_a_target_and_trades_a
         AllocationEngine.strategy_position(result.state.allocation, "A", ASSET)
 
 
-def test_a_target_without_a_positive_price_is_recorded_and_the_rest_sized() -> None:
+def test_a_target_without_a_usable_price_is_recorded_and_the_rest_sized() -> None:
+    """Unpriced, a target is refused; at a non-positive price only a weight is.
+
+    A quantity is reached by an order at whatever the instrument trades at -- a
+    contract whose economics allow a negative price trades at one (ACC-007);
+    the pipeline's price gate refuses such a price for any other instrument
+    before allocation sees it. A weight is a value, and cannot be sized there.
+    """
+
     other = "0b7c5a52-8f0e-4d8e-b8a6-5f3c2d1e0f9a"
+    unpriced = "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f"
     allocation, requests = AllocationEngine.allocate(
         _pipeline({"A": {}}).allocation,
-        (_intent("A", "1"), _intent("A", "2", asset=other)),
+        (
+            _intent("A", "1", asset=unpriced),
+            _intent("A", "0.5", WEIGHT),
+            _intent("A", "2", asset=other),
+            _intent("A", "-3"),
+        ),
         {ASSET: ZERO, other: Decimal("10")},
         pipeline_config("A").sizing_model,
         AllocationConstraints(allow_shorting=True),
         2.0,
     )
 
-    assert [(request.asset_id, request.quantity) for request in requests] == [(other, Decimal("2"))]
-    (reason,) = [e.reason for e in allocation.events if isinstance(e, AllocationRejected)]
-    assert "no positive price" in reason
+    assert [(request.asset_id, request.quantity) for request in requests] == [
+        (other, Decimal("2")),
+        (ASSET, Decimal("3")),
+    ]
+    reasons = [e.reason for e in allocation.events if isinstance(e, AllocationRejected)]
+    assert len(reasons) == 2
+    assert "has no price" in reasons[0]
+    assert "no positive price" in reasons[1] and "state a target quantity" in reasons[1]
 
 
 # --------------------------------------------------------------------------- #

@@ -405,7 +405,7 @@ def test_the_nested_snapshots_declare_their_own_versions() -> None:
         # catches; v2.9 deliberately kept that rather than flattening a nested
         # failure into an opaque pipeline one.
         ("oms", OMSSnapshotDecodeError, "oms snapshot declares schema version 3"),
-        ("portfolio", StateDecodeError, "portfolio snapshot declares schema version 5"),
+        ("portfolio", StateDecodeError, "portfolio snapshot declares schema version 6"),
     ],
 )
 def test_a_nested_snapshot_is_validated_by_its_own_decoder(

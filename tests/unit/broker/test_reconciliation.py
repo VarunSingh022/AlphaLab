@@ -177,13 +177,28 @@ def test_a_fill_that_exactly_completes_an_order_is_not_an_overfill() -> None:
 
 @pytest.mark.parametrize(
     ("quantity", "price", "commission"),
-    [("0", "150", "0"), ("-1", "150", "0"), ("10", "-1", "0"), ("10", "150", "-1")],
+    [("0", "150", "0"), ("-1", "150", "0"), ("10", "NaN", "0"), ("10", "150", "Infinity")],
 )
 def test_structurally_invalid_fills_are_refused(quantity: str, price: str, commission: str) -> None:
     execution = BrokerExecution(
         "E-1", "B-1", "AAPL", Decimal(quantity), Decimal(price), Decimal(commission), 1001.0
     )
     assert classify_execution(_state(_order()), execution).outcome is ExecutionOutcome.INVALID
+
+
+def test_a_negative_price_and_a_rebate_are_data_since_v3_11() -> None:
+    """ACC-007: the sign of a price is the instrument's question, and a commission is signed.
+
+    A contract that trades below zero fills below zero, and a venue paying a
+    maker rebate reports a negative commission. Neither is a structural fault
+    the reconciliation layer can judge; the portfolio books each by the
+    instrument's declared economics.
+    """
+
+    execution = BrokerExecution(
+        "E-1", "B-1", "AAPL", Decimal("10"), Decimal("-3.25"), Decimal("-0.02"), 1001.0
+    )
+    assert classify_execution(_state(_order()), execution).outcome is ExecutionOutcome.APPLIED
 
 
 def test_duplicate_detection_precedes_every_other_check() -> None:

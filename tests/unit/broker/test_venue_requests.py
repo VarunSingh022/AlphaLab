@@ -242,7 +242,9 @@ def test_the_reference_adapter_refuses_an_amendment_below_what_has_filled() -> N
     )
     with pytest.raises(BrokerValidationError, match="nothing would be left working"):
         broker.replace_order(state, "B-1", Decimal("40"), Decimal("150"), 4.0)
-    with pytest.raises(BrokerValidationError, match="negative"):
-        validate_replace_request(state, "B-1", Decimal("120"), Decimal("-1"))
+    # A price's sign is the instrument's question since v3.11 (ACC-007); one
+    # that is not a number at all is still refused.
+    with pytest.raises(BrokerValidationError, match="finite"):
+        validate_replace_request(state, "B-1", Decimal("120"), Decimal("NaN"))
     amended, _ = broker.replace_order(state, "B-1", Decimal("120"), Decimal("149"), 4.0)
     assert amended.orders["B-1"].quantity == 120

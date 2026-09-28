@@ -39,6 +39,20 @@ class CashLedger:
         new_balances[currency] = new_balances.get(currency, ZERO_MONEY) - amount
         return CashLedger(balances=new_balances, reserved=self.reserved)
 
+    def settle(self, amount: Decimal, currency: str) -> "CashLedger":
+        """Move ``currency``'s balance by a signed ``amount`` the account owes or is owed.
+
+        Unlike :meth:`withdraw`, a debit is not refused for want of cash: a
+        variation margin call, a fee or a funding payment is an obligation, not
+        a choice, and a loss the market imposed is owed whether or not cash
+        covers it (ledger ACC-005). A balance it takes below zero is the
+        deficit, recorded rather than refused -- what a margin call is raised on.
+        """
+
+        new_balances = dict(self.balances)
+        new_balances[currency] = new_balances.get(currency, ZERO_MONEY) + amount
+        return CashLedger(balances=new_balances, reserved=self.reserved)
+
     def reserve(self, amount: Decimal, currency: str) -> "CashLedger":
         if self.available_cash(currency) < amount:
             raise InsufficientFundsError("Insufficient funds to reserve.")

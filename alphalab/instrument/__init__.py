@@ -67,7 +67,7 @@ from alphalab.instrument.classification import (
 from alphalab.instrument.economics import (
     CASH_EQUITY,
     InstrumentEconomics,
-    SettlementStyle,
+    SettlementModel,
     economics_for,
 )
 from alphalab.instrument.exceptions import (
@@ -115,7 +115,7 @@ __all__ = [
     "InstrumentRegistrationError",
     "InstrumentRegistry",
     "SectorClassification",
-    "SettlementStyle",
+    "SettlementModel",
     "canonical_instrument_key",
     "classification_history",
     "classification_of",

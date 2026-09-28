@@ -52,13 +52,16 @@ from typing import cast
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import in_accounting_context, require_finite
 from alphalab.common.ids import new_id
+from alphalab.conventions.economics import CASH_EQUITY, InstrumentEconomics
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.amounts import CurrencyAmounts
 from alphalab.portfolio.book import PositionBook
 from alphalab.portfolio.cash import CashLedger
+from alphalab.portfolio.corporate_actions import CashFlow, CashFlowKind, Split
 from alphalab.portfolio.events import (
     CashConverted,
     CashDeposited,
+    CashFlowBooked,
     CashWithdrawn,
     MarketValueUpdated,
     PortfolioEvent,
@@ -66,6 +69,8 @@ from alphalab.portfolio.events import (
     PositionIncreased,
     PositionOpened,
     PositionReduced,
+    PositionSplit,
+    VariationSettled,
 )
 from alphalab.portfolio.exceptions import InvalidTransactionError
 from alphalab.portfolio.fx import FxConversion, FxRates
@@ -337,6 +342,8 @@ class PortfolioEngine:
         commission: Decimal,
         timestamp: float,
         currency: str,
+        *,
+        economics: InstrumentEconomics | None = None,
     ) -> PortfolioState:
         """Apply one signed fill (BUY > 0, SELL < 0) to the portfolio.
 
@@ -358,10 +365,22 @@ class PortfolioEngine:
         rounded, once, to the settlement currency's minor unit (see
         :mod:`alphalab.portfolio.money`).
 
+        ``economics`` is what one unit of the instrument is worth and how it
+        settles (ledger ACC-005); ``None`` is a fully paid unit with a
+        multiplier of one, as every fill was before v3.11. The multiplier scales
+        the money the fill moves. A position whose gains settle as cash -- a
+        future, a perpetual -- moves no notional: the fill settles the open
+        position at the fill price, and only that settlement and the commission
+        move cash. A position is booked by one set of economics for its life.
+
+        ``commission`` is signed since v3.11 (ledger ACC-007): a negative one is
+        a rebate, which a venue pays a liquidity provider. And a price need only
+        be one the economics admit: positive, unless they allow otherwise.
+
         Raises:
-            InvalidTransactionError: If the price is not positive, the
-                commission is negative, the quantity is zero, or any of the three
-                is not a finite number.
+            InvalidTransactionError: If the price is not one the economics
+                admit, the quantity is zero, any figure is not finite, or the
+                economics differ from those the open position was booked by.
             UnknownCurrencyUnitsError: If the account cannot say what the
                 settlement currency's minor unit is.
         """
@@ -375,10 +394,15 @@ class PortfolioEngine:
 
         for label, value in (("quantity", quantity), ("price", price), ("commission", commission)):
             require_finite(value, f"A fill's {label}", exception_type=InvalidTransactionError)
-        if price <= 0:
-            raise InvalidTransactionError("A fill must have a positive price.")
-        if commission < 0:
-            raise InvalidTransactionError("A fill commission cannot be negative.")
+        # Booked by the economics the position already has, or those declared --
+        # a fully paid unit of one is recorded as no declaration at all, which
+        # is what it was before v3.11.
+        declared = None if economics is None or economics.is_cash_equity else economics
+        if not (declared or CASH_EQUITY).admits_price(price):
+            raise InvalidTransactionError(
+                f"A fill of {asset_id} at {price} is refused: its price must be positive, "
+                "unless its economics declare that it may not be (ACC-007)."
+            )
         # A zero quantity is not a tiny fill; it is no fill, and applying it
         # would fabricate a position event and a ledger entry for a trade that
         # did not happen. Any non-zero quantity is booked exactly as reported.
@@ -391,7 +415,6 @@ class PortfolioEngine:
         # derived from these same values -- see alphalab.portfolio.money.
         units = state.account.currency_units
         minor_units = units.minor_units(currency)
-        trade_value = notional(quantity, price, currency, units)
         commission = to_money(commission, currency, units)
 
         positions = state.book
@@ -406,6 +429,7 @@ class PortfolioEngine:
                 currency,
                 timestamp,
                 minor_units=minor_units,
+                economics=declared,
             ),
         )
         if pos.currency != currency:
@@ -414,6 +438,20 @@ class PortfolioEngine:
                 "One position has one currency; a fill in another is a different instrument "
                 "or a mislabelled report, and booking it would mix two currencies in one basis."
             )
+        if pos.economics != declared:
+            raise InvalidTransactionError(
+                f"{asset_id} is held by the economics {pos.economics!r} and this fill is "
+                f"booked by {declared!r}. A position is booked one way for its life; a "
+                "change of multiplier or settlement is a different instrument."
+            )
+        # The money the trade itself moves: its notional, for a fully paid
+        # position; nothing, for one whose gains settle as cash.
+        if not pos.pays_notional:
+            trade_value = ZERO_MONEY
+        elif pos.multiplier == 1:
+            trade_value = notional(quantity, price, currency, units)
+        else:
+            trade_value = to_money(abs(quantity) * price * pos.multiplier, currency, units)
 
         is_opening = pos.quantity == 0
 
@@ -441,9 +479,14 @@ class PortfolioEngine:
         # P&L is an accounting result (accumulated on `realized_pnl` and carried
         # on the PositionReduced/PositionClosed events); it is already implicit in
         # the proceeds vs. the entry cost that were each applied on their own fill,
-        # so it must not be added to cash a second time here.
-        cash_impact = (trade_value if quantity < 0 else -trade_value) - commission
+        # so it must not be added to cash a second time here. A position whose
+        # gains settle as cash is the exception that proves it: no proceeds move,
+        # so its P&L -- the settlement at the fill price -- is the cash, owed
+        # whether or not cash covers it.
         new_cash = state.cash
+        if not pos.pays_notional and pnl != 0:
+            new_cash = new_cash.settle(pnl, currency)
+        cash_impact = (trade_value if quantity < 0 else -trade_value) - commission
         if cash_impact > 0:
             new_cash = new_cash.deposit(cash_impact, currency)
         elif cash_impact < 0:
@@ -500,25 +543,7 @@ class PortfolioEngine:
 
         # Iterating held positions rather than `prices` keeps the cost bound to
         # the size of the book, not to how many assets have ever been quoted.
-        marked: dict[str, Decimal] = {}
-        positions = state.book
-        for asset, position in state.positions.items():
-            price = prices.get(asset)
-            if price is None or not price.is_finite() or price <= 0:
-                continue
-            positions = positions.set(asset, position.update_market_price(price, timestamp))
-            marked[asset] = price
-
-        if not marked:
-            return state
-
-        evt = MarketValueUpdated(timestamp, state.account.account_id, marked)
-        return replace(
-            state,
-            positions=positions,
-            pending_marks=_pending(state.pending_marks, remove=marked),
-            events=state.events.append(evt),
-        )
+        return _marked(state, state.positions.items(), prices, timestamp)
 
     @staticmethod
     @in_accounting_context
@@ -558,26 +583,176 @@ class PortfolioEngine:
         if not assets:
             return state
 
-        marked: dict[str, Decimal] = {}
-        positions = state.book
-        for asset in assets:
-            position = positions.get(asset)
-            price = prices.get(asset)
-            if position is None or price is None or not price.is_finite() or price <= 0:
-                continue
-            positions = positions.set(asset, position.update_market_price(price, timestamp))
-            marked[asset] = price
+        book = state.book
+        held = ((asset, book[asset]) for asset in assets if asset in book)
+        return _marked(state, held, prices, timestamp)
 
-        if not marked:
-            return state
+    @staticmethod
+    @in_accounting_context
+    def apply_cash_flow(state: PortfolioState, flow: CashFlow, timestamp: float) -> PortfolioState:
+        """Book cash a holding earned or cost without a trade (ledger ACC-006).
 
-        evt = MarketValueUpdated(timestamp, state.account.account_id, marked)
+        A dividend, interest, a fee or a funding payment: the cash moves by the
+        signed amount, rounded once to the currency's minor unit, and the same
+        amount is realized P&L -- so ``equity == deposits - withdrawals +
+        realized_pnl + unrealized_pnl - commission_paid`` holds with it in. A
+        payment is an obligation and is booked whether or not cash covers it,
+        as :meth:`~alphalab.portfolio.cash.CashLedger.settle` records.
+
+        Raises:
+            InvalidTransactionError: If the amount rounds to nothing at the
+                currency's minor unit.
+            UnknownCurrencyUnitsError: If the account cannot say what the
+                currency's minor unit is.
+        """
+
+        amount = to_money(flow.amount, flow.currency, state.account.currency_units)
+        if amount == 0:
+            raise InvalidTransactionError(
+                f"A {flow.kind.value} of {flow.amount} {flow.currency} rounds to nothing at the "
+                "currency's minor unit; there is nothing to book."
+            )
+        tx = Transaction(
+            str(new_id()),
+            timestamp,
+            state.account.account_id,
+            _CASH_FLOW_TRANSACTIONS[flow.kind],
+            flow.asset_id or "CASH",
+            amount,
+            Decimal("1.0"),
+            Decimal("0.0"),
+            flow.currency,
+        )
+        evt = CashFlowBooked(
+            timestamp,
+            state.account.account_id,
+            flow.kind.value,
+            flow.asset_id,
+            amount,
+            flow.currency,
+            flow.reference,
+        )
         return replace(
             state,
-            positions=positions,
-            pending_marks=_pending(state.pending_marks, remove=marked),
+            cash=state.cash.settle(amount, flow.currency),
+            ledger=state.ledger.append(tx),
+            events=state.events.append(evt),
+            realized_pnl=state.realized_pnl.add(amount, flow.currency),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def apply_split(state: PortfolioState, split: Split, timestamp: float) -> PortfolioState:
+        """Apply a split, reverse split or stock dividend to a holding (ledger ACC-006).
+
+        The position's quantity is multiplied by the ratio and its value does
+        not move -- see :meth:`~alphalab.portfolio.position.Position.split`. No
+        cash moves, so no transaction is written; the event records it.
+
+        Raises:
+            InvalidTransactionError: If the account holds no position in the asset.
+        """
+
+        position = state.book.get(split.asset_id)
+        if position is None:
+            raise InvalidTransactionError(
+                f"No position in {split.asset_id} to split; a split of a holding the account "
+                "does not have changes nothing and is more likely a mistake than an action."
+            )
+        after = position.split(split.ratio, timestamp)
+        evt = PositionSplit(
+            timestamp, state.account.account_id, split.asset_id, split.ratio, after.quantity
+        )
+        return replace(
+            state,
+            positions=state.book.set(split.asset_id, after),
             events=state.events.append(evt),
         )
+
+
+#: Which ledger entry each kind of cash flow writes.
+_CASH_FLOW_TRANSACTIONS: Mapping[CashFlowKind, TransactionType] = {
+    CashFlowKind.DIVIDEND: TransactionType.DIVIDEND,
+    CashFlowKind.INTEREST: TransactionType.INTEREST,
+    CashFlowKind.FEE: TransactionType.FEE,
+    CashFlowKind.FUNDING: TransactionType.FUNDING,
+}
+
+
+def _marked(
+    state: PortfolioState,
+    held: Iterable[tuple[str, Position]],
+    prices: Mapping[str, Decimal],
+    timestamp: float,
+) -> PortfolioState:
+    """``state`` with each of ``held`` marked at its price in ``prices``, and settled.
+
+    A position with no price in ``prices`` keeps its mark. One whose price its
+    economics do not admit is refused rather than skipped: until v3.11 a
+    non-positive mark was silently ignored, and the position went on carrying
+    a stale price with nothing to say so (ledger ACC-007). A position whose
+    gains settle as cash is settled at its mark -- variation margin -- and the
+    cash and the realized P&L move with it.
+    """
+
+    marked: dict[str, Decimal] = {}
+    positions = state.book
+    cash = state.cash
+    realized = state.realized_pnl
+    ledger = state.ledger
+    events = state.events
+    settled: list[PortfolioEvent] = []
+    for asset, position in held:
+        price = prices.get(asset)
+        if price is None:
+            continue
+        if not (position.economics or CASH_EQUITY).admits_price(price):
+            raise InvalidTransactionError(
+                f"{asset} cannot be marked at {price}: its price must be positive, unless its "
+                "economics declare that it may not be (ACC-007). A mark is refused, not "
+                "skipped, so no position goes on carrying a price nothing says is stale."
+            )
+        after, amount = position.settle(price, timestamp)
+        positions = positions.set(asset, after)
+        marked[asset] = price
+        if amount != 0:
+            currency = position.currency
+            cash = cash.settle(amount, currency)
+            realized = realized.add(amount, currency)
+            ledger = ledger.append(
+                Transaction(
+                    str(new_id()),
+                    timestamp,
+                    state.account.account_id,
+                    TransactionType.VARIATION_MARGIN,
+                    asset,
+                    position.quantity,
+                    price,
+                    Decimal("0.0"),
+                    currency,
+                )
+            )
+            settled.append(
+                VariationSettled(
+                    timestamp, state.account.account_id, asset, price, amount, currency
+                )
+            )
+
+    if not marked:
+        return state
+
+    events = events.append(MarketValueUpdated(timestamp, state.account.account_id, marked))
+    for event in settled:
+        events = events.append(event)
+    return replace(
+        state,
+        positions=positions,
+        pending_marks=_pending(state.pending_marks, remove=marked),
+        cash=cash,
+        realized_pnl=realized,
+        ledger=ledger,
+        events=events,
+    )
 
 
 def _pending(

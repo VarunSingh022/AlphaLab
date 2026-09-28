@@ -797,7 +797,7 @@ def test_no_existing_snapshot_schema_moved() -> None:
         OMS_SNAPSHOT_SCHEMA,
         PORTFOLIO_SNAPSHOT_SCHEMA,
         DEFAULT_SCHEMA_VERSION,
-    ) == (5, 3, 2, 2, 4, 1)
+    ) == (5, 3, 2, 2, 5, 1)
 
 
 def test_a_v212_payload_is_unchanged_by_being_stored(tmp_path: Path) -> None:

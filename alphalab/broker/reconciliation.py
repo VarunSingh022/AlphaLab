@@ -277,17 +277,19 @@ def classify_execution(state: BrokerState, execution: BrokerExecution) -> Execut
             execution,
             f"Fill quantity must be positive, got {execution.fill_quantity}.",
         )
-    if execution.fill_price < Decimal("0"):
+    # A price's sign is the instrument's question, and a commission is signed --
+    # a negative one is a rebate -- since v3.11 (ACC-007).
+    if not execution.fill_price.is_finite():
         return ExecutionDecision(
             ExecutionOutcome.INVALID,
             execution,
-            f"Fill price cannot be negative, got {execution.fill_price}.",
+            f"Fill price must be a finite number, got {execution.fill_price}.",
         )
-    if execution.commission < Decimal("0"):
+    if not execution.commission.is_finite():
         return ExecutionDecision(
             ExecutionOutcome.INVALID,
             execution,
-            f"Commission cannot be negative, got {execution.commission}.",
+            f"Commission must be a finite number, got {execution.commission}.",
         )
 
     order = state.orders.get(execution.broker_order_id)

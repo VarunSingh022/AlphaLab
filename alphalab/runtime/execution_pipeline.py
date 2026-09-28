@@ -28,6 +28,7 @@ from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context
 from alphalab.common.ids import IdStreamPosition, current_id_position
 from alphalab.common.order_terms import TimeInForce
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.conventions.economics import InstrumentEconomics
 from alphalab.conventions.lot import LotSpecification
 from alphalab.core.contribution import StrategyContribution, split_by_contribution
 from alphalab.core.enums import Side as CoreSide
@@ -46,6 +47,8 @@ from alphalab.execution.policy import (
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
+from alphalab.instrument.economics import economics_for
+from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar, IntervalUnit, TimeFrame
 from alphalab.market.engine import MarketEngine
@@ -56,7 +59,7 @@ from alphalab.market.events import (
     TickReceived,
     TradeReceived,
 )
-from alphalab.market.exceptions import UnsupportedRecordError
+from alphalab.market.exceptions import MarketValidationError, UnsupportedRecordError
 from alphalab.market.quote import Quote
 from alphalab.market.record import MarketRecord
 from alphalab.market.state import MarketState
@@ -69,6 +72,7 @@ from alphalab.oms.status import OrderStatus, OrderType
 from alphalab.oms.status import Side as OMSSide
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.book import PositionBook
+from alphalab.portfolio.corporate_actions import CashFlow, Split
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
 from alphalab.portfolio.fx import NO_RATES, FxConversion, FxRates
@@ -944,6 +948,9 @@ class ExecutionPipeline:
         fields because every one of them is paid eleven times per record.
         """
 
+        refusal = price_refusal(state, _event_payload(event))
+        if refusal is not None:
+            raise MarketValidationError(refusal)
         update = _market_price(event)
         market_prices = _market_prices_with_event(state.market_prices, update)
         # One event moves at most one price, so the book re-marks that asset and
@@ -1333,6 +1340,104 @@ class ExecutionPipeline:
 
     @staticmethod
     @in_accounting_context
+    def apply_cash_flow(
+        state: ExecutionPipelineState,
+        flow: CashFlow,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Book a dividend, interest, a fee or a funding payment (ledger ACC-006).
+
+        The portfolio books it --
+        :meth:`~alphalab.portfolio.engine.PortfolioEngine.apply_cash_flow`: cash
+        and realized P&L move by the signed amount -- the risk state is resynced
+        from the book, and an equity point is recorded, so the equity curve
+        shows the payment at the instant it was made. Which cash flows a run
+        receives, and when, is the driver's to say: they are reference data, not
+        market data.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event
+                the pipeline processed, or the flow is in a currency this
+                pipeline does not settle -- booking it would make the book one
+                no valuation of it can express (ADR-0028).
+        """
+
+        _require_not_before_last_event(state, timestamp, "A cash flow")
+        if flow.currency not in state.config.settlement_currencies:
+            raise RuntimeValidationError(
+                f"A {flow.kind.value} in {flow.currency!r} cannot be booked by a pipeline that "
+                f"settles in {sorted(state.config.settlement_currencies)}; add it to "
+                "ExecutionPipelineConfig.also_settles to hold it."
+            )
+        portfolio = PortfolioEngine.apply_cash_flow(state.portfolio, flow, timestamp)
+        return _after_book_change(state, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def apply_split(
+        state: ExecutionPipelineState,
+        split: Split,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Apply a split, reverse split or stock dividend to the run (ledger ACC-006).
+
+        Everything that counts the asset in units is restated, and nothing
+        that values it moves:
+
+        * the position -- quantity times the ratio, the same basis
+          (:meth:`~alphalab.portfolio.engine.PortfolioEngine.apply_split`);
+        * each strategy's own position, for the targets it measures against;
+        * the price the run last observed, divided by the ratio, so the book is
+          marked consistently until the asset's next event prices it.
+
+        An order working in the asset is priced and sized in the old units.
+        Under simulated routing it is cancelled, as a venue cancels open orders
+        at a corporate action, and what it held is freed; a strategy that wants
+        it back asks again in the new units. Under external routing the venue
+        decides what becomes of its own orders, and says so in its reports, so
+        a split is refused while any is working.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event
+                the pipeline processed, or orders are working in the asset under
+                external routing.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A split")
+        working = state.oms.working_orders_for(split.asset_id)
+        current = state
+        if working:
+            if state.config.routing is ExecutionRouting.EXTERNAL:
+                raise RuntimeValidationError(
+                    f"{len(working)} order(s) are working in {split.asset_id} at the venue. The "
+                    "venue decides what becomes of them at a corporate action and reports it; "
+                    "apply the split once they are resolved."
+                )
+            for order_id in working:
+                current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
+        portfolio = current.portfolio
+        if split.asset_id in portfolio.positions:
+            portfolio = PortfolioEngine.apply_split(portfolio, split, timestamp)
+        price = current.market_prices.get(split.asset_id)
+        current = replace(
+            current,
+            allocation=AllocationEngine.apply_split(
+                current.allocation, split.asset_id, split.ratio
+            ),
+            market_prices=(
+                current.market_prices
+                if price is None
+                else _market_prices_with_event(
+                    current.market_prices, (split.asset_id, price / split.ratio)
+                )
+            ),
+        )
+        return _after_book_change(current, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
     def compile_analytics(
         state: ExecutionPipelineState,
         timestamp: float,
@@ -1591,7 +1696,7 @@ def _allocate(
     """
 
     constraints = state.config.allocation_constraints
-    lots, minimums = _instrument_grid(state, intents)
+    lots, minimums, multipliers = _instrument_grid(state, intents)
     return AllocationEngine.allocate(
         state.allocation,
         intents,
@@ -1604,29 +1709,74 @@ def _allocate(
         working=_working_shares(state, intents),
         lots=lots,
         minimum_notionals=minimums,
+        multipliers=multipliers,
     )
 
 
 def _instrument_grid(
     state: ExecutionPipelineState, intents: tuple[Intent, ...]
-) -> tuple[Mapping[str, LotSpecification], Mapping[str, Decimal]]:
-    """The lot grid and minimum notional each intent's asset declares, where it declares one."""
+) -> tuple[Mapping[str, LotSpecification], Mapping[str, Decimal], Mapping[str, Decimal]]:
+    """The lot grid, minimum notional and multiplier each intent's asset declares.
 
-    registry = state.config.instruments
-    if registry is None or not intents:
-        return _NO_LOTS, _NO_MINIMUMS
+    Only what is declared, and only for multipliers other than one: a run that
+    declares nothing gets three empty mappings and allocation does exactly what
+    it did before v3.11.
+    """
+
+    if state.config.instruments is None or not intents:
+        return _NO_LOTS, _NO_MINIMUMS, _NO_MULTIPLIERS
     lots: dict[str, LotSpecification] = {}
     minimums: dict[str, Decimal] = {}
+    multipliers: dict[str, Decimal] = {}
     for asset_id in {intent.instrument for intent in intents}:
-        record = registry.record_for(asset_id)
-        economics = None if record is None else record.economics
+        economics = _economics_of(state, asset_id)
         if economics is None:
             continue
         if economics.lot is not None:
             lots[asset_id] = economics.lot
         if economics.minimum_notional is not None:
             minimums[asset_id] = economics.minimum_notional
-    return lots, minimums
+        if economics.multiplier != 1:
+            multipliers[asset_id] = economics.multiplier
+    return lots, minimums, multipliers
+
+
+def _economics_of(state: ExecutionPipelineState, asset_id: str) -> InstrumentEconomics | None:
+    """The economics ``asset_id`` is booked by: what its record declares (ledger ACC-005).
+
+    ``None`` is a fully paid unit with a multiplier of one -- what every
+    instrument was booked as before v3.11, and still is when the run configures
+    no registry to read economics from, when the registry does not hold the
+    asset, or when the record declares nothing for an asset type that is fully
+    paid (:func:`~alphalab.instrument.economics.economics_for`). A future or an
+    option that declares nothing never reaches a book: :func:`_settlement_refusal`
+    refuses its request before an order exists. One keyed lookup, the only one
+    on the registry for economics.
+    """
+
+    registry = state.config.instruments
+    if registry is None:
+        return None
+    record = registry.record_for(asset_id)
+    economics = None if record is None else record.economics
+    return None if economics is None or economics.is_cash_equity else economics
+
+
+def _unit_value(state: ExecutionPipelineState, asset_id: str, price: Decimal) -> Decimal:
+    """What one unit of ``asset_id`` is worth at ``price``: the price times its multiplier.
+
+    The figure a notional limit, a working-order commitment and a budget
+    compare -- a contract on 50 units of an index is worth 50 times its quoted
+    price. ``price`` itself for every instrument whose multiplier is one. Signed
+    as the price is; each caller that compares a commitment takes its
+    magnitude, since a contract priced below zero commits as much as one priced
+    as far above it (ACC-007).
+    """
+
+    economics = _economics_of(state, asset_id)
+    if economics is None or economics.multiplier == 1:
+        return price
+    return ACCOUNTING_CONTEXT.multiply(price, economics.multiplier)
 
 
 def _working_shares(
@@ -1665,6 +1815,7 @@ def _working_shares(
 
 _NO_LOTS: Mapping[str, LotSpecification] = MappingProxyType({})
 _NO_MINIMUMS: Mapping[str, Decimal] = MappingProxyType({})
+_NO_MULTIPLIERS: Mapping[str, Decimal] = MappingProxyType({})
 _NO_WORKING: Mapping[tuple[str, str], Decimal] = MappingProxyType({})
 
 
@@ -2445,7 +2596,13 @@ def _evaluate_risk(
         request,
         timestamp,
         position=position.quantity if position is not None else Decimal("0"),
-        price=_price_in_base(state, request.asset_id, request.price, rates, timestamp),
+        # One unit's value, not its price: a notional limit reads a contract on
+        # fifty units of an index as fifty times its quote (ACC-005).
+        price=_unit_value(
+            state,
+            request.asset_id,
+            _price_in_base(state, request.asset_id, request.price, rates, timestamp),
+        ).copy_abs(),
         working=_working_exposure(state, rates, timestamp),
     )
     return replace(state, risk=risk), decision
@@ -2498,7 +2655,9 @@ def _working_exposure(
         held = state.portfolio.positions.get(asset_id)
         working[asset_id] = WorkingExposure(
             quantity=quantity,
-            price=_price_in_base(state, asset_id, mark, rates, as_of),
+            price=_unit_value(
+                state, asset_id, _price_in_base(state, asset_id, mark, rates, as_of)
+            ).copy_abs(),
             position=held.quantity if held is not None else Decimal("0"),
         )
     return working
@@ -2745,7 +2904,11 @@ def _apply_reports(
         # exchange rates -- see _budget_prices.
         executed_notional = _in_budget_currency(
             current,
-            ACCOUNTING_CONTEXT.multiply(report.fill_quantity, report.fill_price),
+            _unit_value(
+                current,
+                report.asset_id,
+                ACCOUNTING_CONTEXT.multiply(report.fill_quantity, report.fill_price),
+            ).copy_abs(),
             report.currency,
             rates,
             report.timestamp,
@@ -2906,6 +3069,7 @@ def _apply_report_to_portfolio(
         report.commission,
         report.timestamp,
         report.currency,
+        economics=_economics_of(state, report.asset_id),
     )
     risk = _sync_risk_from_portfolio(
         state.risk, portfolio, state.config.instruments, rates, as_of=report.timestamp
@@ -3161,11 +3325,11 @@ def _settlement_refusal(
       in its settlement currency exactly as it did before v2.12;
     * the registry does not hold the asset, which is
       :attr:`UnpricedReason.NOT_REGISTERED`'s question, not this one;
-    * the instrument settles here.
+    * the instrument settles here, and declares economics the book can be kept
+      by -- or needs none, being fully paid (ledger ACC-005).
 
-    The second ``record_for`` below is on the refusal path only, which a healthy
-    run never takes, and it buys a message that names the instrument rather than
-    only its identifier.
+    The one ``record_for`` answers both questions and names the instrument in a
+    refusal, rather than only its identifier.
     """
 
     registry = state.config.instruments
@@ -3174,14 +3338,28 @@ def _settlement_refusal(
 
     settlement = state.config.currency
     permitted = state.config.settlement_currencies
-    currency = _currency_of(registry, asset_id)
-    if currency is None or currency in permitted:
+    record = registry.record_for(asset_id)
+    if record is None:
+        return None
+    currency = record.currency
+    named = f"{record.symbol} on {record.exchange}"
+    if currency in permitted:
+        # Since v3.11 a request must also be one the book can be kept by: a
+        # future or an option declaring no economics has a multiplier and a
+        # settlement nothing can supply (ACC-005), and is refused here, before
+        # an order exists, rather than booked as a share.
+        try:
+            economics_for(record.asset_type, record.economics, named)
+        except InstrumentInputError as exc:
+            return SettlementRefusal(
+                asset_id=asset_id,
+                instrument_currency=currency,
+                settlement_currency=settlement,
+                detail=f"{exc} The request was dropped before it reached the OMS.",
+                timestamp=timestamp,
+            )
         return None
 
-    record = registry.record_for(asset_id)
-    named = (
-        f"{record.symbol} on {record.exchange}" if record is not None else f"asset_id {asset_id!r}"
-    )
     settles = ", ".join(repr(each) for each in sorted(permitted))
     return SettlementRefusal(
         asset_id=asset_id,
@@ -3295,6 +3473,58 @@ def _market_prices_with_event(
     return persistent.set(asset_id, price)
 
 
+def _event_payload(event: MarketEvent) -> object:
+    if isinstance(event, QuoteReceived):
+        return event.quote
+    if isinstance(event, BarClosed):
+        return event.bar
+    if isinstance(event, TickReceived):
+        return event.tick
+    return None
+
+
+def price_refusal(state: ExecutionPipelineState, payload: object) -> str | None:
+    """Why the prices ``payload`` carries cannot be used for its instrument, or ``None``.
+
+    The price gate (ledger ACC-007). Market data no longer refuses a negative
+    print -- a price is data -- so the question of whether one is usable moves
+    here, where the registry that declares each instrument's economics is. Every
+    instrument's mark must be positive and no price it shows negative, unless
+    its economics allow negative prices, and then every price need only be
+    finite. A quote's zero bid is still data -- no bids -- and is accepted.
+
+    Costs nothing for ordinary data: the registry is read only when a price is
+    not positive. :meth:`~alphalab.runtime.run.RunEngine.advance` asks before a
+    record is published and records a refused one as skipped; the pipeline
+    refuses one reaching it directly.
+    """
+
+    if isinstance(payload, Quote):
+        asset_id = payload.asset_id
+        mark = ACCOUNTING_CONTEXT.divide(
+            ACCOUNTING_CONTEXT.add(payload.bid, payload.ask), Decimal("2")
+        )
+        shown: tuple[Decimal, ...] = (payload.bid, payload.ask)
+    elif isinstance(payload, Bar):
+        asset_id = payload.asset_id
+        mark = payload.close
+        shown = (payload.open, payload.high, payload.low, payload.close)
+    elif isinstance(payload, Tick):
+        asset_id, mark, shown = payload.asset_id, payload.price, (payload.price,)
+    else:
+        return None
+    if mark > 0 and all(price >= 0 for price in shown):
+        return None
+    economics = _economics_of(state, asset_id)
+    if economics is not None and economics.allows_negative_prices:
+        return None
+    return (
+        f"{asset_id} is priced at {mark} (showing {', '.join(str(p) for p in shown)}): its "
+        "prices must be positive unless its declared economics allow negative prices "
+        "(ACC-007), so the record is refused rather than marked or traded on."
+    )
+
+
 def _market_price(event: MarketEvent) -> tuple[str, Decimal] | None:
     if isinstance(event, QuoteReceived):
         quote = event.quote
@@ -3307,6 +3537,38 @@ def _market_price(event: MarketEvent) -> tuple[str, Decimal] | None:
     if isinstance(event, TickReceived):
         return event.tick.asset_id, event.tick.price
     return None
+
+
+def _require_not_before_last_event(
+    state: ExecutionPipelineState, timestamp: float, what: str
+) -> None:
+    last = state.market.events[-1] if len(state.market.events) else None
+    if last is not None and timestamp < last.timestamp:
+        raise RuntimeValidationError(
+            f"{what} at {timestamp!r} would be booked before the last event this pipeline "
+            f"processed, at {last.timestamp!r}."
+        )
+
+
+def _after_book_change(
+    state: ExecutionPipelineState,
+    portfolio: PortfolioState,
+    timestamp: float,
+    rates: FxRates,
+) -> ExecutionPipelineState:
+    """``state`` with ``portfolio`` booked, risk resynced and an equity point recorded."""
+
+    risk = _sync_risk_from_portfolio(
+        state.risk, portfolio, state.config.instruments, rates, as_of=timestamp
+    )
+    snapshot = _portfolio_snapshot(portfolio, state.config.currency, timestamp, rates)
+    return replace(
+        state,
+        portfolio=portfolio,
+        risk=risk,
+        portfolio_snapshots=state.portfolio_snapshots.append(snapshot),
+        id_position=current_id_position(),
+    )
 
 
 def _portfolio_snapshot(
@@ -3575,7 +3837,7 @@ def _risk_exposure(
     # rule that owns the message; otherwise each currency's totals convert
     # once, and the per-asset figures convert when read (PRF-001).
     assert_single_currency_book(portfolio.cash, portfolio.positions, base_currency, rates)
-    long_value, short_value, _, _ = book_totals_in(book, base_currency, rates, as_of)
+    long_value, short_value, _, _, _ = book_totals_in(book, base_currency, rates, as_of)
     long_total = Decimal("0.00") + long_value
     short_total = Decimal("0.00") + short_value
     converted = _ValuesInBase(book, base_currency, rates, as_of)

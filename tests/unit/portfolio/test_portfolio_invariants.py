@@ -216,9 +216,8 @@ def test_each_fill_produces_exactly_one_event_and_one_transaction(
         (Decimal("NaN"), Decimal("10.00"), Decimal("0.00"), "finite"),
         (Decimal("1"), Decimal("Infinity"), Decimal("0.00"), "finite"),
         (Decimal("1"), Decimal("10.00"), Decimal("sNaN"), "finite"),
-        (Decimal("1"), Decimal("0"), Decimal("0.00"), "positive price"),
-        (Decimal("1"), Decimal("-5.00"), Decimal("0.00"), "positive price"),
-        (Decimal("1"), Decimal("10.00"), Decimal("-1.00"), "cannot be negative"),
+        (Decimal("1"), Decimal("0"), Decimal("0.00"), "must be positive"),
+        (Decimal("1"), Decimal("-5.00"), Decimal("0.00"), "must be positive"),
     ],
 )
 def test_malformed_fills_are_rejected(
@@ -287,20 +286,40 @@ def test_marking_is_deterministic_and_idempotent(funded: PortfolioState) -> None
     assert once.positions["AAPL"].market_price == twice.positions["AAPL"].market_price
 
 
-def test_prices_for_unheld_or_invalid_assets_are_ignored(funded: PortfolioState) -> None:
+def test_prices_for_unheld_assets_are_ignored_and_invalid_marks_refused(
+    funded: PortfolioState,
+) -> None:
+    """An unheld asset's price marks nothing; a held one's non-positive price is refused.
+
+    Until v3.11 both were ignored, and the position went on carrying a price
+    nothing said was stale (ledger ACC-007).
+    """
+
     state = PortfolioEngine.apply_fill(
         funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("0.00"), 2.0, "USD"
     )
     events_before = len(state.events)
 
-    marked = PortfolioEngine.update_market_prices(
-        state, {"MSFT": Decimal("300.00"), "AAPL": Decimal("0.00")}, 3.0
-    )
+    marked = PortfolioEngine.update_market_prices(state, {"MSFT": Decimal("300.00")}, 3.0)
 
     assert marked is state  # nothing was re-marked, so no new state and no event
     assert len(marked.events) == events_before
     assert "MSFT" not in marked.positions
-    assert marked.positions["AAPL"].market_price == Decimal("100.0000")
+    with pytest.raises(InvalidTransactionError, match=r"cannot be marked at 0\.00"):
+        PortfolioEngine.update_market_prices(state, {"AAPL": Decimal("0.00")}, 3.0)
+
+
+def test_a_negative_commission_is_a_rebate(funded: PortfolioState) -> None:
+    """Signed since v3.11 (ACC-007): a venue paying a liquidity provider is cash in."""
+
+    state = PortfolioEngine.apply_fill(
+        funded, "AAPL", Decimal("10"), Decimal("100.00"), Decimal("-0.25"), 2.0, "USD"
+    )
+
+    assert state.cash.balance("USD") == funded.cash.balance("USD") - Decimal("1000.00") + Decimal(
+        "0.25"
+    )
+    assert state.commission_paid.of("USD") == Decimal("-0.25")
 
 
 def test_a_position_with_no_price_keeps_its_previous_mark(funded: PortfolioState) -> None:

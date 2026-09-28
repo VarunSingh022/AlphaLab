@@ -14,8 +14,11 @@ kept alongside it and updated on every :meth:`~PositionBook.set` and
 :meth:`~PositionBook.delete`:
 
 * per currency, the summed market value of long and of short positions, the
-  summed unrealized P&L, and how many positions of each kind there are;
-* per asset, the position's market value and unrealized P&L.
+  summed unrealized P&L, the market value that adds nothing to equity -- the
+  notional of a position whose gains settle as cash (ledger ACC-005), zero for
+  every fully paid one -- and how many positions of each kind there are;
+* per asset, the position's market value, unrealized P&L and that uncarried
+  value.
 
 Every total is **exact**. Market values are money rounded once to the currency's
 minor unit (see :mod:`alphalab.portfolio.money`), so adding and removing them is
@@ -63,6 +66,12 @@ class CurrencyTotals:
         long_value: Summed market value of the longs; zero or positive.
         short_value: Summed market value of the shorts; zero or negative.
         unrealized_pnl: Summed unrealized P&L of every position.
+        uncarried_value: Summed market value that adds nothing to equity:
+            ``market_value - carrying_value`` of each position whose gains
+            settle as cash (a future, a perpetual). Zero for a book of fully
+            paid positions, so ``long_value + short_value - uncarried_value``
+            -- what the positions add to equity -- is exactly what it always
+            was for every such book.
     """
 
     positions: int = 0
@@ -71,6 +80,7 @@ class CurrencyTotals:
     long_value: Decimal = ZERO_MONEY
     short_value: Decimal = ZERO_MONEY
     unrealized_pnl: Decimal = ZERO_MONEY
+    uncarried_value: Decimal = ZERO_MONEY
 
 
 _NO_TOTALS = CurrencyTotals()
@@ -91,15 +101,21 @@ def _add(total: Decimal, amount: Decimal, count: int) -> Decimal:
         ) from exc
 
 
-def _entry(position: Position) -> tuple[Decimal, Decimal]:
-    return position.market_value, position.unrealized_pnl
+def _entry(position: Position) -> tuple[Decimal, Decimal, Decimal]:
+    value = position.market_value
+    pnl = position.unrealized_pnl
+    return value, pnl, ZERO_MONEY if position.pays_notional else value - pnl
 
 
 def _apply(
-    totals: CurrencyTotals, position: Position, value: Decimal, pnl: Decimal, sign: int
+    totals: CurrencyTotals,
+    position: Position,
+    entry: tuple[Decimal, Decimal, Decimal],
+    sign: int,
 ) -> CurrencyTotals:
     """``totals`` with ``position`` added (``sign`` 1) or removed (``sign`` -1)."""
 
+    value, pnl, uncarried = entry
     count = totals.positions + sign
     longs = totals.longs
     shorts = totals.shorts
@@ -116,7 +132,8 @@ def _apply(
     # over flat positions alone is ``0`` however many there are: the total is
     # normalized on the open positions, not on every position.
     unrealized = _add(totals.unrealized_pnl, pnl if sign > 0 else -pnl, longs + shorts)
-    return CurrencyTotals(count, longs, shorts, long_value, short_value, unrealized)
+    settled = _add(totals.uncarried_value, uncarried if sign > 0 else -uncarried, longs + shorts)
+    return CurrencyTotals(count, longs, shorts, long_value, short_value, unrealized, settled)
 
 
 class PositionBook(Mapping[str, Position]):
@@ -131,7 +148,7 @@ class PositionBook(Mapping[str, Position]):
     __slots__ = ("_entries", "_positions", "_totals")
 
     _positions: PersistentMap[str, Position]
-    _entries: PersistentMap[str, tuple[Decimal, Decimal]]
+    _entries: PersistentMap[str, tuple[Decimal, Decimal, Decimal]]
     _totals: Mapping[str, CurrencyTotals]
 
     def __init__(self, positions: Mapping[str, Position] | None = None) -> None:
@@ -142,11 +159,11 @@ class PositionBook(Mapping[str, Position]):
             return
         items = dict(positions or {})
         totals: dict[str, CurrencyTotals] = {}
-        entries: dict[str, tuple[Decimal, Decimal]] = {}
+        entries: dict[str, tuple[Decimal, Decimal, Decimal]] = {}
         for asset_id, position in items.items():
-            value, pnl = entries[asset_id] = _entry(position)
+            entry = entries[asset_id] = _entry(position)
             totals[position.currency] = _apply(
-                totals.get(position.currency, _NO_TOTALS), position, value, pnl, 1
+                totals.get(position.currency, _NO_TOTALS), position, entry, 1
             )
         self._positions = PersistentMap(items)
         self._entries = PersistentMap(entries)
@@ -156,7 +173,7 @@ class PositionBook(Mapping[str, Position]):
     def _of(
         cls,
         positions: PersistentMap[str, Position],
-        entries: PersistentMap[str, tuple[Decimal, Decimal]],
+        entries: PersistentMap[str, tuple[Decimal, Decimal, Decimal]],
         totals: Mapping[str, CurrencyTotals],
     ) -> PositionBook:
         book: PositionBook = cls.__new__(cls)
@@ -219,15 +236,16 @@ class PositionBook(Mapping[str, Position]):
         entries = self._entries
         previous = self._positions.get(asset_id)
         if previous is not None:
-            value, pnl = entries[asset_id]
-            totals[previous.currency] = _apply(totals[previous.currency], previous, value, pnl, -1)
-        value, pnl = _entry(position)
+            totals[previous.currency] = _apply(
+                totals[previous.currency], previous, entries[asset_id], -1
+            )
+        entry = _entry(position)
         totals[position.currency] = _apply(
-            totals.get(position.currency, _NO_TOTALS), position, value, pnl, 1
+            totals.get(position.currency, _NO_TOTALS), position, entry, 1
         )
         return PositionBook._of(
             self._positions.set(asset_id, position),
-            entries.set(asset_id, (value, pnl)),
+            entries.set(asset_id, entry),
             MappingProxyType({c: t for c, t in totals.items() if t.positions}),
         )
 
@@ -238,8 +256,9 @@ class PositionBook(Mapping[str, Position]):
         if previous is None:
             return self
         totals = dict(self._totals)
-        value, pnl = self._entries[asset_id]
-        totals[previous.currency] = _apply(totals[previous.currency], previous, value, pnl, -1)
+        totals[previous.currency] = _apply(
+            totals[previous.currency], previous, self._entries[asset_id], -1
+        )
         return PositionBook._of(
             self._positions.delete(asset_id),
             self._entries.delete(asset_id),
@@ -280,7 +299,7 @@ class _MarketValues(Mapping[str, Decimal]):
 
     __slots__ = ("_entries",)
 
-    def __init__(self, entries: PersistentMap[str, tuple[Decimal, Decimal]]) -> None:
+    def __init__(self, entries: PersistentMap[str, tuple[Decimal, Decimal, Decimal]]) -> None:
         self._entries = entries
 
     def __getitem__(self, asset_id: str) -> Decimal:

@@ -66,11 +66,11 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.conventions.economics import economics_from_primitives
 from alphalab.conventions.exceptions import ConventionInputError
-from alphalab.conventions.lot import LotSpecification
 from alphalab.core.enums import AssetType
 from alphalab.instrument.classification import ClassificationHistory, SectorClassification
-from alphalab.instrument.economics import InstrumentEconomics, SettlementStyle
+from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
 from alphalab.instrument.record import DatedAlias, InstrumentRecord
 from alphalab.instrument.registry import (
@@ -80,8 +80,6 @@ from alphalab.instrument.registry import (
     register_instrument,
 )
 from alphalab.persistence.decode import (
-    as_bool,
-    as_decimal,
     as_float,
     as_mapping,
     as_optional_str,
@@ -405,33 +403,9 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
 def _economics(value: Any, where: str) -> InstrumentEconomics | None:
     if value is None:
         return None
-    payload = as_mapping(value, where)
-    raw_lot = require(payload, "lot")
-    raw_minimum = require(payload, "minimum_notional")
     try:
-        lot = None
-        if raw_lot is not None:
-            lot_payload = as_mapping(raw_lot, f"{where}.lot")
-            lot = LotSpecification(
-                lot_size=as_decimal(require(lot_payload, "lot_size"), f"{where}.lot.lot_size"),
-                minimum_quantity=as_decimal(
-                    require(lot_payload, "minimum_quantity"), f"{where}.lot.minimum_quantity"
-                ),
-            )
-        return InstrumentEconomics(
-            multiplier=as_decimal(require(payload, "multiplier"), f"{where}.multiplier"),
-            settlement=as_value_enum(
-                SettlementStyle, require(payload, "settlement"), f"{where}.settlement"
-            ),
-            lot=lot,
-            minimum_notional=None
-            if raw_minimum is None
-            else as_decimal(raw_minimum, f"{where}.minimum_notional"),
-            allows_negative_prices=as_bool(
-                require(payload, "allows_negative_prices"), f"{where}.allows_negative_prices"
-            ),
-        )
-    except (ConventionInputError, InstrumentInputError) as exc:
+        return economics_from_primitives(value, where)
+    except ConventionInputError as exc:
         raise StateDecodeError(f"{where} are not an instrument's economics: {exc}") from exc
 
 

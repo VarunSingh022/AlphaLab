@@ -11,8 +11,11 @@ def validate_order_request(request: OrderRequest) -> None:
     if request.quantity <= Decimal("0"):
         raise RiskValidationError(f"Order quantity must be positive, got {request.quantity}")
 
-    if request.price <= Decimal("0"):
-        raise RiskValidationError(f"Order price must be positive, got {request.price}")
+    # Whether a non-positive price is one the instrument takes is its declared
+    # economics' question, which the pipeline's price gate asks before any
+    # request exists (ACC-007); here it need only be a price.
+    if not request.price.is_finite():
+        raise RiskValidationError(f"Order price must be a finite number, got {request.price}")
 
     if not request.asset_id:
         raise RiskValidationError("Asset ID cannot be empty.")

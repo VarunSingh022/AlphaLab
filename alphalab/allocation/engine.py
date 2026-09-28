@@ -69,6 +69,7 @@ class AllocationEngine:
         working: Mapping[tuple[str, str], Decimal] = MappingProxyType({}),
         lots: Mapping[str, LotSpecification] = MappingProxyType({}),
         minimum_notionals: Mapping[str, Decimal] = MappingProxyType({}),
+        multipliers: Mapping[str, Decimal] = MappingProxyType({}),
     ) -> tuple[AllocationState, tuple[OrderRequest, ...]]:
         """
                 Processes a batch of intents, sizes them, applies cross-strategy netting,
@@ -128,6 +129,12 @@ class AllocationEngine:
                 declared lot must itself be a whole number of lots, or it is refused
                 with the reason: rounding a strategy's stated delta would place an
                 order nobody asked for.
+
+        ``multipliers`` is each asset's contract multiplier, where it is not one
+                (ledger ACC-005): a unit of a contract on fifty units of an index is
+                worth fifty times its price, and every figure that values a quantity
+                -- a sizing model's, a target weight's, a minimum notional's and the
+                budget's -- values it so. ``OrderRequest.price`` stays the price.
         """
         events = state.events.append(
             AllocationStarted(AllocationEngine._create_id(), timestamp, len(intents))
@@ -151,20 +158,23 @@ class AllocationEngine:
             return replace(state, events=events), ()
 
         # 2. Sizing, one intent at a time: a refusal names its intent and the
-        # rest of the batch is sized.
+        # rest of the batch is sized. A model that sizes by value reads what one
+        # unit is worth, which the multiplier scales.
+        unit_prices = _per_unit(market_prices, multipliers)
+        unit_budget_prices = _per_unit(budget_prices, multipliers)
         sized_deltas: list[tuple[str, str, OrderTerms, Decimal]] = []
         for intent in valid_intents:
             try:
                 if intent.kind is IntentKind.DELTA:
                     quantity = IntentAllocator.size_intent(
-                        intent, state.budget, market_prices, sizing_model
+                        intent, state.budget, unit_prices, sizing_model
                     )
                 else:
                     quantity = _target_delta(
                         state,
                         intent,
-                        market_prices,
-                        budget_prices,
+                        unit_prices,
+                        unit_budget_prices,
                         working,
                         lots.get(intent.instrument),
                         minimum_notionals.get(intent.instrument),
@@ -225,10 +235,14 @@ class AllocationEngine:
             price = market_prices.get(asset_id, Decimal("0.00"))
 
             # Two prices, two questions. ``price`` denominates the order;
-            # ``budget_price`` denominates the comparison against the budget. They
-            # are the same number unless the budget is in another currency.
-            budget_price = budget_prices.get(asset_id, price)
-            total_notional += abs_qty * budget_price
+            # ``budget_price`` denominates the comparison against the budget --
+            # one unit's value, in the budget's currency. They are the same
+            # number unless the budget is in another currency or the instrument
+            # has a multiplier.
+            budget_price = unit_budget_prices.get(asset_id, unit_prices.get(asset_id, price))
+            # Committed capital is a magnitude: a contract priced below zero
+            # commits as much as one priced as far above it (ACC-007).
+            total_notional += abs_qty * budget_price.copy_abs()
 
             events = events.append(
                 NettingCompleted(
@@ -303,10 +317,10 @@ class AllocationEngine:
         contributions = state.contributions
         for order in orders:
             # In the budget's currency, like the total it is a part of.
-            reservations = reservations.set(
-                order.order_id,
-                order.quantity * budget_prices.get(order.asset_id, order.price),
+            unit = unit_budget_prices.get(
+                order.asset_id, unit_prices.get(order.asset_id, order.price)
             )
+            reservations = reservations.set(order.order_id, order.quantity * unit.copy_abs())
             contributions = contributions.set(order.order_id, order.contributions)
 
         new_state = replace(
@@ -380,6 +394,26 @@ class AllocationEngine:
             total = held.get(asset_id, Decimal("0")) + share
             positions = positions.set(strategy_id, held.set(asset_id, total))
         return replace(state, strategy_positions=positions)
+
+    @staticmethod
+    @in_accounting_context
+    def apply_split(state: AllocationState, asset_id: str, ratio: Decimal) -> AllocationState:
+        """Each strategy's position in ``asset_id`` restated in post-split units (ACC-006).
+
+        A split multiplies what everyone holds by the ratio, a strategy's share
+        included; a target measured against the old count would ask for the
+        split back as a trade. Nothing is recorded where nothing was.
+        """
+
+        positions = state.strategy_positions
+        if positions is None:
+            return state
+        restated = positions
+        for strategy_id, held in positions.items():
+            quantity = held.get(asset_id)
+            if quantity is not None:
+                restated = restated.set(strategy_id, held.set(asset_id, quantity * ratio))
+        return state if restated is positions else replace(state, strategy_positions=restated)
 
     @staticmethod
     def strategy_position(state: AllocationState, strategy_id: str, asset_id: str) -> Decimal:
@@ -476,6 +510,25 @@ class AllocationEngine:
         )
 
 
+def _per_unit(
+    prices: Mapping[str, Decimal], multipliers: Mapping[str, Decimal]
+) -> Mapping[str, Decimal]:
+    """``prices`` with each multiplied asset's price scaled to one unit's value.
+
+    The same mapping, untouched, when nothing has a multiplier -- which is every
+    run that declares none, so its arithmetic is exactly what it was.
+    """
+
+    if not multipliers or not prices:
+        return prices
+    scaled = dict(prices)
+    for asset_id, multiplier in multipliers.items():
+        price = scaled.get(asset_id)
+        if price is not None:
+            scaled[asset_id] = price * multiplier
+    return scaled
+
+
 #: The unit a fill is divided among strategies in for their positions; every
 #: part but the last is rounded to it and the last takes the remainder, so the
 #: parts sum to the fill exactly.
@@ -504,11 +557,19 @@ def _target_delta(
     """
 
     held = AllocationEngine.strategy_position(state, intent.strategy_id, intent.instrument)
-    price = market_prices.get(intent.instrument, Decimal("0"))
-    if not price.is_finite() or price <= 0:
+    price = market_prices.get(intent.instrument)
+    if price is None or not price.is_finite():
         raise SizingRefusedError(
-            f"Cannot rebalance {intent.strategy_id} in {intent.instrument}: it has no positive "
-            f"price (got {price}), and a target is reached by an order that must be priced."
+            f"Cannot rebalance {intent.strategy_id} in {intent.instrument}: it has no price "
+            f"(got {price}), and a target is reached by an order that must be priced."
+        )
+    if intent.kind is IntentKind.TARGET_WEIGHT and price <= 0:
+        # A weight is a value, and a value cannot be sized at a price that is
+        # not positive. A quantity can: an instrument whose economics allow a
+        # negative price trades at one (ACC-007).
+        raise SizingRefusedError(
+            f"Cannot rebalance {intent.strategy_id} in {intent.instrument} to a weight: it has "
+            f"no positive price (got {price}); state a target quantity instead."
         )
     ctx = ACCOUNTING_CONTEXT
     scale = ctx.multiply(intent.target, intent.strength)
@@ -528,7 +589,7 @@ def _target_delta(
         delta = round_down_to_lot(delta, lot)
     if delta == 0:
         return delta
-    notional = ctx.multiply(abs(delta), price)
+    notional = ctx.multiply(abs(delta), price.copy_abs())
     if minimum_notional is not None and notional < minimum_notional:
         raise SizingRefusedError(
             f"Rebalancing {intent.strategy_id} to its target in {intent.instrument} needs "

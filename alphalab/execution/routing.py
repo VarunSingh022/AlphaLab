@@ -340,7 +340,7 @@ class RouteRequest:
             raise ExecutionValidationError(
                 f"An increment of {self.quantity_increment} is not a unit."
             )
-        if self.limit_price is not None and self.limit_price <= _ZERO:
+        if self.limit_price is not None and not self.limit_price.is_finite():
             raise ExecutionValidationError(f"A limit of {self.limit_price} is not a price.")
         if not math.isfinite(self.decided_at):
             raise ExecutionValidationError(f"decided_at={self.decided_at!r} is not an instant.")

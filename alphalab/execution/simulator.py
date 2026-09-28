@@ -67,12 +67,17 @@ class ExecutionSimulator:
         cost_model: The full six-role itemization. ``None`` means "the two
             models above and no other cost", which is what every pre-v3.3
             simulator meant.
+        maker_commission_model: What a resting fill -- one that provided
+            liquidity -- is charged instead of the commission role, or ``None``
+            for the same commission a taker pays. A negative rate is a rebate,
+            which a venue pays its liquidity providers (v3.11, ledger ACC-007).
     """
 
     commission_model: CommissionModel = DEFAULT_COMMISSION
     slippage_model: SlippageModel = DEFAULT_SLIPPAGE
     latency_model: LatencyModel = DEFAULT_LATENCY
     cost_model: ExecutionCostModel | None = field(default=None)
+    maker_commission_model: CommissionModel | None = None
 
     @property
     def is_frictionless(self) -> bool:
@@ -86,7 +91,10 @@ class ExecutionSimulator:
         the model it is.
         """
 
-        return all(_charges_nothing(role) for role in astuple_shallow(self.costs))
+        maker = self.maker_commission_model
+        return all(_charges_nothing(role) for role in astuple_shallow(self.costs)) and (
+            maker is None or _charges_nothing(maker)
+        )
 
     @property
     def costs(self) -> ExecutionCostModel:
@@ -115,16 +123,19 @@ class ExecutionSimulator:
         A limit order that rested and was filled at its own price did not cross
         the spread, walk the book or move the market; it was the liquidity. Its
         spread, slippage and impact are therefore nothing, and its commission,
-        fees and tax are what the configuration charges. Since v3.11 (ledger
-        EXE-003), for fills :func:`simulate_fill` is told are passive.
+        fees and tax are what the configuration charges -- the commission being
+        :attr:`maker_commission_model` when one is set, which may be a rebate
+        (ACC-007). Since v3.11 (ledger EXE-003), for fills :func:`simulate_fill`
+        is told are passive.
         """
 
         costs = self.costs
+        maker = self.maker_commission_model
         return ExecutionCostModel(
             spread_model=NoSpread(),
             slippage_model=NoSlippage(),
             impact_model=NoImpact(),
-            commission_model=costs.commission_model,
+            commission_model=costs.commission_model if maker is None else maker,
             fee_model=costs.fee_model,
             tax_model=costs.tax_model,
         )

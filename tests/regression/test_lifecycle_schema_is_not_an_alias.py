@@ -81,7 +81,7 @@ def test_the_shared_constant_itself_did_not_move() -> None:
     from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
 
     assert DEFAULT_SCHEMA_VERSION == 1
-    assert PORTFOLIO_SNAPSHOT_SCHEMA == 4  # v3.10: minor units, upgraded from 3
+    assert PORTFOLIO_SNAPSHOT_SCHEMA == 5  # v3.11: economics, upgraded from 4 and 3
 
 
 def test_a_payload_this_build_writes_is_a_payload_this_build_reads() -> None:

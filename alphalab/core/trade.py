@@ -17,7 +17,8 @@ class Trade:
         asset_id: Asset executed by the trade.
         side: Executed direction.
         quantity: Positive trade quantity.
-        average_price: Positive average execution price.
+        average_price: Average execution price; positive unless the
+            instrument's economics allow negative prices (ACC-007).
         fill_ids: One or more fills that compose the trade.
         executed_at: Unix timestamp (seconds) the trade was recorded.
         order_id: Optional order identifier linked to the trade.
@@ -41,8 +42,8 @@ class Trade:
             raise DomainValidationError("side must be a Side")
         if self.quantity <= Decimal("0"):
             raise DomainValidationError("quantity must be positive")
-        if self.average_price <= Decimal("0"):
-            raise DomainValidationError("average_price must be positive")
+        if not self.average_price.is_finite():
+            raise DomainValidationError("average_price must be a finite number")
         if not self.fill_ids:
             raise DomainValidationError("fill_ids must contain at least one fill identifier")
         if len(set(self.fill_ids)) != len(self.fill_ids):

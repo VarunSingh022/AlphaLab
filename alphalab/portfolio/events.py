@@ -95,3 +95,58 @@ class CashConverted(PortfolioEvent):
     rate_as_of: float
     rate_source: str
     rate_derived: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class VariationSettled(PortfolioEvent):
+    """A position whose gains settle as cash was settled at a price (ledger ACC-005).
+
+    Attributes:
+        asset_id: The position.
+        price: The price it was settled at, and is carried at from now on.
+        amount: The cash the settlement moved, signed: a gain received is
+            positive, a loss paid negative. Realized P&L.
+        currency: What ``amount`` is in -- the position's currency.
+    """
+
+    asset_id: str
+    price: Decimal
+    amount: Decimal
+    currency: str
+
+
+@dataclass(frozen=True, slots=True)
+class CashFlowBooked(PortfolioEvent):
+    """Cash a holding earned or cost without a trade (ledger ACC-006).
+
+    Attributes:
+        kind: A :class:`~alphalab.portfolio.corporate_actions.CashFlowKind` value.
+        asset_id: The holding it arose from, or ``""`` for the account itself.
+        amount: Signed: received is positive, paid negative.
+        currency: What ``amount`` is in.
+        reference: The caller's reference for it -- a dividend's declaration,
+            a funding interval. Free text, not interpreted.
+    """
+
+    kind: str
+    asset_id: str
+    amount: Decimal
+    currency: str
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class PositionSplit(PortfolioEvent):
+    """A split or stock dividend changed a position's quantity, not its value (ACC-006).
+
+    Attributes:
+        asset_id: The position.
+        ratio: Units after for each unit before: ``2`` for a two-for-one split,
+            ``0.1`` for a one-for-ten reverse split, ``1.05`` for a 5% stock
+            dividend.
+        quantity: The position's quantity after.
+    """
+
+    asset_id: str
+    ratio: Decimal
+    quantity: Decimal

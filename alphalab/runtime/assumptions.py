@@ -82,7 +82,9 @@ class ExecutionAssumptions:
             order went through.
         fill_timing: When a simulated order filled.
         fill_policy: The fill policy, described.
-        costs: The cost model every simulated fill was priced by, described.
+        costs: The cost model every simulated fill was priced by, described --
+            with the maker commission a resting fill pays instead, when one is
+            set (v3.11).
         latency: The latency model, described.
         frictionless: Whether every cost role charged nothing by construction
             (:attr:`~alphalab.execution.simulator.ExecutionSimulator.is_frictionless`).
@@ -146,11 +148,17 @@ def execution_assumptions(
     """What a pipeline configured this way, with this fill policy, assumes."""
 
     simulator = pipeline.simulator
+    costs = describe(simulator.costs)
+    if simulator.maker_commission_model is not None:
+        # What a resting fill pays instead -- a rebate, perhaps (ACC-007). Part
+        # of the model the run's evidence was measured under, so part of what
+        # identifies it; absent when not set, so every other run reads as it did.
+        costs = f"{costs}; maker_commission={describe(simulator.maker_commission_model)}"
     return ExecutionAssumptions(
         routing=pipeline.routing,
         fill_timing=pipeline.fill_timing,
         fill_policy=describe(fill_policy),
-        costs=describe(simulator.costs),
+        costs=costs,
         latency=describe(simulator.latency_model),
         frictionless=simulator.is_frictionless,
         unlimited_liquidity=isinstance(fill_policy, ImmediateFill),

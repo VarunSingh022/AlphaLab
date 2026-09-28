@@ -249,11 +249,13 @@ class ExecutionCosts:
     class exists to make impossible to write by accident, which is why
     :meth:`total` requires the quantity to combine them.
 
-    Every field is non-negative: a cost is a cost. Direction is applied by
-    :meth:`ExecutionCostModel.fill_price`, which adds the concession for a buy
-    and subtracts it for a sell -- a negative concession here would mean a fill
-    that improved on the reference price, which is price improvement rather than
-    a cost and is not what this records.
+    Every field but ``commission`` is non-negative: a cost is a cost. Direction
+    is applied by :meth:`ExecutionCostModel.fill_price`, which adds the
+    concession for a buy and subtracts it for a sell -- a negative concession
+    here would mean a fill that improved on the reference price, which is price
+    improvement rather than a cost and is not what this records. A negative
+    ``commission`` is a rebate, a venue paying a liquidity provider in cash
+    (v3.11, ledger ACC-007): real money, which a price concession is not.
     """
 
     spread: Decimal
@@ -264,7 +266,7 @@ class ExecutionCosts:
     tax: Decimal
 
     def __post_init__(self) -> None:
-        for name in ("spread", "slippage", "impact", "commission", "fees", "tax"):
+        for name in ("spread", "slippage", "impact", "fees", "tax"):
             value: Decimal = getattr(self, name)
             if value < _ZERO:
                 raise ExecutionValidationError(
@@ -707,7 +709,11 @@ class ExecutionCostModel:
         if context.side is Side.BUY:
             return ACCOUNTING_CONTEXT.add(context.reference_price, concession)
         price = ACCOUNTING_CONTEXT.subtract(context.reference_price, concession)
-        if price <= _ZERO:
+        # A concession that carries a positive price through zero is a model
+        # that does not fit the instrument. One already at or below zero -- an
+        # instrument whose economics allow it, admitted by the pipeline's price
+        # gate (ACC-007) -- simply trades lower.
+        if context.reference_price > _ZERO and price <= _ZERO:
             raise ExecutionValidationError(
                 f"A per-unit concession of {concession} on a sale of {context.asset_id} at "
                 f"{context.reference_price} leaves a price of {price}. A sale cannot happen "

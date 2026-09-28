@@ -59,6 +59,8 @@ from typing import Any
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.currency_units import ISO_4217_MINOR_UNITS, CurrencyUnits
 from alphalab.common.exceptions import AlphaLabValidationError
+from alphalab.conventions.economics import InstrumentEconomics, economics_from_primitives
+from alphalab.conventions.exceptions import ConventionInputError
 from alphalab.persistence.decode import (
     as_bool,
     as_decimal,
@@ -81,6 +83,7 @@ from alphalab.portfolio.engine import PortfolioState
 from alphalab.portfolio.events import (
     CashConverted,
     CashDeposited,
+    CashFlowBooked,
     CashWithdrawn,
     MarketValueUpdated,
     PortfolioEvent,
@@ -89,6 +92,8 @@ from alphalab.portfolio.events import (
     PositionIncreased,
     PositionOpened,
     PositionReduced,
+    PositionSplit,
+    VariationSettled,
 )
 from alphalab.portfolio.ledger import TransactionLedger
 from alphalab.portfolio.position import Position
@@ -139,7 +144,13 @@ __all__ = [
 #: resumed run marks exactly what an uninterrupted one would. Version 3 is
 #: upgraded by :data:`PORTFOLIO_SCHEMA_HISTORY`; versions 1 and 2 are still
 #: refused, for the reasons above, which that history states as its refusals.
-PORTFOLIO_SNAPSHOT_SCHEMA = 4
+#:
+#: Version 5 (v3.11) records the economics each position is booked by -- its
+#: multiplier and how it settles (ledger ACC-005) -- and reads the events a
+#: variation settlement, a cash flow and a split write (ACC-005, ACC-006). A
+#: version-4 position was booked as a fully paid unit of one, which is what
+#: ``economics: null`` says, so version 4 is upgraded with exactly that.
+PORTFOLIO_SNAPSHOT_SCHEMA = 5
 
 _SUBSYSTEM = "portfolio"
 
@@ -156,6 +167,10 @@ _EVENT_TYPES: Mapping[str, type[PortfolioEvent]] = {
         PositionClosed,
         MarketValueUpdated,
         PortfolioValuationUpdated,
+        # v3.11 (ACC-005, ACC-006).
+        VariationSettled,
+        CashFlowBooked,
+        PositionSplit,
     )
 }
 
@@ -176,6 +191,8 @@ _EVENT_FIELD_DECODERS: Mapping[str, Any] = {
     "rate": as_decimal,
     "rate_as_of": as_float,
     "rate_derived": as_bool,
+    # PositionSplit (v3.11): units after for each unit before.
+    "ratio": as_decimal,
 }
 
 
@@ -289,7 +306,19 @@ def _position(value: Any, index: int) -> Position:
         cost_basis=as_optional_decimal(require(payload, "cost_basis"), f"{where}.cost_basis"),
         opened_at=_optional_float(require(payload, "opened_at"), f"{where}.opened_at"),
         minor_units=_optional_int(require(payload, "minor_units"), f"{where}.minor_units"),
+        economics=_economics(require(payload, "economics"), f"{where}.economics"),
     )
+
+
+def _economics(value: Any, where: str) -> InstrumentEconomics | None:
+    """The economics a position is booked by, or ``None`` for a fully paid unit of one."""
+
+    if value is None:
+        return None
+    try:
+        return economics_from_primitives(value, where)
+    except ConventionInputError as exc:
+        raise StateDecodeError(f"{where} are not an instrument's economics: {exc}") from exc
 
 
 def _optional_int(value: Any, field_name: str) -> int | None:
@@ -467,6 +496,16 @@ def declared_units_of_v3_book(payload: Mapping[str, Any]) -> dict[str, int]:
     return declared
 
 
+def _v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
+    """A version-4 position was booked as a fully paid unit of one: ``economics: null``."""
+
+    positions = [
+        {**position, "economics": None} if isinstance(position, dict) else position
+        for position in payload.get("positions", ())
+    ]
+    return {**payload, "positions": positions}
+
+
 #: How every portfolio payload a release has written is read by this one.
 PORTFOLIO_SCHEMA_HISTORY = SchemaHistory(
     subsystem=_SUBSYSTEM,
@@ -493,6 +532,11 @@ PORTFOLIO_SCHEMA_HISTORY = SchemaHistory(
             3,
             "version 4 records the minor units money is booked at, and the pending marks",
             upgrade=_v3_to_v4,
+        ),
+        SchemaStep(
+            4,
+            "version 5 records the economics each position is booked by",
+            upgrade=_v4_to_v5,
         ),
     ),
 )

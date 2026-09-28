@@ -393,7 +393,7 @@ def test_other_subsystems_keep_their_own_schema_rules() -> None:
     from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
 
     assert OMS_SNAPSHOT_SCHEMA == 2  # v3.11: order terms, upgraded from 1
-    assert PORTFOLIO_SNAPSHOT_SCHEMA == 4  # v3.10: minor units, upgraded from 3
+    assert PORTFOLIO_SNAPSHOT_SCHEMA == 5  # v3.11: economics, upgraded from 4 and 3
     assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
 
 

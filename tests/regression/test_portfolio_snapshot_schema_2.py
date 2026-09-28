@@ -71,10 +71,11 @@ def test_the_portfolio_snapshot_declares_its_current_version() -> None:
     not record what the newer one needs and no honest value can be invented.
     """
 
-    # Version 4 since v3.10 (minor units); version 3 is upgraded, 1 and 2 refused.
-    assert PORTFOLIO_SNAPSHOT_SCHEMA == 4
-    assert capture(_state()).schema_version == 4
-    assert _payload()["schema_version"] == 4
+    # Version 5 since v3.11 (each position's economics); versions 3 and 4 are
+    # upgraded, 1 and 2 refused.
+    assert PORTFOLIO_SNAPSHOT_SCHEMA == 5
+    assert capture(_state()).schema_version == 5
+    assert _payload()["schema_version"] == 5
 
 
 def test_no_other_schema_constant_moved() -> None:

@@ -298,10 +298,10 @@ def _positions_in(
     performed: list[FxConversion] = []
     for position in positions.values():
         if position.currency == base_currency:
-            total += position.market_value
+            total += position.carrying_value
             continue
         conversion = rates.convert(
-            position.market_value, position.currency, base_currency, as_of, units=units
+            position.carrying_value, position.currency, base_currency, as_of, units=units
         )
         total += conversion.converted
         performed.append(conversion)
@@ -314,17 +314,22 @@ def book_totals_in(
     rates: FxRates,
     as_of: float | None,
     units: CurrencyUnits | None = None,
-) -> tuple[Decimal, Decimal, Decimal, tuple[FxConversion, ...]]:
-    """The book's long value, short value and unrealized P&L in ``base_currency``.
+) -> tuple[Decimal, Decimal, Decimal, tuple[FxConversion, ...], Decimal]:
+    """The book's long value, short value, unrealized P&L, the conversions, and its
+    uncarried value, in ``base_currency``.
 
     Each currency's totals are converted once -- the positions in the base
     currency need no rate -- and the conversions performed are returned in the
-    order performed, one per converted figure.
+    order performed, one per converted figure. The uncarried value (see
+    :class:`~alphalab.portfolio.book.CurrencyTotals`) is converted only where a
+    currency has any, so a book of fully paid positions converts what it
+    always did.
     """
 
     long_value = ZERO_MONEY
     short_value = ZERO_MONEY
     unrealized = ZERO_MONEY
+    uncarried = ZERO_MONEY
     performed: list[FxConversion] = []
     for currency in book.currencies:
         totals = book.totals(currency)
@@ -332,7 +337,14 @@ def book_totals_in(
             long_value += totals.long_value
             short_value += totals.short_value
             unrealized += totals.unrealized_pnl
+            uncarried += totals.uncarried_value
             continue
+        if totals.uncarried_value != 0:
+            conversion = _convert(
+                totals.uncarried_value, currency, base_currency, rates, as_of, units
+            )
+            performed.append(conversion)
+            uncarried += conversion.converted
         if totals.longs:
             conversion = _convert(totals.long_value, currency, base_currency, rates, as_of, units)
             performed.append(conversion)
@@ -347,7 +359,7 @@ def book_totals_in(
             )
             performed.append(conversion)
             unrealized += conversion.converted
-    return long_value, short_value, unrealized, tuple(performed)
+    return long_value, short_value, unrealized, tuple(performed), uncarried
 
 
 @dataclass(frozen=True, slots=True)
@@ -534,7 +546,10 @@ class PortfolioValuation:
             totals = state.book.totals(base_currency)
             long_value = totals.long_value
             short_value = totals.short_value
-            positions_value = long_value + short_value
+            # What the positions add to equity: their market value, less the
+            # notional of any whose gains settle as cash (ACC-005) -- which is
+            # zero, and changes nothing, for a book of fully paid positions.
+            positions_value = long_value + short_value - totals.uncarried_value
             unrealized = totals.unrealized_pnl
             conversions: tuple[FxConversion, ...] = settlement_conversions
         else:
@@ -550,12 +565,12 @@ class PortfolioValuation:
             cash, cash_conversions = cash_in(state.cash, base_currency, rates, timestamp, units)
             performed.extend(cash_conversions)
 
-            long_value, short_value, unrealized, position_conversions = book_totals_in(
+            long_value, short_value, unrealized, position_conversions, uncarried = book_totals_in(
                 state.book, base_currency, rates, timestamp, units
             )
             performed.extend(position_conversions)
 
-            positions_value = long_value + short_value
+            positions_value = long_value + short_value - uncarried
             conversions = (*settlement_conversions, *performed)
 
         return PortfolioValuationSnapshot(

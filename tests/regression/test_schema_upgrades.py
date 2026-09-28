@@ -77,7 +77,7 @@ def test_a_v3_9_portfolio_is_upgraded_and_keeps_every_amount() -> None:
     assert state.positions["AAPL"].minor_units == 2
 
     recaptured = deserialize(serialize(capture(state)))
-    assert recaptured["schema_version"] == PORTFOLIO_SNAPSHOT_SCHEMA == 4
+    assert recaptured["schema_version"] == PORTFOLIO_SNAPSHOT_SCHEMA == 5
     assert restore(from_primitives(recaptured)) == state
 
 
@@ -272,7 +272,7 @@ def test_a_v3_9_backtest_run_is_upgraded_restored_and_continues() -> None:
     recaptured = deserialize(serialize(capture(continued)))
     assert recaptured["schema_version"] == RUN_SNAPSHOT_SCHEMA == 3
     assert recaptured["pipeline"]["schema_version"] == 5
-    assert recaptured["pipeline"]["portfolio"]["schema_version"] == 4
+    assert recaptured["pipeline"]["portfolio"]["schema_version"] == 5
     assert recaptured["pipeline"]["oms"]["schema_version"] == 2
     assert recaptured["pipeline"]["allocation"]["schema_version"] == 2
     # Every order the v3.9 run recorded -- in the book and in each step -- is

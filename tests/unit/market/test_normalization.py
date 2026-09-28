@@ -172,7 +172,6 @@ def test_a_policy_is_never_defaulted() -> None:
     ("wire", "reason"),
     [
         (WireQuote("AAPL", 1000.0, 11.0, 10.0, 1.0, 1.0), "crossed"),
-        (WireQuote("AAPL", 1000.0, -1.0, 10.0, 1.0, 1.0), "negative price"),
         (WireQuote("AAPL", 1000.0, 1.0, 10.0, -1.0, 1.0), "negative size"),
         (WireQuote("AAPL", 0.0, 1.0, 10.0, 1.0, 1.0), "non-positive timestamp"),
     ],
@@ -181,6 +180,19 @@ def test_invalid_wire_quotes_are_refused_at_the_boundary(wire: WireQuote, reason
     """Invalid data fails here, not deeper in the execution path."""
     with pytest.raises(MarketValidationError):
         normalize_wire_quote(wire, _POLICY)
+
+
+def test_a_negative_wire_price_is_data_at_the_boundary() -> None:
+    """Since v3.11 (ACC-007) a price's sign is the instrument's economics' question.
+
+    The execution pipeline refuses a non-positive price for an instrument that
+    does not declare negative prices; this boundary only refuses what is not a
+    price at all. A provider that writes ``-1`` for "no quote" is the adapter's
+    to translate -- a provider quirk, which the application owns.
+    """
+
+    quote = normalize_wire_quote(WireQuote("AAPL", 1000.0, -1.0, 10.0, 1.0, 1.0), _POLICY)
+    assert quote.bid == Decimal("-1.0")
 
 
 def test_invalid_wire_bar_is_refused() -> None:

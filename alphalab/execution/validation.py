@@ -13,9 +13,11 @@ def validate_execution_parameters(
         raise ExecutionValidationError("Execution quantity cannot be negative.")
     if quantity == Decimal("0"):
         raise ExecutionValidationError("Execution quantity cannot be zero.")
-    if price < Decimal("0"):
-        raise ExecutionValidationError("Execution price cannot be negative.")
-    if commission < Decimal("0"):
-        raise ExecutionValidationError("Commission cannot be negative.")
+    # A price's sign is the instrument's question and a commission is signed --
+    # a negative one is a rebate -- since v3.11 (ACC-007).
+    if not price.is_finite():
+        raise ExecutionValidationError("Execution price must be a finite number.")
+    if not commission.is_finite():
+        raise ExecutionValidationError("Commission must be a finite number.")
     if timestamp < 0:
         raise ExecutionValidationError("Invalid timestamp.")

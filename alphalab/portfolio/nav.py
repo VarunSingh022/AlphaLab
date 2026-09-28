@@ -60,15 +60,17 @@ class NAVCalculator:
         if not foreign_positions and not foreign_cash:
             cash = cash_ledger.balance(base_currency)
             if isinstance(positions, PositionBook):
-                # The book's own totals: the same sums, kept as it changes.
+                # The book's own totals: the same sums, kept as it changes. A
+                # position whose gains settle as cash adds only what has not
+                # been settled yet, not its notional (ACC-005).
                 totals = positions.totals(base_currency)
-                return cash + totals.long_value + totals.short_value
+                return cash + totals.long_value + totals.short_value - totals.uncarried_value
             long_value = sum(
-                (p.market_value for p in positions.values() if p.market_value > 0),
+                (p.carrying_value for p in positions.values() if p.carrying_value > 0),
                 ZERO_MONEY,
             )
             short_liability = sum(
-                (p.market_value for p in positions.values() if p.market_value < 0),
+                (p.carrying_value for p in positions.values() if p.carrying_value < 0),
                 ZERO_MONEY,
             )
             return cash + long_value + short_liability  # Short value is inherently negative
@@ -78,5 +80,10 @@ class NAVCalculator:
         # PortfolioValuation.snapshot sums into equity -- so a sum is never
         # taken across two currencies (PRF-001).
         book = positions if isinstance(positions, PositionBook) else PositionBook(positions)
-        long_value, short_value, _, _ = book_totals_in(book, base_currency, rates, as_of)
-        return cash_in(cash_ledger, base_currency, rates, as_of)[0] + long_value + short_value
+        long_value, short_value, _, _, uncarried = book_totals_in(book, base_currency, rates, as_of)
+        return (
+            cash_in(cash_ledger, base_currency, rates, as_of)[0]
+            + long_value
+            + short_value
+            - uncarried
+        )

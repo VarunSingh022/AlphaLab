@@ -128,6 +128,7 @@ from alphalab.execution.algorithms import ChildOrder
 from alphalab.market.record import MarketRecord
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order as OMSOrder
+from alphalab.portfolio.corporate_actions import CashFlow, Split
 from alphalab.portfolio.fx import NO_RATES, FxRates
 from alphalab.runtime.broker_routing import (
     ChildOrderBindings,
@@ -639,6 +640,39 @@ class LiveSession:
         if not route:
             return current, (), ()
         return LiveSession.route_working_orders(current, broker, now)
+
+    @staticmethod
+    @in_accounting_context
+    def apply_cash_flow(
+        state: LiveRunState,
+        flow: CashFlow,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> LiveRunState:
+        """Book a cash flow the venue paid or charged (ledger ACC-006).
+
+        :meth:`~alphalab.runtime.run.RunEngine.apply_cash_flow` on the run. The
+        venue's own record of it is the broker mirror's, which its adapter keeps.
+        """
+
+        return replace(state, run=RunEngine.apply_cash_flow(state.run, flow, timestamp, rates))
+
+    @staticmethod
+    @in_accounting_context
+    def apply_split(
+        state: LiveRunState,
+        split: Split,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> LiveRunState:
+        """Apply a corporate action the venue has applied (ledger ACC-006).
+
+        :meth:`~alphalab.runtime.run.RunEngine.apply_split` on the run. Refused
+        while orders in the asset are working at the venue: the venue decides
+        what becomes of them and reports it.
+        """
+
+        return replace(state, run=RunEngine.apply_split(state.run, split, timestamp, rates))
 
     @staticmethod
     @in_accounting_context

@@ -623,7 +623,7 @@ class AlgorithmTerms:
             raise ExecutionValidationError("A LIMIT parent names no limit price for its children.")
         if self.order_type is OrderType.MARKET and self.limit_price is not None:
             raise ExecutionValidationError("A MARKET parent's children carry no limit price.")
-        if self.limit_price is not None and self.limit_price <= _ZERO:
+        if self.limit_price is not None and not self.limit_price.is_finite():
             raise ExecutionValidationError(f"A limit of {self.limit_price} is not a price.")
 
     def _render(self) -> list[str]:

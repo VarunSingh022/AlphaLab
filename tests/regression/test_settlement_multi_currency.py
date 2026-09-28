@@ -537,7 +537,7 @@ def test_the_payload_records_each_currency_separately() -> None:
     _, second = _run_eur_trade()
     payload = deserialize(serialize(capture(second.state.portfolio)))
 
-    assert payload["schema_version"] == PORTFOLIO_SNAPSHOT_SCHEMA == 4
+    assert payload["schema_version"] == PORTFOLIO_SNAPSHOT_SCHEMA == 5
     assert payload["realized_pnl"] == {"EUR": "40.00"}
     assert set(payload["balances"]) == {"USD", "EUR"}
 
