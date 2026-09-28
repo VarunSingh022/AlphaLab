@@ -86,7 +86,7 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import DateOnlyPolicy, TimeFrequency, TimestampFormat
+from alphalab.data.time import BarStamp, DateOnlyPolicy, TimeFrequency, TimestampFormat
 from alphalab.factor_library import (
     FeatureDefinition,
     FeatureField,
@@ -221,7 +221,12 @@ INSTRUMENTS = tuple(
 ASSETS = {record.symbol: record.asset_id for record in INSTRUMENTS}
 REGISTRY: InstrumentRegistry = register_instruments(InstrumentRegistry(), INSTRUMENTS)
 NORMALIZATION = NormalizationPolicy(
-    venue="XNYS", currency="USD", timeframe=TimeFrame.D1, identity=REGISTRY, provider=PROVIDER
+    bar_stamp=BarStamp.INTERVAL_END,
+    venue="XNYS",
+    currency="USD",
+    timeframe=TimeFrame.D1,
+    identity=REGISTRY,
+    provider=PROVIDER,
 )
 
 #: Each earnings release: subject, announcement (New York wall clock), delivery
@@ -279,6 +284,7 @@ def prices() -> Dataset:
             SourceKind.IN_MEMORY, "v37-integration", csv_payload(rows), 1_717_000_000.0, "text/csv"
         ),
         frequency=TimeFrequency.DAILY,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,

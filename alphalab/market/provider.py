@@ -6,18 +6,18 @@ canonical :class:`~alphalab.market.record.MarketRecord` s -- and
 ``alphalab.market.normalization`` defined how a provider's wire record becomes
 canonical. Between them there was nothing, so ``normalize_wire_*`` had no
 production caller and :class:`~alphalab.market.source.SequenceSource` was the
-only source in the repository. A real provider client existed too
-(:mod:`alphalab.marketdata.binance`, over
-:class:`~alphalab.marketdata.transport.HttpTransport`) and could not reach a
+only source in the repository, and a provider client could not reach a
 :class:`~alphalab.runtime.session.TradingSession`.
 
 This module is that link, and only that link. It adds no HTTP, models no vendor
-API, and implements no second provider: everything it uses already existed and
-was already tested.
+API, and implements no provider: a provider is the host application's, and
+:class:`BarHistoryProvider` is the one method AlphaLab asks of it. (Until v3.10
+the library also shipped vendor clients of its own; they were removed, ledger
+BND-001.)
 
 ::
 
-    provider adapter        marketdata.binance.binanceAdapter
+    provider                any BarHistoryProvider (the host's)
         -> wire bars        marketdata.feed.Bar          (float, provider symbol)
         -> normalization    market.normalization         (Decimal, asset_id, venue)
         -> MarketRecord     market.record
@@ -51,7 +51,7 @@ from typing import Protocol
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar
 from alphalab.market.exceptions import InstrumentResolutionError, MarketValidationError
-from alphalab.market.normalization import DEFAULT_POLICY, NormalizationPolicy, normalize_wire_bar
+from alphalab.market.normalization import NormalizationPolicy, normalize_wire_bar
 from alphalab.market.record import MarketRecord, records_from_inputs
 from alphalab.market.source import OrderingGuarantee, validate_ordering
 from alphalab.marketdata.feed import Bar as WireBar
@@ -74,9 +74,7 @@ class BarHistoryProvider(Protocol):
     ) -> tuple[WireBar, ...]: ...
 
 
-def normalize_wire_bars(
-    bars: Sequence[WireBar], policy: NormalizationPolicy = DEFAULT_POLICY
-) -> tuple[Bar, ...]:
+def normalize_wire_bars(bars: Sequence[WireBar], policy: NormalizationPolicy) -> tuple[Bar, ...]:
     """Lift a provider's wire bars into canonical bars.
 
     Every rule stays where v2.3 put it: precision through ``Decimal(str(...))``,

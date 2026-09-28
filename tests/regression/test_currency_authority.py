@@ -510,14 +510,16 @@ def test_the_simulated_path_cannot_produce_a_mismatched_report() -> None:
 
 
 def test_routing_config_keeps_its_public_shape() -> None:
-    """Constrained at Seam 2, not removed or redefined. ADR-0028 decision 8."""
+    """Constrained at Seam 2, not removed or redefined. ADR-0028 decision 8.
 
-    assert list(inspect.signature(RoutingConfig).parameters) == [
-        "venue",
-        "currency",
-        "order_type",
-    ]
-    assert RoutingConfig().currency == "USD"
+    Its shape is unchanged; since v3.10 its venue and currency are required
+    rather than defaulted to ``"LIVE"`` and ``"USD"`` (ledger API-003).
+    """
+
+    parameters = inspect.signature(RoutingConfig).parameters
+    assert list(parameters) == ["venue", "currency", "order_type"]
+    assert parameters["venue"].default is inspect.Parameter.empty
+    assert parameters["currency"].default is inspect.Parameter.empty
     assert list(inspect.signature(execution_report_from_broker).parameters) == [
         "execution",
         "oms_order",
@@ -546,17 +548,17 @@ def test_route_order_is_unchanged_and_carries_no_settlement_knowledge() -> None:
         "oms_order",
         "timestamp",
         "mapping",
-        "config",
     ]
     # v3.9 added one keyword-only gate, a capability check the caller made. It
-    # carries no currency, and it defaults to "no check", so every call written
-    # against the v2.17 signature routes exactly as it did.
+    # carries no currency, and it defaults to "no check". v3.10 made the routing
+    # configuration a required keyword (ledger API-003): until then it was
+    # optional and defaulted to a "LIVE" venue denominated in "USD".
     keyword_only = {
         name: p.default
         for name, p in parameters.items()
         if p.kind is inspect.Parameter.KEYWORD_ONLY
     }
-    assert keyword_only == {"capability": None}
+    assert keyword_only == {"config": inspect.Parameter.empty, "capability": None}
     assert not any("currency" in name for name in parameters)
     assert "base_currency" not in inspect.getsource(route_order)
 
@@ -685,7 +687,7 @@ def test_every_environment_refuses_the_same_instrument_the_same_way() -> None:
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
     from alphalab.runtime.session import TradingSession
 
-    assert RUN_SNAPSHOT_SCHEMA == 1, "no schema moved"
+    assert RUN_SNAPSHOT_SCHEMA == 2, "moved by v3.10 (analytics basis), not by this seam"
 
     seen: dict[str, tuple[str, ...]] = {}
     for mode in (ExecutionMode.BACKTEST, ExecutionMode.REPLAY, ExecutionMode.PAPER):
@@ -735,5 +737,7 @@ def test_the_live_path_refuses_at_the_other_seam() -> None:
         ExecutionPipeline.apply_execution_report(
             state,
             order,
-            execution_report_from_broker(_venue_fill(order), order, RoutingConfig(currency="CHF")),
+            execution_report_from_broker(
+                _venue_fill(order), order, RoutingConfig(venue="VENUE", currency="CHF")
+            ),
         )

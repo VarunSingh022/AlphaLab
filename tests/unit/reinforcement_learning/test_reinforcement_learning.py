@@ -70,6 +70,7 @@ def _new_config(trade_size: str = "10", starting_cash: str = "100000") -> Tradin
         strategy_id="RL-TEST",
         trade_size=Decimal(trade_size),
         starting_cash=Decimal(starting_cash),
+        currency="USD",
     )
 
 
@@ -87,6 +88,7 @@ def test_create_environment_rejects_non_positive_trade_size() -> None:
         strategy_id="X",
         trade_size=Decimal("0"),
         starting_cash=Decimal("1000"),
+        currency="USD",
     )
     with pytest.raises(RLInputError):
         create_environment(config, timestamp=0.0)

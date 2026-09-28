@@ -21,7 +21,7 @@ API.
 | 01 | `01_research.py` | The research engine: a payload in, an immutable `ResearchState` and a score out |
 | 02 | `02_backtest.py` | Strategy Studio's backtest bookkeeping over the sample datasets |
 | 03 | `03_replay.py` | The replay cursor: sessions, chronological validation, replay metrics |
-| 04 | `04_market_data.py` | Registering market-data providers and reading provider state |
+| 04 | `04_market_data.py` | A host provider's wire bars through a normalization policy into canonical bars and market state |
 | 05 | `05_broker_connection.py` | The **two** broker boundaries — one venue (`BrokerProtocol`), or a registry of many (`BrokerConnectorProtocol`) |
 | 06 | `06_portfolio_optimizer.py` | Portfolio construction, constraints, exposure and rebalancing |
 | 07 | `07_universal_data.py` | The Universal Data Engine: ingestion, schema, quality, catalogue |

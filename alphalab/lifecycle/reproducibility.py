@@ -539,23 +539,24 @@ def _manifest(
 
 
 def _identifying(dataset: VersionedDataset) -> DatasetProvenanceView:
-    """A dataset's provenance, refused when its version cannot identify its content.
+    """A dataset's provenance, refused when it records no bytes to reproduce from.
 
-    A dataset version is derived from the source bytes its provenance records,
-    and :func:`alphalab.api.ingest_rows` records the source a caller supplies,
-    as given (ADR-0036). A source recorded with an empty payload gives every set
-    of rows ingested under one name and configuration the *same* version -- so
-    a manifest naming it would claim one dataset for any data at all.
+    A manifest identifies a dataset by the content hash of the source bytes its
+    provenance records, and :func:`alphalab.api.ingest_rows` records the source
+    a caller supplies, as given (ADR-0036). Since v3.10 a row-ingested dataset's
+    *version* is derived from the rows themselves (ledger KD-004), so two row
+    sets no longer share one -- but a source recorded with an empty payload
+    still gives the manifest nothing to reproduce the rows from.
     """
 
     provenance = dataset.require_provenance()
     if provenance.source.byte_count == 0:
         raise LifecycleInputError(
-            f"Dataset {provenance.dataset_version} records an empty source payload, so its "
-            "version cannot tell it from any other rows ingested under the same name and "
-            "configuration. Record the bytes the rows came from -- raw_source_from_bytes "
-            "with the rows' own payload -- or ingest the file with ingest_csv, which records "
-            "them itself."
+            f"Dataset {provenance.dataset_version} records an empty source payload. Its "
+            "version identifies the rows, but a manifest identifies a dataset by its "
+            "source's bytes, and these record none to reproduce the rows from. Record the "
+            "bytes the rows came from -- raw_source_from_bytes with the rows' own payload -- "
+            "or ingest the file with ingest_csv, which records them itself."
         )
     return provenance
 

@@ -1,0 +1,877 @@
+# AlphaLab Pre-v4 Master Audit
+
+**Baseline:** AlphaLab v3.9.0, commit `c616978a9eeab39479c54cd3ff60e9331658a8aa` (annotated tag
+`v3.9.0`, verified peeled to HEAD), working tree clean at the start of the audit.
+**Scope:** the whole repository — 732 source modules (110,745 lines) in 50 top-level packages
+plus `alphalab/api.py`, 321 test modules (103,350 lines), 65 examples, 59 benchmarks, CI,
+packaging and 44 ADRs.
+**Machine-readable companion:** [`PRE_V4_COMPLETION_LEDGER.yaml`](PRE_V4_COMPLETION_LEDGER.yaml)
+— every actionable finding below has exactly one ledger entry, and the finding table at the end
+of this document is generated from the same source.
+**Status at v3.10.0:** the findings below describe v3.9.0 and are not rewritten. Every item
+assigned to v3.10.0 is implemented, each with the tests that pin it recorded in its ledger entry
+(`test_status`, `v310_outcome`); v3.10 found fifteen more, listed at the end of section Y and
+in the ledger. The *Status* column of the master table reads the ledger.
+
+Method. Documentation was read as a statement of intent and then checked against the code, the
+import graph and runtime behaviour. Where a finding says **verified**, a probe was run against the
+v3.9.0 tree (scripts listed in section V/W) and the observed output is quoted. Where it says
+**code review**, the behaviour follows from the quoted source and was not executed. Nothing here
+is inferred from a file name.
+
+---
+
+## A. Executive summary
+
+AlphaLab v3.9.0 is a large, carefully documented, zero-dependency library whose v3.x additions
+(research methodology, point-in-time data, lifecycle evidence, the v3.8 risk model and the v3.9
+execution contract) are generally rigorous. The audit nevertheless found that **the canonical
+execution path — the part every backtest, replay, paper and live run takes — is not correct
+enough to freeze**, and that several documents describe properties the code does not have.
+
+The most consequential findings, all reproduced on the v3.9.0 tree:
+
+1. **A fully invested account cannot sell.** Pre-trade risk charges buying power, gross
+   exposure, leverage and margin for every order regardless of side or position, so reducing
+   trades are refused at a limit and a breached drawdown blocks liquidation (RSK-001..004,
+   verified). Three further limits are inert (KD-001..003, already self-reported in ROADMAP).
+2. **Money is rounded to two decimals in every currency and prices to four decimals.** A
+   1e9-unit purchase at 0.00001234 is booked for free; a EUR/USD fill of 1,000,000 at 1.08345 is
+   booked $50 short; JPY carries fractional yen; a 50-satoshi venue fill cannot be booked at all
+   (ACC-001..003, verified). The module's "exact at the currency's minor unit" claim is false.
+3. **The canonical path is quadratic in universe size.** 160 assets × 50 daily bars take 55 CPU
+   seconds and 337 MB; a 500-stock, 10-year daily backtest extrapolates to ~7.5 CPU-hours and
+   ~170 GB (PRF-001, verified). Every "linear" claim was measured with one asset.
+4. **The performance report's headline numbers are wrong for most runs**: returns are taken per
+   market record and annualized as if daily; CAGR assumes every run lasted a year; win rate counts
+   opening fills as losses (ANA-001..004, verified).
+5. **Research-integrity gaps on the canonical path**: simulated fills execute at the price of the
+   event the strategy just observed; bar timestamps have no defined convention; a crashing
+   strategy yields a "successful" backtest; delisted symbols' terminal returns vanish from factor
+   studies (EXE-001, DAT-001, EXE-006, DAT-002).
+6. **Boundary violations**: vendor market-data stubs (four raise `NotImplementedError`),
+   credential-bearing venue transport, SaaS tenant management (`enterprise`) and UI state
+   (`workbench`) live inside the engine (BND-001..003, BRK-007).
+7. **Capability gaps for broad use**: only market orders exist on the canonical path; derivatives
+   are booked as fully paid equities (no multiplier, no margin); no corporate actions or cash flows
+   on positions; no schema evolution for durable state (EXE-003, ACC-005/006, PER-001).
+
+The ledger records **155 findings**: 6 critical, 34 high, 68 medium, 47 low; 59 allocated to
+v3.10.0, 33 to v3.11.0, 23 to v3.12.0, 11 to v3.13.0, 4 to v4.0.0 and 25 dispositioned as kept
+boundaries, external responsibilities or accepted limitations with reasons.
+
+**Verdict at baseline:** not freezable. After v3.10–v3.13 as planned in sections Y–AB, the
+remaining items are boundaries and external dependencies only.
+
+---
+
+## B. Current architecture
+
+AlphaLab is, in its own words and in fact, **two wired paths plus standalone engines**
+(ADR-0009):
+
+* **The execution path.** `runtime.execution_pipeline.ExecutionPipeline` owns one step (market
+  record → mark → strategy → allocation → risk → OMS → fill → portfolio → valuation);
+  `runtime.run.RunEngine` owns the run (cursor, skips, steps, identifier stream); four stateless
+  drivers (`TradingSession`, `BacktestEngine`, `ReplayBacktest`, `LiveSession`) choose the next
+  record and the clock. Verified: the drivers hold no fields.
+* **The lifecycle path.** `alphalab.lifecycle` composes registration, evidence, promotion,
+  deployment, governance, progression, specification, health, comparison, reconciliation,
+  fingerprints, manifests, certification and portability, joined to the execution path by
+  `authorize_run` and the strategy-class registry.
+* **Leaves and standalone engines.** `common` (bottom), `conventions` and `alt_data` (leaves over
+  `common`); asset-class analytics (`options`, `futures`, `crypto`, `macro`); learning (`ml`,
+  `deep_learning`, `reinforcement_learning`); construction (`portfolio_optimizer`); scale-out
+  (`cloud_research`, `distributed`, `cluster_scheduler`); and a set of v1 "engine series"
+  packages whose status is assessed in section C.
+
+The package graph has **no import cycles** (Tarjan SCC over 50 packages). One module-level cycle
+exists, `oms.state` ↔ `oms.snapshot`, broken by a function-local import (low severity).
+`common` imports nothing else in `alphalab`; `strategy` imports only `common`; `conventions` and
+`alt_data` import only `common` — the stated layering holds.
+
+---
+
+## C. Package inventory
+
+Classification is by what the package does at runtime and who imports it, not by its docstring.
+"No consumer" means no other `alphalab` package imports it.
+
+| Package | Modules | LOC | Imports (alphalab) | Imported by | Classification |
+| --- | ---: | ---: | --- | --- | --- |
+| `(root)` | 1 | 6 | common | - (no consumer) | package root |
+| `allocation` | 15 | 2,383 | common, core, persistence, strategy | reinforcement_learning, runtime | spine |
+| `alt_data` | 18 | 3,852 | common | api, factor_library, research | PIT leaf (v3.7) |
+| `analytics` | 19 | 5,130 | common, core | api, backtesting, factor_library, portfolio_optimizer, runtime | spine (reports) + risk model |
+| `api` | 1 | 1,540 | alt_data, analytics, backtesting, common, conventions, data, factor_library, futures, instrument, market, options, research, runtime, strategy | - (no consumer) | application-facing facade (top) |
+| `backtesting` | 7 | 771 | analytics, common, core, execution, market, oms, portfolio, replay, runtime, strategy | api, lifecycle | spine driver |
+| `broker` | 20 | 5,241 | common, core, persistence | brokers, lifecycle, runtime | spine (venue boundary) - contains credential transport (BRK-007) |
+| `brokers` | 16 | 1,041 | broker, common, core | - (no consumer) | multi-venue connector over broker |
+| `cloud_research` | 6 | 357 | common, distributed, ml | - (no consumer) | standalone (process-pool execution; DET-001) |
+| `cluster_scheduler` | 5 | 268 | common, distributed | - (no consumer) | standalone (queue policies) |
+| `common` | 19 | 2,341 | - | (root), allocation, alt_data, analytics, api, backtesting, broker, brokers, cloud_research, cluster_scheduler, conventions, core, crypto, data, deep_learning, deployment_manager, distributed, enterprise, execution, experiment_tracking, factor_library, feature_store, feed, futures, instrument, lifecycle, live, macro, market, marketdata, ml, model_registry, oms, optimizer, options, persistence, plugins, portfolio, portfolio_optimizer, reinforcement_learning, replay, reporting, research, research_assistant, risk, runtime, scenario, scheduler, strategy, studio, workbench | foundation |
+| `conventions` | 8 | 1,080 | common | api, futures, lifecycle, macro, portfolio | leaf (v3.4) |
+| `core` | 10 | 2,246 | common | allocation, analytics, backtesting, broker, brokers, execution, futures, instrument, lifecycle, oms, options, portfolio, risk, runtime | spine (canonical domain) |
+| `crypto` | 9 | 1,065 | common, portfolio | - (no consumer) | standalone asset-class analytics |
+| `data` | 32 | 5,635 | common, options | api, factor_library, lifecycle, live, market, marketdata | data engine (wire + ingestion) |
+| `deep_learning` | 9 | 935 | common, ml | reinforcement_learning | standalone; LSTM/attention forward-only (SCF-004) |
+| `deployment_manager` | 6 | 550 | common | lifecycle | lifecycle path |
+| `distributed` | 15 | 969 | common | cloud_research, cluster_scheduler | standalone job-table scaffold (SCF-003) |
+| `enterprise` | 9 | 788 | common | lifecycle | lifecycle governance + SaaS tenant mgmt (BND-002) |
+| `execution` | 19 | 5,805 | common, core | backtesting, runtime | spine (+v3.9 algorithms/routing/quality) |
+| `experiment_tracking` | 6 | 514 | common, studio | lifecycle, research_assistant | lifecycle path |
+| `factor_library` | 28 | 4,838 | alt_data, analytics, common, data, market | api, research | research engine |
+| `feature_store` | 17 | 1,000 | common | ml | standalone (feature registry) |
+| `feed` | 14 | 653 | common, market | - (no consumer) | v1 provider-surface scaffold; USD defaults (SCF-002) |
+| `futures` | 8 | 1,343 | common, conventions, core, market, portfolio | api | standalone asset-class analytics |
+| `instrument` | 7 | 1,491 | common, core, persistence | api, market, runtime | spine (identity) |
+| `lifecycle` | 23 | 12,891 | backtesting, broker, common, conventions, core, data, deployment_manager, enterprise, experiment_tracking, model_registry, oms, persistence, portfolio, research, risk, runtime, strategy, studio | - (no consumer) | lifecycle path |
+| `live` | 17 | 790 | common, data | - (no consumer) | v1 provider-surface scaffold (SCF-002) |
+| `macro` | 9 | 962 | common, conventions | - (no consumer) | standalone (foundation fixed income/macro) |
+| `market` | 19 | 2,046 | common, data, instrument, marketdata | api, backtesting, factor_library, feed, futures, reinforcement_learning, runtime | spine (canonical market model) |
+| `marketdata` | 48 | 2,342 | common, data | market | transports + wire re-export; vendor stubs & v1 engine scaffold (BND-001, SCF-002) |
+| `ml` | 8 | 743 | common, feature_store | cloud_research, deep_learning | standalone |
+| `model_registry` | 8 | 1,355 | common, persistence | lifecycle | lifecycle path |
+| `oms` | 12 | 1,564 | common, core, persistence | backtesting, lifecycle, runtime | spine |
+| `optimizer` | 14 | 855 | common | - (no consumer) | standalone scaffold; wall clock (DET-002, SCF-003) |
+| `options` | 12 | 1,613 | common, core, portfolio | api, data | standalone asset-class analytics |
+| `persistence` | 6 | 1,046 | common | allocation, broker, instrument, lifecycle, model_registry, oms, portfolio, runtime | foundation |
+| `plugins` | 14 | 625 | common | - (no consumer) | scaffold; NotImplementedError placeholder (SCF-003) |
+| `portfolio` | 23 | 5,038 | common, conventions, core, persistence | backtesting, crypto, futures, lifecycle, options, reinforcement_learning, runtime | spine (accounting) |
+| `portfolio_optimizer` | 26 | 4,790 | analytics, common | - (no consumer) | standalone (v1 closed forms + v3.8 certified QP) |
+| `reinforcement_learning` | 7 | 773 | allocation, common, deep_learning, market, portfolio, risk, runtime, strategy | - (no consumer) | standalone (drives real pipeline) |
+| `replay` | 11 | 603 | common | backtesting | spine cursor |
+| `reporting` | 13 | 673 | common | - (no consumer) | standalone scaffold (dashboards) (SCF-003) |
+| `research` | 30 | 5,408 | alt_data, common, factor_library | api, lifecycle | research (v3.2/v3.7 methodology) |
+| `research_assistant` | 7 | 526 | common, experiment_tracking, studio | - (no consumer) | standalone grid-search driver (SCF-003) |
+| `risk` | 13 | 715 | common, core | lifecycle, reinforcement_learning, runtime | spine |
+| `runtime` | 12 | 7,231 | allocation, analytics, broker, common, core, execution, instrument, market, oms, persistence, portfolio, risk, strategy | api, backtesting, lifecycle, reinforcement_learning | spine (step/run/drivers) |
+| `scenario` | 6 | 1,224 | common | - (no consumer) | standalone (v3.3 stress contract) |
+| `scheduler` | 13 | 632 | common | - (no consumer) | scaffold; silent CRON no-op, UTC weekends (DAT-006) |
+| `strategy` | 16 | 3,591 | common | allocation, api, backtesting, lifecycle, reinforcement_learning, runtime | spine |
+| `studio` | 24 | 877 | common | experiment_tracking, lifecycle, research_assistant, workbench | lifecycle path (StrategyDefinition) + fake orchestration scaffold (SCF-001) |
+| `workbench` | 17 | 722 | common, studio | - (no consumer) | UI state - boundary violation (BND-003) |
+
+**Summary of classes.** Execution spine: 16 packages. Lifecycle path: 8. Leaves: 3. Genuine
+standalone engines with a coherent capability: `portfolio_optimizer`, `options`, `futures`,
+`crypto`, `macro`, `ml`, `reinforcement_learning`, `scenario`, `feature_store`, `cloud_research`,
+`cluster_scheduler`. **Scaffolding or duplicates** (recommended for removal or consolidation):
+`feed`, `live`, the `marketdata` engine layer and its five vendor subpackages, `workbench`,
+`studio` orchestration, `plugins`, `scheduler`, `reporting` dashboards, `optimizer`,
+`research_assistant`, `distributed` (kept only as the job table under `cloud_research`).
+**Boundary violations:** `enterprise` (tenant/user management), `workbench` (UI), vendor
+market-data clients, the credential-bearing REST venue transport in `broker`.
+
+---
+
+## D. Module inventory
+
+An AST inventory of all 732 modules (classes, functions, `__all__`, imports) was built
+(`scratchpad/audit/inventory.json`, not committed). Salient facts:
+
+* 253 modules declare `__all__` (4,050 names); 479 do not. Package-level `__all__` exports 2,589
+  names (2,450 unique).
+* Empty or near-empty modules: `feed/feed.py` (4 lines, "satisfies the specific structural
+  requirements"), `marketdata/client.py` (`BaseClient: pass`), `marketdata/{binance,…}/__init__`
+  (6 lines each), many 11–20-line "engine" facades in v1 packages.
+* Largest modules: `runtime/execution_pipeline.py` (2,215), `portfolio_optimizer/construction.py`
+  (1,949), `runtime/snapshot.py` (1,771), `lifecycle/certification.py` (1,621).
+* Four marketdata vendor clients consist entirely of methods raising `NotImplementedError`.
+
+---
+
+## E. Single-authority map
+
+| Concept | Canonical authority | Other implementations found | Decision |
+| --- | --- | --- | --- |
+| Side | `core.enums.Side` | re-exported by `oms`, `brokers` (same object) | keep |
+| Proposed order | `core.order_request.OrderRequest` | re-exported by `allocation`, `risk` (same object) | keep; add typed instructions (EXE-003) |
+| Lifecycle order | `oms.order.Order` | `broker.BrokerOrder` (venue mirror, deliberate), `execution.OrderInstruction`, `execution.algorithms.ChildOrder` | keep; documented pairs |
+| Order transitions | `core.lifecycle.ORDER_TRANSITIONS` | none (v3.9 unified) | keep |
+| Fill | `core.fill.Fill` | `broker.BrokerExecution`, `execution.ExecutionReport`, `strategy.FillEvent`; **`brokers.ExecutionReport` is `BrokerExecution`** | rename the `brokers` alias (API-001) |
+| Trade | `core.trade.Trade` | **`data.feed.Trade` is a market print** | rename wire type (API-001) |
+| Position / Account | `portfolio.Position` / `portfolio.Account` | `broker.BrokerPosition` / `BrokerAccount` (mirror, deliberate) | keep |
+| Quote / Bar / Tick / MarketRecord | `market.*` | `data.feed.*` (wire, deliberate); `live.message.*` (scaffold); **`runtime.snapshot.MarketRecord` (snapshot record)** | remove `live`; rename snapshot record |
+| Instrument identity | `instrument.InstrumentRecord` + `derive_asset_id` (uuid5) | per-asset-class contract types (`OptionContract`, `FutureContract`, `CryptoInstrument`, `data.assets`) not tied to identity | link via instrument economics (ACC-005) |
+| Asset classification | `core.enums.AssetType` | `data.DataAssetClass` (renamed, deliberate), **`live.AssetClass`, `marketdata.AssetClass` (identical duplicates)**, `crypto.InstrumentType` | remove duplicates (SCF-002) |
+| Currency / minor unit | none (bare `str`; `portfolio.money` hard-codes 0.01) | — | new currency-units authority (ACC-001) |
+| FX | `portfolio.fx.FxRates` | `fx_feed` (boundary), `fx_research` (derivations) | keep |
+| Calendar / session | `data.calendar.MarketCalendar` | **`scheduler.TradingCalendar` (UTC weekends)**, two structural `SessionCalendar` protocols (`alt_data`, `futures`), `conventions` calendar protocol | remove scheduler calendar (DAT-006); merge protocols (API-001) |
+| Session driver | `runtime.session.TradingSession` | **`scheduler.session.TradingSession`** (window model) | rename/remove (API-001) |
+| Strategy definition | `studio.strategy.StrategyDefinition` | `research_assistant.StrategyCandidate` | move to `strategy` (SCF-001) |
+| Strategy lifecycle state | three deliberate machines (instance, registry, progression) + `model_registry.ModelStage` | — | keep (pinned) |
+| Capabilities | `core.capabilities.CapabilityDeclaration` | `lifecycle.BrokerCapabilities` (projected) | keep |
+| Capital budget / reservation | `allocation` | `allocation.capital` plans, `portfolio_optimizer.CapitalAllocation` (v1) | keep (documented) |
+| Risk limit | `risk.RiskLimits` | `analytics.RiskBudget/BudgetLimit`, `portfolio_optimizer.RiskConstraints` | keep (documented) |
+| Portfolio target | none on the execution path | `portfolio_optimizer.TargetWeights`, `allocation.PlacementWeights` | add target intents (FEA-001) |
+| Optimization / parameter search | `portfolio_optimizer.construct` (weights) | **four parameter searches**: `optimizer`, `research.overfitting` sweeps, `cloud_research.sweep`, `research_assistant` | consolidate (SCF-003) |
+| NAV / valuation | `portfolio.valuation.PortfolioValuation` | `portfolio.nav.NAVCalculator` (same rule) | keep; remove currency defaults |
+| Exposure | per-measure authorities (risk market value, contract exposure, factor exposure) | `portfolio.exposure.ExposureEngine` (v1, unmultiplied) | keep documented; remove v1 engine at API freeze |
+| Attribution | `analytics.attribution` | `portfolio.fx_research` currency attribution (deliberate) | keep |
+| Statistics | `common.statistics` | legacy copies removed in v3.2 | keep; make total (NUM-001) |
+| Point-in-time | `common.point_in_time` | legacy `known_as_of` (macro/alt_data) | keep; legacy documented |
+| Provenance | `data.provenance.DatasetProvenance` | `alt_data.ObservationSource`, `alt_data.DataProvenance` | keep (deliberate) |
+| Persistence | `persistence.RunStateStore` + per-subsystem snapshots | `model_registry.artifact_store` (bytes, deliberate) | add schema evolution (PER-001) |
+| Routing decision | `execution.routing.select_route` | `runtime.broker_routing.RoutingDecision` (send) | keep; names documented |
+| Execution cost | `execution.costs.ExecutionCostModel` | legacy commission/slippage models, `crypto.venue.FeeSchedule`, `portfolio_optimizer.costs` | legacy lifted into the model (keep) |
+
+---
+
+## F. Dependency graph
+
+Package edges (from the AST import graph; `common` omitted where it is the only edge):
+
+* Spine: `runtime → allocation, analytics, broker, core, execution, instrument, market, oms,
+  persistence, portfolio, risk, strategy`; `backtesting → analytics, core, execution, market, oms,
+  portfolio, replay, runtime, strategy`; `market → data, instrument, marketdata`; `portfolio →
+  conventions, core, persistence`; `allocation → core, persistence, strategy`; `broker → core,
+  persistence`; `execution → core`; `analytics → core`; `oms → core, persistence`.
+* Lifecycle: `lifecycle →` 18 packages (backtesting, broker, conventions, core, data,
+  deployment_manager, enterprise, experiment_tracking, model_registry, oms, persistence,
+  portfolio, research, risk, runtime, strategy, studio).
+* Research: `research → alt_data, factor_library`; `factor_library → alt_data, analytics, data,
+  market`.
+* Suspicious edges examined: `data → options` (one leaf enum; documented), `experiment_tracking →
+  studio` and `research_assistant → studio, experiment_tracking` (scaffold bridges; resolved by
+  SCF-001), `reinforcement_learning → runtime, allocation, …` (drives the real pipeline; correct).
+* No package cycles. No low-level module imports an application concern except the boundary
+  violations in section U.
+
+---
+
+## G. Runtime / call-flow map
+
+Execution step (`ExecutionPipeline.process_market_event`), verified by reading:
+
+1. update `market_prices` with the event's price (quote → midpoint, bar → close, tick → price);
+2. mark every held position (`PortfolioEngine.update_market_prices`) — **all positions, every
+   event** (PRF-001);
+3. resync risk from the marked book (exposure, NAV, margin; conversions with `as_of=None`,
+   EXE-008);
+4. build each running strategy's context (marked portfolio, orders slice, risk, market, history
+   bounded at the event instant, universe) and dispatch the event to **every** running strategy
+   (subscriptions ignored, EXE-007); exceptions fail the strategy silently (EXE-006);
+5. allocation sizes and nets **deltas** (not targets, ALC-002) and reserves capital;
+6. per request: drop unpriced → settlement-currency check → risk (EXE: RSK-001..004) → OMS
+   submit+accept → **MARKET order only** (EXE-003) → under SIMULATED routing, fill decided by the
+   fill policy **at this event's price** (EXE-001) → portfolio (per-currency cash, P&L; money and
+   prices quantized, ACC-001..003) → analytics trade record → partial remainder cancelled;
+7. one portfolio snapshot per record (analytics periods, ANA-001) and a valuation.
+
+Live cycle (`LiveSession.advance`): settle venue fills (broker mirror then canonical pipeline;
+no FX rates, EXE-009) → advance the canonical step → route working orders through
+`route_order`/`route_child_order` behind capability gates.
+
+Lifecycle path: candidate → run → evidence (content-derived) → model version → strategy version →
+promotion gate → deployment ledger (governance required at every live-changing entry point) →
+`run_plan`/`authorize_run` → strategy-class registry → execution path.
+
+---
+
+## H. Deferred / future-work inventory
+
+Every item listed as "optional future evolution" in ROADMAP.md/nowandfuture.md, and every v3.9
+deferred item, has a ledger entry with a decision (OFE-001..026, BRK-002..006). Summary:
+
+* **Implement before v4:** schema evolution; venue sequence numbers; persisted child bindings
+  and request ledger; multi-broker book-to-mirror reconciliation; optimal split; estimated
+  urgency; randomized iceberg tranches; pipeline-driven fill/order/timer hooks; richer
+  construction (estimated shrinkage, EWMA, factor-model covariance, linear costs in the
+  objective); multivariate neutralization by QR; Holm/BY corrections and probabilistic/deflated
+  Sharpe; Newey–West IC standard errors; execution-path delivery of point-in-time observations;
+  streaming observation sets; classification dimensions beyond sector; per-strategy capital
+  ceilings; a content-addressed evidence store; windowed health; lock-file reader; rerun harness.
+* **Keep as boundary:** fitted decay half-life, statistical regime models, per-strategy
+  sub-ledgers, derived comparison alignment, host-process concerns (hook timeouts, hot reload,
+  threading).
+* **External:** vendor adapters.
+
+The source contains no `TODO`/`FIXME`/`XXX`/`HACK` markers; unfinished work is expressed as
+documented deferrals and as `NotImplementedError` stubs (four vendor clients, `plugins`).
+
+---
+
+## I. Known-limitations inventory
+
+The 50 "deliberate boundaries" were re-examined (BDY-001..026). 22 are kept as stated. Changed:
+**no migration framework** (replaced, PER-001), **no durable state for v3.5/v3.6 values**
+(evidence store), **no American pricing** (implement), **no trade ingestion** (declared trade
+prints), **no cross-expiry interpolation** (named total-variance method). Two boundaries are
+**contradicted by the code** and must be enforced rather than restated: no credential handling
+(BRK-007, BND-002) and no vendor data feed (BND-001).
+
+Limitations accepted with reasons: float-second timestamps (~0.24 µs resolution, DAT-008); tz
+database dependence (DAT-007); class-name coupling of persisted enums (PER-004); host
+supervision, credentials, vendor protocols and all market/reference data remain external.
+
+---
+
+## J. Bugs discovered
+
+Critical and high correctness defects (all in the ledger with evidence):
+
+| ID | Defect | Evidence |
+| --- | --- | --- |
+| RSK-001 | Fully invested account cannot sell (buying power charged on sells) | probe p1, verified |
+| RSK-002 | Exposure/leverage/margin checks refuse de-risking at a limit | probe p1, verified |
+| RSK-003 | Drawdown/daily-loss breach refuses liquidation | probe p1, verified |
+| RSK-004 | Working orders ignored by pre-trade limits | code review |
+| KD-001..003 | Position limit unit mismatch; daily loss never enforced; net exposure unread | ROADMAP self-report + code |
+| ALC-001 | Long-only constraint refuses closing sells | probe p1, verified |
+| ALC-003 | Missing volatility silently sized at 1% | code review |
+| ACC-001 | Every currency rounded to 0.01 | probe, verified (JPY 1000000.50) |
+| ACC-002 | Prices quantized to 4 dp (free purchases, FX mis-booking) | probe, verified |
+| ACC-003 | Quantities quantized to 1e-6 (crypto fills unbookable) | probe, verified |
+| ACC-004 | Accounting arithmetic in the ambient decimal context | code review |
+| ANA-001..004 | Per-record returns annualized as daily; CAGR over a fixed year; win rate counts openings as losses; undefined → 0.0 | probe p3, verified |
+| EXE-006 | Crashing strategy produces a "successful" backtest | code review |
+| REL-001 | Socket leaked on every stream reconnect | pytest -W error, verified |
+| BRK-001 | Numerically equal fills reported as reconciliation breaks | probe p4, verified |
+| DAT-006 | CRON/session timers fire once and vanish; UTC-weekend calendar | probe, verified |
+| DET-001/002 | Nondeterministic aggregate state in cloud_research; wall clock in optimizer | code review |
+
+---
+
+## K. Silent incomplete implementations
+
+* Vendor market-data clients that raise `NotImplementedError` for every call (BND-001).
+* `plugins.BasePlugin.execute` — "Placeholder for domain-specific implementation logic".
+* `scheduler` CRON / SESSION_OPEN / SESSION_CLOSE / BAR_BOUNDARY schedule types (DAT-006).
+* `deep_learning` LSTM and attention without backpropagation (SCF-004).
+* `studio`/`workbench` "run" methods that store supplied metrics instead of running (SCF-001).
+* `marketdata.ProviderMetrics` never updated; `RECOVERING`/`ProviderRecovered` never produced.
+* Strategy subscriptions recorded and never read (EXE-007); lifecycle hooks declared and never
+  invoked (EXE-005); `Intent.execution_directive` never read (EXE-003).
+* Risk limits that exist and are never checked (KD-002, KD-003, `PositionLimit.max_notional`).
+
+---
+
+## L. Numerical findings
+
+ACC-001..004 (money/price/quantity precision, ambient context), NUM-001 (non-finite statistics
+inputs), NUM-002 (correlation under/overflow), NUM-003 (R² of a constant), NUM-004 (normal CDF
+tail precision; mixed year bases), NUM-005 (no carry yield in Black–Scholes), NUM-006 (no American
+pricing), NUM-007 (normal-equation regression), NUM-008 (4-dp legacy cost models), ANA-005 (VaR
+rounding). The v3.8 QP solver (Goldfarb–Idnani dual active set with a KKT certificate) and the
+v3.9 execution arithmetic (pinned 34-digit contexts) were reviewed and are sound; the solver's
+scale envelope is a performance item (PRF-005).
+
+## M. Determinism findings
+
+DET-001 (as_completed ordering), DET-002 (optimizer wall clock), DET-003 (seed sign aliasing),
+DET-004 (default seeds), ACC-004 (ambient decimal context on the accounting path). The execution
+path itself reads no wall clock (verified by grep: `time.time` appears only in the optimizer,
+scheduler's SystemClock, the Binance stub, the HMAC transport and the streaming staleness gate).
+Identifier streams are seeded and resumable (ADR-0022) and cross-process byte identity of a
+continued run is tested (`test_durable_run_state_cross_process.py`).
+
+## N. Reproducibility findings
+
+REP-001 (engine version from installed metadata with a hard-coded fallback), REP-002 (engine
+identity is a version string only; tz database unrecorded), REP-003 (no rerun harness), KD-004
+(row-ingested dataset identity), EXE-002 (cost model and fill policy absent from results).
+
+## O. Persistence findings
+
+PER-001 (no schema evolution — required before v3.10's own durable additions), PER-002 (non-strict
+JSON for NaN/inf), PER-003 (directory not fsynced after rename), PER-004 (enum class-name
+coupling), PRF-004 (unbounded history in every durable state and checkpoint).
+
+## P. Performance findings
+
+PRF-001 (quadratic in universe size; verified numbers in section V), PRF-002 (PersistentMap
+iteration O(keys ever written); verified), PRF-003 (quadratic ExternalOrderMap; verified),
+PRF-004 (unbounded state and full checkpoints), PRF-005 (QP scale envelope unmeasured beyond 50
+assets), EXE-007 (every strategy receives every event).
+
+## Q. Research-integrity findings
+
+EXE-001 (same-event fills), EXE-002 (optimistic defaults unrecorded), EXE-006 (silent strategy
+failure), DAT-001 (undefined bar timestamp convention), DAT-002 (delisting returns dropped),
+DAT-003 (no implementation lag in forward returns), DAT-004 (static symbology), EXE-008 (FX
+look-ahead guard bypassed on the risk path), ANA-001..004. The v3.2 purging/embargo and v3.7
+point-in-time layers were reviewed and are correct as specified (label-window purging, inclusive
+visibility, UNKNOWN availability never visible); defect injection confirms the suite pins them.
+
+## R. Global-market findings
+
+ACC-001 (minor units), ACC-002/003 (price and quantity precision), ACC-005 (derivatives
+economics), ACC-006 (corporate actions and cash flows), ACC-007 (negative prices, rebates),
+NUM-005 (carry), DAT-005 (closed timeframe set), DAT-006 (UTC-weekend scheduler calendar),
+DAT-004 (point-in-time symbology), EXE-003 (auction and TIF instructions). `data.calendar.MarketCalendar`
+was reviewed and handles lunch breaks, overnight sessions, half days, 24/7 venues, non-Saturday/
+Sunday weekends and DST correctly by construction (endpoints resolved per local date).
+
+## S. API findings
+
+API-001 (72 distinct objects sharing public names), API-002 (no public API manifest), API-003
+(remaining USD defaults; sweep gaps), API-004 (valuation view without rates), ALC-002 (Intent
+contract misdescribed), EXE-005 (dead hooks), RSK-006 (stringly-typed severity).
+
+## T. Documentation findings
+
+DOC-001 (claims contradicted by the code: linearity, zero skips/warnings, exact minor units, no
+credentials, no venue named, Intent as target), DOC-002 (required work filed as optional; some
+boundary reasons that do not hold).
+
+## U. Security / boundary findings
+
+BND-001 (vendor clients with API-key fields), BRK-007 (credential-bearing HMAC transport and a
+made-up REST protocol), BND-002 (tenant/user/session/secret management), BND-003 (UI state),
+REL-001 (fd leak). `common.tls` (TLS 1.2 floor, verification unchanged) was reviewed and is sound.
+`cloud_research.resolve_task` imports arbitrary dotted paths from job payloads (trust boundary to
+be documented). No secret values are logged (VenueCredentials redacts).
+
+---
+
+## V. Stress tests
+
+All timings are CPU seconds (`time.process_time`) on the audit container (4 vCPU, Python 3.12.3);
+they describe this machine and this workload only.
+
+**Canonical backtest, N assets × 50 daily bars, buy-and-hold one unit of each**
+(`scratchpad/probes/p2_multiasset_scale.py`):
+
+| N | records | CPU s | peak MB | logged marks |
+| ---: | ---: | ---: | ---: | ---: |
+| 10 | 500 | 0.56 | 2.5 | 4,945 |
+| 20 | 1,000 | 1.58 | 7.4 | 19,790 |
+| 40 | 2,000 | 4.74 | 24.6 | 79,180 |
+| 80 | 4,000 | 14.77 | 88.2 | 316,760 |
+| 160 | 8,000 | 54.83 | 336.8 | 1,267,120 |
+
+Growth per doubling approaches 4× in both time and memory: quadratic in N.
+
+**Containers** (`scratchpad/probes/p4_broker_misc.py`): `ExternalOrderMap.bind` for 2k/4k/8k
+orders 0.033/0.092/0.338 s (quadratic); iterating a one-key `PersistentMap` after 10k/20k/40k
+set/delete churn 1.3/2.9/6.1 ms per iteration (linear in history).
+
+**Baseline gates (v3.9.0 as tagged):** `pytest -W error`: 7,379 passed, 6 failed, 1 error,
+1 skipped (165.7 s) — the failures are the REL-001 socket leak (5 + 1 via GC) and one timing
+guard under load (TST-001); the skip is root-dependent (TST-002). Without `-W error` the same
+tree passes. `mypy .`: 1,183 files clean. Ruff lint and format clean. Examples 65/65 (38 s).
+Benchmarks 59/59 (505 s).
+
+Not stress-tested at baseline (planned in v3.12): 10,000-asset universes (infeasible before
+PRF-001), 1,000 strategies, 100 venues, very large event streams on the live path, and the QP at
+100–800 assets.
+
+## W. Defect-injection tests
+
+A scratch copy of the tree (`git archive HEAD`) had one mutation applied at a time and the full
+suite run with `-x`. "Caught by" names the first failing test; a mutation caught only by a
+timing guard is recorded as not reliably caught.
+
+| Mutation | Result | Caught by | Seconds |
+| --- | --- | --- | ---: |
+| M01 risk order-size > to >= | **NOT CAUGHT** (confirmed with timing guards excluded) | `-` | 130.2 |
+| M02 duplicate fill applied (remove DUPLICATE check) | caught | `tests/integration/test_integrated_runtime.py::test_a_deployment_decision_reaches_a_fill_at_a_venue` | 3.9 |
+| M03 to_money rounds down | caught (re-run with timing guards excluded) | `tests/unit/portfolio/test_portfolio_snapshot.py::test_exact_money_survives_the_round_trip` | 124.8 |
+| M04 partial close relieves wrong basis | caught | `tests/integration/test_mark_to_market_pipeline.py::test_partial_close_realizes_only_the_closed_portion` | 5.0 |
+| M05 fill during cancel-pending drops pending | caught | `tests/unit/core/test_order_lifecycle_table.py::test_fills_are_only_legal_once_the_order_is_working_at_the_venue` | 159.8 |
+| M06 FX future-dated rate accepted | caught | `tests/regression/test_v34_invariants.py::test_an_fx_rate_from_the_future_is_refused_in_both_directions_of_time` | 101.6 |
+| M07 risk rejection does not release reservation | caught | `tests/integration/test_backtest_pipeline.py::test_a_request_risk_refuses_never_reaches_the_oms` | 3.4 |
+| M08 quote price uses bid not mid | caught | `tests/integration/test_execution_pipeline.py::test_quote_drives_full_end_to_end_execution_pipeline` | 3.4 |
+| M09 sample variance divides by n | caught | `tests/unit/analytics/test_analytics.py::test_annualized_volatility - a...` | 163.7 |
+| M10 purge boundary >= to > | caught | `tests/integration/test_v32_capabilities.py::test_walk_forward_folds_over_the_real_index_never_contaminate` | 12.6 |
+| M11 forward return look-ahead shift | caught | `tests/unit/factor_library/test_factor_research.py::test_a_forward_return_looks_exactly_the_horizon_ahead` | 164.8 |
+| M12 PIT visibility strict < | caught (re-run with timing guards excluded) | `tests/unit/alt_data/test_fundamentals.py::test_a_quarter_is_invisible_until_it_is_published` | 125.2 |
+| M13 stale venue status applied | caught (re-run with timing guards excluded) | `tests/regression/test_v39_invariants.py::test_replaying_any_stream_changes_nothing_and_breaks_nothing` | 115.5 |
+| M14 out-of-order record accepted | caught | `tests/integration/test_provider_source_session.py::test_an_unordered_session_skips_the_regressing_record_and_records_it` | 5.4 |
+| M15 run store skips digest check | caught | `tests/regression/test_run_state_store.py::test_an_altered_payload_fails_its_digest` | 87.7 |
+| M16 OMS overfill accepted | caught | `tests/unit/core/test_order_lifecycle_table.py::test_a_complete_fill_must_complete_the_order_exactly` | 160.0 |
+| M17 pearson uses population denominators inconsistently | caught | `tests/unit/analytics/test_cross_strategy.py::test_return_correlation_is_pearson_of_the_series_with_its_basis` | 158.5 |
+| M18 contribution split last share off by quantum | caught | `tests/integration/test_v33_capabilities.py::test_attribution_reconciles_to_the_portfolio_s_realized_pnl` | 12.7 |
+| M19 capability UNDECLARED treated as SUPPORTED | caught | `tests/regression/test_v39_invariants.py::test_compatible_means_every_check_supported_and_nothing_else_does` | 150.9 |
+| M20 unpriced request not dropped (price 0 order) | caught | `tests/integration/test_mark_to_market_pipeline.py::test_request_for_an_asset_with_no_market_price_never_reaches_the_oms` | 5.5 |
+| M21 dataset duplicate row accepted | caught | `tests/regression/test_data_quality_contracts.py::test_a_duplicate_instant_is_found_and_named` | 15.6 |
+| M22 FX staleness check disabled | caught | `tests/regression/test_fx_rate_feed.py::test_the_feed_does_not_decide_whether_a_rate_is_too_old_to_use` | 20.5 |
+| M23 allocation budget check ignores outstanding | caught | `tests/regression/test_outstanding_capital_guard.py::test_six_external_events_no_longer_commit_five_times_the_budget` | 73.6 |
+| M24 moving average window includes next value | caught | `tests/regression/test_research_cannot_see_the_future.py::test_no_feature_kind_changes_when_the_future_is_removed[FeatureKind.ROLLING_MEAN]` | 78.6 |
+
+### W.2 Re-run against v3.10.0
+
+The same method on a copy of the final v3.10.0 working tree, with every wall-clock guard deselected —
+a timing test failing is not a detection — and an unmutated baseline run first, which must pass.
+The original twenty-four mutations, five re-targeted where v3.10 moved the code they mutate, plus
+eighteen mutations of v3.10's own behaviour (V01–V18).
+
+The guards are deselected test by test (a test in a complexity or scaling file whose own source
+reads a clock or asserts a growth bound), not file by file. An earlier run ignored those files
+whole, and V01 — incremental marking that forgets the positions a fill priced — appeared to
+survive it, although the suite catches it: the structural equivalence test that fails is in
+`test_universe_scaling.py`, beside that file's timing guard. That run caught the other 41 of 42.
+The table below is the re-run against the final, uncommitted release-candidate tree.
+
+Baseline (unmutated): passed — 7520 passed, 76 deselected in 115.48s (0:01:55). 42 of 42 mutations caught by the harness run.
+
+| Mutation | Result | Caught by | Seconds |
+| --- | --- | --- | ---: |
+| M01 risk order-size > to >= | caught | `tests/regression/test_mutation_pins.py::test_an_order_of_exactly_the_permitted_quantity_is_approved` | 23.1 |
+| M02 duplicate fill applied (remove DUPLICATE check) | caught | `tests/integration/test_integrated_runtime.py::test_a_deployment_decision_reaches_a_fill_at_a_venue` | 3.6 |
+| M03 to_money rounds down | caught | `tests/integration/test_backtest_pipeline.py::test_the_accounting_identity_holds_with_commission_and_slippage` | 2.9 |
+| M04 partial close relieves wrong basis | caught | `tests/integration/test_mark_to_market_pipeline.py::test_partial_close_realizes_only_the_closed_portion` | 4.5 |
+| M05 fill during cancel-pending drops pending | caught | `tests/unit/core/test_order_lifecycle_table.py::test_fills_are_only_legal_once_the_order_is_working_at_the_venue` | 110.0 |
+| M06 FX future-dated rate accepted | caught | `tests/regression/test_v34_invariants.py::test_an_fx_rate_from_the_future_is_refused_in_both_directions_of_time` | 79.1 |
+| M07 risk rejection does not release reservation | caught | `tests/integration/test_backtest_pipeline.py::test_a_request_risk_refuses_never_reaches_the_oms` | 3.0 |
+| M08 quote price uses bid not mid | caught | `tests/integration/test_execution_pipeline.py::test_quote_drives_full_end_to_end_execution_pipeline` | 3.3 |
+| M09 sample variance divides by n | caught | `tests/unit/analytics/test_analytics.py::test_annualized_volatility - a...` | 108.8 |
+| M10 purge boundary >= to > | caught | `tests/integration/test_v32_capabilities.py::test_walk_forward_folds_over_the_real_index_never_contaminate` | 11.3 |
+| M11 forward return look-ahead shift | caught | `tests/unit/factor_library/test_factor_research.py::test_a_forward_return_looks_exactly_the_horizon_ahead` | 111.2 |
+| M12 PIT visibility strict < | caught | `tests/unit/alt_data/test_fundamentals.py::test_a_quarter_is_invisible_until_it_is_published` | 109.2 |
+| M13 stale venue status applied | caught | `tests/regression/test_v39_invariants.py::test_replaying_any_stream_changes_nothing_and_breaks_nothing` | 101.0 |
+| M14 out-of-order record accepted | caught | `tests/integration/test_provider_source_session.py::test_an_unordered_session_skips_the_regressing_record_and_records_it` | 4.6 |
+| M15 run store skips digest check | caught | `tests/regression/test_run_state_store.py::test_an_altered_payload_fails_its_digest` | 67.5 |
+| M16 OMS overfill accepted | caught | `tests/unit/core/test_order_lifecycle_table.py::test_a_complete_fill_must_complete_the_order_exactly` | 106.3 |
+| M17 pearson uses population denominators inconsistently | caught | `tests/regression/test_numeric_refusals.py::test_correlation_is_defined_at_any_representable_magnitude[tiny]` | 27.0 |
+| M18 contribution split last share off by quantum | caught | `tests/integration/test_v33_capabilities.py::test_attribution_reconciles_to_the_portfolio_s_realized_pnl` | 11.4 |
+| M19 capability UNDECLARED treated as SUPPORTED | caught | `tests/regression/test_v39_invariants.py::test_compatible_means_every_check_supported_and_nothing_else_does` | 99.3 |
+| M20 unpriced request not dropped (price 0 order) | caught | `tests/integration/test_mark_to_market_pipeline.py::test_request_for_an_asset_with_no_market_price_never_reaches_the_oms` | 4.4 |
+| M21 dataset duplicate row accepted | caught | `tests/regression/test_data_quality_contracts.py::test_a_duplicate_instant_is_found_and_named` | 13.6 |
+| M22 FX staleness check disabled | caught | `tests/regression/test_fx_rate_feed.py::test_the_feed_does_not_decide_whether_a_rate_is_too_old_to_use` | 17.3 |
+| M23 allocation budget check ignores outstanding | caught | `tests/regression/test_outstanding_capital_guard.py::test_six_external_events_no_longer_commit_five_times_the_budget` | 57.8 |
+| M24 moving average window includes next value | caught | `tests/regression/test_research_cannot_see_the_future.py::test_no_feature_kind_changes_when_the_future_is_removed[FeatureKind.ROLLING_MEAN]` | 62.3 |
+| V01 incremental marking forgets pending marks | caught | `tests/regression/test_universe_scaling.py::test_marking_one_change_equals_marking_every_price` | 75.3 |
+| V02 NEXT_EVENT fills at the deciding event | caught | `tests/regression/test_fill_timing.py::test_next_event_leaves_the_order_working_and_fills_it_at_the_next_price` | 16.9 |
+| V03 ingested start-stamped bars not moved | caught | `tests/regression/test_bar_stamp_convention.py::test_start_stamped_bars_are_moved_to_the_end_of_their_interval` | 12.7 |
+| V04 wire start-stamped bar not moved | caught | `tests/regression/test_bar_stamp_convention.py::test_a_start_stamped_wire_bar_is_moved_by_its_timeframe` | 12.8 |
+| V05 long-only ignores working orders | caught | `tests/regression/test_allocation_semantics.py::test_a_working_sale_counts_against_long_only` | 12.5 |
+| V06 buying power charged on reductions | caught | `tests/regression/test_risk_projection.py::test_a_fully_invested_account_can_sell_what_it_holds` | 63.7 |
+| V07 bool seed accepted | caught | `tests/regression/test_id_stream_is_pinned.py::test_a_seed_that_is_not_a_non_negative_integer_is_refused[True]` | 17.7 |
+| V08 statistics accept non-finite input | caught | `tests/regression/test_numeric_refusals.py::test_every_statistic_refuses_a_non_finite_observation_by_position[mean-nan]` | 25.5 |
+| V09 normalization currency defaults to USD | caught | `tests/unit/market/test_normalization.py::test_a_quote_or_a_trade_is_refused_by_a_policy_that_names_no_currency` | 109.9 |
+| V10 pipeline currency not the account's | caught | `tests/regression/test_v34_invariants.py::test_the_currency_roles_are_named_not_defaulted` | 77.3 |
+| V11 misspelled risk severity accepted | caught | `tests/regression/test_risk_projection.py::test_a_severity_is_a_member_and_a_misspelled_one_is_refused` | 66.1 |
+| V12 execution fields compared as text | caught | `tests/regression/test_reconciliation_compares_numbers.py::test_a_fill_reported_with_other_exponents_is_not_a_mismatch` | 59.0 |
+| V13 daily loss never maintained | caught | `tests/regression/test_risk_projection.py::test_the_daily_loss_is_measured_from_the_trading_days_start` | 65.5 |
+| V14 analytics returns per snapshot, not per instant | caught | `tests/unit/analytics/test_analytics.py::test_the_report_takes_one_equity_point_per_instant` | 105.7 |
+| V15 position book keeps a replaced position's totals | caught | `tests/integration/test_backtest_pipeline.py::test_the_accounting_identity_holds_at_non_round_prices` | 2.7 |
+| V16 cluster outcomes applied out of submission order | caught | `tests/regression/test_cluster_outcomes_are_ordered.py::test_outcomes_are_recorded_in_submission_order_whatever_finishes_first` | 13.2 |
+| V17 halt on strategy failure ignored | caught | `tests/regression/test_strategy_failures_are_reported.py::test_a_run_configured_to_halt_stops_after_the_failing_record` | 68.5 |
+| V18 order-size limit exclusive (M01 again) | caught | `tests/regression/test_mutation_pins.py::test_an_order_of_exactly_the_permitted_notional_is_approved` | 21.4 |
+
+---
+
+## X. New feature proposals
+
+Proposed only where the gap blocks broad, serious use; each is justified in its ledger entry with
+problem, user, ownership, why not iluvtrade, risk if omitted, implementation, tests, performance
+and API impact (FEA-001..006, plus capability items ACC-005/006/007, EXE-003/004, NUM-005/006,
+DAT-002/004, PER-001, REP-003).
+
+| ID | Feature | Classification |
+| --- | --- | --- |
+| FEA-001 | Target-quantity/target-weight intents and a deterministic rebalancer | REQUIRED FOR V4 |
+| FEA-002 | Benchmark-relative statistics (active return, TE, IR, alpha/beta, capture) | STRONGLY RECOMMENDED |
+| FEA-003 | Walk-forward optimization harness | STRONGLY RECOMMENDED |
+| FEA-004 | Declared trade-print ingestion | STRONGLY RECOMMENDED |
+| FEA-005 | Total-variance interpolation across expiries | STRONGLY RECOMMENDED |
+| FEA-006 | Engine certification report generated in CI | REQUIRED FOR V4 |
+| ACC-005 | Instrument economics on the canonical path (multiplier, futures variation, option premium, perpetual funding) | REQUIRED FOR V4 |
+| ACC-006 | Corporate actions and cash flows on positions | REQUIRED FOR V4 |
+| EXE-003 | Typed order instructions, resting orders, TIF/auction | REQUIRED FOR V4 |
+| PER-001 | Versioned schema upgrades | REQUIRED FOR V4 |
+
+Deliberately **not** proposed: an LLM or AI-service integration, vendor adapters, a UI, user or
+tenant management, a CLI/server/daemon, fixed-income curve bootstrapping, parametric volatility
+fits, statistical regime models, cardinality-constrained optimization.
+
+---
+
+## Y. v3.10.0 plan — complete known foundations
+
+Dependency order inside the release:
+
+1. **Foundations:** pinned accounting decimal context (ACC-004); currency minor-unit authority and
+   exact prices/quantities (ACC-001..003, NUM-008); statistics totality (NUM-001/002); persistent
+   container compaction (PRF-002) and persistent broker maps (PRF-003); versioned schema upgrades
+   (PER-001); strict JSON (PER-002).
+2. **Canonical path correctness:** position- and side-aware pre-trade risk with reduce-only
+   breach semantics, working orders included, daily loss enforced against a declared day, net
+   exposure checked, notional position limit read (RSK-001..006, KD-001..003); position-aware
+   long-only allocation and truthful Intent contract (ALC-001/002); refusing sizing defaults
+   (ALC-003); FX `as_of` on the risk path (EXE-008).
+3. **Scale:** incremental marking and aggregates on the canonical path (PRF-001) with a
+   universe-size complexity guard (TST-006).
+4. **Research integrity:** explicit fill timing recorded in results and fingerprints (EXE-001),
+   cost model and fill policy recorded (EXE-002), strategy failures surfaced (EXE-006), bar
+   timestamp convention declared and enforced (DAT-001), row-ingested dataset identity (KD-004).
+5. **Analytics:** period basis, derived elapsed years, closed-trade statistics, `None` for
+   undefined (ANA-001..005).
+6. **Determinism/reproducibility:** DET-001..004, REP-001.
+7. **Reliability and tests:** REL-001, TST-001..007, BRK-001, DAT-006.
+8. **Boundary/duplicates:** remove vendor market-data subpackages and the `feed`/`live`/`marketdata`
+   engine scaffolding (BND-001, SCF-002, OFE-012); remaining USD defaults (API-003, ACC-008).
+9. **Documentation truth** (DOC-001/002) and ADR-0045.
+
+### Outcome
+
+Every item above is implemented in the v3.10.0 working tree; the ledger records, per item, the
+tests that pin it and any deviation from its wording. The deviations: `fill_timing` lives on
+`ExecutionPipelineConfig` (EXE-001); execution assumptions and strategy failures are derived from
+the recorded configuration and events rather than added to the persisted `PerformanceReport`
+(EXE-002, EXE-006); the version file is `alphalab/common/_version.py` (REP-001); the
+reproducibility manifest still refuses empty-payload datasets (KD-004); benchmarks run weekly at
+full size (TST-003).
+
+Found while building it, and fixed in it: ALC-005 (a zero-quantity sale after integer rounding),
+ACC-012 (a deposit or withdrawal that moves no money), ACC-013 (a fill in another currency booked
+into an open position), ACC-014 (a sale floored at one cent), NUM-009 (overflow near the float
+limit), NUM-010 (exponent notation in exact quotients), NUM-011 (correlation of subnormal
+spreads), PER-005 (a latent version comparison), BND-004 (exchange symbol quirks) and TST-008
+(four fixes that had no tests yet). Two were regressions of v3.10 itself, caught by comparing
+every example's output with v3.9's and fixed before release: DET-005 (equal multi-strategy books
+with two identities, once amounts stopped being rounded a second time) and API-006 (a typed
+severity leaking into a string mapping). Found and scheduled: RES-001 (the v1 research engine's
+daily assumption and uncalibrated scores, v3.12.0), DET-006 (identities that render a declared
+`Decimal` by its text, v3.11.0) and PRF-006 (the per-operation constant v3.10 raised, measured in
+its gates: a one-asset backtest 1.37x and the OMS benchmark 2.2x v3.9's time, v3.11.0).
+
+### Release audit (v3.10.0, before release)
+
+Run against the final working tree, which is uncommitted: nothing was committed, tagged or pushed.
+
+| Gate | Result |
+| --- | --- |
+| `ruff check .` / `ruff format --check .` | clean / 1,220 files formatted |
+| `mypy .` (strict, cold cache) | no issues in 1,140 source files |
+| `pytest -W error` | 7,596 passed (4,053 unit, 398 integration, 3,145 regression); 0 failed, 0 skipped, 0 warnings |
+| Examples, `-W error`, from the repository root | 65 / 65 |
+| Benchmarks, `-W error`, 900 s each | 57 / 57 |
+| `git diff --check`, plus every new file | clean |
+| `python -m build`; `twine check --strict` | both distributions built; both PASSED |
+| Clean Python 3.12 environments, wheel and sdist, `tests/installed_smoke.py 3.10.0` from outside the checkout | both pass: 665 modules, `py.typed`, example 11 end to end |
+| Determinism | 60 of 65 examples byte-identical across two runs under different hash seeds; the other five print a random run or order id, a process id or CPU time, and did in v3.9 |
+| Public API against v3.9.0 | 7 packages and 47 names removed, 25 added, 74 signatures changed; every break in the CHANGELOG, the breaking ones in its migration table |
+| Mutation harness | section W.2 |
+
+The audit compared every example's output with v3.9.0's (run-varying values and digests masked):
+49 print what they printed, and each of the 16 that differ is explained in the CHANGELOG. That
+comparison found two regressions of v3.10 itself, fixed before release (DET-005, API-006). The
+benchmark comparison, run side by side with v3.9.0, found the per-operation cost recorded as
+PRF-006. Reading every identity renderer found DET-006. It also corrected documentation that
+claimed more than was measured: "each with a test that fails without the fix" became "each pinned
+by the tests its ledger entry names"; "bit-identical to v3.9 on single-currency books" became the
+property that was tested, that incremental marking equals re-marking every position; the
+examples paragraph that said only two examples changed now lists all sixteen; and the claim that
+the regression suite is the largest was false (it is 3,145 tests to the unit suite's 4,053).
+
+## Z. v3.11.0 plan — broad quant-research completeness
+
+Order instructions and resting simulated orders (EXE-003); target intents and rebalancer
+(FEA-001); slice event, lifecycle hooks and subscriptions (EXE-004/005/007); instrument economics
+for derivatives (ACC-005); corporate actions and cash flows (ACC-006); negative prices and rebates
+(ACC-007); generalized Black–Scholes–Merton (NUM-005); delisting returns, implementation lag,
+point-in-time symbology, interval type (DAT-002..005); venue sequence numbers and persisted
+bindings/ledger (BRK-002/003); boundary removals — credential transport, enterprise, workbench,
+studio scaffold (BRK-007, BND-002/003, SCF-001); paper-broker costs (BRK-008); multi-currency live
+settlement (EXE-009); construction estimators (OFE-002), multivariate neutralization, multiple-
+testing corrections, Newey–West IC (OFE-004..006); benchmark statistics and walk-forward
+optimization (FEA-002/003); engine digest and tz version in manifests (REP-002); every content
+identity rendering a declared `Decimal` by value, one scheme bump each (DET-006, found in v3.10);
+an optimization pass on one-asset paths against a v3.9-relative budget (PRF-006, found in v3.10).
+
+## AA. v3.12.0 plan — deep correctness, performance, hardening
+
+Bounded state and incremental checkpoints (PRF-004); QP scale envelope and factor-structured
+construction (PRF-005); multi-broker reconciliation (BRK-004); package consolidation (SCF-003,
+OFE-013); LSTM/attention backpropagation (SCF-004); numerical items NUM-003/004/007; directory
+fsync (PER-003); classification dimensions, per-strategy ceilings, alt-data on the execution path,
+streaming observation sets, evidence store, windowed health (OFE-001/003/009/011/016/017);
+trade-print ingestion (FEA-004); large-scale stress suite (10,000 assets, 1,000 strategies, 100
+venues) with recorded results; float-time precision documentation (DAT-008).
+
+## AB. v3.13.0 plan — final feature completion
+
+American option pricing (NUM-006); rerun harness (REP-003); optimal split (BRK-005); estimated
+urgency and randomized icebergs (BRK-006); lock-file reader (OFE-019); total-variance
+interpolation (FEA-005); then the fresh pre-v4 audit (Phase 26) and every finding it produces.
+
+## AC. v4.0.0 freeze requirements
+
+* Every ledger entry is `done`, `REMOVE`d, `EXTERNAL`, `KEEP_BOUNDARY` or `KEEP_LIMITATION`
+  with a reason; no `v4_required` entry open.
+* Public API manifest and import regression test (API-001/002); serialization stability contract
+  (PER-004).
+* Gates: ruff, format, strict mypy, `pytest -W error` with zero skips on any user, examples,
+  benchmarks, wheel+sdist clean installs, cross-process/cross-hash-seed determinism, stress suite,
+  defect-injection harness with every mutation caught, certification report generated in CI
+  (FEA-006).
+* ROADMAP lists only boundaries and external dependencies.
+
+---
+
+## Master finding table
+
+| ID | Finding | Severity | Area | Evidence | Required action | Release | Test | Status | V4 disposition |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| KD-001 | Pre-trade position limit adds an asset's notional exposure (market value) to an order quantity (units) and compares the sum with PositionLimit.max_quantity. | high | risk | Code review; ROADMAP.md 'Known defects'; nowandfuture.md s20. PositionLimit.max_notional is additionally read by no check. | Evaluate the projected post-trade position in quantity against max_quantity and in value against max_notional, reading the current signed quantity from the portfolio (the position authority) at evaluation time rather than from risk state. | v3.10.0 | tests/regression/test_risk_projection.py | implemented (v3.10.0) | FIX |
+| KD-002 | DailyLossLimit is never enforced: RiskState.daily_loss is never maintained on the execution path, so the check always reads zero. | high | risk | Code review: nothing assigns RiskState.daily_loss; ROADMAP.md 'Known defects'. | Maintain daily loss from the portfolio equity history against a declared trading-day boundary (IANA zone), with no invented default zone; refuse a finite limit whose day is undeclared. | v3.10.0 | tests/regression/test_risk_projection.py; tests/regression/test_schema_upgrades.py | implemented (v3.10.0) | FIX |
+| KD-003 | ExposureLimit.max_net_exposure is read by no pre-trade check and its sign convention is defined nowhere. | high | risk | grep: no reader; ROADMAP.md 'Known defects'. | Define net exposure = long market value + short market value (short negative) in the base currency; check \|projected net\| <= max_net_exposure on the projected post-trade book. | v3.10.0 | tests/regression/test_risk_projection.py | implemented (v3.10.0) | FIX |
+| KD-004 | A dataset ingested from in-memory rows is identified by whatever RawSource the caller hands over; rows recorded with an empty payload share one dataset version whatever they contain. | medium | data | derive_dataset_version keys on request.source.content_hash only; ROADMAP.md 'Known defects'. | Derive the identity of row-ingested datasets from the canonical rendering of the rows themselves (records digest) in addition to the declared source, so different content can never share a version. | v3.10.0 | tests/regression/test_row_ingested_identity.py | implemented (v3.10.0) | FIX |
+| RSK-001 | Buying power is checked against the full notional of every order regardless of side: a fully invested account cannot sell to reduce a position. | critical | risk | probes/p1_risk_sell.py: buy 990 @100 with 100k cash, then SELL 500 -> no order (rejected). Verified. | Charge buying power only for the part of an order that increases exposure (buying beyond covering a short, or selling short beyond the long); a reducing trade consumes none. | v3.10.0 | tests/regression/test_risk_projection.py | implemented (v3.10.0) | FIX |
+| RSK-002 | Gross exposure, leverage and margin checks add the order notional regardless of side and current position, so risk-reducing trades are refused at a limit. | critical | risk | probes/p1_risk_sell.py: at the gross limit a SELL 50 of a 99 long is rejected. Verified. | Project the post-trade book (current signed position plus the signed order) and check the projected gross/net/leverage/margin; a trade whose projection is no worse than the current state on the limited measure is not refused by that limit. | v3.10.0 | tests/regression/test_risk_projection.py | implemented (v3.10.0) | FIX |
+| RSK-003 | A breached drawdown (or daily-loss) limit refuses every order, including liquidation. | high | risk | probes/p1_risk_sell.py: in drawdown breach a full liquidation SELL is rejected. Verified. | In breach, refuse only orders that increase absolute exposure (reduce-only semantics), and report the breach on every decision. | v3.10.0 | tests/regression/test_risk_projection.py | implemented (v3.10.0) | FIX |
+| RSK-004 | Pre-trade checks ignore working orders: under EXTERNAL routing several working orders can jointly breach position, exposure and buying-power limits. | high | risk | Code review: checks read RiskState exposure from filled positions only. | Include the signed remaining quantity of working orders (from an OMS open-order index) in the projection. | v3.10.0 | tests/regression/test_risk_projection.py | implemented (v3.10.0) | FIX |
+| RSK-005 | No test pins the order-size limit boundary: mutating `quantity > max_quantity` to `>=` is not detected by the 7,387-test suite. | medium | risk | Defect injection M01: 7386 passed, 1 skipped with the mutation applied. | Boundary tests for every risk limit (equal-to-limit allowed, one quantum over refused). | v3.10.0 | tests/regression/test_risk_projection.py; tests/regression/test_mutation_pins.py | implemented (v3.10.0) | FIX |
+| RSK-006 | RiskViolation.severity is a free string; the margin model is 'full notional requires margin' against cash with utilization computed only when available margin > 0 (vacuous pass at zero cash). | medium | risk | Code review. | Typed severity enum; margin utilization undefined (refuse increase) when available margin is zero; asset-class-aware margin via declared margin specs (futures ContractMarginSpec) in v3.11. | v3.10.0 | tests/regression/test_risk_projection.py | implemented (v3.10.0) | FIX |
+| ALC-001 | AllocationConstraints(allow_shorting=False) refuses any negative net delta, including a sale that closes an existing long, because allocation nets deltas without seeing positions. | high | allocation | probes/p1_risk_sell.py (long-only close refused); examples/11_unified_backtest.py comment admits it. | Pass current signed positions (as a Mapping[str, Decimal] of numbers, preserving the allocation->portfolio boundary) and check the projected post-trade position. | v3.10.0 | tests/regression/test_allocation_semantics.py | implemented (v3.10.0) | FIX |
+| ALC-002 | Intent is documented as a 'target position/weight' but allocation treats Intent.target as a signed order DELTA; TargetWeightSizing re-buys on every emission. | high | strategy/allocation | IntentAllocator docstring ('Deltas'); examples name the field 'delta'. | v3.10: correct the contract (documented delta semantics, explicit IntentKind.DELTA). v3.11: add position-aware TARGET_QUANTITY and TARGET_WEIGHT intents computed against current positions and working orders. | v3.10.0 | tests/regression/test_allocation_semantics.py | implemented (v3.10.0) | FIX |
+| ALC-003 | A missing volatility silently defaults to 1% (vols.get(asset, 0.01)) and a non-positive one is replaced by 1%, producing oversized positions; FixedDollar/TargetWeight/EqualWeight sizing return 0 for a non-positive price, hiding the request from unpriced-asset reporting. | high | allocation | Code review. | Refuse sizing with a missing or non-positive volatility; never size against a non-positive price (surface as unpriced). | v3.10.0 | tests/regression/test_allocation_semantics.py | implemented (v3.10.0) | FIX |
+| ALC-004 | Exact-duplicate intents are silently dropped with an O(n^2) membership test and no event; programming errors inside validation are caught by `except Exception` and recorded as rejections. | low | allocation | Code review. | Keep duplicates (two identical intents are two requests) or record a rejection event; catch only AllocationValidationError. | v3.12.0 | planned | not_started | FIX |
+| ACC-001 | Every currency is rounded to 0.01. JPY/KRW (0 decimals), KWD/BHD/OMR/JOD/TND (3), CLF (4) and crypto settlement assets are wrong; the module's claim 'exact at the currency's minor unit' is false. | critical | portfolio | Probe: JPY account deposit of 1000000.5 is stored as 1000000.50 JPY. Verified. | Per-currency minor units: the ISO 4217 minor-unit table as a stated standard, plus caller-declared units for non-ISO currencies; refuse settlement in a currency with no known minor unit. to_money takes the currency. | v3.10.0 | tests/unit/portfolio/test_monetary_precision.py; tests/unit/portfolio/test_portfolio.py | implemented (v3.10.0) | FIX |
+| ACC-002 | Every fill and mark price is quantized to 4 decimal places before money is computed: a 1e9-unit purchase at 0.00001234 is booked at cost 0.00 with cash unchanged; EURUSD 1,000,000 @ 1.08345 books 1,083,400.00 instead of 1,083,450.00. | critical | portfolio | Probe (portfolio engine): SHIB-like fill basis 0.00; FX fill basis 1083400.00. Verified. | Keep venue/market prices exact; money is rounded once at the currency minor unit (ACC-001). Derived per-unit figures (average cost) computed in a pinned context. | v3.10.0 | tests/unit/portfolio/test_monetary_precision.py | implemented (v3.10.0) | FIX |
+| ACC-003 | Fill quantities are quantized to 1e-6; a real venue fill of 0.0000005 BTC raises InvalidTransactionError and cannot be booked; other quantities are silently rounded away from the venue's. | high | portfolio | Probe: apply_fill(0.0000005 BTC) -> 'A fill must have a non-zero quantity'. Verified. | Book the venue quantity exactly; lot-size rounding belongs to sizing (conventions.lot), never to accounting. | v3.10.0 | tests/unit/portfolio/test_monetary_precision.py | implemented (v3.10.0) | FIX |
+| ACC-004 | Monetary rounding (quantize without explicit rounding) and VWAP divisions run in the caller's ambient decimal context; v3.9 fixed only split_by_contribution. | high | portfolio/oms/broker/core | Code review: to_money uses amount.quantize(CURRENCY_QUANT) with context rounding; average fill price divisions use context precision. | One pinned accounting context (prec=34, ROUND_HALF_EVEN) used by every accounting/execution arithmetic site; a regression sweep for ambient-context arithmetic on those paths. | v3.10.0 | tests/unit/portfolio/test_monetary_precision.py; tests/regression/test_ambient_decimal_context.py | implemented (v3.10.0) | FIX |
+| ACC-005 | The canonical path books every fill as a fully paid cash equity: no contract multiplier (Position has none by invariant 30), no futures margin/variation settlement, no option premium x multiplier; derivatives packages are analytics-only. | high | portfolio/runtime | Code review of Position/PortfolioEngine.apply_fill and portfolio/contracts.py. | Instrument economics on the canonical path: an InstrumentEconomics declaration (multiplier, settlement style: CASH_EQUITY \| FUTURES_VARIATION \| OPTION_PREMIUM \| PERPETUAL) supplied through the instrument registry; valuation and cash impact go through conventions.contract_notional (still the single multiplying site). | v3.11.0 | planned | not_started | IMPLEMENT |
+| ACC-006 | No position-level corporate actions or cash flows on the canonical path: splits, cash/stock dividends, short borrow fees, margin/cash interest and perpetual funding cannot be booked; raw-price backtests mis-state P&L at splits. | high | portfolio | Code review: PortfolioEngine offers deposit, withdrawal, conversion and fill only. | PortfolioEngine.apply_corporate_action (split/stock dividend adjusts quantity and basis exactly) and apply_cash_flow (dividend, interest, fee, funding, with attribution and currency) with events and ledger entries. | v3.11.0 | planned | not_started | IMPLEMENT |
+| ACC-007 | Prices must be positive and commissions non-negative everywhere: negative prices (WTI April 2020, power, spreads) and maker rebates are unrepresentable; a non-positive mark is silently ignored. | medium | core/portfolio | Fill.__post_init__, apply_fill, update_market_prices (skips price <= 0). | Allow negative prices for instruments whose economics declare it; allow negative commission (rebates) as a signed cost; never silently skip a mark. | v3.11.0 | planned | not_started | IMPLEMENT |
+| ACC-008 | base_currency='USD' defaults remain on valuation helpers; PortfolioValuation.cash_value returns 0.00 for a book holding no USD instead of refusing (exempted from the sweep as 'refuses', which it does not). | medium | portfolio | Code review of the PERMITTED map in test_no_silent_financial_defaults.py. | Remove currency defaults from every valuation helper; the pipeline always passes the account currency. | v3.10.0 | tests/regression/test_no_silent_financial_defaults.py | implemented (v3.10.0) | FIX |
+| ANA-001 | Returns are taken between consecutive portfolio snapshots (one per market record, several per instant in multi-asset runs), labelled daily_returns and annualized with 252 periods; Sharpe, volatility, Sortino and VaR are wrong for any non-daily or multi-asset run. | critical | analytics | probes/p3_analytics.py: a 3-second quote run reports an annualized Sharpe of 9.17 from per-record returns. | Collapse snapshots to one equity point per instant; compute returns on a declared periodicity (or the observed one) and annualize with periods-per-year derived from elapsed time or declared; record the basis in the report. | v3.10.0 | tests/unit/analytics/test_analytics.py; tests/regression/test_schema_upgrades.py | implemented (v3.10.0) | FIX |
+| ANA-002 | years_elapsed defaults to 1.0, so CAGR and Calmar are computed as if every run lasted one year. | high | analytics/runtime | probes/p3_analytics.py: a 3-second run reports CAGR == total return. | Derive elapsed years from the equity curve's first and last instants (seconds / 365.25 days), or take an explicit override. | v3.10.0 | tests/unit/analytics/test_analytics.py | implemented (v3.10.0) | FIX |
+| ANA-003 | Trade metrics count every fill's TradeRecord, including opening fills (realized 0) which are classified as losses: one winning round trip reports a 50% win rate. | high | analytics | probes/p3_analytics.py: win_rate 0.5, loss_rate 0.5 for one winning round trip. Verified. | Compute trade statistics over fills that realized P&L (reducing/closing fills) only; report the count basis. | v3.10.0 | tests/unit/analytics/test_analytics.py | implemented (v3.10.0) | FIX |
+| ANA-004 | Undefined statistics are reported as 0.0 (Sharpe of a constant series, Sortino with no downside, Calmar with no drawdown, VaR of nothing, CAGR of a non-positive capital) and profit_factor can be inf, contradicting invariant 21. | medium | analytics | probes/p3_analytics.py: Sortino 0.0, Calmar 0.0. | Return None for undefined statistics (typed float \| None) and never inf. | v3.10.0 | tests/unit/analytics/test_analytics.py | implemented (v3.10.0) | FIX |
+| ANA-005 | VaR and CVaR round to 6 decimals inside the computation and the CVaR tail uses the rounded threshold. | low | analytics | Code review. | Compute unrounded; round only for presentation. | v3.10.0 | tests/unit/analytics/test_analytics.py | implemented (v3.10.0) | FIX |
+| EXE-001 | A simulated order decided on an event is filled at that same event's price (the bar close or quote mid the strategy just observed): close-to-close 'cheat-on-close' optimism with no first-class next-event execution. | high | runtime/execution | Code review; probes/p1: fill at 100.000 at the deciding quote's instant. | RunConfig.fill_timing (SAME_EVENT \| NEXT_EVENT), recorded in the run, its snapshot and the fingerprint's research configuration; NEXT_EVENT keeps the order working until the asset's next event. | v3.10.0 | tests/regression/test_fill_timing.py | implemented (v3.10.0) | FIX |
+| EXE-002 | The default ExecutionSimulator is frictionless (zero commission, zero slippage) and market orders on quotes fill at the midpoint; RunConfig.fill_policy defaults to unlimited liquidity. A default backtest is optimistic and does not say so. | medium | execution | Code review; probe fill at mid. | Record the cost model and fill policy in every result and fingerprint; name the frictionless configuration explicitly (FREE) and mark results produced under it. | v3.10.0 | tests/regression/test_execution_assumptions.py | implemented (v3.10.0) | FIX |
+| EXE-003 | The canonical path can only create MARKET orders: OrderRequest has no order type, limit/stop price or time in force, Intent.execution_directive is never read, and no order rests across events in simulation. | high | runtime/oms/execution | _oms_order hard-codes OrderType.MARKET; grep shows execution_directive unused. | Typed order instructions on Intent/OrderRequest (type, limit, stop, TIF incl. GTD/IOC/FOK, auction OPG/CLS); resting orders with deterministic fill rules in simulation; capability checks already exist at the venue. | v3.11.0 | planned | not_started | IMPLEMENT |
+| EXE-004 | No cross-sectional (time-slice complete) event: multi-asset strategies are dispatched once per asset record with a partially updated market, so a cross-sectional rebalance must buffer by hand. | medium | runtime/strategy | Code review. | An on_slice hook dispatched after every record sharing an instant has been published (opt-in). | v3.11.0 | planned | not_started | IMPLEMENT |
+| EXE-005 | StrategyProtocol declares on_start/on_stop/on_shutdown (never invoked) and on_fill/on_order/on_timer (routed but never constructed by the pipeline): a strategy on the canonical path never learns of its own fills. | medium | strategy | nowandfuture.md s11; code review. | Invoke lifecycle hooks from the run (start/finalize) and deliver fill/order events after the step for strategies that implement them (ordering documented; parity baselines updated deliberately). | v3.11.0 | planned | not_started | IMPLEMENT |
+| EXE-006 | A strategy hook that raises is caught, the strategy moves to FAILED and the run continues; BacktestResult has no view of it, so a crashing strategy yields a 'successful' backtest. | high | strategy/backtesting | Code review of Dispatcher.dispatch_event and BacktestResult. | RunState/BacktestResult expose strategy failures (id, instant, error); RunConfig.halt_on_strategy_failure to stop the run; analytics report records it. | v3.10.0 | tests/regression/test_strategy_failures_are_reported.py | implemented (v3.10.0) | FIX |
+| EXE-007 | Strategy subscriptions are recorded but never read: every running strategy receives every market event for every asset. | medium | strategy | grep: subscriptions set by RuntimeSupervisor.subscribe, read nowhere. | Route by declared subscription (event kinds and optional asset set) with an explicit 'all' form. | v3.11.0 | planned | not_started | FIX |
+| EXE-008 | The per-event risk resync converts foreign positions and cash with as_of=None, bypassing the future-dated-rate and staleness guards that FxRates.convert enforces for every other conversion. | medium | runtime | Code review: rates.convert(..., None), cash_in(..., None), NAVCalculator as_of default None. | Thread the event instant as as_of through every risk-path conversion. | v3.10.0 | tests/integration/test_v217_capabilities.py | implemented (v3.10.0) | FIX |
+| EXE-009 | LiveSession.settle applies venue fills without FX rates, so a multi-currency live run cannot settle a foreign fill through the canonical path. | medium | runtime/live | Code review: apply_broker_execution called without rates. | Thread rates through settle/advance. | v3.11.0 | planned | not_started | FIX |
+| PRF-001 | The canonical path is quadratic in universe size: every event re-marks and logs every held position, recomputes exposure/NAV/valuation over all positions (twice) and copies the whole price map. | critical | runtime/portfolio | probes/p2_multiasset_scale.py: N=10..160 assets x 50 bars -> cpu 0.56s, 1.58s, 4.74s, 14.8s, 54.8s; peak memory 2.5MB..337MB; 1.27M logged marks at N=160. Extrapolated 500 stocks x 10y daily: ~27,000 cpu-s and ~170 GB. | Mark only the asset the event re-priced; maintain exact incremental aggregates (long/short value per currency, gross/net exposure); log only changed marks; persistent price map; equity curve bit-identical to v3.9 on single-asset runs. | v3.10.0 | tests/regression/test_universe_scaling.py; tests/unit/portfolio/test_position_book.py; tests/unit/portfolio/test_mixed_book_valuation.py; benchmarks/benchmark_universe_scaling.py | implemented (v3.10.0) | FIX |
+| PRF-002 | PersistentMap never reclaims superseded versions: iteration costs O(keys ever written) and memory grows with total writes; order_shares_by_strategy iterates allocation.contributions every event, which is O(orders ever placed) under EXTERNAL routing. | high | common | probes/p4_broker_misc.py: 1 live key after 10k/20k/40k churn -> 0.133s/0.291s/0.611s per 100 iterations (linear in history). | Amortized compaction: when dead entries exceed live entries a write rebases onto a fresh store holding only live keys (older views keep their store); iteration O(live). | v3.10.0 | tests/regression/test_persistent_map_compaction.py | implemented (v3.10.0) | FIX |
+| PRF-003 | ExternalOrderMap.bind copies both dicts per bind (quadratic over a session) and ReconciliationLog.record concatenates tuples, keeping every duplicate forever. | medium | broker | probes/p4: bind 2k/4k/8k -> 0.033s/0.092s/0.338s. | PersistentMap-backed maps; append-only logs. | v3.10.0 | tests/regression/test_broker_containers_complexity.py | implemented (v3.10.0) | FIX |
+| PRF-004 | Every durable state keeps its complete event history in memory and every checkpoint serializes all of it; long live sessions grow without bound and periodic checkpoints cost O(N) each (O(N^2) total). | high | runtime/persistence | Code review of snapshot records (market history, risk history, execution history, portfolio events, steps). | Declared retention policies for derived histories (bounded market history window for HistoryView; step log retention), and incremental checkpoints (base snapshot + appended segments) with digest chaining. | v3.12.0 | planned | not_started | IMPLEMENT |
+| PRF-005 | The dual active-set QP is dense, pure Python and cubic in the universe; measured only to 50 assets (nowandfuture s20 'UNKNOWN'). | medium | portfolio_optimizer | Documentation; code review. | Measure 100/200/400/800; exploit factor-model covariance structure (B F B' + D) in construction for large universes; document the measured envelope. | v3.12.0 | planned | not_started | IMPLEMENT |
+| NUM-001 | The statistics authority accepts NaN and infinity: ranks([1, nan, 0.5, 2]) returns (1, 2, 3, 4) (wrong and input-order dependent), percentile is order-dependent with NaN, mean/variance/correlation propagate NaN silently. | high | common | Probe: ranks and percentile results vary with input order. Verified. | Refuse non-finite inputs in every statistics function with AlphaLabValidationError naming the position. | v3.10.0 | tests/regression/test_numeric_refusals.py | implemented (v3.10.0) | FIX |
+| NUM-002 | pearson_correlation raises ZeroDivisionError for tiny magnitudes (1e-160) and OverflowError for huge ones (1e160) because variance_x*variance_y under/overflows; the result is not clamped to [-1, 1]. | medium | common | Probe. Verified. | Guard the pathological path (product 0 or inf -> sqrt(vx)*sqrt(vy)) so ordinary inputs stay bit-identical; clamp to [-1, 1]. | v3.10.0 | tests/regression/test_numeric_refusals.py | implemented (v3.10.0) | FIX |
+| NUM-003 | r_squared is reported as 0.0 for a constant y (0/0 undefined). | low | common | Code review. | None for undefined R^2 (typed float \| None). | v3.12.0 | planned | not_started | FIX |
+| NUM-004 | _norm_cdf = 0.5*(1+erf(x/sqrt2)) loses relative precision in the lower tail (deep out-of-the-money values); time to expiry uses 365.25 days while theta divides by 365. | medium | options | Code review (standard numerical analysis). | Use 0.5*erfc(-x/sqrt2) for x < 0; one stated year basis recorded in ModelAssumptions. | v3.12.0 | planned | not_started | FIX |
+| NUM-005 | Black-Scholes has no dividend/cost-of-carry yield: index options (dividends), FX options (foreign rate, Garman-Kohlhagen) and options on futures (Black-76) are mispriced and their implied volatilities biased. | high | options | Code review: d1 uses rate only; ModelAssumptions.models_dividends False. | Generalized Black-Scholes-Merton with an explicit carry (b = r - q; FX q = r_foreign; futures b = 0), required in the model assumptions; implied volatility inverts the same formula. | v3.11.0 | planned | not_started | IMPLEMENT |
+| NUM-006 | No American option pricing (ROADMAP 'deliberate boundary'), although listed US equity options are American; implied vols from American quotes are computed with a European model. | medium | options | ROADMAP.md deliberate boundaries; pricing.py docstring. | Cox-Ross-Rubinstein binomial lattice with discrete-dividend support and early exercise, deterministic step count stated in assumptions; IV inversion through it. | v3.13.0 | planned | not_started | IMPLEMENT |
+| NUM-007 | Linear regression solves the normal equations with a Gauss-Jordan inverse (squares the condition number); no rank or conditioning diagnostics. | medium | ml | Code review. | Householder QR (or Cholesky with ridge) with a rank-deficiency refusal naming the condition estimate. | v3.12.0 | planned | not_started | FIX |
+| NUM-008 | Legacy slippage/commission models quantize to 4 dp (per-unit slippage for low-priced instruments rounds to zero) and MarketImpactSlippage divides by a magic 1000. | medium | execution | Code review. | Compute exactly in the pinned context; impact scale an explicit parameter. | v3.10.0 | tests/regression/test_numeric_refusals.py | implemented (v3.10.0) | FIX |
+| DET-001 | Job outcomes are applied in as_completed (OS) order: the results mapping order, the distributed event log order and seeded event identifiers differ run to run. | medium | cloud_research | Code review. | Collect all outcomes, then apply them in submission order. | v3.10.0 | tests/regression/test_cluster_outcomes_are_ordered.py | implemented (v3.10.0) | FIX |
+| DET-002 | The optimizer stamps its state with time.time() and records perf_counter evaluation times inside trial results. | medium | optimizer | grep time.time/perf_counter. | Caller-supplied instants; elapsed measurement optional and excluded from results' identity. | v3.10.0 | tests/regression/test_optimizer_is_reproducible.py | implemented (v3.10.0) | FIX |
+| DET-003 | random.Random seeds by absolute value, so seeds s and -s mint identical identifier streams; getrandbits stream stability is not formally guaranteed by the Python documentation (only random()). | low | common | CPython seeding semantics. | Refuse negative seeds; pin the stream with a cross-version golden test. | v3.10.0 | tests/regression/test_id_stream_is_pinned.py | implemented (v3.10.0) | FIX |
+| DET-004 | Stochastic initializers default seed=42 (dense, conv1d, lstm, random search), contradicting invariant 20 (every stochastic step takes an explicit seed, no default). | medium | deep_learning/optimizer | TOC scan of signatures. | Seed required. | v3.10.0 | tests/regression/test_seeds_are_never_defaulted.py | implemented (v3.10.0) | FIX |
+| REP-001 | The engine version comes from installed distribution metadata with a hard-coded fallback, so a stale editable install reports a version different from the source actually imported; fingerprints and dataset provenance inherit it. | medium | common/lifecycle | Code review. | Single source of truth in alphalab/_version.py read by hatch (dynamic version) and by the package; a regression test asserts the three agree. | v3.10.0 | tests/regression/test_one_version_source.py; tests/unit/test_package_metadata.py | implemented (v3.10.0) | FIX |
+| REP-002 | Engine identity is a version string only; two builds of the same version with different code (local patches, commits between releases) are indistinguishable, and the time-zone database version that decides every local-time computation is not recorded. | medium | lifecycle | Code review. | Record an engine source digest (sorted .py files of the imported package) and the tz database version where discoverable in manifests (not in the strategy fingerprint key). | v3.11.0 | planned | not_started | IMPLEMENT |
+| REP-003 | No rerun harness: a manifest states what a rerun needs but nothing re-executes a run from a manifest and its supplied inputs and compares the result identity (ROADMAP optional evolution). | medium | lifecycle | ROADMAP.md. | rerun_from_manifest(manifest, inputs) that rebuilds the run through the canonical drivers and returns REPRODUCED/DIVERGED with the differing fields. | v3.13.0 | planned | not_started | IMPLEMENT |
+| DAT-001 | The canonical bar's timestamp has no defined meaning (interval start or end). The engine treats a bar as knowable and tradable at its timestamp, so start-stamped vendor bars leak the close into the bar's opening instant (look-ahead). | high | market/data | Code review: no convention anywhere; BarClosed dispatched at bar.timestamp. | Canonical convention: a bar is stamped at the end of its interval (the instant it is knowable). Ingestion and normalization require the source's convention (START or END) and shift START-stamped bars by the declared interval; refuse when undeclared. | v3.10.0 | tests/regression/test_bar_stamp_convention.py | implemented (v3.10.0) | FIX |
+| DAT-002 | A symbol's final horizon observations are dropped as 'unrealized'; for a delisted symbol this silently excludes the terminal (often catastrophic) return, a survivorship bias in IC and quantile studies. No delisting-return input exists. | high | factor_library/research | Code review. | Accept declared terminal events (delisting with a terminal return or value) per symbol; forward returns spanning a delisting realize the terminal return; unrealized vs delisted reported separately. | v3.11.0 | planned | not_started | IMPLEMENT |
+| DAT-003 | Forward returns start at the same close the factor was computed from; there is no implementation-lag parameter, so every IC implicitly assumes trading at the observed close. | medium | factor_library | Code review. | forward_returns(frame, horizon, lag) with lag required (0 allowed, stated) and carried on the panel and every diagnostic. | v3.11.0 | planned | not_started | FIX |
+| DAT-004 | Provider aliases are static and identity is keyed on the symbol: point-in-time symbology (valid-from/valid-to mappings, ticker reuse after delisting, ticker changes) cannot be expressed. | medium | instrument | Code review. | Dated provider aliases (valid_from/valid_to) resolved at the record's instant; guidance to use permanent identifiers as the canonical symbol. | v3.11.0 | planned | not_started | IMPLEMENT |
+| DAT-005 | TimeFrame is a closed enum (1m,5m,15m,1h,4h,1d,1w,1M; no 30m, 2h, seconds, custom) and NormalizationPolicy silently labels bars M1 by default; normalize_wire_bar writes vwap=0 and trade_count=0 as 'not reported' sentinels. | medium | market | Code review. | Interval as a value type (count + unit) with the existing members as constants; timeframe required on the policy; None for unreported vwap/trade_count. | v3.11.0 | planned | not_started | FIX |
+| DAT-006 | scheduler.TradingCalendar decides weekends in UTC with Saturday/Sunday hard-coded and aligns sessions to UTC midnight (wrong for Asia and the Middle East), duplicating data.calendar.MarketCalendar; CRON/SESSION_OPEN/SESSION_CLOSE/BAR_BOUNDARY timers fire once and silently vanish (cron expressions are never parsed). | medium | scheduler | Probe: CRON timer fired once, 0 timers remain. Verified. | Remove the scheduler's calendar in favour of MarketCalendar; implement or remove the unimplemented schedule types (refuse at registration until implemented). | v3.10.0 | tests/regression/test_scheduler_refuses_unimplemented_timers.py | implemented (v3.10.0) | FIX |
+| DAT-007 | Local-time computations depend on the host's IANA tz database version (and on the optional tzdata package on Windows); two machines with different tz versions can disagree on session bounds without any record of which database was used. | low | data | Code review. | Record the tz database version in manifests (REP-002) and document the dependency. | v3.11.0 | planned | not_started | KEEP_LIMITATION |
+| DAT-008 | All instants are float Unix seconds: resolution is about 0.24 microseconds at current epochs, so nanosecond feeds cannot be represented exactly and sub-microsecond ordering relies on record order. | low | core | IEEE 754 double spacing at 1.7e9 is 2.4e-7. | Document the precision envelope and require sequence-based ordering for same-instant events; no representation change (fundamental and frozen). | v3.12.0 | planned | not_started | KEEP_LIMITATION |
+| BRK-001 | reconcile_snapshot compares fill quantity, price and commission as strings, so numerically equal Decimals with different exponents (100 vs 100.00) are reported as EXECUTION_MISMATCH; snapshot identities render Decimals by str, so equal evidence gets different ids. | medium | broker | probes/p4_broker_misc.py: 3 false divergences for an identical fill. Verified. | Compare numerically; render Decimals in a canonical normalized form inside identities. | v3.10.0 | tests/regression/test_reconciliation_compares_numbers.py | implemented (v3.10.0) | FIX |
+| BRK-002 | v3.9 deferred: no venue sequence number; amendments, positions and balances are absolute and applied in delivery order, so out-of-order delivery leaves an older value. | medium | broker | ADR-0044; broker/lifecycle.py docstring. | IMPLEMENT: optional venue sequence on VenueEvent and last-applied sequence per order/position/balance in the mirror; a lower sequence is STALE. Requires the schema-evolution mechanism (PER-001) for BROKER_SNAPSHOT_SCHEMA 2. | v3.11.0 | planned | not_started | IMPLEMENT |
+| BRK-003 | v3.9 deferred: child-order bindings and the request ledger are caller-held values, not persisted with the live envelope. | medium | runtime/broker | ADR-0044. | IMPLEMENT: include both in the live-run envelope (LIVE_SNAPSHOT_SCHEMA 2 via PER-001) so a restarted process resumes algorithm children and retry recognition exactly. | v3.11.0 | planned | not_started | IMPLEMENT |
+| BRK-004 | v3.9 deferred: book-to-mirror reconciliation compares one pipeline book with one broker mirror; a book spread across several brokers' accounts cannot be reconciled in one pass. | medium | lifecycle | ADR-0044; ROADMAP. | IMPLEMENT: reconcile_execution_state over a mapping account->mirror with a declared order-to-account assignment; unassigned orders reported. | v3.12.0 | planned | not_started | IMPLEMENT |
+| BRK-005 | v3.9 deferred: split routing is a greedy sweep by all-in price, not optimal under per-trade fixed fees or non-linear impact. | medium | execution | routing.py docstring. | IMPLEMENT: exact split for linear per-unit costs plus fixed fees by subset enumeration (bounded venue count, refusal beyond), and marginal-cost equalization for convex impact; greedy kept as a named objective. | v3.13.0 | planned | not_started | IMPLEMENT |
+| BRK-006 | v3.9 deferred: urgency is stated, never estimated; iceberg tranches are fixed, never randomized. | low | execution | ADR-0044. | IMPLEMENT: urgency estimated from stated risk aversion, volatility and impact (Almgren-Chriss kappa, documented formula, pinned context); seeded randomized tranche sizes with the seed in the configuration identity. | v3.13.0 | planned | not_started | IMPLEMENT |
+| BRK-007 | The library holds venue credentials (api_key, api_secret) and a concrete HMAC-signed REST transport for a made-up /v1/orders protocol, contradicting ADR-0018 ('no credential handling') and the AlphaLab/iluvtrade boundary (vendor credentials and broker-specific transport are the application's). | high | broker | Code review. | REPLACE: keep BrokerProtocol, the canonical vocabulary, PaperBroker and the normalized event contract; move the reference REST adapter and its credentials to tests/examples as a reference adapter (not importable from alphalab). | v3.11.0 | planned | not_started | REMOVE |
+| BRK-008 | PaperBroker charges zero commission ('Simplification for paper broker'), so paper P&L is biased against live in the expected/paper/live comparison. | medium | broker | paper.py:156. | PaperBroker takes an ExecutionCostModel (the v3.3 authority) with no default. | v3.11.0 | planned | not_started | FIX |
+| PER-001 | Each snapshot subsystem reads exactly one schema version and 'there is no migration path'. After a long-lived v4 freeze, any fix that needs a new durable field makes every earlier payload unreadable; several deferred items (BRK-002/003) are blocked on it. | high | persistence | nowandfuture.md s9 and s14 invariant 2. | Explicit, versioned, tested upgrade functions per subsystem (vN -> vN+1, pure, composable), invoked before typed decoding; every historical version kept readable by golden payload fixtures. | v3.10.0 | tests/regression/test_schema_upgrades.py; tests/fixtures/snapshots/v3.9.0 | implemented (v3.10.0) | IMPLEMENT |
+| PER-002 | serialize() claims strict JSON but uses json.dumps(allow_nan=True): NaN/Infinity become non-standard tokens that strict parsers reject and that break equality on round trip; Decimals serialize by str so numerically equal values can render differently. | medium | persistence | Code review. | allow_nan=False (refuse) and document the Decimal exponent rule for identities. | v3.10.0 | tests/regression/test_numeric_refusals.py | implemented (v3.10.0) | FIX |
+| PER-003 | Atomic writes fsync the file but not the containing directory after os.replace, so a crash can lose a rename that was reported durable. | low | persistence | POSIX durability rules. | fsync the directory after rename where the platform supports it. | v3.12.0 | planned | not_started | FIX |
+| PER-004 | Plain Enum members persist as 'ClassName.MEMBER', coupling every stored payload to Python class names. | low | persistence | Code review. | Document class-name stability as part of the v4 serialization contract and pin with golden payloads. | v4.0.0 | planned | not_started | KEEP_LIMITATION |
+| BND-001 | Vendor-named market-data clients in the library: four raise NotImplementedError ('Not yet implemented'), Binance speaks Binance's endpoint shapes and stamps quotes with time.time(); configs carry api_key fields; class names are lowercase. | high | marketdata | Code review. | REMOVE the five vendor subpackages (vendor adapters are the application's). | v3.10.0 | tests/regression/test_no_vendor_in_the_library.py; tests/regression/test_market_model_convergence.py | implemented (v3.10.0) | REMOVE |
+| BND-002 | alphalab.enterprise implements principals, sessions with TTL, workspaces, secret references with rotation and compliance reports - SaaS user/tenant management that belongs to the application; lifecycle governance imports it for RBAC. | high | enterprise/lifecycle | Code review. | REPLACE: a PermissionAuthority protocol (permission check + actor id) in lifecycle.governance with a minimal deterministic reference implementation; remove sessions, workspaces, secrets and compliance. | v3.11.0 | planned | not_started | REPLACE |
+| BND-003 | alphalab.workbench is UI state (themes, panels with width ratios, tabs, layouts, animation flags, frontend sessions) whose backtest delegation records caller-supplied 'simulated_metrics'. | medium | workbench | Code review. | REMOVE. | v3.11.0 | planned | not_started | REMOVE |
+| SCF-001 | Strategy Studio 'runs' backtests and pipelines by storing caller-supplied simulated metrics; carries users, sessions and workspaces; StudioConfig defaults currency USD and workspace '/workspace'; ResearchResult has an overall_score. Its one canonical type, StrategyDefinition (ADR-0035), only admits float parameters. | medium | studio | Code review. | Move StrategyDefinition to alphalab.strategy (typed ParamValue parameters, re-exported during v3.x) and remove the orchestration scaffold. | v3.11.0 | planned | not_started | REPLACE |
+| SCF-002 | Three v1 provider-surface packages with no consumer duplicate the canonical market model: feed.normalization hard-codes currency='USD', uses the provider symbol as asset_id and defaults unknown timeframes to M1 (a second, unsafe normalization authority); live.LiveAdapter emits untyped dicts; marketdata's engine carries api_key/api_secret configs, an empty BaseClient and metrics never updated. | high | feed/live/marketdata | Code review; grep shows market imports only marketdata.feed, marketdata.timeframe and marketdata.websocket. | REMOVE feed and live; reduce marketdata to its transports (HTTP, RFC 6455 WebSocket) and the wire re-export used by market. | v3.10.0 | tests/regression/test_market_model_convergence.py; tests/regression/test_v39_invariants.py; tests/integration/test_provider_source_session.py | implemented (v3.10.0) | REMOVE |
+| SCF-003 | Several v1 'engine series' packages are bookkeeping shells or duplicates: plugins (execute() is a NotImplementedError placeholder), scheduler (see DAT-006), distributed (a job table that executes nothing; cancel stores a cancelled job as failed without an event), reporting (dashboards = presentation), optimizer and research_assistant (two of four parameter-search implementations). | medium | plugins/scheduler/distributed/reporting/optimizer/research_assistant | Code review. | Per-package decision recorded in an ADR: consolidate parameter search into one research authority; keep distributed+cloud_research as the local parallel-execution capability (fixed); remove plugins and reporting dashboards; scheduler reduced to deterministic timers over MarketCalendar or removed. | v3.12.0 | planned | not_started | REPLACE |
+| SCF-004 | LSTM and attention are forward-only (no backpropagation), so the documented 'LSTM, transformers' capability cannot train. | medium | deep_learning | Module docstrings. | IMPLEMENT backpropagation through time for LSTM and the attention backward pass, gradient-checked against numerical gradients. | v3.12.0 | planned | not_started | IMPLEMENT |
+| API-001 | 72 distinct objects share a public name across packages (e.g. brokers.ExecutionReport is broker.BrokerExecution, not execution.ExecutionReport; core.Trade vs data.Trade; runtime.TradingSession vs scheduler.TradingSession; runtime.snapshot.MarketRecord vs market.MarketRecord; two SessionCalendar protocols; RouteDecision vs RoutingDecision; three AssetClass enums). | medium | repository | Runtime identity comparison over every package __all__. | Remove accidental duplicates, rename collisions, keep only documented deliberate pairs (pinned by test_shared_names_stay_distinct), and publish a V4 public API manifest with an import regression test. | v4.0.0 | planned | not_started | FIX |
+| API-002 | 2,589 package-level exported names (2,450 unique) and 479 modules without __all__; no statement of which surfaces are frozen. | medium | repository | AST inventory. | V4 public API manifest (docs/api/PUBLIC_API_V4.md + machine-readable list) and a regression test that fails on any unlisted addition or removal. | v4.0.0 | planned | not_started | IMPLEMENT |
+| API-003 | Silent 'USD' defaults remain on configuration dataclasses (RoutingConfig.currency, ExecutionPipelineConfig.currency, NormalizationPolicy.currency/venue/timeframe, venue broker currency, RL environment, StudioConfig), and the defaults sweep misses dataclass fields outside its v3.4 scope, call-site keyword literals and .get() fallbacks. | medium | repository | grep for "USD"; test_no_silent_financial_defaults.py scope. | Remove currency defaults from configuration; extend the sweep to dataclass fields, call-site literals of financial keywords and mapping .get defaults on financial names. | v3.10.0 | tests/regression/test_no_silent_financial_defaults.py; tests/regression/test_v34_invariants.py; tests/regression/test_currency_authority.py; tests/unit/market/test_normalization.py | implemented (v3.10.0) | FIX |
+| API-004 | BacktestResult.valuation takes no FX rates, so it raises for every multi-currency run. | low | backtesting | Code review. | valuation_in(currency, rates) method; the property documented as single-currency only. | v3.12.0 | planned | not_started | FIX |
+| REL-001 | On a failed connection the reconnect path drops the old WebSocket without closing its socket: every reconnect leaks a file descriptor until garbage collection (ResourceWarning). | high | market | pytest -W error: 5 streaming tests fail and one unrelated test errors when GC finalizes the leaked socket. Passes without -W error, so CI is blind to it. | Close the transport's socket on every failure path (idempotent close) and run the suite with ResourceWarning as an error in CI. | v3.10.0 | tests/regression/test_websocket_releases_its_socket.py | implemented (v3.10.0) | FIX |
+| TST-001 | Seven complexity guards time the wall clock with the garbage collector running and fail under load (baseline run: replay cursor 12x for 4x input under a concurrent mypy; defect-injection run: scheduler scaling failed under load). | medium | tests | nowandfuture.md s20 'KNOWN CAVEAT'; observed failures during this audit. | Move every guard to the stabilized method (CPU time, collector off, interleaved sizes, median of repeats) already used by v3.8/v3.9 guards. | v3.10.0 | tests/regression/_timing.py and every *_complexity.py guard | implemented (v3.10.0) | FIX |
+| TST-002 | One test is skipped when the suite runs as root ('root bypasses directory permissions'), so the '0 skipped' claim depends on the environment. | low | tests | Baseline run in this container: 1 skipped. | Exercise the refusal through a condition root cannot bypass (e.g. a root path that is a file / a read-only mount simulated by a non-directory), keeping zero skips everywhere. | v3.10.0 | tests/regression/test_run_state_store.py; tests/regression/test_the_suite_reports_nothing_deferred.py | implemented (v3.10.0) | FIX |
+| TST-003 | CI does not run pytest with warnings as errors (ResourceWarnings invisible), does not run examples or benchmarks, and does not install the built wheel into a clean environment. | medium | ci | ci.yml. | CI: pytest -W error; examples; wheel + sdist clean-venv install and import smoke; benchmarks smoke (reduced sizes) on a schedule. | v3.10.0 | tests/regression/test_release_gates_are_wired.py; tests/installed_smoke.py | implemented (v3.10.0) | FIX |
+| TST-004 | pre-commit pins ruff v0.12.0 and mypy v1.16.0 (pyproject requires ruff 0.16 / mypy 2.x) and runs mypy without pytest installed, so the hooks disagree with CI. | low | tooling | Config review. | Align hook revisions with pyproject and add pytest to the mypy hook's additional_dependencies. | v3.10.0 | tests/regression/test_release_gates_are_wired.py | implemented (v3.10.0) | FIX |
+| TST-005 | Defect injection found mutations the suite does not catch (see the master audit, section W, for the full table); every undetected mutation needs a pinning test. | medium | tests | scratch defect-injection harness over 24 mutations. | A regression test per undetected mutation, then re-run the harness. | v3.10.0 | tests/regression/test_mutation_pins.py; the v3.10 harness re-run (master audit, section W) | implemented (v3.10.0) | FIX |
+| TST-006 | Every 'linear' performance claim on the canonical path was measured with a single asset; there is no guard on growth in universe size. | high | tests | PRF-001 probe. | Complexity guard over assets x bars (stabilized method) and a multi-asset benchmark; defect-inject the old per-event full re-mark and prove the guard fails. | v3.10.0 | tests/regression/test_universe_scaling.py | implemented (v3.10.0) | FIX |
+| TST-007 | Inconsistent benchmark file names (typo 'schedular', 'benchmarks_' prefix). | low | benchmarks | ls benchmarks. | Rename to benchmark_scheduler_engine.py, benchmark_execution.py, benchmark_market_engine.py. | v3.10.0 | tests/regression/test_release_gates_are_wired.py | implemented (v3.10.0) | FIX |
+| DOC-001 | Current-facing documents state capabilities the code does not have: 'canonical path is linear' (single-asset only), '0 skipped, 0 warnings' (environment-dependent; ResourceWarnings hidden), 'exact at the currency's minor unit', 'no credential handling', 'names no venue', Intent as a target, and list scenario nowhere among standalone engines in nowandfuture s4. | medium | docs | Cross-check against code and probes in this audit. | Correct every statement as the fixes land; each release's documentation checked against the ledger. | v3.10.0 | docs review | implemented (v3.10.0) | FIX |
+| DOC-002 | Several items classed 'optional future evolution' are required for a complete v4 (schema evolution, order types, derivatives accounting, multi-broker reconciliation, rerun harness, v3.9 deferred execution items), and some 'deliberate boundaries' state reasons that do not hold (e.g. Holm's step-down needs no assumption beyond Bonferroni's; Newey-West corrects IC overlap). | medium | docs | This audit's re-classification. | Re-classify per the ledger; at v4 the roadmap lists only boundaries and external dependencies. | v3.10.0 | docs review | implemented (v3.10.0) | FIX |
+| OFE-001 | Optional future evolution: classification dimensions beyond sector; sector-based pre-trade limits | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: arbitrary named classification dimensions (industry, country, issuer, rating) with provenance in the registry; optional classification-bucket pre-trade limits. | v3.12.0 | planned | not_started | IMPLEMENT |
+| OFE-002 | Optional future evolution: richer portfolio construction (estimated shrinkage, EWMA, factor-model covariance, cardinality/lot constraints, costs in objective, CVaR/drawdown objectives, multi-period) | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: Ledoit-Wolf estimated shrinkage and EWMA covariance as recorded derivations; factor-model covariance (B F B' + D); transaction costs (linear) in the objective; lot-size rounding as a post-solve refusal-reporting step. KEEP_BOUNDARY: cardinality (non-convex, needs MIQP), CVaR/drawdown objectives and multi-period construction are out of scope for a certified convex solver and are named as such. | v3.11.0 | planned | not_started | IMPLEMENT |
+| OFE-003 | Optional future evolution: per-strategy capital ceilings on the execution path | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: CapitalBudget.strategy_budgets enforced as ceilings (reservations per strategy) when declared enforceable. | v3.12.0 | planned | not_started | IMPLEMENT |
+| OFE-004 | Optional future evolution: neutralization against several continuous exposures | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: multivariate neutralization by QR with explicit rank/condition refusal (the stated reason for not offering it is a numerical-stability concern, which QR with a refusal answers). | v3.11.0 | planned | not_started | IMPLEMENT |
+| OFE-005 | Optional future evolution: deflated Sharpe ratio; corrections beyond Bonferroni | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: Holm step-down (same assumptions as Bonferroni, uniformly more powerful), Benjamini-Yekutieli FDR (valid under arbitrary dependence), probabilistic and deflated Sharpe ratios (Bailey & Lopez de Prado; skew/kurtosis-adjusted, iid assumption stated). | v3.11.0 | planned | not_started | IMPLEMENT |
+| OFE-006 | Optional future evolution: t-statistic on an information coefficient | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: Newey-West HAC standard error with lag = horizon - 1 (the standard correction for overlapping forward returns), reported with its lag. | v3.11.0 | planned | not_started | IMPLEMENT |
+| OFE-007 | Optional future evolution: half-life fitted to a decay profile | low | roadmap | ROADMAP.md / nowandfuture.md s17. | KEEP_BOUNDARY: a fitted functional form is a model choice; the profile and first-negative horizon stay the measurement. | none | planned | not_started | KEEP_BOUNDARY |
+| OFE-008 | Optional future evolution: a vendor adapter package | low | roadmap | ROADMAP.md / nowandfuture.md s17. | EXTERNAL: vendor adapters belong to the application (iluvtrade). | none | planned | not_started | EXTERNAL |
+| OFE-009 | Optional future evolution: execution-path delivery of external information | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: point-in-time observations delivered to strategies as execution-path events at their knowledge instant (merged with market records by instant, availability rule applied), with snapshot support through PER-001. | v3.12.0 | planned | not_started | IMPLEMENT |
+| OFE-010 | Optional future evolution: statistical regime models (hidden Markov, Markov switching) | low | roadmap | ROADMAP.md / nowandfuture.md s17. | KEEP_BOUNDARY: estimation models with fitting windows are research models outside the engine's declared-rule regime layer; ML package covers supervised estimation. | none | planned | not_started | KEEP_BOUNDARY |
+| OFE-011 | Optional future evolution: streaming observation set; split-adjusted per-share fundamentals; converted-currency figures | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: incremental ObservationSet appends with vintage checks (needed by OFE-009); per-share fundamentals adjusted through the corporate-action authority; currency conversion of fundamentals through FxRates with recorded rates. | v3.12.0 | planned | not_started | IMPLEMENT |
+| OFE-012 | Optional future evolution: consolidating the two identical AssetClass enums in live.provider and marketdata.symbols | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | REMOVE: both packages' provider scaffolding is removed (SCF-002); core.enums.AssetType is the one taxonomy. | v3.10.0 | tests/regression/test_market_model_convergence.py | implemented (v3.10.0) | REMOVE |
+| OFE-013 | Optional future evolution: a start offset on AppendOnlyLog (OptimizerState.pending_trials super-linear) | low | roadmap | ROADMAP.md / nowandfuture.md s17. | REPLACE: optimizer consolidation (SCF-003) removes the super-linear term; no AppendOnlyLog change. | v3.12.0 | planned | not_started | REPLACE |
+| OFE-014 | Optional future evolution: pipeline-driven on_fill / on_order / on_timer | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT (EXE-005). | v3.11.0 | planned | not_started | IMPLEMENT |
+| OFE-015 | Optional future evolution: per-strategy sub-ledgers in PortfolioEngine | low | roadmap | ROADMAP.md / nowandfuture.md s17. | KEEP_BOUNDARY: the contribution ledger and multi-strategy books answer attribution without a second book of record. | none | planned | not_started | KEEP_BOUNDARY |
+| OFE-016 | Optional future evolution: a durable home for a StrategyProgression / fingerprints / manifests / reports | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: a generic content-addressed evidence store over the existing artifact store (values serialized deterministically, addressed by their own identities); LifecycleState unchanged. | v3.12.0 | planned | not_started | IMPLEMENT |
+| OFE-017 | Optional future evolution: health evaluated over a window | low | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: evaluate_health_window over a supplied series of observations with a stated window; pure, no clock. | v3.12.0 | planned | not_started | IMPLEMENT |
+| OFE-018 | Optional future evolution: derived alignment for a comparison | low | roadmap | ROADMAP.md / nowandfuture.md s17. | KEEP_BOUNDARY: fuzzy matching would report a pairing as a measurement. | none | planned | not_started | KEEP_BOUNDARY |
+| OFE-019 | Optional future evolution: a lock-file reader | low | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT: read pip-compile/uv/poetry lock text into a DependencyManifest (EXACT_CLOSURE only when the lock is complete). | v3.13.0 | planned | not_started | IMPLEMENT |
+| OFE-020 | Optional future evolution: a rerun harness | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT (REP-003). | v3.13.0 | planned | not_started | IMPLEMENT |
+| OFE-021 | Optional future evolution: venue sequence number (v3.9) | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT (BRK-002). | v3.11.0 | planned | not_started | IMPLEMENT |
+| OFE-022 | Optional future evolution: persisting child bindings and request ledger (v3.9) | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT (BRK-003). | v3.11.0 | planned | not_started | IMPLEMENT |
+| OFE-023 | Optional future evolution: book-to-mirror reconciliation across brokers (v3.9) | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT (BRK-004). | v3.12.0 | planned | not_started | IMPLEMENT |
+| OFE-024 | Optional future evolution: optimal split (v3.9) | medium | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT (BRK-005). | v3.13.0 | planned | not_started | IMPLEMENT |
+| OFE-025 | Optional future evolution: estimated urgency and randomized iceberg tranches (v3.9) | low | roadmap | ROADMAP.md / nowandfuture.md s17. | IMPLEMENT (BRK-006). | v3.13.0 | planned | not_started | IMPLEMENT |
+| OFE-026 | Optional future evolution: hook timeout, plugin static analysis, independently versioned strategy-api, hot reload, threading model (docs/architecture/strategy) | low | roadmap | ROADMAP.md / nowandfuture.md s17. | KEEP_BOUNDARY: process supervision, hot reload and threading are the host application's; strategy API versioning is covered by the v4 API manifest. | none | planned | not_started | KEEP_BOUNDARY |
+| FEA-001 | Target-position and target-weight intents with a deterministic rebalancer | high | proposal | Gap: Intent is a delta; construction ends at weights ('the caller's decision'). | IntentKind {DELTA, TARGET_QUANTITY, TARGET_WEIGHT}; allocation computes delta = target - position - working, rounds to the instrument's lot (conventions.lot) and min notional, refuses rather than scales. | v3.11.0 | planned | not_started | IMPLEMENT |
+| FEA-002 | Benchmark-relative performance statistics | medium | proposal | Gap: Only portfolio_beta exists (decomposition). | benchmark_statistics(portfolio, benchmark, basis) with None for undefined values. | v3.11.0 | planned | not_started | IMPLEMENT |
+| FEA-003 | Walk-forward optimization harness | medium | proposal | Gap: Splits and sweeps exist separately; nothing composes them with fold-level evidence. | walk_forward_optimize(study, space, objective, splits, seed) returning per-fold selections, OOS metrics and a study result with identity. | v3.11.0 | planned | not_started | IMPLEMENT |
+| FEA-004 | Trade-print ingestion from flat files | medium | proposal | Gap: RecordType has BAR and QUOTE only. | RecordType.TRADE with a required declared schema (price, size, instant, optional trade id/aggressor); the ambiguity is resolved by declaration, never inference. | v3.12.0 | planned | not_started | IMPLEMENT |
+| FEA-005 | Total-variance interpolation across expiries on a volatility surface | low | proposal | Gap: Surface refuses any unquoted expiry. | Named method TOTAL_VARIANCE_LINEAR, refusing calendar-arbitrage inputs (decreasing total variance) and extrapolation. | v3.13.0 | planned | not_started | IMPLEMENT |
+| FEA-006 | Engine-parity certification report for a release | low | proposal | Gap: Evidence scattered across tests. | Generate docs/audit/V4_RELEASE_CERTIFICATION.md evidence from a certification script run in CI. | v4.0.0 | planned | not_started | IMPLEMENT |
+| BDY-001 | Deliberate boundary re-examined: No single runtime spanning all engines | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP: ADR-0009 holds; standalone engines stay standalone where they are coherent. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-002 | Deliberate boundary re-examined: No allocation visibility inside StrategyContext | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-003 | Deliberate boundary re-examined: No depth hook on StrategyProtocol | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP for v4; depth reaches strategies through MarketView history. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-004 | Deliberate boundary re-examined: No per-environment promotion policy | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-005 | Deliberate boundary re-examined: No remediation in health or reconciliation | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP: detection only; remediation is the caller's. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-006 | Deliberate boundary re-examined: No default tolerance anywhere | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-007 | Deliberate boundary re-examined: No migration framework | high | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | CHANGE: replaced by explicit versioned upgrade functions (PER-001). | v3.10.0 | tests/regression/test_schema_upgrades.py | implemented (v3.10.0) | REPLACE |
+| BDY-008 | Deliberate boundary re-examined: No durable state for the v3.5/v3.6 values | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | CHANGE: content-addressed evidence store (OFE-016); LifecycleState unchanged. | v3.12.0 | planned | not_started | REPLACE |
+| BDY-009 | Deliberate boundary re-examined: No SettlementPolicy object; no triangulation/implicit inversion/default rate | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-010 | Deliberate boundary re-examined: No authentication, credential handling, IAM or federation | high | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP and ENFORCE: remove the credential-bearing transport (BRK-007) and enterprise sessions/secrets (BND-002), which contradict it. | v3.11.0 | planned | not_started | KEEP_BOUNDARY |
+| BDY-011 | Deliberate boundary re-examined: No supervised live process; no CLI/server/daemon/event bus | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-012 | Deliberate boundary re-examined: No way to fill a missing price; no repair of an impossible bar | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-013 | Deliberate boundary re-examined: No holiday data, corporate-action feed, exchange registry, tick table, venue list | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP (EXTERNAL data). ISO 4217 minor units are a published standard, not market data, and are shipped as such (ACC-001). | none | planned | not_started | EXTERNAL |
+| BDY-014 | Deliberate boundary re-examined: No curve bootstrapper; no fixed-income engine | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP: fixed income remains a foundation; out of the engine's systematic-trading mission. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-015 | Deliberate boundary re-examined: No volatility-surface fit; no interpolation across expiries | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | PARTIAL CHANGE: parametric fits (SVI/SABR) stay out; named total-variance interpolation added (FEA-005). | v3.13.0 | planned | not_started | KEEP_BOUNDARY |
+| BDY-016 | Deliberate boundary re-examined: No American option pricing | medium | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | CHANGE: implement (NUM-006). | v3.13.0 | planned | not_started | REPLACE |
+| BDY-017 | Deliberate boundary re-examined: No inferred roll rule | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-018 | Deliberate boundary re-examined: No trade or depth ingestion from a flat file | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | PARTIAL CHANGE: declared trade-print ingestion (FEA-004); depth stays out. | v3.12.0 | planned | not_started | KEEP_BOUNDARY |
+| BDY-019 | Deliberate boundary re-examined: No marketplace logic; no overall certification score; no verdict accepted as evidence | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-020 | Deliberate boundary re-examined: No dependency resolver and no environment snapshot | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP; the lock-file reader (OFE-019) reads a declared file and resolves nothing. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-021 | Deliberate boundary re-examined: No adaptation for portability | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-022 | Deliberate boundary re-examined: No default availability; no hindsight vintage policy; no forward fill; no regime taxonomy; no p-value in event studies | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-023 | Deliberate boundary re-examined: No vendor data feed of any kind; no LLM/AI-service/OpenBB/RedDesk integration | high | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP and ENFORCE: remove the vendor market-data stubs that contradict it (BND-001). | v3.10.0 | tests/regression/test_no_vendor_in_the_library.py | implemented (v3.10.0) | KEEP_BOUNDARY |
+| BDY-024 | Deliberate boundary re-examined: No silent scaling of capital; no unconstrained answer behind an infeasible one; no default risk aversion/tau/tolerance/shrinkage | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-025 | Deliberate boundary re-examined: No enforcement in a risk budget; no broker adapter in capital allocation | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| BDY-026 | Deliberate boundary re-examined: No capability discovery; no vendor inside the execution contract; no venue event in the broker log; no retry of a venue refusal; no conversion inside routing; no default urgency/quote age/tolerance; no best-execution claim | low | roadmap | ROADMAP.md 'Deliberate boundaries'; nowandfuture.md s15. | KEEP. | none | planned | not_started | KEEP_BOUNDARY |
+| ALC-005 | enforce_integer_quantities rounded after the long-only check, so a sale of 0.4 became a zero-quantity SELL order that risk then refused by raising. | high | allocation | tests/regression/test_allocation_semantics.py | Round (nearest, ties to even) before the checks; skip zero. | v3.10.0 | tests/regression/test_allocation_semantics.py | implemented (v3.10.0) | FIX |
+| ACC-012 | A zero or negative deposit or withdrawal was booked (a negative deposit is a withdrawal booked as a deposit), and one that rounds to nothing at the currency's minor unit was accepted. | medium | portfolio | tests/regression/test_v310_found_defects.py | Refuse any movement that is not a finite positive amount at the minor unit. | v3.10.0 | tests/regression/test_v310_found_defects.py | implemented (v3.10.0) | FIX |
+| ACC-013 | A fill settling in one currency was booked into an open position held in another, mixing two currencies in one basis. | high | portfolio | tests/regression/test_v310_found_defects.py | Refuse a fill whose currency differs from its open position's. | v3.10.0 | tests/regression/test_v310_found_defects.py | implemented (v3.10.0) | FIX |
+| ACC-014 | A sale's price was floored at 0.01: a sub-penny instrument was sold at a cent the market never showed, and a concession exceeding the price produced a one-cent fill instead of a refusal. | high | execution | tests/regression/test_v310_found_defects.py | No floor; refuse a concession that takes a sale to zero or below. | v3.10.0 | tests/regression/test_v310_found_defects.py | implemented (v3.10.0) | FIX |
+| NUM-009 | Near the float limit the statistics authority either raised a bare OverflowError (variance, regression) or returned infinity for a finite answer (the mean, median and a percentile of values near 1e308). | low | common | tests/regression/test_v310_found_defects.py | Overflow-safe mean/median/percentile; a named refusal when the answer itself is out of range. | v3.10.0 | tests/regression/test_v310_found_defects.py | implemented (v3.10.0) | FIX |
+| NUM-010 | Exact quotients (average cost, VWAP, an inverse rate) were written with positive exponents, e.g. 1E+2. | low | portfolio/oms/broker | golden example comparison | Positional notation for exact quotients. | v3.10.0 | tests/unit/portfolio/test_monetary_precision.py | implemented (v3.10.0) | FIX |
+| NUM-011 | The correlation of series near 1e-160 was wrong in the fourth digit (0.71809 for 0.71818): their squared deviations are subnormal. | low | common | tests/regression/test_numeric_refusals.py | Correlate at the series' own scale when a spread is below sqrt(float_info.min). | v3.10.0 | tests/regression/test_numeric_refusals.py | implemented (v3.10.0) | FIX |
+| PER-005 | The strategy-record decoder compared a payload's version with the current schema rather than with the version that introduced 'state', so any schema bump would refuse every earlier payload that carried state. | low | runtime | code review while implementing PER-001 | Compare with the introducing version. | v3.10.0 | covered by the upgrade path; no separate pin (unreachable) | implemented (v3.10.0) | FIX |
+| BND-004 | to_exchange_symbol / parse_exchange_symbol knew Binance, Coinbase and Kraken by name (Kraken's XBT alias): vendor quirks, and a second answer to which instrument a provider symbol denotes beside the instrument registry's aliases. | medium | crypto | tests/regression/test_no_vendor_in_the_library.py | Remove; a venue's spelling is declared as an instrument alias by the host. | v3.10.0 | tests/unit/crypto/test_crypto.py; tests/regression/test_no_vendor_in_the_library.py | implemented (v3.10.0) | REMOVE |
+| RES-001 | The v1 research engine (ResearchEngine.run_full_research) assumes a daily return series (calculate_sharpe annualizes with a hard-coded 252) and scores with uncalibrated constants (capacity decay 0.01/0.05/0.15 per 10,000 trades, bias thresholds, an overall score), duplicating the v3.2 validation authority. | medium | research | found by the v3.10 defaults sweep; code review | Consolidate into the one research authority with SCF-003: remove the heuristic scores or restate them over the v3.2 methodology; no default annualization. | v3.12.0 | planned | not_started | REPLACE |
+| DET-005 | A v3.10 regression, caught before release: once CurrencyAmounts stopped rounding every amount to a cent (and prices and quantities stopped being quantized), the multi-strategy book and valuation identities -- which hashed each Decimal's text -- gave two books that compare equal ('250000' vs '250000.00' of unassigned capital; a position of 100 at 10 vs 100.0 at 10.00) two identities. v3.9 gave them one. | medium | portfolio | golden example comparison (example 58); probe; tests/regression/test_identity_is_by_value.py fails with the pre-fix rendering | Render every amount in an identity by value. | v3.10.0 | tests/regression/test_identity_is_by_value.py | implemented (v3.10.0) | FIX |
+| DET-006 | Most content identities render a caller-declared Decimal with str() or repr(), so one declaration written '0.5' and '0.50' (a weight, a limit, a rate) gets two identities. Deterministic for identical inputs and unchanged since v3.9 -- these values were never rounded -- but not identity by value. | low | cross-cutting | review of every digest renderer while fixing DET-005 | Render every Decimal in every content identity with canonical_text, bumping each scheme once, in one release. | v3.11.0 | planned | not_started | FIX |
+| API-006 | A v3.10 regression, caught before release: once RiskViolation.severity became a RiskSeverity member, a health finding's detail (Mapping[str, str]) carried the enum member rather than its string, so the 'machine-readable' detail printed as <RiskSeverity.CRITICAL: 'CRITICAL'>. | low | lifecycle | golden example comparison (example 43); tests/unit/lifecycle/test_health.py | Carry the string value. | v3.10.0 | tests/unit/lifecycle/test_health.py::TestRiskBreach::test_a_violation_is_carried_rather_than_re_decided | implemented (v3.10.0) | FIX |
+| PRF-006 | v3.10 raised the per-operation constant: run side by side on one machine, v3.9.0 -> v3.10.0 benchmark wall time is 2.2x for the OMS (12.0 -> 26.4 s; accept-and-fill 21.6k -> 6.1k/s at 40k orders), 1.95x for the portfolio engine (3.7 -> 7.2 s; 28.2k -> 14.2k fills/s), 1.37x for a one-asset backtest (7.8 -> 10.7 s) and 1.36x for the execution pipeline (3.9 -> 5.3 s). By profile and by elimination: PositionBook upkeep on every fill (PRF-001's exact totals), PersistentMap compaction bookkeeping and rebase copies (PRF-002; in isolation, inserting is 1.7x, draining 3.75x and overwriting 3.2x slower, reading unchanged), the OMS per-asset working index (PRF-001), and the pinned context and per-currency unit lookups on every fill. | medium | portfolio/oms/common | side-by-side benchmark runs and cProfile of apply_fill and the OMS accept-and-fill stage, v3.9.0 vs v3.10.0, in the v3.10 release gates | An optimization pass with a v3.9-relative budget on one-asset paths: a cheaper rebase copy (a newest-view fast path measured 15-20% on draining), no default set built per OMS update and no write for an unchanged index (about 8% on accept-and-fill), and PositionBook totals updated without re-deriving both entries per fill. | v3.11.0 | planned | not_started | FIX |
+| TST-008 | Four v3.10 fixes (NUM-001, NUM-002, NUM-008, PER-002) had landed in the working tree without tests, and a full `mypy .` had not been run after two sessions' test additions (34 strict errors). | medium | tests | evidence assembly for the v3.10 CHANGELOG; mypy run | Every ledger item's evidence names its test; the release gate runs mypy over the whole tree. | v3.10.0 | tests/regression/test_numeric_refusals.py | implemented (v3.10.0) | FIX |

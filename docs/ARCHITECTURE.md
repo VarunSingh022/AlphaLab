@@ -4,13 +4,13 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.9)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.10)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
-> v3.9.0 both halves name only packages that exist; where the target half shows a
+> v3.10.0 both halves name only packages that exist; where the target half shows a
 > capability AlphaLab does not implement, it says so.
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.9)
+# Implementation Status (v3.10)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -115,8 +115,17 @@ algorithms, route selection and execution quality in `alphalab.execution`;
 child-order routing for a parent in `alphalab.runtime`; and the capability
 projection, child reconciliation and execution identities in
 `alphalab.lifecycle` — and adds no package, no package edge, no durable state and
-no snapshot schema, and moves no ownership boundary (ADR-0044).** **v3.0.0 adds no
-capability**: it freezes the architecture described here and makes the
+no snapshot schema, and moves no ownership boundary (ADR-0044).** **v3.10.0 is the
+first pre-v4 release and a correctness release**: risk judged on the projected
+book (`alphalab.risk.projection`); money exact at each currency's minor unit
+(`alphalab.common.currency_units`, `alphalab.common.arithmetic`); analytics per
+instant with declared or observed annualization; next-event fills and recorded
+execution assumptions; incremental marking over exact per-currency totals
+(`alphalab.portfolio.book`); bars stamped at the end of their interval;
+versioned schema upgrades (`alphalab.persistence.upgrade`); and the removal of
+`alphalab.feed`, `alphalab.live`, the vendor market-data clients and the last
+`"USD"` configuration defaults. It removes two packages, adds none and no package
+edge (ADR-0045). **v3.0.0 adds no capability**: it freezes the architecture described here and makes the
 documentation match it.
 
 ## AlphaLab is a library
@@ -240,12 +249,14 @@ the ones that did not.
 | --- | --- | --- | --- |
 | **Canonical domain** | `alphalab.market` | `Decimal`, `asset_id`, venue / currency / timeframe / sequence | AlphaLab, after normalization |
 | **Wire record** | `alphalab.data.feed` | `float`, provider `symbol` | a provider, knowing nothing about AlphaLab |
-| **Provider message** | `alphalab.live.message` | wire shape plus a `provider_id` tag | a provider, for a layer that routes by provider |
 
 `alphalab.marketdata.feed` re-exports the wire records; before v2.3 it defined
 field-for-field identical copies of all five, and `alphalab.live.message`
-defined a third identical `OrderBookLevel`. Those are now the same class
-objects, not merely equal shapes.
+defined a third identical `OrderBookLevel`. Those became the same class
+objects in v2.3, and v3.10 removed `alphalab.live` — a third surface, provider
+messages with a `provider_id` tag, that nothing consumed — together with
+`alphalab.feed`, whose dict normalizer was a second normalization authority
+with a hard-coded `"USD"` (ADR-0045).
 
 `data.Bar` and `market.Bar` both remain, deliberately. They sit on opposite
 sides of a conversion: one is what a provider can send, the other is what the
@@ -303,8 +314,10 @@ There is no third, and there is no `None`.
 `UnresolvedIdentity` is **not a production execution configuration**: the values
 it produces are provider symbols, which `core.Fill` and `core.Trade` refuse.
 `ProviderHistorySource.of` rejects it before calling the provider, so a
-misconfigured source costs no request. `DEFAULT_POLICY` uses this mode and is
-therefore a testing default, not a production one.
+misconfigured source costs no request. No policy is defaulted (v3.10): every
+`normalize_wire_*` function takes one, and a policy names the currency a quote
+or trade is refused without, the timeframe a bar is refused without, and the
+`BarStamp` saying which end of its interval a bar's timestamp names.
 
 `core.Fill` / `core.Trade` UUID validation is **unchanged**. ADR-0016 supplies a
 producer that can satisfy the existing invariant; it does not relax it.
@@ -419,7 +432,7 @@ schema is unchanged.
 | **A `BrokerProtocol` adapter over it** | **Implemented (v2.15).** `alphalab.broker.venue.RestVenueBroker` — submit, acknowledge, reject, cancel, replace, poll fills, reconcile, recover |
 | **A streaming market-data source** | **Implemented (v2.15).** `alphalab.market.stream.StreamingSource` over `alphalab.marketdata.websocket`, an RFC 6455 client |
 | Verification against a commercial venue | **Not done, and cannot be here.** This environment has no network egress and holds no vendor credentials |
-| Vendor market-data clients | **One real, four not.** `alphalab.marketdata.binance` is a real REST client over the shared HTTP transport, parsing `/api/v3/klines`, `/bookTicker`, `/trades` and `/depth` — real since v1.39.0 and **unverified from this environment**, which is not the same as a stub. `databento`, `nse`, `polygon` and `yahoo` raise `NotImplementedError` rather than returning fabricated data |
+| Vendor market-data clients | **None, since v3.10.** Until then `alphalab.marketdata.binance` was a REST client and `databento`, `nse`, `polygon` and `yahoo` raised `NotImplementedError`; all five were removed with the v1 provider engine (ADR-0045). A provider is the host application's: it implements `alphalab.market.provider.BarHistoryProvider.request_history` and returns wire bars |
 | Vendor *broker* adapters | **None.** The canned-response Alpaca / IB / Zerodha clients lived in `alphalab.integrations` and were removed in v2.17 (ADR-0034). Implementing one means implementing that venue's request shapes over `HttpVenueTransport` |
 | **A live driver** | **Implemented (v2.16).** `alphalab.runtime.live.LiveSession` — settle the fills the venue reported, advance the run, route what is newly working — with the venue binding made durable by `alphalab.broker.snapshot`. See ADR-0033 |
 | A supervised live *process* | **Not implemented.** Supervision — restart policy, alerting, scheduling — is an operator's concern and AlphaLab has no opinion about it. `live_health` answers "should a human look at this?"; acting on the answer is the caller's |
@@ -596,11 +609,11 @@ owning module, its own schema constant and its own typed decoder:
 | State | Snapshot owner | Schema | Since |
 | --- | --- | --- | --- |
 | `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA = 1` | v2.2, versioned v2.9 |
-| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA = 3` | v2.5 |
+| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA = 4` | v2.5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA = 2` | v2.5 |
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA = 1` | v2.9 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 3` | v2.9 |
-| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 1` | v2.14 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 4` | v2.9 |
+| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 2` | v2.14 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 1` | v2.15 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 1` | v2.16 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA = 1` | v2.16 |
@@ -612,6 +625,13 @@ was never a serialization problem but an ownership one, and ADR-0023 answered it
 a snapshot records *what the object was*, by type, and a restore requires the
 caller to supply it back, raising rather than substituting. `RunObjects` and
 `RuntimeObjects` are that hand-back.
+
+**Older payloads are upgraded (v3.10).** Each owner declares a
+`persistence.upgrade.SchemaHistory` of explicit, pure steps that run on
+primitives before typed decoding; a step supplies only what an older payload
+already meant, refuses (`SchemaUpgradeRefused`) when no honest value exists and
+warns (`SchemaUpgradeWarning`) when a recorded fact cannot be carried. Payloads
+written by v3.9.0 are kept as golden fixtures. See ADR-0045.
 
 A payload is stored by `alphalab.persistence.RunStateStore` over
 `(run_id, sequence)` — payload-agnostic, one real file backend with atomic writes
@@ -655,7 +675,7 @@ type that was captured. Never a substituted `None`.
 ## The live data path (v2.5)
 
 ```
-provider adapter        marketdata.binance.binanceAdapter  (real /api/v3 parsing)
+provider                any BarHistoryProvider             (the host application's)
   -> wire bars          marketdata.feed.Bar                (float, provider symbol)
   -> normalization      market.normalization               (Decimal, asset_id)
   -> MarketRecord       market.record
@@ -878,7 +898,7 @@ correctly and fixed a subset of it. See ADR-0032.
 
 **Market events reach a hook by exact identity.** `alphalab.strategy.dispatcher`
 selected four of its seven hooks by comparing `type(event).__name__` against a
-string. Three packages here define a `TickReceived`, a `QuoteReceived` or a
+string. Three packages here then defined a `TickReceived`, a `QuoteReceived` or a
 `TradeReceived`, so `alphalab.live.events.TickReceived` — a different class with
 `provider_id` / `symbol` / `tick_type` instead of a `tick` — was routed to
 `on_tick`, and the `AttributeError` the strategy then raised was reported as a
@@ -924,10 +944,9 @@ An independent, deterministic, individually tested library that is reached by
 `feature_store`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
 `cloud_research`, `cluster_scheduler`, `distributed`, `workbench`,
-`research_assistant`, `live`, `feed`, `brokers`, `plugins`, `scheduler`,
-`scenario`.
+`research_assistant`, `brokers`, `plugins`, `scheduler`, `scenario`.
 (`production`, `integrations` and `kernel` were on this list until v2.17, which
-removed them — see ADR-0034.)
+removed them — see ADR-0034; `live` and `feed` until v3.10 — see ADR-0045.)
 
 **`conventions` (v3.4) is on neither path and is not a standalone engine
 either.** It is a leaf *library* imported by other packages rather than one
@@ -1146,20 +1165,23 @@ ended). Releasing an order that holds no live reservation raises
 `AllocationEngine.release_reservation(state, order_id, timestamp)` is a breaking
 signature change: it previously took the amount to release.
 
-## Monetary precision (v2.1)
+## Monetary precision (v2.1, restated in v3.10)
 
 `alphalab.portfolio.money` holds the portfolio's one and only rounding policy:
 
-1. **Money is exact at the currency minor unit.** Every monetary amount stored
+1. **Money is exact at its currency's minor unit.** Every monetary amount stored
    in `PortfolioState` -- cash, cost basis, realized P&L, commissions, market
-   value -- is an exact multiple of `0.01`. `to_money` is the only place
-   rounding happens.
+   value -- is an exact multiple of its currency's minor unit: ISO 4217's
+   (`common.currency_units`) or the one its account declares, a currency with
+   neither being refused. `to_money(amount, currency)` is the only place
+   rounding happens, half to even, in `ACCOUNTING_CONTEXT`. Until v3.10 every
+   currency was rounded to `0.01`.
 2. **Rounding happens once, at entry.** `PortfolioEngine.apply_fill` rounds the
    fill's notional and commission as they enter; the cash movement *and* the
    position's cost basis are then derived from those same rounded values.
-3. **Prices and quantities are inputs, not money.** They keep their own finer
-   precision (`PRICE_QUANT` 1e-4, `SHARE_QUANT` 1e-6) and become money only when
-   multiplied into an amount.
+3. **Prices and quantities are exact inputs, not money.** They are kept as
+   given and become money only when multiplied into an amount. Until v3.10 they
+   were quantized first (`PRICE_QUANT` 1e-4, `SHARE_QUANT` 1e-6).
 
 `Position.cost_basis` is the authoritative money figure -- the exact cash paid
 (long) or received (short) for the open quantity. Realized P&L is the difference
@@ -2105,18 +2127,16 @@ alphalab/marketdata
 
 ### Responsibility
 
-Fetches market data from supported providers.
+The transports a provider uses — request/response HTTP and an RFC 6455
+WebSocket client — the wire records a provider produces, and the `Timeframe` a
+provider is asked for.
 
-Examples include:
-
-- Yahoo Finance
-- Polygon
-- Databento
-- Binance
-- NSE
-
-Raw provider data is forwarded to the Universal Data Engine for ingestion,
-validation and canonicalization.
+AlphaLab fetches from no vendor. Reaching Yahoo Finance, Polygon, Databento,
+Binance, NSE or any other source is the host application's work; it hands
+AlphaLab wire records (through `alphalab.market.provider.BarHistoryProvider`)
+or rows (through the Universal Data Engine) for normalization, validation and
+canonicalization. Until v3.10 this package also held vendor clients, four of
+them `NotImplementedError` stubs; they were removed (ADR-0045).
 
 ---
 
@@ -2220,7 +2240,7 @@ Domain Engines
 Infrastructure
       │
       ▼
-Adapters (alphalab.broker, alphalab.brokers, alphalab.marketdata, alphalab.live)
+Adapters (alphalab.broker, alphalab.brokers, alphalab.marketdata transports)
 ```
 
 Dependencies in the opposite direction are prohibited.
@@ -2311,7 +2331,7 @@ Must never depend on:
 
 ---
 
-## Adapters (`broker`, `brokers`, `marketdata`, `live`, `feed`)
+## Adapters (`broker`, `brokers`, `marketdata`)
 
 May depend only on:
 
@@ -2466,20 +2486,15 @@ Each stage has a single responsibility and never bypasses another stage.
 
 The lifecycle begins by acquiring market data.
 
-Supported sources include
+AlphaLab itself reads delimited text (CSV and its dialects) and rows already in
+memory. Everything else — a vendor API such as Yahoo Finance, Polygon,
+Databento, Binance or NSE, a Parquet file, a broker export — reaches it through
+the host application, as rows or as wire records; AlphaLab ships no vendor
+client and no file reader beyond delimited text.
 
-- CSV
-- JSON
-- Parquet
-- Yahoo Finance
-- Polygon
-- Databento
-- Binance
-- NSE
-- Broker exports
-- Future providers
-
-These providers expose different schemas, timestamps, symbols, and conventions.
+These sources expose different schemas, timestamps, symbols, and conventions —
+including which end of its interval a bar is stamped at, which each must
+declare (`BarStamp`, v3.10).
 
 Provider-specific formats never propagate beyond this stage.
 
@@ -4293,25 +4308,15 @@ Adapters isolate provider-specific logic.
 
 # Current Adapter Types
 
-Examples include
-
-```
-Paper Trading
-
-Yahoo Finance
-
-Polygon
-
-Databento
-
-Binance
-
-Interactive Brokers
-
-Alpaca
-
-Zerodha
-```
+AlphaLab ships two: `PaperBroker`, a simulated venue and the reference
+implementation of `BrokerProtocol`, and `RestVenueBroker`, a generic adapter
+over AlphaLab's own HMAC-signed REST protocol (`HttpVenueTransport`) that names
+no vendor — it holds a venue credential, and leaves the library in v3.11
+(BRK-007). Every other adapter — a market-data vendor
+(Yahoo Finance, Polygon, Databento, Binance) or a broker (Interactive Brokers,
+Alpaca, Zerodha) — is the host application's, and implements the same
+contracts: `BarHistoryProvider` for history, `BrokerProtocol` and the v3.9
+execution contract for a venue.
 
 Each adapter converts provider-specific behavior into deterministic AlphaLab operations.
 
@@ -5466,6 +5471,7 @@ These principles are considered architectural contracts rather than implementati
 | v3.7.0 | Point-in-time research: events, alternative data, fundamentals, knowledge frames, event studies, regimes, adaptive strategies (ADR-0042) |
 | v3.8.0 | Advanced portfolio and risk: the risk model, constrained construction, Black–Litterman, risk budgets, multi-strategy books, cross-strategy risk, capital allocation (ADR-0043) |
 | v3.9.0 | The universal execution contract: capabilities, the normalized lifecycle, execution algorithms, smart routing, execution analytics, snapshot reconciliation (ADR-0044) |
+| v3.10.0 | The first pre-v4 release: risk on the projected book, per-currency minor units and exact prices, analytics per instant, next-event fills, linear marking, bars stamped at their close, upgradeable snapshots, vendor code and silent defaults removed (ADR-0045) |
 
 ---
 
@@ -5485,7 +5491,7 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v3.9.0
+Version: v3.10.0
 Status: Implementation Status (v3.9) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.

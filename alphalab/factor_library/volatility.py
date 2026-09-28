@@ -12,9 +12,13 @@ def compute_volatility(
     version: int,
     lookback_periods: int,
     timestamp: float,
-    periods_per_year: int = 252,
+    periods_per_year: int,
 ) -> FactorResult:
     """Computes annualized volatility of simple returns over the lookback window.
+
+    ``periods_per_year`` is how many bars make a year -- 252 for trading days,
+    about 98,280 for the minutes of a US equity session. Required since v3.10:
+    it defaulted to 252 whatever the bars were (ledger API-003).
 
     Reuses `alphalab.analytics.returns.annualized_volatility` on returns derived from
     consecutive bar closes, rather than recomputing variance independently.
@@ -40,6 +44,8 @@ def compute_volatility(
         for i in range(1, len(window))
     )
     vol = annualized_volatility(returns, periods_per_year)
+    # At least two returns, by the lookback check above, so it is defined.
+    assert vol is not None
 
     return FactorResult(
         feature_id=feature_id,

@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from alphalab.common.ids import new_id
+from alphalab.core.enums import Side
 from alphalab.execution.commission import CommissionModel, FixedCommission
 from alphalab.execution.costs import (
     CostContext,
@@ -38,6 +39,7 @@ from alphalab.execution.costs import (
     ExecutionCosts,
     NoFee,
     NoImpact,
+    NoSlippage,
     NoSpread,
     NoTax,
 )
@@ -71,6 +73,20 @@ class ExecutionSimulator:
     slippage_model: SlippageModel = DEFAULT_SLIPPAGE
     latency_model: LatencyModel = DEFAULT_LATENCY
     cost_model: ExecutionCostModel | None = field(default=None)
+
+    @property
+    def is_frictionless(self) -> bool:
+        """Whether every cost role charges nothing by construction.
+
+        True for :data:`~alphalab.execution.costs.FREE` and for the default
+        simulator, whose two legacy roles are fixed charges of zero -- a run
+        that states no costs pays none (ledger EXE-002). It says which
+        configuration was chosen, not what a fill happened to be charged: a
+        percentage model at a zero rate charges nothing too, and is reported as
+        the model it is.
+        """
+
+        return all(_charges_nothing(role) for role in astuple_shallow(self.costs))
 
     @property
     def costs(self) -> ExecutionCostModel:
@@ -120,6 +136,7 @@ class ExecutionSimulator:
             bid=bid,
             ask=ask,
             available_liquidity=available_liquidity,
+            minor_units=instruction.minor_units,
         )
 
     def simulate_costs(
@@ -198,3 +215,32 @@ class ExecutionSimulator:
             currency=instruction.currency,
             status=status,
         )
+
+
+def astuple_shallow(costs: ExecutionCostModel) -> tuple[object, ...]:
+    """The six roles of a cost model, in declaration order."""
+
+    return (
+        costs.spread_model,
+        costs.slippage_model,
+        costs.impact_model,
+        costs.commission_model,
+        costs.fee_model,
+        costs.tax_model,
+    )
+
+
+def _charges_nothing(role: object) -> bool:
+    """Whether a cost role is a no-cost member, or a fixed charge of zero."""
+
+    if isinstance(role, NoSpread | NoSlippage | NoImpact | NoFee | NoTax):
+        return True
+    # A fixed charge is asked for what it charges: one unit at a price of one.
+    if isinstance(role, FixedCommission):
+        return role.calculate(_ONE, _ONE) == 0
+    if isinstance(role, FixedSlippage):
+        return role.calculate(_ONE, _ONE, Side.BUY) == 0
+    return False
+
+
+_ONE = Decimal(1)

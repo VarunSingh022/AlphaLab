@@ -64,6 +64,7 @@ from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
     FillEvent,
     Intent,
+    IntentKind,
     LifecycleTransitioned,
     OrderEvent,
     StrategyRuntimeEvent,
@@ -122,6 +123,7 @@ __all__ = [
     "HistoryAccessorProtocol",
     "HookExecutionError",
     "Intent",
+    "IntentKind",
     "InvalidIntentError",
     "InvalidTransitionError",
     "LifecycleState",

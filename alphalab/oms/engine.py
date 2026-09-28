@@ -6,6 +6,7 @@ from dataclasses import replace
 from decimal import Decimal
 
 from alphalab.common.ids import new_id
+from alphalab.common.persistent_map import PersistentSet
 from alphalab.oms.events import (
     OMSEvent,
     OrderAccepted,
@@ -68,17 +69,25 @@ class OMSEngine:
     ) -> OMSState:
         """Update active/completed order sets."""
 
+        working = state.working_by_asset.get(order.asset_id, PersistentSet())
         if order.is_open:
             active = state.active_orders.add(order.order_id)
             completed = state.completed_orders.discard(order.order_id)
+            working = working.add(order.order_id)
         else:
             active = state.active_orders.discard(order.order_id)
             completed = state.completed_orders.add(order.order_id)
+            working = working.discard(order.order_id)
 
         return replace(
             state,
             active_orders=active,
             completed_orders=completed,
+            working_by_asset=(
+                state.working_by_asset.set(order.asset_id, working)
+                if working
+                else state.working_by_asset.delete(order.asset_id)
+            ),
         )
 
     @staticmethod

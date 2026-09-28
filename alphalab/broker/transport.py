@@ -341,7 +341,9 @@ class HttpVenueTransport:
         encoded = urlencode(dict(query)) if query else ""
         signed_path = f"{path}?{encoded}" if encoded else path
         payload = (
-            json.dumps(dict(body), separators=(",", ":"), sort_keys=True).encode(DEFAULT_ENCODING)
+            json.dumps(dict(body), separators=(",", ":"), sort_keys=True, allow_nan=False).encode(
+                DEFAULT_ENCODING
+            )
             if body is not None
             else b""
         )

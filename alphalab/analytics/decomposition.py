@@ -186,7 +186,9 @@ class VaRPolicy:
         if self.method is VaRMethod.HISTORICAL:
             # The repository's existing historical VaR, unchanged. Negated once,
             # here, to this module's loss-magnitude convention.
-            return -value_at_risk(sample, self.confidence)
+            historical = value_at_risk(sample, self.confidence)
+            assert historical is not None  # _require_sample admits no empty sample
+            return -historical
 
         deviation = math.sqrt(sample_variance(sample))
         average = sum(sample) / len(sample)
@@ -220,7 +222,9 @@ class VaRPolicy:
         self._require_sample(sample)
 
         if self.method is VaRMethod.HISTORICAL:
-            return -conditional_var(sample, self.confidence)
+            shortfall = conditional_var(sample, self.confidence)
+            assert shortfall is not None  # _require_sample admits no empty sample
+            return -shortfall
 
         threshold = -self.var(sample)
         tail = [value for value in sample if value <= threshold]

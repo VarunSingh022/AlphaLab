@@ -43,6 +43,7 @@ any more. ``EventDispatcher``, ``RuntimeEngine``, ``RuntimeSupervisor``,
 package; the canonical names beside them are unchanged.
 """
 
+from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.broker_routing import (
     ChildOrderBindings,
     ChildRoutingResult,
@@ -56,7 +57,10 @@ from alphalab.runtime.broker_routing import (
     route_child_order,
     route_order,
 )
-from alphalab.runtime.exceptions import AlphaLabRuntimeError, RuntimeValidationError
+from alphalab.runtime.exceptions import (
+    AlphaLabRuntimeError,
+    RuntimeValidationError,
+)
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipeline,
     ExecutionPipelineConfig,
@@ -82,6 +86,8 @@ from alphalab.runtime.run import (
     RunState,
     RunStep,
     SkippedRecord,
+    StrategyFailedError,
+    StrategyFailure,
 )
 from alphalab.runtime.session import TradingSession
 
@@ -89,6 +95,7 @@ __all__ = [
     "AlphaLabRuntimeError",
     "ChildOrderBindings",
     "ChildRoutingResult",
+    "ExecutionAssumptions",
     "ExecutionMode",
     "ExecutionPipeline",
     "ExecutionPipelineConfig",
@@ -111,11 +118,14 @@ __all__ = [
     "SettledExecution",
     "SettlementRefusal",
     "SkippedRecord",
+    "StrategyFailedError",
+    "StrategyFailure",
     "TradingSession",
     "UnpricedAsset",
     "UnpricedReason",
     "apply_broker_execution",
     "child_broker_order_id",
+    "execution_assumptions",
     "execution_report_from_broker",
     "live_health",
     "route_child_order",

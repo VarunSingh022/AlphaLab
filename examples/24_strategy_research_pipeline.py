@@ -90,7 +90,13 @@ SUBJECT = "strategy://research-panel-momentum@1"
 FEATURES = (
     FeatureDefinition("mom_20", FeatureKind.MOMENTUM, FeatureField.CLOSE, window=20),
     FeatureDefinition("rev_10", FeatureKind.MEAN_REVERSION, FeatureField.CLOSE, window=10),
-    FeatureDefinition("vol_20", FeatureKind.REALIZED_VOLATILITY, FeatureField.CLOSE, window=20),
+    FeatureDefinition(
+        "vol_20",
+        FeatureKind.REALIZED_VOLATILITY,
+        FeatureField.CLOSE,
+        window=20,
+        parameters={"periods_per_year": 252.0},
+    ),
 )
 
 

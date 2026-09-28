@@ -49,6 +49,7 @@ from alphalab.data import (
     raw_source_from_bytes,
 )
 from alphalab.data.assets import EquitySpec, FutureSpec, OptionSpec
+from alphalab.data.time import BarStamp
 from alphalab.futures import futures_symbol
 from alphalab.market.bar import TimeFrame
 from alphalab.market.normalization import NormalizationPolicy
@@ -64,7 +65,9 @@ POLICY = CleaningPolicy(
     missing_values=MissingValuePolicy.DROP_ROW,
 )
 
-NORMALIZATION = NormalizationPolicy(venue="XNYS", currency="USD", timeframe=TimeFrame.D1)
+NORMALIZATION = NormalizationPolicy(
+    bar_stamp=BarStamp.INTERVAL_END, venue="XNYS", currency="USD", timeframe=TimeFrame.D1
+)
 
 
 def _request(name: str = "SAMPLE", **overrides: object) -> IngestionRequest:
@@ -77,6 +80,7 @@ def _request(name: str = "SAMPLE", **overrides: object) -> IngestionRequest:
         "asset_class": DataAssetClass.EQUITY,
         "cleaning_policy": POLICY,
         "price_basis": PriceBasis.RAW,
+        "bar_stamp": BarStamp.INTERVAL_END,
     }
     fields.update(overrides)
     return IngestionRequest(**fields)  # type: ignore[arg-type]

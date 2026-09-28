@@ -1,0 +1,46 @@
+name: Benchmarks
+
+# Every benchmark, run in full, weekly and on demand (ledger TST-003). Too slow
+# for every push -- about nine minutes -- and a benchmark that is never run is
+# how `benchmarks_market_engine.py` went unnoticed as unable to run at all.
+# A benchmark that raises, or warns, fails the job; timings are printed, not
+# gated, because shared runners are too noisy to gate on. The complexity guards
+# in tests/regression gate scaling on every push instead.
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmarks:
+    name: Benchmarks (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install the package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Run every benchmark
+        run: |
+          set -euo pipefail
+          for benchmark in benchmarks/benchmark_*.py; do
+            echo "::group::${benchmark}"
+            timeout 900 python -W error "${benchmark}"
+            echo "::endgroup::"
+          done

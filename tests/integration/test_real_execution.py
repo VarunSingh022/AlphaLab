@@ -45,6 +45,7 @@ from alphalab.broker.venue import RestVenueBroker, VenueConfig
 from alphalab.core.enums import OrderStatus, OrderType, Side
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.runtime.broker_routing import (
+    RoutingConfig,
     RoutingRefusal,
     apply_broker_execution,
     broker_order_id_for,
@@ -61,6 +62,10 @@ from tests.integration.harness import (
 )
 from tests.integration.venue_server import VenueScript, fill, record_fill, run_venue
 
+#: Where these tests route, and what a venue fill is denominated in. Named: a
+#: routing configuration has no default venue or currency (ledger API-003).
+ROUTING = RoutingConfig(venue="VENUE", currency="USD")
+
 _KEY = "TESTKEY-0001"
 _SECRET = "test-signing-secret-not-a-real-credential"
 _SYMBOL = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
@@ -73,7 +78,7 @@ def _credentials() -> VenueCredentials:
 def _broker(base_url: str, **config: object) -> RestVenueBroker:
     return RestVenueBroker(
         HttpVenueTransport(base_url, _credentials(), timeout_seconds=5.0),
-        VenueConfig(**config),  # type: ignore[arg-type]
+        VenueConfig(**{"currency": "USD", **config}),  # type: ignore[arg-type]
     )
 
 
@@ -244,7 +249,7 @@ def test_retries_are_bounded_and_the_failure_surfaces() -> None:
 
 def test_max_attempts_below_one_is_refused() -> None:
     with pytest.raises(Exception, match="max_attempts must be at least 1"):
-        VenueConfig(max_attempts=0)
+        VenueConfig(currency="USD", max_attempts=0)
 
 
 # ---------------------------------------------------------------------------
@@ -568,7 +573,7 @@ def test_routing_refuses_to_send_on_a_connection_that_is_not_connected() -> None
         assert down.connection_status is ConnectionStatus.RECONNECTING
 
         before = len(book.requests)
-        result = route_order(down, broker, _oms_order(), 2.0)
+        result = route_order(down, broker, _oms_order(), 2.0, config=ROUTING)
 
     assert not result.decision.routed
     assert result.decision.refusal is RoutingRefusal.DISCONNECTED
@@ -632,7 +637,7 @@ def test_an_order_from_the_real_path_routes_to_the_real_venue() -> None:
     with run_venue(_credentials()) as (url, book, _):
         broker = _broker(url)
         state, _ = broker.connect(_state(ConnectionStatus.DISCONNECTED), 1.0)
-        result = route_order(state, broker, order, 3.0, ExternalOrderMap())
+        result = route_order(state, broker, order, 3.0, ExternalOrderMap(), config=ROUTING)
 
     assert result.decision.routed
     client_id = broker_order_id_for(order)
@@ -660,7 +665,7 @@ def test_a_venue_fill_reaches_the_portfolio_through_the_canonical_path() -> None
     with run_venue(_credentials()) as (url, book, _):
         broker = _broker(url)
         broker_state, _ = broker.connect(_state(ConnectionStatus.DISCONNECTED), 1.0)
-        routed = route_order(broker_state, broker, order, 3.0, ExternalOrderMap())
+        routed = route_order(broker_state, broker, order, 3.0, ExternalOrderMap(), config=ROUTING)
         assert routed.decision.routed
 
         client_id = broker_order_id_for(order)
@@ -668,7 +673,9 @@ def test_a_venue_fill_reaches_the_portfolio_through_the_canonical_path() -> None
         broker_state, applied, _ = broker.poll_executions(routed.broker_state, 4.0)
 
     assert len(applied) == 1
-    pipeline, fills, trades = apply_broker_execution(state.pipeline, order, applied[0])
+    pipeline, fills, trades = apply_broker_execution(
+        state.pipeline, order, applied[0], config=ROUTING
+    )
 
     assert len(fills) == 1, "a canonical core.Fill, not a venue-specific type"
     assert len(trades) == 1

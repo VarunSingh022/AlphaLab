@@ -33,7 +33,7 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import RawSource, SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
+from alphalab.data.time import BarStamp, TimeFrequency
 
 SYMBOLS = ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF")
 
@@ -169,6 +169,8 @@ def ingest_prices() -> Dataset:
             "utf-8",
         ),
         frequency=TimeFrequency.DAILY,
+        # Stamped at each bar's close, the instant it was knowable.
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,

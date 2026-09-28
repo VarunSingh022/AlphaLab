@@ -40,7 +40,7 @@ from alphalab.risk.limits import (
     PositionLimit,
     RiskLimits,
 )
-from alphalab.risk.models import RiskViolation
+from alphalab.risk.models import RiskSeverity, RiskViolation
 
 LIMITS = RiskLimits(
     order_size=OrderSizeLimit(Decimal("100"), Decimal("10000")),
@@ -48,7 +48,7 @@ LIMITS = RiskLimits(
     exposure=ExposureLimit(Decimal("200000"), Decimal("150000")),
     leverage=LeverageLimit(Decimal("2")),
     margin=MarginLimit(Decimal("0.5")),
-    daily_loss=DailyLossLimit(Decimal("5000")),
+    daily_loss=DailyLossLimit(Decimal("5000"), "UTC"),
     drawdown=DrawdownLimit(Decimal("0.2")),
 )
 
@@ -381,7 +381,7 @@ class TestRiskBreach:
         violation = RiskViolation(
             rule="max_leverage",
             description="leverage 3.1 exceeds 2.0",
-            severity="CRITICAL",
+            severity=RiskSeverity.CRITICAL,
             current_value=Decimal("3.1"),
             allowed_value=Decimal("2.0"),
         )
@@ -391,8 +391,11 @@ class TestRiskBreach:
         assert findings[0].subject == "max_leverage"
         assert findings[0].detail["observed"] == "3.1"
         assert findings[0].detail["threshold"] == "2.0"
-        # The risk engine's own vocabulary survives verbatim.
+        # The risk engine's own vocabulary survives verbatim, as a plain string:
+        # the detail is Mapping[str, str], and an enum member there would print
+        # and serialize as something other than the string it compares equal to.
         assert findings[0].detail["risk_severity"] == "CRITICAL"
+        assert type(findings[0].detail["risk_severity"]) is str
         assert findings[0].severity is HealthSeverity.BREACH
 
 
@@ -482,7 +485,9 @@ class TestSimultaneousAndRecovery:
                 broker_connection=ConnectionStatus.FAILED,
                 executions=(ExecutionObservation("o-1", 0.0, 100.0),),
                 observed_positions={"a": Decimal("99")},
-                risk_violations=(RiskViolation("r", "d", "HIGH", Decimal("1"), Decimal("0")),),
+                risk_violations=(
+                    RiskViolation("r", "d", RiskSeverity.HIGH, Decimal("1"), Decimal("0")),
+                ),
                 state_expectations=(StateExpectation("serving", "a", "b"),),
             ),
         )

@@ -33,7 +33,7 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
+from alphalab.data.time import BarStamp, TimeFrequency
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instruments
 from alphalab.lifecycle import (
@@ -86,6 +86,7 @@ ASSET_ID = INSTRUMENT.asset_id
 REGISTRY: InstrumentRegistry = register_instruments(InstrumentRegistry(), (INSTRUMENT,))
 
 NORMALIZATION = NormalizationPolicy(
+    bar_stamp=BarStamp.INTERVAL_END,
     venue="XNYS",
     currency="USD",
     timeframe=TimeFrame.D1,
@@ -172,6 +173,7 @@ def ingest(name: str = "V36-PRICES", closes: Iterable[Decimal] = CLOSES) -> Data
             SourceKind.IN_MEMORY, "v36-tests", csv_payload(rows), RETRIEVED_AT, "text/csv", "utf-8"
         ),
         frequency=TimeFrequency.DAILY,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,

@@ -18,7 +18,7 @@ from dataclasses import replace
 
 import pytest
 
-from alphalab.common.persistent_map import PersistentMap
+from alphalab.common.persistent_map import _REBASE_SLACK, PersistentMap
 from alphalab.core.enums import AssetType
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
 from alphalab.instrument.record import InstrumentRecord, normalize_sector_label
@@ -319,7 +319,9 @@ def test_repeated_classification_shares_structure_rather_than_rebuilding() -> No
         registry = classify_instrument(registry, GOLDEN_ASSET_ID, f"Sector-{index}")
         stores.add(id(registry.instruments._store))
 
-    assert len(stores) == 1
+    # Rewritten in place; rebased at most once per _REBASE_SLACK writes once the
+    # history outgrows the live entries (v3.10, PRF-002) -- never per write.
+    assert len(stores) <= 1 + 200 // _REBASE_SLACK
     assert get_instrument(registry, GOLDEN_ASSET_ID).sector == "Sector-199"
     assert isinstance(registry.instruments, PersistentMap)
 

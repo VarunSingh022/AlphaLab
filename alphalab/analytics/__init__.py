@@ -84,7 +84,7 @@ from alphalab.analytics.metrics import (
     sortino_ratio,
     value_at_risk,
 )
-from alphalab.analytics.report import PerformanceReport, ReturnSummary, RiskSummary
+from alphalab.analytics.report import PerformanceReport, Periodicity, ReturnSummary, RiskSummary
 from alphalab.analytics.returns import (
     annualized_volatility,
     arithmetic_return,
@@ -177,6 +177,7 @@ __all__ = [
     "LineRisk",
     "LiquidityRisk",
     "PerformanceReport",
+    "Periodicity",
     "PortfolioSnapshot",
     "PositionRisk",
     "ReportGenerated",

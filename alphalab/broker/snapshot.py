@@ -90,9 +90,10 @@ from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.enums import AssetType, OrderType, Side, TimeInForce
 from alphalab.core.enums import OrderStatus as CoreOrderStatus
-from alphalab.persistence.decode import require_schema_version
+from alphalab.persistence.upgrade import SchemaHistory
 
 __all__ = [
+    "BROKER_SCHEMA_HISTORY",
     "BROKER_SNAPSHOT_SCHEMA",
     "BrokerEventRecord",
     "BrokerSnapshot",
@@ -198,8 +199,8 @@ def capture(
         metadata=dict(state.metadata),
         last_heartbeat=state.last_heartbeat,
         order_bindings=bindings,
-        breaks=reconciliation.breaks,
-        duplicates=reconciliation.duplicates,
+        breaks=reconciliation.breaks.to_tuple(),
+        duplicates=reconciliation.duplicates.to_tuple(),
         schema_version=BROKER_SNAPSHOT_SCHEMA,
     )
 
@@ -246,7 +247,9 @@ def restore(snapshot: BrokerSnapshot) -> tuple[BrokerState, ExternalOrderMap, Re
         metadata=dict(snapshot.metadata),
         last_heartbeat=snapshot.last_heartbeat,
     )
-    log = ReconciliationLog(breaks=snapshot.breaks, duplicates=snapshot.duplicates)
+    log = ReconciliationLog(
+        breaks=AppendOnlyLog(snapshot.breaks), duplicates=AppendOnlyLog(snapshot.duplicates)
+    )
     return state, mapping, log
 
 
@@ -438,6 +441,11 @@ def _decision(payload: Any) -> ExecutionDecision:
     )
 
 
+#: How every broker payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`.
+BROKER_SCHEMA_HISTORY = SchemaHistory(_SUBSYSTEM, BROKER_SNAPSHOT_SCHEMA)
+
+
 def from_primitives(payload: Mapping[str, Any]) -> BrokerSnapshot:
     """Decode a JSON-decoded snapshot payload back into :class:`BrokerSnapshot`.
 
@@ -451,7 +459,7 @@ def from_primitives(payload: Mapping[str, Any]) -> BrokerSnapshot:
     if not isinstance(payload, Mapping):
         raise BrokerSnapshotDecodeError(f"Broker snapshot payload is not an object: {payload!r}")
 
-    require_schema_version(payload, BROKER_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    payload = BROKER_SCHEMA_HISTORY.upgrade(payload)
 
     return BrokerSnapshot(
         broker_name=str(_require(payload, "broker_name")),

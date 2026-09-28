@@ -572,7 +572,15 @@ def _rendered_risk(risk: RiskLimits) -> list[str]:
         f"exposure.max_net_exposure={risk.exposure.max_net_exposure!r}",
         f"leverage.max_leverage={risk.leverage.max_leverage!r}",
         f"margin.max_margin_utilization={risk.margin.max_margin_utilization!r}",
-        f"daily_loss.max_daily_loss={risk.daily_loss.max_daily_loss!r}",
+        *(
+            ("daily_loss=None",)
+            if risk.daily_loss is None
+            else (
+                f"daily_loss.max_daily_loss={risk.daily_loss.max_daily_loss!r}",
+                f"daily_loss.zone={risk.daily_loss.zone!r}",
+                f"daily_loss.day_start={risk.daily_loss.day_start.isoformat()!r}",
+            )
+        ),
         f"drawdown.max_drawdown_pct={risk.drawdown.max_drawdown_pct!r}",
     ]
 

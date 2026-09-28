@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 
+from alphalab.common.serialization import dataclass_to_dict
 from alphalab.core import (
     AssetId,
     AssetType,
@@ -131,10 +132,15 @@ def test_portfolio_state_is_immutable_snapshot_with_serializable_positions() -> 
         positions={position.asset_id: position},
     )
 
-    data = asdict(portfolio)
+    # The repository's serializable projection. ``dataclasses.asdict`` does not
+    # recurse into the persistent containers a state holds -- the positions are
+    # a PositionBook since v3.10, as its histories are append-only logs -- which
+    # is why dataclass_to_dict exists (see alphalab.common.serialization).
+    data = dataclass_to_dict(portfolio)
 
     assert data["positions"][position.asset_id]["asset_id"] == position.asset_id
     assert data["cash"]["balances"]["USD"] == Decimal("10000.00")
+    assert dict(portfolio.positions) == {position.asset_id: position}
     with pytest.raises(FrozenInstanceError):
         portfolio.__setattr__("account", Account("other", "EUR", "Other", NOW.timestamp()))
 

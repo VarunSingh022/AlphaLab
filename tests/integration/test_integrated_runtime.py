@@ -166,7 +166,7 @@ def _deployed() -> tuple[LifecycleState, StrategyVersionRef]:
 def _broker(base_url: str) -> RestVenueBroker:
     return RestVenueBroker(
         HttpVenueTransport(base_url, VenueCredentials(_KEY, _SECRET)),
-        VenueConfig(broker_name="TESTVENUE", account_id="ACC-LIVE"),
+        VenueConfig(currency="USD", broker_name="TESTVENUE", account_id="ACC-LIVE"),
     )
 
 

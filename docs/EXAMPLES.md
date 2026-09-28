@@ -33,7 +33,7 @@ The `examples/` directory contains:
 | `01_research.py` | Research engine |
 | `02_backtest.py` | Strategy Studio backtest bookkeeping |
 | `03_replay.py` | Historical replay cursor |
-| `04_market_data.py` | Market data providers |
+| `04_market_data.py` | Provider wire bars → normalization → canonical market state |
 | `05_broker_connection.py` | The two broker boundaries: one venue, or a registry of many |
 | `06_portfolio_optimizer.py` | Portfolio construction |
 | `07_universal_data.py` | Universal Data Engine: state, versions and the catalogue |
@@ -109,13 +109,10 @@ Topics include
 
 # Market Data
 
-Examples demonstrate
-
-- Yahoo Finance
-- Polygon
-- Databento
-- Binance
-- NSE
+No example calls a vendor, and AlphaLab ships no vendor client (ADR-0045).
+`04_market_data.py` plays the part of a host application's provider: it
+returns start-stamped one-minute bars from `request_history`, and AlphaLab
+takes it from there.
 
 Provider output arrives as a **wire record** (`alphalab.data.feed` — `float`
 prices keyed by a provider symbol) and is lifted into the canonical domain model

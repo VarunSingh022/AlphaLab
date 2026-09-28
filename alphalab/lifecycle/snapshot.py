@@ -70,12 +70,13 @@ from alphalab.persistence.decode import (
     as_str,
     as_str_mapping,
     require,
-    require_schema_version,
 )
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
 from alphalab.studio.strategy import StrategyDefinition
 
 __all__ = [
+    "LIFECYCLE_SCHEMA_HISTORY",
     "LIFECYCLE_SNAPSHOT_SCHEMA",
     "LifecycleSnapshot",
     "ModelVersionRecord",
@@ -553,6 +554,25 @@ def _evidence(value: Any, index: int) -> ValidationEvidence:
     )
 
 
+#: How every lifecycle payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`.
+LIFECYCLE_SCHEMA_HISTORY = SchemaHistory(
+    _SUBSYSTEM,
+    LIFECYCLE_SNAPSHOT_SCHEMA,
+    (
+        SchemaStep(
+            1,
+            "version 2 recorded governance actors and the approval log",
+            refusal=(
+                "a version-1 payload does not record who promoted, deployed or rolled "
+                "back, and no honest actor can be supplied for a decision already made "
+                "(ADR-0018). Read it with v2.15."
+            ),
+        ),
+    ),
+)
+
+
 def from_primitives(payload: Mapping[str, Any]) -> LifecycleSnapshot:
     """Decode a JSON-decoded snapshot payload back into :class:`LifecycleSnapshot`.
 
@@ -563,7 +583,7 @@ def from_primitives(payload: Mapping[str, Any]) -> LifecycleSnapshot:
     """
 
     payload = as_mapping(payload, "lifecycle snapshot")
-    require_schema_version(payload, LIFECYCLE_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    payload = LIFECYCLE_SCHEMA_HISTORY.upgrade(payload)
 
     def indexed(key: str) -> Any:
         return enumerate(as_sequence(require(payload, key), key))

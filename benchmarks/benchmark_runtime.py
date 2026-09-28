@@ -159,7 +159,7 @@ def _pipeline_config(strategy_id: str) -> ExecutionPipelineConfig:
             exposure=ExposureLimit(huge, huge),
             leverage=LeverageLimit(Decimal("1000")),
             margin=MarginLimit(Decimal("1.00")),
-            daily_loss=DailyLossLimit(huge),
+            daily_loss=DailyLossLimit(huge, "UTC"),
             drawdown=DrawdownLimit(Decimal("1.00")),
         ),
     )

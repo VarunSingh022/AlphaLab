@@ -94,6 +94,7 @@ from alphalab.execution.latency import ConstantLatency, DeterministicLatency, La
 from alphalab.execution.policy import (
     FillDecision,
     FillPolicy,
+    FillTiming,
     ImmediateFill,
     LiquidityCappedFill,
     LiquidityContext,
@@ -202,6 +203,7 @@ __all__ = [
     "FillPolicy",
     "FillQuality",
     "FillStatus",
+    "FillTiming",
     "FixedCommission",
     "FixedHalfSpread",
     "FixedSlippage",

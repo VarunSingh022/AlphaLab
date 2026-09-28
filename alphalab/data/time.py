@@ -121,14 +121,36 @@ class TimestampFormat(Enum):
 class DateOnlyPolicy(Enum):
     """Which instant within a day a bare date is taken to mean."""
 
-    #: 00:00:00 in the named zone. The conventional reading of a daily bar's
-    #: date label, and the one a caller almost always wants.
+    #: 00:00:00 in the named zone. Refused for bars since v3.10: a bar is
+    #: stamped at the end of its interval, and midnight is before a daily bar's
+    #: close was knowable (ledger DAT-001). Right for what happens *on* a date,
+    #: such as an ex-dividend date.
     START_OF_DAY = auto()
 
     #: 23:59:59.999999 in the named zone. Offered because a daily bar's *close*
     #: is the instant its value became known, and a point-in-time study that
     #: stamps it at midnight has moved the knowledge back by a day.
     END_OF_DAY = auto()
+
+
+class BarStamp(Enum):
+    """Which instant of its interval a bar's timestamp names (ledger DAT-001).
+
+    A bar summarizes an interval, and its close is knowable only when the
+    interval ends. AlphaLab's canonical bar is stamped at that end. Sources
+    differ -- most vendors' intraday bars are stamped at the start ("the 09:30
+    bar" covers 09:30 to 09:31) -- and a start-stamped bar taken as it is puts
+    the close at the opening instant: a whole bar of look-ahead. So the
+    convention is declared, never assumed.
+    """
+
+    #: The start of the interval. Ingestion and normalization move the stamp to
+    #: the interval's end, by the declared interval, and record that they did.
+    INTERVAL_START = auto()
+
+    #: The end of the interval -- the instant the close became knowable, and
+    #: the canonical convention. Taken as it is.
+    INTERVAL_END = auto()
 
 
 def resolve_zone(timezone_name: str) -> ZoneInfo:

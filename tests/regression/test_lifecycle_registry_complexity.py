@@ -27,9 +27,6 @@ rests on. The timing assertions are coarse backstops with wide tolerances --
 there to catch a return to quadratic scaling, not to police constant factors.
 """
 
-import gc
-import math
-import time
 from collections.abc import Callable
 
 from alphalab.common.append_log import AppendOnlyLog
@@ -46,89 +43,12 @@ from alphalab.model_registry import (
     promote,
     register_model,
 )
+from tests.regression._timing import CLOCK, timings
 
-
-def _fine_grained(clock: Callable[[], float]) -> bool:
-    """Whether ``clock`` advances in steps fine enough to time a few milliseconds.
-
-    The process CPU clock steps in nanoseconds on Linux and microseconds on
-    macOS, but on Windows it advances with the scheduler tick -- about 15.6 ms,
-    longer than the smallest sample below -- whatever ``time.get_clock_info``
-    reports. So the step is observed rather than trusted, for at most half a
-    second of wall time: a clock that does not move in that time is not one to
-    time anything with.
-    """
-
-    steps: list[float] = []
-    deadline = time.perf_counter() + 0.5
-    last = clock()
-    while len(steps) < 3 and time.perf_counter() < deadline:
-        now = clock()
-        if now != last:
-            steps.append(now - last)
-            last = now
-    return len(steps) == 3 and max(steps) < 1e-4
-
-
-#: What every timed region reads: the process's CPU time where the platform
-#: keeps it finely, and the wall clock where it does not. CPU time leaves out
-#: the moments the process spends descheduled -- a neighbour on a shared CI
-#: runner, another process on this core -- which are not work the code under
-#: test did, and which fall disproportionately on the longer sample.
-_CLOCK: Callable[[], float] = (
-    time.process_time if _fine_grained(time.process_time) else time.perf_counter
-)
-
-
-def _timings(
-    measure: Callable[[int], float], small: int, large: int, rounds: int = 5
-) -> tuple[float, float]:
-    """The fastest of ``rounds`` samples at each size, the two sizes interleaved.
-
-    Every timing assertion below compares a small run against a large one. Three
-    things can make that comparison fail on a linear implementation, and each is
-    removed here without touching the bound the assertions state:
-
-    * **The collector's work is not the registry's.** CPython runs a full
-      collection whenever the objects promoted since the last one exceed a
-      quarter of the long-lived heap. In the full suite that heap holds about
-      190,000 tracked objects when this file runs, so an 8,000-entry run crosses
-      the line in *every* repeat while a 2,000-entry run mostly does not: each
-      large sample paid for traversing the rest of the suite's heap, which is a
-      cost of the test session, not of the code under test, and one that grows
-      as the suite does. Taking the fastest sample cannot remove a cost present
-      in every sample. Collection is disabled while timing, as ``timeit`` does.
-    * **Time spent descheduled is not the registry's either** -- ``_CLOCK``.
-    * **A slow phase is not a scaling.** Thermal throttling, a move to an
-      efficiency core or a noisy neighbour can outlast one sample, so the sizes
-      alternate and share whatever phases occur, and the fastest sample of each
-      is compared: noise only ever makes a sample slower.
-
-    Measured on an eight-core machine with a heap the size of the suite's, the
-    previous method -- the best of three per size, sizes timed one after the
-    other on the wall clock with the collector running -- read the linear
-    registry at 5.1x on a quiet machine, failed 8 of 60 comparisons with every
-    core busy (peaking at 8.9x, the failure a full-suite run met) and 31 of 60
-    when oversubscribed. This method read 4.0x quiet and failed none of 640
-    comparisons under the same loads, peaking at 6.1x. It weakens nothing: each
-    test was run against the defect it guards -- a container copied, a log
-    rebuilt, every name validated on every write -- and read 11x to 16x, and
-    failed. The earlier best-of-three was itself added after
-    ``_log_distinct_metrics`` failed intermittently on one collection; this
-    removes the cause.
-    """
-
-    fastest_small = fastest_large = math.inf
-    collecting = gc.isenabled()
-    gc.disable()
-    try:
-        for _ in range(rounds):
-            fastest_small = min(fastest_small, measure(small))
-            fastest_large = min(fastest_large, measure(large))
-    finally:
-        if collecting:
-            gc.enable()
-    return fastest_small, fastest_large
+# The measurement method moved to tests/regression/_timing.py in v3.10 so every
+# guard shares it; these names stay, because the v3.8 and v3.9 guards import them.
+_CLOCK: Callable[[], float] = CLOCK
+_timings = timings
 
 
 def _log_metrics(count: int) -> float:

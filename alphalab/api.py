@@ -141,7 +141,12 @@ from alphalab.data.feed import (
     FundamentalRecord,
     Quote,
 )
-from alphalab.data.ingestion import IngestionRequest, IngestionResult, ingest_table
+from alphalab.data.ingestion import (
+    IngestionRequest,
+    IngestionResult,
+    ingest_table,
+    rows_content_hash,
+)
 from alphalab.data.quality import DataQualityReport, evaluate_quality
 from alphalab.data.schema import SchemaDetection, detect_schema
 from alphalab.data.source import RawSource, raw_source_from_path
@@ -307,7 +312,12 @@ def ingest_rows(
     rows that could be are ingested.
     """
 
-    return ingest_table(RawTable.from_rows(rows), request)
+    table = RawTable.from_rows(rows)
+    # Rows have no bytes behind them, so their identity is their own content
+    # alongside the declared source (ledger KD-004).
+    return ingest_table(
+        table, request, content_hash=rows_content_hash(table, request.source.content_hash)
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -358,9 +368,10 @@ def normalize_records(
     timeframe are supplied by the policy because the wire shape has no room for
     them. Nothing here re-implements any of that.
 
-    ``policy`` is required. :data:`~alphalab.market.normalization.DEFAULT_POLICY`
-    names the venue ``"UNKNOWN"`` and resolves no identities, and defaulting to
-    it here would quietly produce records that cannot reach a fill.
+    ``policy`` is required, as it is on every ``normalize_wire_*`` function
+    since v3.10: a policy says what the wire cannot -- currency, timeframe,
+    where a bar is stamped, whose symbols these are -- and a default one would
+    have said it on the caller's behalf.
 
     Raises:
         DataValidationError: If a record is neither a wire bar nor a wire quote.

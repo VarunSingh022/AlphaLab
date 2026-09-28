@@ -81,8 +81,9 @@ def test_the_pipeline_schema_does_not_move() -> None:
     the stable core does not.
     """
 
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3
-    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3)
+    # v2.14 did not move it; v3.10 did, to 4, and reads every earlier version.
+    assert PIPELINE_SNAPSHOT_SCHEMA == 4
+    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4)
 
 
 @pytest.mark.parametrize(
@@ -116,15 +117,15 @@ def test_the_lifecycle_constant_moved_on_its_own_terms() -> None:
     """And not as a side effect of anything the run envelope did."""
 
     assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
-    assert RUN_SNAPSHOT_SCHEMA == 1
+    assert RUN_SNAPSHOT_SCHEMA == 2  # v3.10: the analytics basis
     assert DEFAULT_SCHEMA_VERSION == 1
 
 
 def test_the_run_envelope_is_the_only_new_constant() -> None:
-    assert RUN_SNAPSHOT_SCHEMA == 1
+    assert RUN_SNAPSHOT_SCHEMA == 2  # v3.10: the analytics basis
 
     source = inspect.getsource(importlib.import_module("alphalab.runtime.run_snapshot"))
-    assert "RUN_SNAPSHOT_SCHEMA: Final = 1" in source
+    assert "RUN_SNAPSHOT_SCHEMA: Final = 2" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 

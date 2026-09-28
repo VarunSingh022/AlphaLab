@@ -64,7 +64,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.persistent_map import PersistentSet
+from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.core.enums import OrderStatus, OrderType, Side
 from alphalab.oms.book import OrderBook
 from alphalab.oms.events import (
@@ -82,11 +82,12 @@ from alphalab.oms.exceptions import OMSError
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order
 from alphalab.oms.state import OMSState
-from alphalab.persistence.decode import require_schema_version
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory
 
 __all__ = [
     "LEGACY_UNVERSIONED_V0_KEYS",
+    "OMS_SCHEMA_HISTORY",
     "OMS_SNAPSHOT_SCHEMA",
     "OMSEventRecord",
     "OMSSnapshot",
@@ -197,12 +198,18 @@ def restore(snapshot: OMSSnapshot) -> OMSState:
     for order in snapshot.orders:
         book = book.add(order)
 
+    working: dict[str, PersistentSet[OrderId]] = {}
+    for order_id in snapshot.active_orders:
+        asset_id = book.find(order_id).asset_id
+        working[asset_id] = working.get(asset_id, PersistentSet()).add(order_id)
+
     return OMSState(
         orders=book,
         active_orders=PersistentSet(snapshot.active_orders),
         completed_orders=PersistentSet(snapshot.completed_orders),
         history=AppendOnlyLog(record.event for record in snapshot.history),
         events=AppendOnlyLog(record.event for record in snapshot.events),
+        working_by_asset=PersistentMap(working),
     )
 
 
@@ -295,6 +302,12 @@ def _sequence(payload: Mapping[str, Any], key: str) -> Sequence[Any]:
     return value
 
 
+#: How every OMS payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`. The unversioned pre-v2.9 shape is not a
+#: version and is recognised structurally, below.
+OMS_SCHEMA_HISTORY = SchemaHistory(_SUBSYSTEM, OMS_SNAPSHOT_SCHEMA)
+
+
 def _require_readable_shape(payload: Mapping[str, Any]) -> None:
     """Refuse a payload this build cannot read, before any field is decoded.
 
@@ -302,10 +315,8 @@ def _require_readable_shape(payload: Mapping[str, Any]) -> None:
     questions rather than by one falling back to the other:
 
     * a payload that **declares** a version is checked against
-      ``OMS_SNAPSHOT_SCHEMA`` by the shared
-      :func:`~alphalab.persistence.decode.require_schema_version`, so an
-      unreadable, non-integer, zero or future version is refused by the same
-      rule the portfolio and lifecycle snapshots use;
+      :data:`OMS_SCHEMA_HISTORY`, so an unreadable, non-integer, zero or
+      future version is refused by the same rule every snapshot uses;
     * a payload that declares **no** version is readable only if its top-level
       keys are exactly :data:`LEGACY_UNVERSIONED_V0_KEYS`.
 
@@ -320,7 +331,7 @@ def _require_readable_shape(payload: Mapping[str, Any]) -> None:
 
     if "schema_version" in payload:
         try:
-            require_schema_version(payload, OMS_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+            OMS_SCHEMA_HISTORY.upgrade(payload)
         except StateDecodeError as exc:
             # The rule is shared; the error type is this module's, because
             # SnapshotDecodeError is what every OMS decode failure raises and

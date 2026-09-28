@@ -39,16 +39,14 @@ What is deliberately *not* linear is recorded too:
 measurement that settled it.
 """
 
-import gc
-import time
 from collections.abc import Callable
-from itertools import pairwise
 
 import pytest
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.reporting.state import ReportingState
+from tests.regression._timing import CLOCK, timings
 
 # --------------------------------------------------------------------------- #
 # Builders: one per package, each driving the path that used to be quadratic
@@ -692,32 +690,37 @@ def test_the_converted_containers_still_serialize_as_the_shapes_they_replaced() 
 # 4. Scaling
 # --------------------------------------------------------------------------- #
 
-#: Workload sizes for the doubling sweep. Linear predicts ~2x per doubling and
-#: quadratic ~4x. The ceiling sits between them, far enough from 2.0 to survive a
-#: loaded machine and far enough from 4.0 to fail a reintroduced quadratic. The
-#: development machine measured 2.04x-2.11x for every package here, against
+#: Workload sizes. Linear predicts ~4x over the 4x input and quadratic ~16x.
+#: The ceiling sits between them -- the square of the 3.0x-per-doubling ceiling
+#: the sweep this replaced used -- far enough from 4 to survive a loaded machine
+#: and far enough from 16 to fail a reintroduced quadratic. The development
+#: machine measured 2.04x-2.11x per doubling for every package here, against
 #: 3.4x-4.9x before the conversion.
-SIZES = (1_000, 2_000, 4_000)
-MAX_GROWTH_PER_DOUBLING = 3.0
+SMALL, LARGE = 1_000, 4_000
+MAX_GROWTH = 9.0
+
+
+def _measure(build: Callable[[int], object], size: int) -> float:
+    start = CLOCK()
+    build(size)
+    return CLOCK() - start
 
 
 @pytest.mark.parametrize("package", sorted(BUILDERS))
 def test_accumulation_is_no_longer_quadratic(package: str) -> None:
+    """Read with the one stabilized method every guard shares (tests/regression/_timing.py).
+
+    Until v3.10 this was a doubling sweep on the wall clock with the collector
+    running, and it failed on a timing blip under load (ledger TST-001).
+    """
+
     build = BUILDERS[package]
-    timings: list[float] = []
+    small, large = timings(lambda size: _measure(build, size), SMALL, LARGE)
+    growth = large / max(small, 1e-6)
 
-    for size in SIZES:
-        gc.collect()
-        start = time.perf_counter()
-        build(size)
-        timings.append(time.perf_counter() - start)
-
-    growth = [later / earlier for earlier, later in pairwise(timings)]
-    worst = max(growth)
-
-    assert worst <= MAX_GROWTH_PER_DOUBLING, (
-        f"{package} grows at {worst:.2f}x per doubling "
-        f"(timings {[f'{t:.3f}' for t in timings]}); quadratic accumulation is back"
+    assert growth <= MAX_GROWTH, (
+        f"{package} grows {growth:.2f}x over a {LARGE // SMALL}x input "
+        f"({small:.4f}s -> {large:.4f}s); quadratic accumulation is back"
     )
 
 

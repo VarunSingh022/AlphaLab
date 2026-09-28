@@ -66,11 +66,12 @@ from alphalab.persistence.decode import (
     as_str_mapping,
     as_value_enum,
     require,
-    require_schema_version,
 )
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory
 
 __all__ = [
+    "INSTRUMENT_SCHEMA_HISTORY",
     "INSTRUMENT_SNAPSHOT_SCHEMA",
     "ClassificationRecord",
     "InstrumentRegistryRecord",
@@ -286,6 +287,11 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
     )
 
 
+#: How every instrument payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`.
+INSTRUMENT_SCHEMA_HISTORY = SchemaHistory(_SUBSYSTEM, INSTRUMENT_SNAPSHOT_SCHEMA)
+
+
 def from_primitives(payload: Mapping[str, Any]) -> InstrumentRegistrySnapshot:
     """Decode a JSON-decoded snapshot payload back into a typed snapshot.
 
@@ -296,7 +302,7 @@ def from_primitives(payload: Mapping[str, Any]) -> InstrumentRegistrySnapshot:
     """
 
     payload = as_mapping(payload, "instrument registry snapshot")
-    require_schema_version(payload, INSTRUMENT_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    payload = INSTRUMENT_SCHEMA_HISTORY.upgrade(payload)
 
     records: Sequence[Any] = as_sequence(require(payload, "instruments"), "instruments")
     return InstrumentRegistrySnapshot(

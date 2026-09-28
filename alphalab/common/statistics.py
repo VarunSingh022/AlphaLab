@@ -32,6 +32,18 @@ result. That is the division :mod:`alphalab.research.signals` and
 :mod:`alphalab.factor_library.ic` both follow: the mathematics refuses, the
 diagnostic explains.
 
+A number that is not a number is refused
+----------------------------------------
+
+Every function here refuses ``nan`` and ``inf`` in its input, naming the
+position. Until v3.10 they were accepted, and the result was worse than an
+error: ``ranks([1, nan, 0.5, 2])`` returned ``(1, 2, 3, 4)`` -- a ranking that is
+wrong and that changes with the input order, because ``nan`` compares false with
+everything and a sort over it is not a sort. A mean, a variance or a correlation
+propagated ``nan`` silently into whatever table it reached. A research series
+with a missing value has to say what the missing value means before it is
+measured; the statistics authority will not decide that for it.
+
 Ties are a decision, not a detail
 ---------------------------------
 
@@ -47,11 +59,17 @@ both deterministic, and they are deterministically *different*.
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum, auto
 
 from alphalab.common.exceptions import AlphaLabValidationError
+
+#: The smallest deviation whose square is still a *normal* float. Below it a
+#: squared deviation is subnormal and carries a few significant bits at most,
+#: so a correlation computed from it is wrong in its leading digits.
+_SMALLEST_SQUARABLE = math.sqrt(sys.float_info.min)
 
 __all__ = [
     "LinearFit",
@@ -128,6 +146,20 @@ class LinearFit:
     residuals: tuple[float, ...]
 
 
+def _require_finite(values: Sequence[float], what: str, name: str = "value") -> None:
+    """Refuse ``nan`` and ``inf``, naming the first position that holds one."""
+
+    if all(map(math.isfinite, values)):
+        return
+    for index, value in enumerate(values):
+        if not math.isfinite(value):
+            raise AlphaLabValidationError(
+                f"{what} is undefined over a series holding {value!r} at {name}[{index}]. "
+                "A missing or unbounded observation has to be resolved -- dropped, filled "
+                "or refused -- by the caller, who knows what it means."
+            )
+
+
 def _require_pairs(xs: Sequence[float], ys: Sequence[float], what: str) -> int:
     if len(xs) != len(ys):
         raise AlphaLabValidationError(
@@ -138,7 +170,26 @@ def _require_pairs(xs: Sequence[float], ys: Sequence[float], what: str) -> int:
         raise AlphaLabValidationError(
             f"{what} is undefined over {len(xs)} observation(s); at least 2 are needed."
         )
+    _require_finite(xs, what, "x")
+    _require_finite(ys, what, "y")
     return len(xs)
+
+
+def _average(values: Sequence[float]) -> float:
+    """``sum(values) / len(values)``, and the same mean when the sum overflows.
+
+    Every ordinary input takes the plain expression and gets the float it always
+    got. When the running sum leaves the float range although every value is
+    finite -- ``[1e308, 1e308]`` summed to infinity until v3.10 -- each term is
+    divided first, which keeps every partial sum in range: ``k`` terms of at most
+    ``max / n`` sum to at most ``max``.
+    """
+
+    count = len(values)
+    result = sum(values) / count
+    if math.isfinite(result):
+        return result
+    return sum(value / count for value in values)
 
 
 def mean(values: Sequence[float]) -> float:
@@ -151,7 +202,8 @@ def mean(values: Sequence[float]) -> float:
 
     if not values:
         raise AlphaLabValidationError("The mean of an empty sequence is undefined.")
-    return sum(values) / len(values)
+    _require_finite(values, "A mean")
+    return _average(values)
 
 
 def sample_variance(values: Sequence[float]) -> float:
@@ -170,8 +222,18 @@ def sample_variance(values: Sequence[float]) -> float:
             f"Sample variance is undefined over {len(values)} observation(s); "
             "at least 2 are needed."
         )
-    average = sum(values) / len(values)
-    return sum((value - average) ** 2 for value in values) / (len(values) - 1)
+    _require_finite(values, "A sample variance")
+    average = _average(values)
+    try:
+        variance = sum((value - average) ** 2 for value in values) / (len(values) - 1)
+    except OverflowError:
+        variance = math.inf
+    if not math.isfinite(variance):
+        raise AlphaLabValidationError(
+            f"The sample variance of these {len(values)} values exceeds the float range; "
+            "rescale the series before measuring its dispersion."
+        )
+    return variance
 
 
 def sample_covariance(xs: Sequence[float], ys: Sequence[float]) -> float:
@@ -190,9 +252,15 @@ def sample_covariance(xs: Sequence[float], ys: Sequence[float]) -> float:
     """
 
     count = _require_pairs(xs, ys, "A sample covariance")
-    mean_x = sum(xs) / count
-    mean_y = sum(ys) / count
-    return sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=True)) / (count - 1)
+    mean_x = _average(xs)
+    mean_y = _average(ys)
+    covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=True)) / (count - 1)
+    if not math.isfinite(covariance):
+        raise AlphaLabValidationError(
+            f"The sample covariance of these {count} pairs exceeds the float range; "
+            "rescale the series before measuring how they move together."
+        )
+    return covariance
 
 
 def standard_deviation(values: Sequence[float]) -> float:
@@ -214,11 +282,15 @@ def median(values: Sequence[float]) -> float:
 
     if not values:
         raise AlphaLabValidationError("The median of an empty sequence is undefined.")
+    _require_finite(values, "A median")
     ordered = sorted(values)
     middle = len(ordered) // 2
     if len(ordered) % 2 == 1:
         return ordered[middle]
-    return (ordered[middle - 1] + ordered[middle]) / 2.0
+    low, high = ordered[middle - 1], ordered[middle]
+    halfway = (low + high) / 2.0
+    # Two finite middles whose sum overflows still have a finite midpoint.
+    return halfway if math.isfinite(halfway) else low / 2.0 + high / 2.0
 
 
 def percentile(values: Sequence[float], fraction: float) -> float:
@@ -240,6 +312,7 @@ def percentile(values: Sequence[float], fraction: float) -> float:
         raise AlphaLabValidationError("A percentile of an empty sequence is undefined.")
     if not 0.0 <= fraction <= 1.0:
         raise AlphaLabValidationError(f"fraction must lie in [0, 1], got {fraction!r}.")
+    _require_finite(values, "A percentile")
     ordered = sorted(values)
     if len(ordered) == 1:
         return ordered[0]
@@ -248,7 +321,14 @@ def percentile(values: Sequence[float], fraction: float) -> float:
     upper = math.ceil(position)
     if lower == upper:
         return ordered[lower]
-    return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
+    weight = position - lower
+    low, high = ordered[lower], ordered[upper]
+    spread = high - low
+    if math.isfinite(spread):
+        return low + spread * weight
+    # Neighbours of opposite sign near the float limit: their difference
+    # overflows, and the blend of the two does not.
+    return low * (1.0 - weight) + high * weight
 
 
 def ranks(values: Sequence[float], method: RankMethod = RankMethod.AVERAGE) -> tuple[float, ...]:
@@ -263,6 +343,7 @@ def ranks(values: Sequence[float], method: RankMethod = RankMethod.AVERAGE) -> t
 
     if not values:
         raise AlphaLabValidationError("Ranking an empty sequence is undefined.")
+    _require_finite(values, "A ranking")
 
     order = sorted(range(len(values)), key=lambda index: (values[index], index))
     result = [0.0] * len(values)
@@ -293,29 +374,80 @@ def ranks(values: Sequence[float], method: RankMethod = RankMethod.AVERAGE) -> t
 def pearson_correlation(xs: Sequence[float], ys: Sequence[float]) -> float:
     """The Pearson product-moment correlation of two equal-length series.
 
+    The result lies in ``[-1, 1]``: it is clamped there, because a float
+    rounding can put a perfect correlation a unit in the last place outside it,
+    and a value outside the range is not a correlation.
+
+    Series of extreme magnitude are handled rather than refused. Until v3.10 a
+    series near ``1e-160`` raised ``ZeroDivisionError`` and one near ``1e160``
+    ``OverflowError``, because the product of the two variances under- or
+    overflowed. Correlation is scale-free, so such a series is correlated at
+    its own scale instead; every ordinary input takes the unchanged expression
+    and gets the unchanged float. "Extreme" includes a spread so small that its
+    squared deviations are subnormal: they carry a few significant bits, and
+    the correlation of ``1e-160 * [1, 2, 3, 4]`` against its partner came out
+    ``0.71809`` instead of ``0.71818``.
+
     Raises:
         AlphaLabValidationError: If the lengths differ, if fewer than two pairs
-            are given, or if either series is constant -- a correlation with a
-            constant is undefined, not zero, and reporting zero would read as
-            "measured, and unrelated".
+            are given, if either holds ``nan`` or ``inf``, or if either series
+            is constant -- a correlation with a constant is undefined, not zero,
+            and reporting zero would read as "measured, and unrelated".
     """
 
     count = _require_pairs(xs, ys, "A Pearson correlation")
-    mean_x = sum(xs) / count
-    mean_y = sum(ys) / count
+    result = _pearson(xs, ys, count)
+    if result is None:
+        # Extreme magnitude: correlate at the series' own scale.
+        scale_x = max(abs(x) for x in xs)
+        scale_y = max(abs(y) for y in ys)
+        result = _pearson([x / scale_x for x in xs], [y / scale_y for y in ys], count)
+    if result is None:
+        raise AlphaLabValidationError(
+            f"A Pearson correlation over these {count} observations is not representable "
+            "in floating point even at the series' own scale."
+        )
+    return max(-1.0, min(1.0, result))
 
-    covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=True))
-    variance_x = sum((x - mean_x) ** 2 for x in xs)
-    variance_y = sum((y - mean_y) ** 2 for y in ys)
+
+def _pearson(xs: Sequence[float], ys: Sequence[float], count: int) -> float | None:
+    """The correlation, or ``None`` when the magnitudes defeat the plain expression."""
+
+    try:
+        mean_x = sum(xs) / count
+        mean_y = sum(ys) / count
+        covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=True))
+        variance_x = sum((x - mean_x) ** 2 for x in xs)
+        variance_y = sum((y - mean_y) ** 2 for y in ys)
+    except OverflowError:
+        return None
+
+    for figure in (mean_x, mean_y, covariance, variance_x, variance_y):
+        if not math.isfinite(figure):
+            return None
+
+    for series, centre in ((xs, mean_x), (ys, mean_y)):
+        spread = max(abs(value - centre) for value in series)
+        if 0.0 < spread < _SMALLEST_SQUARABLE:
+            return None  # the squared deviations are subnormal: rescale first
 
     if variance_x == 0.0 or variance_y == 0.0:
-        constant = "x" if variance_x == 0.0 else "y"
-        raise AlphaLabValidationError(
-            f"A Pearson correlation is undefined because {constant} is constant over all "
-            f"{count} observations. Zero would read as a measured absence of relationship."
-        )
+        series, name = (xs, "x") if variance_x == 0.0 else (ys, "y")
+        if all(value == series[0] for value in series):
+            raise AlphaLabValidationError(
+                f"A Pearson correlation is undefined because {name} is constant over all "
+                f"{count} observations. Zero would read as a measured absence of relationship."
+            )
+        return None  # the squared deviations underflowed; not a constant
 
-    return covariance / math.sqrt(variance_x * variance_y)
+    product = variance_x * variance_y
+    if product == 0.0 or not math.isfinite(product):
+        denominator = math.sqrt(variance_x) * math.sqrt(variance_y)
+    else:
+        denominator = math.sqrt(product)
+    if denominator == 0.0 or not math.isfinite(denominator):
+        return None
+    return covariance / denominator
 
 
 def rank_correlation(xs: Sequence[float], ys: Sequence[float]) -> float:
@@ -350,23 +482,34 @@ def linear_regression(ys: Sequence[float], xs: Sequence[float]) -> LinearFit:
     """
 
     count = _require_pairs(xs, ys, "A linear regression")
-    mean_x = sum(xs) / count
-    mean_y = sum(ys) / count
+    beyond_range = AlphaLabValidationError(
+        f"A linear regression over these {count} observations leaves the float range; "
+        "rescale the series before fitting. Until v3.10 the fit raised a bare "
+        "OverflowError or came back holding infinities and nan."
+    )
+    try:
+        mean_x = _average(xs)
+        mean_y = _average(ys)
 
-    variance_x = sum((x - mean_x) ** 2 for x in xs)
-    if variance_x == 0.0:
-        raise AlphaLabValidationError(
-            f"A linear regression is undetermined because x is constant over all {count} "
-            "observations; every slope fits equally well."
-        )
+        variance_x = sum((x - mean_x) ** 2 for x in xs)
+        if variance_x == 0.0:
+            raise AlphaLabValidationError(
+                f"A linear regression is undetermined because x is constant over all {count} "
+                "observations; every slope fits equally well."
+            )
 
-    covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=True))
-    slope = covariance / variance_x
-    intercept = mean_y - slope * mean_x
-    residuals = tuple(y - (intercept + slope * x) for x, y in zip(xs, ys, strict=True))
+        covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=True))
+        slope = covariance / variance_x
+        intercept = mean_y - slope * mean_x
+        residuals = tuple(y - (intercept + slope * x) for x, y in zip(xs, ys, strict=True))
 
-    total = sum((y - mean_y) ** 2 for y in ys)
-    explained = 0.0 if total == 0.0 else 1.0 - sum(r**2 for r in residuals) / total
+        total = sum((y - mean_y) ** 2 for y in ys)
+        explained = 0.0 if total == 0.0 else 1.0 - sum(r**2 for r in residuals) / total
+    except OverflowError:
+        raise beyond_range from None
+
+    if not all(map(math.isfinite, (slope, intercept, explained, *residuals))):
+        raise beyond_range
 
     return LinearFit(
         slope=slope,
@@ -387,13 +530,13 @@ def standardize(values: Sequence[float]) -> tuple[float, ...]:
             exactly at a mean that means nothing.
     """
 
-    deviation = standard_deviation(values)
+    deviation = standard_deviation(values)  # refuses nan and inf
     if deviation == 0.0:
         raise AlphaLabValidationError(
             f"Cannot standardize {len(values)} identical values: the series has no "
             "dispersion, so a z-score has no scale."
         )
-    average = sum(values) / len(values)
+    average = _average(values)
     return tuple((value - average) / deviation for value in values)
 
 

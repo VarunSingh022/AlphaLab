@@ -21,17 +21,16 @@ behaves as a value. The timing test is a coarse backstop with a wide tolerance
 to police constant factors.
 """
 
-import gc
-import time
 from decimal import Decimal
 
-from alphalab.common.persistent_map import PersistentMap, PersistentSet
+from alphalab.common.persistent_map import _REBASE_SLACK, PersistentMap, PersistentSet
 from alphalab.core.enums import OrderStatus, OrderType, Side
 from alphalab.oms.book import OrderBook
 from alphalab.oms.engine import OMSEngine
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order
 from alphalab.oms.state import OMSState
+from tests.regression._timing import CLOCK, timings
 
 # Ratio of the two workload sizes used by the timing test.
 SCALE = 4
@@ -66,28 +65,25 @@ def _order(order_id: OrderId, asset: str = "AAPL", strategy: str = "BENCH") -> O
 
 
 def _time_order_lifecycles(count: int) -> float:
-    """Time one submit/accept/fill run, with the cyclic collector paused.
+    """Time one submit/accept/fill run; :func:`timings` pauses the cyclic collector.
 
     Orders, events and states are all container objects, so a run keeps a large
     live heap. Left on, the collector's walks over that heap dominate the
     timing and the growth ratio stops measuring the data structure at all --
     it has been observed both well below and well above linear on the same
-    build. Pausing it is what makes this backstop mean something.
+    build. Pausing it is what makes this backstop mean something; the shared
+    method (tests/regression/_timing.py) does so for every guard.
     """
 
     orders = [_order(OrderId.generate()) for _ in range(count)]
     state = OMSState()
-    gc.disable()
-    try:
-        start = time.perf_counter()
-        for order in orders:
-            state = OMSEngine.submit(state, order, 0.0)
-        for order in orders:
-            state = OMSEngine.accept(state, order.order_id, 1.0)
-            state = OMSEngine.fill(state, order.order_id, Decimal("100.0"), Decimal("150.0"), 2.0)
-        return time.perf_counter() - start
-    finally:
-        gc.enable()
+    start = CLOCK()
+    for order in orders:
+        state = OMSEngine.submit(state, order, 0.0)
+    for order in orders:
+        state = OMSEngine.accept(state, order.order_id, 1.0)
+        state = OMSEngine.fill(state, order.order_id, Decimal("100.0"), Decimal("150.0"), 2.0)
+    return CLOCK() - start
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +137,12 @@ def test_lifecycle_transitions_do_not_copy_either_index() -> None:
         stores.add(id(state.active_orders._members._store))
         stores.add(id(state.completed_orders._members._store))
 
-    assert len(stores) == 3
+    # Each index writes in place and is rebased only once it holds more history
+    # than live entries (v3.10, PRF-002): at least _REBASE_SLACK writes apart, so
+    # 100 accept+fill transitions rebuild each index a bounded number of times,
+    # never once per transition.
+    writes_per_index = 2 * len(orders)
+    assert len(stores) <= 3 * (1 + writes_per_index // _REBASE_SLACK)
     assert len(state.completed_orders) == 100
     assert len(state.active_orders) == 0
 
@@ -155,7 +156,9 @@ def test_the_asset_index_is_not_rebuilt_per_order() -> None:
         state = OMSEngine.submit(state, _order(OrderId.generate()), 0.0)
         stores.add(id(state.orders._by_asset._store))
 
-    assert len(stores) == 1
+    # One hot key, rewritten 200 times: rebased at most once per _REBASE_SLACK
+    # writes (v3.10, PRF-002), never once per order.
+    assert len(stores) <= 1 + 200 // _REBASE_SLACK
     assert len(state.orders.orders_for_asset("AAPL")) == 200
 
 
@@ -256,8 +259,7 @@ def test_order_lifecycle_cost_grows_linearly_with_the_workload() -> None:
     # Warm up so import-time and first-call costs do not skew the small sample.
     _time_order_lifecycles(200)
 
-    small = min(_time_order_lifecycles(SMALL) for _ in range(2))
-    large = min(_time_order_lifecycles(LARGE) for _ in range(2))
+    small, large = timings(_time_order_lifecycles, SMALL, LARGE, rounds=3)
 
     assert large < LARGE_WORKLOAD_BUDGET_SECONDS, f"{LARGE} order lifecycles took {large:.2f}s"
     growth = large / max(small, 1e-6)

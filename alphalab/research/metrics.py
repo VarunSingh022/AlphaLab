@@ -1,4 +1,13 @@
-"""Deterministic mathematical operations for research metrics."""
+"""Deterministic mathematical operations for research metrics.
+
+These are the v1 research engine's metrics, and they assume a **daily** return
+series: annualization defaults to 252 periods, and :func:`calculate_sharpe`
+annualizes with 252 whatever it is given. The canonical run's analytics do not
+(:class:`~alphalab.analytics.report.PerformanceReport` records the periodicity
+it used, observed or declared). The v1 engine is consolidated into the one
+research authority in v3.12 (ledger RES-001, SCF-003); until then, pass the
+periods a year holds for anything but daily returns.
+"""
 
 import math
 from collections.abc import Sequence

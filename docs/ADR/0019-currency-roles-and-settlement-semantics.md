@@ -24,6 +24,11 @@ unchanged, including the three named roles, the exact comparison, and decision
 also closes a hole this decision left open: `RoutingConfig.currency` is a fifth
 currency site that decision 2 did not name and nothing checked.
 
+**Amended by ADR-0045 (v3.10.0).** A currency's minor unit is a property of
+the currency — ISO 4217's, or one the book declares for a currency ISO 4217
+does not list — not a two-decimal constant, and money is rounded once, at that
+unit, by whoever produces it. The three roles and the exact comparison stand.
+
 ---
 
 # Context

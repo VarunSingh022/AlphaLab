@@ -1,12 +1,12 @@
 """A WebSocket client, because a streaming venue is not a sequence of GETs.
 
 :mod:`alphalab.marketdata.transport` is request/response: one GET, one body,
-connection closed. Every market-data client in AlphaLab was built on it, and
-:meth:`~alphalab.marketdata.binance.client.binanceClient.subscribe` is a
-documented no-op as a result -- "this client polls REST endpoints, it does not
-stream". A subscription that yields nothing until asked is not a stream, and
-wrapping a polling loop in a class called ``Stream`` would be the same absence
-with a better name.
+connection closed. Every market-data client AlphaLab once shipped was built on
+it, and their ``subscribe`` was a documented no-op as a result -- "this client
+polls REST endpoints, it does not stream". A subscription that yields nothing
+until asked is not a stream, and wrapping a polling loop in a class called
+``Stream`` would be the same absence with a better name. (Those vendor clients
+were removed in v3.10, ledger BND-001; this transport is what remains.)
 
 This is the missing half: a connection that stays open and pushes. RFC 6455 over
 the standard library, and nothing else -- no dependency is added to a package
@@ -159,12 +159,28 @@ class WebSocketConnection:
     #: split across two polls must survive the gap.
     _fragments: list[bytes] = field(default_factory=list)
     _fragment_opcode: _Opcode = _Opcode.TEXT
+    #: Whether the socket has been closed. Separate from ``_closed`` because a
+    #: connection can end -- the peer hangs up, a write fails -- before anyone
+    #: calls :meth:`close`, and the socket must be released either way. Until
+    #: v3.10 those paths set ``_closed`` and left the socket open, and ``close``
+    #: then returned early, so every reconnect leaked a file descriptor until
+    #: garbage collection (ledger REL-001).
+    _released: bool = False
 
     @property
     def closed(self) -> bool:
         """Whether this connection has been closed, from either end."""
 
         return self._closed
+
+    def _release(self) -> None:
+        """End the connection and close its socket, exactly once."""
+
+        self._closed = True
+        if not self._released:
+            self._released = True
+            with suppress(OSError):
+                self._socket.close()
 
     # -- reading ---------------------------------------------------------
 
@@ -189,9 +205,10 @@ class WebSocketConnection:
                     continue
                 raise
             except OSError as exc:
+                self._release()
                 raise WebSocketError(f"Reading from {self.url} failed: {exc}") from exc
             if not chunk:
-                self._closed = True
+                self._release()
                 raise WebSocketError(
                     f"The peer at {self.url} closed the connection"
                     f"{' mid-frame' if self._buffer else ''}."
@@ -287,6 +304,7 @@ class WebSocketConnection:
                 # required -- there is nobody left to be polite to.
                 with suppress(WebSocketError):
                     self._send_frame(_Opcode.CLOSE, payload[:2])
+                self._release()
                 return None
 
             if opcode == _Opcode.CONTINUATION:
@@ -362,7 +380,7 @@ class WebSocketConnection:
         try:
             self._socket.sendall(bytes(header) + _mask(payload, key))
         except OSError as exc:
-            self._closed = True
+            self._release()
             raise WebSocketError(f"Writing to {self.url} failed: {exc}") from exc
 
     def send(self, message: str) -> None:
@@ -395,17 +413,14 @@ class WebSocketConnection:
         :meth:`messages` -- which is the point, because that thread is blocked.
         """
 
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            self._send_frame(_Opcode.CLOSE, struct.pack("!H", code))
-        except WebSocketError:
-            # Already gone. The socket still needs closing.
-            pass
-        finally:
-            with suppress(OSError):
-                self._socket.close()
+        if not self._closed:
+            self._closed = True
+            with suppress(WebSocketError):
+                # Already gone if this fails. The socket still needs closing.
+                self._send_frame(_Opcode.CLOSE, struct.pack("!H", code))
+        # Released whether or not the connection had already ended: a peer that
+        # hung up first leaves a socket that is still ours to close.
+        self._release()
 
 
 def connect_websocket(

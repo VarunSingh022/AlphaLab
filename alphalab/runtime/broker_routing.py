@@ -157,13 +157,20 @@ class RoutingConfig:
 
     Attributes:
         venue: Venue label recorded on execution reports.
-        currency: Currency execution reports are denominated in.
+        currency: Currency execution reports are denominated in. A venue fill
+            does not say, so this is what it settles in -- and a currency the
+            pipeline does not settle is refused, never converted.
         order_type: Order instruction used when routing. Defaults to ``MARKET``,
             matching what the execution path submits to the OMS.
+
+    ``venue`` and ``currency`` are required. Until v3.10 they defaulted to
+    ``"LIVE"`` and ``"USD"``, and every routing function took the whole
+    configuration as optional, so a venue fill could be labelled with a venue
+    nobody named and denominated in a currency nobody chose (ledger API-003).
     """
 
-    venue: str = "LIVE"
-    currency: str = "USD"
+    venue: str
+    currency: str
     order_type: OrderType = OrderType.MARKET
 
 
@@ -257,8 +264,8 @@ def route_order(
     oms_order: OMSOrder,
     timestamp: float,
     mapping: ExternalOrderMap | None = None,
-    config: RoutingConfig | None = None,
     *,
+    config: RoutingConfig,
     capability: CompatibilityReport | None = None,
 ) -> RoutingResult:
     """Send one accepted OMS order to the venue, or refuse to.
@@ -271,7 +278,7 @@ def route_order(
     v3.9 did, and changes nothing.
     """
 
-    routing = config if config is not None else RoutingConfig()
+    routing = config
     identities = mapping if mapping is not None else ExternalOrderMap()
     oms_order_id = str(oms_order.order_id.value)
 
@@ -535,7 +542,7 @@ def route_child_order(
 def execution_report_from_broker(
     execution: BrokerExecution,
     oms_order: OMSOrder,
-    config: RoutingConfig | None = None,
+    config: RoutingConfig,
 ) -> ExecutionReport:
     """Turn a venue fill into the execution report the portfolio consumes.
 
@@ -545,7 +552,7 @@ def execution_report_from_broker(
     is empty because a venue fill measures neither -- absent, not zero.
     """
 
-    routing = config if config is not None else RoutingConfig()
+    routing = config
     completes = execution.fill_quantity >= oms_order.remaining_quantity
 
     return ExecutionReport(
@@ -569,7 +576,7 @@ def apply_broker_execution(
     state: ExecutionPipelineState,
     oms_order: OMSOrder,
     execution: BrokerExecution,
-    config: RoutingConfig | None = None,
+    config: RoutingConfig,
     rates: FxRates = NO_RATES,
 ) -> tuple[ExecutionPipelineState, tuple[CoreFill, ...], tuple[CoreTrade, ...]]:
     """Apply a venue fill through the canonical execution path.

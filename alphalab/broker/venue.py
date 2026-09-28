@@ -66,7 +66,7 @@ ADR-0031.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final
 
@@ -117,9 +117,11 @@ class VenueConfig:
     """How this adapter addresses and retries at its venue.
 
     Attributes:
+        currency: Currency the venue denominates the account in, and the one
+            an account snapshot that names none is read in. Required: it
+            defaulted to ``"USD"`` until v3.10 (ledger API-003).
         broker_name: Label recorded on connection events and on
             :attr:`~alphalab.broker.state.BrokerState.broker_name`.
-        currency: Currency the venue denominates the account in.
         max_attempts: How many times one request may be sent before its failure
             is surfaced. Counts the first attempt, so ``1`` disables retrying.
             Only an unanswered request or a retryable status is ever repeated.
@@ -127,8 +129,8 @@ class VenueConfig:
             venue that infers it from the credentials.
     """
 
+    currency: str
     broker_name: str = "VENUE"
-    currency: str = "USD"
     max_attempts: int = 3
     account_id: str = ""
 
@@ -234,11 +236,12 @@ class RestVenueBroker:
         transport: The effectful seam. Any
             :class:`~alphalab.broker.transport.VenueTransport`; the real one is
             :class:`~alphalab.broker.transport.HttpVenueTransport`.
-        config: Naming, denomination and retry policy.
+        config: Naming, denomination and retry policy. Required since v3.10,
+            when :class:`VenueConfig`'s currency stopped defaulting to ``"USD"``.
     """
 
     transport: VenueTransport
-    config: VenueConfig = field(default_factory=VenueConfig)
+    config: VenueConfig
 
     # ------------------------------------------------------------------
     # Transport

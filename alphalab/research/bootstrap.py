@@ -17,7 +17,7 @@ class BootstrapReport:
 
 
 def bootstrap_statistics(
-    payload: ResearchPayload, iterations: int = 1000, seed: int = 42
+    payload: ResearchPayload, seed: int, iterations: int = 1000
 ) -> BootstrapReport:
     """Samples returns with replacement to build metric confidence intervals."""
     if not payload.returns:

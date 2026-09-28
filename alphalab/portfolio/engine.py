@@ -44,14 +44,17 @@ own since v2.7, so those two halves were already right; these two were the ones
 that were not. See ADR-0035.
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
+from typing import cast
 
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.arithmetic import in_accounting_context, require_finite
 from alphalab.common.ids import new_id
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.amounts import CurrencyAmounts
+from alphalab.portfolio.book import PositionBook
 from alphalab.portfolio.cash import CashLedger
 from alphalab.portfolio.events import (
     CashConverted,
@@ -67,7 +70,7 @@ from alphalab.portfolio.events import (
 from alphalab.portfolio.exceptions import InvalidTransactionError
 from alphalab.portfolio.fx import FxConversion, FxRates
 from alphalab.portfolio.ledger import TransactionLedger
-from alphalab.portfolio.money import ZERO_MONEY, notional, to_money, to_price, to_quantity
+from alphalab.portfolio.money import ZERO_MONEY, notional, to_money
 from alphalab.portfolio.position import Position
 from alphalab.portfolio.transaction import Transaction
 from alphalab.portfolio.types import TransactionType
@@ -88,11 +91,32 @@ class PortfolioState:
 
     account: Account
     cash: CashLedger = field(default_factory=CashLedger)
-    positions: Mapping[str, Position] = field(default_factory=dict)
+    positions: Mapping[str, Position] = field(default_factory=PositionBook)
     ledger: TransactionLedger = field(default_factory=TransactionLedger)
     events: AppendOnlyLog[PortfolioEvent] = field(default_factory=AppendOnlyLog)
     realized_pnl: CurrencyAmounts = field(default_factory=CurrencyAmounts)
     commission_paid: CurrencyAmounts = field(default_factory=CurrencyAmounts)
+    #: Assets whose position was last priced by a fill rather than by the market,
+    #: sorted. A fill marks the position at its execution price; the next
+    #: mark-to-market re-marks it at the market's.
+    #: :meth:`PortfolioEngine.mark_changed` re-marks these and the asset whose
+    #: price changed, and nothing else (PRF-001).
+    pending_marks: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        # Any mapping of positions is accepted, and kept as a PositionBook, so
+        # the totals every valuation reads are always the book's own (PRF-001).
+        if not isinstance(self.positions, PositionBook):
+            object.__setattr__(self, "positions", PositionBook(self.positions))
+        normalized = _pending(self.pending_marks)
+        if normalized != self.pending_marks:
+            object.__setattr__(self, "pending_marks", normalized)
+
+    @property
+    def book(self) -> PositionBook:
+        """``positions``, as the :class:`~alphalab.portfolio.book.PositionBook` it is kept as."""
+
+        return cast(PositionBook, self.positions)
 
     @property
     def settlement_currencies(self) -> tuple[str, ...]:
@@ -106,7 +130,7 @@ class PortfolioState:
         currencies = {
             currency for currency, amount in self.cash.balances.items() if amount != ZERO_MONEY
         }
-        currencies.update(position.currency for position in self.positions.values())
+        currencies.update(self.book.currencies)
         currencies.update(self.realized_pnl.currencies)
         currencies.update(self.commission_paid.currencies)
         return tuple(sorted(currencies))
@@ -114,10 +138,21 @@ class PortfolioState:
 
 class PortfolioEngine:
     @staticmethod
+    @in_accounting_context
     def apply_deposit(
         state: PortfolioState, amount: Decimal, currency: str, timestamp: float
     ) -> PortfolioState:
-        amount = to_money(amount)
+        """Credit ``amount`` of ``currency``, rounded once to its minor unit.
+
+        Raises:
+            InvalidTransactionError: If ``amount`` is not a finite positive
+                number, or rounds to nothing at the currency's minor unit. A
+                negative deposit is a withdrawal that skipped the funds check.
+            UnknownCurrencyUnitsError: If the account cannot say what the
+                currency's minor unit is.
+        """
+
+        amount = _positive_money(state, amount, currency, "A deposit")
         new_cash = state.cash.deposit(amount, currency)
         evt = CashDeposited(
             timestamp=timestamp,
@@ -141,10 +176,19 @@ class PortfolioEngine:
         )
 
     @staticmethod
+    @in_accounting_context
     def apply_withdrawal(
         state: PortfolioState, amount: Decimal, currency: str, timestamp: float
     ) -> PortfolioState:
-        amount = to_money(amount)
+        """Debit ``amount`` of ``currency``, rounded once to its minor unit.
+
+        Raises:
+            InvalidTransactionError: If ``amount`` is not a finite positive
+                number, or rounds to nothing at the currency's minor unit.
+            InsufficientFundsError: If the balance cannot cover it.
+        """
+
+        amount = _positive_money(state, amount, currency, "A withdrawal")
         new_cash = state.cash.withdraw(amount, currency)
         evt = CashWithdrawn(
             timestamp=timestamp,
@@ -168,6 +212,7 @@ class PortfolioEngine:
         )
 
     @staticmethod
+    @in_accounting_context
     def convert_cash(
         state: PortfolioState,
         amount: Decimal,
@@ -216,7 +261,7 @@ class PortfolioEngine:
                 ``timestamp``.
         """
 
-        if amount <= 0:
+        if not amount.is_finite() or amount <= 0:
             raise InvalidTransactionError(
                 f"A cash conversion moves a positive amount, got {amount}."
             )
@@ -227,10 +272,13 @@ class PortfolioEngine:
                 "rate for a pair no FxRates table may hold."
             )
 
-        amount = to_money(amount)
+        units = state.account.currency_units
+        amount = to_money(amount, from_currency, units)
         # Convert first: a refused rate must leave the ledger untouched rather
-        # than debit one side of a movement that never completes.
-        conversion = rates.convert(amount, from_currency, to_currency, timestamp)
+        # than debit one side of a movement that never completes. The credit is
+        # rounded to the *account's* unit for the currency it lands in, which is
+        # the unit that currency's cash balance is kept at.
+        conversion = rates.convert(amount, from_currency, to_currency, timestamp, units=units)
 
         cash = state.cash.withdraw(amount, from_currency)
         cash = cash.deposit(conversion.converted, to_currency)
@@ -280,6 +328,7 @@ class PortfolioEngine:
         )
 
     @staticmethod
+    @in_accounting_context
     def apply_fill(
         state: PortfolioState,
         asset_id: str,
@@ -305,9 +354,16 @@ class PortfolioEngine:
         detect. This is ADR-0019's rule -- a currency is named, never assumed --
         applied to the one entry point that had escaped it.
 
+        Prices and quantities are booked exactly as given; only money is
+        rounded, once, to the settlement currency's minor unit (see
+        :mod:`alphalab.portfolio.money`).
+
         Raises:
             InvalidTransactionError: If the price is not positive, the
-                commission is negative, or the quantity rounds to zero.
+                commission is negative, the quantity is zero, or any of the three
+                is not a finite number.
+            UnknownCurrencyUnitsError: If the account cannot say what the
+                settlement currency's minor unit is.
         """
 
         if not currency.strip():
@@ -317,43 +373,59 @@ class PortfolioEngine:
                 "accrues, and no currency can be assumed for it."
             )
 
+        for label, value in (("quantity", quantity), ("price", price), ("commission", commission)):
+            require_finite(value, f"A fill's {label}", exception_type=InvalidTransactionError)
         if price <= 0:
             raise InvalidTransactionError("A fill must have a positive price.")
         if commission < 0:
             raise InvalidTransactionError("A fill commission cannot be negative.")
-
-        # Round once, here, at the boundary. `quantity`, `price`, `trade_value`
-        # and `commission` are from now on exact at their declared precision, and
-        # both the cash movement and the position's cost basis are derived from
-        # these same values -- see alphalab.portfolio.money.
-        quantity = to_quantity(quantity)
-        price = to_price(price)
-        trade_value = notional(quantity, price)
-        commission = to_money(commission)
-
-        # Checked after rounding: a quantity below the supported share precision
-        # is not a tiny fill, it is zero shares, and applying it would fabricate
-        # a position event and a ledger entry for a trade that did not happen.
+        # A zero quantity is not a tiny fill; it is no fill, and applying it
+        # would fabricate a position event and a ledger entry for a trade that
+        # did not happen. Any non-zero quantity is booked exactly as reported.
         if quantity == 0:
             raise InvalidTransactionError("A fill must have a non-zero quantity.")
 
-        positions = dict(state.positions)
+        # Round money once, here, at the boundary. `trade_value` and
+        # `commission` are from now on exact at the settlement currency's minor
+        # unit, and both the cash movement and the position's cost basis are
+        # derived from these same values -- see alphalab.portfolio.money.
+        units = state.account.currency_units
+        minor_units = units.minor_units(currency)
+        trade_value = notional(quantity, price, currency, units)
+        commission = to_money(commission, currency, units)
+
+        positions = state.book
         pos = positions.get(
             asset_id,
-            Position(asset_id, Decimal("0"), Decimal("0"), price, ZERO_MONEY, currency, timestamp),
+            Position(
+                asset_id,
+                Decimal("0"),
+                Decimal("0"),
+                price,
+                ZERO_MONEY,
+                currency,
+                timestamp,
+                minor_units=minor_units,
+            ),
         )
+        if pos.currency != currency:
+            raise InvalidTransactionError(
+                f"{asset_id} is held in {pos.currency} and this fill settles in {currency}. "
+                "One position has one currency; a fill in another is a different instrument "
+                "or a mislabelled report, and booking it would mix two currencies in one basis."
+            )
 
         is_opening = pos.quantity == 0
 
         new_pos, pnl = pos.apply_fill(quantity, price, timestamp)
 
         if new_pos.quantity == 0:
-            positions.pop(asset_id, None)
+            positions = positions.delete(asset_id)
             evt: PortfolioEvent = PositionClosed(
                 timestamp, state.account.account_id, asset_id, price, pnl
             )
         else:
-            positions[asset_id] = new_pos
+            positions = positions.set(asset_id, new_pos)
             if is_opening:
                 evt = PositionOpened(timestamp, state.account.account_id, asset_id, quantity, price)
             elif (pos.quantity > 0 and quantity > 0) or (pos.quantity < 0 and quantity < 0):
@@ -393,6 +465,13 @@ class PortfolioEngine:
         return replace(
             state,
             positions=positions,
+            # A position a fill leaves open is priced at the fill until the market
+            # prices it again; a closed one needs no mark at all.
+            pending_marks=(
+                _pending(state.pending_marks, add=(asset_id,))
+                if asset_id in positions
+                else _pending(state.pending_marks, remove=(asset_id,))
+            ),
             cash=new_cash,
             ledger=state.ledger.append(tx),
             events=state.events.append(evt),
@@ -403,6 +482,7 @@ class PortfolioEngine:
         )
 
     @staticmethod
+    @in_accounting_context
     def update_market_prices(
         state: PortfolioState, prices: Mapping[str, Decimal], timestamp: float
     ) -> PortfolioState:
@@ -421,16 +501,104 @@ class PortfolioEngine:
         # Iterating held positions rather than `prices` keeps the cost bound to
         # the size of the book, not to how many assets have ever been quoted.
         marked: dict[str, Decimal] = {}
-        positions = dict(state.positions)
+        positions = state.book
         for asset, position in state.positions.items():
             price = prices.get(asset)
-            if price is None or price <= 0:
+            if price is None or not price.is_finite() or price <= 0:
                 continue
-            positions[asset] = position.update_market_price(price, timestamp)
+            positions = positions.set(asset, position.update_market_price(price, timestamp))
             marked[asset] = price
 
         if not marked:
             return state
 
         evt = MarketValueUpdated(timestamp, state.account.account_id, marked)
-        return replace(state, positions=positions, events=state.events.append(evt))
+        return replace(
+            state,
+            positions=positions,
+            pending_marks=_pending(state.pending_marks, remove=marked),
+            events=state.events.append(evt),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def mark_changed(
+        state: PortfolioState,
+        prices: Mapping[str, Decimal],
+        timestamp: float,
+        changed: str | None,
+    ) -> PortfolioState:
+        """Mark to market after at most one price changed: ``changed``'s.
+
+        ``prices`` is every current price, ``changed`` the one asset whose
+        price is new since the book was last marked -- what one market event
+        does -- or ``None`` when no price changed. The result is the book
+        :meth:`update_market_prices` would produce from the same ``prices``,
+        at a cost that does not grow with the book: it re-marks ``changed`` and
+        every position a fill priced since (:attr:`PortfolioState.pending_marks`),
+        and no other. Every other held position already carries its price in
+        ``prices``, and re-marking it would change nothing but its
+        ``last_updated`` -- which therefore stays the instant its own price was
+        last observed rather than the instant any asset last ticked, and the
+        ``MarketValueUpdated`` event lists the marks that changed rather than
+        every held position (ledger PRF-001).
+
+        The equivalence rests on the caller's word that no other price changed.
+        :class:`~alphalab.runtime.execution_pipeline.ExecutionPipeline`, which
+        moves one price per market event, is the caller it was built for; a
+        caller that moves several prices at once uses
+        :meth:`update_market_prices`.
+        """
+
+        assets = (
+            state.pending_marks
+            if changed is None
+            else _pending(state.pending_marks, add=(changed,))
+        )
+        if not assets:
+            return state
+
+        marked: dict[str, Decimal] = {}
+        positions = state.book
+        for asset in assets:
+            position = positions.get(asset)
+            price = prices.get(asset)
+            if position is None or price is None or not price.is_finite() or price <= 0:
+                continue
+            positions = positions.set(asset, position.update_market_price(price, timestamp))
+            marked[asset] = price
+
+        if not marked:
+            return state
+
+        evt = MarketValueUpdated(timestamp, state.account.account_id, marked)
+        return replace(
+            state,
+            positions=positions,
+            pending_marks=_pending(state.pending_marks, remove=marked),
+            events=state.events.append(evt),
+        )
+
+
+def _pending(
+    pending: tuple[str, ...], add: Iterable[str] = (), remove: Iterable[str] = ()
+) -> tuple[str, ...]:
+    """``pending`` with ``add`` included and ``remove`` left out, sorted and unique."""
+
+    removed = set(remove)
+    return tuple(sorted({*pending, *add} - removed))
+
+
+def _positive_money(state: PortfolioState, amount: Decimal, currency: str, what: str) -> Decimal:
+    """``amount`` as money in ``currency``, refusing what is not a real movement."""
+
+    if not currency.strip():
+        raise InvalidTransactionError(f"{what} must name the currency it is in.")
+    require_finite(amount, f"{what}'s amount", exception_type=InvalidTransactionError)
+    money = to_money(amount, currency, state.account.currency_units)
+    if money <= 0:
+        raise InvalidTransactionError(
+            f"{what} moves a positive amount of money, got {amount} {currency}"
+            + (f", which is {money} at the currency's minor unit." if money != amount else ".")
+        )
+    return money

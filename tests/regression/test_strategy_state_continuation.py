@@ -44,6 +44,7 @@ from alphalab.execution.policy import ImmediateFill
 from alphalab.market.record import MarketRecord
 from alphalab.persistence import deserialize, serialize
 from alphalab.persistence.exceptions import SerializationError, StateDecodeError
+from alphalab.persistence.upgrade import SchemaUpgradeWarning
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState
 from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA, RunObjects
 from alphalab.runtime.run_snapshot import capture as capture_run
@@ -497,8 +498,8 @@ def test_the_session_round_trips_and_the_session_schema_did_not_move() -> None:
 
     payload = dict(deserialize(serialize(capture_run(state))))
 
-    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 1
-    assert payload["pipeline"]["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 3
+    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 2
+    assert payload["pipeline"]["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 4
     assert restore_run(run_from_primitives(payload), _objects(config, strategy)) == state
 
 
@@ -523,8 +524,8 @@ def test_the_backtest_round_trips_and_the_backtest_schema_did_not_move() -> None
         fill_policy=config.fill_policy,
     )
 
-    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 1
-    assert payload["pipeline"]["schema_version"] == 3
+    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 2
+    assert payload["pipeline"]["schema_version"] == 4
     assert restore_run(run_from_primitives(payload), objects) == state
 
 
@@ -633,21 +634,36 @@ def test_serialization_is_deterministic_across_a_re_capture() -> None:
 
 
 def _schema_one_payload(instance_type: str = "UndeclaredCountingStrategy") -> dict[str, Any]:
-    """A payload shaped exactly as v2.9 wrote one: version 1, no state field."""
+    """A payload shaped as v2.9 wrote one: version 1, no state field.
+
+    Its daily loss limit is an amount with no trading day, as every limit before
+    v3.10 was -- so reading it warns that the limit was not carried.
+    """
 
     payload = _pipeline_payload(_uninterrupted(factory=UndeclaredCountingStrategy))
     payload["schema_version"] = 1
+    daily_loss = payload["config"]["risk_limits"]["daily_loss"]
+    payload["config"]["risk_limits"]["daily_loss"] = {
+        "max_daily_loss": daily_loss["max_daily_loss"]
+    }
     for record in payload["strategy"]:
         del record["state"]
         record["instance_type"] = instance_type
     return payload
 
 
+def _read_legacy(payload: dict[str, Any]) -> Any:
+    """Read a pre-v3.10 payload, which drops its daily loss limit and says so."""
+
+    with pytest.warns(SchemaUpgradeWarning, match="daily_loss"):
+        return pipeline_from_primitives(payload)
+
+
 def test_a_declaring_strategy_against_a_schema_one_payload_is_refused() -> None:
     objects = _objects(_config(), CountingStrategy(STRATEGY_ID, ASSET_ID)).pipeline
 
     with pytest.raises(StateDecodeError, match=re.escape(STRATEGY_ID)) as excinfo:
-        restore_pipeline(pipeline_from_primitives(_schema_one_payload("CountingStrategy")), objects)
+        restore_pipeline(_read_legacy(_schema_one_payload("CountingStrategy")), objects)
 
     assert "schema version 1" in str(excinfo.value)
 
@@ -705,7 +721,7 @@ def test_a_schema_one_payload_carrying_state_is_refused() -> None:
     payload["schema_version"] = 1
 
     with pytest.raises(StateDecodeError, match="carries 'state'"):
-        pipeline_from_primitives(payload)
+        _read_legacy(payload)
 
 
 def test_a_strategy_decode_failure_refuses_the_whole_restore_and_chains() -> None:
@@ -746,7 +762,7 @@ def test_one_bad_strategy_refuses_the_whole_restore_and_not_just_itself() -> Non
         restore_pipeline(pipeline_from_primitives(payload), objects)
 
 
-@pytest.mark.parametrize("version", [4, 99, 0, -1])
+@pytest.mark.parametrize("version", [5, 99, 0, -1])
 def test_an_unreadable_pipeline_version_is_refused(version: int) -> None:
     payload = _pipeline_payload(_uninterrupted())
     payload["schema_version"] = version
@@ -763,27 +779,28 @@ def test_a_missing_pipeline_version_is_still_refused_with_no_legacy_path() -> No
         pipeline_from_primitives(payload)
 
 
-def test_the_readable_versions_are_exactly_one_two_and_three() -> None:
-    """Version 3 is the current one; 1 and 2 stay readable because neither is
-    missing anything -- see ``READABLE_PIPELINE_SCHEMAS`` for why a default is
-    allowed here and refused by the portfolio decoder.
+def test_the_readable_versions_are_every_one_ever_written() -> None:
+    """Version 4 is the current one (v3.10); 1, 2 and 3 are upgraded by
+    ``PIPELINE_SCHEMA_HISTORY`` because none is missing anything it cannot state
+    -- see that history for why a default is allowed here and refused by the
+    portfolio decoder.
     """
 
-    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3)
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3
+    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4)
+    assert PIPELINE_SNAPSHOT_SCHEMA == 4
 
 
 def test_a_schema_one_payload_restores_a_non_declaring_strategy() -> None:
     """v2.9 payloads stay readable. That is the OMS precedent, not the portfolio's."""
 
     objects = _objects(_config(), UndeclaredCountingStrategy(STRATEGY_ID, ASSET_ID)).pipeline
-    restored = restore_pipeline(pipeline_from_primitives(_schema_one_payload()), objects)
+    restored = restore_pipeline(_read_legacy(_schema_one_payload()), objects)
 
     assert restored.strategy.strategies[STRATEGY_ID].status.name == "RUNNING"
 
 
 def test_a_schema_one_payload_records_that_nobody_was_asked() -> None:
-    snapshot = pipeline_from_primitives(_schema_one_payload())
+    snapshot = _read_legacy(_schema_one_payload())
 
     assert snapshot.strategy[0].state is NOT_ASKED
 

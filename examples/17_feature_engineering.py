@@ -126,7 +126,13 @@ def main() -> None:
         ),
         FeatureDefinition("rev_10", FeatureKind.MEAN_REVERSION, FeatureField.CLOSE, window=10),
         FeatureDefinition("z_20", FeatureKind.ROLLING_ZSCORE, FeatureField.CLOSE, window=20),
-        FeatureDefinition("vol_20", FeatureKind.REALIZED_VOLATILITY, FeatureField.CLOSE, window=20),
+        FeatureDefinition(
+            "vol_20",
+            FeatureKind.REALIZED_VOLATILITY,
+            FeatureField.CLOSE,
+            window=20,
+            parameters={"periods_per_year": 252.0},
+        ),
         FeatureDefinition("ema_20", FeatureKind.EXPONENTIAL_MEAN, FeatureField.CLOSE, window=20),
         FeatureDefinition(
             "regime",

@@ -49,6 +49,7 @@ from alphalab.data import (
     TimeFrequency,
     raw_source_from_bytes,
 )
+from alphalab.data.time import BarStamp
 from alphalab.factor_library import (
     FeatureDefinition,
     FeatureField,
@@ -146,6 +147,7 @@ def dataset() -> Dataset:
             SourceKind.IN_MEMORY, "v32-integration", b"", RETRIEVED_AT, "text/csv", "utf-8"
         ),
         frequency=TimeFrequency.DAILY,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=POLICY,
         price_basis=PriceBasis.RAW,

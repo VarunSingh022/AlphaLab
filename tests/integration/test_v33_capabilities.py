@@ -145,32 +145,29 @@ def test_every_fill_carries_the_sector_frozen_at_execution_time() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_commission_the_portfolio_paid_is_the_reports_cash_costs_rounded_once() -> None:
-    """No execution cost is invented, dropped or double-counted on the way in.
+def test_the_commission_the_portfolio_paid_is_exactly_the_reports_cash_costs() -> None:
+    """No execution cost is invented, dropped, double-counted or rounded twice.
 
-    Not *equal* to the reports' figures, but equal to them rounded at the one
-    rounding site. ``PercentageCommission`` quantizes to four places, the
-    portfolio books money at two, and :func:`~alphalab.portfolio.money.to_money`
-    is where that happens -- once, per fill, which is invariant 3 of
-    ``nowandfuture.md`` section 14. Asserting exact equality across that
-    boundary would be asserting that the rounding does not happen; asserting
-    this is what shows nothing else does.
+    Until v3.10 this asserted equality only *after* rounding the reports'
+    figures, because ``PercentageCommission`` quantized to four places and the
+    portfolio booked money at two -- two roundings of one charge, with the
+    second hidden in the portfolio. v3.10 rounds every cash cost once, to the
+    settlement currency's minor unit, where the cost model produces it
+    (:meth:`~alphalab.execution.costs.ExecutionCostModel.quote`), so the report
+    carries the amount the portfolio books and the two are equal outright.
     """
-
-    from alphalab.portfolio.money import to_money
 
     _, result = run_backtest()
     pipeline = result.state
 
-    charged = sum(
-        (to_money(report.commission) for report in pipeline.execution.history), Decimal("0")
-    )
+    charged = sum((report.commission for report in pipeline.execution.history), Decimal("0"))
     booked = sum(pipeline.portfolio.commission_paid.values(), Decimal("0"))
 
     assert charged == booked
-    # And the residue really is sub-cent per fill, not a lost component.
-    raw = sum((report.commission for report in pipeline.execution.history), Decimal("0"))
-    assert abs(raw - booked) < Decimal("0.01") * len(pipeline.execution.history)
+    assert all(
+        report.commission == report.commission.quantize(Decimal("0.01"))
+        for report in pipeline.execution.history
+    )
 
 
 def test_the_itemization_recomputes_exactly_from_the_run_s_own_configuration() -> None:

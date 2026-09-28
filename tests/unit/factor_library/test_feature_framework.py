@@ -346,7 +346,13 @@ def test_realized_volatility_annualizes_the_window_returns() -> None:
 
     closes = [100.0, 110.0, 99.0, 108.9]
     series = _series(
-        FeatureDefinition("v", FeatureKind.REALIZED_VOLATILITY, FeatureField.CLOSE, window=3),
+        FeatureDefinition(
+            "v",
+            FeatureKind.REALIZED_VOLATILITY,
+            FeatureField.CLOSE,
+            window=3,
+            parameters={"periods_per_year": 252.0},
+        ),
         closes,
     )
     window_returns = [110.0 / 100.0 - 1.0, 99.0 / 110.0 - 1.0, 108.9 / 99.0 - 1.0]
@@ -355,6 +361,13 @@ def test_realized_volatility_annualizes_the_window_returns() -> None:
     assert series.values[0] == pytest.approx(
         math.sqrt(sample_variance(window_returns)) * math.sqrt(252.0)
     )
+
+
+def test_realized_volatility_names_what_a_year_is() -> None:
+    """API-003: 252 was assumed until v3.10, which read minute bars as days."""
+
+    with pytest.raises(FactorInputError, match="periods_per_year"):
+        FeatureDefinition("v", FeatureKind.REALIZED_VOLATILITY, FeatureField.CLOSE, window=3)
 
 
 def test_exponential_mean_is_seeded_with_the_first_windows_simple_mean() -> None:

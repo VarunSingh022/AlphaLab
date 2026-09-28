@@ -49,11 +49,12 @@ def test_there_is_one_timezone_resolution_site() -> None:
 
 
 def test_there_is_one_exchange_calendar_type() -> None:
-    """``MarketCalendar`` answers sessions; ``TradingCalendar`` answers job firing.
+    """``MarketCalendar`` is the one calendar.
 
-    Pinned as a pair in ``test_shared_names_stay_distinct.py``. What this adds
-    is that v3.4 created no third: the new packages reach a calendar through a
-    structural protocol instead of defining one.
+    The scheduler's ``TradingCalendar`` was removed in v3.10 (ledger DAT-006;
+    ``test_shared_names_stay_distinct.py``). What this adds is that v3.4
+    created no other: the new packages reach a calendar through a structural
+    protocol instead of defining one.
     """
 
     from alphalab.conventions.settlement import TradingDayCalendar
@@ -179,44 +180,26 @@ CONVENTION_FIELDS = frozenset(
         "settlement",
         "style",
         "exercise_style",
+        # v3.10 (ledger API-003): annualization is a convention, and so is the
+        # interval a bar covers.
+        "periods_per_year",
+        "timeframe",
     }
 )
 
 #: Each default that stays, with the reason a wrong value cannot produce a number.
 #:
-#: The three ``currency`` entries are the shape ``test_no_silent_financial_defaults.py``
-#: already permits for ``NAVCalculator.calculate``: each flows into a seam that
-#: **refuses** a mismatch rather than converting it. ADR-0028's two seams, and
-#: ``test_currency_authority.py`` / ``test_settlement_multi_currency.py`` pin them.
-#: They are pipeline and venue configuration rather than instrument conventions,
-#: which is what this sweep is about, and they are listed rather than excluded so
-#: that the distinction is a decision a reader can check.
+#: Until v3.10 six ``currency`` fields were listed here too -- ``RoutingConfig``,
+#: ``VenueConfig``, ``StudioConfig``, ``ExecutionPipelineConfig``,
+#: ``NormalizationPolicy`` and ``TradingEnvConfig`` -- each defaulted to
+#: ``"USD"`` and permitted because it reached a seam that refuses a mismatch.
+#: The pre-v4 audit (ledger API-003) removed all six instead: a refusal is a
+#: better outcome than a wrong number, and naming the currency is better than
+#: either. None is listed now, and ``test_the_currency_roles_are_named_not_defaulted``
+#: holds each to it.
 PERMITTED_FIELD_DEFAULTS: dict[tuple[str, str], str] = {
     ("FutureSpec", "contract_month"): "None means not supplied, which is the honest state",
     ("CryptoInstrument", "expiry"): "None, and refused as non-None for SPOT and PERPETUAL",
-    ("RoutingConfig", "currency"): (
-        "reaches ExecutionReport.currency, which _require_settlement_currency refuses "
-        "when it is not one the pipeline settles"
-    ),
-    ("VenueConfig", "currency"): (
-        "a venue connection label; a report in an unsettled currency is refused at the same seam"
-    ),
-    ("StudioConfig", "default_currency"): (
-        "alphalab.studio is a standalone package with no in-repo consumer and reaches "
-        "no accounting path"
-    ),
-    ("ExecutionPipelineConfig", "currency"): (
-        "the pipeline's settlement currency; an instrument or a report in a currency it "
-        "does not settle is refused at ADR-0028's two seams, never converted"
-    ),
-    ("NormalizationPolicy", "currency"): (
-        "ADR-0019's fourth currency role: what a quote is *labelled* with, and never "
-        "accounting. It reaches no ledger, so a wrong value cannot produce a figure"
-    ),
-    ("TradingEnvConfig", "currency"): (
-        "alphalab.reinforcement_learning is a standalone package with no in-repo "
-        "consumer and no accounting path"
-    ),
 }
 
 
@@ -248,40 +231,55 @@ def test_no_dataclass_field_defaults_a_market_convention() -> None:
     )
 
 
-def test_the_permitted_currency_defaults_refuse_rather_than_convert() -> None:
-    """The exemption is earned, not asserted -- the seams must actually refuse.
+def test_the_currency_roles_are_named_not_defaulted() -> None:
+    """The six ``"USD"`` defaults are gone (ledger API-003), and each role still refuses.
 
-    Each permitted ``currency`` default is one that reaches a refusal. The two
-    on the execution path are exercised here against the real pipeline;
-    ``test_settlement_multi_currency.py`` covers the same seams in full.
+    ``ExecutionPipelineConfig.currency`` may be left empty, and then *is* the
+    account's base currency -- a currency the caller named, once, on the
+    account. Every other role must be named where it is configured.
     """
 
+    from dataclasses import fields, replace
+
+    from alphalab.broker.venue import VenueConfig
+    from alphalab.market.bar import Bar
     from alphalab.market.normalization import NormalizationPolicy
+    from alphalab.reinforcement_learning.environment import TradingEnvConfig
     from alphalab.runtime.broker_routing import RoutingConfig
     from alphalab.runtime.execution_pipeline import (
         ExecutionPipelineConfig,
         _require_settlement_currency,
     )
+    from alphalab.studio.config import StudioConfig
+    from tests.integration.harness import pipeline_config
 
-    # The defaults exist, and each one names a role rather than an amount.
-    assert RoutingConfig().currency == "USD"
-    assert inspect.signature(ExecutionPipelineConfig).parameters["currency"].default == "USD"
+    for owner, parameter in (
+        (RoutingConfig, "venue"),
+        (RoutingConfig, "currency"),
+        (VenueConfig, "currency"),
+        (TradingEnvConfig, "currency"),
+    ):
+        declared = inspect.signature(owner).parameters[parameter]
+        assert declared.default is inspect.Parameter.empty, f"{owner.__name__}.{parameter}"
+    assert "default_currency" not in {field.name for field in fields(StudioConfig)}
+
+    # The pipeline's currency is its account's unless it names one.
+    configured = pipeline_config("S")
+    euro = replace(
+        configured, account=replace(configured.account, base_currency="EUR"), currency=""
+    )
+    assert inspect.signature(ExecutionPipelineConfig).parameters["currency"].default == ""
+    assert euro.currency == "EUR"
 
     # The pipeline refuses a report it cannot settle rather than converting it.
-    assert callable(_require_settlement_currency)
     source = inspect.getsource(_require_settlement_currency)
     assert "raise" in source
     assert "convert" not in source
 
-    # And the market-data role reaches no ledger: it labels a quote.
-    labelled = NormalizationPolicy()
-    assert labelled.currency == "USD"
-    assert "currency" not in {
-        field.name
-        for field in __import__("dataclasses").fields(
-            __import__("alphalab.market.bar", fromlist=["Bar"]).Bar
-        )
-    }
+    # The market-data role labels a quote, reaches no ledger, and is not guessed.
+    assert NormalizationPolicy().currency is None
+    assert NormalizationPolicy().timeframe is None
+    assert "currency" not in {field.name for field in fields(Bar)}
 
 
 def test_the_four_that_were_found_stay_required() -> None:

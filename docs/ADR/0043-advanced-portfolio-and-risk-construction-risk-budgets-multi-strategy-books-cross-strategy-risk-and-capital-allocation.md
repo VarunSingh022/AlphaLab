@@ -29,6 +29,12 @@ measurement in `analytics` and "absent is not zero", **ADR-0041** for
 fingerprints, and **ADR-0042** for the research-settings precedent the lifecycle
 integration follows.
 
+**Amended by ADR-0045 (v3.10.0).** The multi-strategy book and valuation
+identities render every amount by value (`canonical_text`), under the v2
+schemes `alphalab.multi_strategy_book.v2` and `alphalab.book_valuation.v2`:
+once money is rounded only by its producer, two books that compare equal must
+not have two identities (ledger DET-005). Nothing else here changes.
+
 ---
 
 # Context

@@ -102,13 +102,14 @@ from alphalab.persistence.decode import (
     as_sequence,
     as_str,
     require,
-    require_schema_version,
 )
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory
 from alphalab.portfolio.exceptions import PortfolioError
 from alphalab.portfolio.fx import FxRate, FxRates
 
 __all__ = [
+    "FX_FEED_SCHEMA_HISTORY",
     "FX_FEED_SNAPSHOT_SCHEMA",
     "ConflictingQuoteError",
     "FxFeed",
@@ -538,6 +539,11 @@ def _decision_from(payload: Mapping[str, Any], where: str) -> FxFeedDecision:
     )
 
 
+#: How every fx_feed payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`.
+FX_FEED_SCHEMA_HISTORY = SchemaHistory(_SUBSYSTEM, FX_FEED_SNAPSHOT_SCHEMA)
+
+
 def from_primitives(payload: Mapping[str, Any]) -> FxFeedSnapshot:
     """Decode a deserialized payload back into a typed snapshot.
 
@@ -550,7 +556,7 @@ def from_primitives(payload: Mapping[str, Any]) -> FxFeedSnapshot:
     if not isinstance(payload, Mapping):
         raise StateDecodeError("An fx_feed snapshot is not an object.")
 
-    require_schema_version(payload, FX_FEED_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    payload = FX_FEED_SCHEMA_HISTORY.upgrade(payload)
 
     max_age = payload.get("max_age_seconds")
     last_quote = payload.get("last_quote_at")

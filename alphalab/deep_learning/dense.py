@@ -52,7 +52,7 @@ class DenseGradients:
 
 
 def create_dense_layer(
-    n_inputs: int, n_outputs: int, activation: ActivationType, seed: int = 42
+    n_inputs: int, n_outputs: int, activation: ActivationType, seed: int
 ) -> DenseLayer:
     """Creates a DenseLayer with deterministic, seeded weight initialization.
 

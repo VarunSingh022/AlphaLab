@@ -124,7 +124,7 @@ the run                   (alphalab.runtime.run.RunEngine, v2.14)
   driven by TradingSession | BacktestEngine | ReplayBacktest | LiveSession
 
 market data in            (alphalab.market.provider v2.5, alphalab.market.stream v2.15)
-  provider adapter → normalization → MarketDataSource → the run
+  host provider → wire records → normalization (BarStamp, v3.10) → MarketDataSource → the run
 
 orders out, fills back    (alphalab.runtime.broker_routing v2.3, LiveSession v2.16)
   OMS order → BrokerProtocol → venue → ExecutionPipeline.apply_execution_report
@@ -321,13 +321,26 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.9.0
+v3.10.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.10.0 — the first pre-v4 release.** A correctness release rather than a
+capability one, planned by the pre-v4 audit (`audit/PRE_V4_MASTER_AUDIT.md`; the
+plan of record is `audit/PRE_V4_COMPLETION_LEDGER.yaml`). Risk is judged on one
+projection of the post-trade book and never refuses a reduction; money is exact
+at each currency's minor unit, with prices and quantities kept exact; analytics
+take returns per instant and state their annualization; a simulated order can
+fill at its asset's next event, and every run records its execution
+assumptions and its strategy failures; the canonical path is linear in the
+universe; a bar is stamped at the end of its interval; snapshots upgrade from
+older schemas through explicit steps. `alphalab.feed`, `alphalab.live`, the
+vendor market-data clients and the last `"USD"` configuration defaults are
+removed. See `ADR/0045` and the CHANGELOG's migration table.
 
 **v3.9.0 — the universal execution contract.** The ninth capability release
 on the frozen architecture; no package and no package edge is added. What a

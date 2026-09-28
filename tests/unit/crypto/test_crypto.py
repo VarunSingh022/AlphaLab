@@ -18,9 +18,7 @@ from alphalab.crypto import (
     crypto_symbol,
     mark_to_market,
     open_crypto_position,
-    parse_exchange_symbol,
     to_canonical_symbol,
-    to_exchange_symbol,
 )
 from alphalab.portfolio.position import Position
 from alphalab.portfolio.types import PositionSide
@@ -144,11 +142,29 @@ def test_open_crypto_position_returns_unmodified_portfolio_position() -> None:
 
 def test_crypto_position_supports_apply_fill_from_portfolio_package() -> None:
     instrument = _perpetual()
-    position = open_crypto_position(instrument, Decimal("1"), Decimal("50000.00"), timestamp=1000.0)
+    position = open_crypto_position(
+        instrument, Decimal("1"), Decimal("50000.00"), timestamp=1000.0, minor_units=6
+    )
     updated, realized = position.apply_fill(Decimal("-1"), Decimal("52000.00"), timestamp=2000.0)
 
     assert updated.quantity == Decimal("0")
     assert realized == Decimal("2000.00")
+
+
+def test_a_settlement_asset_outside_iso_4217_states_its_minor_units() -> None:
+    """v3.10: USDT has no ISO minor unit, so money read off an undeclared one refuses."""
+
+    from alphalab.common.currency_units import UnknownCurrencyUnitsError
+
+    instrument = _perpetual()
+    undeclared = open_crypto_position(instrument, Decimal("1"), Decimal("50000"), 1000.0)
+    with pytest.raises(UnknownCurrencyUnitsError, match="USDT"):
+        _ = undeclared.market_value
+
+    declared = open_crypto_position(
+        instrument, Decimal("0.1234567"), Decimal("50000"), 1000.0, minor_units=6
+    )
+    assert declared.market_value == Decimal("6172.835000")
 
 
 def test_short_crypto_position_quantity_is_negative() -> None:
@@ -160,7 +176,7 @@ def test_short_crypto_position_quantity_is_negative() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Symbol normalization: verified round-trips, including the Kraken XBT quirk
+# The canonical pair symbol (venue spellings are the host's: ledger BND-004)
 # --------------------------------------------------------------------------- #
 
 
@@ -168,60 +184,10 @@ def test_to_canonical_symbol_format() -> None:
     assert to_canonical_symbol("btc", "usdt") == "BTC-USDT"
 
 
-def test_binance_symbol_has_no_separator() -> None:
-    assert to_exchange_symbol("binance", "BTC", "USDT") == "BTCUSDT"
+def test_the_package_formats_no_exchange_symbol() -> None:
+    import alphalab.crypto as crypto
 
-
-def test_coinbase_symbol_is_hyphenated() -> None:
-    assert to_exchange_symbol("coinbase", "BTC", "USD") == "BTC-USD"
-
-
-def test_kraken_applies_xbt_alias_for_btc() -> None:
-    assert to_exchange_symbol("kraken", "BTC", "USD") == "XBTUSD"
-
-
-def test_kraken_does_not_alias_non_btc_assets() -> None:
-    assert to_exchange_symbol("kraken", "ETH", "USD") == "ETHUSD"
-
-
-def test_to_exchange_symbol_rejects_unknown_exchange() -> None:
-    with pytest.raises(CryptoInputError):
-        to_exchange_symbol("unknown_exchange", "BTC", "USDT")
-
-
-def test_binance_round_trip() -> None:
-    symbol = to_exchange_symbol("binance", "BTC", "USDT")
-    assert parse_exchange_symbol("binance", symbol) == ("BTC", "USDT")
-
-
-def test_coinbase_round_trip() -> None:
-    symbol = to_exchange_symbol("coinbase", "ETH", "USD")
-    assert parse_exchange_symbol("coinbase", symbol) == ("ETH", "USD")
-
-
-def test_kraken_round_trip_resolves_xbt_back_to_btc() -> None:
-    symbol = to_exchange_symbol("kraken", "BTC", "USD")
-    assert parse_exchange_symbol("kraken", symbol) == ("BTC", "USD")
-
-
-def test_parse_coinbase_symbol_requires_hyphen() -> None:
-    with pytest.raises(CryptoInputError):
-        parse_exchange_symbol("coinbase", "BTCUSD")
-
-
-def test_parse_binance_symbol_raises_on_unknown_quote_suffix() -> None:
-    with pytest.raises(CryptoInputError):
-        parse_exchange_symbol("binance", "BTCXYZ")
-
-
-def test_parse_exchange_symbol_rejects_unknown_exchange() -> None:
-    with pytest.raises(CryptoInputError):
-        parse_exchange_symbol("unknown_exchange", "BTCUSDT")
-
-
-def test_longest_quote_asset_suffix_wins() -> None:
-    """USDT must be matched before USD to avoid parsing "BTCUSDT" as base="BTCUS"."""
-    assert parse_exchange_symbol("binance", "BTCUSDT") == ("BTC", "USDT")
+    assert not {"to_exchange_symbol", "parse_exchange_symbol"} & set(dir(crypto))
 
 
 # --------------------------------------------------------------------------- #
@@ -323,7 +289,9 @@ def test_annualized_funding_rate_rejects_mixed_intervals() -> None:
 
 def test_mark_to_market_updates_price_and_returns_unrealized_pnl() -> None:
     instrument = _perpetual()
-    position = open_crypto_position(instrument, Decimal("1"), Decimal("50000.00"), timestamp=1000.0)
+    position = open_crypto_position(
+        instrument, Decimal("1"), Decimal("50000.00"), timestamp=1000.0, minor_units=6
+    )
 
     updated, pnl = mark_to_market(position, Decimal("52000.00"), timestamp=2000.0)
 
@@ -333,7 +301,9 @@ def test_mark_to_market_updates_price_and_returns_unrealized_pnl() -> None:
 
 def test_mark_to_market_does_not_mutate_input_position() -> None:
     instrument = _perpetual()
-    position = open_crypto_position(instrument, Decimal("1"), Decimal("50000.00"), timestamp=1000.0)
+    position = open_crypto_position(
+        instrument, Decimal("1"), Decimal("50000.00"), timestamp=1000.0, minor_units=6
+    )
     mark_to_market(position, Decimal("52000.00"), timestamp=2000.0)
     assert position.market_price == Decimal("50000.0000")
 

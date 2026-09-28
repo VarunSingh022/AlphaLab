@@ -20,7 +20,6 @@ Measured on the machine this was developed on: 1,000 rows in 7ms, 10,000 in
 from __future__ import annotations
 
 import inspect
-import time
 
 from alphalab.data import (
     CleaningPolicy,
@@ -40,6 +39,8 @@ from alphalab.data import (
     read_delimited,
     validation,
 )
+from alphalab.data.time import BarStamp
+from tests.regression._timing import CLOCK, timings
 
 #: Ratio of the two workload sizes used by the timing test.
 SCALE = 10
@@ -83,15 +84,16 @@ def _ingest(rows: int) -> float:
             SourceKind.IN_MEMORY, "benchmark", text.encode("utf-8"), 1.0, "text/csv"
         ),
         frequency=TimeFrequency.MINUTE,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=POLICY,
         price_basis=PriceBasis.RAW,
     )
 
-    started = time.perf_counter()
+    started = CLOCK()
     table = read_delimited(text, CsvDialect(","))
     result = ingest_table(table, request)
-    elapsed = time.perf_counter() - started
+    elapsed = CLOCK() - started
 
     assert len(result.dataset.records) == rows, "the workload must actually be done"
     return elapsed
@@ -149,8 +151,9 @@ def test_cleaning_does_not_copy_the_record_set_per_row() -> None:
 
 
 def test_ingestion_does_not_grow_quadratically_with_row_count() -> None:
-    small = _ingest(SMALL)
-    large = _ingest(LARGE)
+    # Read with the one stabilized method every guard shares
+    # (tests/regression/_timing.py); three rounds keep the 50,000-row side brief.
+    small, large = timings(_ingest, SMALL, LARGE, rounds=3)
 
     # A floor on the small measurement keeps a fast machine's timer resolution
     # from turning a tiny denominator into a spurious growth ratio.

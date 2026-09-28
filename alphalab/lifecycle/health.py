@@ -642,11 +642,11 @@ def _risk_breach(observation: RuntimeObservation) -> tuple[list[HealthFinding], 
             detail={
                 "observed": str(violation.current_value),
                 "threshold": str(violation.allowed_value),
-                # The risk engine's own severity string, carried verbatim rather
-                # than mapped onto HealthSeverity: it is a different vocabulary
-                # owned by a different package, and translating it here would
-                # invent a correspondence nobody declared.
-                "risk_severity": violation.severity,
+                # The risk engine's own severity, carried as its string value
+                # rather than mapped onto HealthSeverity: it is a different
+                # vocabulary owned by a different package, and translating it
+                # here would invent a correspondence nobody declared.
+                "risk_severity": violation.severity.value,
             },
         )
         for violation in sorted(observation.risk_violations, key=lambda item: item.rule)

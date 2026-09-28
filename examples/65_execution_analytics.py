@@ -408,7 +408,7 @@ def _morning() -> Morning:
         oms_second,
         LATE + 1.0,
         ExternalOrderMap(),
-        CONFIG,
+        config=CONFIG,
         capability=capability(oms_second.quantity, NORTH),
     )
     assert direct.decision.routed and direct.order is not None

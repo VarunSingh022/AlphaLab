@@ -405,7 +405,7 @@ def desk(plans: Mapping[str, Mapping[float, Decimal]]) -> ExecutionPipelineState
             exposure=ExposureLimit(huge, huge),
             leverage=LeverageLimit(Decimal("10")),
             margin=MarginLimit(Decimal("1.00")),
-            daily_loss=DailyLossLimit(huge),
+            daily_loss=DailyLossLimit(huge, "UTC"),
             drawdown=DrawdownLimit(Decimal("1.00")),
         ),
         routing=ExecutionRouting.EXTERNAL,

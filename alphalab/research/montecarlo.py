@@ -16,7 +16,7 @@ class MonteCarloReport:
 
 
 def monte_carlo_simulation(
-    payload: ResearchPayload, simulations: int = 1000, seed: int = 42
+    payload: ResearchPayload, seed: int, simulations: int = 1000
 ) -> MonteCarloReport:
     """Resamples returns deterministically to estimate extreme drawdown risks."""
     if not payload.returns:

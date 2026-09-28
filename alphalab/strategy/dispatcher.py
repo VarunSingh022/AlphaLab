@@ -6,16 +6,18 @@ Market events are routed on their **fully qualified** type name --
 Until v2.16 the four market branches read ``type(event).__name__ ==
 "TickReceived"`` and three siblings, under a comment that began "Assuming
 generic market events differentiate via class type or structure". A bare class
-name is not a type: three packages in this repository define a class called
-``TickReceived``, ``QuoteReceived`` or ``TradeReceived``, and the comparison
-matched all of them.
+name is not a type: three packages in this repository then defined a class
+called ``TickReceived``, ``QuoteReceived`` or ``TradeReceived``, and the
+comparison matched all of them.
 
-``alphalab.live.events.TickReceived`` carries ``provider_id`` / ``symbol`` /
+``alphalab.live.events.TickReceived`` carried ``provider_id`` / ``symbol`` /
 ``tick_type`` where the canonical event carries a ``tick``. It was routed to
 ``on_tick``, the strategy read ``event.tick``, the ``AttributeError`` landed in
 the handler below, and the strategy was transitioned to ``FAILED`` -- blamed for
-a routing mistake it did not make. ``alphalab.marketdata.events`` collides the
-same way on two more names.
+a routing mistake it did not make. ``alphalab.marketdata.events`` collided the
+same way on two more names. Both packages were removed in v3.10 (ledger
+SCF-002); the hazard was not, because a host application's own event vocabulary
+will reuse these names.
 
 **Why this is not ``isinstance``.** ADR-0016 decision 3 is normative:
 "``alphalab.strategy`` acquires no dependency on ``alphalab.instrument`` or
@@ -93,8 +95,9 @@ def market_hook_for(event: object) -> str | None:
     """The hook ``event`` routes to, or ``None`` when it is not routed here.
 
     Exact in both directions: a canonical market event resolves to its hook, and
-    a class that merely shares its name -- ``alphalab.live.events.TickReceived``,
-    ``alphalab.marketdata.events.QuoteReceived`` -- resolves to ``None``.
+    a class that merely shares its name -- a host application's own
+    ``TickReceived``, as ``alphalab.live.events`` defined until v3.10 --
+    resolves to ``None``.
     """
 
     event_type = type(event)

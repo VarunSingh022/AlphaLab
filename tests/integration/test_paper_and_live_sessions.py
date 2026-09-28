@@ -36,6 +36,10 @@ from tests.integration.harness import (
     running_strategy_state,
 )
 
+#: Where these tests route, and what a venue fill is denominated in. Named: a
+#: routing configuration has no default venue or currency (ledger API-003).
+ROUTING = RoutingConfig(venue="VENUE", currency="USD")
+
 _STRATEGY = "PAPER-STRAT"
 
 #: Asset ids on the execution path are UUIDs -- `core.Fill` validates them --
@@ -232,7 +236,7 @@ def test_routing_sends_the_order_and_binds_both_identities() -> None:
     order = session.working_orders[0]
     broker_state, broker = _connected_broker()
 
-    result = route_order(broker_state, broker, order, 1000.0)
+    result = route_order(broker_state, broker, order, 1000.0, config=ROUTING)
 
     assert result.decision.routed
     assert result.order is not None
@@ -247,8 +251,8 @@ def test_routing_the_same_order_twice_never_creates_a_second_venue_order() -> No
     order = session.working_orders[0]
     broker_state, broker = _connected_broker()
 
-    first = route_order(broker_state, broker, order, 1000.0)
-    second = route_order(first.broker_state, broker, order, 1001.0, first.mapping)
+    first = route_order(broker_state, broker, order, 1000.0, config=ROUTING)
+    second = route_order(first.broker_state, broker, order, 1001.0, first.mapping, config=ROUTING)
 
     assert not second.decision.routed
     assert second.decision.refusal is RoutingRefusal.DUPLICATE_SUBMISSION
@@ -262,7 +266,7 @@ def test_an_order_is_never_sent_on_a_connection_that_cannot_trade() -> None:
     broker = PaperBroker()
     disconnected = BrokerEngine.initialize("VENUE", Decimal("1000000.00"), "USD")
 
-    result = route_order(disconnected, broker, order, 1000.0)
+    result = route_order(disconnected, broker, order, 1000.0, config=ROUTING)
 
     assert not result.decision.routed
     assert result.decision.refusal is RoutingRefusal.DISCONNECTED
@@ -282,7 +286,7 @@ def test_only_a_connected_venue_accepts_orders(status: ConnectionStatus) -> None
     broker_state, broker = _connected_broker()
     degraded = replace(broker_state, connection_status=status)
 
-    assert not route_order(degraded, broker, order, 1000.0).decision.routed
+    assert not route_order(degraded, broker, order, 1000.0, config=ROUTING).decision.routed
 
 
 def test_a_refused_routing_can_be_retried_once_connected() -> None:
@@ -291,9 +295,9 @@ def test_a_refused_routing_can_be_retried_once_connected() -> None:
     broker = PaperBroker()
     state = BrokerEngine.initialize("VENUE", Decimal("1000000.00"), "USD")
 
-    refused = route_order(state, broker, order, 1000.0)
+    refused = route_order(state, broker, order, 1000.0, config=ROUTING)
     connected, _ = broker.connect(refused.broker_state, 1001.0)
-    accepted = route_order(connected, broker, order, 1002.0, refused.mapping)
+    accepted = route_order(connected, broker, order, 1002.0, refused.mapping, config=ROUTING)
 
     assert accepted.decision.routed
 
@@ -357,6 +361,7 @@ def test_a_partial_venue_fill_leaves_the_order_working() -> None:
         session.pipeline,
         order,
         _venue_fill(broker_order_id_for(order), str(half), "100", 3.0),
+        config=ROUTING,
     )
 
     assert fills[0].quantity == half
@@ -372,10 +377,10 @@ def test_the_report_status_comes_from_the_oms_order_not_the_venue() -> None:
     order = session.working_orders[0]
 
     completing = execution_report_from_broker(
-        _venue_fill("B-1", str(order.quantity), "100", 3.0), order
+        _venue_fill("B-1", str(order.quantity), "100", 3.0), order, config=ROUTING
     )
     partial = execution_report_from_broker(
-        _venue_fill("B-1", str(order.quantity / Decimal("2")), "100", 3.0), order
+        _venue_fill("B-1", str(order.quantity / Decimal("2")), "100", 3.0), order, config=ROUTING
     )
 
     assert completing.status is FillStatus.FULL_FILL
@@ -385,7 +390,9 @@ def test_the_report_status_comes_from_the_oms_order_not_the_venue() -> None:
 def test_a_venue_fill_records_no_slippage_it_did_not_measure() -> None:
     session = _live_session_with_a_working_order()
     order = session.working_orders[0]
-    report = execution_report_from_broker(_venue_fill("B-1", "1", "100", 3.0), order)
+    report = execution_report_from_broker(
+        _venue_fill("B-1", "1", "100", 3.0), order, config=ROUTING
+    )
 
     assert report.slippage == Decimal("0")
     assert report.liquidity_flag == ""
@@ -401,6 +408,7 @@ def test_a_venue_fill_consumes_the_allocation_reservation() -> None:
         session.pipeline,
         order,
         _venue_fill(broker_order_id_for(order), str(order.quantity), "100", 3.0),
+        config=ROUTING,
     )
 
     assert order_id not in pipeline.allocation.reservations
@@ -412,13 +420,15 @@ def test_routing_then_filling_walks_the_whole_live_round_trip() -> None:
     order = session.working_orders[0]
     broker_state, broker = _connected_broker()
 
-    routed = route_order(broker_state, broker, order, 1000.0)
+    routed = route_order(broker_state, broker, order, 1000.0, config=ROUTING)
     assert routed.order is not None
 
     # PaperBroker fills market orders on submission, so the venue already holds
     # the execution this round trip brings back.
     venue_execution = next(iter(routed.broker_state.executions.values()))
-    pipeline, fills, _ = apply_broker_execution(session.pipeline, order, venue_execution)
+    pipeline, fills, _ = apply_broker_execution(
+        session.pipeline, order, venue_execution, config=ROUTING
+    )
 
     assert len(fills) == 1
     assert pipeline.oms.orders.find(order.order_id).is_closed

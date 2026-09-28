@@ -17,6 +17,7 @@ import pytest
 
 from alphalab.api import backtest
 from alphalab.broker.state import ConnectionStatus
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.data.dataset import Dataset
 from alphalab.lifecycle import (
     CertificationEvidence,
@@ -419,8 +420,10 @@ def test_runs_inside_their_declared_limits_pass(dataset: Dataset) -> None:
     assert assessment.status is S.PASS
     assert assessment.evidence["risk_decisions"] == "2"
     assert assessment.evidence["refusals"] == ""
-    assert any("max_daily_loss is not assessed" in limit for limit in assessment.limitations)
-    assert any("max_net_exposure is not assessed" in limit for limit in assessment.limitations)
+    # v3.10: daily loss and net exposure are enforced by the gate, so they are
+    # covered through its decisions rather than listed as unassessed.
+    assert not any("is not assessed" in limit for limit in assessment.limitations)
+    assert any("net-exposure and daily-loss" in limit for limit in assessment.limitations)
 
 
 def test_a_run_gated_by_other_limits_is_not_evidence_about_these(dataset: Dataset) -> None:
@@ -489,8 +492,9 @@ def test_leverage_under_the_cap_passes_and_is_read_as_the_gate_reads_it(
     # The final snapshot's reading equals the gate's own final reading.
     final = result.equity_curve[-1]
     gross = final.long_exposure + abs(final.short_exposure)
-    assert result.state.risk.current_leverage == (gross / final.total_equity).quantize(
-        Decimal("0.0001")
+    # Exact since v3.10, as the gate reads it (it rounded to four places before).
+    assert result.state.risk.current_leverage == ACCOUNTING_CONTEXT.divide(
+        gross, final.total_equity
     )
 
 

@@ -64,7 +64,7 @@ def generate_grid_search(parameters: tuple[Parameter, ...]) -> tuple[dict[str, A
 
 
 def generate_random_search(
-    parameters: tuple[Parameter, ...], num_trials: int, seed: int = 42
+    parameters: tuple[Parameter, ...], num_trials: int, seed: int
 ) -> tuple[dict[str, Any], ...]:
     """Deterministically generates random parameter sets using a seeded PRNG."""
     if num_trials <= 0:

@@ -36,8 +36,12 @@ def calculate_max_drawdown(returns: Sequence[float]) -> float:
     return max_dd
 
 
-def calculate_volatility(returns: Sequence[float], periods: int = 252) -> float:
+def calculate_volatility(returns: Sequence[float], periods: int) -> float:
     """Annualized volatility, over the one shared unbiased estimator.
+
+    ``periods`` is how many returns make a year. Required since v3.10: it
+    defaulted to 252, a daily series' count, whatever the series was
+    (ledger API-003).
 
     ``sqrt(var * periods)`` rather than ``sqrt(var) * sqrt(periods)``: the two
     are equal in exact arithmetic and not always in floating point, and this

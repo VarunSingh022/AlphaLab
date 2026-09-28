@@ -35,7 +35,8 @@ def _definition(kind: FeatureKind, field: FeatureField) -> FeatureDefinition:
     from alphalab.factor_library.definition import KIND_REQUIREMENTS
 
     requirement = KIND_REQUIREMENTS[kind]
-    parameters = {"long_window": 10.0} if "long_window" in requirement.required_parameters else {}
+    supplied = {"long_window": 10.0, "periods_per_year": 252.0}
+    parameters = {name: supplied[name] for name in requirement.required_parameters}
     return FeatureDefinition(
         feature_id=kind.name.lower(),
         kind=kind,

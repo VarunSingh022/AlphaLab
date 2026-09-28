@@ -246,8 +246,12 @@ def test_a_rate_feed_carries_a_run_from_a_quote_to_a_reported_figure() -> None:
         instruments=registry_of(_APPLE, _SAP),
     )
     state = ExecutionPipeline.initialize(config, _running(_registry(), _definition(10.0)), 1.0)
+    # Funded at 2.0, when the feed's EUR/USD rate is true. The risk resync values
+    # the new EUR balance in USD at the funding instant, and since v3.10 checks
+    # that instant (ledger EXE-008): at 1.5 the table's only EUR/USD rate, dated
+    # 2.0, is a look-ahead, and the resync refuses it where v3.9 used it.
     state, funding = ExecutionPipeline.convert_cash(
-        state, Decimal("11000"), "USD", "EUR", rates, 1.5
+        state, Decimal("11000"), "USD", "EUR", rates, 2.0
     )
 
     assert funding.rate.source == "ECB", "the feed's provenance reaches settlement"
@@ -506,13 +510,15 @@ def test_no_capability_moved_another_ones_boundary() -> None:
     assert "rates" not in config_fields and "fx" not in config_fields
     assert "rates" not in {f.name for f in fields(ExecutionPipelineState)}
 
-    # --- Multi-currency moved exactly one pipeline schema, and only its own.
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3
+    # --- Multi-currency moved exactly one pipeline schema, and only its own
+    # (to 3; v3.10 moved it again, to 4, for minor units and analytics basis).
+    assert PIPELINE_SNAPSHOT_SCHEMA == 4
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
     from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 
-    assert (OMS_SNAPSHOT_SCHEMA, RUN_SNAPSHOT_SCHEMA, DEFAULT_SCHEMA_VERSION) == (1, 1, 1)
+    # RUN_SNAPSHOT_SCHEMA moved to 2 in v3.10 (the analytics basis), not here.
+    assert (OMS_SNAPSHOT_SCHEMA, RUN_SNAPSHOT_SCHEMA, DEFAULT_SCHEMA_VERSION) == (1, 2, 1)
 
     # --- And the feed took no dependency on the execution path.
     from alphalab.portfolio import fx_feed

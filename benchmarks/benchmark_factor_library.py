@@ -52,7 +52,7 @@ def run_benchmark() -> None:
 
     benchmarks: tuple[tuple[str, Callable[[], FactorResult]], ...] = (
         ("momentum", lambda: compute_momentum(prices, "momentum_20d", 1, 20, 0.0)),
-        ("volatility", lambda: compute_volatility(prices, "vol_20d", 1, 20, 0.0)),
+        ("volatility", lambda: compute_volatility(prices, "vol_20d", 1, 20, 0.0, 252)),
         ("value", lambda: compute_value(fundamentals, "value_ey", 1, 0.0)),
         ("quality", lambda: compute_quality(fundamentals, "quality_roe", 1, 0.0)),
         ("carry", lambda: compute_carry(fundamentals, "carry_dy", 1, 0.0)),

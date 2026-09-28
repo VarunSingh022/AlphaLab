@@ -515,23 +515,22 @@ Before creating a release, verify
 
 - `ruff check .` and `ruff format --check .` pass
 - `mypy .` passes — repository-wide, exactly as CI runs it, not `mypy alphalab`
-- `pytest -q` passes, reporting **0 skipped and 0 warnings**
-- `pytest -q -W error::DeprecationWarning` passes
-- All 65 examples run
-- All 59 benchmarks run
-- `python -m build` and `twine check dist/*` pass
+- `pytest -q -W error` passes, reporting **0 skipped and 0 warnings** — what CI
+  runs, so a `ResourceWarning` fails it
+- All 65 examples run with `-W error`
+- All 57 benchmarks run
+- `python -m build` and `twine check dist/*` pass, and each distribution,
+  installed into a clean environment, passes `tests/installed_smoke.py`
 - `git diff --check` is clean
-- `CHANGELOG.md` has an entry for the release
+- `CHANGELOG.md` leads with an entry for the release (a test reads it)
 
-**The version appears in three places and they drift.** It has happened twice:
-v2.14.0 shipped with `pyproject.toml` still declaring `2.13.0`, and the README's
-status table was stale from v2.13 through v2.15. Update all three together:
-
-```
-pyproject.toml                      version = "X.Y.Z"
-alphalab/common/version.py          the PackageNotFoundError fallback
-tests/unit/test_package_metadata.py both assertions
-```
+**The version is declared once** (since v3.10): `alphalab/common/_version.py`,
+read by the build (`[tool.hatch.version]`) and by the package. Before v3.10 it
+appeared in three places and drifted twice — v2.14.0 shipped with
+`pyproject.toml` still declaring `2.13.0`. Change the declaration and
+`tests/unit/test_package_metadata.py`'s assertion together;
+`tests/regression/test_one_version_source.py` holds the rest, including that
+the CHANGELOG leads with this version.
 
 **Four documents carry a current-state claim and drift independently.** Touch
 them together as well: `README.md`'s badges and status table,

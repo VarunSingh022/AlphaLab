@@ -305,18 +305,22 @@ def test_the_three_volatility_functions_agree_with_the_shared_estimator() -> Non
     returns = (0.01, -0.02, 0.015, 0.003, -0.008, 0.02, -0.011)
     expected = math.sqrt(sample_variance(returns)) * math.sqrt(252)
 
-    assert annualized_volatility(returns) == expected
-    assert calculate_volatility(returns) == expected
-    assert rolling_volatility(returns, len(returns))[0] == expected
+    assert annualized_volatility(returns, 252) == expected
+    assert calculate_volatility(returns, 252) == expected
+    assert rolling_volatility(returns, len(returns), 252)[0] == expected
 
 
-def test_the_volatility_functions_still_report_zero_for_a_short_window() -> None:
-    """Their guards are unchanged: the shared estimator raises, they do not."""
+def test_the_volatility_functions_do_not_raise_for_a_short_window() -> None:
+    """The shared estimator raises; the reporting functions report instead.
+
+    Since v3.10 the analytics one reports ``None`` -- undefined -- rather than
+    ``0.0``, which read as a measured absence of volatility.
+    """
 
     from alphalab.analytics.returns import annualized_volatility
     from alphalab.research.metrics import calculate_volatility
 
-    assert annualized_volatility((0.01,)) == 0.0
-    assert calculate_volatility((0.01,)) == 0.0
+    assert annualized_volatility((0.01,), 252) is None
+    assert calculate_volatility((0.01,), 252) == 0.0
     with pytest.raises(AlphaLabValidationError):
         sample_variance((0.01,))

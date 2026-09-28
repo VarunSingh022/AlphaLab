@@ -743,7 +743,7 @@ def test_the_context_is_not_added_to_any_snapshot() -> None:
 
     names = {field.name for field in fields(PipelineSnapshot)}
     assert not [n for n in names if "context" in n]
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3, "populating a context moves no schema"
+    assert PIPELINE_SNAPSHOT_SCHEMA == 4, "populating a context moves no schema (v3.10 did)"
 
 
 # ---------------------------------------------------------------------------

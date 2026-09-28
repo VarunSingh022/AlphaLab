@@ -537,7 +537,7 @@ def test_the_payload_records_each_currency_separately() -> None:
     _, second = _run_eur_trade()
     payload = deserialize(serialize(capture(second.state.portfolio)))
 
-    assert payload["schema_version"] == PORTFOLIO_SNAPSHOT_SCHEMA == 3
+    assert payload["schema_version"] == PORTFOLIO_SNAPSHOT_SCHEMA == 4
     assert payload["realized_pnl"] == {"EUR": "40.00"}
     assert set(payload["balances"]) == {"USD", "EUR"}
 
@@ -558,7 +558,7 @@ def test_a_version_two_payload_is_refused_rather_than_relabelled() -> None:
     payload["schema_version"] = 2
     payload["realized_pnl"] = "40.00"
 
-    with pytest.raises(StateDecodeError, match="declares schema version 2"):
+    with pytest.raises(StateDecodeError, match="schema version 2 cannot be upgraded"):
         from_primitives(payload)
 
 

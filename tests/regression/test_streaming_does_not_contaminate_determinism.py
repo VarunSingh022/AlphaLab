@@ -26,6 +26,7 @@ from decimal import Decimal
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.common.ids import DeterministicIdSource, id_scope, new_id, use_id_source
 from alphalab.core.enums import AssetType
+from alphalab.data.time import BarStamp
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instrument
 from alphalab.market.normalization import NormalizationPolicy
@@ -57,7 +58,13 @@ def _policy() -> NormalizationPolicy:
             aliases={_PROVIDER: "ACME"},
         ),
     )
-    return NormalizationPolicy(provider=_PROVIDER, identity=registry, venue="XNAS", currency="USD")
+    return NormalizationPolicy(
+        bar_stamp=BarStamp.INTERVAL_END,
+        provider=_PROVIDER,
+        identity=registry,
+        venue="XNAS",
+        currency="USD",
+    )
 
 
 def _stream_config() -> StreamConfig:
@@ -119,7 +126,7 @@ def test_constructing_a_venue_transport_and_broker_draws_no_identifier() -> None
         before = source.draws
         credentials = VenueCredentials("KEY", "secret-for-this-test-only")
         transport = HttpVenueTransport("http://127.0.0.1:1", credentials)
-        broker = RestVenueBroker(transport, VenueConfig())
+        broker = RestVenueBroker(transport, VenueConfig(currency="USD"))
         _ = broker.config.broker_name
         after = source.draws
 

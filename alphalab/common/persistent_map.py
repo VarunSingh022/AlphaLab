@@ -35,13 +35,32 @@ keeps reading its own version's contents. As with ``AppendOnlyLog``, this is not
 safe under concurrent mutation of the same store from multiple threads;
 AlphaLab's engines are single-threaded and deterministic by design.
 
-Iteration is in first-insertion order of the keys still present, so a map --
-and any state holding one -- iterates and serializes deterministically.
+Iteration is in insertion order, exactly as a ``dict`` iterates: rewriting a key
+keeps its position, and a key that is deleted and later inserted again moves to
+the end. A map -- and any state holding one -- therefore iterates and serializes
+deterministically, and in the order a ``dict`` built by the same writes would.
+
+Compaction, and what v3.10 changed
+----------------------------------
+Until v3.10 a store never reclaimed anything: every key ever written stayed in
+its key list and every value ever written stayed in its chain. Iterating a map
+cost ``O(keys ever written)`` rather than ``O(keys present)``, and memory grew
+with the total number of writes -- an order index that had seen a million orders
+come and go iterated a million entries to list its three open ones.
+
+A store now counts its chain entries, and the newest view **rebases** a write
+onto a fresh store holding only its live keys once the store holds more than
+twice as many entries as the view has keys (plus a small constant). Older views
+keep the store they were built on and observe nothing. Each rebase copies the
+live keys once and follows at least as many writes as it copies, so writes stay
+O(1) amortized and iteration becomes ``O(keys present)``. Because iteration
+order is ``dict`` order, a rebase never changes it: dropping dead entries does
+not reorder the live ones, which is what makes the rebase unobservable.
 """
 
 from __future__ import annotations
 
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections.abc import Hashable, ItemsView, Iterable, Iterator, Mapping, ValuesView
 from collections.abc import Set as AbstractSet
 from typing import Any, Final, TypeVar, cast
@@ -63,27 +82,41 @@ class _Missing:
 _MISSING: Final = _Missing()
 
 
+#: A newest-version write rebases onto a fresh store once the store holds more
+#: than ``_REBASE_FACTOR * size + _REBASE_SLACK`` chain entries.
+_REBASE_FACTOR: Final = 2
+_REBASE_SLACK: Final = 64
+
+
 class _Store[K: Hashable, V]:
     """Append-only backing storage shared by every view of one lineage."""
 
-    __slots__ = ("chains", "keys", "live_version")
+    __slots__ = ("chains", "entries", "insertions", "live_version", "order")
 
     #: Per key, the ``(version, value)`` writes to it, in ascending version order.
     chains: dict[K, list[tuple[int, V | _Missing]]]
-    #: Every key ever written, in first-insertion order. Never removed.
-    keys: list[K]
+    #: Every insertion -- a first write, or a write after a deletion -- as
+    #: ``(key, version)``, in ascending version order. Never removed.
+    order: list[tuple[K, int]]
+    #: Per key, the versions it was inserted at, ascending.
+    insertions: dict[K, list[int]]
     #: Version of the view that currently owns this store.
     live_version: int
+    #: Total chain entries, which is what a rebase is triggered by.
+    entries: int
 
     def __init__(
         self,
         chains: dict[K, list[tuple[int, V | _Missing]]],
-        keys: list[K],
+        order: list[tuple[K, int]],
+        insertions: dict[K, list[int]],
         live_version: int,
     ) -> None:
         self.chains = chains
-        self.keys = keys
+        self.order = order
+        self.insertions = insertions
         self.live_version = live_version
+        self.entries = sum(len(chain) for chain in chains.values())
 
 
 class PersistentMap(Mapping[K, V]):
@@ -98,14 +131,14 @@ class PersistentMap(Mapping[K, V]):
     def __init__(self, items: Mapping[K, V] | Iterable[tuple[K, V]] = ()) -> None:
         pairs = items.items() if isinstance(items, Mapping) else items
         chains: dict[K, list[tuple[int, V | _Missing]]] = {}
-        keys: list[K] = []
+        order: list[tuple[K, int]] = []
         for key, value in pairs:
             if key not in chains:
-                keys.append(key)
+                order.append((key, 0))
             chains[key] = [(0, value)]
-        self._store = _Store(chains, keys, 0)
+        self._store = _Store(chains, order, {key: [0] for key, _ in order}, 0)
         self._version = 0
-        self._size = len(keys)
+        self._size = len(order)
 
     # -- construction -------------------------------------------------------
 
@@ -161,10 +194,36 @@ class PersistentMap(Mapping[K, V]):
     def __len__(self) -> int:
         return self._size
 
-    def __iter__(self) -> Iterator[K]:
+    def _live(self) -> Iterator[tuple[K, V | _Missing]]:
+        """Each insertion this view can see that is still its key's current one.
+
+        Yields ``(key, value)`` with ``value`` possibly the tombstone; callers
+        skip those. An insertion is current for this view when it is the key's
+        newest insertion at or before the view's version -- an earlier one was
+        superseded by a delete and a re-insert, which moved the key to the end.
+        """
+
+        store = self._store
+        version = self._version
+        insertions = store.insertions
         lookup = self._lookup
-        for key in self._store.keys:
-            if not isinstance(lookup(key), _Missing):
+        for key, inserted_at in store.order:
+            if inserted_at > version:
+                # ``order`` is in ascending version order; nothing later is
+                # visible to this view.
+                return
+            inserted = insertions[key]
+            if inserted[-1] <= version:
+                current = inserted[-1]
+            else:
+                current = inserted[bisect_right(inserted, version) - 1]
+            if inserted_at != current:
+                continue
+            yield key, lookup(key)
+
+    def __iter__(self) -> Iterator[K]:
+        for key, value in self._live():
+            if not isinstance(value, _Missing):
                 yield key
 
     def _iter_items(self) -> Iterator[tuple[K, V]]:
@@ -179,9 +238,7 @@ class PersistentMap(Mapping[K, V]):
         map. :meth:`items` and :meth:`values` are built on this.
         """
 
-        lookup = self._lookup
-        for key in self._store.keys:
-            value = lookup(key)
+        for key, value in self._live():
             if not isinstance(value, _Missing):
                 yield key, value
 
@@ -201,18 +258,26 @@ class PersistentMap(Mapping[K, V]):
         """Return a new map with ``key`` bound to ``value``."""
 
         store = self._store
-        if self._version != store.live_version:
+        if self._version != store.live_version or self._rebase_due():
             return self._branch().set(key, value)
 
         version = self._version + 1
         chain = store.chains.get(key)
         if chain is None:
             store.chains[key] = [(version, value)]
-            store.keys.append(key)
+            store.order.append((key, version))
+            store.insertions[key] = [version]
             size = self._size + 1
         else:
-            size = self._size + (1 if isinstance(chain[-1][1], _Missing) else 0)
+            if isinstance(chain[-1][1], _Missing):
+                # A re-insert: the key moves to the end, as it would in a dict.
+                store.order.append((key, version))
+                store.insertions[key].append(version)
+                size = self._size + 1
+            else:
+                size = self._size
             chain.append((version, value))
+        store.entries += 1
         store.live_version = version
         return PersistentMap._view(store, version, size)
 
@@ -223,13 +288,19 @@ class PersistentMap(Mapping[K, V]):
             raise KeyError(key)
 
         store = self._store
-        if self._version != store.live_version:
+        if self._version != store.live_version or self._rebase_due():
             return self._branch().delete(key)
 
         version = self._version + 1
         store.chains[key].append((version, _MISSING))
+        store.entries += 1
         store.live_version = version
         return PersistentMap._view(store, version, self._size - 1)
+
+    def _rebase_due(self) -> bool:
+        """Whether the store has accumulated enough history to rebase this view."""
+
+        return self._store.entries > _REBASE_FACTOR * self._size + _REBASE_SLACK
 
     # -- conversion ---------------------------------------------------------
 

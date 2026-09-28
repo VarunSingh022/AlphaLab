@@ -176,7 +176,7 @@ def compute_time_series(
             out[index] = sum(values[index - window + 1 : index + 1])
 
         elif kind is FeatureKind.REALIZED_VOLATILITY:
-            periods = definition.parameters.get("periods_per_year", 252.0)
+            periods = definition.parameters["periods_per_year"]
             out[index] = math.sqrt(
                 sample_variance(_returns(values, index - window, index + 1))
             ) * math.sqrt(periods)

@@ -69,7 +69,11 @@ from alphalab.factor_library import (
 
 MOMENTUM = FeatureDefinition("mom_60", FeatureKind.MOMENTUM, FeatureField.CLOSE, window=60)
 VOLATILITY = FeatureDefinition(
-    "vol_60", FeatureKind.REALIZED_VOLATILITY, FeatureField.CLOSE, window=60
+    "vol_60",
+    FeatureKind.REALIZED_VOLATILITY,
+    FeatureField.CLOSE,
+    window=60,
+    parameters={"periods_per_year": 252.0},
 )
 
 

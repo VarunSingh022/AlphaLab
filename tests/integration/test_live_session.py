@@ -68,7 +68,7 @@ def _credentials() -> VenueCredentials:
 def _broker(base_url: str) -> RestVenueBroker:
     return RestVenueBroker(
         HttpVenueTransport(base_url, _credentials()),
-        VenueConfig(broker_name="TESTVENUE", account_id="ACC-LIVE"),
+        VenueConfig(currency="USD", broker_name="TESTVENUE", account_id="ACC-LIVE"),
     )
 
 
@@ -129,7 +129,10 @@ def test_a_live_session_refuses_any_mode_but_live() -> None:
         config = RunConfig(pipeline=pipeline_config(_STRATEGY), mode=mode, start_timestamp=1.0)
         with pytest.raises(RuntimeValidationError, match=r"ExecutionMode\.LIVE"):
             LiveSession.initialize(
-                config, running_strategy_state(_STRATEGY, _strategy()), _broker_state()
+                config,
+                running_strategy_state(_STRATEGY, _strategy()),
+                _broker_state(),
+                RoutingConfig(venue="TESTVENUE", currency="USD"),
             )
 
 
@@ -396,7 +399,8 @@ def test_the_run_snapshot_schema_did_not_move() -> None:
 
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 
-    assert RUN_SNAPSHOT_SCHEMA == 1
+    # Moved to 2 by v3.10's analytics basis, not by the live driver.
+    assert RUN_SNAPSHOT_SCHEMA == 2
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +443,11 @@ def test_a_restored_run_does_not_re_send_orders_the_venue_already_holds() -> Non
         payload = serialize(capture_broker(state.broker, state.mapping, state.reconciliation))
         broker_state, mapping, log = restore_broker(broker_from_primitives(deserialize(payload)))
         resumed = LiveRunState(
-            run=state.run, broker=broker_state, mapping=mapping, reconciliation=log
+            run=state.run,
+            broker=broker_state,
+            routing=state.routing,
+            mapping=mapping,
+            reconciliation=log,
         )
 
         resumed, routed, _ = LiveSession.route_working_orders(resumed, broker, 3.0)
@@ -460,7 +468,9 @@ def test_losing_the_mapping_is_what_duplicates_an_order() -> None:
         assert len(book.orders) == 1
 
         # A restart that kept the run and forgot the venue binding.
-        amnesiac = LiveRunState(run=state.run, broker=state.broker, mapping=ExternalOrderMap())
+        amnesiac = LiveRunState(
+            run=state.run, broker=state.broker, routing=state.routing, mapping=ExternalOrderMap()
+        )
         assert len(amnesiac.unrouted_orders) == 1, (
             "without the mapping the run believes its order was never sent"
         )

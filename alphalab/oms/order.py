@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, plain
 from alphalab.core.enums import OrderStatus, OrderType, Side
 from alphalab.core.lifecycle import (
     WORKING_ORDER_STATUSES,
@@ -123,10 +124,19 @@ class Order:
             raise InvalidTransitionError(
                 f"A fill of {fill_qty} is not a fill; a fill moves a positive quantity."
             )
-        new_filled = self.filled_quantity + fill_qty
-        new_avg = (
-            (self.filled_quantity * self.average_fill_price) + (fill_qty * fill_price)
-        ) / new_filled
+        # In the pinned accounting context: a volume-weighted average must not
+        # depend on the caller's decimal precision or rounding (ACC-004).
+        ctx = ACCOUNTING_CONTEXT
+        new_filled = ctx.add(self.filled_quantity, fill_qty)
+        new_avg = plain(
+            ctx.divide(
+                ctx.add(
+                    ctx.multiply(self.filled_quantity, self.average_fill_price),
+                    ctx.multiply(fill_qty, fill_price),
+                ),
+                new_filled,
+            )
+        )
         return new_filled, new_avg
 
     def partial_fill(self, fill_qty: Decimal, fill_price: Decimal, timestamp: float) -> Order:
@@ -150,7 +160,7 @@ class Order:
             self,
             status=status,
             filled_quantity=new_filled,
-            remaining_quantity=self.quantity - new_filled,
+            remaining_quantity=ACCOUNTING_CONTEXT.subtract(self.quantity, new_filled),
             average_fill_price=new_avg,
             updated_at=timestamp,
         )
@@ -177,7 +187,7 @@ class Order:
             self,
             status=status,
             filled_quantity=new_filled,
-            remaining_quantity=self.quantity - new_filled,
+            remaining_quantity=ACCOUNTING_CONTEXT.subtract(self.quantity, new_filled),
             average_fill_price=new_avg,
             updated_at=timestamp,
         )
@@ -205,7 +215,7 @@ class Order:
             self,
             status=status,
             quantity=new_qty,
-            remaining_quantity=new_qty - self.filled_quantity,
+            remaining_quantity=ACCOUNTING_CONTEXT.subtract(new_qty, self.filled_quantity),
             limit_price=limit,
             updated_at=timestamp,
         )

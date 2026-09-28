@@ -497,9 +497,10 @@ class EngineIdentity:
 def running_engine() -> EngineIdentity:
     """The AlphaLab running in this interpreter, as an identity to record.
 
-    Reads :data:`alphalab.__version__`, which is the installed distribution's
-    metadata version (falling back to the version declared in source when the
-    package is not installed). That is an *observation of this interpreter*: a
+    Reads :data:`alphalab.__version__`, which is the version the imported source
+    declares (``alphalab/common/_version.py``, the one the build reads too) -- not the
+    installed distribution's metadata, which describes whichever install the
+    interpreter found (ledger REP-001). That is an *observation of this interpreter*: a
     caller records it when fingerprinting or producing a result here, and
     verification later compares against what was recorded, never against
     whatever happens to be installed then. Nothing in this module calls it on a

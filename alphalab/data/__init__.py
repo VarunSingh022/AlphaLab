@@ -151,6 +151,7 @@ from alphalab.data.source import (
 from alphalab.data.state import UniversalDataState
 from alphalab.data.symbols import DataAssetClass
 from alphalab.data.time import (
+    BarStamp,
     DateOnlyPolicy,
     TimeFrequency,
     TimestampFormat,
@@ -190,6 +191,7 @@ __all__ = [
     "AlternativeDataRecord",
     "AmbiguousField",
     "Bar",
+    "BarStamp",
     "CanonicalRecord",
     "CatalogRecord",
     "CleaningOutcome",

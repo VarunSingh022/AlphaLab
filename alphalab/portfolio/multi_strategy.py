@@ -77,6 +77,7 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Final
 
+from alphalab.common.arithmetic import canonical_text
 from alphalab.core.contribution import StrategyContribution
 from alphalab.portfolio.amounts import CurrencyAmounts
 from alphalab.portfolio.engine import PortfolioState
@@ -98,8 +99,8 @@ __all__ = [
     "value_book",
 ]
 
-MULTI_STRATEGY_BOOK_SCHEME: Final = "alphalab.multi_strategy_book.v1"
-BOOK_VALUATION_SCHEME: Final = "alphalab.book_valuation.v1"
+MULTI_STRATEGY_BOOK_SCHEME: Final = "alphalab.multi_strategy_book.v2"
+BOOK_VALUATION_SCHEME: Final = "alphalab.book_valuation.v2"
 
 
 def _identifier(value: object, what: str) -> str:
@@ -114,15 +115,29 @@ def _digest(lines: Iterable[str]) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
+# Amounts enter an identity by value (canonical_text), not by representation:
+# since v3.10 nothing rounds an amount a second time, so ``250000`` and
+# ``250000.00`` both reach a book, and two books that compare equal must not
+# have two identities. Hence the v2 schemes.
+
+
 def _render_amounts(amounts: CurrencyAmounts) -> str:
-    return ",".join(f"{currency}={amounts.of(currency)}" for currency in amounts.currencies)
+    return ",".join(
+        f"{currency}={canonical_text(amounts.of(currency))}" for currency in amounts.currencies
+    )
+
+
+def _render_optional(value: Decimal | None) -> str:
+    return "None" if value is None else canonical_text(value)
 
 
 def _render_position(position: Position) -> str:
     return (
-        f"{position.asset_id!r}|{position.quantity}|{position.average_cost}|"
-        f"{position.market_price}|{position.realized_pnl}|{position.currency!r}|"
-        f"{position.last_updated!r}|{position.cost_basis}|{position.opened_at!r}"
+        f"{position.asset_id!r}|{canonical_text(position.quantity)}|"
+        f"{canonical_text(position.average_cost)}|{canonical_text(position.market_price)}|"
+        f"{canonical_text(position.realized_pnl)}|{position.currency!r}|"
+        f"{position.last_updated!r}|{_render_optional(position.cost_basis)}|"
+        f"{position.opened_at!r}"
     )
 
 
@@ -562,12 +577,13 @@ class BookValuation:
                 f"currency={self.reporting_currency!r}",
                 f"as_of={self.as_of!r}",
                 *(
-                    f"conversion={conversion.amount}|{conversion.rate.base}|{conversion.rate.quote}"
-                    f"|{conversion.rate.rate}|{conversion.rate.as_of!r}|{conversion.rate.source!r}|"
-                    f"{conversion.rate.derived}|{conversion.converted}"
+                    f"conversion={canonical_text(conversion.amount)}|{conversion.rate.base}|"
+                    f"{conversion.rate.quote}|{canonical_text(conversion.rate.rate)}|"
+                    f"{conversion.rate.as_of!r}|{conversion.rate.source!r}|"
+                    f"{conversion.rate.derived}|{canonical_text(conversion.converted)}"
                     for conversion in self.conversions
                 ),
-                f"nav={self.nav}",
+                f"nav={canonical_text(self.nav)}",
             ]
         )
 

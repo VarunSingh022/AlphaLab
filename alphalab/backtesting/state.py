@@ -20,8 +20,9 @@ from alphalab.core.trade import Trade as CoreTrade
 from alphalab.market.record import MarketRecord
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.valuation import PortfolioValuation, PortfolioValuationSnapshot
+from alphalab.runtime.assumptions import ExecutionAssumptions
 from alphalab.runtime.execution_pipeline import ExecutionPipelineState, UnpricedAsset
-from alphalab.runtime.run import RunConfig, RunState, RunStep
+from alphalab.runtime.run import RunConfig, RunState, RunStep, StrategyFailure
 
 __all__ = ["BacktestResult", "ReplayResult"]
 
@@ -66,6 +67,28 @@ class BacktestResult:
         """The identifier seed, if the run was seeded."""
 
         return self.run.config.seed
+
+    @property
+    def strategy_failures(self) -> tuple[StrategyFailure, ...]:
+        """Every strategy that failed during the run -- empty for a clean run.
+
+        Read before any figure: a run whose strategy failed early produced its
+        figures without it (ledger EXE-006).
+        """
+
+        return self.run.strategy_failures
+
+    @property
+    def execution_assumptions(self) -> ExecutionAssumptions:
+        """How the run modelled execution -- read this beside any figure it produced.
+
+        :attr:`~alphalab.runtime.assumptions.ExecutionAssumptions.optimistic`
+        names each optimistic assumption in force. A backtest configured with
+        the defaults has three: orders fill at the price that decided them, cost
+        nothing, and fill in full (ledger EXE-002).
+        """
+
+        return self.run.config.execution_assumptions
 
     @property
     def dataset_id(self) -> str | None:

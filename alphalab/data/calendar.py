@@ -23,15 +23,15 @@ Australia -- is expressible, including lunch breaks (two windows in a day),
 overnight sessions (a window whose close is earlier than its open), half days
 (a date with its own windows) and markets that never close.
 
-Not the scheduler's calendar
-----------------------------
+The one calendar
+----------------
 
-:class:`alphalab.scheduler.calendar.TradingCalendar` answers a different
-question -- "should a job fire today?" -- over UTC weekends and an optional
-holiday hook. It knows nothing about venues, sessions or local time, and it is
-not what decides whether a market was open when a bar printed.
-``tests/regression/test_shared_names_stay_distinct.py`` holds the reason the
-two must not be merged.
+Until v3.10 the scheduler kept a second, ``alphalab.scheduler.calendar.TradingCalendar``,
+which decided weekends in UTC with Saturday and Sunday hard-coded and aligned
+sessions to UTC midnight -- wrong for every market whose week or day is not
+UTC's, from Riyadh's Friday-Saturday weekend to Tokyo's session. It was removed
+(ledger DAT-006): a question about when a market is open, or when a job tied to
+one should fire, is answered here, in the market's own zone.
 """
 
 from __future__ import annotations

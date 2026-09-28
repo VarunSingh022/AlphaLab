@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "alphalab"
-version = "3.9.0"
+dynamic = ["version"]
 description = "A Python foundation for systematic research, analytics, and execution tooling."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -48,6 +48,12 @@ dev = [
   "ruff>=0.16,<0.17",
   "twine>=7.0,<8",
 ]
+
+[tool.hatch.version]
+# The single source of truth, read here at build time and by the package at
+# import time (alphalab/common/_version.py, ledger REP-001). It lives in
+# alphalab.common so the bottom layer imports nothing above it.
+path = "alphalab/common/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["alphalab"]

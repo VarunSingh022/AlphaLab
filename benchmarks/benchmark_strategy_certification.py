@@ -59,7 +59,7 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
+from alphalab.data.time import BarStamp, TimeFrequency
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instruments
 from alphalab.lifecycle import (
@@ -137,7 +137,12 @@ INSTRUMENT = InstrumentRecord(SYMBOL, AssetType.EQUITY, "XNYS", "USD", aliases={
 ASSET_ID = INSTRUMENT.asset_id
 INSTRUMENTS: InstrumentRegistry = register_instruments(InstrumentRegistry(), (INSTRUMENT,))
 NORMALIZATION = NormalizationPolicy(
-    venue="XNYS", currency="USD", timeframe=TimeFrame.D1, identity=INSTRUMENTS, provider=PROVIDER
+    bar_stamp=BarStamp.INTERVAL_END,
+    venue="XNYS",
+    currency="USD",
+    timeframe=TimeFrame.D1,
+    identity=INSTRUMENTS,
+    provider=PROVIDER,
 )
 CLEANING = CleaningPolicy(
     duplicates=DuplicatePolicy.KEEP_FIRST,
@@ -151,7 +156,7 @@ LIMITS = RiskLimits(
     exposure=ExposureLimit(Decimal("100000000"), Decimal("100000000")),
     leverage=LeverageLimit(Decimal("1000")),
     margin=MarginLimit(Decimal("1.00")),
-    daily_loss=DailyLossLimit(Decimal("100000000")),
+    daily_loss=DailyLossLimit(Decimal("100000000"), "UTC"),
     drawdown=DrawdownLimit(Decimal("1.00")),
 )
 PARAMETERS = {"entry": 1.0, "exit": -1.0}
@@ -248,6 +253,7 @@ def _dataset(days: int) -> Dataset:
         name=f"BENCH-{days}",
         source=raw_source_from_bytes(SourceKind.IN_MEMORY, "benchmark", payload, 1.0, "text/csv"),
         frequency=TimeFrequency.DAILY,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,

@@ -62,7 +62,7 @@ def run_benchmark() -> None:
     ops_per_sec = N / duration
 
     nav_start = time.perf_counter()
-    _ = NAVCalculator.calculate(state.cash, state.positions)
+    _ = NAVCalculator.calculate(state.cash, state.positions, "USD")
     nav_end = time.perf_counter()
 
     print(f"Fills complete. Operations/sec: {ops_per_sec:.2f}")

@@ -27,7 +27,6 @@ from alphalab.market.exceptions import (
 )
 from alphalab.market.level import OrderBookLevel
 from alphalab.market.normalization import (
-    DEFAULT_POLICY,
     UNRESOLVED_IDENTITY,
     IdentityResolution,
     NormalizationPolicy,
@@ -76,7 +75,6 @@ from alphalab.market.views import (
 )
 
 __all__ = [
-    "DEFAULT_POLICY",
     "UNRESOLVED_IDENTITY",
     "Bar",
     "BarClosed",

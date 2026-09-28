@@ -1,6 +1,6 @@
 """Immutable domain events describing the Optimization Engine lifecycle."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from alphalab.common.events import BaseEvent
 
@@ -48,4 +48,5 @@ class TrialCompleted(OptimizerEvent):
 
     trial_id: str
     score: float
-    execution_time_seconds: float
+    #: See :attr:`~alphalab.optimizer.results.TrialResult.execution_time_seconds`.
+    execution_time_seconds: float | None = field(default=None, compare=False)

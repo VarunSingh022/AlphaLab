@@ -1,6 +1,6 @@
 """Pure functional Optimization Engine orchestrating trial evaluation."""
 
-import time
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -67,11 +67,20 @@ class OptimizationEngine:
 
     @staticmethod
     def step(
-        state: OptimizerState, evaluator: TrialEvaluatorProtocol, timestamp: float
+        state: OptimizerState,
+        evaluator: TrialEvaluatorProtocol,
+        timestamp: float,
+        clock: Callable[[], float] | None = None,
     ) -> tuple[OptimizerState, TrialResult | None]:
         """
         Pops one pending trial, delegates execution to the evaluator, computes the
         objective score, updates rankings, and advances state.
+
+        ``timestamp`` stamps what this step records. ``clock``, when given, times
+        the evaluation, and the duration is recorded but excluded from equality;
+        without one nothing is timed. Until v3.10 every trial read
+        ``time.perf_counter`` into its result, so no two runs of one search were
+        equal (ledger DET-002).
         """
         if state.status != OptimizerStatus.RUNNING:
             return state, None
@@ -86,8 +95,8 @@ class OptimizationEngine:
 
         start_evt = TrialStarted(OptimizationEngine._create_id(), timestamp, trial_id)
 
-        # 2. Evaluate (Mocking real-world wall-clock measurement safely)
-        eval_start = time.perf_counter()
+        # 2. Evaluate, timed only when the caller supplied a clock.
+        eval_start = clock() if clock is not None else None
         try:
             metrics = evaluator.evaluate(params)
             score = state.objective.evaluator(metrics)
@@ -101,7 +110,7 @@ class OptimizationEngine:
             )
             error = str(e)
 
-        eval_time = time.perf_counter() - eval_start
+        eval_time = clock() - eval_start if clock is not None and eval_start is not None else None
 
         result = TrialResult(
             trial_id=trial_id,

@@ -52,7 +52,7 @@ class LSTMState:
     cell: tuple[float, ...]
 
 
-def create_lstm_cell(input_size: int, hidden_size: int, seed: int = 42) -> LSTMCell:
+def create_lstm_cell(input_size: int, hidden_size: int, seed: int) -> LSTMCell:
     """Creates an LSTMCell with deterministic, seeded weight initialization.
 
     Each gate gets a distinct seed offset so the four gates are not initialized

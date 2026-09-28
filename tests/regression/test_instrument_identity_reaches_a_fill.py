@@ -35,6 +35,7 @@ import pytest
 from alphalab.core.enums import AssetType
 from alphalab.core.exceptions import DomainValidationError
 from alphalab.core.ids import validate_uuid_id
+from alphalab.data.time import BarStamp
 from alphalab.instrument import InstrumentRecord, InstrumentRegistry, register_instrument
 from alphalab.market.bar import TimeFrame
 from alphalab.market.exceptions import InstrumentResolutionError
@@ -61,7 +62,9 @@ from tests.integration.test_provider_source_session import (
     _session_config,
 )
 
-PROVIDER = "binance"
+#: The provider whose symbols ``INSTRUMENTS`` declares aliases for: the host-side
+#: provider ``test_provider_source_session`` stands in for.
+PROVIDER = POLICY.provider
 
 
 class _BuyFirstBar(BaseStrategy):
@@ -99,7 +102,9 @@ class _CountingProvider:
 
 
 def _unresolved_policy() -> NormalizationPolicy:
-    return NormalizationPolicy(venue="BINANCE", currency="USDT", timeframe=TimeFrame.M1)
+    return NormalizationPolicy(
+        bar_stamp=BarStamp.INTERVAL_END, venue="BINANCE", currency="USDT", timeframe=TimeFrame.M1
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -149,6 +154,7 @@ def test_the_asset_id_that_reaches_the_fill_is_the_one_the_registry_derived() ->
 
 def test_an_unregistered_symbol_is_refused_at_normalization() -> None:
     policy = NormalizationPolicy(
+        bar_stamp=BarStamp.INTERVAL_END,
         venue="BINANCE",
         currency="USDT",
         timeframe=TimeFrame.M1,
@@ -172,7 +178,7 @@ def test_a_registry_backed_policy_must_name_its_provider() -> None:
     from alphalab.market.exceptions import MarketValidationError
 
     with pytest.raises(MarketValidationError, match="must name the provider"):
-        NormalizationPolicy(identity=InstrumentRegistry())
+        NormalizationPolicy(bar_stamp=BarStamp.INTERVAL_END, identity=InstrumentRegistry())
 
 
 # --------------------------------------------------------------------------- #
@@ -189,6 +195,7 @@ def test_an_unregistered_symbol_never_fails_as_a_core_domain_error() -> None:
     """
 
     policy = NormalizationPolicy(
+        bar_stamp=BarStamp.INTERVAL_END,
         venue="BINANCE",
         currency="USDT",
         timeframe=TimeFrame.M1,
@@ -258,7 +265,11 @@ def test_no_unresolved_variant_reaches_a_production_source(identity: UnresolvedI
 
     provider = _CountingProvider()
     policy = NormalizationPolicy(
-        venue="BINANCE", currency="USDT", timeframe=TimeFrame.M1, identity=identity
+        bar_stamp=BarStamp.INTERVAL_END,
+        venue="BINANCE",
+        currency="USDT",
+        timeframe=TimeFrame.M1,
+        identity=identity,
     )
 
     with pytest.raises(InstrumentResolutionError):
@@ -266,16 +277,24 @@ def test_no_unresolved_variant_reaches_a_production_source(identity: UnresolvedI
     assert provider.calls == 0
 
 
-def test_the_default_policy_is_not_a_production_configuration() -> None:
-    """``DEFAULT_POLICY`` documents itself as unresolved; this holds it to that."""
+def test_an_unresolved_policy_is_not_a_production_configuration() -> None:
+    """A policy that names no registry is unresolved, and a source refuses it.
 
-    from alphalab.market.normalization import DEFAULT_POLICY
+    Until v3.10 this was ``DEFAULT_POLICY``, the policy every ``normalize_wire_*``
+    function defaulted to. No policy is defaulted any more (ledger API-003);
+    what that constant stood for -- a policy left in its unresolved mode -- is
+    still refused here, before the provider is called.
+    """
 
-    assert isinstance(DEFAULT_POLICY.identity, UnresolvedIdentity)
+    unresolved = NormalizationPolicy(currency="USDT", timeframe=TimeFrame.M1)
+
+    assert isinstance(unresolved.identity, UnresolvedIdentity)
+    provider = _CountingProvider()
     with pytest.raises(InstrumentResolutionError):
         ProviderHistorySource.of(
-            _CountingProvider(), ["BTCUSDT"], Timeframe.MINUTE, 0.0, 1.0, "BTC", DEFAULT_POLICY
+            provider, ["BTCUSDT"], Timeframe.MINUTE, 0.0, 1.0, "BTC", unresolved
         )
+    assert provider.calls == 0
 
 
 # --------------------------------------------------------------------------- #

@@ -34,6 +34,7 @@ from uuid import uuid4
 
 from alphalab.core.enums import AssetType
 from alphalab.data.feed import Quote as WireQuote
+from alphalab.data.time import BarStamp
 from alphalab.instrument import InstrumentRecord, InstrumentRegistry, register_instrument
 from alphalab.market import bar as market_bar
 from alphalab.market import normalization as market_normalization
@@ -130,7 +131,11 @@ def test_all_three_differ_in_one_run_while_the_identity_is_shared() -> None:
     sap = InstrumentRecord("SAP", AssetType.EQUITY, "XETR", "EUR", aliases={"acme": "SAP"})
     registry = register_instrument(InstrumentRegistry(), sap)
     policy = NormalizationPolicy(
-        venue="BINANCE", currency="EUR", identity=registry, provider="acme"
+        bar_stamp=BarStamp.INTERVAL_END,
+        venue="BINANCE",
+        currency="EUR",
+        identity=registry,
+        provider="acme",
     )
 
     quote = normalize_wire_quote(WireQuote("SAP", 2.0, 10.0, 10.0, 1.0, 1.0), policy)
@@ -170,11 +175,23 @@ def test_the_listing_exchange_is_part_of_the_identity_and_the_venues_are_not() -
     # differently still resolve to one identity.
     from_binance = normalize_wire_quote(
         wire,
-        NormalizationPolicy(venue="BINANCE", currency="EUR", identity=registry, provider="acme"),
+        NormalizationPolicy(
+            bar_stamp=BarStamp.INTERVAL_END,
+            venue="BINANCE",
+            currency="EUR",
+            identity=registry,
+            provider="acme",
+        ),
     )
     from_xetr = normalize_wire_quote(
         wire,
-        NormalizationPolicy(venue="XETR", currency="EUR", identity=registry, provider="acme"),
+        NormalizationPolicy(
+            bar_stamp=BarStamp.INTERVAL_END,
+            venue="XETR",
+            currency="EUR",
+            identity=registry,
+            provider="acme",
+        ),
     )
 
     assert from_binance.venue != from_xetr.venue

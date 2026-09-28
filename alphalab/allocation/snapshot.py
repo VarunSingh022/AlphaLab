@@ -93,11 +93,12 @@ from alphalab.persistence.decode import (
     as_str,
     as_value_enum,
     require,
-    require_schema_version,
 )
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory
 
 __all__ = [
+    "ALLOCATION_SCHEMA_HISTORY",
     "ALLOCATION_SNAPSHOT_SCHEMA",
     "AllocationEventRecord",
     "AllocationSnapshot",
@@ -295,6 +296,11 @@ def _ledger(payload: Mapping[str, Any]) -> dict[str, tuple[StrategyContribution,
     }
 
 
+#: How every allocation payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`.
+ALLOCATION_SCHEMA_HISTORY = SchemaHistory(_SUBSYSTEM, ALLOCATION_SNAPSHOT_SCHEMA)
+
+
 def from_primitives(payload: Mapping[str, Any]) -> AllocationSnapshot:
     """Decode a JSON-decoded snapshot payload back into :class:`AllocationSnapshot`.
 
@@ -305,7 +311,7 @@ def from_primitives(payload: Mapping[str, Any]) -> AllocationSnapshot:
     """
 
     payload = as_mapping(payload, "allocation snapshot")
-    require_schema_version(payload, ALLOCATION_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    payload = ALLOCATION_SCHEMA_HISTORY.upgrade(payload)
 
     return AllocationSnapshot(
         budget=_budget(require(payload, "budget")),

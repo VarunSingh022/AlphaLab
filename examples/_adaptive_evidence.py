@@ -31,6 +31,7 @@ from alphalab.api import backtest, to_market_dataset
 from alphalab.backtesting.state import BacktestResult
 from alphalab.core.enums import AssetType
 from alphalab.data.dataset import Dataset
+from alphalab.data.time import BarStamp
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instruments
@@ -86,7 +87,12 @@ RECORDS = {
 INSTRUMENTS: InstrumentRegistry = register_instruments(InstrumentRegistry(), RECORDS.values())
 ASSET_ID = RECORDS["AAA"].asset_id
 NORMALIZATION = NormalizationPolicy(
-    venue="XNYS", currency="USD", timeframe=TimeFrame.D1, identity=INSTRUMENTS, provider=PROVIDER
+    bar_stamp=BarStamp.INTERVAL_END,
+    venue="XNYS",
+    currency="USD",
+    timeframe=TimeFrame.D1,
+    identity=INSTRUMENTS,
+    provider=PROVIDER,
 )
 
 #: Which stream the observations come from. Part of every observation's identity.
@@ -253,7 +259,7 @@ def run_config() -> RunConfig:
                 exposure=ExposureLimit(wide, wide),
                 leverage=LeverageLimit(Decimal("10")),
                 margin=MarginLimit(Decimal("1.00")),
-                daily_loss=DailyLossLimit(wide),
+                daily_loss=DailyLossLimit(wide, "UTC"),
                 drawdown=DrawdownLimit(Decimal("1.00")),
             ),
             simulator=ExecutionSimulator(),

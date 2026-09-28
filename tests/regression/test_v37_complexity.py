@@ -28,7 +28,6 @@ Each is one whose obvious implementation is quadratic:
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 
 from alphalab.alt_data import (
@@ -65,6 +64,7 @@ from alphalab.strategy import (
     observation_stream,
     replay_updates,
 )
+from tests.regression._timing import growth
 from tests.unit.alt_data.pit_harness import INCOME, SOURCE, event, fundamental, observation
 from tests.unit.alt_data.pit_harness import quarter as calendar_quarter
 
@@ -74,20 +74,10 @@ LINEAR_BOUND = 8.0
 DAY = 86_400.0
 
 
-def _elapsed(work: Callable[[], object]) -> float:
-    """Best of three, so one scheduling hiccup does not fail the suite."""
-
-    return min(_once(work) for _ in range(3))
-
-
-def _once(work: Callable[[], object]) -> float:
-    start = time.perf_counter()
-    work()
-    return time.perf_counter() - start
-
-
 def _growth(small: Callable[[], object], large: Callable[[], object]) -> float:
-    return _elapsed(large) / max(_elapsed(small), 1e-4)
+    """Read with the one stabilized method every guard shares (tests/regression/_timing.py)."""
+
+    return growth(small, large)
 
 
 def _observations(count: int) -> list[ExternalObservation]:

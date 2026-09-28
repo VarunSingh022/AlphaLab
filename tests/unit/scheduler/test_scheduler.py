@@ -10,7 +10,6 @@ from alphalab.scheduler import (
     ScheduleType,
     SessionPhase,
     Timer,
-    TradingCalendar,
     TradingSession,
     VirtualClock,
     active_sessions,
@@ -109,22 +108,6 @@ def test_session_management() -> None:
 
     state = SchedulerEngine.end_session(state, "SESS-1", 5000.0)
     assert len(active_sessions(state)) == 0
-
-
-def test_trading_calendar() -> None:
-    # 2024-01-06 is a Saturday
-    saturday_ts = 1704542400.0
-    assert TradingCalendar.is_weekend(saturday_ts) is True
-    assert TradingCalendar.is_trading_day(saturday_ts) is False
-
-    # 2024-01-08 is a Monday
-    monday_ts = 1704715200.0
-    assert TradingCalendar.is_weekend(monday_ts) is False
-    assert TradingCalendar.is_trading_day(monday_ts) is True
-
-    # Next session skips Sunday
-    next_sess = TradingCalendar.next_trading_session(saturday_ts)
-    assert TradingCalendar.is_weekend(next_sess) is False
 
 
 def test_clock_reset() -> None:

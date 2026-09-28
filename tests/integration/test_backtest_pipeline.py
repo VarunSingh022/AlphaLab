@@ -326,8 +326,10 @@ def test_analytics_are_compiled_from_the_run_that_produced_them() -> None:
 
     assert report is not None
     assert report.ending_capital == result.equity_curve[-1].total_equity
-    assert len(report.returns.daily_returns) == len(result.equity_curve) - 1
-    assert report.trades.turnover > 0.0
+    # One return per consecutive pair of instants (v3.10: one equity point per instant).
+    instants = {point.timestamp for point in result.equity_curve}
+    assert len(report.returns.period_returns) == len(instants) - 1
+    assert report.trades.turnover is not None and report.trades.turnover > 0.0
     assert len(result.state.trade_records) == 2
 
 
@@ -362,7 +364,9 @@ def test_turnover_reflects_the_notional_the_run_traded() -> None:
 
     assert quiet.report is not None
     assert busy.report is not None
-    assert busy.report.trades.turnover > quiet.report.trades.turnover
+    busy_turnover, quiet_turnover = busy.report.trades.turnover, quiet.report.trades.turnover
+    assert busy_turnover is not None and quiet_turnover is not None
+    assert busy_turnover > quiet_turnover
 
 
 def test_attribution_sees_every_trade_the_run_made() -> None:

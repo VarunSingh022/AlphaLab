@@ -188,7 +188,7 @@ def run_config() -> RunConfig:
         exposure=ExposureLimit(Decimal("100000000"), Decimal("100000000")),
         leverage=LeverageLimit(Decimal("1000")),
         margin=MarginLimit(Decimal("1.00")),
-        daily_loss=DailyLossLimit(Decimal("100000000")),
+        daily_loss=DailyLossLimit(Decimal("100000000"), "UTC"),
         drawdown=DrawdownLimit(Decimal("1.00")),
     )
     return RunConfig(

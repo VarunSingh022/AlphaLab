@@ -134,7 +134,7 @@ def _research_state() -> object:
     )
     payload = ResearchPayload(STRATEGY_LINE, returns, trades, {"fast": 5.0}, regimes, 1_000_000.0)
     state = ResearchEngine.initialize("RES-1", STRATEGY_LINE, 1.0)
-    return ResearchEngine.run_full_research(state, payload, 2.0)
+    return ResearchEngine.run_full_research(state, payload, 2.0, seed=42)
 
 
 def _candidate() -> StrategyCandidate:

@@ -13,7 +13,11 @@ class TrialResult:
     parameters: Mapping[str, Any]
     metrics: Mapping[str, float]
     score: float
-    execution_time_seconds: float
+    #: How long the evaluation took, when the optimizer was given a clock to
+    #: measure it with; ``None`` otherwise. Excluded from equality: a duration
+    #: is a fact about the machine, not about the trial, and two identical
+    #: searches must compare equal wherever they ran (ledger DET-002).
+    execution_time_seconds: float | None = field(default=None, compare=False)
     error: str | None = None
 
 

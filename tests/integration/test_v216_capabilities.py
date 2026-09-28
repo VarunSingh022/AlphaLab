@@ -139,7 +139,7 @@ def _governed_lifecycle() -> tuple[LifecycleState, StrategyVersionRef]:
 def _broker(base_url: str) -> RestVenueBroker:
     return RestVenueBroker(
         HttpVenueTransport(base_url, VenueCredentials(_KEY, _SECRET)),
-        VenueConfig(broker_name="TESTVENUE", account_id="ACC-LIVE"),
+        VenueConfig(currency="USD", broker_name="TESTVENUE", account_id="ACC-LIVE"),
     )
 
 
@@ -272,13 +272,15 @@ def test_no_capability_moved_another_ones_boundary() -> None:
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
     from alphalab.runtime.snapshot import PIPELINE_SNAPSHOT_SCHEMA
 
-    # The live driver added no field to the run and moved no run schema.
+    # The live driver added no field to the run and moved no run schema; the
+    # run schema moved to 2 in v3.10 for the analytics basis.
     assert len(fields(RunState)) == 8
-    assert RUN_SNAPSHOT_SCHEMA == 1
+    assert RUN_SNAPSHOT_SCHEMA == 2
 
-    # FX added no field to run configuration and moved no pipeline schema.
+    # FX added no field to run configuration and moved no pipeline schema (v3.10
+    # moved it to 4, for minor units and the analytics basis).
     assert "fx_rates" not in {f.name for f in fields(ExecutionPipelineConfig)}
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3
+    assert PIPELINE_SNAPSHOT_SCHEMA == 4
 
     # Governance moved exactly one schema, and only its own.
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION

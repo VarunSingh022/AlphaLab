@@ -46,7 +46,8 @@ def export_json(report: Report) -> str:
                 for s in report.sections
             ],
         }
-        return json.dumps(data, cls=ReportJSONEncoder, sort_keys=True, indent=2)
+        # Strict JSON: a non-finite float is refused, not written as NaN.
+        return json.dumps(data, cls=ReportJSONEncoder, sort_keys=True, indent=2, allow_nan=False)
     except Exception as e:
         raise ExportError(f"Failed to export report {report.report_id} to JSON: {e}") from e
 

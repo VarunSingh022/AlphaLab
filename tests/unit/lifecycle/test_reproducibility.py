@@ -19,6 +19,7 @@ import pytest
 
 from alphalab.data.dataset import Dataset
 from alphalab.data.exceptions import DataValidationError
+from alphalab.data.time import BarStamp
 from alphalab.factor_library.definition import FeatureDefinition, FeatureField, FeatureKind
 from alphalab.lifecycle import (
     NO_DEPENDENCIES,
@@ -214,8 +215,9 @@ def test_a_dataset_the_run_did_not_read_is_refused(dataset: Dataset) -> None:
 
 def test_a_dataset_whose_provenance_records_no_bytes_is_refused() -> None:
     """``ingest_rows`` records the source it is given (ADR-0036). Given an empty
-    payload, two different row sets under one name derive one version -- so a
-    manifest refuses to name such a dataset rather than claim it identifies data.
+    payload, two row sets under one name derived one version until v3.10; the
+    rows are hashed into the version now (KD-004), but the manifest identifies a
+    dataset by its source's bytes, and an empty payload records none.
     """
 
     from alphalab.api import ingest_rows
@@ -243,6 +245,7 @@ def test_a_dataset_whose_provenance_records_no_bytes_is_refused() -> None:
             name="UNRECORDED",
             source=raw_source_from_bytes(SourceKind.IN_MEMORY, "x", b"", 1.0, "text/csv"),
             frequency=TimeFrequency.DAILY,
+            bar_stamp=BarStamp.INTERVAL_END,
             asset_class=DataAssetClass.EQUITY,
             cleaning_policy=CLEANING,
             price_basis=PriceBasis.RAW,
@@ -251,7 +254,7 @@ def test_a_dataset_whose_provenance_records_no_bytes_is_refused() -> None:
         return ingest_rows(rows, request).dataset
 
     first, second = unrecorded("100"), unrecorded("250")
-    assert first.dataset_version == second.dataset_version, "the caveat this guard exists for"
+    assert first.dataset_version != second.dataset_version, "the rows identify the version"
 
     with pytest.raises(LifecycleInputError, match="empty source payload"):
         manifest_for_run(run_backtest(first), first, fingerprint(), ENGINE)

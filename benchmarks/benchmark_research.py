@@ -24,7 +24,7 @@ def run_benchmark() -> None:
     start = time.perf_counter()
 
     for i in range(N):
-        ResearchEngine.run_full_research(states[i], payload, 1001.0 + i)
+        ResearchEngine.run_full_research(states[i], payload, 1001.0 + i, seed=42)
 
     duration = time.perf_counter() - start
     ops_sec = N / duration

@@ -27,6 +27,7 @@ from alphalab.data import (
     raw_source_from_bytes,
     read_delimited,
 )
+from alphalab.data.time import BarStamp
 
 POLICY = CleaningPolicy(
     duplicates=DuplicatePolicy.KEEP_FIRST,
@@ -66,6 +67,7 @@ def run_benchmark() -> None:
                 SourceKind.IN_MEMORY, "benchmark", text.encode("utf-8"), 1.0, "text/csv"
             ),
             frequency=TimeFrequency.MINUTE,
+            bar_stamp=BarStamp.INTERVAL_END,
             asset_class=DataAssetClass.EQUITY,
             cleaning_policy=POLICY,
             price_basis=PriceBasis.RAW,

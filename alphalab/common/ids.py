@@ -60,6 +60,22 @@ Identifier = NewType("Identifier", str)
 _ID_SOURCE: ContextVar[Callable[[], str] | None] = ContextVar("alphalab_id_source", default=None)
 
 
+def require_seed(seed: object, where: str = "An identifier seed") -> int:
+    """``seed``, if it is a non-negative integer; refuse it otherwise.
+
+    A ``bool`` is refused although it is an ``int``: ``True`` as a seed is a
+    mistake, not the number one.
+    """
+
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise AlphaLabValidationError(
+            f"{where} must be a non-negative integer, got {seed!r}. random.Random seeds an "
+            "integer by its absolute value, so a negative seed would mint the same stream "
+            "as its positive twin."
+        )
+    return seed
+
+
 @dataclass(frozen=True, slots=True)
 class IdStreamPosition:
     """How far a run's identifier stream has advanced.
@@ -87,19 +103,32 @@ class IdStreamPosition:
 class DeterministicIdSource:
     """Reproducible stream of UUID-shaped identifiers from an explicit seed.
 
-    Backed by :class:`random.Random`, whose Mersenne Twister stream is
-    guaranteed reproducible across Python versions for a given seed, so a run
-    recorded today replays identically later. It is *not* a source of
-    cryptographic randomness and is not meant to be one.
+    Backed by :class:`random.Random`'s Mersenne Twister, drawing 128 bits per
+    identifier with ``getrandbits``. Python's documentation guarantees the
+    reproducibility of ``random()`` for a given seed across versions, and not,
+    in so many words, of ``getrandbits`` -- so the stream is pinned instead: a
+    regression test holds the first identifiers of a fixed seed, and a Python
+    that minted different ones would fail it rather than silently replay a
+    recorded run into different identifiers (ledger DET-003). It is *not* a
+    source of cryptographic randomness and is not meant to be one.
+
+    The seed is a non-negative integer. ``random.Random`` seeds an integer by
+    its absolute value, so ``-7`` and ``7`` would mint the same stream and two
+    runs a caller meant to differ would share every identifier; a negative seed
+    is refused rather than folded.
 
     The source counts what it has minted. That count is the only thing a stopped
     run needs in order to continue where it left off, and keeping it here rather
     than at the call sites is what leaves every ``new_id()`` caller untouched.
+
+    Raises:
+        AlphaLabValidationError: If ``seed`` is negative, or not an integer.
     """
 
     __slots__ = ("_draws", "_random", "_seed")
 
     def __init__(self, seed: int) -> None:
+        require_seed(seed)
         self._seed = seed
         self._random = Random(seed)
         self._draws = 0

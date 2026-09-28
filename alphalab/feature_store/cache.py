@@ -2,8 +2,7 @@
 
 Consistent with the rest of AlphaLab's immutable architecture, the cache is not a
 mutable structure with side effects -- it is a plain immutable snapshot, and every
-operation returns a new `FeatureCache` rather than mutating one in place. This
-mirrors `alphalab.marketdata.cache.MarketDataCache`.
+operation returns a new `FeatureCache` rather than mutating one in place.
 """
 
 from dataclasses import dataclass, field, replace

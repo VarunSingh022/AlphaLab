@@ -34,8 +34,10 @@ Identity       Resolved through the policy's :data:`IdentityResolution`.
                the provider symbol through and cannot reach a fill. See
                ADR-0016.
 Venue/currency Not present on the wire; supplied by the
-               :class:`NormalizationPolicy` doing the lifting.
-Bar timeframe  Not present on the wire; supplied by the policy. ``vwap`` and
+               :class:`NormalizationPolicy` doing the lifting. A quote or a
+               trade is refused by a policy that names no currency.
+Bar timeframe  Not present on the wire; supplied by the policy, and a bar is
+               refused by a policy that names none. ``vwap`` and
                ``trade_count`` default to ``0`` / ``0`` because a wire bar
                carries neither -- absent, not zero-valued, and readers should
                treat them as unknown.
@@ -58,8 +60,10 @@ Three different failures, three different answers:
   Raises :class:`~alphalab.market.exceptions.MarketValidationError`. The record
   is not representable and no downstream default would be honest.
 * **Missing** -- a field the wire shape has no room for (venue, currency,
-  timeframe, vwap, order counts). Supplied by the policy or defaulted, and
-  documented above as unknown rather than measured.
+  timeframe, vwap, order counts). Currency and timeframe are supplied by the
+  policy or the record is refused; the venue is supplied or recorded as
+  ``"UNKNOWN"``; vwap and order counts are documented above as unknown rather
+  than measured.
 * **Stale** -- a well-formed record that is simply too old to act on. Not an
   error: :func:`is_stale` and :func:`reject_stale` let a caller decide, because
   what counts as stale is a property of the strategy, not of the data.
@@ -76,8 +80,9 @@ from alphalab.data.feed import OrderBook as WireOrderBook
 from alphalab.data.feed import OrderBookLevel as WireOrderBookLevel
 from alphalab.data.feed import Quote as WireQuote
 from alphalab.data.feed import Trade as WireTrade
+from alphalab.data.time import BarStamp
 from alphalab.instrument.registry import InstrumentRegistry
-from alphalab.market.bar import Bar, TimeFrame
+from alphalab.market.bar import TIMEFRAME_SECONDS, Bar, TimeFrame
 from alphalab.market.exceptions import InstrumentResolutionError, MarketValidationError
 from alphalab.market.level import OrderBookLevel
 from alphalab.market.quote import Quote
@@ -91,7 +96,6 @@ from alphalab.market.validation import (
 )
 
 __all__ = [
-    "DEFAULT_POLICY",
     "UNRESOLVED_IDENTITY",
     "IdentityResolution",
     "NormalizationPolicy",
@@ -177,9 +181,18 @@ class NormalizationPolicy:
     """What the wire shape cannot say, and this venue's answer for it.
 
     Attributes:
-        venue: Venue recorded on canonical quotes and ticks.
-        currency: Currency recorded on canonical quotes and ticks.
-        timeframe: Timeframe recorded on canonical bars.
+        venue: Venue recorded on canonical quotes and ticks. ``"UNKNOWN"`` when
+            not supplied, which is a label saying the record is unattributed,
+            not a guess at an attribution.
+        currency: Currency recorded on canonical quotes and ticks. **Required
+            to normalize a quote or a trade**, and unused otherwise. Until v3.10
+            it defaulted to ``"USD"``, which labelled a euro quote in dollars
+            (ledger API-003).
+        timeframe: Timeframe recorded on canonical bars. **Required to
+            normalize a bar**, and unused otherwise. Until v3.10 it defaulted
+            to one minute, which mislabelled every other bar and, since
+            ``bar_stamp`` moves a start-stamped bar by its timeframe, would
+            have moved a daily bar by a minute.
         identity: How a provider symbol becomes an ``asset_id``. An
             :class:`~alphalab.instrument.registry.InstrumentRegistry` resolves
             it and refuses an unregistered pair; :class:`UnresolvedIdentity`
@@ -190,13 +203,18 @@ class NormalizationPolicy:
             provider and refuse all of them, reporting a registration problem
             for what is really a configuration one. Unused, and left blank, in
             the unresolved mode.
+        bar_stamp: Which instant of its interval a wire bar's timestamp names.
+            **Required to normalize a bar**, and unused otherwise:
+            ``INTERVAL_START`` bars are moved to the end of their ``timeframe``,
+            the instant the canonical bar is stamped at (ledger DAT-001).
     """
 
     venue: str = "UNKNOWN"
-    currency: str = "USD"
-    timeframe: TimeFrame = TimeFrame.M1
+    currency: str | None = None
+    timeframe: TimeFrame | None = None
     identity: IdentityResolution = UNRESOLVED_IDENTITY
     provider: str = ""
+    bar_stamp: BarStamp | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.identity, InstrumentRegistry) and not self.provider.strip():
@@ -230,18 +248,36 @@ class NormalizationPolicy:
         return resolved
 
 
-#: Policy used when a caller supplies none. Names the venue ``"UNKNOWN"`` rather
-#: than guessing one, so an unattributed record stays visibly unattributed.
-#:
-#: Its identity mode is :data:`UNRESOLVED_IDENTITY`, so by ADR-0016 this is
-#: **not a production execution configuration**: it produces provider symbols,
-#: not canonical ids, and :meth:`~alphalab.market.provider.ProviderHistorySource.of`
-#: refuses it.
-DEFAULT_POLICY = NormalizationPolicy()
+def _currency(policy: NormalizationPolicy, record: str) -> str:
+    """The currency ``policy`` labels a ``record`` with, or a refusal."""
+
+    if policy.currency is None:
+        raise MarketValidationError(
+            f"A canonical {record} records the currency it is priced in, and a wire {record} "
+            "does not say; this policy names none. Declare NormalizationPolicy(currency=...). "
+            "Until v3.10 it defaulted to 'USD', which labelled every quote in dollars."
+        )
+    return policy.currency
 
 
-def normalize_wire_quote(quote: WireQuote, policy: NormalizationPolicy = DEFAULT_POLICY) -> Quote:
-    """Lift a wire quote into the canonical top-of-book quote."""
+def _timeframe(policy: NormalizationPolicy) -> TimeFrame:
+    """The timeframe ``policy`` records on a bar, or a refusal."""
+
+    if policy.timeframe is None:
+        raise MarketValidationError(
+            "A canonical bar records the interval it covers, and a wire bar does not say; "
+            "this policy names none. Declare NormalizationPolicy(timeframe=...)."
+        )
+    return policy.timeframe
+
+
+def normalize_wire_quote(quote: WireQuote, policy: NormalizationPolicy) -> Quote:
+    """Lift a wire quote into the canonical top-of-book quote.
+
+    Raises:
+        MarketValidationError: If ``policy`` names no currency, or the quote is
+            invalid.
+    """
 
     canonical = Quote(
         asset_id=policy.asset_id(quote.symbol),
@@ -251,7 +287,7 @@ def normalize_wire_quote(quote: WireQuote, policy: NormalizationPolicy = DEFAULT
         bid_size=to_decimal(quote.bid_size),
         ask_size=to_decimal(quote.ask_size),
         venue=policy.venue,
-        currency=policy.currency,
+        currency=_currency(policy, "quote"),
     )
     validate_quote(canonical)
     return canonical
@@ -259,13 +295,17 @@ def normalize_wire_quote(quote: WireQuote, policy: NormalizationPolicy = DEFAULT
 
 def normalize_wire_trade(
     trade: WireTrade,
-    policy: NormalizationPolicy = DEFAULT_POLICY,
+    policy: NormalizationPolicy,
     trade_id: str = "",
 ) -> Tick:
     """Lift a wire trade print into the canonical tick.
 
     A wire trade carries no identifier and no aggressor side. ``trade_id``
     defaults to empty rather than being invented, and no direction is inferred.
+
+    Raises:
+        MarketValidationError: If ``policy`` names no currency, or the print is
+            invalid.
     """
 
     canonical = Tick(
@@ -275,22 +315,26 @@ def normalize_wire_trade(
         quantity=to_decimal(trade.size),
         trade_id=trade_id,
         venue=policy.venue,
-        currency=policy.currency,
+        currency=_currency(policy, "trade"),
     )
     validate_tick(canonical)
     return canonical
 
 
-def normalize_wire_bar(bar: WireBar, policy: NormalizationPolicy = DEFAULT_POLICY) -> Bar:
+def normalize_wire_bar(bar: WireBar, policy: NormalizationPolicy) -> Bar:
     """Lift a wire OHLCV bar into the canonical bar.
 
     ``vwap`` and ``trade_count`` are set to zero because the wire bar carries
     neither. They mean "not reported", not "zero".
+
+    Raises:
+        MarketValidationError: If ``policy`` names no timeframe or does not say
+            where in its interval a wire bar is stamped, or the bar is invalid.
     """
 
     canonical = Bar(
         asset_id=policy.asset_id(bar.symbol),
-        timestamp=bar.timestamp,
+        timestamp=_bar_end(bar.timestamp, policy),
         open=to_decimal(bar.open),
         high=to_decimal(bar.high),
         low=to_decimal(bar.low),
@@ -298,15 +342,42 @@ def normalize_wire_bar(bar: WireBar, policy: NormalizationPolicy = DEFAULT_POLIC
         volume=to_decimal(bar.volume),
         vwap=Decimal("0"),
         trade_count=0,
-        timeframe=policy.timeframe,
+        timeframe=_timeframe(policy),
     )
     validate_bar(canonical)
     return canonical
 
 
+def _bar_end(timestamp: float, policy: NormalizationPolicy) -> float:
+    """The end of the interval a wire bar stamped at ``timestamp`` covers.
+
+    Raises:
+        MarketValidationError: If the policy does not say whether wire bars are
+            stamped at the start or the end of their interval, or if they are
+            start-stamped with a timeframe that has no fixed length.
+    """
+
+    if policy.bar_stamp is None:
+        raise MarketValidationError(
+            "A wire bar's timestamp names either the start or the end of its interval, and "
+            "the two differ by a whole bar; this policy does not say which. Declare "
+            "NormalizationPolicy(bar_stamp=BarStamp.INTERVAL_START or INTERVAL_END)."
+        )
+    if policy.bar_stamp is BarStamp.INTERVAL_END:
+        return timestamp
+    timeframe = _timeframe(policy)
+    seconds = TIMEFRAME_SECONDS.get(timeframe)
+    if seconds is None:
+        raise MarketValidationError(
+            f"Start-stamped {timeframe.name} bars must be moved to the end of their "
+            "interval, and that timeframe has no fixed length to move them by."
+        )
+    return timestamp + seconds
+
+
 def normalize_wire_book(
     book: WireOrderBook,
-    policy: NormalizationPolicy = DEFAULT_POLICY,
+    policy: NormalizationPolicy,
     sequence: int = 1,
 ) -> OrderBookSnapshot:
     """Lift a wire depth book into the canonical snapshot.

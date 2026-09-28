@@ -7,11 +7,12 @@ remains explicit and the canonical core entities are preserved.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from enum import Enum, auto
 from types import MappingProxyType
+from typing import Any
 from uuid import UUID
 
 from alphalab.allocation.budget import CapitalBudget
@@ -23,6 +24,7 @@ from alphalab.analytics.attribution import TradeRecord
 from alphalab.analytics.engine import AnalyticsEngine, PortfolioSnapshot
 from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.common.ids import IdStreamPosition, current_id_position
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.contribution import StrategyContribution
@@ -35,6 +37,7 @@ from alphalab.execution.fill import FillStatus, OrderInstruction
 from alphalab.execution.policy import (
     FillDecision,
     FillPolicy,
+    FillTiming,
     LiquidityContext,
     StaticFill,
 )
@@ -63,6 +66,7 @@ from alphalab.oms.state import OMSState
 from alphalab.oms.status import OrderStatus, OrderType
 from alphalab.oms.status import Side as OMSSide
 from alphalab.portfolio.account import Account
+from alphalab.portfolio.book import PositionBook
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
 from alphalab.portfolio.fx import NO_RATES, FxConversion, FxRates
@@ -71,6 +75,7 @@ from alphalab.portfolio.valuation import (
     PortfolioValuation,
     PortfolioValuationSnapshot,
     assert_single_currency_book,
+    book_totals_in,
     cash_in,
 )
 from alphalab.risk.decision import RiskDecision
@@ -78,6 +83,7 @@ from alphalab.risk.engine import RiskEngine
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
+from alphalab.risk.projection import NO_WORKING_ORDERS, WorkingExposure
 from alphalab.risk.state import RiskState
 from alphalab.runtime.context_views import (
     HistoryView,
@@ -157,7 +163,10 @@ class ExecutionPipelineConfig:
             and what a fill settles in unless the registry names another this
             pipeline also settles. It must equal ``account.base_currency``;
             :meth:`ExecutionPipeline.initialize` refuses a config where the two
-            disagree.
+            disagree. Left empty it **is** ``account.base_currency``: until
+            v3.10 it defaulted to ``"USD"`` whatever the account said, so a
+            euro account's config was refused unless it repeated the currency
+            (ledger API-003).
         also_settles: Other currencies a fill may settle in. **Empty by
             default**, which is the single-currency pipeline every run had
             before v2.17 and is byte-identical to it: one permitted currency,
@@ -194,6 +203,12 @@ class ExecutionPipelineConfig:
             and this takes neither back. Leaving it ``None`` is fully supported
             and changes nothing except how precisely an unpriced asset can be
             described and whether a run can report P&L by sector.
+        fill_timing: When a simulated order fills: at the event that decided it
+            (``SAME_EVENT``, optimistic, and what every run did before v3.10) or
+            at its asset's next event (``NEXT_EVENT``). See
+            :class:`~alphalab.execution.policy.FillTiming`. Ignored under
+            ``EXTERNAL`` routing, where nothing is simulated. Recorded with the
+            run, its snapshot and its results.
     """
 
     account: Account
@@ -204,10 +219,16 @@ class ExecutionPipelineConfig:
     sizing_model: SizingModel = field(default_factory=FixedQuantitySizing)
     simulator: ExecutionSimulator = field(default_factory=ExecutionSimulator)
     venue: str = "SIM"
-    currency: str = "USD"
+    currency: str = ""
     also_settles: frozenset[str] = frozenset()
     routing: ExecutionRouting = ExecutionRouting.SIMULATED
     instruments: InstrumentRegistry | None = None
+    fill_timing: FillTiming = FillTiming.SAME_EVENT
+
+    def __post_init__(self) -> None:
+        if not self.currency:
+            # The account names the currency; the config does not name a second.
+            object.__setattr__(self, "currency", self.account.base_currency)
 
     @property
     def settlement_currencies(self) -> frozenset[str]:
@@ -274,6 +295,9 @@ class UnpricedAsset:
         last_timestamp: Market timestamp of the most recent drop. Equal to
             ``first_timestamp`` after a single occurrence.
         occurrences: How many requests were dropped, not how many events passed.
+            An event whose intents for the asset could not be sized into a
+            request at all -- a sizing model that needs a price refuses one --
+            counts once, as the netted request it would have been.
     """
 
     asset_id: str
@@ -642,7 +666,7 @@ class ExecutionPipeline:
         # -- the deposit above is in ``config.currency`` and there are no
         # positions -- so nothing is convertible and nothing needs converting.
         risk = _sync_risk_from_portfolio(
-            RiskEngine.reset(config.risk_limits), portfolio, config.instruments
+            RiskEngine.reset(config.risk_limits), portfolio, config.instruments, as_of=timestamp
         )
         snapshot = _portfolio_snapshot(portfolio, config.currency, timestamp)
 
@@ -709,7 +733,9 @@ class ExecutionPipeline:
             )
 
         portfolio = PortfolioEngine.apply_deposit(state.portfolio, amount, currency, timestamp)
-        risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments, rates)
+        risk = _sync_risk_from_portfolio(
+            state.risk, portfolio, state.config.instruments, rates, as_of=timestamp
+        )
         return replace(state, portfolio=portfolio, risk=risk)
 
     @staticmethod
@@ -761,7 +787,9 @@ class ExecutionPipeline:
         portfolio, conversion = PortfolioEngine.convert_cash(
             state.portfolio, amount, from_currency, to_currency, rates, timestamp
         )
-        risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments, rates)
+        risk = _sync_risk_from_portfolio(
+            state.risk, portfolio, state.config.instruments, rates, as_of=timestamp
+        )
         return replace(state, portfolio=portfolio, risk=risk), conversion
 
     @staticmethod
@@ -882,23 +910,48 @@ class ExecutionPipeline:
         fields because every one of them is paid eleven times per record.
         """
 
-        market_prices = _market_prices_with_event(state.market_prices, event)
-        portfolio = PortfolioEngine.update_market_prices(
-            state.portfolio, market_prices, event.timestamp
+        update = _market_price(event)
+        market_prices = _market_prices_with_event(state.market_prices, update)
+        # One event moves at most one price, so the book re-marks that asset and
+        # the positions a fill priced since, not every position it holds (PRF-001).
+        portfolio = PortfolioEngine.mark_changed(
+            state.portfolio,
+            market_prices,
+            event.timestamp,
+            update[0] if update is not None else None,
         )
-        risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments, rates)
+        risk = _sync_risk_from_portfolio(
+            state.risk, portfolio, state.config.instruments, rates, as_of=event.timestamp
+        )
+        policy: FillPolicy = (
+            fill_policy if fill_policy is not None else StaticFill(fill_status, fill_quantity)
+        )
+        current = replace(state, market_prices=market_prices, portfolio=portfolio, risk=risk)
 
-        # Assembled from the marked locals above, after marking and after the
-        # risk resync, and before dispatch. The order is the guarantee: reading
-        # ``state.portfolio`` here would show the strategy a book marked at the
-        # previous event's prices while risk evaluated its order against these.
+        # Under NEXT_EVENT, the orders an earlier event left working in this
+        # asset fill now, at this event's price, and before the strategy is
+        # dispatched -- so it decides on a book that includes them (EXE-001).
+        earlier = _NO_EARLIER_FILLS
+        if (
+            update is not None
+            and state.config.fill_timing is FillTiming.NEXT_EVENT
+            and state.config.routing is ExecutionRouting.SIMULATED
+            and current.oms.working_orders_for(update[0])
+        ):
+            current, earlier = _fill_working_orders(current, event, update[0], policy, rates)
+
+        # Assembled from the marked state above, after marking, after the risk
+        # resync and after any working order filled, and before dispatch. The
+        # order is the guarantee: reading ``state.portfolio`` here would show the
+        # strategy a book marked at the previous event's prices while risk
+        # evaluated its order against these.
         populated = _populate_context(
             context_factory,
-            portfolio=portfolio,
-            risk=risk,
+            portfolio=current.portfolio,
+            risk=current.risk,
             market=state.market,
             market_prices=market_prices,
-            shares=order_shares_by_strategy(state.oms, state.allocation),
+            shares=order_shares_by_strategy(current.oms, current.allocation),
             instruments=state.config.instruments,
             # The look-ahead bound: this event's own timestamp, never a wall
             # clock. A strategy sees everything up to and including the event it
@@ -908,27 +961,31 @@ class ExecutionPipeline:
         strategy, intents = StrategyEngine.process_event(
             state.strategy, event, populated, event.timestamp
         )
+        constraints = state.config.allocation_constraints
         allocation, requests = AllocationEngine.allocate(
-            state.allocation,
+            current.allocation,
             intents,
             market_prices,
             state.config.sizing_model,
-            state.config.allocation_constraints,
+            constraints,
             event.timestamp,
-            _budget_prices(state, market_prices, rates, event.timestamp),
+            _budget_prices(current, market_prices, rates, event.timestamp),
+            positions=(
+                None if constraints.allow_shorting else _committed_positions(current, intents)
+            ),
         )
-        current = replace(
-            state,
-            strategy=strategy,
-            allocation=allocation,
-            market_prices=market_prices,
-            portfolio=portfolio,
-            risk=risk,
+        current = replace(current, strategy=strategy, allocation=allocation)
+        result = _process_requests(current, event, intents, requests, policy, rates)
+        if earlier is _NO_EARLIER_FILLS:
+            return result
+        orders, reports, fills, trades = earlier
+        return replace(
+            result,
+            oms_orders=(*orders, *result.oms_orders),
+            execution_reports=(*reports, *result.execution_reports),
+            fills=(*fills, *result.fills),
+            trades=(*trades, *result.trades),
         )
-        policy: FillPolicy = (
-            fill_policy if fill_policy is not None else StaticFill(fill_status, fill_quantity)
-        )
-        return _process_requests(current, event, intents, requests, policy, rates)
 
     @staticmethod
     def apply_execution_report(
@@ -1081,10 +1138,16 @@ class ExecutionPipeline:
     def compile_analytics(
         state: ExecutionPipelineState,
         timestamp: float,
-        years_elapsed: float = 1.0,
+        years_elapsed: float | None = None,
         risk_free_rate: float = 0.0,
+        periods_per_year: float | None = None,
     ) -> ExecutionPipelineState:
-        """Compile analytics from portfolio snapshots and execution trade records."""
+        """Compile analytics from portfolio snapshots and execution trade records.
+
+        ``years_elapsed`` and ``periods_per_year`` are derived from the equity
+        curve when ``None``; see
+        :meth:`~alphalab.analytics.engine.AnalyticsEngine.compile_report`.
+        """
 
         analytics = AnalyticsEngine.compile_report(
             state.analytics,
@@ -1093,6 +1156,7 @@ class ExecutionPipeline:
             timestamp,
             years_elapsed,
             risk_free_rate,
+            periods_per_year,
         )
         return replace(state, analytics=analytics, id_position=current_id_position())
 
@@ -1113,6 +1177,20 @@ def _process_requests(
     unpriced: list[OrderRequest] = []
     refusals: list[SettlementRefusal] = []
     current = state
+
+    # An intent for an asset the run never priced can end before it is a
+    # request: a sizing model that needs a price refuses it (ledger ALC-003), so
+    # the loop below never sees it. Its asset is recorded here, once per event
+    # as a netted request would be, so the run can still say why it did not
+    # trade. Until v3.10 such an intent was sized to zero and left no trace.
+    if any(intent.instrument not in current.market_prices for intent in intents):
+        requested = {request.asset_id for request in requests}
+        for asset_id in dict.fromkeys(
+            intent.instrument
+            for intent in intents
+            if intent.instrument not in current.market_prices and intent.instrument not in requested
+        ):
+            current = _record_unpriced(current, asset_id, event.timestamp)
 
     for request in requests:
         # An order cannot be priced, executed or valued without a market price
@@ -1141,7 +1219,7 @@ def _process_requests(
             refusals.append(refusal)
             current = _retire_dropped_request(current, request.order_id, event.timestamp)
             continue
-        current, decision = _evaluate_risk(current, request, event.timestamp)
+        current, decision = _evaluate_risk(current, request, event.timestamp, rates)
         decisions.append(decision)
         if not decision.approved:
             # Allocation reserved this request's notional when it sized it.
@@ -1157,29 +1235,24 @@ def _process_requests(
             # reservation stays held -- the capital is still committed.
             orders.append(order)
             continue
-        decision_out = _decide_fill(policy, order, event, current.market_prices[request.asset_id])
-        current, new_reports = _execute_order(current, order, decision_out, event)
-        # A rejected, expired or unfilled execution produces no report. The
-        # order never trades, so close it out of the OMS instead of leaving it
-        # open forever awaiting a fill, and retire both ledgers it holds. The
-        # order is terminal by the time _release_if_terminal is asked, which is
-        # what lets that one function serve every terminal transition.
-        if not new_reports and decision_out.status in _NON_TRADING_STATUSES:
-            current = replace(
-                current,
-                oms=_close_unfilled_order(current.oms, order, decision_out.status, event.timestamp),
-            )
-            current = _release_if_terminal(current, order.order_id, event.timestamp)
-
-        current, new_fills, new_trades = _apply_reports(current, order, new_reports, rates)
-        current = _withdraw_partial_remainder(current, request, order, event.timestamp)
+        if current.config.fill_timing is FillTiming.NEXT_EVENT:
+            # Working until its asset's next event, which fills it there -- not
+            # at the price the strategy decided on (EXE-001). Its reservation
+            # stays held until then.
+            orders.append(order)
+            continue
+        current, new_reports, new_fills, new_trades = _simulate_fill(
+            current, order, event, policy, rates
+        )
         orders.append(order)
         reports.extend(new_reports)
         fills.extend(new_fills)
         trades.extend(new_trades)
 
-    snapshot = _portfolio_snapshot(
-        current.portfolio, current.config.currency, event.timestamp, rates
+    # Valued once: the analytics snapshot and the result's valuation are the
+    # same figures of the same book. Until v3.10 each was computed separately.
+    valuation = PortfolioValuation.snapshot(
+        current.portfolio, event.timestamp, current.config.currency, rates
     )
     # The step boundary, and the only place the position is refreshed for an
     # event: every environment reaches here through process_record,
@@ -1188,11 +1261,10 @@ def _process_requests(
     # the state before it nor the state after.
     current = replace(
         current,
-        portfolio_snapshots=current.portfolio_snapshots.append(snapshot),
+        portfolio_snapshots=current.portfolio_snapshots.append(
+            _analytics_snapshot(valuation, event.timestamp)
+        ),
         id_position=current_id_position(),
-    )
-    valuation = PortfolioValuation.snapshot(
-        current.portfolio, event.timestamp, current.config.currency, rates
     )
 
     return ExecutionPipelineResult(
@@ -1209,6 +1281,83 @@ def _process_requests(
         valuation,
         tuple(refusals),
     )
+
+
+#: What ``process_market_event`` carries when no working order filled.
+_NO_EARLIER_FILLS: tuple[
+    tuple[OMSOrder, ...], tuple[ExecutionReport, ...], tuple[CoreFill, ...], tuple[CoreTrade, ...]
+] = ((), (), (), ())
+
+
+def _simulate_fill(
+    state: ExecutionPipelineState,
+    order: OMSOrder,
+    event: MarketEvent,
+    policy: FillPolicy,
+    rates: FxRates,
+) -> tuple[
+    ExecutionPipelineState,
+    tuple[ExecutionReport, ...],
+    tuple[CoreFill, ...],
+    tuple[CoreTrade, ...],
+]:
+    """Give a simulated order its one attempt at ``event``, and settle what it did."""
+
+    decision = _decide_fill(policy, order, event, state.market_prices[order.asset_id])
+    current, reports = _execute_order(state, order, decision, event)
+    # A rejected, expired or unfilled execution produces no report. The order
+    # never trades, so close it out of the OMS instead of leaving it open
+    # forever awaiting a fill, and retire both ledgers it holds. The order is
+    # terminal by the time _release_if_terminal is asked, which is what lets
+    # that one function serve every terminal transition.
+    if not reports and decision.status in _NON_TRADING_STATUSES:
+        current = replace(
+            current,
+            oms=_close_unfilled_order(current.oms, order, decision.status, event.timestamp),
+        )
+        current = _release_if_terminal(current, order.order_id, event.timestamp)
+
+    current, fills, trades = _apply_reports(current, order, reports, rates)
+    current = _withdraw_partial_remainder(current, order, event.timestamp)
+    return current, reports, fills, trades
+
+
+def _fill_working_orders(
+    state: ExecutionPipelineState,
+    event: MarketEvent,
+    asset_id: str,
+    policy: FillPolicy,
+    rates: FxRates,
+) -> tuple[
+    ExecutionPipelineState,
+    tuple[
+        tuple[OMSOrder, ...],
+        tuple[ExecutionReport, ...],
+        tuple[CoreFill, ...],
+        tuple[CoreTrade, ...],
+    ],
+]:
+    """Fill the orders a NEXT_EVENT run left working in ``asset_id``, at ``event``.
+
+    Each gets the one attempt a same-event order gets at its own event, priced
+    against what this event showed, in the order the orders were placed.
+    """
+
+    current = state
+    orders: list[OMSOrder] = []
+    reports: list[ExecutionReport] = []
+    fills: list[CoreFill] = []
+    trades: list[CoreTrade] = []
+    for order_id in state.oms.working_orders_for(asset_id):
+        order = current.oms.orders.find(order_id)
+        current, new_reports, new_fills, new_trades = _simulate_fill(
+            current, order, event, policy, rates
+        )
+        orders.append(current.oms.orders.find(order_id))
+        reports.extend(new_reports)
+        fills.extend(new_fills)
+        trades.extend(new_trades)
+    return current, (tuple(orders), tuple(reports), tuple(fills), tuple(trades))
 
 
 def _classify_unpriced(state: ExecutionPipelineState, asset_id: str) -> tuple[UnpricedReason, str]:
@@ -1252,6 +1401,39 @@ def _classify_unpriced(state: ExecutionPipelineState, asset_id: str) -> tuple[Un
     )
 
 
+def _committed_positions(
+    state: ExecutionPipelineState, intents: tuple[Intent, ...]
+) -> Mapping[str, Decimal]:
+    """Each intended asset's filled position plus its working orders, signed, in units.
+
+    What long-only allocation is judged against (ledger ALC-001): a sale that
+    closes a long passes, and one that would leave a short -- counting sales
+    already working -- does not. Plain numbers, so ``alphalab.allocation`` goes
+    on knowing nothing of the portfolio or the OMS. Read only for a run that
+    forbids shorting, and only for the assets its strategies named.
+    """
+
+    assets = {intent.instrument for intent in intents}
+    committed: dict[str, Decimal] = {}
+    if not assets:
+        return committed
+    for asset_id in assets:
+        held = state.portfolio.positions.get(asset_id)
+        if held is not None:
+            committed[asset_id] = held.quantity
+    oms = state.oms
+    for order_id in oms.active_orders:
+        order = oms.orders.find(order_id)
+        if order.asset_id not in assets:
+            continue
+        remaining = order.remaining_quantity
+        signed = remaining if order.side is CoreSide.BUY else -remaining
+        committed[order.asset_id] = ACCOUNTING_CONTEXT.add(
+            committed.get(order.asset_id, Decimal("0")), signed
+        )
+    return committed
+
+
 def _record_unpriced(
     state: ExecutionPipelineState, asset_id: str, timestamp: float
 ) -> ExecutionPipelineState:
@@ -1273,10 +1455,83 @@ def _record_unpriced(
 
 
 def _evaluate_risk(
-    state: ExecutionPipelineState, request: OrderRequest, timestamp: float
+    state: ExecutionPipelineState,
+    request: OrderRequest,
+    timestamp: float,
+    rates: FxRates = NO_RATES,
 ) -> tuple[ExecutionPipelineState, RiskDecision]:
-    risk, decision = RiskEngine.evaluate(state.risk, request, timestamp)
+    """Judge ``request`` on the book it would leave, counting working orders.
+
+    The gate is given what it needs to project the order (see
+    :mod:`alphalab.risk.projection`): the asset's filled position, the order's
+    price in the account's base currency -- converted with the rate in force at
+    ``timestamp`` and *not* rounded to a minor unit, because it is a price --
+    and every asset's working orders, read from the OMS's active orders.
+    """
+
+    position = state.portfolio.positions.get(request.asset_id)
+    risk, decision = RiskEngine.evaluate(
+        state.risk,
+        request,
+        timestamp,
+        position=position.quantity if position is not None else Decimal("0"),
+        price=_price_in_base(state, request.asset_id, request.price, rates, timestamp),
+        working=_working_exposure(state, rates, timestamp),
+    )
     return replace(state, risk=risk), decision
+
+
+def _price_in_base(
+    state: ExecutionPipelineState, asset_id: str, price: Decimal, rates: FxRates, as_of: float
+) -> Decimal:
+    """``price`` -- in the currency ``asset_id`` settles in -- in the base currency."""
+
+    currency = _settlement_currency_for(state, asset_id)
+    base = state.portfolio.account.base_currency
+    if currency == base:
+        return price
+    return ACCOUNTING_CONTEXT.multiply(price, rates.rate_at(currency, base, as_of).rate)
+
+
+def _working_exposure(
+    state: ExecutionPipelineState, rates: FxRates, as_of: float
+) -> Mapping[str, WorkingExposure]:
+    """What the OMS's working orders commit, per asset, in the base currency.
+
+    Read from the active-order set, so the cost follows the orders that are
+    working rather than every order ever placed. An order that has not filled
+    commits its remaining quantity; each asset's is valued at its current market
+    price, or at the order's reference price when the asset has not been priced
+    since.
+    """
+
+    oms = state.oms
+    if not oms.active_orders:
+        return NO_WORKING_ORDERS
+    quantities: dict[str, Decimal] = {}
+    reference: dict[str, Decimal] = {}
+    for order_id in oms.active_orders:
+        order = oms.orders.find(order_id)
+        remaining = order.remaining_quantity
+        signed = remaining if order.side is CoreSide.BUY else -remaining
+        quantities[order.asset_id] = ACCOUNTING_CONTEXT.add(
+            quantities.get(order.asset_id, Decimal("0")), signed
+        )
+        quoted = order.metadata.get("reference_price")
+        if quoted is not None:
+            reference.setdefault(order.asset_id, Decimal(str(quoted)))
+    working: dict[str, WorkingExposure] = {}
+    for asset_id, quantity in quantities.items():
+        mark = state.market_prices.get(asset_id, reference.get(asset_id))
+        if mark is None:
+            continue
+        held = state.portfolio.positions.get(asset_id)
+        working[asset_id] = WorkingExposure(
+            quantity=quantity,
+            price=_price_in_base(state, asset_id, mark, rates, as_of),
+            position=held.quantity if held is not None else Decimal("0"),
+        )
+    return working
 
 
 def _release_reservation(
@@ -1472,7 +1727,10 @@ def _execute_order(
         instruction,
         quantity,
         instruction.price,
-        order.updated_at,
+        # The instant it executes: the event's own. For a same-event order that
+        # is the instant it was accepted; a next-event order was accepted at the
+        # event before.
+        event.timestamp if event is not None else order.updated_at,
         decision.status,
         bid=bid,
         ask=ask,
@@ -1501,7 +1759,7 @@ def _apply_reports(
         # exchange rates -- see _budget_prices.
         executed_notional = _in_budget_currency(
             current,
-            report.fill_quantity * report.fill_price,
+            ACCOUNTING_CONTEXT.multiply(report.fill_quantity, report.fill_price),
             report.currency,
             rates,
             report.timestamp,
@@ -1663,7 +1921,9 @@ def _apply_report_to_portfolio(
         report.timestamp,
         report.currency,
     )
-    risk = _sync_risk_from_portfolio(state.risk, portfolio, state.config.instruments, rates)
+    risk = _sync_risk_from_portfolio(
+        state.risk, portfolio, state.config.instruments, rates, as_of=report.timestamp
+    )
     record = _trade_record(report, portfolio.events[before:], opened_at, contributions, sector)
     return replace(
         state,
@@ -1675,7 +1935,6 @@ def _apply_report_to_portfolio(
 
 def _withdraw_partial_remainder(
     state: ExecutionPipelineState,
-    request: OrderRequest,
     order: OMSOrder,
     timestamp: float,
 ) -> ExecutionPipelineState:
@@ -1767,6 +2026,7 @@ def _oms_order(request: OrderRequest) -> OMSOrder:
 
 
 def _instruction(order: OMSOrder, state: ExecutionPipelineState) -> OrderInstruction:
+    currency = _settlement_currency_for(state, order.asset_id)
     return OrderInstruction(
         str(order.order_id.value),
         order.strategy_id,
@@ -1775,7 +2035,10 @@ def _instruction(order: OMSOrder, state: ExecutionPipelineState) -> OrderInstruc
         state.market_prices[order.asset_id],
         order.side,
         state.config.venue,
-        _settlement_currency_for(state, order.asset_id),
+        currency,
+        # The account's unit for the settlement currency, so a simulated fill's
+        # cash costs are rounded where the portfolio will book them.
+        minor_units=state.config.account.currency_units.minor_units(currency),
     )
 
 
@@ -2014,28 +2277,36 @@ def _trade_record(
         asset_id=report.asset_id,
         sector_id=sector,
         realized_pnl=realized,
-        notional_value=report.fill_quantity * report.fill_price,
+        notional_value=ACCOUNTING_CONTEXT.multiply(report.fill_quantity, report.fill_price),
         holding_period_seconds=holding_period,
         contributions=contributions,
     )
 
 
 def _market_prices_with_event(
-    prices: Mapping[str, Decimal], event: MarketEvent
+    prices: Mapping[str, Decimal], update: tuple[str, Decimal] | None
 ) -> Mapping[str, Decimal]:
-    update = _market_price(event)
+    """``prices`` with the event's price set, sharing structure with ``prices``.
+
+    Until v3.10 every event copied the whole map to change one entry (PRF-001).
+    A map read back from a snapshot is a plain ``dict``, and becomes persistent
+    at its first event.
+    """
+
     if update is None:
         return prices
     asset_id, price = update
-    new_prices = dict(prices)
-    new_prices[asset_id] = price
-    return new_prices
+    persistent = prices if isinstance(prices, PersistentMap) else PersistentMap(prices)
+    return persistent.set(asset_id, price)
 
 
 def _market_price(event: MarketEvent) -> tuple[str, Decimal] | None:
     if isinstance(event, QuoteReceived):
         quote = event.quote
-        return quote.asset_id, (quote.bid + quote.ask) / Decimal("2")
+        # The midpoint, in the pinned context: a price the whole run reads must
+        # not depend on the caller's decimal precision (ACC-004).
+        mid = ACCOUNTING_CONTEXT.divide(ACCOUNTING_CONTEXT.add(quote.bid, quote.ask), Decimal("2"))
+        return quote.asset_id, mid
     if isinstance(event, BarClosed):
         return event.bar.asset_id, event.bar.close
     if isinstance(event, TickReceived):
@@ -2057,7 +2328,16 @@ def _portfolio_snapshot(
     single-currency book converts nothing and never reads the table.
     """
 
-    valuation = PortfolioValuation.snapshot(portfolio, timestamp, currency, rates)
+    return _analytics_snapshot(
+        PortfolioValuation.snapshot(portfolio, timestamp, currency, rates), timestamp
+    )
+
+
+def _analytics_snapshot(
+    valuation: PortfolioValuationSnapshot, timestamp: float
+) -> PortfolioSnapshot:
+    """The analytics projection of one valuation."""
+
     return PortfolioSnapshot(
         timestamp,
         valuation.equity,
@@ -2072,6 +2352,8 @@ def _sync_risk_from_portfolio(
     portfolio: PortfolioState,
     instruments: InstrumentRegistry | None,
     rates: FxRates = NO_RATES,
+    *,
+    as_of: float,
 ) -> RiskState:
     """Refresh the risk state from a marked book.
 
@@ -2096,33 +2378,137 @@ def _sync_risk_from_portfolio(
     """
 
     base = portfolio.account.base_currency
-    cash, _ = cash_in(portfolio.cash, base, rates, None)
-    nav = NAVCalculator.calculate(portfolio.cash, portfolio.positions, base, rates)
-    exposure = _risk_exposure(portfolio, instruments, rates)
+    # ``as_of`` is the instant the book is being marked at, and every conversion
+    # here is checked against it: a rate from the future or one older than the
+    # table tolerates is refused, as it is on every other conversion path. Until
+    # v3.10 this resync converted with no instant, so the guards never ran on the
+    # figures every pre-trade check reads (ledger EXE-008).
+    cash, _ = cash_in(portfolio.cash, base, rates, as_of, portfolio.account.currency_units)
+    nav = NAVCalculator.calculate(portfolio.cash, portfolio.positions, base, rates, as_of)
+    exposure = _risk_exposure(portfolio, instruments, rates, as_of)
 
-    # Delegate exposure and margin updates to the RiskEngine so that
-    # risk events and history are produced consistently with other
-    # codepaths. We still set numeric snapshots (cash, buying_power,
-    # current_nav, peak_nav) on the returned RiskState to keep the
-    # snapshot coherent.
-    risk_with_exposure = RiskEngine.update_exposure(risk, exposure, 0.0)
-    margin = MarginStatus(available_margin=cash, margin_used=exposure.gross_exposure)
-    risk_with_margin = RiskEngine.update_margin(risk_with_exposure, margin, 0.0)
+    # Exposure and margin through the RiskEngine, so risk events are produced
+    # consistently with other codepaths; then the engine marks NAV and cash,
+    # which is where the high-water mark and the daily loss are maintained.
+    # Margin is full-notional: gross exposure against net asset value.
+    risk_with_exposure = RiskEngine.update_exposure(risk, exposure, as_of)
+    margin = MarginStatus(available_margin=nav, margin_used=exposure.gross_exposure)
+    risk_with_margin = RiskEngine.update_margin(risk_with_exposure, margin, as_of)
+    return RiskEngine.mark(risk_with_margin, nav=nav, cash=cash, timestamp=as_of)
 
-    peak_nav = max(risk_with_margin.peak_nav, nav)
-    return replace(
-        risk_with_margin,
-        cash=cash,
-        buying_power=max(Decimal("0.00"), cash),
-        current_nav=nav,
-        peak_nav=peak_nav,
-    )
+
+class _ValuesInBase(Mapping[str, Decimal]):
+    """Each position's market value in the base currency, converted when read.
+
+    The per-asset figures of a mixed book. Converting all of them on every event
+    cost a conversion per position; the risk gate reads one -- the asset an
+    order is for -- so each converts when it is read, at the rate and instant
+    the event fixed, and is kept (PRF-001).
+    """
+
+    __slots__ = ("_as_of", "_base", "_book", "_rates", "_read")
+
+    def __init__(self, book: PositionBook, base: str, rates: FxRates, as_of: float | None) -> None:
+        self._book = book
+        self._base = base
+        self._rates = rates
+        self._as_of = as_of
+        self._read: dict[str, Decimal] = {}
+
+    def __getitem__(self, asset_id: str) -> Decimal:
+        value = self._read.get(asset_id)
+        if value is None:
+            currency = self._book[asset_id].currency
+            value = self._book.market_value(asset_id)
+            if currency != self._base:
+                value = self._rates.convert(value, currency, self._base, self._as_of).converted
+            self._read[asset_id] = value
+        return value
+
+    def __contains__(self, asset_id: object) -> bool:
+        return asset_id in self._book
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._book)
+
+    def __len__(self) -> int:
+        return len(self._book)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Mapping):
+            return dict(self.items()) == dict(other.items())
+        return NotImplemented
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return repr(dict(self.items()))
+
+    def __serializable__(self) -> dict[str, Decimal]:
+        return dict(self.items())
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (dict, (dict(self.items()),))
+
+
+class _SectorExposure(Mapping[str, Decimal]):
+    """Signed market value by sector, summed when first read (PRF-001).
+
+    Produced on every event and fill, and read by no risk check: only a
+    snapshot, or a caller inspecting the risk state, reads it. The sum over
+    every position is therefore taken at the first read, from the immutable
+    market values and registry the event produced, and kept. The figures are
+    those the eager sum gave; only when the work is done changes.
+    """
+
+    __slots__ = ("_instruments", "_sums", "_values")
+
+    def __init__(self, values: Mapping[str, Decimal], instruments: InstrumentRegistry) -> None:
+        self._values = values
+        self._instruments = instruments
+        self._sums: dict[str, Decimal] | None = None
+
+    def _summed(self) -> dict[str, Decimal]:
+        if self._sums is None:
+            sums: dict[str, Decimal] = {}
+            for asset_id, value in self._values.items():
+                sector = _sector_of(self._instruments, asset_id)
+                if sector is not None:
+                    sums[sector] = sums.get(sector, Decimal("0.00")) + value
+            self._sums = sums
+        return self._sums
+
+    def __getitem__(self, sector: str) -> Decimal:
+        return self._summed()[sector]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._summed())
+
+    def __len__(self) -> int:
+        return len(self._summed())
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Mapping):
+            return self._summed() == dict(other.items())
+        return NotImplemented
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return repr(self._summed())
+
+    def __serializable__(self) -> dict[str, Decimal]:
+        return dict(self._summed())
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (dict, (dict(self._summed()),))
 
 
 def _risk_exposure(
     portfolio: PortfolioState,
     instruments: InstrumentRegistry | None,
     rates: FxRates = NO_RATES,
+    as_of: float | None = None,
 ) -> ExposureStatus:
     """Exposure by asset and, when the run classifies its instruments, by sector.
 
@@ -2170,46 +2556,41 @@ def _risk_exposure(
     """
 
     base_currency = portfolio.account.base_currency
-    asset_exposure: dict[str, Decimal] = {}
-    sector_exposure: dict[str, Decimal] = {}
-    long_exposure = Decimal("0.00")
-    short_exposure = Decimal("0.00")
+    book = portfolio.book
+    if book.currencies in ((), (base_currency,)):
+        # Homogeneous: the book's own totals, kept as it changes, are the
+        # figures -- no pass over the positions for them (PRF-001). The sums
+        # start from 0.00 as the pass below does, so they are written the same.
+        totals = book.totals(base_currency)
+        long_total = Decimal("0.00") + totals.long_value
+        short_total = Decimal("0.00") + totals.short_value
+        values = book.market_values
+        return ExposureStatus(
+            gross_exposure=long_total + abs(short_total),
+            net_exposure=long_total + short_total,
+            long_exposure=long_total,
+            short_exposure=short_total,
+            asset_exposure=values,
+            sector_exposure=(
+                _SectorExposure(values, instruments) if instruments is not None else {}
+            ),
+        )
 
-    for asset_id, position in portfolio.positions.items():
-        if position.currency != base_currency:
-            # Refuses when no rate covers the pair -- delegated rather than
-            # raised here so that one rule owns the message -- and converts when
-            # one does, so the bucket below is in the base currency either way.
-            assert_single_currency_book(portfolio.cash, portfolio.positions, base_currency, rates)
-            value = rates.convert(
-                position.market_value, position.currency, base_currency, None
-            ).converted
-            asset_exposure[asset_id] = value
-            if value > 0:
-                long_exposure += value
-            elif value < 0:
-                short_exposure += value
-            if instruments is not None:
-                sector = _sector_of(instruments, asset_id)
-                if sector is not None:
-                    sector_exposure[sector] = sector_exposure.get(sector, Decimal("0.00")) + value
-            continue
-        value = position.market_value
-        asset_exposure[asset_id] = value
-        if value > 0:
-            long_exposure += value
-        elif value < 0:
-            short_exposure += value
-        if instruments is not None:
-            sector = _sector_of(instruments, asset_id)
-            if sector is not None:
-                sector_exposure[sector] = sector_exposure.get(sector, Decimal("0.00")) + value
-
+    # Mixed: refused if a currency has no rate into the base, through the one
+    # rule that owns the message; otherwise each currency's totals convert
+    # once, and the per-asset figures convert when read (PRF-001).
+    assert_single_currency_book(portfolio.cash, portfolio.positions, base_currency, rates)
+    long_value, short_value, _, _ = book_totals_in(book, base_currency, rates, as_of)
+    long_total = Decimal("0.00") + long_value
+    short_total = Decimal("0.00") + short_value
+    converted = _ValuesInBase(book, base_currency, rates, as_of)
     return ExposureStatus(
-        gross_exposure=long_exposure + abs(short_exposure),
-        net_exposure=long_exposure + short_exposure,
-        long_exposure=long_exposure,
-        short_exposure=short_exposure,
-        asset_exposure=asset_exposure,
-        sector_exposure=sector_exposure,
+        gross_exposure=long_total + abs(short_total),
+        net_exposure=long_total + short_total,
+        long_exposure=long_total,
+        short_exposure=short_total,
+        asset_exposure=converted,
+        sector_exposure=(
+            _SectorExposure(converted, instruments) if instruments is not None else {}
+        ),
     )

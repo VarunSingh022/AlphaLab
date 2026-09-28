@@ -83,9 +83,9 @@ from alphalab.persistence.decode import (
     as_sequence,
     as_str,
     require,
-    require_schema_version,
 )
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState, RunStep, SkippedRecord
 
 # The market-record, fill and report decoders belong to the pipeline snapshot,
@@ -105,6 +105,7 @@ from alphalab.runtime.snapshot import from_primitives as pipeline_from_primitive
 from alphalab.runtime.snapshot import restore as restore_pipeline
 
 __all__ = [
+    "RUN_SCHEMA_HISTORY",
     "RUN_SNAPSHOT_SCHEMA",
     "RunObjects",
     "RunSnapshot",
@@ -125,7 +126,12 @@ __all__ = [
 #: It is the *only* run-envelope constant. It replaces ``SESSION_SNAPSHOT_SCHEMA``
 #: and ``BACKTEST_SNAPSHOT_SCHEMA``, which are removed rather than aliased, and it
 #: is new, so it has nothing to be compatible with.
-RUN_SNAPSHOT_SCHEMA: Final = 1
+#:
+#: Version 2 (v3.10) carries the analytics basis the run declares:
+#: ``years_elapsed`` may be ``null`` (derive it from the equity curve) and
+#: ``periods_per_year`` is new -- and whether the run stops when a strategy fails
+#: (``halt_on_strategy_failure``). Version 1 is upgraded by :data:`RUN_SCHEMA_HISTORY`.
+RUN_SNAPSHOT_SCHEMA: Final = 2
 
 _SUBSYSTEM: Final = "run"
 
@@ -156,7 +162,7 @@ class RunSnapshot:
     start_timestamp: float
     ordering: OrderingGuarantee
     max_market_data_age_seconds: float | None
-    years_elapsed: float
+    years_elapsed: float | None
     risk_free_rate: float
     compile_analytics: bool
     fill_policy_type: str
@@ -166,6 +172,8 @@ class RunSnapshot:
     source_id: str | None
     steps: tuple[RunStep, ...]
     skipped: tuple[SkippedRecordRecord, ...]
+    periods_per_year: float | None = None
+    halt_on_strategy_failure: bool = False
     schema_version: int = RUN_SNAPSHOT_SCHEMA
 
 
@@ -207,6 +215,8 @@ def capture(state: RunState) -> RunSnapshot:
         years_elapsed=state.config.years_elapsed,
         risk_free_rate=state.config.risk_free_rate,
         compile_analytics=state.config.compile_analytics,
+        periods_per_year=state.config.periods_per_year,
+        halt_on_strategy_failure=state.config.halt_on_strategy_failure,
         fill_policy_type=type(state.config.fill_policy).__name__,
         processed=state.processed,
         current_timestamp=state.current_timestamp,
@@ -257,6 +267,8 @@ def restore(snapshot: RunSnapshot, objects: RunObjects) -> RunState:
         max_market_data_age_seconds=snapshot.max_market_data_age_seconds,
         years_elapsed=snapshot.years_elapsed,
         risk_free_rate=snapshot.risk_free_rate,
+        periods_per_year=snapshot.periods_per_year,
+        halt_on_strategy_failure=snapshot.halt_on_strategy_failure,
         compile_analytics=snapshot.compile_analytics,
     )
     return RunState(
@@ -333,6 +345,34 @@ def _optional_int(value: Any, where: str) -> int | None:
     return None if value is None else as_int(value, where)
 
 
+#: How every run payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`.
+def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
+    """Add the analytics basis v3.10 records, as a version-1 run meant it.
+
+    A version-1 run declared no ``periods_per_year`` -- v3.9 annualized every
+    run with 252 without asking -- so the upgraded run declares none, and a
+    report compiled after it resumes observes the figure from the curve and
+    says so. Its ``years_elapsed`` is kept exactly as recorded.
+    """
+
+    # No run before v3.10 could stop on a strategy failure; each ran on.
+    return {**payload, "periods_per_year": None, "halt_on_strategy_failure": False}
+
+
+RUN_SCHEMA_HISTORY = SchemaHistory(
+    _SUBSYSTEM,
+    RUN_SNAPSHOT_SCHEMA,
+    (
+        SchemaStep(
+            1,
+            "version 2 records the analytics basis the run declares",
+            upgrade=_v1_to_v2,
+        ),
+    ),
+)
+
+
 def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
     """Decode a JSON-decoded snapshot payload back into :class:`RunSnapshot`.
 
@@ -349,7 +389,7 @@ def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
     """
 
     payload = as_mapping(payload, "run snapshot")
-    require_schema_version(payload, RUN_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    payload = RUN_SCHEMA_HISTORY.upgrade(payload)
 
     def sequence(key: str, decode: Any) -> tuple[Any, ...]:
         return tuple(
@@ -366,9 +406,13 @@ def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
         max_market_data_age_seconds=_optional_float(
             require(payload, "max_market_data_age_seconds"), "max_market_data_age_seconds"
         ),
-        years_elapsed=as_float(require(payload, "years_elapsed"), "years_elapsed"),
+        years_elapsed=_optional_float(require(payload, "years_elapsed"), "years_elapsed"),
         risk_free_rate=as_float(require(payload, "risk_free_rate"), "risk_free_rate"),
+        periods_per_year=_optional_float(require(payload, "periods_per_year"), "periods_per_year"),
         compile_analytics=as_bool(require(payload, "compile_analytics"), "compile_analytics"),
+        halt_on_strategy_failure=as_bool(
+            require(payload, "halt_on_strategy_failure"), "halt_on_strategy_failure"
+        ),
         fill_policy_type=as_str(require(payload, "fill_policy_type"), "fill_policy_type"),
         processed=as_int(require(payload, "processed"), "processed"),
         current_timestamp=as_float(require(payload, "current_timestamp"), "current_timestamp"),

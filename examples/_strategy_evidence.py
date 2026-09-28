@@ -45,7 +45,7 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
+from alphalab.data.time import BarStamp, TimeFrequency
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instruments
@@ -83,7 +83,12 @@ ASSET_ID = INSTRUMENT.asset_id
 INSTRUMENTS: InstrumentRegistry = register_instruments(InstrumentRegistry(), (INSTRUMENT,))
 
 NORMALIZATION = NormalizationPolicy(
-    venue="XNYS", currency="USD", timeframe=TimeFrame.D1, identity=INSTRUMENTS, provider=PROVIDER
+    bar_stamp=BarStamp.INTERVAL_END,
+    venue="XNYS",
+    currency="USD",
+    timeframe=TimeFrame.D1,
+    identity=INSTRUMENTS,
+    provider=PROVIDER,
 )
 
 CLEANING = CleaningPolicy(
@@ -136,7 +141,7 @@ LIMITS = RiskLimits(
     exposure=ExposureLimit(Decimal("1500000"), Decimal("1500000")),
     leverage=LeverageLimit(Decimal("1.5")),
     margin=MarginLimit(Decimal("1.00")),
-    daily_loss=DailyLossLimit(Decimal("50000")),
+    daily_loss=DailyLossLimit(Decimal("50000"), "America/New_York"),
     drawdown=DrawdownLimit(Decimal("0.10")),
 )
 
@@ -215,6 +220,8 @@ def ingest_prices(name: str = "EX-PRICES", closes: Sequence[Decimal] = CLOSES) -
             SourceKind.IN_MEMORY, "examples", _csv(rows), 1_717_200_000.0, "text/csv", "utf-8"
         ),
         frequency=TimeFrequency.DAILY,
+        # Stamped at each bar's close, the instant it was knowable.
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,

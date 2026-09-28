@@ -18,7 +18,6 @@ Nothing here stubs a pipeline stage.
 """
 
 import inspect
-import time
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any
@@ -51,7 +50,6 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionRouting,
 )
 from alphalab.runtime.run import ExecutionMode, RunConfig
-from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import (
     PIPELINE_SNAPSHOT_SCHEMA,
@@ -71,6 +69,7 @@ from tests.integration.harness import (
     registry_of,
     running_strategy_state,
 )
+from tests.regression._timing import CLOCK, timings
 
 _STRATEGY = "SECTOR-STRAT"
 
@@ -490,7 +489,8 @@ def test_a_run_with_no_registry_is_unchanged_in_every_field() -> None:
         # PIPELINE_SNAPSHOT_SCHEMA was here and is not any more: v2.17 moved it
         # to 3 for settlement-level multi-currency (ADR-0035), which is a later
         # release's deliberate bump and not something this one did.
-        (RUN_SNAPSHOT_SCHEMA, 1),
+        # RUN_SNAPSHOT_SCHEMA was here and is not any more: v3.10 moved it to 2
+        # for the analytics basis.
         (ALLOCATION_SNAPSHOT_SCHEMA, 1),
         (OMS_SNAPSHOT_SCHEMA, 1),
         # PORTFOLIO_SNAPSHOT_SCHEMA was here and is not any more: it moved to 3
@@ -534,7 +534,7 @@ def test_a_payload_carrying_a_null_sector_still_restores() -> None:
     state = _run(_ROUND_TRIP, None, _APPLE.asset_id)
     payload = deserialize(serialize(capture_pipeline(state)))
 
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA
     assert [record["sector_id"] for record in payload["trade_records"]] == [None, None]
 
     objects = RuntimeObjects(
@@ -680,13 +680,13 @@ def test_sector_resolution_is_a_keyed_lookup_and_never_a_scan() -> None:
         state = _run({2.0: Decimal("1")}, registry, _APPLE.asset_id)
         state = replace(state, config=replace(state.config, instruments=registry))
         target = equity(f"SYM{count - 1}", "Technology").asset_id
-        start = time.perf_counter()
+        start = CLOCK()
         for _ in range(2_000):
             _sector_for(state, target)
-        return time.perf_counter() - start
+        return CLOCK() - start
 
-    small = _elapsed(10)
-    large = _elapsed(400)
+    # Read with the one stabilized method every guard shares (tests/regression/_timing.py).
+    small, large = timings(_elapsed, 10, 400, rounds=3)
 
     # 40x the registry. A scan would cost about 40x; a keyed lookup is flat.
     # The bound is deliberately loose -- this catches a reintroduced scan, not
@@ -829,7 +829,7 @@ def test_sector_exposure_survives_a_round_trip_without_moving_the_schema() -> No
     payload = deserialize(serialize(capture_pipeline(state)))
     restored = restore_pipeline(pipeline_from_primitives(payload), objects)
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 3
+    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 4
     assert payload["risk"]["exposure"]["sector_exposure"] == {
         "Technology": "1000.00",
         "Financials": "-400.00",

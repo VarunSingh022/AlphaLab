@@ -11,6 +11,7 @@ whose ``side`` is the canonical :class:`alphalab.core.enums.Side`.
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side
 
@@ -50,5 +51,10 @@ class OrderRequest:
 
     @property
     def notional_value(self) -> Decimal:
-        """Absolute notional value (``quantity * price``), quantized to 4 dp."""
-        return (self.quantity * self.price).quantize(Decimal("0.0001"))
+        """Notional value, ``quantity * price``, exact in the pinned accounting context.
+
+        Until v3.10 it was quantized to four decimal places in the caller's
+        ambient context -- a presentation rounding inside a figure other code
+        reads, and one that changed with ``decimal.getcontext()``.
+        """
+        return ACCOUNTING_CONTEXT.multiply(self.quantity, self.price)

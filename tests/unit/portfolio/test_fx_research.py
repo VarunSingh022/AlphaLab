@@ -206,15 +206,22 @@ def test_an_empty_book_has_no_currencies() -> None:
 
 
 def test_a_hedge_ratio_is_required_and_scales_the_notional() -> None:
-    assert hedge_notional(Decimal("1000"), Decimal("1")) == Decimal("1000.00")
-    assert hedge_notional(Decimal("1000"), Decimal("0.5")) == Decimal("500.00")
+    assert hedge_notional(Decimal("1000"), Decimal("1"), "EUR") == Decimal("1000.00")
+    assert hedge_notional(Decimal("1000"), Decimal("0.5"), "EUR") == Decimal("500.00")
     # An over-hedge is a real, deliberate position.
-    assert hedge_notional(Decimal("1000"), Decimal("1.2")) == Decimal("1200.00")
+    assert hedge_notional(Decimal("1000"), Decimal("1.2"), "EUR") == Decimal("1200.00")
+
+
+def test_a_hedge_is_money_in_the_exposed_currency() -> None:
+    """v3.10: a yen hedge is whole yen, a dinar hedge keeps its fils."""
+
+    assert hedge_notional(Decimal("1000.7"), Decimal("0.5"), "JPY") == Decimal("500")
+    assert hedge_notional(Decimal("10.0011"), Decimal("0.5"), "KWD") == Decimal("5.001")
 
 
 def test_a_negative_hedge_ratio_is_refused() -> None:
     with pytest.raises(PortfolioError, match="hides what the book is doing"):
-        hedge_notional(Decimal("1000"), Decimal("-1"))
+        hedge_notional(Decimal("1000"), Decimal("-1"), "EUR")
 
 
 # --------------------------------------------------------------------------- #

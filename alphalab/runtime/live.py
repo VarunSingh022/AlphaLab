@@ -221,19 +221,21 @@ class LiveRunState:
     Attributes:
         run: The canonical run. ``RunEngine`` owns every field of it.
         broker: The venue connection as AlphaLab believes it. The adapter owns it.
+        routing: How this session addresses and denominates orders at the venue.
+            Required since v3.10: it defaulted to a venue called ``"LIVE"``
+            denominated in ``"USD"`` (ledger API-003).
         mapping: ``oms_order_id`` <-> ``broker_order_id``. Reconciliation owns it,
             and it is the single answer to "has this order already been sent?"
         reconciliation: Every fill the broker layer refused, kept so none is lost.
-        routing: How this session addresses and denominates orders at the venue.
         routed: Every routing attempt this run has made, in order.
         settled: Every returning fill this run has seen, in order.
     """
 
     run: RunState
     broker: BrokerState
+    routing: RoutingConfig
     mapping: ExternalOrderMap = field(default_factory=ExternalOrderMap)
     reconciliation: ReconciliationLog = field(default_factory=ReconciliationLog)
-    routing: RoutingConfig = field(default_factory=RoutingConfig)
     routed: AppendOnlyLog[RoutedOrder] = field(default_factory=AppendOnlyLog)
     settled: AppendOnlyLog[SettledExecution] = field(default_factory=AppendOnlyLog)
 
@@ -271,7 +273,7 @@ class LiveRunState:
     def open_breaks(self) -> tuple[ExecutionDecision, ...]:
         """Fills that need a human or a reconcile to resolve."""
 
-        return self.reconciliation.breaks
+        return self.reconciliation.breaks.to_tuple()
 
 
 def _oms_order_for(state: LiveRunState, execution: BrokerExecution) -> OMSOrder | None:
@@ -319,7 +321,7 @@ class LiveSession:
         config: RunConfig,
         strategy_state: StrategyRuntimeState,
         broker_state: BrokerState,
-        routing: RoutingConfig | None = None,
+        routing: RoutingConfig,
     ) -> LiveRunState:
         """Fund the portfolio and build the state a live run starts from.
 
@@ -342,7 +344,7 @@ class LiveSession:
         return LiveRunState(
             run=RunEngine.initialize(config, strategy_state),
             broker=broker_state,
-            routing=routing if routing is not None else RoutingConfig(),
+            routing=routing,
         )
 
     @staticmethod
@@ -456,7 +458,7 @@ class LiveSession:
                 order,
                 timestamp,
                 current.mapping,
-                current.routing,
+                config=current.routing,
             )
             current = replace(current, broker=result.broker_state, mapping=result.mapping)
             events.extend(result.events)

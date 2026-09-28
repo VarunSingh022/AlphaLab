@@ -116,6 +116,8 @@ def _definition(kind: FeatureKind) -> FeatureDefinition:
         parameters["long_window"] = 12.0
     if kind is FeatureKind.MOMENTUM:
         parameters["skip_periods"] = 1.0
+    if kind is FeatureKind.REALIZED_VOLATILITY:
+        parameters["periods_per_year"] = 252.0
     return FeatureDefinition(
         feature_id=kind.name.lower(),
         kind=kind,

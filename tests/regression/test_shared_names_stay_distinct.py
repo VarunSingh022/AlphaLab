@@ -534,51 +534,27 @@ def test_the_two_sources_are_a_protocol_and_a_receipt() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_scheduler_calendar_and_the_market_calendar_answer_different_questions() -> None:
-    """``TradingCalendar`` asks "should this job fire today?" over UTC weekends
-    and an optional holiday hook. It knows nothing about venues, sessions or
-    local time, and deliberately so -- a scheduler that had to resolve an
-    exchange's session to decide whether to run would need reference data it
-    has no business holding.
+def test_there_is_one_calendar_and_it_is_the_markets() -> None:
+    """Until v3.10 the scheduler kept a calendar of its own.
 
-    ``MarketCalendar`` asks "was this venue open at this instant?", which needs
-    the exchange's timezone, its session windows, its lunch break and its half
-    days. Answering the scheduler's question with it would require every caller
-    to declare a venue; answering the market's question with the scheduler's
-    would put every bar in UTC and misplace every session outside it.
+    ``TradingCalendar`` answered "should this job fire today?" over UTC weekends
+    with Saturday and Sunday hard-coded, and aligned sessions to UTC midnight --
+    a second answer to a calendar question, wrong for every market whose week
+    or day is not UTC's. It was removed (ledger DAT-006): ``MarketCalendar``,
+    which knows the venue's zone, sessions, lunch breaks and half days, is the
+    one calendar, and a job tied to a market takes its instants from there.
     """
 
+    import importlib.util
+
+    import alphalab.scheduler as scheduler
     from alphalab.data.calendar import MarketCalendar
-    from alphalab.scheduler.calendar import TradingCalendar
 
-    market: type = MarketCalendar
-    assert market is not TradingCalendar
-
-    assert "timezone_name" in MarketCalendar.__dataclass_fields__
-    assert not hasattr(TradingCalendar, "__dataclass_fields__"), (
-        "the scheduler's is stateless utilities, not a declared calendar"
-    )
-
-    scheduler_members = {name for name in dir(TradingCalendar) if not name.startswith("_")}
-    market_members = {name for name in dir(MarketCalendar) if not name.startswith("_")}
-
-    # They share exactly one name, and it takes different things and means
-    # different things in each. The scheduler's reads an instant and answers
-    # about the UTC week; the market's reads a *local date* and answers about a
-    # venue. A caller passing a timestamp to the market one gets a type error
-    # rather than a plausible wrong answer, which is what keeps the collision
-    # harmless.
-    assert scheduler_members & market_members == {"is_trading_day"}
-
-    scheduler_signature = inspect.signature(TradingCalendar.is_trading_day)
-    market_signature = inspect.signature(MarketCalendar.is_trading_day)
-    assert list(scheduler_signature.parameters) == ["timestamp", "holiday_calendar"]
-    assert list(market_signature.parameters) == ["self", "day"]
-    assert market_signature.parameters["day"].annotation == "date"
-
-    # And the market one can express what the scheduler's cannot.
-    assert MarketCalendar.continuous("X", "UTC").is_continuous
-    assert not hasattr(TradingCalendar, "continuous")
+    assert importlib.util.find_spec("alphalab.scheduler.calendar") is None
+    assert not hasattr(scheduler, "TradingCalendar")
+    assert not hasattr(scheduler, "HolidayCalendarProtocol")
+    # The market calendar keeps a week that is not UTC's.
+    assert MarketCalendar.continuous("X", "Asia/Riyadh").is_continuous
 
 
 # --------------------------------------------------------------------------- #
@@ -1760,7 +1736,7 @@ def test_the_three_new_states_are_not_the_runtime_state() -> None:
     assert "status" in runtime and "status" not in learned
     assert "lineage" in learned and "lineage" not in detector
     assert "candidate" in detector
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3
+    assert PIPELINE_SNAPSHOT_SCHEMA == 4  # moved by v3.10, not by adaptive state
 
 
 # --------------------------------------------------------------------------- #

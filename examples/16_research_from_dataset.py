@@ -74,6 +74,7 @@ from alphalab.data import (
     raw_source_from_bytes,
 )
 from alphalab.data.feed import Bar as WireBar
+from alphalab.data.time import BarStamp
 from alphalab.execution.commission import PerShareCommission
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.instrument.identity import derive_asset_id
@@ -206,7 +207,7 @@ def build_config(start_timestamp: float) -> RunConfig:
                 exposure=ExposureLimit(huge, huge),
                 leverage=LeverageLimit(Decimal("1000")),
                 margin=MarginLimit(Decimal("1.00")),
-                daily_loss=DailyLossLimit(huge),
+                daily_loss=DailyLossLimit(huge, "UTC"),
                 drawdown=DrawdownLimit(Decimal("1.00")),
             ),
             simulator=ExecutionSimulator(commission_model=PerShareCommission(Decimal("0.005"))),
@@ -238,6 +239,8 @@ def main() -> None:
             SourceKind.LOCAL_FILE, str(DATA), b"", RETRIEVED_AT, "text/csv", "utf-8"
         ),
         frequency=TimeFrequency.DAILY,
+        # Stamped at each bar's close, the instant it was knowable.
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=POLICY,
         price_basis=PriceBasis.RAW,
@@ -288,6 +291,7 @@ def main() -> None:
     )
 
     normalization = NormalizationPolicy(
+        bar_stamp=BarStamp.INTERVAL_END,
         venue="XNAS",
         currency="USD",
         timeframe=TimeFrame.D1,

@@ -45,9 +45,14 @@ class ResearchEngine:
 
     @staticmethod
     def run_full_research(
-        state: ResearchState, payload: ResearchPayload, timestamp: float
+        state: ResearchState, payload: ResearchPayload, timestamp: float, seed: int
     ) -> ResearchState:
-        """Executes the entire research pipeline deterministically."""
+        """Executes the entire research pipeline deterministically.
+
+        ``seed`` drives the Monte Carlo and bootstrap resampling. It is required:
+        until v3.10 both defaulted to 42, so every study resampled the same way
+        whether or not anyone had chosen to (ledger DET-004).
+        """
         validate_payload(payload)
         if state.completed:
             raise InvalidResearchStateError("Research already completed.")
@@ -55,8 +60,8 @@ class ResearchEngine:
         # 1. Execute Analyses
         bias = detect_bias(payload)
         cv = walk_forward_analysis(payload)
-        mc = monte_carlo_simulation(payload)
-        boot = bootstrap_statistics(payload)
+        mc = monte_carlo_simulation(payload, seed)
+        boot = bootstrap_statistics(payload, seed)
         robust = parameter_robustness(payload)
         regime = analyze_regimes(payload)
         cap = estimate_capacity(payload)

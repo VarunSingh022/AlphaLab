@@ -33,8 +33,6 @@ tabs with *no* active tab, breaking the invariant ``close_tab`` maintains. It
 was invisible precisely because nothing could observe the focus.
 """
 
-import time
-
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.studio import (
@@ -52,6 +50,7 @@ from alphalab.workbench import (
     active_tab,
     active_tabs,
 )
+from tests.regression._timing import CLOCK, timings
 
 METRICS = {"total_return": 0.10}
 
@@ -256,7 +255,7 @@ def test_a_workbench_session_grows_linearly_with_the_workload() -> None:
     def session(count: int) -> float:
         workbench, studio = _booted()
         configs = [_config(index) for index in range(count)]
-        start = time.perf_counter()
+        start = CLOCK()
         for index in range(count):
             workbench, studio = WorkbenchEngine.run_backtest(
                 workbench, studio, "PROJ", configs[index], METRICS, float(1001 + index)
@@ -264,12 +263,12 @@ def test_a_workbench_session_grows_linearly_with_the_workload() -> None:
             rendered = active_tab(workbench)
             assert rendered is not None
             workbench = WorkbenchManager.close_tab(workbench, rendered.tab_id, float(1001 + index))
-        return time.perf_counter() - start
+        return CLOCK() - start
 
-    small = min(session(SMALL) for _ in range(3))
-    large = min(session(LARGE) for _ in range(3))
+    # Read with the one stabilized method every guard shares (tests/regression/_timing.py).
+    small, large = timings(session, SMALL, LARGE, rounds=3)
 
-    growth = large / small
+    growth = large / max(small, 1e-6)
     assert growth < MAX_GROWTH, (
         f"an {SCALE}x workload cost {growth:.1f}x; linear predicts ~{SCALE}x and "
         f"quadratic ~{SCALE**2}x"

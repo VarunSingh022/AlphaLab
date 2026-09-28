@@ -14,6 +14,445 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.10.0] - 2026-09-28
+
+**The first pre-v4 release: the canonical path made correct, exact and linear
+before it is frozen — risk, allocation, money, analytics, execution realism,
+performance, determinism and time — with vendor code and silent defaults
+removed and persisted state made upgradeable.**
+
+v3.1 to v3.9 each added a capability on the frozen architecture. v3.10 adds
+almost none. It is the first of four releases planned by the pre-v4 audit
+(`docs/audit/PRE_V4_MASTER_AUDIT.md`, and the item-by-item ledger
+`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`), which re-audited every subsystem
+from v3.9.0 and found that the canonical path computed several of the numbers a
+user reads first wrongly: an account could not sell what it held at a limit, a
+yen book carried sen, prices were rounded to four decimals before money was
+computed, a Sharpe ratio was annualized with 252 periods whatever the data
+were, a strategy's order filled at the price it had just been shown, a bar
+stamped at the start of its minute leaked its close, and a 400-asset run was
+quadratic. Every item the ledger assigns to v3.10 is closed here, each pinned
+by the tests its ledger entry names. Ledger IDs are given in brackets.
+
+This release breaks things on purpose. Each break replaces a silent wrong
+answer with a correct one or with a refusal that says what to supply; the
+migration table below lists them all.
+
+## What was wrong
+
+* **Risk refused the trades that reduce risk.** Buying power was charged the
+  full notional of every order, whatever its side, so a fully invested account
+  could not sell [RSK-001]; exposure, leverage and margin checks added the
+  order's notional to the book regardless of direction, so a trade that
+  reduced exposure was refused at the limit [RSK-002]; a breached drawdown
+  refused liquidation too [RSK-003]. The position limit added a notional to a
+  quantity [KD-001]; the daily loss limit was never maintained, so it never
+  fired [KD-002]; the net exposure limit was read by nothing [KD-003]; working
+  orders were invisible to every check [RSK-004].
+* **Money was rounded in the wrong places.** Every currency was rounded to
+  0.01 [ACC-001]; every price to four decimals before money was computed, so
+  EUR/USD 1,000,000 @ 1.08345 booked 1,083,400.00 [ACC-002]; every quantity to
+  six decimals, so a venue fill of 0.0000005 BTC could not be booked [ACC-003];
+  and arithmetic ran in whatever decimal context the caller's thread had
+  [ACC-004].
+* **The performance report was wrong for any non-daily or multi-asset run.**
+  Returns were taken between consecutive snapshots — several per instant in a
+  multi-asset run — and annualized with 252 periods [ANA-001]; CAGR assumed
+  every run lasted a year [ANA-002]; an opening fill counted as a losing trade,
+  so one winning round trip reported a 50% win rate [ANA-003]; an undefined
+  statistic was reported as 0.0 and a profit factor as infinity [ANA-004].
+* **A backtest was optimistic and did not say so.** An order filled at the
+  event that decided it [EXE-001]; the default simulator is frictionless and
+  nothing recorded that [EXE-002]; a strategy that raised was failed silently
+  and the backtest reported success [EXE-006]; the risk path converted foreign
+  positions with no as-of instant, bypassing the look-ahead guard [EXE-008].
+* **Time.** A bar's timestamp had no defined meaning, so start-stamped vendor
+  bars reported their close at their opening instant — one bar of look-ahead
+  [DAT-001].
+* **Scale.** Every market event re-marked and re-valued every held position
+  and copied the price map: quadratic in the universe [PRF-001].
+
+## Changed — risk (`alphalab.risk`)
+
+* Every pre-trade check reads one **projection** of the post-trade book —
+  `RiskProjection`, built by `project()` from the portfolio's signed position,
+  the order, and the signed remainder of working orders (`WorkingExposure`,
+  maintained from an OMS open-order index) [RSK-004]. Buying power is charged
+  only for the part of an order that grows a position [RSK-001]; exposure,
+  leverage and margin refuse only a trade that makes the limited measure worse
+  than it is [RSK-002]; in a drawdown or daily-loss breach only orders that
+  increase absolute exposure are refused, and the breach is reported on every
+  decision (`drawdown_breach`, `daily_loss_breach`) [RSK-003].
+* The position limit compares the projected quantity with `max_quantity` and
+  its value with `max_notional` [KD-001]. `check_net_exposure` enforces
+  `ExposureLimit.max_net_exposure` as |long value + short value| of the
+  projected book, shorts negative [KD-003].
+* **`DailyLossLimit(max_daily_loss, zone, day_start=time(0))`** names the IANA
+  zone its trading day is kept in; no zone is assumed. The execution path
+  maintains the loss from NAV since the day began [KD-002].
+* `RiskViolation.severity` is a `RiskSeverity` (`HIGH`, `CRITICAL`); the string
+  of a member is taken as that member and any other value is refused.
+  Utilization with no positive NAV is undefined and refuses an order that
+  grows gross exposure, instead of passing vacuously [RSK-006].
+
+## Changed — allocation (`alphalab.allocation`, `alphalab.strategy`)
+
+* Long-only is judged against the committed position — filled plus working —
+  so a sale that closes a long passes and one that would leave a short does
+  not: `allocate(..., positions=...)`, `validate_long_only` [ALC-001]. Until
+  now `allow_shorting=False` refused every sale.
+* `Intent.target` is documented as what it always was, a signed **delta**, and
+  says so: `Intent.kind` is `IntentKind.DELTA`, the only kind in v3.10;
+  position-aware target intents are v3.11 [ALC-002].
+* Sizing refuses what it cannot size (`SizingRefusedError`): a missing or
+  non-positive volatility (it defaulted to 1%), a non-positive price, fewer
+  than one asset. A refused intent is recorded and its asset reported unpriced
+  [ALC-003]. Integer quantities are rounded before the long-only check, so a
+  sale of 0.4 no longer becomes a zero-quantity order [ALC-005, found here].
+
+## Changed — money and accounting (`alphalab.portfolio`, `alphalab.common`)
+
+* **Per-currency minor units** [ACC-001]: `alphalab.common.currency_units` holds
+  the ISO 4217 minor-unit table (JPY 0, USD 2, KWD 3, CLF 4) and
+  `CurrencyUnits` for what ISO 4217 does not list; `Account.currency_units`
+  declares a book's own (`CurrencyUnits({"USDT": 6})`). A declaration cannot
+  contradict the standard, and an amount in a currency with no known minor unit
+  is refused (`UnknownCurrencyUnitsError`). `to_money(amount, currency)` and
+  `notional(quantity, price, currency)` take the currency.
+* **Prices and quantities are exact** [ACC-002, ACC-003]: `to_price`,
+  `to_quantity`, `PRICE_QUANT`, `SHARE_QUANT` and `CURRENCY_QUANT` are gone.
+  Money is rounded once, half to even, at the currency's minor unit; lot sizes
+  belong to sizing, not accounting.
+* **One pinned context** [ACC-004]: `ACCOUNTING_CONTEXT` (precision 34,
+  half-even, traps on invalid operation, division by zero and overflow) is used
+  by every accounting and execution computation; a regression sweep refuses
+  ambient-context arithmetic on those paths. Exact quotients are written in
+  positional notation (`plain`), never `1E+2` [NUM-010, found here].
+* Valuation helpers are told their currency: the six `base_currency="USD"`
+  defaults are gone, and a EUR-only book is no longer valued at 0.00 dollars
+  [ACC-008].
+
+## Changed — analytics (`alphalab.analytics`)
+
+* One equity point per instant; returns between instants; annualization
+  **declared** (`RunConfig.periods_per_year`) or **observed** from the curve,
+  never assumed, and recorded (`ReturnSummary.periods_per_year`,
+  `.periodicity`, `.years_elapsed`; `Periodicity`). `daily_returns` is
+  `period_returns` [ANA-001]. CAGR's span is the curve's own unless
+  `RunConfig.years_elapsed` overrides it [ANA-002].
+* Trade statistics count fills that realized P&L, and say how many
+  (`TradeMetrics.fills`, `.closed_trades`) [ANA-003]. An undefined statistic
+  is `None`, never 0.0 or infinity [ANA-004]. VaR and CVaR are computed
+  unrounded [ANA-005]. The risk-free rate a ratio used is recorded
+  (`RiskSummary.risk_free_rate`).
+
+## Changed — execution (`alphalab.execution`, `alphalab.runtime`)
+
+* **`FillTiming`** [EXE-001]: `SAME_EVENT` (the default, what every run did)
+  or `NEXT_EVENT`, where a simulated order works until its asset's next event
+  and fills there, before the strategy is dispatched — one attempt, any
+  remainder withdrawn. `ExecutionPipelineConfig.fill_timing`, recorded in the
+  pipeline snapshot and the fingerprint's configuration.
+* **`ExecutionAssumptions`** [EXE-002]: every `RunConfig` and `BacktestResult`
+  states its routing, fill timing, fill policy, costs and latency, and lists in
+  plain sentences what is optimistic about them; `ExecutionSimulator.is_frictionless`.
+* **Strategy failures are reported** [EXE-006]: `RunState.strategy_failures` /
+  `BacktestResult.strategy_failures` (`StrategyFailure`: strategy, instant,
+  error); `RunConfig.halt_on_strategy_failure` stops the run with
+  `StrategyFailedError`, which carries the run as it stood.
+* The risk path converts at the event instant, so a future-dated or stale FX
+  rate is refused there too [EXE-008]. Slippage and commission are exact; the
+  impact model's scale is `MarketImpactSlippage(impact_factor,
+  reference_quantity)`, not a hidden 1000 [NUM-008].
+
+## Changed — performance (`alphalab.portfolio`, `alphalab.common`, `alphalab.broker`)
+
+* **The canonical path is linear in the universe** [PRF-001]. A market event
+  re-marks the asset it priced plus the positions a fill priced since their
+  last mark (`PortfolioState.pending_marks`, `PortfolioEngine.mark_changed`);
+  `PositionBook` keeps exact per-currency totals so valuation, NAV and risk
+  read them instead of re-summing; the price map is persistent; the book is
+  valued once per event. Per-record cost across an 8× universe (50 → 400
+  assets, `benchmarks/benchmark_universe_scaling.py`): between 0.85× and 1.24×
+  over four runs in the release gates, where the removed quadratic predicts
+  8×. On a single-currency book the
+  incremental path gives exactly what re-marking every position gives
+  (`test_marking_one_change_equals_marking_every_price`), and no example's
+  output moved because of it. **A deliberate numeric change
+  for mixed-currency books**: each currency's totals are converted once — one
+  rounding per figure instead of one per position.
+* `PersistentMap` compacts when dead entries outnumber live ones, so iteration
+  and memory follow live keys [PRF-002]; `ExternalOrderMap` and
+  `ReconciliationLog` are persistent and append-only [PRF-003].
+* **The cost, measured** [PRF-006]: the constant per operation rose. Run side
+  by side with v3.9.0 on one machine, the OMS benchmark takes 2.2× as long
+  (accept-and-fill 21.6k → 6.1k a second), the portfolio engine's 1.95×
+  (28.2k → 14.2k fills a second), a one-asset backtest 1.37× and the execution
+  pipeline 1.36×. The causes are the ones above: the book's exact totals kept
+  on every fill, the map's compaction bookkeeping (in isolation, inserting is
+  1.7×, draining 3.75× and overwriting 3.2× slower; reading is unchanged), the
+  OMS's per-asset index, and the pinned context and currency units read on
+  every fill. A book of 10 assets already runs faster than in v3.9 (1.85×), and
+  80 about 7×. An optimization pass with a v3.9-relative budget for one-asset
+  paths is planned for v3.11.
+
+## Changed — data and time (`alphalab.data`, `alphalab.market`, `alphalab.scheduler`)
+
+* **A bar is stamped at the end of its interval** [DAT-001]. `BarStamp`
+  (`INTERVAL_START`, `INTERVAL_END`) is required to ingest timed bars
+  (`IngestionRequest.bar_stamp`) and to normalize them
+  (`NormalizationPolicy.bar_stamp`); start-stamped bars are moved by their
+  interval and the move is recorded as a transformation; undeclared, they are
+  refused. A bare-date bar takes its instant from `date_policy`, which must be
+  `END_OF_DAY`.
+* A dataset ingested from rows is identified by the rows' content
+  (`rows_content_hash`), not only by the source it names [KD-004].
+* The scheduler's own `TradingCalendar` (UTC weekends, UTC-midnight sessions)
+  is removed in favour of `alphalab.data.calendar.MarketCalendar`; `CRON`,
+  `SESSION_OPEN`, `SESSION_CLOSE` and `BAR_BOUNDARY` timers, which fired once
+  and vanished, are refused at registration until implemented [DAT-006].
+
+## Changed — determinism, numerics, persistence, reliability
+
+* Cluster outcomes are applied in submission order [DET-001]; the optimizer
+  takes its instant from the caller and records durations only when given a
+  clock, outside result equality [DET-002]; identifier seeds are non-negative
+  integers and the stream is pinned by a golden test [DET-003]; every
+  stochastic initializer requires its seed [DET-004]. The version is declared
+  once, in `alphalab/common/_version.py`, read by the build and the package
+  [REP-001]. Reconciliation compares amounts as numbers and renders them
+  canonically in identities [BRK-001]; so do the multi-strategy book and its
+  valuation, through `alphalab.common.arithmetic.canonical_text`, under the
+  v2 schemes `alphalab.multi_strategy_book.v2` and `alphalab.book_valuation.v2`
+  [DET-005].
+* Every statistics function refuses `nan` and infinity, naming the position
+  [NUM-001]; correlation is defined at any representable magnitude and clamped
+  to [-1, 1] [NUM-002, NUM-011].
+* **Snapshots are upgradeable** [PER-001]: each subsystem declares a
+  `SchemaHistory` of explicit, pure, composable `SchemaStep`s run before typed
+  decoding; a step supplies only what the older payload already meant, refuses
+  (`SchemaUpgradeRefused`) when no honest value exists, and warns
+  (`SchemaUpgradeWarning`) when a recorded fact cannot be carried — a v3.9
+  daily loss limit, which named no trading day and was never enforced, is one;
+  a v3.9 book holding fractional yen is refused rather than rounded. Golden
+  payloads written by v3.9.0 itself (`tests/fixtures/snapshots/v3.9.0`) hold
+  every subsystem to it. `serialize` writes strict JSON and refuses `nan` and
+  infinity [PER-002].
+* The WebSocket client closes its socket on every failure path [REL-001].
+
+| Schema | v3.9.0 | v3.10.0 | What the upgrade supplies |
+|---|---|---|---|
+| portfolio | 3 | 4 | the minor units a v3.9 book was kept at; every held position pending a mark |
+| pipeline | 3 | 4 | the account's minor units; each report's analytics basis restated as `ASSUMED` at 252; `fill_timing = SAME_EVENT` |
+| run | 1 | 2 | `periods_per_year = None`; `halt_on_strategy_failure = False` |
+| lifecycle | 2 | 2 | unchanged |
+
+OMS, allocation, broker, instrument registry, FX feed, live and the run-state
+envelope are unchanged at version 1.
+
+## Removed
+
+* **Vendor and v1 market-data code** [BND-001, SCF-002]: `alphalab.feed`,
+  `alphalab.live`, `alphalab.marketdata.{binance,databento,nse,polygon,yahoo}`
+  — four of the five were `NotImplementedError` stubs — and the v1 provider
+  engine in `alphalab.marketdata` (engine, registry, connection manager,
+  API-key configs, cache, metrics nothing updated, and their events and
+  views). `alphalab.marketdata` keeps what the canonical market model uses: the
+  HTTP and WebSocket transports, the wire records and `Timeframe`. A provider is
+  the host application's; `alphalab.market.provider.BarHistoryProvider` is the
+  one method AlphaLab asks of it. The duplicate `AssetClass` enums went with
+  them [OFE-012].
+* **Exchange symbol spellings** [BND-004, found here]:
+  `crypto.to_exchange_symbol` / `parse_exchange_symbol` knew Binance, Coinbase
+  and Kraken by name — a venue's quirk, and a second answer to which
+  instrument a provider symbol denotes beside the instrument registry's
+  aliases. `to_canonical_symbol` stays.
+* **Silent defaults** [API-003]: `RoutingConfig` names its venue and currency,
+  and `route_order` / `execution_report_from_broker` / `apply_broker_execution`
+  / `LiveSession.initialize` take it; `VenueConfig.currency` and
+  `TradingEnvConfig.currency` are required; `StudioConfig.default_currency`,
+  which nothing read, is gone; `ExecutionPipelineConfig.currency` left empty
+  **is** the account's base currency. `NormalizationPolicy` has no default
+  currency or timeframe — a quote or trade is refused without the first, a bar
+  without the second — and `DEFAULT_POLICY` is removed: every
+  `normalize_wire_*` function takes a policy. Annualization is declared where it
+  was 252: `factor_library.compute_volatility(periods_per_year=...)`,
+  `FeatureKind.REALIZED_VOLATILITY` (a required parameter — a definition that
+  states it has a new derived version),
+  `portfolio_optimizer.calculate_volatility(periods=...)`.
+* `alphalab.scheduler.TradingCalendar` and `HolidayCalendarProtocol` [DAT-006];
+  `marketdata.MarketDataValidationError` and `InvalidMarketStateError`, whose
+  raisers were removed.
+
+## Migrating from 3.9
+
+| If you… | Now… |
+|---|---|
+| construct `DailyLossLimit(x)` | `DailyLossLimit(x, zone="America/New_York")` — the day's zone is required |
+| sell under `allow_shorting=False` | nothing: a sale that closes a long passes; one that would short is refused |
+| relied on `VolatilityTargetSizing` defaulting a missing vol to 1% | supply every vol; a missing one is refused |
+| call `to_money(x)` / `notional(q, p)` | pass the currency; `to_price` / `to_quantity` are gone (keep venue values exact) |
+| settle a currency outside ISO 4217 (USDT, …) | declare it: `Account(..., currency_units=CurrencyUnits({"USDT": 6}))` |
+| read `ReturnSummary.daily_returns` | read `period_returns`; see `periodicity` and `periods_per_year` |
+| compared a statistic with `0.0` | compare with `None` for undefined |
+| call `sharpe_ratio`, `sortino_ratio`, `rolling_sharpe`, `annualized_volatility` or `rolling_volatility` on their defaults | pass `risk_free_rate` and `periods` (your series' periods a year); each returns `None` where undefined, as do `total_return`, `cagr`, `calmar_ratio`, the arithmetic and geometric returns, `value_at_risk` and `conditional_var` |
+| call a `risk.check_*` function yourself | pass the order's `RiskProjection` (`risk.project(state, request, position=..., price=...)`); `RiskEngine` does this for you |
+| call `hedge_notional(exposure, ratio)` | pass the exposure's currency: the hedge is money, rounded at its minor unit |
+| construct `LiveRunState(run, broker)` | pass `routing=RoutingConfig(venue=..., currency=...)` |
+| ingest or normalize timed bars | declare `bar_stamp=BarStamp.INTERVAL_START` or `INTERVAL_END` |
+| build a `NormalizationPolicy()` | name `currency` for quotes and trades, `timeframe` for bars; pass the policy |
+| call `route_order(...)` without a config | `route_order(..., config=RoutingConfig(venue=..., currency=...))` |
+| construct `VenueConfig()` / `TradingEnvConfig(...)` | pass `currency=` |
+| use `REALIZED_VOLATILITY` or `compute_volatility` | declare `periods_per_year` (252 for trading days) |
+| seed `create_dense_layer`, `bootstrap_statistics`, the optimizer, … | pass `seed=` — no default |
+| imported `alphalab.feed`, `alphalab.live` or a vendor client | write the provider in your application; return wire bars from `request_history` |
+| used `to_exchange_symbol` | declare the venue's symbol as an instrument alias |
+| scheduled a `CRON` / session / bar-boundary timer | use `INTERVAL` or `ONE_SHOT`; take session instants from `MarketCalendar` |
+| read a v3.9 snapshot | nothing: it is upgraded on read (a daily loss limit is dropped with a warning; a book holding fractional yen is refused) |
+| used a cost model whose sale concession can exceed the price | fit the model to the instrument: a sale at or below zero is refused, not floored at a cent |
+| deposited or withdrew zero, a negative amount, or less than a minor unit | move a positive amount; the rest are refused |
+
+## Found during this release
+
+* **ALC-005**: integer rounding ran after the long-only check and emitted a
+  zero-quantity sale. **NUM-010**: exact quotients were written with positive
+  exponents (`1E+2`). **NUM-011**: correlation of series near `1e-160` was
+  wrong in the fourth digit, because their squared deviations are subnormal;
+  such series are now correlated at their own scale. **BND-004**: exchange
+  symbol quirks in `alphalab.crypto`. Each is fixed above.
+* **ACC-012**: a zero or negative deposit or withdrawal was booked — a negative
+  deposit is a withdrawal recorded as a deposit — and one that rounds to nothing
+  at the currency's minor unit was accepted. **ACC-013**: a fill settling in one
+  currency was booked into an open position held in another, mixing two
+  currencies in one cost basis. **ACC-014**: a sale's price was floored at
+  `0.01`, so a sub-penny instrument was sold at a cent the market never showed,
+  and a concession larger than the price became a one-cent fill. **NUM-009**:
+  near the float limit, a statistic raised a bare `OverflowError` or returned
+  infinity for a finite answer (the mean of `[1e308, 1e308]`). Each is refused
+  or corrected now, and pinned (`test_v310_found_defects.py`); ordinary inputs
+  keep their exact floats. **PER-005**: the strategy-record decoder compared a
+  payload's version with the current schema rather than with the version that
+  introduced strategy state — latent, and fixed with the upgrade framework.
+* **RES-001**: the v1 research engine (`ResearchEngine.run_full_research`
+  and its bias, capacity, regime, walk-forward and bootstrap scores) assumes a
+  daily return series and scores with uncalibrated constants. Its daily
+  assumption is now stated in its docstrings and exempted by name in the
+  defaults sweep; it is consolidated into the one research authority in
+  v3.12 (SCF-003) rather than re-shaped twice.
+* **The defaults sweep had a hole**: it treated a default as "not supplied" by
+  `default in (None, "", False)`, and `0.0 == False`, so every `rate=0.0`
+  passed unexamined. Closed; the sweep now also reads call-site literals and
+  mapping fallbacks on financial names, and `periods_per_year`.
+* **Four v3.10 fixes had shipped in the working tree without tests** (NUM-001,
+  NUM-002, NUM-008, PER-002) — found while assembling this release's evidence,
+  item by item; pinned now, and writing them found NUM-011.
+* Two examples were broken by v3.10's own refusals — `14` converted at an
+  instant before its only rate, `40` settled USDT with no minor unit — found by
+  comparing every example's output with v3.9's, and corrected.
+* **Two regressions of this release, caught in the same comparison** and
+  fixed before it: **DET-005** — once amounts stopped being rounded a second
+  time, two multi-strategy books that compare equal (`250000` and `250000.00`
+  of unassigned capital) had two `book_id`s, because the identity hashed each
+  amount's text; v3.9's cent rounding had made the text canonical by accident.
+  Both book identities render by value now (`canonical_text`; v2 schemes;
+  `test_identity_is_by_value.py`). **API-006** — a health finding's
+  `Mapping[str, str]` detail carried a `RiskSeverity` member rather than its
+  string once severity became typed; it carries the string again.
+* **PRF-006**, measured in this release's gates and not fixed here: the
+  per-operation cost above. Recorded rather than tuned under a release gate.
+* **DET-006**, not fixed here: most other content identities (construction,
+  risk model, allocation, routing, research) render a declared `Decimal` with
+  `str` or `repr`, so `0.5` and `0.50` declare two identities. Deterministic,
+  unchanged since v3.9, and scheduled for v3.11 as one change with one scheme
+  bump per identity.
+
+## Tests, CI and tooling
+
+* New regression suites for every item above (risk projection, allocation
+  semantics, monetary precision, ambient context, fill timing, execution
+  assumptions, strategy failures, bar stamps, universe scaling, position book,
+  schema upgrades, numeric refusals, reconciliation, seeds, cluster order,
+  optimizer reproducibility, one version source, release gates, mutation
+  pins, identity by value); the defaults sweep extended [API-003].
+* Every complexity guard uses the stabilized method (process CPU time, the
+  collector off, sizes interleaved, fastest of several) and held beside four
+  CPU hogs on four cores [TST-001]; universe growth is guarded over assets ×
+  bars, and each of six injected regressions of the incremental path fails the
+  guard [TST-006].
+* **Zero skipped for every user**: the one test skipped under root drives the
+  refusal through the permission answer itself, and an unlisted `skipif` fails
+  the suite [TST-002].
+* **CI** runs the suite with warnings as errors, runs every example, builds,
+  checks, and installs the wheel and the sdist each into a fresh environment
+  and exercises them from outside the checkout (`tests/installed_smoke.py`);
+  every benchmark runs weekly [TST-003]. The pre-commit hooks run the ruff and
+  mypy versions CI installs, over the same tree [TST-004]. Every mutation the
+  audit's harness let through is pinned, and the harness was re-run against
+  v3.10 with the timing guards deselected test by test rather than file by
+  file, so the structural tests beside them still run [TST-005]. Three
+  benchmark files renamed to one convention [TST-007].
+
+Total: **7,387 → 7,596** passing, 0 skipped, 0 warnings.
+
+## Examples
+
+`04` rewritten around the canonical market model: a host provider's
+start-stamped bars through a normalization policy into canonical bars and
+market state. `11` prints its execution model and the basis its ratios are
+annualized on, and runs long-only. `14` funds at the rate's instant; `40`
+declares USDT's minor unit; the volatility features in `17`, `18`, `24` and the
+portfolio world declare 252 periods a year.
+
+All 65 run under `-W error`. Sixty print byte-identical output on two runs under
+different hash seeds; the other five print a random run or order id (`02`,
+`12`, `45`), a process id (`13`) or measured CPU time (`48`), as they did in
+v3.9. Compared with v3.9.0's output, with those values and every digest masked,
+49 print exactly what they printed then, and 16 differ, each for a reason above:
+
+* `04` rewritten; `11` the new execution-model and annualization lines, and a
+  Sharpe ratio of 2634.0174 where v3.9 printed 7.4433 — the six quotes are one
+  second apart, and v3.10 annualizes by that observed spacing (31,557,600
+  periods a year) instead of assuming 252 [ANA-001];
+* `14`, `37`, `40`, `57`, `58`: money in each currency's own minor unit —
+  whole yen, eight-place USDT, a zero written `0` rather than `0.00` — and
+  prices as booked, not quantized (`100` rather than `100.0000`);
+* `25`: concessions carried to 18 significant digits and cash rounded once, so
+  the impact line reads 1,581.14 rather than 1,581.20 [NUM-008]; `26`: capacity
+  28,636 USD rather than 28,773 — the closed-form answer to its square-root
+  budget is 28,636.36, and v3.9's figure was the bisection landing on a step of
+  an impact quantized to four places; `64`: routing prices as quoted
+  (`100.015`, not `100.0150`);
+* `13`: snapshots 367 and 384 bytes larger, carrying the new schema fields;
+  `15`, `46`: the engine version; `24`, `46`, `47`: identities of inputs that
+  changed (the volatility feature's declared periodicity, the edited example
+  helper a fingerprint hashes, a dataset that records its bar stamp); `48`: the
+  certification's not-observed notes, now that net exposure and daily loss are
+  enforced at order time.
+
+Every changed digest — in those and in `12`, `42`, `49`–`53`, `55`, `56`,
+`59`, `60` — follows from a changed input: a dataset's identity (bar stamp;
+row-ingested content), a feature's declared periodicity, the helper file a
+fingerprint hashes, the analytics a piece of evidence carries (annualized by
+observed spacing; `None` where v3.9 wrote `0.0` for an undefined ratio,
+ANA-004), or the v2 book scheme [DET-005]. Each is stable from run to run.
+
+## Still open — the rest of the pre-v4 plan
+
+v3.11: the boundary (`enterprise`, application-shaped packages), position-aware
+target intents, asset-class margin, venue sequence numbers and persisted child
+bindings, pipeline-driven order and fill hooks. v3.12: one research authority
+(RES-001, SCF-003), multi-broker reconciliation, an evidence store. v3.13: the
+rerun harness, a lock-file reader, the remaining v3.9 deferrals. Each is a
+ledger item with an ID; `docs/audit/PRE_V4_MASTER_AUDIT.md` has the plan.
+
+## Deliberately not built
+
+No vendor client, SDK, credential, OAuth or network requirement for research;
+no LLM or AI-service dependency; no iluvtrade or RedDesk logic; no default
+currency, rate, zone, annualization or seed.
+
+---
+
 # [3.9.0] - 2026-09-27
 
 **The universal execution contract: what a venue can do, what its reports mean,

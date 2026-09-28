@@ -4,19 +4,30 @@ import alphalab
 
 
 def test_package_exposes_version() -> None:
+    """The package reports its source's version; an install, if any, agrees.
+
+    ``alphalab.__version__`` is read from the source (ledger REP-001), never from
+    installed metadata. Where a distribution is installed, its metadata must
+    agree: a stale install built from other source is a broken environment, and
+    it fails here rather than being reported as this source's version.
+    """
+
+    from alphalab.common._version import __version__ as declared
+
+    assert alphalab.__version__ == declared
     try:
         installed_version = version("alphalab")
     except PackageNotFoundError:
-        # Mirrors the fallback in alphalab.common.version, which is what
-        # __version__ resolves to when the package is not installed.
-        installed_version = "3.9.0"
-
-    assert alphalab.__version__ == installed_version
+        return
+    assert installed_version == declared
 
 
 def test_the_declared_version_is_the_release_version() -> None:
-    """pyproject, alphalab.common.version and this test must not drift apart."""
-    from pathlib import Path
+    """The one declaration (``alphalab/common/_version.py``) is this release's.
 
-    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
-    assert 'version = "3.9.0"' in pyproject.read_text(encoding="utf-8")
+    ``pyproject.toml`` no longer declares a version of its own: hatch reads this
+    file (ledger REP-001, ``tests/regression/test_one_version_source.py``).
+    """
+    from alphalab.common._version import __version__
+
+    assert __version__ == "3.10.0"

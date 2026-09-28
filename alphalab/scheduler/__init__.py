@@ -1,6 +1,5 @@
 """AlphaLab Scheduler & Time Engine."""
 
-from alphalab.scheduler.calendar import HolidayCalendarProtocol, TradingCalendar
 from alphalab.scheduler.clock import (
     BacktestClock,
     ClockProtocol,
@@ -38,7 +37,6 @@ __all__ = [
     "ClockProtocol",
     "ClockReset",
     "ClockState",
-    "HolidayCalendarProtocol",
     "InvalidClockStateError",
     "ScheduleType",
     "SchedulerEngine",
@@ -55,7 +53,6 @@ __all__ = [
     "TimerCancelled",
     "TimerScheduled",
     "TimerTriggered",
-    "TradingCalendar",
     "TradingSession",
     "VirtualClock",
     "active_sessions",

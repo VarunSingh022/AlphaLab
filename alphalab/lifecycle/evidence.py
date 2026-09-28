@@ -233,7 +233,7 @@ def evidence_from_backtest(
             "a guess recorded as a fact."
         )
 
-    metrics = {
+    measured: dict[str, float | None] = {
         "total_return": report.returns.total_return,
         "cagr": report.returns.cagr,
         "arithmetic_return": report.returns.arithmetic_return,
@@ -250,6 +250,11 @@ def evidence_from_backtest(
         "profit_factor": report.trades.profit_factor,
         "turnover": report.trades.turnover,
     }
+    # An undefined statistic is not evidence of anything: it is left out rather
+    # than recorded as a number, so a policy threshold on it fails for want of
+    # the metric instead of passing on a placeholder. Until v3.10 the report
+    # wrote 0.0 (or an infinite profit factor) and both reached the evidence.
+    metrics = {name: value for name, value in measured.items() if value is not None}
     return build_evidence(
         method=ValidationMethod.BACKTEST,
         subject=subject,

@@ -39,6 +39,8 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
+from alphalab.common.currency_units import STANDARD_CURRENCY_UNITS, CurrencyUnits
 from alphalab.conventions.daycount import DayCount, year_fraction
 from alphalab.portfolio.amounts import CurrencyAmounts
 from alphalab.portfolio.exceptions import PortfolioError
@@ -203,12 +205,21 @@ def currency_exposures(positions: Mapping[str, Position]) -> CurrencyAmounts:
     return amounts
 
 
-def hedge_notional(exposure: Decimal, hedge_ratio: Decimal) -> Decimal:
+def hedge_notional(
+    exposure: Decimal,
+    hedge_ratio: Decimal,
+    currency: str,
+    units: CurrencyUnits = STANDARD_CURRENCY_UNITS,
+) -> Decimal:
     """How much of an exposure to sell forward, at a stated ratio.
 
     ``exposure * hedge_ratio``, signed so that the result is the amount of the
     exposed currency to **sell** -- a positive exposure fully hedged returns a
-    positive number meaning "sell this much".
+    positive number meaning "sell this much". The result is money in
+    ``currency`` -- the exposed currency -- rounded once to its minor unit, so a
+    yen exposure is hedged in whole yen and a dinar one in fils. ``currency``
+    is required as of v3.10; until then the amount was rounded to a cent
+    whatever it was in.
 
     ``hedge_ratio`` is required and has no default. A 100% hedge, a 50% hedge
     and an unhedged book are three different strategies with three different
@@ -227,7 +238,7 @@ def hedge_notional(exposure: Decimal, hedge_ratio: Decimal) -> Decimal:
             f"hedge_ratio is {hedge_ratio}. A negative ratio is a long position in the "
             "exposure expressed as a hedge of it, which hides what the book is doing."
         )
-    return to_money(exposure * hedge_ratio)
+    return to_money(ACCOUNTING_CONTEXT.multiply(exposure, hedge_ratio), currency, units)
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,6 +378,12 @@ def currency_attribution(
             "would drop its whole local return from the report without a trace."
         )
 
+    ctx = ACCOUNTING_CONTEXT
+    units = closing_rates.currency_units.merged(opening_rates.currency_units)
+
+    def money(amount: Decimal) -> Decimal:
+        return to_money(amount, reporting_currency, units)
+
     entries: list[CurrencyAttribution] = []
     for currency in sorted(set(opening) | set(closing)):
         opened = opening.get(currency, Decimal("0"))
@@ -378,15 +395,15 @@ def currency_attribution(
             Decimal("1"), currency, reporting_currency, closing_timestamp
         )
         open_rate, close_rate = open_conversion.rate, close_conversion.rate
-        local = to_money((closed - opened) * open_rate.rate)
-        currency_effect = to_money(closed * (close_rate.rate - open_rate.rate))
+        local = money(ctx.multiply(ctx.subtract(closed, opened), open_rate.rate))
+        currency_effect = money(ctx.multiply(closed, ctx.subtract(close_rate.rate, open_rate.rate)))
         entries.append(
             CurrencyAttribution(
                 currency=currency,
                 opening_local=opened,
                 closing_local=closed,
-                opening_reporting=to_money(opened * open_rate.rate),
-                closing_reporting=to_money(closed * close_rate.rate),
+                opening_reporting=money(ctx.multiply(opened, open_rate.rate)),
+                closing_reporting=money(ctx.multiply(closed, close_rate.rate)),
                 opening_rate=open_rate,
                 closing_rate=close_rate,
                 local_return=local,

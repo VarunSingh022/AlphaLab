@@ -140,12 +140,12 @@ def test_walk_forward_success(sample_payload: ResearchPayload) -> None:
 
 def test_monte_carlo_empty() -> None:
     payload = ResearchPayload("S", (), (), {}, (), 1_000_000.0)
-    report = monte_carlo_simulation(payload)
+    report = monte_carlo_simulation(payload, seed=42)
     assert report.simulations == 0
 
 
 def test_monte_carlo_drawdown(sample_payload: ResearchPayload) -> None:
-    report = monte_carlo_simulation(sample_payload, simulations=100)
+    report = monte_carlo_simulation(sample_payload, seed=42, simulations=100)
     assert report.simulations == 100
     assert report.worst_drawdown >= report.median_drawdown
 
@@ -155,12 +155,12 @@ def test_monte_carlo_drawdown(sample_payload: ResearchPayload) -> None:
 
 def test_bootstrap_empty() -> None:
     payload = ResearchPayload("S", (), (), {}, (), 1_000_000.0)
-    report = bootstrap_statistics(payload)
+    report = bootstrap_statistics(payload, seed=42)
     assert report.confidence_score == 0.0
 
 
 def test_bootstrap_success(sample_payload: ResearchPayload) -> None:
-    report = bootstrap_statistics(sample_payload, iterations=100)
+    report = bootstrap_statistics(sample_payload, seed=42, iterations=100)
     assert report.upper_bound_95th >= report.lower_bound_5th
 
 
@@ -256,7 +256,7 @@ def test_diagnostics_tail_risk() -> None:
 
 def test_compute_overall_score(sample_payload: ResearchPayload) -> None:
     bias = detect_bias(sample_payload)
-    boot = bootstrap_statistics(sample_payload, iterations=10)
+    boot = bootstrap_statistics(sample_payload, seed=42, iterations=10)
     robust = parameter_robustness(sample_payload)
     cap = estimate_capacity(sample_payload)
     cv = walk_forward_analysis(sample_payload)
@@ -302,7 +302,7 @@ def test_engine_init() -> None:
 
 def test_engine_full_run(sample_payload: ResearchPayload) -> None:
     state = ResearchEngine.initialize("R-1", "S-1", 1000.0)
-    s2 = ResearchEngine.run_full_research(state, sample_payload, 1001.0)
+    s2 = ResearchEngine.run_full_research(state, sample_payload, 1001.0, seed=42)
     assert s2.completed
     assert s2.score is not None
     assert len(s2.events) > 3
@@ -310,9 +310,9 @@ def test_engine_full_run(sample_payload: ResearchPayload) -> None:
 
 def test_engine_double_run(sample_payload: ResearchPayload) -> None:
     state = ResearchEngine.initialize("R-1", "S-1", 1000.0)
-    s2 = ResearchEngine.run_full_research(state, sample_payload, 1001.0)
+    s2 = ResearchEngine.run_full_research(state, sample_payload, 1001.0, seed=42)
     with pytest.raises(InvalidResearchStateError):
-        ResearchEngine.run_full_research(s2, sample_payload, 1002.0)
+        ResearchEngine.run_full_research(s2, sample_payload, 1002.0, seed=42)
 
 
 # --- VIEWS TESTS (5) ---
@@ -320,7 +320,7 @@ def test_engine_double_run(sample_payload: ResearchPayload) -> None:
 
 def test_views_access(sample_payload: ResearchPayload) -> None:
     state = ResearchEngine.initialize("R-1", "S-1", 1000.0)
-    s2 = ResearchEngine.run_full_research(state, sample_payload, 1001.0)
+    s2 = ResearchEngine.run_full_research(state, sample_payload, 1001.0, seed=42)
 
     assert overall_score(s2) is not None
     assert len(warnings(s2)) >= 0

@@ -19,10 +19,32 @@ to know how an order or a quote is modelled.
 
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import StrEnum
 from typing import Protocol
 
 from alphalab.core.enums import Side
 from alphalab.execution.fill import FillStatus
+
+
+class FillTiming(StrEnum):
+    """When a simulated order fills, relative to the event that decided it.
+
+    Recorded with every run and its results, because it decides how optimistic
+    they are (ledger EXE-001).
+    """
+
+    #: At the price and instant of the event whose observation produced the
+    #: order -- the bar close or quote midpoint the strategy has just seen. No
+    #: real order trades at the price that triggered it, so this is optimistic by
+    #: construction. It is what every simulated run did before v3.10, and stays
+    #: the default so that a v3.9 run means what it meant.
+    SAME_EVENT = "same_event"
+    #: The order works until its asset's next market event and fills at that
+    #: event's price and instant -- for bars, the next bar's close. The strategy
+    #: decides on one observation and trades on the next: no look-ahead, at the
+    #: cost of one event's delay. It gets one attempt there, as a same-event
+    #: order gets one at its event; what a partial fill leaves is withdrawn.
+    NEXT_EVENT = "next_event"
 
 
 @dataclass(frozen=True, slots=True)

@@ -31,6 +31,11 @@ def compute_momentum(
 
     window = prices.bars[-required:]
     momentum = total_return(window[0].close, window[-1].close)
+    if momentum is None:
+        raise FactorInputError(
+            f"Momentum is undefined from a non-positive close of {window[0].close} for "
+            f"{prices.asset_id}: a return needs a positive starting price."
+        )
 
     return FactorResult(
         feature_id=feature_id,

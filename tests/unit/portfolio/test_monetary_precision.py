@@ -28,7 +28,7 @@ from alphalab.portfolio import (
     PortfolioState,
     PortfolioValuation,
 )
-from alphalab.portfolio.money import CURRENCY_QUANT, to_money
+from alphalab.portfolio.money import to_money
 
 INITIAL = Decimal("1000000.00")
 
@@ -84,10 +84,10 @@ def assert_all_money_is_cent_exact(state: PortfolioState) -> None:
         ("equity", valuation.equity),
         ("positions_value", valuation.positions_value),
     ):
-        assert amount == to_money(amount), f"{label}={amount} is not cent-exact"
+        assert amount == to_money(amount, "USD"), f"{label}={amount} is not cent-exact"
     for asset, position in state.positions.items():
-        assert position.basis == to_money(position.basis), f"{asset} basis not cent-exact"
-        assert position.market_value == to_money(position.market_value)
+        assert position.basis == to_money(position.basis, "USD"), f"{asset} basis not cent-exact"
+        assert position.market_value == to_money(position.market_value, "USD")
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +130,7 @@ def test_long_reversal_at_a_sub_cent_price_is_exact() -> None:
     # The 25 sold credited one cash movement; the closed 10 and the new short 15
     # must partition exactly that amount.
     credited = state.cash.balance("USD") - before + Decimal("1.00")
-    assert credited == to_money(Decimal("25") * Decimal("120.007"))
+    assert credited == to_money(Decimal("25") * Decimal("120.007"), "USD")
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ def test_commissions_at_sub_cent_precision_stay_exact(commission: Decimal) -> No
             state, "A", Decimal("3"), Decimal("33.333333"), commission, 2.0 + i, "USD"
         )
         assert_exact(state)
-    assert state.commission_paid.of("USD") == to_money(commission) * 5
+    assert state.commission_paid.of("USD") == to_money(commission, "USD") * 5
     assert_all_money_is_cent_exact(state)
 
 
@@ -347,10 +347,95 @@ def test_a_position_constructed_without_a_basis_derives_one() -> None:
     assert position.unrealized_pnl == Decimal("24.00")
 
 
-def test_currency_quant_is_the_single_declared_precision() -> None:
-    from alphalab.portfolio import cash as cash_module
-    from alphalab.portfolio import position as position_module
+def test_each_currency_is_booked_at_its_own_minor_unit() -> None:
+    """ACC-001: a yen book has no sen, a dinar book keeps its fils."""
 
-    assert CURRENCY_QUANT == Decimal("0.01")  # noqa: SIM300
-    assert cash_module.CURRENCY_QUANT is CURRENCY_QUANT
-    assert position_module.CURRENCY_QUANT is CURRENCY_QUANT
+    from alphalab.portfolio import Account, PortfolioEngine, PortfolioState
+
+    state = PortfolioState(account=Account("ACC-MU", "USD", "Minor units", 1.0))
+    state = PortfolioEngine.apply_deposit(state, Decimal("1000000"), "JPY", 1.0)
+    state = PortfolioEngine.apply_deposit(state, Decimal("1000"), "KWD", 1.0)
+    state = PortfolioEngine.apply_fill(
+        state, "7203", Decimal("3"), Decimal("2500.4"), Decimal("12.5"), 2.0, "JPY"
+    )
+    state = PortfolioEngine.apply_fill(
+        state, "NBK", Decimal("7"), Decimal("1.0005"), Decimal("0.0015"), 3.0, "KWD"
+    )
+
+    # 3 x 2500.4 = 7501.2 yen -> 7501; commission 12.5 -> 12 (half to even).
+    assert state.positions["7203"].basis == Decimal("7501")
+    assert state.commission_paid.of("JPY") == Decimal("12")
+    assert state.cash.balance("JPY") == Decimal("1000000") - Decimal("7501") - Decimal("12")
+    # 7 x 1.0005 = 7.0035 dinar -> 7.004 (fils); commission 0.0015 -> 0.002.
+    assert state.positions["NBK"].basis == Decimal("7.004")
+    assert state.commission_paid.of("KWD") == Decimal("0.002")
+    assert state.positions["7203"].minor_units == 0
+    assert state.positions["NBK"].minor_units == 3
+
+
+def test_prices_and_quantities_are_booked_exactly() -> None:
+    """ACC-002/ACC-003: no price grid, no share grid inside accounting."""
+
+    state = funded(Decimal("5000000"))
+    state = PortfolioEngine.apply_fill(
+        state, "EURUSD", Decimal("1000000"), Decimal("1.08345"), Decimal("0"), 2.0, "USD"
+    )
+    position = state.positions["EURUSD"]
+    # v3.9 quantized the price to 1.0834 or 1.0835 and booked 1,083,400.00.
+    assert position.basis == Decimal("1083450.00")
+    assert position.market_price == Decimal("1.08345")
+    assert state.cash.balance("USD") == Decimal("5000000") - Decimal("1083450.00")
+
+    state = PortfolioEngine.apply_fill(
+        state, "BTC", Decimal("0.0000005"), Decimal("60000"), Decimal("0"), 3.0, "USD"
+    )
+    # A sub-micro fill is a fill: v3.9 refused it as zero shares.
+    assert state.positions["BTC"].quantity == Decimal("0.0000005")
+    assert state.positions["BTC"].basis == Decimal("0.03")
+
+
+def test_a_currency_outside_iso_4217_must_be_declared() -> None:
+    from alphalab.common.currency_units import CurrencyUnits, UnknownCurrencyUnitsError
+    from alphalab.portfolio import Account, PortfolioEngine, PortfolioState
+
+    undeclared = PortfolioState(account=Account("ACC-U", "USD", "Undeclared", 1.0))
+    with pytest.raises(UnknownCurrencyUnitsError, match="USDT"):
+        PortfolioEngine.apply_deposit(undeclared, Decimal("100"), "USDT", 1.0)
+
+    declared = PortfolioState(
+        account=Account("ACC-D", "USD", "Declared", 1.0, currency_units=CurrencyUnits({"USDT": 6}))
+    )
+    state = PortfolioEngine.apply_deposit(declared, Decimal("100.1234567"), "USDT", 1.0)
+    assert state.cash.balance("USDT") == Decimal("100.123457")
+
+
+def test_the_books_do_not_depend_on_the_callers_decimal_context() -> None:
+    """ACC-004: an ambient rounding mode or precision cannot change a book."""
+
+    import decimal
+
+    def book() -> PortfolioState:
+        state = funded()
+        state = PortfolioEngine.apply_fill(
+            state, "AAPL", Decimal("7"), Decimal("100.005"), Decimal("0"), 2.0, "USD"
+        )
+        return PortfolioEngine.apply_fill(
+            state, "AAPL", Decimal("-3"), Decimal("101.115"), Decimal("0"), 3.0, "USD"
+        )
+
+    reference = book()
+    for rounding, precision in (
+        (decimal.ROUND_DOWN, 28),
+        (decimal.ROUND_HALF_UP, 28),
+        (
+            decimal.ROUND_CEILING,
+            6,
+        ),
+    ):
+        with decimal.localcontext() as context:
+            context.rounding = rounding
+            context.prec = precision
+            other = book()
+        assert other.cash.balances == reference.cash.balances
+        assert other.realized_pnl == reference.realized_pnl
+        assert other.positions == reference.positions

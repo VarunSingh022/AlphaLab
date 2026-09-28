@@ -18,9 +18,11 @@ What that buys and what it does not, stated so neither is overclaimed:
 
 * a bare ``object()``, a dict, a string or an ``Intent`` at a call site is now a
   **static error** -- which is the whole of what the finding asked for;
-* ``alphalab.live.events.TickReceived`` still type-checks, because what makes it
-  the wrong class is the *module* it is defined in and no static type can say
-  that. :func:`~alphalab.strategy.dispatcher.market_hook_for` is still the exact
+* a ``TickReceived`` defined outside :mod:`alphalab.market.events` -- as
+  ``alphalab.live.events`` did until v3.10, and as any host application may --
+  still type-checks, because what makes it the wrong class is the *module* it is
+  defined in and no static type can say that.
+  :func:`~alphalab.strategy.dispatcher.market_hook_for` is still the exact
   check, still at runtime, and still refuses it.
 
 This file pins all four properties: the signature changed, hook selection did
@@ -216,7 +218,7 @@ def test_a_class_that_only_shares_a_name_still_reaches_no_hook() -> None:
     This is the property the narrowing could not provide and did not claim to.
     """
 
-    from alphalab.live.events import TickReceived as LiveTick
+    from tests.regression._foreign_events import TickReceived as LiveTick
 
     impostor = LiveTick.__new__(LiveTick)
 

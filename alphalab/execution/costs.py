@@ -79,16 +79,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Context, Decimal, DivisionByZero, InvalidOperation, Overflow
 from enum import Enum, auto
 from typing import Protocol
 
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
+from alphalab.common.currency_units import ISO_4217_MINOR_UNITS
 from alphalab.core.enums import Side
 from alphalab.execution.commission import CommissionModel, FixedCommission
 from alphalab.execution.exceptions import ExecutionValidationError
 from alphalab.execution.slippage import SlippageModel
 
 __all__ = [
+    "CONCESSION_DIGITS",
     "FREE",
     "CostContext",
     "CostSettlement",
@@ -114,15 +117,39 @@ __all__ = [
     "reconciles",
 ]
 
-#: Per-unit price concessions are carried at this exponent, matching
-#: ``PRICE_QUANT`` in :mod:`alphalab.portfolio.money`: a concession is a price
-#: delta, so it is quantized like a price rather than like money.
-_PRICE_QUANT = Decimal("0.0001")
+#: Significant digits a per-unit price concession is carried to.
+#:
+#: Until v3.10 every concession was rounded to four *decimal places*, so the
+#: half-spread of an instrument quoted in hundredths of a cent was zero and a
+#: percentage slippage on a sub-penny price vanished. A concession is now kept
+#: to eighteen *significant* digits, whatever the price's magnitude: exact for
+#: every terminating model (a quoted half-spread, a fixed or percentage
+#: slippage), and a fixed representation for the ones that are not (a
+#: square-root impact is irrational; a participation rate is a quotient).
+#:
+#: Why not the full 34 digits of the accounting context: the fill price is
+#: ``reference + concession``, and the report's all-in cost identity
+#: ``(fill_price - reference) * quantity == concession * quantity`` is only exact
+#: when that sum and those products fit in the context. Eighteen digits leave
+#: room for a reference price's own digits and a quantity's, so the identity
+#: holds exactly rather than to within the last digit of the context. Cash costs
+#: are money and are rounded once, to the fill currency's minor unit, by
+#: :meth:`ExecutionCostModel.quote` through :meth:`CostContext.money`.
+CONCESSION_DIGITS = 18
 
-#: Cash costs are carried at money precision, matching ``CURRENCY_QUANT``.
-_CASH_QUANT = Decimal("0.01")
+_CONCESSION_CONTEXT = Context(
+    prec=CONCESSION_DIGITS,
+    rounding=ROUND_HALF_EVEN,
+    traps=[InvalidOperation, DivisionByZero, Overflow],
+)
 
 _ZERO = Decimal("0")
+
+
+def _concession(amount: Decimal) -> Decimal:
+    """``amount`` carried to :data:`CONCESSION_DIGITS` significant digits."""
+
+    return _CONCESSION_CONTEXT.plus(amount)
 
 
 class CostSettlement(Enum):
@@ -164,6 +191,9 @@ class CostContext:
         available_liquidity: Quantity the venue was showing, or ``None`` when the
             event carried no size. An impact model that needs a participation
             rate refuses without it rather than inventing a denominator.
+        minor_units: Decimals of ``currency``'s minor unit, which a cash cost is
+            rounded to. ``None`` means ISO 4217's figure; the pipeline passes
+            the account's, so a currency the account declared is honoured.
     """
 
     asset_id: str
@@ -176,6 +206,25 @@ class CostContext:
     bid: Decimal | None = None
     ask: Decimal | None = None
     available_liquidity: Decimal | None = None
+    minor_units: int | None = None
+
+    def money(self, amount: Decimal) -> Decimal:
+        """``amount`` rounded half-even to ``currency``'s minor unit.
+
+        The one rounding point for a simulated fill's cash costs. A currency
+        outside ISO 4217 whose units this context was not given is left exact
+        rather than rounded to a unit nobody stated; the portfolio rounds it
+        once, with the account's declared units, when the fill is booked.
+        """
+
+        units = self.minor_units
+        if units is None:
+            units = ISO_4217_MINOR_UNITS.get(self.currency)
+        if units is None:
+            return amount
+        return amount.quantize(
+            Decimal(1).scaleb(-units), rounding=ROUND_HALF_EVEN, context=ACCOUNTING_CONTEXT
+        )
 
     @property
     def participation(self) -> Decimal | None:
@@ -188,7 +237,7 @@ class CostContext:
         available = self.available_liquidity
         if available is None or available <= _ZERO:
             return None
-        return self.quantity / available
+        return ACCOUNTING_CONTEXT.divide(self.quantity, available)
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,13 +277,15 @@ class ExecutionCosts:
     def price_concession(self) -> Decimal:
         """Per-unit total of the three ``PRICE_EMBEDDED`` costs."""
 
-        return self.spread + self.slippage + self.impact
+        ctx = ACCOUNTING_CONTEXT
+        return ctx.add(ctx.add(self.spread, self.slippage), self.impact)
 
     @property
     def cash_charged(self) -> Decimal:
         """Total of the three ``CASH_CHARGED`` costs, for the whole fill."""
 
-        return self.commission + self.fees + self.tax
+        ctx = ACCOUNTING_CONTEXT
+        return ctx.add(ctx.add(self.commission, self.fees), self.tax)
 
     def total(self, quantity: Decimal) -> Decimal:
         """All-in cost of a fill of ``quantity``, in the fill's currency.
@@ -245,7 +296,9 @@ class ExecutionCosts:
         cash, and only the caller knows which fill it is being applied to.
         """
 
-        return self.price_concession * quantity + self.cash_charged
+        return ACCOUNTING_CONTEXT.add(
+            ACCOUNTING_CONTEXT.multiply(self.price_concession, quantity), self.cash_charged
+        )
 
     def by_settlement(self, settlement: CostSettlement) -> Mapping[str, Decimal]:
         """The components of one settlement kind, keyed by role name."""
@@ -390,7 +443,7 @@ class QuotedHalfSpread:
                 f"Crossed quote for {context.asset_id}: bid {bid} is above ask {ask}. "
                 "Half of a negative spread is not a cost."
             )
-        return ((ask - bid) / Decimal("2")).quantize(_PRICE_QUANT)
+        return ACCOUNTING_CONTEXT.divide(ACCOUNTING_CONTEXT.subtract(ask, bid), Decimal("2"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,7 +498,8 @@ class LinearImpact:
 
     def impact(self, context: CostContext) -> Decimal:
         participation = _require_participation(context, "LinearImpact")
-        return (self.coefficient * participation * context.reference_price).quantize(_PRICE_QUANT)
+        ctx = ACCOUNTING_CONTEXT
+        return ctx.multiply(ctx.multiply(self.coefficient, participation), context.reference_price)
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,8 +526,9 @@ class SquareRootImpact:
 
     def impact(self, context: CostContext) -> Decimal:
         participation = _require_participation(context, "SquareRootImpact")
-        return (self.coefficient * participation.sqrt() * context.reference_price).quantize(
-            _PRICE_QUANT
+        ctx = ACCOUNTING_CONTEXT
+        return ctx.multiply(
+            ctx.multiply(self.coefficient, participation.sqrt(ctx)), context.reference_price
         )
 
 
@@ -528,7 +583,7 @@ class ProportionalFee:
             )
 
     def fee(self, context: CostContext, cash_base: Decimal) -> Decimal:
-        return (cash_base * self.fraction).quantize(_CASH_QUANT)
+        return ACCOUNTING_CONTEXT.multiply(cash_base, self.fraction)
 
 
 @dataclass(frozen=True, slots=True)
@@ -559,7 +614,7 @@ class ProportionalTax:
     def tax(self, context: CostContext, cash_base: Decimal) -> Decimal:
         if context.side not in self.sides:
             return _ZERO
-        return (cash_base * self.fraction).quantize(_CASH_QUANT)
+        return ACCOUNTING_CONTEXT.multiply(cash_base, self.fraction)
 
 
 # --------------------------------------------------------------------------- #
@@ -593,7 +648,10 @@ class ExecutionCostModel:
 
         Applies the ordering stated in this module's docstring: the three price
         concessions from the reference price, then the three cash costs from the
-        resulting consideration.
+        resulting consideration. The concessions are exact; each cash cost is
+        money and is rounded once, here, to the fill currency's minor unit
+        (:meth:`CostContext.money`), so the report's cash charge is the amount
+        the portfolio books.
 
         A fill of zero quantity costs nothing and is not passed to any model --
         there is no fill to charge for, and a per-trade fee on a non-event would
@@ -603,18 +661,19 @@ class ExecutionCostModel:
         if context.quantity <= _ZERO:
             return ExecutionCosts(_ZERO, _ZERO, _ZERO, _ZERO, _ZERO, _ZERO)
 
-        spread = self.spread_model.half_spread(context)
-        slippage = self.slippage_model.calculate(
-            context.quantity, context.reference_price, context.side
+        spread = _concession(self.spread_model.half_spread(context))
+        slippage = _concession(
+            self.slippage_model.calculate(context.quantity, context.reference_price, context.side)
         )
-        impact = self.impact_model.impact(context)
+        impact = _concession(self.impact_model.impact(context))
 
-        fill_price = self.fill_price_from(context, spread + slippage + impact)
-        cash_base = fill_price * context.quantity
+        ctx = ACCOUNTING_CONTEXT
+        fill_price = self.fill_price_from(context, ctx.add(ctx.add(spread, slippage), impact))
+        cash_base = ctx.multiply(fill_price, context.quantity)
 
-        commission = self.commission_model.calculate(context.quantity, fill_price)
-        fees = self.fee_model.fee(context, cash_base)
-        tax = self.tax_model.tax(context, cash_base)
+        commission = context.money(self.commission_model.calculate(context.quantity, fill_price))
+        fees = context.money(self.fee_model.fee(context, cash_base))
+        tax = context.money(self.tax_model.tax(context, cash_base))
 
         return ExecutionCosts(
             spread=spread,
@@ -629,17 +688,32 @@ class ExecutionCostModel:
     def fill_price_from(context: CostContext, concession: Decimal) -> Decimal:
         """Apply a per-unit concession to the reference price, directionally.
 
-        A buy pays more, a sell receives less. The floor at one tick is the rule
-        :class:`~alphalab.execution.simulator.ExecutionSimulator` has applied
-        since it was written: a concession large enough to drive a sale to zero
-        or below describes an arithmetic accident rather than a market, and a
-        non-positive fill price is refused downstream by
-        :meth:`~alphalab.portfolio.engine.PortfolioEngine.apply_fill` anyway.
+        A buy pays more, a sell receives less.
+
+        Until v3.10 a sale's price was floored at ``0.01``, which did two wrong
+        things silently: a concession that exceeded the price produced a fill at
+        one cent rather than a refusal, and -- worse -- an instrument quoted
+        *below* one cent (a sub-penny equity, most crypto pairs against a major)
+        was sold at ``0.01`` with no concession at all, a price the market never
+        showed. There is no floor now: a concession that would take a sale to
+        zero or below is refused, because it describes a cost model that does not
+        fit the instrument rather than a market.
+
+        Raises:
+            ExecutionValidationError: If a sale's concession is at least the
+                reference price.
         """
 
         if context.side is Side.BUY:
-            return context.reference_price + concession
-        return max(Decimal("0.01"), context.reference_price - concession)
+            return ACCOUNTING_CONTEXT.add(context.reference_price, concession)
+        price = ACCOUNTING_CONTEXT.subtract(context.reference_price, concession)
+        if price <= _ZERO:
+            raise ExecutionValidationError(
+                f"A per-unit concession of {concession} on a sale of {context.asset_id} at "
+                f"{context.reference_price} leaves a price of {price}. A sale cannot happen "
+                "at or below zero; the cost model does not fit this instrument's price."
+            )
+        return price
 
     def fill_price(self, context: CostContext, costs: ExecutionCosts) -> Decimal:
         """The price a fill happens at once ``costs`` are embedded in it."""
@@ -702,9 +776,9 @@ def itemized(costs: ExecutionCosts, quantity: Decimal) -> Mapping[str, Decimal]:
     """
 
     return {
-        "spread": costs.spread * quantity,
-        "slippage": costs.slippage * quantity,
-        "impact": costs.impact * quantity,
+        "spread": ACCOUNTING_CONTEXT.multiply(costs.spread, quantity),
+        "slippage": ACCOUNTING_CONTEXT.multiply(costs.slippage, quantity),
+        "impact": ACCOUNTING_CONTEXT.multiply(costs.impact, quantity),
         "commission": costs.commission,
         "fees": costs.fees,
         "tax": costs.tax,

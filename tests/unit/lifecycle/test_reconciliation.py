@@ -66,7 +66,7 @@ LIMITS = RiskLimits(
     exposure=ExposureLimit(HUGE, HUGE),
     leverage=LeverageLimit(Decimal("1000")),
     margin=MarginLimit(Decimal("1.00")),
-    daily_loss=DailyLossLimit(HUGE),
+    daily_loss=DailyLossLimit(HUGE, "UTC"),
     drawdown=DrawdownLimit(Decimal("1.00")),
 )
 
@@ -685,7 +685,9 @@ class TestDeterminismAndStability:
         assert len(set(indexes)) > 3
 
     def test_an_inconsistent_binding_is_refused_before_anything_is_compared(self) -> None:
-        broken = ExternalOrderMap(to_broker={OMS_ID: BROKER_ID}, to_oms={})
+        broken = ExternalOrderMap(
+            to_broker=PersistentMap({OMS_ID: BROKER_ID}), to_oms=PersistentMap()
+        )
         with pytest.raises(LifecycleInputError, match="disagrees with itself"):
             reconcile(pipeline_with(), broker_with(), broken)
 

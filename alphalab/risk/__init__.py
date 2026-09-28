@@ -8,8 +8,11 @@ from alphalab.risk.checks import (
     check_exposure,
     check_leverage,
     check_margin,
+    check_net_exposure,
     check_order_size,
     check_position_limit,
+    daily_loss_breach,
+    drawdown_breach,
 )
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.engine import RiskEngine
@@ -36,7 +39,8 @@ from alphalab.risk.limits import (
     RiskLimits,
 )
 from alphalab.risk.margin import MarginStatus
-from alphalab.risk.models import RiskViolation
+from alphalab.risk.models import RiskSeverity, RiskViolation
+from alphalab.risk.projection import NO_WORKING_ORDERS, RiskProjection, WorkingExposure, project
 from alphalab.risk.state import RiskState
 from alphalab.risk.validation import validate_order_request
 from alphalab.risk.views import (
@@ -49,6 +53,7 @@ from alphalab.risk.views import (
 )
 
 __all__ = [
+    "NO_WORKING_ORDERS",
     "BuyingPowerUpdated",
     "DailyLossLimit",
     "DrawdownLimit",
@@ -71,10 +76,13 @@ __all__ = [
     "RiskError",
     "RiskEvent",
     "RiskLimits",
+    "RiskProjection",
     "RiskRejected",
+    "RiskSeverity",
     "RiskState",
     "RiskValidationError",
     "RiskViolation",
+    "WorkingExposure",
     "active_limits",
     "check_buying_power",
     "check_daily_loss",
@@ -82,11 +90,15 @@ __all__ = [
     "check_exposure",
     "check_leverage",
     "check_margin",
+    "check_net_exposure",
     "check_order_size",
     "check_position_limit",
     "current_exposure",
+    "daily_loss_breach",
+    "drawdown_breach",
     "latest_decision",
     "margin_status",
+    "project",
     "risk_history",
     "validate_order_request",
     "violations",

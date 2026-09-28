@@ -3,7 +3,7 @@
 The same defect the OMS order book had, on the same execution path and found the
 same way -- by running the benchmark. ``ExecutionEngine.execute`` and
 ``partial_fill`` stored a report by rebuilding the whole ``reports`` dict, so N
-fills copied O(N^2) entries: ``benchmarks/benchmarks_execution.py``'s 100k-fill
+fills copied O(N^2) entries: ``benchmarks/benchmark_execution.py``'s 100k-fill
 workload took over two minutes, and every fill a backtest produced paid a copy
 of every fill before it.
 
@@ -13,12 +13,10 @@ of every fill before it.
 always did; what changed is that storing a report no longer rebuilds the index.
 
 As in ``test_oms_book_complexity``, the structural tests are deterministic and
-the timing test is a coarse backstop with the cyclic collector paused around the
-measurement.
+the timing test is a coarse backstop, read with the one stabilized method every
+guard shares (tests/regression/_timing.py).
 """
 
-import gc
-import time
 from decimal import Decimal
 
 from alphalab.common.persistent_map import PersistentMap
@@ -28,6 +26,7 @@ from alphalab.execution.fill import FillStatus, OrderInstruction
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
 from alphalab.execution.views import all_reports, report
+from tests.regression._timing import CLOCK, timings
 
 SCALE = 4
 SMALL = 2_000
@@ -58,15 +57,11 @@ def _simulate(count: int) -> ExecutionState:
 
 
 def _time_fills(count: int) -> float:
-    """Time a run of fills with the cyclic collector paused; see module docstring."""
+    """Time a run of fills; :func:`timings` pauses the cyclic collector around it."""
 
-    gc.disable()
-    try:
-        start = time.perf_counter()
-        _simulate(count)
-        return time.perf_counter() - start
-    finally:
-        gc.enable()
+    start = CLOCK()
+    _simulate(count)
+    return CLOCK() - start
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +160,7 @@ def test_reports_iterate_in_execution_order() -> None:
 def test_fill_cost_grows_linearly_with_the_workload() -> None:
     _time_fills(200)  # warm up
 
-    small = min(_time_fills(SMALL) for _ in range(2))
-    large = min(_time_fills(LARGE) for _ in range(2))
+    small, large = timings(_time_fills, SMALL, LARGE, rounds=3)
 
     assert large < LARGE_WORKLOAD_BUDGET_SECONDS, f"{LARGE} fills took {large:.2f}s"
     growth = large / max(small, 1e-6)

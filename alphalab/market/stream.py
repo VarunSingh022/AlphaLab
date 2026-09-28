@@ -12,9 +12,9 @@ returns an *iterator*; a generator pulling a live socket satisfies that contract
 with no new abstraction, so
 :meth:`~alphalab.runtime.session.TradingSession.run` drives a venue feed with
 the same loop it drives a stored dataset with, and the execution path cannot
-tell which it has. No second market-data lifecycle is introduced, and
-:mod:`alphalab.live` and :mod:`alphalab.feed` -- which are standalone, off-path
-engine libraries -- are not built on.
+tell which it has. No second market-data lifecycle is introduced. (Two
+standalone, off-path ones -- ``alphalab.live`` and ``alphalab.feed`` -- were
+never built on, and were removed in v3.10: ledger SCF-002.)
 
 The pipeline
 ------------
@@ -326,6 +326,7 @@ class StreamingSource:
                 {"action": "subscribe", "symbols": list(self._config.symbols)},
                 separators=(",", ":"),
                 sort_keys=True,
+                allow_nan=False,
             )
         )
         self._connection = connection

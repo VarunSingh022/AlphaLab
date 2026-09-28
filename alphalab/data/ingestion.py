@@ -28,8 +28,9 @@ package exists to avoid.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from alphalab.common.version import __version__
@@ -49,7 +50,14 @@ from alphalab.data.quality import DataQualityReport, evaluate_quality
 from alphalab.data.schema import DatasetSchema, RecordType, SchemaDetection, detect_schema
 from alphalab.data.source import RawSource
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import DateOnlyPolicy, TimeFrequency, TimestampFormat, infer_frequency
+from alphalab.data.time import (
+    BarStamp,
+    DateOnlyPolicy,
+    TimeFrequency,
+    TimestampFormat,
+    frequency_seconds,
+    infer_frequency,
+)
 from alphalab.data.validation import (
     FindingKind,
     RowRejection,
@@ -84,6 +92,11 @@ class IngestionRequest:
             source's timestamps carry no offset, since they cannot name an
             instant without it; optional, and purely descriptive, when they do.
         date_policy: Which instant a bare date denotes.
+        bar_stamp: Which instant of its interval a bar's timestamp names.
+            **Required for bars stamped with a time** (a bare date's instant is
+            the ``date_policy``'s to say): ``INTERVAL_START`` bars are moved to
+            the end of their interval, the instant their close was knowable, and
+            the move is recorded as a transformation (ledger DAT-001).
         symbol: Instrument name for sources with no instrument column.
         calendar: The venue's calendar, when one is declared.
         instrument: What the series describes, when one spec covers it.
@@ -102,6 +115,7 @@ class IngestionRequest:
     price_basis: PriceBasis
     timezone_name: str | None = None
     date_policy: DateOnlyPolicy | None = None
+    bar_stamp: BarStamp | None = None
     symbol: str | None = None
     calendar: MarketCalendar | None = None
     instrument: InstrumentSpec | None = None
@@ -150,8 +164,39 @@ class IngestionResult:
         return self.dataset.require_provenance().dataset_version
 
 
-def ingest_table(table: RawTable, request: IngestionRequest) -> IngestionResult:
+#: Tags the content identity of rows ingested from memory. Changing it is a
+#: change to every such dataset's version.
+ROWS_CONTENT_SCHEME = "alphalab.rows.v1"
+
+
+def rows_content_hash(table: RawTable, source_hash: str) -> str:
+    """The content identity of a table that arrived as rows rather than bytes.
+
+    A file's bytes are hashed by its :class:`~alphalab.data.source.RawSource`,
+    and the table is a function of them. Rows handed over in memory have no
+    bytes behind them: the source a caller supplies describes where they came
+    from and can say nothing of what they contain -- until v3.10 two sets of
+    rows recorded with one empty-payload source got one dataset version whatever
+    they held (ledger KD-004). So the rows themselves are hashed, in their
+    canonical table rendering -- the columns, then each row's values in order,
+    each written with ``repr`` so no value can be read as a separator -- and
+    combined with the declared source's hash.
+    """
+
+    lines = [ROWS_CONTENT_SCHEME, f"source={source_hash!r}", f"columns={table.columns!r}"]
+    lines.extend(repr(row.values) for row in table.rows)
+    lines.extend(f"malformed={malformed!r}" for malformed in table.malformed)
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def ingest_table(
+    table: RawTable, request: IngestionRequest, *, content_hash: str | None = None
+) -> IngestionResult:
     """Turn a raw table into a canonical, versioned dataset.
+
+    ``content_hash`` is the identity of the content the dataset version is
+    derived from: the source's own hash, the default, for a table read from the
+    source's bytes; :func:`rows_content_hash` for rows that arrived in memory.
 
     Raises:
         DataValidationError: If the schema cannot be resolved, or if no row
@@ -219,6 +264,8 @@ def ingest_table(table: RawTable, request: IngestionRequest) -> IngestionResult:
             f"{_first_reason(rejections)}"
         )
 
+    records, stamped = _stamp_bars_at_interval_end(records, request, detection.timestamp_format)
+
     findings.extend(validate_records(records, request.frequency))
     quality = evaluate_quality(
         dataset_id=request.name,
@@ -230,7 +277,7 @@ def ingest_table(table: RawTable, request: IngestionRequest) -> IngestionResult:
 
     outcome = clean_records(records, request.cleaning_policy, findings)
     cleaned = list(outcome.records)
-    transformations = list(outcome.transformations)
+    transformations = [*stamped, *outcome.transformations]
 
     adjustments: tuple[AdjustmentRecord, ...] = ()
     basis = request.price_basis
@@ -247,9 +294,10 @@ def ingest_table(table: RawTable, request: IngestionRequest) -> IngestionResult:
         basis = adjusted.basis
 
     timezone_name = _reported_zone(request)
+    identity = request.source.content_hash if content_hash is None else content_hash
     version = derive_dataset_version(
         name=request.name,
-        content_hash=request.source.content_hash,
+        content_hash=identity,
         schema=schema,
         timezone_name=timezone_name,
         calendar_id=None if request.calendar is None else request.calendar.calendar_id,
@@ -284,7 +332,11 @@ def ingest_table(table: RawTable, request: IngestionRequest) -> IngestionResult:
         start_timestamp=min(stamps),
         end_timestamp=max(stamps),
         timezone=timezone_name,
-        metadata={"name": request.name, "content_hash": request.source.content_hash},
+        metadata={
+            "name": request.name,
+            "content_hash": request.source.content_hash,
+            **({} if content_hash is None else {"rows_content_hash": content_hash}),
+        },
     )
 
     inferred, rationale = infer_frequency(sorted(stamps))
@@ -311,6 +363,71 @@ def ingest_table(table: RawTable, request: IngestionRequest) -> IngestionResult:
         transformations=tuple(transformations),
         adjustments=adjustments,
         assumptions=tuple(assumptions),
+    )
+
+
+def _stamp_bars_at_interval_end(
+    records: list[CanonicalRecord],
+    request: IngestionRequest,
+    timestamp_format: TimestampFormat | None,
+) -> tuple[list[CanonicalRecord], tuple[TransformationRecord, ...]]:
+    """Bars stamped at the end of their interval, and the record of any move.
+
+    Raises:
+        DataValidationError: If bars stamped with a time come with no declared
+            convention; if a convention is declared for bare dates, whose
+            instant is the date policy's to say; or if start-stamped bars have a
+            frequency with no fixed interval to move them by.
+    """
+
+    bars = sum(1 for record in records if isinstance(record, Bar))
+    if not bars:
+        return records, ()
+    if timestamp_format is TimestampFormat.DATE_ONLY:
+        if request.bar_stamp is not None:
+            raise DataValidationError(
+                f"{request.name}: bar_stamp was declared for bars stamped with bare dates. A "
+                "bare date names no instant within its interval; date_policy says which one "
+                "it is taken to mean (END_OF_DAY for the instant a daily close is knowable)."
+            )
+        if request.date_policy is DateOnlyPolicy.START_OF_DAY:
+            raise DataValidationError(
+                f"{request.name}: START_OF_DAY would stamp each dated bar at the midnight its "
+                "day begins, before its close was knowable -- a day of look-ahead. A bar is "
+                "stamped at the end of its interval: declare date_policy=END_OF_DAY."
+            )
+        return records, ()
+    if request.bar_stamp is None:
+        raise DataValidationError(
+            f"{request.name}: these bars are stamped with a time, and nothing says whether it "
+            "is the start or the end of each bar's interval. The two differ by a whole bar: "
+            "a start-stamped bar taken as it is reports its close at its opening instant. "
+            "Declare bar_stamp=BarStamp.INTERVAL_START or BarStamp.INTERVAL_END."
+        )
+    if request.bar_stamp is BarStamp.INTERVAL_END:
+        return records, ()
+    interval = frequency_seconds(request.frequency)
+    if interval is None:
+        raise DataValidationError(
+            f"{request.name}: start-stamped bars must be moved to the end of their interval, "
+            f"and a {request.frequency.name} series has no fixed interval to move them by. "
+            "Stamp them at their end before ingesting."
+        )
+    moved = [
+        replace(record, timestamp=record.timestamp + interval)
+        if isinstance(record, Bar)
+        else record
+        for record in records
+    ]
+    return moved, (
+        TransformationRecord(
+            operation="stamp_bars_at_interval_end",
+            rows_affected=bars,
+            reason=(
+                f"the source stamps each bar at the start of its interval; each was moved "
+                f"{interval:g}s later, to the instant its close was knowable"
+            ),
+        ),
     )
 
 

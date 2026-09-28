@@ -24,6 +24,7 @@ def run_benchmark() -> None:
         strategy_id="BENCH",
         trade_size=Decimal("10"),
         starting_cash=Decimal("100000"),
+        currency="USD",
     )
     state = create_environment(config, timestamp=1000.0)
 

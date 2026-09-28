@@ -263,7 +263,7 @@ def build_config() -> ExecutionPipelineConfig:
             exposure=ExposureLimit(huge, huge),
             leverage=LeverageLimit(Decimal("1000")),
             margin=MarginLimit(Decimal("1.00")),
-            daily_loss=DailyLossLimit(huge),
+            daily_loss=DailyLossLimit(huge, "UTC"),
             drawdown=DrawdownLimit(Decimal("1.00")),
         ),
         simulator=ExecutionSimulator(),
@@ -332,7 +332,10 @@ def main() -> None:
     # ---------------------------------------------------------------- #
 
     state = ExecutionPipeline.initialize(build_config(), running(registry), 1.0)
-    state, conversion = ExecutionPipeline.convert_cash(state, EUR_FUNDING, "USD", "EUR", rates, 1.5)
+    # Funded at t=2.0, the instant the table's EUR/USD rate became true: the
+    # book is valued in USD as soon as it holds EUR, and since v3.10 a rate is
+    # never applied before the instant it was quoted (ledger EXE-008).
+    state, conversion = ExecutionPipeline.convert_cash(state, EUR_FUNDING, "USD", "EUR", rates, 2.0)
 
     print()
     print("Step 3 : Settlement funding")

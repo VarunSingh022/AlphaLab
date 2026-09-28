@@ -40,12 +40,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 #: precondition — the assertion is not weaker, it is unreachable. Each is listed
 #: so that adding one is deliberate rather than incidental, and none of them
 #: skips in a normal run: the suite reports zero skipped.
-PERMITTED_SKIPIF: dict[str, str] = {
-    "tests/regression/test_run_state_store.py": (
-        "os.geteuid() == 0 — root bypasses directory permissions, so an "
-        "unwritable root cannot be made unwritable to assert against"
-    ),
-}
+#:
+#: Empty since v3.10 (ledger TST-002). The one entry was
+#: ``test_run_state_store.py``'s unwritable-root test, skipped under root
+#: because root bypasses directory permissions -- so "zero skipped" depended on
+#: who ran the suite. That test now drives the refusal through the permission
+#: answer itself, which no user bypasses.
+PERMITTED_SKIPIF: dict[str, str] = {}
 
 
 def test_no_test_in_the_suite_is_skipped_unconditionally() -> None:
@@ -85,6 +86,26 @@ def test_no_test_in_the_suite_is_skipped_unconditionally() -> None:
         + "\n\nA skip is a gap until something proves otherwise — see ADR-0034 "
         "decision 6, where the two this replaced turned out to be exactly that."
     )
+
+
+def test_every_skipif_is_a_listed_environment_fact() -> None:
+    """A ``skipif`` outside :data:`PERMITTED_SKIPIF` is refused, whatever it guards."""
+
+    import ast
+
+    unlisted: list[str] = []
+    for path in sorted((ROOT / "tests").rglob("test_*.py")):
+        relative = str(path.relative_to(ROOT))
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "skipif"
+                and ast.unparse(node).startswith("pytest.mark.")
+                and relative not in PERMITTED_SKIPIF
+            ):
+                unlisted.append(f"{relative}:{node.lineno}")
+
+    assert not unlisted, f"a skipif that PERMITTED_SKIPIF does not list: {unlisted}"
 
 
 def test_the_pytest_configuration_hides_nothing() -> None:
@@ -179,10 +200,17 @@ def test_nothing_in_the_package_raises_a_deprecation_warning_at_all() -> None:
 
     Complementary to the two probes above, which can only observe what they
     reach. This observes what exists.
+
+    One warning is a decision rather than a deprecation, and is permitted by
+    name: :class:`~alphalab.persistence.upgrade.SchemaUpgradeWarning`, which a
+    schema upgrade raises when a payload it *can* read held a fact the newer
+    schema cannot state (v3.10, ledger PER-001). It announces nothing scheduled
+    for removal; it tells a reader what an old payload lost on the way in.
     """
 
     import ast
 
+    permitted = {"SchemaUpgradeWarning"}
     offenders: list[str] = []
     for path in sorted((ROOT / "alphalab").rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text())):
@@ -193,6 +221,13 @@ def test_nothing_in_the_package_raises_a_deprecation_warning_at_all() -> None:
                 and isinstance(node.func.value, ast.Name)
                 and node.func.value.id == "warnings"
             ):
+                first = node.args[0] if node.args else None
+                if (
+                    isinstance(first, ast.Call)
+                    and isinstance(first.func, ast.Name)
+                    and first.func.id in permitted
+                ):
+                    continue
                 offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
 
     assert not offenders, (

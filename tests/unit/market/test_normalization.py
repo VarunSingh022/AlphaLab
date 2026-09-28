@@ -9,10 +9,10 @@ from alphalab.data.feed import OrderBook as WireOrderBook
 from alphalab.data.feed import OrderBookLevel as WireLevel
 from alphalab.data.feed import Quote as WireQuote
 from alphalab.data.feed import Trade as WireTrade
+from alphalab.data.time import BarStamp
 from alphalab.market.bar import TimeFrame
 from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.normalization import (
-    DEFAULT_POLICY,
     NormalizationPolicy,
     SymbolMap,
     UnresolvedIdentity,
@@ -25,7 +25,9 @@ from alphalab.market.normalization import (
     to_decimal,
 )
 
-_POLICY = NormalizationPolicy(venue="XNAS", currency="USD", timeframe=TimeFrame.M5)
+_POLICY = NormalizationPolicy(
+    bar_stamp=BarStamp.INTERVAL_END, venue="XNAS", currency="USD", timeframe=TimeFrame.M5
+)
 
 
 def test_to_decimal_routes_through_str_so_binary_error_is_not_inherited() -> None:
@@ -113,7 +115,11 @@ def test_symbol_map_rewrites_only_what_it_maps() -> None:
     is why ``ProviderHistorySource`` will not accept this mode. See ADR-0016.
     """
 
-    policy = NormalizationPolicy(identity=UnresolvedIdentity(SymbolMap({"AAPL.US": "AAPL"})))
+    policy = NormalizationPolicy(
+        currency="USD",
+        bar_stamp=BarStamp.INTERVAL_END,
+        identity=UnresolvedIdentity(SymbolMap({"AAPL.US": "AAPL"})),
+    )
 
     mapped = normalize_wire_quote(WireQuote("AAPL.US", 1.0, 1.0, 2.0, 1.0, 1.0), policy)
     passthrough = normalize_wire_quote(WireQuote("MSFT", 1.0, 1.0, 2.0, 1.0, 1.0), policy)
@@ -122,9 +128,44 @@ def test_symbol_map_rewrites_only_what_it_maps() -> None:
     assert passthrough.asset_id == "MSFT"
 
 
-def test_default_policy_does_not_invent_a_venue() -> None:
-    quote = normalize_wire_quote(WireQuote("AAPL", 1.0, 1.0, 2.0, 1.0, 1.0), DEFAULT_POLICY)
+def test_an_undeclared_venue_is_recorded_as_unknown_not_invented() -> None:
+    quote = normalize_wire_quote(
+        WireQuote("AAPL", 1.0, 1.0, 2.0, 1.0, 1.0), NormalizationPolicy(currency="USD")
+    )
     assert quote.venue == "UNKNOWN"
+
+
+def test_a_quote_or_a_trade_is_refused_by_a_policy_that_names_no_currency() -> None:
+    """API-003: the currency was ``"USD"`` by default, so a euro quote read as dollars."""
+
+    unlabelled = NormalizationPolicy(venue="XETR")
+
+    with pytest.raises(MarketValidationError, match="currency"):
+        normalize_wire_quote(WireQuote("SAP", 1.0, 1.0, 2.0, 1.0, 1.0), unlabelled)
+    with pytest.raises(MarketValidationError, match="currency"):
+        normalize_wire_trade(WireTrade("SAP", 1.0, 1.5, 10.0), unlabelled)
+
+
+def test_a_bar_is_refused_by_a_policy_that_names_no_timeframe() -> None:
+    """API-003: the timeframe was one minute by default, whatever the bars were."""
+
+    unlabelled = NormalizationPolicy(currency="USD", bar_stamp=BarStamp.INTERVAL_END)
+
+    with pytest.raises(MarketValidationError, match="timeframe"):
+        normalize_wire_bar(WireBar("AAPL", 1_000.0, 1.0, 2.0, 0.5, 1.5, 10.0), unlabelled)
+
+
+def test_a_policy_is_never_defaulted() -> None:
+    import inspect
+
+    for function in (
+        normalize_wire_quote,
+        normalize_wire_trade,
+        normalize_wire_bar,
+        normalize_wire_book,
+    ):
+        declared = inspect.signature(function).parameters["policy"]
+        assert declared.default is inspect.Parameter.empty, function.__name__
 
 
 @pytest.mark.parametrize(

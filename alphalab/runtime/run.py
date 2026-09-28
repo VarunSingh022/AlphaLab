@@ -55,7 +55,7 @@ from decimal import Decimal
 from enum import Enum, auto
 
 from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.ids import id_source_for, use_id_source
+from alphalab.common.ids import id_source_for, require_seed, use_id_source
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.policy import FillPolicy, ImmediateFill
 from alphalab.execution.report import ExecutionReport
@@ -66,6 +66,8 @@ from alphalab.market.source import OrderingGuarantee
 from alphalab.market.state import MarketState
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.fx import NO_RATES, FxRates
+from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
+from alphalab.runtime.exceptions import AlphaLabRuntimeError
 from alphalab.runtime.execution_pipeline import (
     ContextFactory,
     ExecutionPipeline,
@@ -75,6 +77,7 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionRouting,
     UnpricedAsset,
 )
+from alphalab.strategy.events import LifecycleTransitioned
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
 __all__ = [
@@ -179,11 +182,25 @@ class RunConfig:
         max_market_data_age_seconds: Oldest record the run will act on, measured
             against the clock passed to :meth:`RunEngine.advance`. ``None``
             disables the gate, which is correct for historical runs.
-        years_elapsed: Period length handed to the analytics engine for
-            annualised figures.
-        risk_free_rate: Risk-free rate handed to the analytics engine.
+        years_elapsed: The span CAGR is compounded over, in years. ``None`` --
+            the default as of v3.10 -- derives it from the equity curve's first
+            and last instants. It defaulted to ``1.0``, so every run's CAGR and
+            Calmar ratio were computed as if it had lasted exactly a year.
+        risk_free_rate: Annual risk-free rate the Sharpe and Sortino ratios are
+            in excess of. Recorded on the performance report.
+        periods_per_year: How many return periods make a year, for
+            annualization. ``None`` observes it from the curve (return periods
+            divided by the years they span); the report records which.
         compile_analytics: Whether :meth:`RunEngine.finalize` compiles a
             performance report.
+        halt_on_strategy_failure: Stop the run when a strategy fails: the
+            record during which a strategy's hook raised, or it emitted an
+            invalid intent, is processed and recorded, and then
+            :meth:`RunEngine.advance` raises
+            :class:`StrategyFailedError` carrying the
+            run. ``False`` keeps running the strategies that did not fail, as
+            every run before v3.10 did -- and either way the failure is on
+            :attr:`RunState.strategy_failures` and the result (ledger EXE-006).
     """
 
     pipeline: ExecutionPipelineConfig
@@ -193,15 +210,40 @@ class RunConfig:
     start_timestamp: float = 0.0
     ordering: OrderingGuarantee = OrderingGuarantee.CHRONOLOGICAL
     max_market_data_age_seconds: float | None = None
-    years_elapsed: float = 1.0
+    years_elapsed: float | None = None
     risk_free_rate: float = 0.0
     compile_analytics: bool = True
+    periods_per_year: float | None = None
+    halt_on_strategy_failure: bool = False
 
     def __post_init__(self) -> None:
+        if self.seed is not None:
+            require_seed(self.seed, "RunConfig.seed")
         # The mode decides routing; a config that disagreed with its own mode
         # would execute one way and describe itself another.
         if self.pipeline.routing is not self.mode.routing:
             object.__setattr__(self, "pipeline", replace(self.pipeline, routing=self.mode.routing))
+
+    @property
+    def execution_assumptions(self) -> ExecutionAssumptions:
+        """How this run models execution, and which of its assumptions are optimistic."""
+
+        return execution_assumptions(self.pipeline, self.fill_policy)
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyFailure:
+    """One strategy that failed during a run, and why.
+
+    Attributes:
+        strategy_id: The strategy that failed.
+        timestamp: The market instant it failed at.
+        error: What its hook raised, or why its intent was refused.
+    """
+
+    strategy_id: str
+    timestamp: float
+    error: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +295,24 @@ class RunState:
         return tuple(self.pipeline.oms.orders.open_orders())
 
     @property
+    def strategy_failures(self) -> tuple[StrategyFailure, ...]:
+        """Every strategy that failed during the run, in the order it failed.
+
+        A strategy whose hook raises, or that emits an invalid intent, is moved
+        to ``FAILED`` and dispatched nothing more; the run goes on with the
+        others. Until v3.10 nothing on the run or its result said so, so a run
+        whose only strategy crashed on its first record read as a successful
+        run that chose not to trade (ledger EXE-006). Read from the strategy
+        runtime's own lifecycle events, which the run snapshot carries.
+        """
+
+        return tuple(
+            StrategyFailure(event.strategy_id, event.timestamp, event.reason)
+            for event in self.pipeline.strategy.events
+            if isinstance(event, LifecycleTransitioned) and event.new_state == "FAILED"
+        )
+
+    @property
     def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:
         """Assets this run declined to trade for want of a price.
 
@@ -264,6 +324,27 @@ class RunState:
         """
 
         return tuple(self.pipeline.unpriced_assets.values())
+
+
+class StrategyFailedError(AlphaLabRuntimeError):
+    """A strategy failed and the run was configured to stop when one does.
+
+    Raised by :meth:`~alphalab.runtime.run.RunEngine.advance` after the record
+    during which a strategy's hook raised or emitted an invalid intent, when
+    ``RunConfig.halt_on_strategy_failure`` is set (ledger EXE-006).
+
+    Attributes:
+        state: The run as it stood after that record, failure recorded -- what
+            a caller inspects, or captures, to see what the run did up to it.
+        failures: The failures that record produced.
+    """
+
+    def __init__(
+        self, message: str, state: RunState, failures: tuple[StrategyFailure, ...]
+    ) -> None:
+        super().__init__(message)
+        self.state = state
+        self.failures = failures
 
 
 def _out_of_order(
@@ -377,17 +458,29 @@ class RunEngine:
             fills=result.fills,
             equity=result.state.portfolio_snapshots[-1].total_equity,
         )
-        return (
-            replace(
-                state,
-                pipeline=result.state,
-                processed=state.processed + 1,
-                current_timestamp=record.timestamp,
-                last_record_timestamp=record.timestamp,
-                steps=state.steps.append(step),
-            ),
-            result,
+        advanced = replace(
+            state,
+            pipeline=result.state,
+            processed=state.processed + 1,
+            current_timestamp=record.timestamp,
+            last_record_timestamp=record.timestamp,
+            steps=state.steps.append(step),
         )
+        if state.config.halt_on_strategy_failure and len(result.state.strategy.events) != len(
+            state.pipeline.strategy.events
+        ):
+            before = len(state.strategy_failures)
+            failures = advanced.strategy_failures[before:]
+            if failures:
+                named = ", ".join(f"{f.strategy_id} ({f.error})" for f in failures)
+                raise StrategyFailedError(
+                    f"The run stopped at record {state.processed} ({record.event_id}, "
+                    f"t={record.timestamp}) because a strategy failed: {named}. "
+                    "halt_on_strategy_failure is set; the error carries the run.",
+                    state=advanced,
+                    failures=failures,
+                )
+        return advanced, result
 
     @staticmethod
     def resume(state: RunState) -> AbstractContextManager[None]:
@@ -439,5 +532,6 @@ class RunEngine:
                 state.current_timestamp,
                 state.config.years_elapsed,
                 state.config.risk_free_rate,
+                state.config.periods_per_year,
             ),
         )

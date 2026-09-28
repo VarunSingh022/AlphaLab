@@ -51,8 +51,9 @@ from alphalab.broker.snapshot import (
     restore as restore_broker,
 )
 from alphalab.core.enums import OrderType
-from alphalab.persistence.decode import as_mapping, require, require_schema_version
+from alphalab.persistence.decode import as_mapping, require
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory
 from alphalab.runtime.broker_routing import RoutingConfig
 from alphalab.runtime.live import LiveRunState
 from alphalab.runtime.run_snapshot import (
@@ -70,6 +71,7 @@ from alphalab.runtime.run_snapshot import (
 )
 
 __all__ = [
+    "LIVE_SCHEMA_HISTORY",
     "LIVE_SNAPSHOT_SCHEMA",
     "LiveRunSnapshot",
     "capture",
@@ -175,6 +177,11 @@ def _order_type(value: Any) -> OrderType:
         ) from None
 
 
+#: How every live run payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`.
+LIVE_SCHEMA_HISTORY = SchemaHistory(_SUBSYSTEM, LIVE_SNAPSHOT_SCHEMA)
+
+
 def from_primitives(payload: Mapping[str, Any]) -> LiveRunSnapshot:
     """Decode a JSON-decoded payload back into :class:`LiveRunSnapshot`.
 
@@ -188,7 +195,7 @@ def from_primitives(payload: Mapping[str, Any]) -> LiveRunSnapshot:
     """
 
     payload = as_mapping(payload, _SUBSYSTEM)
-    require_schema_version(payload, LIVE_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    payload = LIVE_SCHEMA_HISTORY.upgrade(payload)
 
     return LiveRunSnapshot(
         run=run_from_primitives(as_mapping(require(payload, "run"), "run")),

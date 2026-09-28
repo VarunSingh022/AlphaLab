@@ -14,7 +14,6 @@ quadratic behaviour (which would be ~64x over an 8x workload increase), not to
 police constant factors.
 """
 
-import time
 from dataclasses import replace
 from decimal import Decimal
 
@@ -41,6 +40,7 @@ from alphalab.risk.limits import (
     RiskLimits,
 )
 from alphalab.risk.state import RiskState
+from tests.regression._timing import CLOCK, timings
 
 # Ratio of the two workload sizes used by the timing test.
 SCALE = 8
@@ -62,13 +62,19 @@ def _limits() -> RiskLimits:
         exposure=ExposureLimit(Decimal("1000000"), Decimal("500000")),
         leverage=LeverageLimit(Decimal("2.0")),
         margin=MarginLimit(Decimal("0.80")),
-        daily_loss=DailyLossLimit(Decimal("10000")),
+        daily_loss=DailyLossLimit(Decimal("10000"), "UTC"),
         drawdown=DrawdownLimit(Decimal("0.10")),
     )
 
 
 def _funded_risk_state() -> RiskState:
-    return replace(RiskEngine.reset(_limits()), buying_power=Decimal("1000000"))
+    # A funded book has a positive NAV as well as buying power: since v3.10 an
+    # order that grows exposure with no positive NAV is refused (RSK-006).
+    return replace(
+        RiskEngine.reset(_limits()),
+        buying_power=Decimal("1000000"),
+        current_nav=Decimal("1000000"),
+    )
 
 
 def _request() -> OrderRequest:
@@ -85,10 +91,10 @@ def _request() -> OrderRequest:
 def _time_risk_evaluations(count: int) -> float:
     state = _funded_risk_state()
     request = _request()
-    start = time.perf_counter()
+    start = CLOCK()
     for i in range(count):
         state, _ = RiskEngine.evaluate(state, request, float(i))
-    return time.perf_counter() - start
+    return CLOCK() - start
 
 
 # ---------------------------------------------------------------------------
@@ -207,8 +213,8 @@ def test_risk_evaluation_cost_grows_linearly_with_the_workload() -> None:
     # Warm up so import-time and first-call costs do not skew the small sample.
     _time_risk_evaluations(200)
 
-    small = min(_time_risk_evaluations(SMALL) for _ in range(2))
-    large = min(_time_risk_evaluations(LARGE) for _ in range(2))
+    # Read with the one stabilized method every guard shares (tests/regression/_timing.py).
+    small, large = timings(_time_risk_evaluations, SMALL, LARGE, rounds=3)
 
     assert large < LARGE_WORKLOAD_BUDGET_SECONDS, f"{LARGE} risk evaluations took {large:.2f}s"
     growth = large / max(small, 1e-6)

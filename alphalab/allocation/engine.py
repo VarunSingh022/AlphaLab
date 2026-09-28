@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from types import MappingProxyType
 
 from alphalab.allocation.allocator import IntentAllocator
@@ -17,11 +17,20 @@ from alphalab.allocation.events import (
     BudgetExceeded,
     NettingCompleted,
 )
-from alphalab.allocation.exceptions import UnknownReservationError
+from alphalab.allocation.exceptions import (
+    AllocationValidationError,
+    SizingRefusedError,
+    UnknownReservationError,
+)
 from alphalab.allocation.netting import NettingEngine
 from alphalab.allocation.sizing import SizingModel
 from alphalab.allocation.state import AllocationState
-from alphalab.allocation.validation import validate_intent, validate_net_quantity
+from alphalab.allocation.validation import (
+    validate_intent,
+    validate_long_only,
+    validate_net_quantity,
+)
+from alphalab.common.arithmetic import in_accounting_context
 from alphalab.common.ids import new_id
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side
@@ -42,6 +51,7 @@ class AllocationEngine:
         return AllocationState(budget=budget)
 
     @staticmethod
+    @in_accounting_context
     def allocate(
         state: AllocationState,
         intents: Sequence[Intent],
@@ -50,10 +60,29 @@ class AllocationEngine:
         constraints: AllocationConstraints,
         timestamp: float,
         budget_prices: Mapping[str, Decimal] = MappingProxyType({}),
+        *,
+        positions: Mapping[str, Decimal] | None = None,
     ) -> tuple[AllocationState, tuple[OrderRequest, ...]]:
         """
                 Processes a batch of intents, sizes them, applies cross-strategy netting,
                 checks capital budgets, and emits netted OrderRequests.
+
+        ``positions`` is each asset's **committed** signed position -- filled plus
+                working orders, in units -- as plain numbers, so this package goes on
+                knowing nothing of the portfolio. Long-only
+                (``AllocationConstraints.allow_shorting=False``) is checked against it:
+                a sale that closes a long passes and one that would leave a short is
+                refused. ``None`` says the positions are unknown, and long-only then
+                refuses every sale, because a delta alone cannot tell a close from a
+                short; an empty mapping says the account is flat. Until v3.10
+                long-only refused every sale whatever the caller held (ledger ALC-001).
+
+        An intent a sizing model cannot size -- no positive price, no volatility --
+                is recorded as an ``AllocationRejected`` naming it, and the others are
+                sized (ledger ALC-003). With ``enforce_integer_quantities`` each netted
+                delta is rounded to the nearest unit *before* long-only is checked,
+                and one that rounds to zero emits no order: until v3.10 it emitted a
+                zero-quantity SELL, which the risk gate refuses by raising.
 
         ``budget_prices`` is the same assets priced in the **budget's** currency, and
                 it is empty for the single-currency run that is every run before v2.17. An
@@ -102,10 +131,20 @@ class AllocationEngine:
         if not valid_intents:
             return replace(state, events=events), ()
 
-        # 2. Sizing
-        sized_deltas = IntentAllocator.size_intents(
-            tuple(valid_intents), state.budget, market_prices, sizing_model
-        )
+        # 2. Sizing, one intent at a time: a refusal names its intent and the
+        # rest of the batch is sized.
+        sized_deltas: list[tuple[str, str, Decimal]] = []
+        for intent in valid_intents:
+            try:
+                quantity = IntentAllocator.size_intent(
+                    intent, state.budget, market_prices, sizing_model
+                )
+            except SizingRefusedError as refusal:
+                events = events.append(
+                    AllocationRejected(AllocationEngine._create_id(), timestamp, str(refusal))
+                )
+                continue
+            sized_deltas.append((intent.strategy_id, intent.instrument, quantity))
 
         # 3. Netting
         net_quantities = NettingEngine.net_quantities(sized_deltas)
@@ -116,19 +155,25 @@ class AllocationEngine:
         orders: list[OrderRequest] = []
 
         for asset_id, net_qty in net_quantities.items():
-            if net_qty == Decimal("0.00"):
+            if constraints.enforce_integer_quantities:
+                # Nearest unit, ties to even, before anything reads the quantity:
+                # long-only judges the order that will be sent.
+                net_qty = net_qty.to_integral_value(rounding=ROUND_HALF_EVEN)
+            if net_qty == 0:
                 continue
 
             try:
-                validate_net_quantity(net_qty, enforce_long_only=not constraints.allow_shorting)
-            except Exception as e:
+                validate_net_quantity(net_qty)
+                if not constraints.allow_shorting:
+                    if positions is None:
+                        validate_net_quantity(net_qty, enforce_long_only=True)
+                    else:
+                        validate_long_only(asset_id, net_qty, positions.get(asset_id, Decimal("0")))
+            except AllocationValidationError as e:
                 events = events.append(
                     AllocationRejected(AllocationEngine._create_id(), timestamp, str(e))
                 )
                 continue
-
-            if constraints.enforce_integer_quantities:
-                net_qty = net_qty.to_integral_value()
 
             side = Side.BUY if net_qty > Decimal("0") else Side.SELL
             abs_qty = abs(net_qty)
@@ -264,6 +309,7 @@ class AllocationEngine:
         return replace(state, contributions=state.contributions.delete(order_id))
 
     @staticmethod
+    @in_accounting_context
     def apply_execution(
         state: AllocationState,
         order_id: str,
@@ -311,6 +357,7 @@ class AllocationEngine:
         )
 
     @staticmethod
+    @in_accounting_context
     def release_reservation(
         state: AllocationState, order_id: str, timestamp: float
     ) -> AllocationState:

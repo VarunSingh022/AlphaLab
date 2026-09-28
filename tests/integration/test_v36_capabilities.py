@@ -56,7 +56,7 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
+from alphalab.data.time import BarStamp, TimeFrequency
 from alphalab.enterprise.identity import register_principal
 from alphalab.enterprise.models import EnterpriseState
 from alphalab.enterprise.rbac import define_role, grant_role
@@ -179,7 +179,12 @@ TRADED_ASSET = ASSETS[TRADED]
 REGISTRY: InstrumentRegistry = register_instruments(InstrumentRegistry(), INSTRUMENTS)
 
 NORMALIZATION = NormalizationPolicy(
-    venue="XNYS", currency="USD", timeframe=TimeFrame.D1, identity=REGISTRY, provider=PROVIDER
+    bar_stamp=BarStamp.INTERVAL_END,
+    venue="XNYS",
+    currency="USD",
+    timeframe=TimeFrame.D1,
+    identity=REGISTRY,
+    provider=PROVIDER,
 )
 
 #: AAA bar index -> signed quantity: buy twelve, then sell five.
@@ -250,6 +255,7 @@ def panel() -> Dataset:
             "utf-8",
         ),
         frequency=TimeFrequency.DAILY,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,

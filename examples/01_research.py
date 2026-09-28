@@ -94,6 +94,9 @@ def main() -> None:
         state=state,
         payload=payload,
         timestamp=1_720_000_001.0,
+        # The resampling seed is stated, not assumed: v3.10 removed the default.
+        # 42 is the value that default was, so this reproduces the v3.9 figures.
+        seed=42,
     )
 
     # ------------------------------------------------------------------

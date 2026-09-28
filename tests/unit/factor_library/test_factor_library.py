@@ -141,7 +141,9 @@ def test_compute_momentum_raises_on_non_positive_lookback() -> None:
 def test_compute_volatility_zero_for_flat_prices() -> None:
     bars = tuple(_bar(i, Decimal("100")) for i in range(21))
     series = PriceSeries(asset_id="AAPL", bars=bars)
-    result = compute_volatility(series, "vol_20d", 1, lookback_periods=20, timestamp=2000.0)
+    result = compute_volatility(
+        series, "vol_20d", 1, lookback_periods=20, timestamp=2000.0, periods_per_year=252
+    )
     assert result.value == pytest.approx(0.0)
 
 
@@ -149,20 +151,26 @@ def test_compute_volatility_positive_for_varying_prices() -> None:
     prices = [Decimal("100"), Decimal("110"), Decimal("95"), Decimal("115"), Decimal("90")] * 5
     bars = tuple(_bar(i, p) for i, p in enumerate(prices))
     series = PriceSeries(asset_id="AAPL", bars=bars)
-    result = compute_volatility(series, "vol_20d", 1, lookback_periods=20, timestamp=2000.0)
+    result = compute_volatility(
+        series, "vol_20d", 1, lookback_periods=20, timestamp=2000.0, periods_per_year=252
+    )
     assert result.value > 0
 
 
 def test_compute_volatility_raises_on_insufficient_bars() -> None:
     series = _rising_price_series(days=5)
     with pytest.raises(FactorInputError):
-        compute_volatility(series, "vol_20d", 1, lookback_periods=20, timestamp=2000.0)
+        compute_volatility(
+            series, "vol_20d", 1, lookback_periods=20, timestamp=2000.0, periods_per_year=252
+        )
 
 
 def test_compute_volatility_raises_below_minimum_lookback() -> None:
     series = _rising_price_series(days=21)
     with pytest.raises(FactorInputError):
-        compute_volatility(series, "vol_20d", 1, lookback_periods=1, timestamp=2000.0)
+        compute_volatility(
+            series, "vol_20d", 1, lookback_periods=1, timestamp=2000.0, periods_per_year=252
+        )
 
 
 # --------------------------------------------------------------------------- #

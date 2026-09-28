@@ -269,8 +269,11 @@ def test_v39_added_no_package_edge() -> None:
 
 
 def test_v39_added_no_package() -> None:
+    """v3.9 added none; v3.10 removed ``feed`` and ``live`` (ledger SCF-002)."""
+
     packages = sorted(p.name for p in PACKAGE.iterdir() if (p / "__init__.py").exists())
-    assert len(packages) == 50
+    assert {"feed", "live"}.isdisjoint(packages)
+    assert len(packages) == 48
 
 
 # --------------------------------------------------------------------------- #
