@@ -661,6 +661,236 @@ class CovarianceMatrix:
             lengths[0],
         )
 
+    @classmethod
+    def ledoit_wolf(
+        cls,
+        returns: Mapping[str, Sequence[float]],
+        *,
+        currency: str,
+        period: str,
+        source: str,
+    ) -> CovarianceMatrix:
+        """Ledoit-Wolf shrinkage of the sample covariance, its intensity estimated (OFE-002).
+
+        Ledoit and Wolf, *A well-conditioned estimator for large-dimensional
+        covariance matrices*, Journal of Multivariate Analysis 88 (2004): the
+        convex combination ``(1 - d) * S + d * m * I`` of the sample covariance
+        ``S`` (divided by ``n``, as the paper has it) and the scaled identity
+        ``m * I``, ``m = tr(S) / p``, with the intensity ``d`` that minimizes the
+        expected squared Frobenius loss, estimated from the data:
+
+        ``d = min(b2 / d2, 1)``, ``d2 = ||S - m I||^2``,
+        ``b2 = (1 / n^2) * sum_t ||x_t x_t' - S||^2``
+
+        over the demeaned observations ``x_t``. The numerator is computed as
+        ``(sum_t ||x_t||^4 - n ||S||^2) / n^2``, which the sum equals exactly.
+
+        It is well conditioned whenever it is not ``S`` -- positive definite for
+        any positive intensity, even with fewer observations than assets -- and
+        it is a *derivation*: the parent is the sample covariance of the same
+        returns, and the intensity, the target and the rescaling to ``1 / n``
+        are written into :attr:`derivation`, so the identity says which
+        estimator this is. The estimate rests on the observations being
+        independent and identically distributed with finite fourth moments,
+        which nothing here can check -- the derivation names the paper whose
+        assumptions a reader should weigh.
+
+        Raises:
+            AnalyticsValidationError: As :meth:`sample` does.
+        """
+
+        parent = cls.sample(returns, currency=currency, period=period, source=source)
+        names = parent.assets
+        count = len(names)
+        observations = parent.observations
+        assert observations is not None  # estimated here
+        length = observations
+        demeaned: list[list[float]] = []
+        for name in names:
+            series = [float(value) for value in returns[name]]
+            mean = math.fsum(series) / length
+            demeaned.append([value - mean for value in series])
+        # S with divisor n, which is the estimator the paper's formulas are in.
+        s_rows = [
+            [
+                math.fsum(a * b for a, b in zip(demeaned[i], demeaned[j], strict=True)) / length
+                for j in range(count)
+            ]
+            for i in range(count)
+        ]
+        for i in range(count):
+            for j in range(i + 1, count):
+                s_rows[j][i] = s_rows[i][j]
+        scale = math.fsum(s_rows[i][i] for i in range(count)) / count
+        frobenius = math.fsum(value * value for row in s_rows for value in row)
+        distance = math.fsum(
+            (s_rows[i][j] - (scale if i == j else 0.0)) ** 2
+            for i in range(count)
+            for j in range(count)
+        )
+        quartic = math.fsum(
+            math.fsum(demeaned[i][t] ** 2 for i in range(count)) ** 2 for t in range(length)
+        )
+        spread = max(0.0, (quartic - length * frobenius) / (length * length))
+        intensity = 0.0 if distance == 0.0 else min(spread / distance, 1.0)
+        keep = 1.0 - intensity
+        rows = tuple(
+            tuple(
+                keep * s_rows[i][j] + (intensity * scale if i == j else 0.0) for j in range(count)
+            )
+            for i in range(count)
+        )
+        return cls(
+            names,
+            rows,
+            currency,
+            period,
+            source,
+            observations,
+            parent_id=parent.covariance_id,
+            derivation=(
+                f"ledoit-wolf 2004: (1 - {intensity!r}) * S + {intensity!r} * {scale!r} * I, "
+                f"S = ({length - 1} / {length}) * parent, intensity estimated"
+            ),
+        )
+
+    @classmethod
+    def ewma(
+        cls,
+        returns: Mapping[str, Sequence[float]],
+        *,
+        decay: float,
+        currency: str,
+        period: str,
+        source: str,
+    ) -> CovarianceMatrix:
+        """The exponentially weighted covariance of aligned returns (OFE-002).
+
+        RiskMetrics (J.P. Morgan, *RiskMetrics Technical Document*, 1996): each
+        observation weighs ``(1 - decay) * decay ** age``, ``age`` counting back
+        from the newest at zero, normalized over the window so the weights sum
+        to one; returns are taken as having mean zero, which is the RiskMetrics
+        convention and is stated in :attr:`source` with the decay. A half-life
+        of ``h`` observations is a decay of ``0.5 ** (1 / h)``.
+
+        Raises:
+            AnalyticsValidationError: As :meth:`sample` does, or if ``decay`` is
+                not strictly between zero and one.
+        """
+
+        factor = _require_finite(decay, "EWMA decay")
+        if not 0.0 < factor < 1.0:
+            raise AnalyticsValidationError(
+                f"EWMA decay is {factor!r}; it must lie strictly between 0 and 1."
+            )
+        # The same validation as a sample covariance, and the same order.
+        shape = cls.sample(returns, currency=currency, period=period, source=source)
+        names = shape.assets
+        length = shape.observations
+        assert length is not None
+        raw = [(1.0 - factor) * factor ** (length - 1 - t) for t in range(length)]
+        total = math.fsum(raw)
+        weights = [weight / total for weight in raw]
+        series = [[float(value) for value in returns[name]] for name in names]
+        count = len(names)
+        rows = [[0.0] * count for _ in range(count)]
+        for i in range(count):
+            for j in range(i, count):
+                value = math.fsum(
+                    w * a * b for w, a, b in zip(weights, series[i], series[j], strict=True)
+                )
+                rows[i][j] = value
+                rows[j][i] = value
+        return cls(
+            names,
+            tuple(tuple(row) for row in rows),
+            currency,
+            period,
+            f"{source}; EWMA covariance, decay {factor!r}, zero mean (RiskMetrics 1996)",
+            length,
+        )
+
+    @classmethod
+    def factor_model(
+        cls,
+        loadings: FactorLoadings,
+        factor_covariance: CovarianceMatrix,
+        specific_variances: Mapping[str, float],
+    ) -> CovarianceMatrix:
+        """The asset covariance a factor model implies: ``B F B' + D`` (OFE-002).
+
+        ``B`` is ``loadings`` (assets by factors), ``F`` the covariance of the
+        factor returns -- whose "assets" are the factors -- and ``D`` the
+        diagonal of specific (idiosyncratic) variances, one per asset. It is
+        positive definite whenever every specific variance is positive, however
+        few observations ``F`` came from, which is why a large universe is
+        modelled this way. Currency and period are the factor covariance's; the
+        matrix records it as its parent, and the loadings and the specific
+        variances in its derivation.
+
+        Raises:
+            AnalyticsValidationError: If the factor covariance is not over
+                exactly the loadings' factors, a specific variance is missing,
+                extra, negative or not finite.
+        """
+
+        if factor_covariance.assets != loadings.factors:
+            raise AnalyticsValidationError(
+                f"The factor covariance is over {list(factor_covariance.assets)} and the loadings "
+                f"name the factors {list(loadings.factors)}; a factor model needs the same."
+            )
+        held = set(specific_variances)
+        wanted = set(loadings.assets)
+        if held != wanted:
+            raise AnalyticsValidationError(
+                "Specific variances must cover exactly the loadings' assets: missing "
+                f"{sorted(wanted - held)}, outside {sorted(held - wanted)}. A missing specific "
+                "variance is not zero."
+            )
+        specific: list[float] = []
+        for asset in loadings.assets:
+            value = _require_finite(specific_variances[asset], f"specific variance of {asset!r}")
+            if value < 0.0:
+                raise AnalyticsValidationError(
+                    f"The specific variance of {asset!r} is {value!r}; a variance is not negative."
+                )
+            specific.append(value)
+        b = loadings.values
+        f = factor_covariance.values
+        k = len(loadings.factors)
+        count = len(loadings.assets)
+        # B F, once; then (B F) B' for each pair, written to both cells.
+        bf = [
+            [math.fsum(b[i][g] * f[g][h] for g in range(k)) for h in range(k)] for i in range(count)
+        ]
+        rows = [[0.0] * count for _ in range(count)]
+        for i in range(count):
+            for j in range(i, count):
+                value = math.fsum(bf[i][h] * b[j][h] for h in range(k))
+                if i == j:
+                    value += specific[i]
+                rows[i][j] = value
+                rows[j][i] = value
+        rendered = _digest(
+            [
+                "specific",
+                *(f"{a}={_render(v)}" for a, v in zip(loadings.assets, specific, strict=True)),
+            ]
+        )
+        return cls(
+            tuple(loadings.assets),
+            tuple(tuple(row) for row in rows),
+            factor_covariance.currency,
+            factor_covariance.period,
+            f"factor model over {loadings.source}",
+            None,
+            parent_id=factor_covariance.covariance_id,
+            derivation=(
+                f"factor model: B F B' + D, loadings {loadings.loadings_id}, specific variances "
+                f"{rendered}"
+            ),
+        )
+
     # -- identity ----------------------------------------------------------- #
 
     @property

@@ -30,6 +30,26 @@ Black-Litterman is a *model* that produces expected returns, not an objective:
 posterior and :class:`MeanVariance` constructs from it. A factor-neutral
 portfolio is any objective with :class:`FactorBound` constraints.
 
+Since v3.11 (ledger OFE-002) a mean-variance objective may charge
+:class:`LinearCosts` for trading away from the current book, solved exactly
+(each orthant around the book is a quadratic program; a subgradient
+certificate says when the right one has been found), and the answer can be
+turned into tradable quantities by
+:func:`~alphalab.portfolio_optimizer.lots.round_to_lots`. The covariance can be
+shrunk (:meth:`~alphalab.analytics.risk_model.CovarianceMatrix.ledoit_wolf`),
+exponentially weighted (:meth:`~alphalab.analytics.risk_model.CovarianceMatrix.ewma`)
+or implied by a factor model
+(:meth:`~alphalab.analytics.risk_model.CovarianceMatrix.factor_model`).
+
+What construction does not solve, by design: **cardinality** (at most ``k``
+names) and **joint lot selection** are integer programs, and no integer
+solver is part of this library -- rounding is per asset, toward zero, and
+reported; **CVaR, drawdown and other scenario objectives** need a linear
+program over scenarios, which this quadratic solver is not; and
+**multi-period** construction (trading a path of books against a cost of
+getting there) is a sequence of single-period problems the caller composes.
+Each is an explicit boundary, not a limitation discovered later.
+
 Units, stated once
 ------------------
 
@@ -121,6 +141,7 @@ __all__ = [
     "ExposureRange",
     "FactorBound",
     "GroupBound",
+    "LinearCosts",
     "MaximumDiversification",
     "MeanVariance",
     "MinimumVariance",
@@ -536,6 +557,66 @@ class TurnoverLimit:
 
 
 @dataclass(frozen=True, slots=True)
+class LinearCosts:
+    """What trading away from a stated book costs, charged in the objective (OFE-002).
+
+    ``sum_i rates_i * |w_i - current_i|`` is subtracted from the mean-variance
+    objective: each unit of weight traded in asset ``i`` costs ``rates_i`` of
+    return, in the covariance's currency and period -- so a one-way cost of ten
+    basis points of notional, expected to be paid once over a holding period of
+    a year while returns are daily, is ``0.001 / 252``: amortizing it is the
+    caller's statement, not an assumption made here. The optimum trades an
+    asset only where the improvement pays its cost, and leaves it exactly where
+    it is otherwise -- a no-trade region a penalty-free optimum does not have.
+
+    Attributes:
+        current: The weights held now, for **exactly** the construction
+            universe (zeros included); a missing asset is refused, as for a
+            :class:`TurnoverLimit`.
+        rates: The cost of trading one unit of weight, per asset, for exactly
+            the universe. Non-negative; zero trades freely.
+    """
+
+    current: Mapping[str, float]
+    rates: Mapping[str, float]
+
+    def __post_init__(self) -> None:
+        current = {
+            _text(asset, "cost asset"): _number(value, f"current weight of {asset!r}")
+            for asset, value in sorted(self.current.items())
+        }
+        rates: dict[str, float] = {}
+        for asset, value in sorted(self.rates.items()):
+            rate = _number(value, f"cost rate of {asset!r}")
+            if rate < 0.0:
+                raise ConstructionInputError(
+                    f"The cost rate of {asset!r} is {rate!r}; trading does not pay."
+                )
+            rates[_text(asset, "cost asset")] = rate
+        if set(current) != set(rates):
+            raise ConstructionInputError(
+                "LinearCosts must give a current weight and a rate for the same assets: "
+                f"weights only {sorted(set(current) - set(rates))}, rates only "
+                f"{sorted(set(rates) - set(current))}."
+            )
+        object.__setattr__(self, "current", MappingProxyType(current))
+        object.__setattr__(self, "rates", MappingProxyType(rates))
+
+    def rendering(self) -> list[str]:
+        return [
+            *(f"costs.current[{_render(a)}]={_render(v)}" for a, v in self.current.items()),
+            *(f"costs.rate[{_render(a)}]={_render(v)}" for a, v in self.rates.items()),
+        ]
+
+    def cost(self, weights: Mapping[str, float]) -> float:
+        """``sum_i rates_i * |w_i - current_i|`` for ``weights``."""
+
+        return math.fsum(
+            rate * abs(weights[asset] - self.current[asset]) for asset, rate in self.rates.items()
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class NotionalLimits:
     """``|w_i| * capital <= maximum_i``: money caps per asset, as weight bounds.
 
@@ -683,28 +764,38 @@ class MinimumVariance:
 
 @dataclass(frozen=True, slots=True)
 class MeanVariance:
-    """Maximize ``mu' w - (risk_aversion / 2) * w' C w``.
+    """Maximize ``mu' w - (risk_aversion / 2) * w' C w`` -- less linear costs, when given.
 
     Attributes:
         expected_returns: ``mu``, in the covariance's currency and period.
         risk_aversion: ``lambda > 0``. Required: it sets the trade-off between
             return and variance, and there is no neutral value for it.
+        costs: What trading away from the current book costs, subtracted from
+            the objective (:class:`LinearCosts`, v3.11), or ``None`` for a
+            construction that trades for free, as every one did before. Only a
+            mean-variance objective takes costs: they are in return units, and
+            no other objective here has a scale they could be traded against.
     """
 
     expected_returns: ExpectedReturns
     risk_aversion: float
+    costs: LinearCosts | None = None
 
     def __post_init__(self) -> None:
         aversion = _number(self.risk_aversion, "risk_aversion")
         if aversion <= 0.0:
             raise ConstructionInputError(f"risk_aversion is {aversion!r}; it must be positive.")
         object.__setattr__(self, "risk_aversion", aversion)
+        if self.costs is not None and not isinstance(self.costs, LinearCosts):
+            raise ConstructionInputError(f"costs must be LinearCosts, got {self.costs!r}.")
 
     def rendering(self) -> list[str]:
         return [
             "objective=mean_variance",
             f"expected_returns={self.expected_returns.returns_id}",
             f"risk_aversion={_render(self.risk_aversion)}",
+            # Only when given, so a cost-free problem's identity is what it was.
+            *(() if self.costs is None else self.costs.rendering()),
         ]
 
 
@@ -1024,6 +1115,8 @@ class ConstructionDiagnostics:
             objective, the risk aversion at which the capped solution was
             found (the cap's multiplier, re-expressed); otherwise ``None``.
         detail: A sentence saying why the status is what it is.
+        transaction_cost: ``sum_i rates_i * |w_i - current_i|`` when the
+            objective charged :class:`LinearCosts`, or ``None`` (v3.11).
     """
 
     method: str
@@ -1047,6 +1140,7 @@ class ConstructionDiagnostics:
     budget_deviation: float | None
     effective_risk_aversion: float | None
     detail: str
+    transaction_cost: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1304,6 +1398,9 @@ def _result(
 ) -> ConstructionResult:
     universe = problem.universe
     constraints = problem.constraints
+    objective_costs = (
+        problem.objective.costs if isinstance(problem.objective, MeanVariance) else None
+    )
     checker = QuadraticProgram(
         problem.covariance.values, tuple(0.0 for _ in universe), compiled.linear, compiled.absolute
     )
@@ -1385,6 +1482,7 @@ def _result(
         diversification_ratio=diversification,
         net_exposure=math.fsum(outcome.weights),
         gross_exposure=math.fsum(abs(value) for value in outcome.weights),
+        transaction_cost=(objective_costs.cost(weights) if objective_costs is not None else None),
         turnover=(
             None
             if constraints.turnover is None
@@ -1437,6 +1535,152 @@ def _qp(
         max_iterations=max(1, settings.max_iterations - iterations),
     )
     return _from_solution(solution, iterations)
+
+
+def _qp_with_costs(
+    problem: ConstructionProblem,
+    compiled: _Compiled,
+    hessian: tuple[tuple[float, ...], ...],
+    linear: Sequence[float],
+    costs: LinearCosts,
+    iterations: int,
+) -> _Outcome:
+    """Minimize ``1/2 x'Gx + a'x + sum_i c_i |x_i - w0_i|`` exactly, one orthant at a time.
+
+    The cost term is linear on each orthant around the current book: with
+    signs ``s``, the problem is the quadratic program with linear term
+    ``a + c * s`` and every charged asset held to its side of ``w0`` -- which
+    the solver solves and certifies like any other. The orthant's optimum is
+    the true optimum when the certificate also holds for the true problem: a
+    side constraint that binds (``x_i = w0_i``, the asset not traded) with
+    multiplier ``mu_i`` leaves the subgradient ``s_i (c_i - mu_i)``, inside
+    ``[-c_i, c_i]`` exactly when ``mu_i <= 2 c_i``. Where one exceeds that,
+    trading ``i`` the other way pays, and that asset's side is switched. The
+    point just found lies on the new orthant too, so the objective never rises;
+    no orthant is solved twice, so the method ends. It starts from the orthant
+    of the cost-free optimum, where the answer usually already is. Should every
+    switch a certificate asks for lead back to an orthant already solved -- a
+    degenerate vertex whose multipliers are not unique -- the method says it
+    could not certify rather than returning an uncertified portfolio.
+    """
+
+    universe = problem.universe
+    settings = problem.settings
+    size = len(universe)
+    current = [costs.current[asset] for asset in universe]
+    rates = [costs.rates[asset] for asset in universe]
+    charged = [index for index in range(size) if rates[index] > 0.0]
+    base = _qp(problem, compiled, hessian, linear, iterations)
+    if base.status is not ConstructionStatus.OPTIMAL or base.weights is None or not charged:
+        # Costs change no constraint: what the cost-free problem cannot
+        # satisfy, no orthant of it can -- and with nothing charged it is the
+        # problem.
+        return base
+    signs = {index: 1.0 if base.weights[index] >= current[index] else -1.0 for index in charged}
+    labels = {index: f"no trade in {universe[index]} (not worth its cost)" for index in charged}
+    used = base.iterations
+    solved: set[tuple[float, ...]] = set()
+    lowest = math.inf
+    while True:
+        solved.add(tuple(signs[index] for index in charged))
+        solution = solve_quadratic_program(
+            QuadraticProgram(
+                hessian,
+                tuple(linear[i] + rates[i] * signs.get(i, 0.0) for i in range(size)),
+                (
+                    *compiled.linear,
+                    *(
+                        LinearConstraint(labels[i], ((i, signs[i]),), signs[i] * current[i], False)
+                        for i in charged
+                    ),
+                ),
+                compiled.absolute,
+            ),
+            feasibility_tolerance=settings.feasibility_tolerance,
+            convergence_tolerance=settings.convergence_tolerance,
+            max_iterations=max(1, settings.max_iterations - used),
+        )
+        outcome = _from_solution(solution, used)
+        used = outcome.iterations
+        if outcome.status is not ConstructionStatus.OPTIMAL or outcome.weights is None:
+            return outcome
+        value = _costed_objective(outcome.weights, hessian, linear, current, rates)
+        if value > lowest + settings.convergence_tolerance * max(1.0, abs(lowest)):
+            return _Outcome(
+                ConstructionStatus.NUMERICAL_FAILURE,
+                None,
+                used,
+                (),
+                (),
+                outcome.stationarity,
+                f"Switching a side raised the costed objective from {lowest!r} to {value!r}, "
+                "which exact arithmetic excludes: the solves disagree beyond tolerance.",
+            )
+        lowest = min(lowest, value)
+        excesses = sorted(
+            (-(solution.multipliers.get(labels[i], 0.0) - 2.0 * rates[i]), i)
+            for i in charged
+            if solution.multipliers.get(labels[i], 0.0) - 2.0 * rates[i]
+            > settings.convergence_tolerance * max(1.0, 2.0 * rates[i])
+        )
+        if not excesses:
+            return replace(
+                outcome,
+                detail=(
+                    f"{outcome.detail} Linear costs: the orthant optimum meets the true "
+                    f"subgradient condition, after {len(solved) - 1} side switch(es)."
+                ),
+            )
+        switch = next(
+            (
+                i
+                for _, i in excesses
+                if tuple(-signs[j] if j == i else signs[j] for j in charged) not in solved
+            ),
+            None,
+        )
+        if switch is None:
+            return _Outcome(
+                ConstructionStatus.NUMERICAL_FAILURE,
+                None,
+                used,
+                (),
+                (),
+                outcome.stationarity,
+                "Linear costs: every side switch the optimality certificate asks for leads "
+                "to an orthant already solved -- a degenerate vertex -- so optimality "
+                "could not be certified.",
+            )
+        if used >= settings.max_iterations:
+            return _Outcome(
+                ConstructionStatus.ITERATION_LIMIT,
+                None,
+                used,
+                (),
+                (),
+                math.inf,
+                "The cost-bearing optimum was not reached within the step budget.",
+            )
+        signs[switch] = -signs[switch]
+
+
+def _costed_objective(
+    x: Sequence[float],
+    hessian: Sequence[Sequence[float]],
+    linear: Sequence[float],
+    current: Sequence[float],
+    rates: Sequence[float],
+) -> float:
+    """``1/2 x'Gx + a'x + sum_i c_i |x_i - w0_i|``, summed exactly-rounded."""
+
+    size = len(x)
+    return math.fsum(
+        [
+            *(0.5 * x[i] * hessian[i][j] * x[j] for i in range(size) for j in range(size)),
+            *(linear[i] * x[i] for i in range(size)),
+            *(rates[i] * abs(x[i] - current[i]) for i in range(size)),
+        ]
+    )
 
 
 def _volatility(weights: Sequence[float], rows: Sequence[Sequence[float]]) -> float:
@@ -1591,9 +1835,21 @@ def _mean_variance(
     returns = _returns_vector(problem, objective.expected_returns)
     rows = problem.covariance.values
     linear = [-value for value in returns]
+    costs = objective.costs
+    if costs is not None and set(costs.current) != set(problem.universe):
+        universe = set(problem.universe)
+        raise ConstructionInputError(
+            "LinearCosts must cover exactly the universe, zeros included: missing "
+            f"{sorted(universe - set(costs.current))}, outside "
+            f"{sorted(set(costs.current) - universe)}."
+        )
 
     def solve_at(aversion: float, iterations: int) -> _Outcome:
-        return _qp(problem, compiled, _hessian(rows, aversion), linear, iterations)
+        if costs is None:
+            return _qp(problem, compiled, _hessian(rows, aversion), linear, iterations)
+        return _qp_with_costs(
+            problem, compiled, _hessian(rows, aversion), linear, costs, iterations
+        )
 
     if problem.constraints.max_volatility is None:
         return solve_at(objective.risk_aversion, 0)
