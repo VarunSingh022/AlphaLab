@@ -518,7 +518,7 @@ Before creating a release, verify
 - `pytest -q -W error` passes, reporting **0 skipped and 0 warnings** — what CI
   runs, so a `ResourceWarning` fails it
 - All 65 examples run with `-W error`
-- All 57 benchmarks run
+- All 54 benchmarks run
 - `python -m build` and `twine check dist/*` pass, and each distribution,
   installed into a clean environment, passes `tests/installed_smoke.py`
 - `git diff --check` is clean

@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.10.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.11.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -47,11 +47,32 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.9.0 are additive to it.** |
+| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.9.0 are additive to it; v3.10.0 and v3.11.0 are the first two of four pre-v4 releases.** |
 
 ---
 
-# 2. What v3.10.0 corrects, what v3.9.0 – v3.1.0 add, and what v3.0.0 means
+# 2. What v3.11.0 adds, what v3.10.0 corrects, what v3.9.0 – v3.1.0 add, and what v3.0.0 means
+
+## v3.11.0 — the pre-v4 capability release
+
+The second of four pre-v4 releases. It gives the canonical path what a strategy
+needs before its API is frozen, and moves out of the library what belongs to
+the application that uses it. An instrument declares its economics — multiplier,
+settlement (fully paid, futures variation margin, option premium, perpetual),
+lot, minimum notional, whether its price may be negative — and nothing assumes
+a multiplier. An order carries its terms (limit, stop, stop-limit; IOC, FOK,
+GTD, DAY, on-open, on-close) and rests across events. A strategy may state a
+target position, measured against its own share of every fill and rounded
+toward zero onto the lot; a sale commits no allocation budget. Subscriptions are
+enforced, a slice delivers a complete instant, and the path tells a strategy of
+its fills and orders. Research enters forward returns after a declared lag,
+keeps delisted names, optimizes walk-forward without handing a selection its
+test, and corrects for multiple testing. Construction shrinks covariance, pays
+for trading exactly and rounds to lots. `studio`, `workbench`, `enterprise` and
+the venue credentials are the host's. Every public entry point of a run
+computes in the accounting context, and a run's cost is linear in its length
+again: a slice of an append-only log had copied the whole log since v2.1, and
+the pipeline takes two per fill (PRF-007). ADR-0046.
 
 ## v3.10.0 — the pre-v4 correctness release
 
@@ -710,7 +731,7 @@ All 48 packages, and which path reaches each. (v3.10 removed `feed` and `live`.)
 | --- | --- |
 | `core` | The canonical execution domain models: `Side`, `OrderRequest`, `Fill`, `Trade`, `StrategyContribution`, `AssetType`, `OrderType`, `TimeInForce`, and the id validators. Since v3.9 also the capability model (`core.capabilities`), the normalized execution events and the one order-transition table (`core.lifecycle`), and the strategy split (`split_by_contribution`) |
 | `runtime` | The execution step, the run, the four drivers, broker routing, and four snapshot modules. Since v3.9 broker routing also sends an algorithm's children for their parent (`route_child_order`, `ChildOrderBindings`) and can gate on a capability report |
-| `strategy` | What a strategy *is*: `StrategyProtocol`, `StrategyStateProtocol`, `StrategyContext`, the `Dispatcher`, the `RuntimeSupervisor`, and the strategy-class registry. Since v3.7 also the adaptive engine — configuration, observation, immutable learned state with lineage, `apply_update`, replay, checkpoint and restore — three rules, and `AdaptiveStrategy`. Still imports only `common` |
+| `strategy` | What a strategy *is*: `StrategyProtocol`, `StrategyStateProtocol`, `StrategyContext`, the `Dispatcher`, the `RuntimeSupervisor`, and the strategy-class registry. Since v3.7 also the adaptive engine — configuration, observation, immutable learned state with lineage, `apply_update`, replay, checkpoint and restore — three rules, and `AdaptiveStrategy`. Since v3.11 also `StrategyDefinition` (`strategy.definition`, moved from the removed `studio`). Still imports only `common` |
 | `allocation` | Intent sizing and netting into `OrderRequest`, the capital budget, the per-order reservation ledger and the contribution ledger. Since v3.8 also capital plans across strategies, markets, brokers, accounts and currencies (`allocation.capital`), reading reserved capital from the reservation ledger and producing each run's budget; FX reaches it through a structural protocol, and it still does not import `portfolio` |
 | `risk` | Pre-trade checks and limits. Since v3.10 every check reads one projection of the book after the order, working orders included (`risk.projection`), and a limit never refuses a trade that reduces what it limits |
 | `oms` | The order lifecycle. `oms.order.Order` is *the* lifecycle order; since v3.9 its methods read `core.lifecycle.ORDER_TRANSITIONS` rather than their own guards |
@@ -723,9 +744,9 @@ All 48 packages, and which path reaches each. (v3.10 removed `feed` and `live`.)
 | `persistence` | The codec spine (`serialize`, typed `decode`, exceptions), `RunStateStore`, and since v3.10 versioned schema upgrades (`persistence.upgrade`) |
 | `backtesting` | The dataset type and the two drivers over it |
 | `replay` | The deterministic replay cursor, clock and session lifecycle |
-| `broker` | **One** venue: `BrokerProtocol`, the canonical broker vocabulary, reconciliation, the HMAC transport, `RestVenueBroker`, `PaperBroker`. Since v3.9 also normalized venue events and their application to the mirror (`broker.lifecycle`), cancel and amend request identities (`broker.requests`) and snapshot reconciliation; it re-exports the capability model |
+| `broker` | **One** venue: `BrokerProtocol`, the canonical broker vocabulary, reconciliation, `PaperBroker` (the HMAC transport and `RestVenueBroker` left in v3.11 with their credentials, BRK-007). Since v3.9 also normalized venue events and their application to the mirror (`broker.lifecycle`), cancel and amend request identities (`broker.requests`) and snapshot reconciliation; it re-exports the capability model |
 | `data` | The canonical **wire** record, and the Universal Data Engine: source provenance, delimited reading, schema detection, timestamps and frequency, validation findings, cleaning policy, quality reporting, asset-class semantics, market calendars, corporate-action basis, and the derived dataset version. Its only outward edges are `common` and `options` (one leaf enum), which is what keeps the package graph acyclic |
-| `marketdata` | The HTTP and WebSocket transports, the wire records it re-exports from `data.feed`, and `Timeframe`. Until v3.10 also vendor clients (four of five were stubs) and a v1 provider engine, removed: a provider is the host application's |
+| `marketdata` | The HTTP and WebSocket transports and the wire records it re-exports from `data.feed` (`Timeframe` was removed in v3.11: the interval is `market.bar.TimeFrame`). Until v3.10 also vendor clients (four of five were stubs) and a v1 provider engine, removed: a provider is the host application's |
 | `api` | **The top of the graph** (v3.1). The application-facing Python API joining the data layer to the execution path: `ingest_csv`, `select`, `to_market_dataset`, `backtest`, `replay`. Since v3.7 also point-in-time ingestion of observations, events and fundamentals with an explicit availability rule, and the lifting of single-timestamp wire records. Since v3.8 sector and currency classifications read from the instrument registry. Nothing imports it, which is what lets it depend on both `data` and `market` without closing a cycle |
 
 ## The lifecycle path
@@ -736,8 +757,6 @@ All 48 packages, and which path reaches each. (v3.10 removed `feed` and `live`.)
 | `experiment_tracking` | Experiment runs, parameters, metric history |
 | `model_registry` | Model versions, stages, promotion, `ArtifactRef`, the content-addressed artifact store |
 | `deployment_manager` | Release packages and the append-only environment ledger |
-| `studio` | `StrategyDefinition` — the one record of what a strategy is — plus projects and orchestration |
-| `enterprise` | Principals, RBAC, the audit log. Governance reads it |
 | `research` | Research workflows and `ResearchScore`, which validation evidence extracts from. Since v3.2 the study methodology; since v3.7 event studies and regime detection, reading `alt_data` and never `data` |
 | `factor_library` | The computation engine (v3.2): features, factors, cross-sectional research, signal diagnostics, validation. Since v3.7 knowledge frames over point-in-time information and point-in-time fundamental snapshots. Since v3.8 factor loadings read from its panels into the risk model's type. Reached through `research`; imports neither `research`, `lifecycle` nor `api` |
 | `alt_data` | Point-in-time external information (v3.7): `ExternalObservation`, `InformationEvent`, `FundamentalObservation`, `ObservationSource`, versioned `ObservationSet`s and their views, session placement, point-in-time fundamentals; the v1 typed categories and `DataProvenance` stay. Reached through `research` and `factor_library`. Its only outward edge is `common`; a calendar reaches it through `SessionCalendar`, a structural protocol |
@@ -753,9 +772,10 @@ All 48 packages, and which path reaches each. (v3.10 removed `feed` and `live`.)
 `portfolio_optimizer`, `optimizer`, `reporting`, `feature_store`,
 `ml`, `deep_learning`, `reinforcement_learning`,
 `options`, `futures`, `crypto`, `macro`, `cloud_research`, `cluster_scheduler`,
-`distributed`, `workbench`, `research_assistant`, `brokers`, `plugins`,
+`distributed`, `research_assistant`, `brokers`, `plugins`,
 `scheduler`, `scenario`. (`scenario`, added in v3.3, imports only `common` and
-was missing from this list until v3.10; `live` and `feed` were removed in v3.10.)
+was missing from this list until v3.10; `live` and `feed` were removed in v3.10,
+and `workbench`, `studio` and `enterprise` in v3.11 — ADR-0046.)
 
 Each is deterministic, individually tested and individually benchmarked. **A
 package with no in-repo consumer is a standalone engine by design, not an
@@ -812,7 +832,7 @@ One name, one meaning, one definition. Changing any of these is a major release.
 | Stream record | `market.record.MarketRecord` | ADR-0011 |
 | Wire record | `data.feed.*` — `float` prices keyed by provider symbol | ADR-0011 |
 | What a strategy emits | `strategy.events.Intent` | ADR-0008, `SIGNAL_MODEL.md` |
-| What a strategy is | `studio.strategy.StrategyDefinition` | ADR-0035 |
+| What a strategy is | `strategy.definition.StrategyDefinition` (in `studio` until v3.11) | ADR-0035, ADR-0046 |
 | Money | `Decimal`, exact at the currency minor unit | ADR-0008 |
 
 ## The wire/domain split
@@ -1175,7 +1195,7 @@ Easy to confuse; they are not the same thing.
 
 | | Answers | Lives in |
 | --- | --- | --- |
-| `studio.StrategyDefinition` | *what is this strategy?* — author, parameters | `studio` |
+| `strategy.StrategyDefinition` | *what is this strategy?* — author, parameters | `strategy` (`studio` until v3.11) |
 | `lifecycle` registration | *which version of it should be live, and who said so?* | `lifecycle` |
 | `strategy.registry.StrategyClassRegistry` | *which code runs it?* | `strategy` |
 
@@ -1244,7 +1264,7 @@ and `ExecutionState.reports` ("has the *portfolio* booked it?") — and a fill i
 one and not the other is the normal case. Gating the portfolio on the broker
 layer's answer silently dropped every live fill in the first implementation.
 
-**Governance.** `Governance(enterprise, actor_id, approval_required_in)` is the
+**Governance.** `Governance(authority, actor_id, approval_required_in)` is the
 **required** second argument of every entry point that changes what is live. Not
 optional: an optional gate is one anyone bypasses by calling the function
 directly. An approval names an exact `(name, version, environment)` and one
@@ -1276,19 +1296,19 @@ retry-on-older-protocol fallback exists.
 ```bash
 ruff check .                              # lint
 ruff format --check .                     # format
-mypy .                                    # strict, 1,140 source files (what CI runs)
-pytest -q -W error                        # 7,596 tests, 0 skipped, 0 warnings (what CI runs)
+mypy .                                    # strict, 1,122 source files (what CI runs)
+pytest -q -W error                        # 8,215 tests, 0 skipped, 0 warnings (what CI runs)
 git diff --check
 python -m build && twine check dist/*
 for f in examples/[0-9]*.py; do python -W error "$f"; done    # 65
-for f in benchmarks/benchmark_*.py; do python "$f"; done      # 57
+for f in benchmarks/benchmark_*.py; do python "$f"; done      # 54
 ```
 
 `make check` runs the first four. Since v3.10 CI also installs the wheel and
 the sdist, each into a fresh environment, and runs `tests/installed_smoke.py`
 against them from outside the checkout; the benchmarks run weekly.
 
-**7,596 tests** — 4,053 unit, 398 integration, 3,145 regression. The
+**8,215 tests** — 4,415 unit, 516 integration, 3,284 regression. The
 regression suite is nearly as large as the unit suite, deliberately: most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
@@ -1734,7 +1754,7 @@ Two items this list carried until v3.10 are corrected rather than kept: **"no
 migration framework"** was replaced by versioned schema upgrades (ADR-0045), and
 **"no credential handling"** was not true — the HMAC venue transport holds an
 API key and signing secret (`broker.transport.VenueCredentials`) and
-`enterprise` keeps secret references. Both leave the library in v3.11 (BRK-007,
+`enterprise` kept secret references. Both left the library in v3.11 (BRK-007,
 BND-002).
 
 ---
@@ -1816,7 +1836,9 @@ and release, and `ROADMAP.md` has the table. In short:
 | **v3.9.0** | **The universal execution contract: capabilities declared at venue, market and account level and checked three-valued; one order-transition table for the OMS and the venue, every venue report given one outcome, idempotent cancels and amendments; TWAP, VWAP, participation, slicing and iceberg-like algorithms whose children stay their parent's; explained routing from supplied evidence; execution analytics; snapshot reconciliation — no package or edge added, no snapshot schema touched (ADR-0044)** |
 | **v3.10.0** | **The first pre-v4 release: risk on the projected book, never refusing a reduction; money exact at each currency's minor unit; analytics per instant with stated annualization; next-event fills and recorded execution assumptions; a canonical path linear in the universe; bars stamped at their close; upgradeable snapshots (portfolio 4, pipeline 4, run 2); vendor code, `feed`, `live` and silent defaults removed (ADR-0045)** |
 
-45 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+| **v3.11.0** | **The second pre-v4 release: instrument economics, corporate actions and negative prices; order terms and resting orders; target positions against each strategy's own position; enforced subscriptions, slices and feedback; leak-proof research, walk-forward optimization and multiple-testing corrections; construction with costs and lots; `studio`, `workbench`, `enterprise` and venue credentials moved to the application; snapshots pipeline 5, run 3, portfolio 5 (ADR-0046)** |
+
+46 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---

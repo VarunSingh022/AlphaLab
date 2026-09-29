@@ -14,6 +14,362 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.11.0] - 2026-09-29
+
+**The second pre-v4 release: the capabilities a strategy needs before its API is
+frozen — instrument economics, corporate actions and negative prices; order
+types and resting orders; target positions; complete instants; subscriptions,
+lifecycle hooks and fill feedback; leak-proof research, walk-forward
+optimization and multiple-testing corrections; construction that pays for
+trading and answers in lots — with the application's packages moved out of the
+library and the v3.10 performance cost paid back.**
+
+v3.10 made the canonical path correct. It could still only book a fully paid
+unit of one, place a market order, and hear an order delta; a multi-asset
+strategy never saw a complete instant; a price had to be positive; forward
+returns entered at the close the signal was computed from; and a construction
+could neither pay for trading nor produce a quantity a venue accepts. Every
+item the ledger (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) assigns to v3.11
+is closed here, each pinned by the tests its entry names. Building and
+auditing them found nine defects, all fixed here: seven had shipped, one was
+latent and one was introduced and caught within this release. ADR-0046 records the decisions.
+Ledger IDs are given in brackets.
+
+A strategy written for 3.10 runs unchanged: a delta intent means what it
+meant, a market order is still the default, an undeclared instrument is still
+a fully paid unit of one, and a run whose strategies define no `on_slice` is
+byte-identical. What breaks is listed in the migration table.
+
+## Added — instruments and accounting (`alphalab.conventions`, `alphalab.portfolio`)
+
+* **Instrument economics** [ACC-005]: `InstrumentEconomics(multiplier,
+  settlement, lot, minimum_notional, allows_negative_prices)` on the
+  `InstrumentRecord`, outside its identity. `SettlementModel.CASH_EQUITY` and
+  `OPTION_PREMIUM` pay notional at the trade; `FUTURES_VARIATION` and
+  `PERPETUAL` settle their gain or loss in cash at every mark and fill
+  (`VariationSettled`, `TransactionType.VARIATION_MARGIN`). A position's market
+  value is its notional exposure, its carrying value what it adds to equity.
+  An undeclared future or option is refused at submission; an undeclared
+  equity, crypto, FX or cash instrument is `CASH_EQUITY`. The multiplier reaches
+  sizing, budgets, risk exposure and executed notional.
+* **Corporate actions and cash flows** [ACC-006]: `CashFlow` (dividend,
+  interest, fee, funding; signed) and `Split(ratio)`, applied through
+  `apply_cash_flow` / `apply_split` on `PortfolioEngine`, `ExecutionPipeline`,
+  `RunEngine` and `LiveSession`. A split keeps basis and value, scales each
+  strategy's attributed position, and cancels simulated working orders in the
+  asset (refused under external routing while orders work).
+* **Negative prices and rebates** [ACC-007]: the market layer accepts any
+  finite price as data; the price gate asks the instrument's economics
+  (`allows_negative_prices`). A commission may be negative:
+  `ExecutionSimulator.maker_commission_model` prices resting fills, rebates
+  included, and the execution assumptions record it.
+
+## Added — orders (`alphalab.common.order_terms`, `alphalab.oms`, `alphalab.runtime`)
+
+* **Order terms** [EXE-003]: `OrderTerms(order_type, limit_price, stop_price,
+  time_in_force, expire_at)` on `Intent.terms` (replacing
+  `execution_directive`, which nothing read) through allocation, risk, the OMS
+  and the venue. `TimeInForce` gains `GTD`, `OPG` and `CLS`. Allocation nets
+  only equal terms. Simulation rests what cannot fill now: limits fill at the
+  limit or better as makers (no spread, slippage or impact); stops trigger as
+  takers; stop-limits record `triggered_at`; IOC/FOK end after one turn;
+  GTD/DAY expire at `expire_at`; OPG/CLS fill at the next daily bar's open or
+  close. A simulated DAY order must state `expire_at`
+  (`MarketCalendar.next_close`); reading exchange calendars inside simulation
+  is planned for 3.12.
+
+## Added — targets and the allocation budget (`alphalab.allocation`, `alphalab.strategy`)
+
+* **Target intents** [FEA-001]: `IntentKind.TARGET_QUANTITY` and
+  `TARGET_WEIGHT`. A target is measured against the strategy's own position —
+  its share of every fill it contributed to, kept by allocation
+  (`AllocationEngine.strategy_position`) — plus its working share, and rounded
+  toward zero onto whole units (when the run trades whole units) and the lot; an
+  order below the minimum notional is refused. A weight is a fraction of the
+  strategy's budget at the current price.
+* **A sale commits no budget** [ALC-007, shipped]: an order commits only the
+  exposure it adds to the account's committed position, and reductions are sent
+  before additions. Until 3.11 a sale committed its whole notional: a fully
+  invested book could not rotate, and the budget dropped the sale with the
+  purchase. The pipeline now passes committed positions for every run (read
+  through the OMS's per-asset working index), not only long-only ones.
+
+## Added — strategy dispatch (`alphalab.strategy`, `alphalab.runtime`)
+
+* **Subscriptions** [EXE-007]: `"*"`, a topic (`ticks`, `quotes`, `trades`,
+  `bars`, `fills`, `orders`, `timers`, `slices`) or `"<topic>:<asset>"`,
+  enforced: an unsubscribed event builds no context and dispatches nothing.
+* **Lifecycle and feedback** [EXE-005]: `on_start` before a strategy's first
+  dispatch; `on_stop` / `on_shutdown` through `RunEngine.stop`; after each step,
+  `FillEvent` (the strategy's attributed quantity) and `OrderEvent` (every order
+  it touched, refusals included). Feedback intents rest until the asset's next
+  event. `RunEngine.fire_timer` delivers timers.
+* **Slices** [EXE-004]: `SliceClosed` after the last record of an instant, to
+  strategies subscribed to `slices` that define `on_slice`; the drivers close
+  slices, `LiveSession.close_slice` when its caller says. Slice orders rest until
+  each asset's next record. `RunState.last_slice_at` is the cursor.
+
+## Added — live and broker (`alphalab.broker`, `alphalab.runtime.live`)
+
+* Venue sequence numbers: stale, duplicate, conflicting and newer reports told
+  apart [BRK-002]. Cancel/amend requests persisted in the live snapshot; child
+  bindings rebuilt from the mirror on restore [BRK-003]. Orders an algorithm
+  works can be held from direct routing (`LiveSession.hold`) [LIV-001]. Live
+  settlement takes FX rates [EXE-009]. `PaperBroker(cost_model)` is required —
+  `FREE` to charge nothing [BRK-008].
+
+## Added — research and statistics (`alphalab.research`, `alphalab.factor_library`, `alphalab.analytics`, `alphalab.options`)
+
+* **No look-ahead at entry** [DAT-003]: `forward_returns(..., lag=,
+  delistings=)` — both required; a study declares `implementation_lag`, and
+  `run_study` refuses one that does not. **Delistings** [DAT-002]: a delisted
+  name's final return is included at its delisting value.
+* **Walk-forward optimization** [FEA-003]: `walk_forward_optimize(study,
+  design, objective, splits, *, produced_at)` — selection on validation, report
+  on test, the objective never handed a test instant while selecting (tested by
+  brute force); `ParameterSpace`, `WalkForwardDesign`, `Refit`.
+* **Multiple testing** [OFE-005]: Bonferroni, Holm, Benjamini-Hochberg and
+  Benjamini-Yekutieli adjustments; probabilistic and deflated Sharpe ratios.
+  **IC inference** [OFE-006]: Newey-West standard error and t-statistic.
+  **Neutralization** against several exposures by Householder QR, refusing an
+  ill-conditioned design [OFE-004]. **Benchmark statistics** [FEA-002].
+  **Carry** in Black-Scholes: Merton, Black-76 and Garman-Kohlhagen [NUM-005].
+
+## Added — data and identity (`alphalab.market`, `alphalab.instrument`, `alphalab.lifecycle`)
+
+* `TimeFrame` is a value — count and unit — with codes and constants; a bar's
+  VWAP and trade count are optional [DAT-005]. Dated provider aliases
+  [DAT-004]. Manifests may name the engine build (a source digest) and the tz
+  database version [REP-002, DAT-007]. Content identities render declared
+  `Decimal`s by value under v2 schemes [DET-006].
+
+## Added — construction (`alphalab.analytics.risk_model`, `alphalab.portfolio_optimizer`)
+
+* `CovarianceMatrix.ledoit_wolf`, `.ewma` and `.factor_model` [OFE-002], each
+  recording its parent and derivation.
+* `LinearCosts` on `MeanVariance`: trading away from the current book is
+  charged in the objective and solved exactly — orthant by orthant, certified
+  by the subgradient condition — with `ConstructionDiagnostics.transaction_cost`.
+  A cost-free problem's identity is unchanged.
+* `round_to_lots(weights, *, capital, prices, economics, quantum)` →
+  `LotRounding`: toward zero, residuals reported, sub-lot assets named.
+* Explicit boundaries: cardinality and joint lots (integer programs), CVaR and
+  drawdown objectives (scenario LPs), multi-period construction.
+
+## Changed — determinism and numerics
+
+* **Every run entry point is pinned** [NUM-012, shipped]: every public
+  staticmethod of `ExecutionPipeline`, `RunEngine` and `LiveSession` runs in
+  `ACCOUNTING_CONTEXT`, strategies included. Under a caller's precision of five,
+  3.10 booked a sale of 185.295944 as 185.30 and a `LiveSession` raised.
+* **Lot arithmetic is exact or refused** [NUM-013, shipped since 3.4]:
+  `round_down_to_lot` at precision five returned 12346 for 12345.9.
+
+## Changed — performance [PRF-006, PRF-007, PRF-008]
+
+One state per transition instead of a chain; `alphalab.common.evolve` (the
+field walk of `dataclasses.replace` computed once per class, identical results
+and errors); cached order-id hashes; identifier text minted without a `UUID`;
+`PersistentMap` insertion bookkeeping, and since PRF-008 its chains, in flat
+lists that leave the garbage collector less to walk; one delta per fill for the
+book's exact totals; and a log slice that copies only itself, so a run's cost
+is linear in its length again (PRF-007).
+
+Measured side by side on one machine, five interleaved rounds of 3.9.0, 3.10.0
+and 3.11.0, each benchmark's own timing (medians; 3.11 against 3.9 in the same
+round, range in brackets):
+
+| Benchmark | 3.9.0 | 3.10.0 | 3.11.0 | 3.11 ÷ 3.9 |
+|---|---|---|---|---|
+| OMS, 100k order lifecycles | 10.61 s | 24.13 s | 9.12 s | 0.83x (0.72–0.89) |
+| Backtest and replay, 4k records each | 7.05 s | 9.79 s | 7.24 s | 1.05x (0.99–1.06) |
+| Execution pipeline, 4k events | 3.20 s | 4.18 s | 3.06 s | 1.01x (0.92–1.07) |
+| Portfolio engine, fills per second | 26.3k | 11.8k | 15.6k | 1.69x slower (1.51–1.72) |
+
+The budget PRF-006 states — the OMS within 1.1x of 3.9, one-asset paths within
+1.25x, the portfolio micro-benchmark within 2.0x (exact per-currency totals,
+minor-unit money and instrument economics on every fill) — holds in every
+round, and every round is faster than 3.10's.
+
+## Removed
+
+* `alphalab.enterprise` [BND-002] — identity, sessions, RBAC and workspaces are
+  the host application's. `Governance(authority, actor_id, ...)` takes a
+  `PermissionAuthority` (`StaticPermissions` for research).
+* `alphalab.workbench` [BND-003] — UI state.
+* `alphalab.studio` [SCF-001] — `StrategyDefinition` is
+  `alphalab.strategy.StrategyDefinition`; the rest recorded results computed
+  elsewhere.
+* `alphalab.broker.transport` and `alphalab.broker.venue` [BRK-007] — the
+  reference REST adapter and its credentials, now `tests/reference_adapter`.
+* `alphalab.marketdata.Timeframe` (use `alphalab.market.bar.TimeFrame`) and
+  `experiment_tracking.studio_bridge` (`record_experiment`,
+  `ExperimentRecorded`), which wrote into the removed studio's state.
+
+## Migrating from 3.10
+
+| If you… | Now… |
+|---|---|
+| imported `alphalab.studio` for `StrategyDefinition` | `from alphalab.strategy import StrategyDefinition` |
+| imported `alphalab.enterprise` for governance | pass `Governance(authority=<your PermissionAuthority>, actor_id=...)`; `StaticPermissions` in research |
+| imported `alphalab.workbench` | keep UI state in your application |
+| used `VenueCredentials` / the REST transport | write the venue adapter in your application (`tests/reference_adapter` shows one) |
+| used `marketdata.Timeframe` | `market.bar.TimeFrame` (`TimeFrame.D1`, `TimeFrame.parse("30m")`, …) |
+| set `Intent(execution_directive=...)` | `Intent(terms=OrderTerms(...))` |
+| called `forward_returns(frame, h)`, `factor_decay`, `signal_horizons` | pass `lag=` and `delistings=` |
+| called `run_study` on a study with no lag | declare `ResearchStudy(implementation_lag=...)`; pass `delistings=` |
+| constructed `PaperBroker()` | `PaperBroker(FREE)` or a cost model |
+| called `manifest_for_run` / `manifest_for_study` | pass `build=` (`running_build()` or `None`) |
+| read `Bar.vwap` / `Bar.trade_count` | handle `None` (not reported) |
+| relied on the market layer refusing a price of zero or below | declare the instrument's economics; the price gate refuses it unless they allow it |
+| subscribed a strategy to some topics but relied on receiving all | subscribe to what it handles, or `"*"` |
+| placed simulated DAY orders | state `expire_at` (`MarketCalendar.next_close`) |
+| held a future or option in a registry without economics | declare `InstrumentEconomics` for it; otherwise its orders are refused |
+| compared stored content identities across 3.10 and 3.11 | recompute: v2 schemes render declared Decimals by value |
+| read `ExecutionCosts.commission` as non-negative | allow a rebate (negative) |
+| priced an option (`black_scholes_price`, `black_scholes_greeks`, `black_scholes_value`, `implied_volatility`, `surface_from_chain`) | pass `carry=` from `alphalab.options`: `dividend_yield(0.0)` for an underlying that pays none, `dividend_yield(q)`, `foreign_rate(r)` for FX, `FUTURES_CARRY` for a future |
+| treated `market.bar.TimeFrame` as an enum (`TimeFrame("1d")`, `TimeFrame["D1"]`, iterating it) | `TimeFrame.parse("1d")`, the constants (`TimeFrame.D1`), and `.code` for its text |
+| constructed a result record yourself (`ForwardReturnPanel`, `InformationCoefficient`, `SignalDiagnostics`, `ImpliedVolatility`) | pass its new fields (`lag`, the Newey-West figures, `carry`), or take it from the function that computes it |
+| called `experiment_tracking.record_experiment` | record a run with `experiment_tracking.start_run`, `log_metrics` and `complete_run` |
+| read a 3.10 snapshot | nothing: it is upgraded on read (subscriptions to `"*"` with a warning) |
+
+## Found during this release
+
+* **NUM-012** (shipped in 3.10 and earlier): run drivers computed in the
+  caller's decimal context. Fixed; structural test plus long-digit oracles.
+* **NUM-013** (shipped since 3.4): lot rounding rounded up at low precision.
+  Fixed; exact context.
+* **ALC-007** (shipped): the budget counted sales as commitments, so a full
+  book could not rotate. Found by rewriting example 09. Fixed.
+* **BRK-009** (shipped): `PaperBroker` added a sale's commission to cash and
+  mis-booked shorts. Fixed with BRK-008.
+* **INS-001** (shipped): aliases registered after construction were lost on an
+  instrument snapshot round trip. Fixed with DAT-004.
+* **LIV-001** (a v3.9 composition defect): a parent order worked in children
+  could also be routed whole. Fixed by holds.
+* **PRF-007** (shipped since 2.1): a slice of an append-only log copied the
+  whole log, and the pipeline takes two per fill, so a run was quadratic in its
+  length. With the garbage collector paused, the pipeline's cost per event was
+  754, 952 and 1,136 µs at 2k, 8k and 16k events; it is now 664, 678 and 651.
+  Found by profiling the release benchmarks. Fixed;
+  `tests/regression/test_log_slicing_complexity.py`.
+* **PRF-008** (shipped in 3.10, with compaction): a persistent map's chain held
+  a pair per write, and a rebase copied every live key into a list and a pair,
+  all of it for the cyclic garbage collector to walk. The OMS benchmark's
+  accept-and-fill stage spent 2.7 s of 5.6 s in the collector; with it paused
+  the stage was within 5% of 3.9's. A chain is now one flat list; the stage
+  takes 3.9 s (3.9.0: 3.4 s). `tests/regression/test_persistent_map_gc_pressure.py`.
+* **ALC-006** (new in this release, never shipped): nearest-unit rounding of a
+  netted order overshot a target. Found by rewriting example 08. Fixed.
+* **OMS-001** (latent: no upgrade step existed until OMS schema 2):
+  `OMSSnapshot` decoding discarded an upgraded payload. Fixed.
+* **EXM-001**: example 10 printed check marks for steps it never ran; examples
+  02, 08 and 09 imported removed packages. All four rewritten against the
+  canonical path.
+* **TST-009**: no test sold one holding and bought another from a full book,
+  which is how ALC-007 survived. `tests/unit/allocation/test_budget_commitment.py`.
+* **DOC-003**: current-state documents still described removed packages — the
+  README's package tree listed `feed/` and `live/` and counted 50 packages
+  (48 at 3.10.0; 45 now), and several documents presented `studio`,
+  `workbench`, `enterprise` and the signed-REST adapter as present. Corrected;
+  the README's 3.10.0 section, dropped while this entry was written, restored.
+* **TST-010**: the institutional benchmark judged its scaling ceilings on one
+  wall-clock sample with the collector running, and failed this release's
+  benchmark gate at 6.05x against 6.00x on scenario code unchanged since 3.10
+  (ten reruns of 3.10 and 3.11: 3.0x–5.2x). Its ceilings are now judged the way
+  the suite's complexity guards are: CPU time, collector paused, sizes
+  interleaved, fastest of three.
+* **TST-012**: two of the resting limit order's fill rules had no test — a buy
+  limit resting against a bar that opens above it fills at its limit, and a
+  resting sell limit fills only once the bid reaches it. Mutating either passed
+  the whole suite in this release's defect-injection run. Both are pinned now.
+* **EXE-010**, scheduled for 3.12: simulation reads no exchange calendar, so a
+  simulated DAY order must state when it expires.
+* **TST-011**, scheduled for 3.12: five other benchmarks still judge a ceiling on
+  one sample.
+
+## Snapshot schemas
+
+Pipeline 4→5, run 2→3, allocation 1→2, OMS 1→2, portfolio 4→5, live 1→2,
+instrument 1→2, broker 1→2. Every older payload is upgraded on read.
+
+## Tests, CI and tooling
+
+8,215 tests pass under `-W error` — 4,415 unit, 516 integration and 3,284
+regression, none skipped (3.10.0: 7,596). New in this release:
+`tests/integration/test_instrument_economics.py`, `test_order_terms.py`,
+`test_slices.py`, `test_strategy_feedback.py`, `test_target_intents.py` and
+`test_live_requests_and_children.py`; `tests/unit/strategy/test_subscriptions_and_start.py`;
+`tests/unit/allocation/test_budget_commitment.py`;
+`tests/unit/broker/test_paper_costs.py` and `test_venue_sequence.py`;
+`tests/unit/analytics/test_covariance_estimators.py` and
+`test_benchmark_statistics.py`; `tests/unit/portfolio_optimizer/test_costs_and_lots.py`;
+`tests/unit/common/test_linalg.py` and `test_statistics_v311.py`;
+`tests/unit/research/test_multiple_testing.py`, `test_sharpe_inference.py` and
+`test_walk_forward_optimization.py`; `tests/unit/factor_library/test_v311_research_integrity.py`;
+`tests/unit/lifecycle/test_engine_build.py`; `tests/unit/options/test_carry.py`;
+and in `tests/regression/`: `test_dated_aliases.py`, `test_identity_by_value.py`,
+`test_interval_value_type.py`, `test_study_lag_identity.py`,
+`test_prf006_fast_paths.py`, `test_log_slicing_complexity.py` and
+`test_persistent_map_gc_pressure.py`. `test_ambient_decimal_context.py` (NUM-012),
+`test_conventions.py` (NUM-013), `test_schema_upgrades.py` and
+`test_removed_surfaces_stay_removed.py` (every package and module 3.10 and 3.11
+removed) were extended.
+
+Removed with their packages: `tests/unit/enterprise`, `tests/unit/studio`,
+`tests/unit/workbench` and `tests/regression/test_workbench_delegation.py`, and
+the benchmarks `benchmark_enterprise`, `benchmark_strategy_studio` and
+`benchmark_workbench` (54 benchmarks remain). The signed-REST adapter is
+`tests/reference_adapter`, and the tests that drive it over real sockets import
+it from there.
+
+`benchmark_institutional` judges its scaling ceilings by CPU time with the
+collector paused, sizes interleaved, fastest of three (TST-010).
+The defect-injection harness ran 79 mutations against the release tree — the
+42 of 3.10, five re-pointed where 3.11 moved the code, and 37 of 3.11's own
+behaviour — each against the whole suite with the timing guards deselected: 77
+were caught. The two that survived (a buy limit filling at a bar's open above
+it, a sell limit crossing on a lower bid) are pinned by two new tests (TST-012)
+and fail them when re-run.
+
+## Examples
+
+`02_backtest.py` (a real first backtest), `08_strategy_studio.py` (target
+weights and lots), `09_workbench.py` (slices and a cash-account rotation) and
+`10_complete_pipeline.py` (walk-forward optimization, construction with costs
+and lots, out-of-sample trading, benchmark statistics) are rewritten; the file
+names are kept so links do not break. All sixty-five examples run as a release
+gate.
+
+Compared with 3.10.0's output (run-varying ids, process ids and timings
+masked), 48 examples print what they printed. Besides the four rewritten, 13
+differ, each for a reason above: `13` stores larger snapshots (the new schema
+fields); `15` and `46` print the engine version; `19` names the lag of each
+forward return (DAT-003); `24` and `47` have a new study identity and more
+metrics — the lag is part of the study, and the Newey-West t-statistics are
+reported (OFE-006) — and `47`'s manifest carries the engine build (REP-002);
+`35` and `36` state the carry in the pricing assumptions' identity (NUM-005);
+`56`, `62`, `63`, `64` and `65` print content identities under their v2 schemes
+(DET-006), and `62` words a duplicate venue report as the mirror sees it and
+says that sequence numbers compare only within a session (BRK-002). With
+identities masked, no price, quantity, P&L or statistic any of these thirteen
+printed in 3.10 has moved.
+
+## Still open — the rest of the pre-v4 plan
+
+v3.12.0: exchange calendars inside simulation, and the ledger's correctness,
+numerics, persistence and adversarial hardening items. v3.13.0: the final
+pre-v4 audit. Nothing in this release is v4 work.
+
+## Deliberately not built
+
+Cardinality-constrained and joint-lot construction, CVaR and drawdown
+objectives and multi-period construction (ADR-0046 decision 10); spin-offs,
+mergers and cash in lieu as primitives (the caller books them from cash flows
+and splits); identity, sessions, credentials and UI (the application's).
+
+---
+
 # [3.10.0] - 2026-09-28
 
 **The first pre-v4 release: the canonical path made correct, exact and linear

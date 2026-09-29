@@ -83,6 +83,11 @@ against named references. `alphalab.core`, `broker`, `execution`, `runtime` and
 `lifecycle` deepen; no package and no package edge is added, and no snapshot
 schema changes. ADR-0044.
 
+**v3.11.0** is the second of four **pre-v4 releases**: the capabilities a
+strategy needs before its API is frozen — instrument economics, order terms,
+target positions, slices, leak-proof research, construction with costs and
+lots — with the application's packages moved out of the library (ADR-0046).
+
 **v3.10.0** is the first of four **pre-v4 releases**, and is a correctness
 release rather than a capability one. The pre-v4 audit re-read every subsystem
 of v3.9.0 and recorded, item by item, what must be true before v4.0 freezes the
@@ -210,6 +215,38 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.11.0 — the pre-v4 capability release
+
+- **Instruments** (ACC-005–007): declared economics — multiplier, settlement
+  (fully paid, futures variation margin, option premium, perpetual), lot,
+  minimum notional, negative prices; cash flows and splits through the path;
+  maker rebates.
+- **Orders** (EXE-003): limit, stop, stop-limit; IOC, FOK, GTD, DAY, OPG, CLS;
+  resting orders filled as makers or takers.
+- **Targets** (FEA-001, ALC-006, ALC-007): target quantities and weights against
+  each strategy's own position, rounded toward zero onto whole units and lots;
+  a sale commits no budget.
+- **Dispatch** (EXE-004, EXE-005, EXE-007): enforced subscriptions; slices;
+  `on_start`, `on_stop`, fill and order feedback.
+- **Live** (BRK-002, BRK-003, BRK-008, EXE-009, LIV-001): venue sequence
+  numbers, persisted requests, holds, FX settlement, a required paper cost
+  model.
+- **Research** (DAT-002, DAT-003, FEA-003, OFE-004–006, FEA-002, NUM-005):
+  implementation lag, delisting returns, walk-forward optimization, multiple
+  testing, deflated Sharpe, Newey-West IC, multivariate neutralization,
+  benchmark statistics, carry in Black-Scholes.
+- **Data and identity** (DAT-004, DAT-005, DAT-007, REP-002, DET-006): dated
+  aliases, `TimeFrame` as a value, engine build and tz database in manifests,
+  identities by value.
+- **Construction** (OFE-002): Ledoit-Wolf, EWMA and factor-model covariance;
+  linear costs solved exactly; lot rounding.
+- **Boundary** (BND-002, BND-003, SCF-001, BRK-007): `enterprise`, `workbench`,
+  `studio` and venue credentials moved to the application.
+- **Numerics and performance** (NUM-012, NUM-013, PRF-006, PRF-007): every run
+  entry point pinned; exact lot arithmetic; a run's cost linear in its length
+  again (a log slice had copied the whole log since v2.1); v3.10's per-operation
+  cost reduced.
 
 ## v3.10.0 — the pre-v4 correctness release
 
@@ -711,12 +748,12 @@ future "simplification" would have to break first —
 - ~~**No migration framework.**~~ **Replaced in v3.10** (BDY-007, PER-001): every
   snapshot subsystem declares its schema history and upgrades an older payload
   through explicit, pure steps that refuse rather than invent (ADR-0045).
-- **No authentication, IAM or federation.** Out of scope per ADR-0018. **Stated
-  honestly as of v3.10:** the library still holds venue credentials — an
-  `api_key` and signing secret in `broker.transport.VenueCredentials` for the
-  HMAC-signed venue transport — and `alphalab.enterprise` keeps secret
-  *references* with rotation metadata. Both are application concerns and leave
-  the library in v3.11 (BRK-007, BND-002).
+- **No authentication, IAM or federation.** Out of scope per ADR-0018. Until
+  v3.11 the library held venue credentials — an `api_key` and signing secret in
+  `broker.transport.VenueCredentials` for the HMAC-signed venue transport — and
+  `alphalab.enterprise` kept secret *references* with rotation metadata. Both
+  are application concerns and left the library in v3.11 (BRK-007, BND-002;
+  ADR-0046); it now holds no credential of any kind.
 - **No supervised live *process*.** Restart policy, alerting and scheduling are
   an operator's concern. `live_health` answers "should a human look at this?"
   for a run this process is driving, and v3.5's `evaluate_health` answers the
@@ -923,27 +960,26 @@ its caller named — are fixed in v3.10 (KD-001–004).
 What remains known is in the pre-v4 ledger, each with an ID and a release. The
 defects among them, as distinct from missing capabilities:
 
-- **Research integrity**: a delisted symbol's final horizon is dropped as
-  "unrealized", biasing factor research towards survivors (DAT-002, v3.11);
-  forward returns start at the close the factor was computed from, with no
-  implementation lag (DAT-003, v3.11); the v1 research engine assumes daily
-  returns and scores with uncalibrated constants (RES-001, v3.12).
-- **Accounting on the live and paper paths**: `LiveSession.settle` applies venue
-  fills without FX rates, so a multi-currency live run cannot settle a foreign
-  fill (EXE-009, v3.11); `PaperBroker` charges no commission (BRK-008, v3.11);
-  `BacktestResult.valuation` takes no FX rates and raises for a multi-currency
-  run (API-004, v3.12).
+- **Research integrity**: the v1 research engine assumes daily returns and
+  scores with uncalibrated constants (RES-001, v3.12). (Delisting returns and
+  the implementation lag were fixed in v3.11 — DAT-002, DAT-003.)
+- **Accounting**: `BacktestResult.valuation` takes no FX rates and raises for a
+  multi-currency run (API-004, v3.12). (Live FX settlement and the paper cost
+  model were fixed in v3.11 — EXE-009, BRK-008.)
+- **Simulation**: a simulated DAY order must state its `expire_at`; exchange
+  calendars are not read inside simulation (EXE-010, v3.12).
+- **Benchmarks**: five benchmarks judge a scaling ceiling on one sample of each
+  size, the method that failed the institutional benchmark's guard in the v3.11
+  gate (TST-011, v3.12; the institutional one is fixed — TST-010).
 - **Numerics**: `r_squared` of a constant series is reported as 0.0 (NUM-003);
   the normal CDF loses relative precision deep in its lower tail (NUM-004);
   regression squares the condition number (NUM-007) — all v3.12.
 - **Durability**: an atomic write does not fsync its directory (PER-003, v3.12).
-- **Performance**: v3.10's per-operation constant is higher than v3.9's — a
-  one-asset backtest takes about 1.4× as long, the OMS benchmark 2.2× — the
-  price of exact book totals and a compacting map (PRF-006, v3.11).
-- **Identity**: most content identities render a declared `Decimal` with `str`
-  or `repr`, so `0.5` and `0.50` declare two identities (DET-006, v3.11). The
-  portfolio book, valuation and reconciliation identities render by value
-  since v3.10.
+- **Performance** (PRF-006, v3.11 — bounded, not eliminated): against v3.9 on
+  one machine (five interleaved rounds), the portfolio-engine micro-benchmark
+  runs at 1.69× v3.9's time (1.51–1.72; exact per-currency totals and
+  instrument economics on every fill); a one-asset backtest 1.05×, the pipeline
+  1.01× and the OMS 0.83×.
 
 ---
 
@@ -956,12 +992,12 @@ the disposition the pre-v4 audit gave it.
 
 | Item | Ledger | Release |
 | --- | --- | --- |
-| Richer portfolio construction: estimated shrinkage, EWMA and factor-model covariance, cardinality and lot constraints, costs in the objective | OFE-002 | v3.11 |
-| Neutralization against several continuous exposures at once, by a rank-revealing solve | OFE-004 | v3.11 |
-| A deflated Sharpe ratio; Holm and false-discovery-rate corrections beside Bonferroni | OFE-005 | v3.11 |
-| A t-statistic on an information coefficient, corrected for overlapping windows (Newey–West) | OFE-006 | v3.11 |
-| Pipeline-driven `on_fill` / `on_order` / `on_timer` | OFE-014 | v3.11 |
-| A venue sequence number; persisted child bindings and request ledger | OFE-021, OFE-022 | v3.11 |
+| Richer portfolio construction: estimated shrinkage, EWMA and factor-model covariance, costs in the objective, rounding to lots (cardinality and joint lot selection are integer programs: an explicit boundary, ADR-0046) | OFE-002 | v3.11 — delivered |
+| Neutralization against several continuous exposures at once, by a rank-revealing solve | OFE-004 | v3.11 — delivered |
+| A deflated Sharpe ratio; Holm and false-discovery-rate corrections beside Bonferroni | OFE-005 | v3.11 — delivered |
+| A t-statistic on an information coefficient, corrected for overlapping windows (Newey–West) | OFE-006 | v3.11 — delivered |
+| Pipeline-driven `on_fill` / `on_order` / `on_timer` | OFE-014 | v3.11 — delivered |
+| A venue sequence number; persisted child bindings and request ledger | OFE-021, OFE-022 | v3.11 — delivered |
 | Classification dimensions beyond sector; sector-based pre-trade limits | OFE-001 | v3.12 |
 | Per-strategy capital ceilings on the execution path | OFE-003 | v3.12 |
 | Execution-path delivery of external information | OFE-009 | v3.12 |

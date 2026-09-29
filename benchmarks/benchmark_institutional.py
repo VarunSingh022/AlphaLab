@@ -27,8 +27,19 @@ is the failure that would actually matter.
 Nothing here claims a complexity improvement. Each figure is measured on the
 development machine at the version stated, and the ceilings are what a later
 change has to stay under.
+
+The throughput lines are one run of each size with the collector on, which is
+what a real run pays. The scaling ceilings are judged separately, by the method
+the test suite's complexity guards use (``tests/regression/_timing.py``, ledger
+TST-001): CPU time, the collector paused, the two sizes interleaved, the fastest
+of three samples of each. Until v3.11 they were judged on the single runs, and a
+full collection landing in the larger scenario run failed the v3.11 release gate
+at 6.05x, where repeated runs of v3.10 and v3.11 read 3.0x to 5.2x (ledger
+TST-010).
 """
 
+import gc
+import math
 import time
 from collections.abc import Callable
 from decimal import Decimal
@@ -65,9 +76,11 @@ from alphalab.execution.slippage import PercentageSlippage
 from alphalab.scenario import ScenarioExposure, ScenarioState, scenario
 
 #: Linear scaling predicts 4.00 for a 4x workload. The ceiling leaves room for
-#: allocator and garbage-collector noise, as ``benchmark_execution_pipeline``
-#: does, and catches a return to quadratic behaviour.
+#: allocator noise and catches a return to quadratic behaviour.
 MAX_LINEAR_SCALING = 6.0
+
+#: Samples of each size the scaling judgement takes the fastest of.
+SCALING_REPEATS = 3
 
 #: Risk decomposition builds an n-by-n covariance matrix, so a 4x increase in
 #: positions is a 16x increase in pairs. Quadratic predicts 16.00; the ceiling
@@ -79,6 +92,30 @@ def _timed[T](work: Callable[[int], T], size: int) -> tuple[float, T]:
     start = time.perf_counter()
     result = work(size)
     return time.perf_counter() - start, result
+
+
+def _growth(work: Callable[[int], object], small: int, large: int) -> tuple[float, float]:
+    """The fastest CPU time at ``small`` and at ``large``, sampled for a scaling ceiling.
+
+    The collector is paused and the sizes interleaved, so a full collection
+    triggered by the heap the earlier stages built, or a slow phase of the
+    machine, is not read as the algorithm's growth.
+    """
+
+    best = {small: math.inf, large: math.inf}
+    enabled = gc.isenabled()
+    gc.collect()
+    gc.disable()
+    try:
+        for _ in range(SCALING_REPEATS):
+            for size in (small, large):
+                start = time.process_time()
+                work(size)
+                best[size] = min(best[size], time.process_time() - start)
+    finally:
+        if enabled:
+            gc.enable()
+    return best[small], best[large]
 
 
 def _report(label: str, size: int, duration: float, unit: str) -> None:
@@ -366,19 +403,26 @@ def run_benchmark() -> None:
     large_scen, _ = _timed(bench_scenario, 20_000)
     _report("scenario", 20_000, large_scen, "exposures")
 
-    print("\nScaling across a 4x workload increase:")
-    _scaling("execution simulation", small_exec, large_exec, MAX_LINEAR_SCALING, "linear = 4.00x")
-    _scaling("partial fills", small_fill, large_fill, MAX_LINEAR_SCALING, "linear = 4.00x")
-    _scaling("capacity", small_cap, large_cap, MAX_LINEAR_SCALING, "linear = 4.00x")
-    _scaling("attribution", small_attr, large_attr, MAX_LINEAR_SCALING, "linear = 4.00x")
+    print(
+        "\nScaling across a 4x workload increase (CPU time, collector paused, "
+        f"fastest of {SCALING_REPEATS}):"
+    )
+    linear = "linear = 4.00x"
+    _scaling(
+        "execution simulation", *_growth(bench_execution, 2_000, 8_000), MAX_LINEAR_SCALING, linear
+    )
+    _scaling(
+        "partial fills", *_growth(bench_partial_fills, 2_000, 8_000), MAX_LINEAR_SCALING, linear
+    )
+    _scaling("capacity", *_growth(bench_capacity, 250, 1_000), MAX_LINEAR_SCALING, linear)
+    _scaling("attribution", *_growth(bench_attribution, 1_000, 4_000), MAX_LINEAR_SCALING, linear)
     _scaling(
         "risk decomposition",
-        small_risk,
-        large_risk,
+        *_growth(bench_risk, 40, 160),
         MAX_QUADRATIC_SCALING,
         "quadratic = 16.00x",
     )
-    _scaling("scenario", small_scen, large_scen, MAX_LINEAR_SCALING, "linear = 4.00x")
+    _scaling("scenario", *_growth(bench_scenario, 5_000, 20_000), MAX_LINEAR_SCALING, linear)
 
     print(
         "\n  note: risk decomposition is quadratic on purpose -- a pairwise\n"

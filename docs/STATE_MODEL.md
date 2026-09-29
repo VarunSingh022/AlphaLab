@@ -143,8 +143,6 @@ Each package owns exactly one primary state object.
 | `broker` | `BrokerState` |
 | `runtime` | `ExecutionPipelineState` (the step) and `RunState` (the run) |
 | `lifecycle` | `LifecycleState` — the four registries plus the evidence store |
-| `studio` | `StrategyStudioState` |
-| `workbench` | `WorkbenchState` |
 | `research` | `ResearchState` |
 | `replay` | `ReplayState` |
 | `data` | `UniversalDataState` — datasets keyed by version, the catalogue, quality reports, schemas, metadata, `lineage` (derived version → parent) and the event log. A version is never overwritten: cleaning and resampling add a new entry and record the parent (ADR-0036). |

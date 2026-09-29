@@ -159,7 +159,7 @@ Three kinds of package:
   deployment and back, and refuses a run that would serve a version the
   deployment ledger does not name.
 - **Standalone engines** — `portfolio_optimizer`, the learning and asset-class
-  engines, `workbench`, `reporting`, and the rest. Each is deterministic and
+  engines, `reporting`, and the rest. Each is deterministic and
   individually tested, and they are deliberately not chained together (ADR-0009).
 
 ```
@@ -220,10 +220,13 @@ instrument/     canonical instrument identity
 lifecycle/      research candidate → deployment → rollback
 research/       research workflows and scores
 portfolio_optimizer/  portfolio construction
-data/  marketdata/    wire records and provider clients
+data/  marketdata/    wire records, the HTTP and WebSocket transports
 broker/  brokers/     one venue, and many
-studio/  workbench/   orchestration and presentation
 ```
+
+Presentation, orchestration, identity and credentials are the host
+application's: `studio`, `workbench` and `enterprise` left the library in v3.11
+(ADR-0046).
 
 Each package owns one business capability. The complete list, with which of the
 two paths reaches each, is in `../README.md`.
@@ -438,8 +441,8 @@ Congratulations!
 
 You have successfully set up AlphaLab and are ready to begin building quantitative research workflows.
 
-The advanced capabilities — machine learning, distributed research, cloud
-execution and enterprise governance — all ship as standalone packages today; their
+The advanced capabilities — machine learning, distributed research and cloud
+execution — ship as standalone packages; their
 usage is covered by the unit tests under `tests/unit/<package>/` and the
 benchmarks under `benchmarks/`.
 

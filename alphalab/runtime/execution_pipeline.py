@@ -1706,7 +1706,7 @@ def _allocate(
         constraints,
         timestamp,
         _budget_prices(state, market_prices, rates, timestamp),
-        positions=(None if constraints.allow_shorting else _committed_positions(state, intents)),
+        positions=_committed_positions(state, intents),
         working=_working_shares(state, intents),
         lots=lots,
         minimum_notionals=minimums,
@@ -2530,29 +2530,29 @@ def _committed_positions(
 
     What long-only allocation is judged against (ledger ALC-001): a sale that
     closes a long passes, and one that would leave a short -- counting sales
-    already working -- does not. Plain numbers, so ``alphalab.allocation`` goes
-    on knowing nothing of the portfolio or the OMS. Read only for a run that
-    forbids shorting, and only for the assets its strategies named.
+    already working -- does not. And, since v3.11, what the budget is judged
+    against: an order commits only the exposure it adds to this position, so a
+    sale that reduces it commits nothing (ledger ALC-007). Plain numbers, so
+    ``alphalab.allocation`` goes on knowing nothing of the portfolio or the
+    OMS. Read only for the assets the strategies named, through the OMS's
+    per-asset working index rather than every working order (PRF-001).
     """
 
-    assets = {intent.instrument for intent in intents}
     committed: dict[str, Decimal] = {}
-    if not assets:
+    if not intents:
         return committed
-    for asset_id in assets:
-        held = state.portfolio.positions.get(asset_id)
-        if held is not None:
-            committed[asset_id] = held.quantity
     oms = state.oms
-    for order_id in oms.active_orders:
-        order = oms.orders.find(order_id)
-        if order.asset_id not in assets:
-            continue
-        remaining = order.remaining_quantity
-        signed = remaining if order.side is CoreSide.BUY else -remaining
-        committed[order.asset_id] = ACCOUNTING_CONTEXT.add(
-            committed.get(order.asset_id, Decimal("0")), signed
-        )
+    for asset_id in {intent.instrument for intent in intents}:
+        held = state.portfolio.positions.get(asset_id)
+        total = Decimal("0") if held is None else held.quantity
+        for order_id in oms.working_orders_for(asset_id):
+            order = oms.orders.find(order_id)
+            remaining = order.remaining_quantity
+            total = ACCOUNTING_CONTEXT.add(
+                total, remaining if order.side is CoreSide.BUY else -remaining
+            )
+        if held is not None or total != 0:
+            committed[asset_id] = total
     return committed
 
 

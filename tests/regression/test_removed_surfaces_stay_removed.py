@@ -46,6 +46,14 @@ REMOVED_PACKAGES = (
     "alphalab.integrations",
     "alphalab.production",
     "alphalab.core.events",
+    # v3.10 (ADR-0045): vendor feeds and the provider-shaped live surface.
+    "alphalab.feed",
+    "alphalab.live",
+    # v3.11 (ADR-0046): the application's packages -- identity and RBAC, UI
+    # state, and project management of results computed elsewhere.
+    "alphalab.enterprise",
+    "alphalab.workbench",
+    "alphalab.studio",
 )
 
 #: Modules removed from packages that survive.
@@ -71,6 +79,13 @@ REMOVED_MODULES = (
     "alphalab.runtime.metrics",
     "alphalab.runtime.runtime",
     "alphalab.runtime.lifecycle",
+    # v3.11 (ADR-0046): the reference REST venue and its credentials moved to
+    # tests/reference_adapter (ledger BRK-007); the closed interval list and
+    # the bridge to the removed studio.
+    "alphalab.broker.transport",
+    "alphalab.broker.venue",
+    "alphalab.marketdata.timeframe",
+    "alphalab.experiment_tracking.studio_bridge",
 )
 
 #: ``package -> the names that must no longer be reachable through it``.

@@ -12,6 +12,10 @@ rewrite is stated here and pinned by
 * FX added **no field** to run configuration and moved **no pipeline schema**;
 * governance moved **exactly one** schema, and only its own.
 
+**Amended by ADR-0046 (v3.11.0).** The governance rows below that name
+`alphalab.enterprise` describe v2.16: that package was removed in v3.11, and
+`Governance` now takes a `PermissionAuthority` the application supplies.
+
 Two of the three were designed years before they were built. ADR-0030's Tier-3
 table listed `LiveDriver` as "(later)" and its consequences section recorded "no
 live driver exists". ADR-0018 was written in v2.7, marked *Proposed — deferred*,

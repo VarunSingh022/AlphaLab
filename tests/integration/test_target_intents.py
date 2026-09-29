@@ -111,6 +111,7 @@ def _pipeline(
     *,
     registry: InstrumentRegistry | None = None,
     shorting: bool = True,
+    whole_units: bool = False,
 ) -> ExecutionPipelineState:
     config = replace(
         pipeline_config("A"),
@@ -120,7 +121,7 @@ def _pipeline(
             strategy_budgets=dict.fromkeys(plans, START_CASH),
         ),
         allocation_constraints=AllocationConstraints(
-            allow_shorting=shorting, enforce_integer_quantities=False
+            allow_shorting=shorting, enforce_integer_quantities=whole_units
         ),
         instruments=registry,
     )
@@ -240,6 +241,32 @@ def test_a_fractional_difference_is_rounded_toward_zero_never_past_the_target() 
     ((side, sold),) = _orders(second)
     assert (side, sold) == ("sell", Decimal("82.304466"))
     assert _held(second.state, "A") == Decimal("-41.152233")
+
+
+def test_whole_units_round_a_target_toward_zero_not_to_the_nearest_unit() -> None:
+    """Found by example 08: nearest-unit rounding of the netted order overshot."""
+
+    state = _pipeline(
+        {
+            "A": {
+                2.0: (_intent("A", "0.0453", WEIGHT),),
+                3.0: (_intent("A", "0.0453", WEIGHT),),
+                4.0: (_intent("A", "0", WEIGHT),),
+            }
+        },
+        whole_units=True,
+    )
+
+    first = _step(state, 2.0, "151.2")
+    # 1,000,000 x 0.0453 / 151.2 = 299.60...: 299 whole units, never 300.
+    assert _orders(first) == [("buy", Decimal("299"))]
+    # The same weight at the same price asks for the 0.6 left, which is no unit.
+    second = _step(first.state, 3.0, "151.2")
+    assert _orders(second) == []
+    assert _held(second.state, "A") == Decimal("299")
+    # And back to flat exactly.
+    third = _step(second.state, 4.0, "151.2")
+    assert _orders(third) == [("sell", Decimal("299"))]
 
 
 # --------------------------------------------------------------------------- #

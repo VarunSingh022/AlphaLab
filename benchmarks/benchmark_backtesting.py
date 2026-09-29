@@ -56,7 +56,10 @@ SEED = 20220905
 # a v2.2 run measures above 4.00x is the cyclic garbage collector walking a
 # growing live heap, not an algorithmic term: with the collector paused the same
 # path scales ~4.3x (2.06x and 2.08x per doubling). The benchmark leaves it on
-# because that is what a real run pays.
+# because that is what a real run pays. (v3.11: part of it was algorithmic -- a
+# log slice copied the whole log, twice per fill; ledger PRF-007. With the
+# collector paused a backtest now costs 677 and 699 microseconds a record at 8k
+# and 16k records.)
 MAX_SCALING_FACTOR = 6.0
 # The replay cursor adds one lifecycle event per record on top of an identical
 # execution path, so it should cost a little more, not a lot.

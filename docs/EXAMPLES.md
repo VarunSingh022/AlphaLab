@@ -9,7 +9,10 @@ Each example focuses on a single subsystem while following the same engineering 
 Examples are intended to be read sequentially by new users and used as reference implementations by contributors.
 
 > Examples `01`–`10` were written for v1.0.0 and exercise the **standalone**
-> engine APIs. `11_unified_backtest.py` (v2.2) drives the integrated execution
+> engine APIs -- except `02` and `08`–`10`, rewritten in v3.11 against the
+> canonical path after the packages they demonstrated (`alphalab.studio`,
+> `alphalab.workbench`) left the library, and `10`, which until then printed
+> check marks for steps it never ran. `11_unified_backtest.py` (v2.2) drives the integrated execution
 > path end to end, `12_model_lifecycle.py` (v2.4) drives the model and strategy
 > lifecycle, `13_durable_run_state.py` (v2.13) stops a run, stores it, and
 > finishes it in a different process, and `14_multi_currency_settlement.py`
@@ -31,15 +34,15 @@ The `examples/` directory contains:
 | File | Description |
 |------|-------------|
 | `01_research.py` | Research engine |
-| `02_backtest.py` | Strategy Studio backtest bookkeeping |
+| `02_backtest.py` | Your first backtest, through the canonical path with target quantities |
 | `03_replay.py` | Historical replay cursor |
 | `04_market_data.py` | Provider wire bars → normalization → canonical market state |
 | `05_broker_connection.py` | The two broker boundaries: one venue, or a registry of many |
 | `06_portfolio_optimizer.py` | Portfolio construction |
 | `07_universal_data.py` | Universal Data Engine: state, versions and the catalogue |
-| `08_strategy_studio.py` | Strategy Studio orchestration |
-| `09_workbench.py` | Workbench workspace |
-| `10_complete_pipeline.py` | Multi-engine walkthrough |
+| `08_strategy_studio.py` | Rebalancing to target weights, with a declared lot size |
+| `09_workbench.py` | Cross-sectional decisions on complete instants (slices) |
+| `10_complete_pipeline.py` | Research to a traded book, end to end |
 | `11_unified_backtest.py` | Dataset → orders → fills → P&L → analytics, plus replay parity |
 | `12_model_lifecycle.py` | Research candidate → deployment → rollback |
 | `13_durable_run_state.py` | Stop a run, store it, continue it in another process |
@@ -127,7 +130,8 @@ not two copies of one thing — see ADR-0011.
 `05_broker_connection.py` shows the two boundaries and which is which:
 
 - `alphalab.broker` — **one** venue. `BrokerProtocol` is the canonical adapter
-  contract; `RestVenueBroker` and `PaperBroker` implement it, and
+  contract; `PaperBroker` implements it (an adapter that reaches a real venue
+  is the host application's — `tests/reference_adapter` shows one), and
   `runtime.broker_routing` and `LiveSession` speak it.
 - `alphalab.brokers` — **many** venues and many accounts.
   `BrokerConnectorProtocol` routes over a `BrokerConnectorState`, which is why
@@ -364,8 +368,8 @@ every figure they print is the same on every machine.
 
 # Additional engines
 
-The feature store, machine learning, cloud research, enterprise, and other
-engines added in v1.34.0–v2.0.0 do not yet have dedicated example scripts.
+The feature store, machine learning, cloud research and other engines added
+in v1.34.0–v2.0.0 do not yet have dedicated example scripts.
 Their usage is covered by the unit tests under `tests/unit/<package>/` and by
 the benchmarks under `benchmarks/`.
 

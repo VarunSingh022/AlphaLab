@@ -19,7 +19,7 @@ generalised from "append to a sequence" to "write to a key": shared append-only
 storage plus a version number, and *copy on branch*.
 
 A map is a *view* over a shared store: the triple ``(store, version, size)``.
-The store keeps, per key, the append-only chain of ``(version, value)`` entries
+The store keeps, per key, the append-only chain of ``version, value`` entries
 written to that key, plus the order in which keys were first inserted. A view at
 version ``v`` reads a key by finding the newest chain entry whose version is at
 most ``v`` -- so a write made at version ``v + 1`` is invisible to it, and older
@@ -56,11 +56,20 @@ live keys once and follows at least as many writes as it copies, so writes stay
 O(1) amortized and iteration becomes ``O(keys present)``. Because iteration
 order is ``dict`` order, a rebase never changes it: dropping dead entries does
 not reorder the live ones, which is what makes the rebase unobservable.
+
+A chain is one flat list, ``[version, value, version, value, ...]``, rather
+than a list of pairs (v3.11, ledger PRF-008): a write appends to a list that
+already exists instead of allocating a pair, and a rebase allocates one list per
+live key instead of a list and a pair. Every allocation that survives is one
+more object the cyclic garbage collector walks for as long as the store lives,
+and a rebase of a large map promotes its copy into the oldest generation at
+once -- which is what had the OMS benchmark's accept-and-fill stage spend
+nearly half its time in the collector.
 """
 
 from __future__ import annotations
 
-from bisect import bisect_left, bisect_right
+from bisect import bisect_right
 from collections.abc import Hashable, ItemsView, Iterable, Iterator, Mapping, ValuesView
 from collections.abc import Set as AbstractSet
 from typing import Any, Final, TypeVar, cast
@@ -93,8 +102,9 @@ class _Store[K: Hashable, V]:
 
     __slots__ = ("chains", "entries", "inserted_at", "keys", "live_version", "reinsertions")
 
-    #: Per key, the ``(version, value)`` writes to it, in ascending version order.
-    chains: dict[K, list[tuple[int, V | _Missing]]]
+    #: Per key, the writes to it in ascending version order, flat: the version of
+    #: write ``i`` at index ``2 * i`` and its value at ``2 * i + 1``.
+    chains: dict[K, list[Any]]
     #: Every insertion -- a first write, or a write after a deletion -- in
     #: ascending version order: the key here and, at the same index, the version
     #: in :attr:`inserted_at`. Two flat lists rather than a list of pairs, so an
@@ -113,7 +123,7 @@ class _Store[K: Hashable, V]:
 
     def __init__(
         self,
-        chains: dict[K, list[tuple[int, V | _Missing]]],
+        chains: dict[K, list[Any]],
         keys: list[K],
         inserted_at: list[int],
         live_version: int,
@@ -138,12 +148,12 @@ class PersistentMap(Mapping[K, V]):
 
     def __init__(self, items: Mapping[K, V] | Iterable[tuple[K, V]] = ()) -> None:
         pairs = items.items() if isinstance(items, Mapping) else items
-        chains: dict[K, list[tuple[int, V | _Missing]]] = {}
+        chains: dict[K, list[Any]] = {}
         keys: list[K] = []
         for key, value in pairs:
             if key not in chains:
                 keys.append(key)
-            chains[key] = [(0, value)]
+            chains[key] = [0, value]
         self._store = _Store(chains, keys, [0] * len(keys), 0, len(keys))
         self._version = 0
         self._size = len(keys)
@@ -175,18 +185,18 @@ class PersistentMap(Mapping[K, V]):
             return PersistentMap(self.items())
         chains = store.chains
         reinsertions = store.reinsertions
-        fresh: dict[K, list[tuple[int, V | _Missing]]] = {}
+        fresh: dict[K, list[Any]] = {}
         keys: list[K] = []
         for key, inserted_at in zip(store.keys, store.inserted_at, strict=True):
             history = reinsertions.get(key)
             if history is not None and history[-1] != inserted_at:
                 continue
-            value = chains[key][-1][1]
+            value = chains[key][-1]
             if isinstance(value, _Missing):
                 continue
-            fresh[key] = [(0, value)]
+            fresh[key] = [0, value]
             keys.append(key)
-        rebased = _Store(fresh, keys, [0] * len(keys), 0, len(keys))
+        rebased: _Store[K, V] = _Store(fresh, keys, [0] * len(keys), 0, len(keys))
         return PersistentMap._view(rebased, 0, len(keys))
 
     # -- reads --------------------------------------------------------------
@@ -198,18 +208,28 @@ class PersistentMap(Mapping[K, V]):
         if chain is None:
             return _MISSING
         version = self._version
-        last_version, last_value = chain[-1]
-        if last_version <= version:
+        if chain[-2] <= version:
             # Overwhelmingly the common case: this view is at or past the
-            # newest write to the key, so no search is needed.
-            return last_value
-        # Newest entry at or before ``version``. Versions are unique per chain
-        # and ascending, so the probe never compares values -- which therefore
-        # need not be orderable.
-        index = bisect_left(cast(list[Any], chain), (version + 1,))
-        if index == 0:
+            # newest write to the key, so no search is needed. (An annotated
+            # local, not ``cast``: ``cast(V | _Missing, ...)`` builds a union
+            # at run time on every read.)
+            newest: V | _Missing = chain[-1]
+            return newest
+        # The newest write at or before ``version``: a binary search over the
+        # versions, at the even positions. Versions are unique per chain and
+        # ascending, and only versions are compared -- values need not be
+        # orderable. ``low`` ends as the number of writes at or before it.
+        low, high = 0, len(chain) // 2
+        while low < high:
+            middle = (low + high) // 2
+            if chain[2 * middle] <= version:
+                low = middle + 1
+            else:
+                high = middle
+        if low == 0:
             return _MISSING
-        return chain[index - 1][1]
+        found: V | _Missing = chain[2 * low - 1]
+        return found
 
     def __getitem__(self, key: K) -> V:
         value = self._lookup(key)
@@ -299,25 +319,26 @@ class PersistentMap(Mapping[K, V]):
         version = self._version + 1
         chain = store.chains.get(key)
         if chain is None:
-            store.chains[key] = [(version, value)]
+            store.chains[key] = [version, value]
             store.keys.append(key)
             store.inserted_at.append(version)
             size = self._size + 1
         else:
-            if isinstance(chain[-1][1], _Missing):
+            if isinstance(chain[-1], _Missing):
                 # A re-insert: the key moves to the end, as it would in a dict.
                 store.keys.append(key)
                 store.inserted_at.append(version)
                 history = store.reinsertions.get(key)
                 if history is None:
                     # Its first insertion was its chain's first write.
-                    store.reinsertions[key] = [chain[0][0], version]
+                    store.reinsertions[key] = [chain[0], version]
                 else:
                     history.append(version)
                 size = self._size + 1
             else:
                 size = self._size
-            chain.append((version, value))
+            chain.append(version)
+            chain.append(value)
         store.entries += 1
         store.live_version = version
         return PersistentMap._view(store, version, size)
@@ -333,7 +354,9 @@ class PersistentMap(Mapping[K, V]):
             return self._branch().delete(key)
 
         version = self._version + 1
-        store.chains[key].append((version, _MISSING))
+        chain = store.chains[key]
+        chain.append(version)
+        chain.append(_MISSING)
         store.entries += 1
         store.live_version = version
         return PersistentMap._view(store, version, self._size - 1)

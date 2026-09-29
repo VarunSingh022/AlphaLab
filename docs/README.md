@@ -216,7 +216,8 @@ importers and was removed in v2.17. Durable run state is
 ## Broker boundary
 
 Two boundaries, deliberately: `alphalab.broker` for **one** venue
-(`BrokerProtocol`, implemented by `PaperBroker` and `RestVenueBroker`), and
+(`BrokerProtocol`, implemented by `PaperBroker`; an adapter that reaches a real
+venue is the host application's since v3.11), and
 `alphalab.brokers` for **many** venues and accounts
 (`BrokerConnectorProtocol`), which routes the canonical `alphalab.broker` types
 rather than redefining them.
@@ -261,10 +262,12 @@ imports `alphalab.common` and nothing else, and
 one covariance authority — and is still standalone: nothing on either path
 imports it, because a construction answers what to own and turning it into
 orders is the caller's decision. `tests/regression/test_v38_invariants.py`
-measures its edge set, `common` and `analytics` (ADR-0043).
+measures its edge set, `common`, `analytics` and, since v3.11, `conventions`
+for lot arithmetic (ADR-0043, ADR-0046).
 
-`experiment_tracking`, `model_registry`, `deployment_manager`, `studio`,
-`enterprise` and `research` are imported by `alphalab.lifecycle` as of v2.4 and
+`experiment_tracking`, `model_registry`, `deployment_manager` and `research`
+are imported by `alphalab.lifecycle` as of v2.4 (`studio` and `enterprise` were
+too, until v3.11 removed them) and
 remain usable on their own. `research_assistant` is the one the lifecycle names
 without importing: it produces a candidate and `to_strategy_definition` lifts it
 into the canonical `StrategyDefinition` the lifecycle takes.
@@ -292,7 +295,7 @@ Portfolio Optimization
 Reporting
 ```
 
-`replay` and the workbench are separate engines you can call, and nothing chains
+`replay` is a separate engine you can call, and nothing chains
 the research → optimization → reporting sequence above automatically. For a
 wired-together market-to-portfolio-to-analytics path, use
 `alphalab.backtesting.BacktestEngine` over
@@ -321,13 +324,25 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.10.0
+v3.11.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.11.0 — the second pre-v4 release.** The capabilities a strategy needs
+before its API is frozen: instrument economics (multipliers, futures variation
+margin, option premium, perpetuals, lots, negative prices), corporate actions
+and cash flows; order terms and resting orders; target quantities and weights
+against each strategy's own position; enforced subscriptions, slices and fill
+and order feedback; forward returns after a declared lag, delisting returns,
+walk-forward optimization and multiple-testing corrections; Ledoit-Wolf, EWMA
+and factor-model covariances, construction that pays for trading, and lot
+rounding. `alphalab.studio`, `alphalab.workbench`, `alphalab.enterprise` and the
+venue credentials moved to the host application. See `ADR/0046` and the
+CHANGELOG's migration table.
 
 **v3.10.0 — the first pre-v4 release.** A correctness release rather than a
 capability one, planned by the pre-v4 audit (`audit/PRE_V4_MASTER_AUDIT.md`; the

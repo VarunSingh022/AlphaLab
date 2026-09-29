@@ -88,7 +88,8 @@ record comes next and what clock reading judges it, and holds no state of its ow
 
 Two further paths are wired, and neither runs through `ExecutionPipeline`:
 `alphalab.lifecycle` composes experiment tracking, the model registry, the
-deployment manager, `studio`, `enterprise` and `research` (v2.4, ADR-0013), and
+deployment manager and `research` (v2.4, ADR-0013; `studio` and `enterprise`
+until v3.11, ADR-0046), and
 `alphalab.market.provider` / `alphalab.market.stream` turn a provider's history
 or a live socket into a `MarketDataSource` the run can read (v2.5, v2.15).
 **The lifecycle path and the execution path meet** at
@@ -96,7 +97,7 @@ or a live socket into a `MarketDataSource` the run can read (v2.5, v2.15).
 refusal and a mapping with a refusal, not a second runtime (v2.16, v2.17).
 
 Every other engine described in this document (the learning and asset-class
-engines, `reporting`, `portfolio_optimizer`, `workbench`, …) is standalone and is
+engines, `reporting`, `portfolio_optimizer`, …) is standalone and is
 not invoked by either path. `alphalab/production`, which earlier revisions of this
 document named here, was removed in v2.17.
 

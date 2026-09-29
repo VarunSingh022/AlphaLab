@@ -58,6 +58,13 @@ START_CASH = Decimal("10000000")
 # (4.30x -- 2.06x and 2.08x per doubling, i.e. linear). Retaining full history
 # in Python means a growing live heap for the collector to walk; the benchmark
 # leaves it on because that is what a real run pays.
+#
+# v3.11: that was not all of it. A slice of an append-only log copied the whole
+# log, and the pipeline takes two per fill -- ``history[before:]`` of the
+# execution history and ``events[before:]`` of the portfolio's -- so a run was
+# quadratic in its length, a term too small to see at 4k events and the larger
+# one past it (ledger PRF-007). With the collector paused, 2k/8k/16k events
+# cost 754/952/1136 microseconds each before the fix and 664/678/651 after.
 # The ceiling below is set to catch a regression back toward quadratic
 # behaviour, not to police constant factors.
 MAX_SCALING_FACTOR = 6.0

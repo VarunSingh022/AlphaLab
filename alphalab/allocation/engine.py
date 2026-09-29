@@ -178,6 +178,7 @@ class AllocationEngine:
                         working,
                         lots.get(intent.instrument),
                         minimum_notionals.get(intent.instrument),
+                        whole_units=constraints.enforce_integer_quantities,
                     )
             except SizingRefusedError as refusal:
                 events = events.append(
@@ -195,9 +196,12 @@ class AllocationEngine:
 
         # 4. Enforce constraints & Budget Pre-check
         total_notional = Decimal("0.00")
-        orders: list[OrderRequest] = []
-        # Long-only judges each order against the position the batch's earlier
-        # orders for the same asset leave, since one asset can now take two.
+        # Each emitted request, what it commits against the budget, and whether
+        # it reduces the account's committed position.
+        emitted: list[tuple[OrderRequest, Decimal, bool]] = []
+        # Long-only and the budget judge each order against the position the
+        # batch's earlier orders for the same asset leave, since one asset can
+        # now take two.
         projected = dict(positions) if positions is not None else None
 
         for (asset_id, terms), net_qty in net_quantities.items():
@@ -217,18 +221,19 @@ class AllocationEngine:
                         f"{lot.lot_size} lots at or above {lot.minimum_quantity}; it is "
                         "refused rather than rounded to an order nobody asked for."
                     )
+                held = None if projected is None else projected.get(asset_id, Decimal("0"))
                 if not constraints.allow_shorting:
-                    if projected is None:
+                    if held is None:
                         validate_net_quantity(net_qty, enforce_long_only=True)
                     else:
-                        held = projected.get(asset_id, Decimal("0"))
                         validate_long_only(asset_id, net_qty, held)
-                        projected[asset_id] = held + net_qty
             except AllocationValidationError as e:
                 events = events.append(
                     AllocationRejected(AllocationEngine._create_id(), timestamp, str(e))
                 )
                 continue
+            if projected is not None and held is not None:
+                projected[asset_id] = held + net_qty
 
             side = Side.BUY if net_qty > Decimal("0") else Side.SELL
             abs_qty = abs(net_qty)
@@ -240,9 +245,23 @@ class AllocationEngine:
             # number unless the budget is in another currency or the instrument
             # has a multiplier.
             budget_price = unit_budget_prices.get(asset_id, unit_prices.get(asset_id, price))
+            # What an order commits is the exposure it *adds*: the growth of the
+            # account's committed position away from zero. A sale that reduces
+            # a long commits nothing -- it frees capital -- so a fully invested
+            # book can rotate, which until v3.11 the budget refused, dropping
+            # the sale with the purchase (ledger ALC-007; the risk gate has
+            # never refused a reduction since v3.10). With the positions
+            # unknown, every order commits its whole notional, as before.
             # Committed capital is a magnitude: a contract priced below zero
             # commits as much as one priced as far above it (ACC-007).
-            total_notional += abs_qty * budget_price.copy_abs()
+            if held is None:
+                adding, reduces = abs_qty, False
+            else:
+                after = abs(held + net_qty)
+                adding = max(Decimal("0"), after - abs(held))
+                reduces = after < abs(held)
+            commitment = adding * budget_price.copy_abs()
+            total_notional += commitment
 
             events = events.append(
                 NettingCompleted(
@@ -250,24 +269,36 @@ class AllocationEngine:
                 )
             )
 
-            orders.append(
-                OrderRequest(
-                    order_id=AllocationEngine._create_id(),
-                    # A netted order can represent several strategies, so it has
-                    # no single owner and says so. Until v2.6 this carried the
-                    # fabricated "ALLOC-NETTED", which the OMS then indexed as
-                    # though it were a strategy. Attribution reads
-                    # ``contributions``. See ADR-0015 decision 4.
-                    strategy_id="",
-                    asset_id=asset_id,
-                    side=side,
-                    quantity=abs_qty,
-                    price=price,
-                    timestamp=timestamp,
-                    contributions=contributions_by_key.get((asset_id, terms), ()),
-                    terms=terms,
+            emitted.append(
+                (
+                    OrderRequest(
+                        order_id=AllocationEngine._create_id(),
+                        # A netted order can represent several strategies, so it has
+                        # no single owner and says so. Until v2.6 this carried the
+                        # fabricated "ALLOC-NETTED", which the OMS then indexed as
+                        # though it were a strategy. Attribution reads
+                        # ``contributions``. See ADR-0015 decision 4.
+                        strategy_id="",
+                        asset_id=asset_id,
+                        side=side,
+                        quantity=abs_qty,
+                        price=price,
+                        timestamp=timestamp,
+                        contributions=contributions_by_key.get((asset_id, terms), ()),
+                        terms=terms,
+                    ),
+                    commitment,
+                    reduces,
                 )
             )
+
+        # Reductions are sent first: the risk gate judges each order against
+        # the book with every earlier order of the batch working, so a sale
+        # sequenced before the purchase it funds frees the exposure the
+        # purchase needs. Stable within each group, so a batch of only one
+        # kind is sent exactly as before.
+        emitted.sort(key=lambda item: not item[2])
+        orders = [item[0] for item in emitted]
 
         # 5. Budget Application
         #
@@ -315,12 +346,10 @@ class AllocationEngine:
         # against it can later be consumed or released by order id.
         reservations = state.reservations
         contributions = state.contributions
-        for order in orders:
-            # In the budget's currency, like the total it is a part of.
-            unit = unit_budget_prices.get(
-                order.asset_id, unit_prices.get(order.asset_id, order.price)
-            )
-            reservations = reservations.set(order.order_id, order.quantity * unit.copy_abs())
+        for order, commitment, _ in emitted:
+            # In the budget's currency, like the total it is a part of: what the
+            # order commits, which is nothing for one that only reduces.
+            reservations = reservations.set(order.order_id, commitment)
             contributions = contributions.set(order.order_id, order.contributions)
 
         new_state = evolve(
@@ -548,8 +577,17 @@ def _target_delta(
     working: Mapping[tuple[str, str], Decimal],
     lot: LotSpecification | None,
     minimum_notional: Decimal | None,
+    *,
+    whole_units: bool,
 ) -> Decimal:
     """The signed quantity that takes a strategy from what it has to its target.
+
+    Rounded toward zero -- onto whole units when the run trades whole units,
+    then onto the instrument's lot -- so a target is approached and never
+    overshot. Whole units are taken here rather than left to the netted
+    order's nearest-unit rounding, which would turn 297.6 shares toward a
+    target into an order for 298 (found by example 08 in the v3.11 release
+    gates).
 
     Raises:
         SizingRefusedError: If the positions were never recorded, the asset has
@@ -585,6 +623,8 @@ def _target_delta(
     delta = ctx.subtract(target, committed).quantize(
         QUANTITY_QUANTUM, rounding=ROUND_DOWN, context=ctx
     )
+    if whole_units:
+        delta = delta.to_integral_value(rounding=ROUND_DOWN, context=ctx)
     if lot is not None:
         delta = round_down_to_lot(delta, lot)
     if delta == 0:

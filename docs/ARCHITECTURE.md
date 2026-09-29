@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.10)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.11)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.10)
+# Implementation Status (v3.11)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -125,7 +125,20 @@ execution assumptions; incremental marking over exact per-currency totals
 versioned schema upgrades (`alphalab.persistence.upgrade`); and the removal of
 `alphalab.feed`, `alphalab.live`, the vendor market-data clients and the last
 `"USD"` configuration defaults. It removes two packages, adds none and no package
-edge (ADR-0045). **v3.0.0 adds no capability**: it freezes the architecture described here and makes the
+edge (ADR-0045). **v3.11.0 is the second pre-v4 release and a capability one**:
+declared instrument economics (`alphalab.conventions.economics`), cash flows and
+splits (`alphalab.portfolio.corporate_actions`); order terms and resting orders
+(`alphalab.common.order_terms`); target intents against each strategy's own
+position, kept by allocation; enforced subscriptions
+(`alphalab.strategy.subscription`), slices and fill and order feedback;
+walk-forward optimization (`alphalab.research.walk_forward_optimization`),
+multiple testing and the deflated Sharpe ratio; shrunk, EWMA and factor-model
+covariances, costed construction and lot rounding
+(`alphalab.portfolio_optimizer.lots`); and every run entry point pinned to the
+accounting context. It removes `alphalab.studio`, `alphalab.workbench` and
+`alphalab.enterprise` to the host application, adds one package edge
+(`portfolio_optimizer` → `conventions`) and no package, and upgrades eight
+snapshot schemas (ADR-0046). **v3.0.0 adds no capability**: it freezes the architecture described here and makes the
 documentation match it.
 
 ## AlphaLab is a library
@@ -428,12 +441,12 @@ schema is unchanged.
 | Canonical broker vocabulary and `BrokerProtocol` | **Implemented** |
 | `PaperBroker` | **Implemented** — a simulation, and the reference adapter |
 | Routing, fill return, reconciliation, pre-trade gates | **Implemented and tested** |
-| **A transport that reaches a venue** | **Implemented (v2.15).** `alphalab.broker.transport.HttpVenueTransport` — authenticated JSON-over-HTTP with HMAC request signing, on the standard library |
-| **A `BrokerProtocol` adapter over it** | **Implemented (v2.15).** `alphalab.broker.venue.RestVenueBroker` — submit, acknowledge, reject, cancel, replace, poll fills, reconcile, recover |
+| **A transport that reaches a venue** | **The host application's since v3.11** (BRK-007). v2.15 to v3.10 shipped `alphalab.broker.transport.HttpVenueTransport` — authenticated JSON-over-HTTP with HMAC request signing — which held a venue credential; it is kept as a worked example in `tests/reference_adapter/transport.py` |
+| **A `BrokerProtocol` adapter over it** | **The host application's since v3.11** (BRK-007). v2.15 to v3.10 shipped `alphalab.broker.venue.RestVenueBroker` — submit, acknowledge, reject, cancel, replace, poll fills, reconcile, recover — now `tests/reference_adapter/venue.py`, driven end to end by the tests |
 | **A streaming market-data source** | **Implemented (v2.15).** `alphalab.market.stream.StreamingSource` over `alphalab.marketdata.websocket`, an RFC 6455 client |
 | Verification against a commercial venue | **Not done, and cannot be here.** This environment has no network egress and holds no vendor credentials |
 | Vendor market-data clients | **None, since v3.10.** Until then `alphalab.marketdata.binance` was a REST client and `databento`, `nse`, `polygon` and `yahoo` raised `NotImplementedError`; all five were removed with the v1 provider engine (ADR-0045). A provider is the host application's: it implements `alphalab.market.provider.BarHistoryProvider.request_history` and returns wire bars |
-| Vendor *broker* adapters | **None.** The canned-response Alpaca / IB / Zerodha clients lived in `alphalab.integrations` and were removed in v2.17 (ADR-0034). Implementing one means implementing that venue's request shapes over `HttpVenueTransport` |
+| Vendor *broker* adapters | **None.** The canned-response Alpaca / IB / Zerodha clients lived in `alphalab.integrations` and were removed in v2.17 (ADR-0034). Implementing one means implementing `BrokerProtocol` in the host application, over its own transport and credentials |
 | **A live driver** | **Implemented (v2.16).** `alphalab.runtime.live.LiveSession` — settle the fills the venue reported, advance the run, route what is newly working — with the venue binding made durable by `alphalab.broker.snapshot`. See ADR-0033 |
 | A supervised live *process* | **Not implemented.** Supervision — restart policy, alerting, scheduling — is an operator's concern and AlphaLab has no opinion about it. `live_health` answers "should a human look at this?"; acting on the answer is the caller's |
 | **Structured runtime health** | **Implemented (v3.5).** `alphalab.lifecycle.health.evaluate_health` — seven categories, severities, machine-readable detail, from **supplied** observations against a specification's declared budgets. It observes nothing on its own and remediates nothing |
@@ -487,9 +500,12 @@ See ADR-0012 and ADR-0031.
 
 The third integration package. It adds no engine, and no state that any of the
 packages it composes already defines. It imports `experiment_tracking`,
-`model_registry`, `deployment_manager`, `studio`, `enterprise`, `research` and
-`backtesting`; `research_assistant` below is the producer of the candidate and is
-**not** imported — the dependency runs through the `StrategyDefinition`.
+`model_registry`, `deployment_manager`, `research` and `backtesting` (and, until
+v3.11, `studio` and `enterprise` -- removed then, with the strategy definition
+moving to `alphalab.strategy` and permissions to a `PermissionAuthority` the
+application supplies); `research_assistant` below is the producer of the
+candidate and is **not** imported — the dependency runs through the
+`StrategyDefinition`.
 
 ```
 research candidate         (research_assistant.generate_candidates)
@@ -786,9 +802,12 @@ query with a refusal, naming no runtime type at all. See ADR-0033.
 ADR-0018 was written in v2.7 and deferred. Before v2.16 the lifecycle's audit
 trail answered *what* changed and *when* and was silent on *who*, while
 `alphalab.enterprise` held a complete RBAC implementation with zero production
-consumers.
+consumers. (v3.11 removed that package: permissions are now answered by a
+`PermissionAuthority` -- the application's identity system, or
+`StaticPermissions` for a research setting -- and `Governance(authority,
+actor_id, approval_required_in)` records who acted; ADR-0046.)
 
-`Governance(enterprise, actor_id, approval_required_in)` is the **required**
+`Governance(authority, actor_id, approval_required_in)` is the **required**
 second argument of `promote_strategy_version`, `deploy_strategy_version`,
 `rollback_environment`, `retire_strategy_version` and `approve_deployment` —
 ADR-0018's option (b), and required because an optional gate is the option (c)
@@ -943,10 +962,11 @@ An independent, deterministic, individually tested library that is reached by
 **neither** wired path: `portfolio_optimizer`, `optimizer`, `reporting`,
 `feature_store`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
-`cloud_research`, `cluster_scheduler`, `distributed`, `workbench`,
+`cloud_research`, `cluster_scheduler`, `distributed`,
 `research_assistant`, `brokers`, `plugins`, `scheduler`, `scenario`.
 (`production`, `integrations` and `kernel` were on this list until v2.17, which
-removed them — see ADR-0034; `live` and `feed` until v3.10 — see ADR-0045.)
+removed them — see ADR-0034; `live` and `feed` until v3.10 — see ADR-0045;
+`workbench` until v3.11 — see ADR-0046.)
 
 **`conventions` (v3.4) is on neither path and is not a standalone engine
 either.** It is a leaf *library* imported by other packages rather than one
@@ -989,7 +1009,8 @@ every run (ADR-0042 decision 1).
 
 **`portfolio_optimizer` gained one edge in v3.8 and stayed on the list.** It
 now imports the risk model in `alphalab.analytics` — the one covariance
-authority — besides `alphalab.common`; nothing on either path imports it, so a
+authority — besides `alphalab.common`, and since v3.11 `alphalab.conventions`,
+the lot authority `round_to_lots` rounds against; nothing on either path imports it, so a
 construction answers what to own and turning it into orders stays the caller's
 decision. `alphalab.portfolio` gained `alphalab.core` for the canonical
 `StrategyContribution` a multi-strategy holding carries, and `alphalab.api`
@@ -1015,7 +1036,8 @@ authority. `alphalab.broker` is reached from the execution path through
 owner writes through.
 
 `alphalab.lifecycle` imports `experiment_tracking`, `model_registry`,
-`deployment_manager`, `studio`, `enterprise`, `research` and `backtesting`. It
+`deployment_manager`, `research` and `backtesting` (`studio` and `enterprise`
+until v3.11, which removed them). It
 does **not** import `research_assistant`: that package produces a candidate and
 `to_strategy_definition` lifts it into the canonical `StrategyDefinition` the
 lifecycle takes, so the dependency runs through the definition rather than the
@@ -1266,7 +1288,8 @@ Converted: `risk`, `market`, `execution`, `oms`, `allocation`, `portfolio` and
 `ExecutionPipelineState`. `strategy` and `analytics` histories grow per lifecycle
 transition or per compiled report, not per market event, and were left as tuples.
 
-v2.16 adds `studio` and `workbench`, for the reason in the section below.
+v2.16 adds `studio` and `workbench`, for the reason in the section below (both
+removed in v3.11).
 
 **v2.17 converts the rest.** `scheduler`, `feature_store`, `distributed`,
 `plugins`, `reporting`, `optimizer`, `data`, `cluster_scheduler` and
@@ -1370,6 +1393,9 @@ collector rather than the data structure and has been observed both well above
 and well below linear on the same build.
 
 ## Studio and Workbench accumulation (v2.16)
+
+*Both packages were removed in v3.11 (ADR-0046); this section is kept as the
+record of what v2.16 measured and changed.*
 
 The two presentation-layer packages never took the v2.1 / v2.2 containers, and
 `benchmarks/benchmark_workbench.py` is where that showed. The benchmark had
@@ -1631,10 +1657,8 @@ Consistency across packages significantly reduces maintenance complexity as the 
 # High-Level Architecture
 
 ```
-                         AlphaLab Workbench
-                                 │
-                                 ▼
-                        Strategy Studio
+             The host application (iluvtrade): users, workspaces, UI,
+             orchestration, credentials -- outside this library
                                  │
         ┌─────────────┬──────────┴──┬──────────────┐
         ▼             ▼             ▼              ▼
@@ -1654,7 +1678,11 @@ Consistency across packages significantly reduces maintenance complexity as the 
 
 The architecture is intentionally layered.
 
-Higher-level modules orchestrate workflows.
+The library starts at the domain engines. Orchestrating workflows for people --
+projects, workspaces, sessions, screens -- is the host application's, and the
+packages that once did it inside AlphaLab (Strategy Studio, the Workbench,
+Enterprise) were removed in v3.11 (ADR-0046; ledger SCF-001, BND-003,
+BND-002).
 
 Lower-level modules provide deterministic domain logic.
 
@@ -1664,14 +1692,11 @@ External systems communicate only through dedicated integration layers.
 
 # Layered Architecture
 
-AlphaLab is organized into five logical layers.
+AlphaLab is organized into three logical layers, below the host application
+that uses it.
 
 ```
-Presentation Layer
-
-↓
-
-Orchestration Layer
+(Host application: presentation and orchestration -- not AlphaLab)
 
 ↓
 
@@ -1686,21 +1711,13 @@ Infrastructure
 External Providers
 ```
 
-Each layer has clearly defined responsibilities and dependency rules.
+Each layer has clearly defined responsibilities and dependency rules. Until
+v3.11 two more sat on top -- a presentation layer (the Workbench) and an
+orchestration layer (Strategy Studio). Both were state a user interface keeps
+about itself, and v3.11 removed them to the application that owns users and
+screens (ADR-0046).
 
 ```
-+------------------------------------------------------+
-|                  Presentation Layer                  |
-|                AlphaLab Workbench                    |
-+------------------------------------------------------+
-                         │
-                         ▼
-+------------------------------------------------------+
-|                Orchestration Layer                   |
-|                 Strategy Studio                      |
-+------------------------------------------------------+
-                         │
-                         ▼
 +------------------------------------------------------+
 |                 Domain Engines                       |
 |  Research • Replay • Portfolio • Runtime • Data      |
@@ -1737,97 +1754,22 @@ No module should attempt to duplicate the responsibilities of another.
 
 ---
 
-# Presentation Layer
+# Presentation and Orchestration -- Not in the Library
 
-## Workbench
+AlphaLab has no presentation or orchestration layer. The Workbench
+(`alphalab.workbench`: themes, panels, tabs, layouts), Strategy Studio
+(`alphalab.studio`: projects, pipelines of caller-supplied results, workspace
+state) and Enterprise (`alphalab.enterprise`: principals, sessions, RBAC,
+workspaces) were removed in v3.11 (ADR-0046; ledger BND-003, SCF-001, BND-002).
+Each kept state about *people using software* -- who is signed in, what is on
+their screen, which project they are in -- which is the host application's
+responsibility, and none of it was read by anything the library computes.
 
-**Package**
-
-```
-alphalab/workbench
-```
-
-### Responsibility
-
-The Workbench provides the primary user interface for AlphaLab.
-
-It is responsible for presenting information and initiating workflows.
-
-The Workbench **never implements business logic**.
-
-Instead, it delegates every operation to the Strategy Studio.
-
-Examples include:
-
-- Opening projects
-- Viewing datasets
-- Running backtests
-- Displaying reports
-- Monitoring production systems
-- Managing layouts
-- Navigating workspaces
-
-### Owns
-
-- UI state
-- Sessions
-- Layouts
-- Views
-- Navigation
-- Themes
-
-### Never Owns
-
-- Research algorithms
-- Portfolio optimization
-- Broker communication
-- Data normalization
-- Production runtime
-
----
-
-## Strategy Studio
-
-**Package**
-
-```
-alphalab/studio
-```
-
-### Responsibility
-
-Strategy Studio is the orchestration layer of AlphaLab.
-
-It coordinates complete quantitative research workflows.
-
-Every high-level workflow passes through Strategy Studio.
-
-Examples include:
-
-- Creating projects
-- Running pipelines
-- Executing backtests
-- Managing experiments
-- Generating reports
-- Organizing datasets
-
-### Owns
-
-- Projects
-- Pipelines
-- Experiments
-- Sessions
-- Reports
-- Workspace state
-
-### Never Owns
-
-- Market data providers
-- Portfolio algorithms
-- Runtime supervision
-- Broker implementations
-
-Those responsibilities belong to dedicated engines.
+What Strategy Studio did that *is* the library's -- stating a strategy's
+identity, version and parameters so a run can be reproduced -- is
+:class:`alphalab.strategy.StrategyDefinition` with the class registry
+(`alphalab.strategy.registry`), and governance of promotions is
+`alphalab.lifecycle`.
 
 ---
 
@@ -2249,41 +2191,8 @@ Dependencies in the opposite direction are prohibited.
 
 # Allowed Dependencies
 
-## Workbench
-
-May depend on:
-
-- Strategy Studio
-
-Must not depend on:
-
-- Research
-- Portfolio Optimizer
-- Runtime
-- Market Data
-- Broker APIs
-
----
-
-## Strategy Studio
-
-May depend on:
-
-- Research
-- Portfolio Optimizer
-- Universal Data
-- Replay
-- Runtime
-- Reporting
-
-Must not depend directly on provider implementations.
-
-*(In the implementation `alphalab.studio` depends only on `alphalab.common`; it
-is `alphalab.lifecycle` that composes the lifecycle packages and takes Studio's
-`StrategyDefinition`. The rule above is the layering permission, not a claim
-about current imports.)*
-
----
+The Workbench and Strategy Studio rules that led this section were removed with
+the packages in v3.11: nothing in the library sits above the domain engines.
 
 ## Universal Data
 
@@ -2322,10 +2231,11 @@ Depends on, as measured by `tests/regression/test_v38_invariants.py`:
 
 - `alphalab.common`
 - `alphalab.analytics` — the risk model, since v3.8 (ADR-0043)
+- `alphalab.conventions` — lot sizes and exact lot arithmetic, since v3.11
+  (`round_to_lots`, ADR-0046)
 
 Must never depend on:
 
-- Workbench
 - Broker APIs
 - The execution path, the accounting engine or `ml`
 
@@ -2637,40 +2547,13 @@ Reports are immutable snapshots.
 
 ---
 
-# Stage 7 — Strategy Studio
+# Stages 7 and 8 — Orchestration and Presentation (the host's)
 
-Strategy Studio orchestrates the entire workflow.
-
-It coordinates
-
-- Projects
-- Pipelines
-- Datasets
-- Strategies
-- Experiments
-- Reports
-- Backtests
-
-Strategy Studio never implements research algorithms.
-
-Instead, it coordinates the specialized engines.
-
----
-
-# Stage 8 — AlphaLab Workbench
-
-The Workbench provides the graphical interface.
-
-Users can
-
-- Browse datasets
-- Configure experiments
-- Execute pipelines
-- Monitor production
-- Analyze reports
-- Compare strategies
-
-The Workbench delegates every operation to Strategy Studio.
+Until v3.11 the workflow ended in Strategy Studio, which coordinated projects
+and pipelines, and the Workbench, which displayed them. Both kept state about
+people and screens rather than computing anything, and both were removed in
+v3.11 (ADR-0046): the host application orchestrates and presents, calling the
+engines above through `alphalab.api` and the package interfaces.
 
 ---
 
@@ -2700,8 +2583,9 @@ at this?" and the caller decides what to do about it.
 The final stage reaches a venue.
 
 - `alphalab.broker.protocol.BrokerProtocol` — **one** venue. `PaperBroker` is the
-  reference simulation and `RestVenueBroker` the real adapter over
-  `HttpVenueTransport`.
+  reference simulation; an adapter that reaches a real venue, with its transport
+  and credentials, is the host application's (since v3.11; `tests/reference_adapter`
+  keeps the signed-REST adapter that shipped until then as a worked example).
 - `alphalab.brokers.protocol.BrokerConnectorProtocol` — **many** venues and many
   accounts, routing the canonical `alphalab.broker` types.
 
@@ -3644,7 +3528,7 @@ common/  persistence/  plugins/  scheduler/
 
 # The lifecycle path — composed by alphalab.lifecycle
 lifecycle/  experiment_tracking/  model_registry/  deployment_manager/
-studio/  enterprise/  research/  factor_library/  alt_data/
+research/  factor_library/  alt_data/
 
 # Data and venue surfaces reached from the execution path
 data/  marketdata/  broker/
@@ -3655,8 +3539,7 @@ feature_store/
 ml/  deep_learning/  reinforcement_learning/
 options/  futures/  crypto/  macro/
 cloud_research/  cluster_scheduler/  distributed/
-workbench/  research_assistant/
-live/  feed/  brokers/
+research_assistant/  brokers/
 ```
 
 Every package follows a consistent internal organization.
@@ -3846,25 +3729,10 @@ Integration
 
 ---
 
-## Presentation
+## Presentation and orchestration
 
-```
-workbench/
-```
-
-Responsible for user interaction.
-
-Presentation packages never contain business logic.
-
----
-
-## Orchestration
-
-```
-studio/
-```
-
-Coordinates workflows across multiple engines.
+Not in the library since v3.11: `workbench/` and `studio/` were removed, with
+`enterprise/`, to the host application (ADR-0046).
 
 ---
 
@@ -4016,10 +3884,6 @@ tests/unit/
 research/
 
 portfolio_optimizer/
-
-studio/
-
-workbench/
 
 ...
 ```
@@ -4308,11 +4172,12 @@ Adapters isolate provider-specific logic.
 
 # Current Adapter Types
 
-AlphaLab ships two: `PaperBroker`, a simulated venue and the reference
-implementation of `BrokerProtocol`, and `RestVenueBroker`, a generic adapter
-over AlphaLab's own HMAC-signed REST protocol (`HttpVenueTransport`) that names
-no vendor — it holds a venue credential, and leaves the library in v3.11
-(BRK-007). Every other adapter — a market-data vendor
+AlphaLab ships one: `PaperBroker`, a simulated venue and the reference
+implementation of `BrokerProtocol`. Until v3.11 it also shipped `RestVenueBroker`,
+a generic adapter over AlphaLab's own HMAC-signed REST protocol
+(`HttpVenueTransport`) that named no vendor; it held a venue credential, so it
+left the library in v3.11 (BRK-007) and `tests/reference_adapter` keeps it as a
+worked example. Every other adapter — a market-data vendor
 (Yahoo Finance, Polygon, Databento, Binance) or a broker (Interactive Brokers,
 Alpaca, Zerodha) — is the host application's, and implements the same
 contracts: `BarHistoryProvider` for history, `BrokerProtocol` and the v3.9
@@ -5123,21 +4988,14 @@ The same workflows operate locally and in the cloud.
 
 ---
 
-# AlphaLab Enterprise
+# Organizations, Identity and Access -- the Host's
 
-Enterprise extends the platform with organizational capabilities.
-
-Examples
-
-- Authentication
-- Authorization
-- Multi-user workspaces
-- Audit logs
-- Compliance
-- Secrets management
-- Team collaboration
-
-Enterprise builds on existing architecture rather than replacing it.
+Authentication, authorization, multi-user workspaces and secrets management
+are not AlphaLab's. `alphalab.enterprise` implemented principals, sessions and
+RBAC that nothing in the library consulted, and was removed in v3.11 (ADR-0046;
+ledger BND-002, BDY-010). What remains here is what a governed promotion needs
+to *record* -- the approver's identity as a string in `alphalab.lifecycle`'s
+governance -- not what it takes to verify one, which is the application's.
 
 ---
 

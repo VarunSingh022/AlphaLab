@@ -45,6 +45,10 @@ it turned up was already a decision. Six things were not.
 
 # Decision
 
+
+**Amended by ADR-0046 (v3.11.0).** The Workbench fix recorded below
+(`alphalab.workbench.views.active_tab`) went with the package when v3.11
+removed `alphalab.workbench` from the library (ledger BND-003).
 ## 1. The strategy dispatcher identifies a market event exactly
 
 `alphalab.strategy.dispatcher` selected four of its seven hooks with

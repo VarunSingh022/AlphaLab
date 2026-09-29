@@ -102,7 +102,18 @@ class AppendOnlyLog(Sequence[T]):
 
     def __getitem__(self, index: int | slice) -> T | tuple[T, ...]:
         if isinstance(index, slice):
-            return tuple(self._buffer[: self._length][index])
+            # Copies the entries asked for and no others. Until v3.11 a slice
+            # copied the whole view first, so the ``log[before:]`` the
+            # execution pipeline takes of the execution history and the
+            # portfolio's events on every fill cost the length of the run, and
+            # a run was quadratic in its length (ledger PRF-007).
+            # ``indices`` bounds both ends by the view's length, so the shared
+            # buffer's newer entries are never read; a list slice reaches its
+            # start directly, where ``islice`` would walk to it.
+            start, stop, step = index.indices(self._length)
+            if step == 1:
+                return tuple(self._buffer[start:stop])
+            return tuple(self._buffer[position] for position in range(start, stop, step))
         if index < 0:
             index += self._length
         if index < 0 or index >= self._length:

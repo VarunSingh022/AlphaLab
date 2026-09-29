@@ -285,6 +285,44 @@ def test_a_limit_below_the_market_rests_and_fills_at_its_limit_when_crossed() ->
     assert _position(crossed.state) == Decimal("10")
 
 
+def test_a_resting_sell_limit_fills_only_once_the_bid_reaches_it() -> None:
+    """Pinned after the v3.11 defect-injection run: a sell limit crossing on a
+    bid *below* it survived the suite (TST-012)."""
+
+    state = _pipeline({2.0: (Decimal("-10"), OrderTerms.limit(Decimal("101")))})
+    state = _quote(state, 2.0, "99.9", "100.1").state
+    assert _order(state).status is OrderStatus.ACCEPTED
+
+    # A bid under the limit is a price the seller refused: nothing fills.
+    below = _quote(state, 3.0, "100.5", "100.7")
+    assert below.execution_reports == ()
+    assert _order(below.state).status is OrderStatus.ACCEPTED
+
+    reached = _quote(below.state, 4.0, "101.2", "101.4")
+    (report,) = reached.execution_reports
+    assert (report.fill_price, report.liquidity_flag) == (Decimal("101"), "MAKER")
+    assert _position(reached.state) == Decimal("-10")
+
+
+def test_a_bar_fills_a_resting_buy_limit_at_its_limit_or_at_a_better_open() -> None:
+    """Pinned after the v3.11 defect-injection run: a buy limit filling at a
+    bar's open *above* it survived the suite (TST-012)."""
+
+    # Opened above the limit and traded down through it: filled at the limit --
+    # never at the open, which is a price the buyer refused.
+    state = _pipeline({2.0: (Decimal("10"), OrderTerms.limit(Decimal("99")))})
+    state = _bar(state, 2.0, ("100", "101", "99.5", "100")).state
+    assert _order(state).status is OrderStatus.ACCEPTED
+    (report,) = _bar(state, 3.0, ("100.5", "101", "98.5", "99.5")).execution_reports
+    assert (report.fill_price, report.liquidity_flag) == (Decimal("99"), "MAKER")
+
+    # Opened below it: filled at the open, the better price the market offered.
+    state = _pipeline({2.0: (Decimal("10"), OrderTerms.limit(Decimal("99")))})
+    state = _bar(state, 2.0, ("100", "101", "99.5", "100")).state
+    (report,) = _bar(state, 3.0, ("98", "99.5", "97.5", "99")).execution_reports
+    assert report.fill_price == Decimal("98")
+
+
 def test_a_marketable_limit_takes_the_market_within_its_limit() -> None:
     state = _pipeline({2.0: (Decimal("10"), OrderTerms.limit(Decimal("101")))})
     result = _quote(state, 2.0, "99.9", "100.1")

@@ -99,10 +99,11 @@ Each subsystem owns its own event types.
 | `portfolio` | `PositionOpened`, `PositionReduced`, `PositionClosed`, `MarketValueUpdated`, `CashConverted` |
 | `broker` | `BrokerConnected`, `BrokerDisconnected`, `ExecutionReceived`, `Heartbeat` |
 | `lifecycle` | promotion, deployment and approval records, each naming its actor |
-| `studio` / `workbench` | `SessionStarted`, `ReportGenerated`, `ProjectOpened` |
+| `reporting` / `scheduler` | `ReportGenerated`, `SessionStarted` (`studio` and `workbench`, which also published events, left the library in v3.11 — ADR-0046) |
 
-Several event names appear in more than one package — `OrderSubmitted` in both
-`oms` and `broker`, `TickReceived` in both `market` and `live`. They are
+Several event names appear in more than one package — `OrderSubmitted` in
+`oms`, `broker` and `brokers`, `ReportGenerated` in `analytics` and `reporting`
+(and, until v3.10 removed `alphalab.live`, `TickReceived` in `market` and `live`). They are
 different classes with different payloads, and that is deliberate: an OMS order
 event is about *my* order, a broker one about the venue's handle. Routing
 therefore matches the **module and the name together**, never the bare name;

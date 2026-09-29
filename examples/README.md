@@ -19,15 +19,15 @@ API.
 | # | File | What it shows |
 |---|------|---------------|
 | 01 | `01_research.py` | The research engine: a payload in, an immutable `ResearchState` and a score out |
-| 02 | `02_backtest.py` | Strategy Studio's backtest bookkeeping over the sample datasets |
+| 02 | `02_backtest.py` | **Your first backtest**: a CSV ingested into a versioned dataset and run through the canonical path, the strategy stating the position it wants (`TARGET_QUANTITY`) |
 | 03 | `03_replay.py` | The replay cursor: sessions, chronological validation, replay metrics |
 | 04 | `04_market_data.py` | A host provider's wire bars through a normalization policy into canonical bars and market state |
 | 05 | `05_broker_connection.py` | The **two** broker boundaries — one venue (`BrokerProtocol`), or a registry of many (`BrokerConnectorProtocol`) |
 | 06 | `06_portfolio_optimizer.py` | Portfolio construction, constraints, exposure and rebalancing |
 | 07 | `07_universal_data.py` | The Universal Data Engine: ingestion, schema, quality, catalogue |
-| 08 | `08_strategy_studio.py` | Strategy Studio orchestration: projects, strategies, pipelines, reports |
-| 09 | `09_workbench.py` | The Workbench workspace: projects, tabs, dashboards |
-| 10 | `10_complete_pipeline.py` | A multi-engine walkthrough, composing the standalone engines by hand |
+| 08 | `08_strategy_studio.py` | Rebalancing a three-name book to target weights; a lot size declared on the instrument, and rounding toward zero |
+| 09 | `09_workbench.py` | Cross-sectional decisions on complete instants (`on_slice`), orders resting to the next bar, and a two-step rotation in a cash account |
+| 10 | `10_complete_pipeline.py` | **Research to a traded book**: walk-forward optimization of a signal, Ledoit-Wolf construction with transaction costs and whole shares, out-of-sample trading, and benchmark-relative statistics |
 | 11 | `11_unified_backtest.py` | **The integrated execution path**: dataset → intents → orders → fills → P&L → analytics, and replay parity against the same dataset |
 | 12 | `12_model_lifecycle.py` | **The lifecycle path**: research candidate → experiment run → evidence → model version → strategy version → gated promotion → deployment → rollback, with governance |
 | 13 | `13_durable_run_state.py` | Stopping a seeded run, storing it with `FileRunStateStore`, continuing it in a **separate interpreter**, and comparing byte-for-byte against a run that never stopped |

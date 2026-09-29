@@ -3,7 +3,7 @@
 Run with an interpreter whose environment holds the built wheel or sdist and
 nothing else, from a directory outside the source tree::
 
-    python /path/to/tests/installed_smoke.py 3.10.0
+    python /path/to/tests/installed_smoke.py 3.11.0
 
 It checks what the test suite cannot, because the suite runs against the source
 tree: that the distribution carries every module the source has, that it reports
