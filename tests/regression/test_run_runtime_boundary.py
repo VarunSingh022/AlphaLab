@@ -470,7 +470,9 @@ def test_the_run_snapshot_covers_every_run_config_field() -> None:
 
 
 def test_the_run_snapshot_invents_nothing() -> None:
-    derived = {"fill_policy_type", "schema_version", "pipeline"}
+    # ``dropped``: the steps' and skipped records' own dropped counts (PRF-004),
+    # which the state carries on the logs and the snapshot beside their entries.
+    derived = {"fill_policy_type", "schema_version", "pipeline", "dropped"}
     state = {f.name for f in dataclasses.fields(RunState)}
     config = {f.name for f in dataclasses.fields(RunConfig)}
     unexpected = {f.name for f in dataclasses.fields(RunSnapshot)} - state - config - derived

@@ -83,8 +83,10 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionRouting,
     UnpricedAsset,
     price_refusal,
+    retained,
     wants_slices,
 )
+from alphalab.runtime.retention import trimmed
 from alphalab.strategy.events import LifecycleTransitioned, ObservationReceived, TimerEvent
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
@@ -396,6 +398,20 @@ def _out_of_order(
     return evolve(state, skipped=state.skipped.append(SkippedRecord(record, detail))), None
 
 
+def _retained(state: RunState) -> RunState:
+    """``state`` with its derived histories held to the configured retention (PRF-004)."""
+
+    policy = state.config.pipeline.retention
+    if policy.keeps_everything:
+        return state
+    pipeline = retained(state.pipeline)
+    steps = trimmed(state.steps, policy.steps)
+    skipped = trimmed(state.skipped, policy.steps)
+    if pipeline is state.pipeline and steps is state.steps and skipped is state.skipped:
+        return state
+    return evolve(state, pipeline=pipeline, steps=steps, skipped=skipped)
+
+
 class RunEngine:
     """The canonical owner of a record-driven run."""
 
@@ -444,7 +460,11 @@ class RunEngine:
            (:func:`~alphalab.runtime.execution_pipeline.price_refusal`);
         4. :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.process_record`;
         5. a :class:`RunStep` recording what the record produced;
-        6. the run cursor.
+        6. the run cursor;
+        7. since v3.12, the configured retention
+           (:class:`~alphalab.runtime.retention.RetentionPolicy`): each derived
+           history grown past its bound is trimmed back to it -- after the
+           record, never during it (ledger PRF-004).
 
         ``now`` is the run's clock. It defaults to the record's own timestamp,
         under which no record is ever stale -- the right answer for a historical
@@ -470,17 +490,23 @@ class RunEngine:
                 f"Market data timestamped {record.timestamp} is older than the "
                 f"{limit}s limit at {clock}.",
             )
-            return evolve(state, skipped=state.skipped.append(skipped)), None
+            return _retained(evolve(state, skipped=state.skipped.append(skipped))), None
 
         previous = state.last_record_timestamp
         if previous is not None and record.timestamp < previous:
-            return _out_of_order(state, record, previous)
+            skipped_state, _ = _out_of_order(state, record, previous)
+            return _retained(skipped_state), None
 
         refusal = price_refusal(state.pipeline, record.payload)
         if refusal is not None:
             # Recorded, not raised and not dropped: a price the instrument cannot
             # take is bad data, and a run says what it declined (ACC-007).
-            return evolve(state, skipped=state.skipped.append(SkippedRecord(record, refusal))), None
+            return (
+                _retained(
+                    evolve(state, skipped=state.skipped.append(SkippedRecord(record, refusal)))
+                ),
+                None,
+            )
 
         result = ExecutionPipeline.process_record(
             state.pipeline, record, context_factory, state.config.fill_policy, rates
@@ -516,7 +542,7 @@ class RunEngine:
                     state=advanced,
                     failures=failures,
                 )
-        return advanced, result
+        return _retained(advanced), result
 
     @staticmethod
     def resume(state: RunState) -> AbstractContextManager[None]:

@@ -390,6 +390,9 @@ def test_the_pipeline_overwrites_whatever_the_caller_supplied() -> None:
         available = True
         configured = True
         as_of = 9_999.0
+        window = None
+        visible = 1
+        complete = True
 
         def quotes(self, asset_id: str, limit: int | None = None) -> Any:
             return ("a lie",)

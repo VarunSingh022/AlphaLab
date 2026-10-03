@@ -947,7 +947,9 @@ def test_the_snapshot_covers_every_pipeline_state_field() -> None:
 
 
 def test_the_snapshot_carries_nothing_the_state_does_not_have() -> None:
-    derived = {"schema_version", "strategy_events"}
+    # ``dropped`` is the retained logs' own dropped counts (v3.12, PRF-004): the
+    # state carries them on the logs, the snapshot beside their entries.
+    derived = {"schema_version", "strategy_events", "dropped"}
     unexpected = (
         {field.name for field in fields(PipelineSnapshot)}
         - {field.name for field in fields(ExecutionPipelineState)}

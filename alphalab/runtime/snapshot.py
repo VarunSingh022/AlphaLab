@@ -78,8 +78,8 @@ from __future__ import annotations
 
 import math
 import warnings
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, fields
 from datetime import time
 from decimal import Decimal
 from typing import Any, Final
@@ -100,6 +100,7 @@ from alphalab.analytics.state import AnalyticsState
 from alphalab.analytics.summary import TradeMetrics
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.currency_units import CurrencyUnits
+from alphalab.common.evolve import evolve
 from alphalab.common.exceptions import AlphaLabError, AlphaLabValidationError
 from alphalab.common.ids import IdStreamPosition
 from alphalab.common.persistent_map import PersistentMap
@@ -205,6 +206,7 @@ from alphalab.runtime.execution_pipeline import (
     _require_classifiable,
     _require_one_account_currency,
 )
+from alphalab.runtime.retention import RetentionPolicy
 from alphalab.strategy.events import (
     FillEvent,
     LifecycleTransitioned,
@@ -223,6 +225,7 @@ __all__ = [
     "PIPELINE_SCHEMA_HISTORY",
     "PIPELINE_SNAPSHOT_SCHEMA",
     "READABLE_PIPELINE_SCHEMAS",
+    "RETAINED_LOGS",
     "AnalyticsEventRecord",
     "ExecutionEventRecord",
     "MarketEventRecord",
@@ -277,11 +280,117 @@ __all__ = [
 #: recorded rather than supplied back. It also records whether the budget
 #: enforces per-strategy ceilings (``config.budget.enforce_strategy_budgets``,
 #: ledger OFE-003) and each classification-bucket limit
-#: (``risk_limits.classification``, ledger OFE-001). Every earlier version is
-#: read through :data:`PIPELINE_SCHEMA_HISTORY`.
+#: (``risk_limits.classification``, ledger OFE-001) -- and the run's retention
+#: policy (``config.retention``) with, for each log it trimmed, how many entries
+#: were dropped before those recorded (``dropped``, ledger PRF-004). Every
+#: earlier version is read through :data:`PIPELINE_SCHEMA_HISTORY`.
 PIPELINE_SNAPSHOT_SCHEMA: Final = 6
 
 _SUBSYSTEM: Final = "pipeline"
+
+#: Every pipeline log a :class:`~alphalab.runtime.retention.RetentionPolicy` may
+#: trim, by the dotted path from the pipeline state that reaches it -- the names
+#: the snapshot's ``dropped`` counts travel under -- with how to read it and how
+#: to put it back. Spelled out rather than walked by name: this module turns no
+#: string into an attribute (v3.12, ledger PRF-004).
+_RETAINED: Final[
+    tuple[
+        tuple[
+            str,
+            Callable[[ExecutionPipelineState], AppendOnlyLog[Any]],
+            Callable[[ExecutionPipelineState, AppendOnlyLog[Any]], ExecutionPipelineState],
+        ],
+        ...,
+    ]
+] = (
+    (
+        "market.history",
+        lambda s: s.market.history,
+        lambda s, log: evolve(s, market=evolve(s.market, history=log)),
+    ),
+    (
+        "market.events",
+        lambda s: s.market.events,
+        lambda s, log: evolve(s, market=evolve(s.market, events=log)),
+    ),
+    (
+        "allocation.history",
+        lambda s: s.allocation.history,
+        lambda s, log: evolve(s, allocation=evolve(s.allocation, history=log)),
+    ),
+    (
+        "allocation.events",
+        lambda s: s.allocation.events,
+        lambda s, log: evolve(s, allocation=evolve(s.allocation, events=log)),
+    ),
+    (
+        "risk.history",
+        lambda s: s.risk.history,
+        lambda s, log: evolve(s, risk=evolve(s.risk, history=log)),
+    ),
+    (
+        "risk.events",
+        lambda s: s.risk.events,
+        lambda s, log: evolve(s, risk=evolve(s.risk, events=log)),
+    ),
+    (
+        "oms.history",
+        lambda s: s.oms.history,
+        lambda s, log: evolve(s, oms=evolve(s.oms, history=log)),
+    ),
+    ("oms.events", lambda s: s.oms.events, lambda s, log: evolve(s, oms=evolve(s.oms, events=log))),
+    (
+        "execution.history",
+        lambda s: s.execution.history,
+        lambda s, log: evolve(s, execution=evolve(s.execution, history=log)),
+    ),
+    (
+        "execution.events",
+        lambda s: s.execution.events,
+        lambda s, log: evolve(s, execution=evolve(s.execution, events=log)),
+    ),
+    (
+        "portfolio.events",
+        lambda s: s.portfolio.events,
+        lambda s, log: evolve(s, portfolio=evolve(s.portfolio, events=log)),
+    ),
+    (
+        "portfolio.ledger.transactions",
+        lambda s: s.portfolio.ledger.transactions,
+        lambda s, log: evolve(
+            s, portfolio=evolve(s.portfolio, ledger=evolve(s.portfolio.ledger, transactions=log))
+        ),
+    ),
+    ("fills", lambda s: s.fills, lambda s, log: evolve(s, fills=log)),
+    ("trades", lambda s: s.trades, lambda s, log: evolve(s, trades=log)),
+    ("trade_records", lambda s: s.trade_records, lambda s, log: evolve(s, trade_records=log)),
+    (
+        "portfolio_snapshots",
+        lambda s: s.portfolio_snapshots,
+        lambda s, log: evolve(s, portfolio_snapshots=log),
+    ),
+)
+
+#: The names of the pipeline's retained logs, in a fixed order.
+RETAINED_LOGS: Final = tuple(path for path, _, _ in _RETAINED)
+
+
+def _dropped_counts(state: ExecutionPipelineState) -> dict[str, int]:
+    """Each retained log's non-zero dropped count, by its name."""
+
+    return {path: count for path, read, _ in _RETAINED if (count := read(state).dropped)}
+
+
+def _with_dropped(
+    state: ExecutionPipelineState, dropped: Mapping[str, int]
+) -> ExecutionPipelineState:
+    """``state`` with each named log saying how many entries it dropped before its first."""
+
+    for path, read, write in _RETAINED:
+        count = dropped.get(path, 0)
+        if count:
+            state = write(state, AppendOnlyLog.restored(read(state), count))
+    return state
 
 
 def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
@@ -483,7 +592,7 @@ def _v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _v5_to_v6(payload: dict[str, Any]) -> dict[str, Any]:
-    """Record that a version-5 run declared no venue calendar, ceiling or bucket limit.
+    """Record that a version-5 run declared no venue calendar, ceiling, bucket limit or retention.
 
     A v3.11 pipeline could hold no calendar (ledger EXE-010): it refused a
     simulated day order that did not state its close, and that is exactly what
@@ -497,11 +606,13 @@ def _v5_to_v6(payload: dict[str, Any]) -> dict[str, Any]:
     config = dict(payload["config"])
     config["calendars"] = {"by_exchange": {}, "default": None}
     config["budget"] = {**config["budget"], "enforce_strategy_budgets": False}
-    # Nor did any limit a classification bucket (OFE-001).
+    # Nor did any limit a classification bucket (OFE-001), and none trimmed a
+    # history (PRF-004).
     config["risk_limits"] = {**config["risk_limits"], "classification": []}
+    config["retention"] = dict.fromkeys(("market_history", "steps", "audit_events", "results"))
     risk = dict(payload["risk"])
     risk["active_limits"] = {**risk["active_limits"], "classification": []}
-    return {**payload, "config": config, "risk": risk}
+    return {**payload, "config": config, "risk": risk, "dropped": {}}
 
 
 #: How every pipeline payload a release has written is read by this one.
@@ -691,6 +802,7 @@ class ConfigRecord:
     instruments_type: str | None
     fill_timing: FillTiming
     calendars: VenueCalendars
+    retention: RetentionPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -808,6 +920,10 @@ class PipelineSnapshot:
     portfolio_snapshots: tuple[EquityPoint, ...]
     unpriced_assets: Mapping[str, UnpricedAsset]
     id_position: IdStreamPosition
+    #: For each log a retention policy trimmed, how many entries it dropped
+    #: before the ones recorded here, by the path :data:`RETAINED_LOGS` names
+    #: it by. Only non-zero counts are written (v3.12, ledger PRF-004).
+    dropped: Mapping[str, int] = field(default_factory=dict)
     schema_version: int = PIPELINE_SNAPSHOT_SCHEMA
 
 
@@ -864,6 +980,7 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
         instruments_type=(None if config.instruments is None else _type_name(config.instruments)),
         fill_timing=config.fill_timing,
         calendars=config.calendars,
+        retention=config.retention,
     )
 
 
@@ -1069,6 +1186,7 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
         portfolio_snapshots=state.portfolio_snapshots.to_tuple(),
         unpriced_assets=dict(state.unpriced_assets),
         id_position=state.id_position,
+        dropped=_dropped_counts(state),
     )
 
 
@@ -1132,6 +1250,7 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
         instruments=instruments,
         fill_timing=record.fill_timing,
         calendars=record.calendars,
+        retention=record.retention,
     )
 
 
@@ -1255,7 +1374,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
     _require_one_account_currency(config)
     _require_classifiable(config)
 
-    return ExecutionPipelineState(
+    state = ExecutionPipelineState(
         config=config,
         market=MarketState(
             latest_quotes=PersistentMap(snapshot.market.latest_quotes),
@@ -1300,6 +1419,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
         unpriced_assets=PersistentMap(snapshot.unpriced_assets),
         id_position=snapshot.id_position,
     )
+    return _with_dropped(state, snapshot.dropped)
 
 
 # ---------------------------------------------------------------------------
@@ -1344,13 +1464,13 @@ def _event[EventT](
 
     payload = as_mapping(require(record, "event"), f"{where}.event")
     kwargs: dict[str, Any] = {}
-    for field in fields(cls):  # type: ignore[arg-type]
-        raw = require(payload, field.name)
-        decoder = decoders.get(field.name)
-        kwargs[field.name] = (
-            decoder(raw, f"{where}.{field.name}")
+    for member in fields(cls):  # type: ignore[arg-type]
+        raw = require(payload, member.name)
+        decoder = decoders.get(member.name)
+        kwargs[member.name] = (
+            decoder(raw, f"{where}.{member.name}")
             if decoder is not None
-            else as_str(raw, f"{where}.{field.name}")
+            else as_str(raw, f"{where}.{member.name}")
         )
     return event_type, cls(**kwargs)
 
@@ -1951,7 +2071,42 @@ def _config(value: Any) -> ConfigRecord:
         calendars=venue_calendars_from_primitives(
             require(payload, "calendars"), f"{where}.calendars"
         ),
+        # Keeps everything in a payload upgraded from version 5 or earlier: no
+        # earlier run trimmed a history. See PIPELINE_SCHEMA_HISTORY.
+        retention=_retention(require(payload, "retention"), f"{where}.retention"),
     )
+
+
+def _retention(value: Any, where: str) -> RetentionPolicy:
+    payload = as_mapping(value, where)
+    bounds: dict[str, int | None] = {}
+    for name in ("market_history", "steps", "audit_events", "results"):
+        bound = require(payload, name)
+        bounds[name] = None if bound is None else as_int(bound, f"{where}.{name}")
+    try:
+        return RetentionPolicy(**bounds)
+    except AlphaLabError as error:
+        raise StateDecodeError(f"{where}: {error}") from error
+
+
+def _dropped(value: Any) -> dict[str, int]:
+    """The non-zero dropped counts of the retained logs, each a log this envelope names."""
+
+    payload = as_mapping(value, "dropped")
+    counts: dict[str, int] = {}
+    for path, count in payload.items():
+        if path not in RETAINED_LOGS:
+            raise StateDecodeError(
+                f"dropped names {path!r}, which is not a log a retention policy trims; it "
+                f"names one of {list(RETAINED_LOGS)}."
+            )
+        number = as_int(count, f"dropped.{path}")
+        if number < 1:
+            raise StateDecodeError(
+                f"dropped.{path} is {number}; only a positive count of dropped entries is written."
+            )
+        counts[path] = number
+    return counts
 
 
 def _fill_timing(value: Any, where: str) -> FillTiming:
@@ -2183,5 +2338,6 @@ def from_primitives(payload: Mapping[str, Any]) -> PipelineSnapshot:
             require(payload, "unpriced_assets"), "unpriced_assets", _unpriced
         ),
         id_position=_id_position(require(payload, "id_position")),
+        dropped=_dropped(require(payload, "dropped")),
         schema_version=PIPELINE_SNAPSHOT_SCHEMA,
     )

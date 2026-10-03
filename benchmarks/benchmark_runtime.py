@@ -22,7 +22,12 @@ Two questions, and the second is the one this release cares about:
 
 Capture is measured too, because ADR-0029 decision 8 made the checkpoint cost a
 release-visible number and v2.14 nests the pipeline envelope inside a run
-envelope: the run layer must stay a rounding error on top of the core.
+envelope: the run layer must stay a rounding error on top of the core. Since
+v3.12 a checkpoint chain's segment (:mod:`alphalab.runtime.checkpoint`, ledger
+PRF-004) is measured against a base taken at the same point: a segment carries
+only what the run appended since the checkpoint before, so late in a long run it
+must cost a fraction of the full capture -- one that a segment silently turned
+back into a full capture would read as about 1.
 
 The figures printed first are one run of each, with the collector on, which is
 what a real run pays. The three ceilings are judged on separate measurements by
@@ -60,6 +65,7 @@ from alphalab.risk.limits import (
 )
 from alphalab.runtime import run_snapshot
 from alphalab.runtime import snapshot as pipeline_snapshot
+from alphalab.runtime.checkpoint import checkpoint
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipeline,
     ExecutionPipelineConfig,
@@ -89,6 +95,13 @@ MAX_RUN_LAYER_OVERHEAD = 1.25
 # The run envelope nests the pipeline envelope unchanged, so capturing a run must
 # not cost meaningfully more than capturing its core.
 MAX_CAPTURE_OVERHEAD = 1.30
+
+# A 200-record segment at the end of the 4,000-record run, against a base at the
+# same point. This workload trades on every record, so the order book -- written
+# whole in every segment -- is a fifth of the state; a segment that carried
+# every log again would read about 1.
+MAX_SEGMENT_SHARE = 0.5
+SEGMENT_RECORDS = 200
 
 
 class _Clock:
@@ -235,6 +248,22 @@ def _pipeline_workload(records: int) -> Callable[[], object]:
     return work
 
 
+def _states_at(records: int, at: tuple[int, ...]) -> list[RunState]:
+    """The run's states after each of the record counts ``at``."""
+
+    strategy_id, asset_id = str(uuid4()), str(uuid4())
+    config = _run_config(strategy_id)
+    stream = _records(asset_id, records)
+    states: list[RunState] = []
+    with id_scope(SEED):
+        state = RunEngine.initialize(config, _running_state(strategy_id, asset_id))
+        for index, record in enumerate(stream, 1):
+            state, _ = RunEngine.advance(state, record, _context_factory)
+            if index in at:
+                states.append(state)
+    return states
+
+
 def _through_run_engine(records: int) -> tuple[float, RunState]:
     """One run of the run layer with the collector on, as reported."""
 
@@ -314,6 +343,12 @@ def run_benchmark() -> None:
         ]
     )
     capture_ratio = envelope_cpu / max(core_cpu, 1e-9)
+    before, after = _states_at(large, (large - SEGMENT_RECORDS, large))
+    _, mark = checkpoint(before)
+    base_cpu, segment_cpu = fastest([lambda: checkpoint(after), lambda: checkpoint(after, mark)])
+    segment_share = segment_cpu / max(base_cpu, 1e-9)
+    base_bytes = len(checkpoint(after)[0])
+    segment_bytes = len(checkpoint(after, mark)[0])
     print(f"  judged (CPU time, collector paused, fastest of {SAMPLES}):")
     print(f"    4x workload cost {scaling:.2f}x the time (linear would be 4.00x)")
     print(
@@ -321,6 +356,11 @@ def run_benchmark() -> None:
         f"({(overhead - 1) * 100:+.2f}%)"
     )
     print(f"    capture(run) cost {capture_ratio:.2f}x capture(pipeline)")
+    print(
+        f"    a {SEGMENT_RECORDS}-record checkpoint segment at record {large} cost "
+        f"{segment_share:.2f}x a base there ({segment_bytes / 1e6:.2f} MB against "
+        f"{base_bytes / 1e6:.2f} MB)"
+    )
 
     if scaling > MAX_SCALING_FACTOR:
         raise SystemExit(
@@ -338,6 +378,12 @@ def run_benchmark() -> None:
             f"Capturing a run cost {capture_ratio:.2f}x capturing its pipeline core, "
             f"above {MAX_CAPTURE_OVERHEAD:.2f}x; the run envelope has stopped being a "
             "thin wrapper."
+        )
+    if segment_share > MAX_SEGMENT_SHARE:
+        raise SystemExit(
+            f"A {SEGMENT_RECORDS}-record checkpoint segment cost {segment_share:.2f}x a full "
+            f"base at the same point, above {MAX_SEGMENT_SHARE:.2f}x; segments have stopped "
+            "carrying only what the run appended."
         )
 
 

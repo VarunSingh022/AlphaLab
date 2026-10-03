@@ -106,6 +106,7 @@ from alphalab.runtime.context_views import (
 )
 from alphalab.runtime.exceptions import RuntimeValidationError
 from alphalab.runtime.execution_adapters import canonical_execution_from_report
+from alphalab.runtime.retention import RetentionPolicy, trimmed
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
@@ -244,6 +245,14 @@ class ExecutionPipelineConfig:
             ``EXTERNAL`` routing, where the venue works the order. Carried by
             the pipeline snapshot. See :mod:`alphalab.runtime.calendars`
             (ledger EXE-010).
+        retention: How much of each derived history the run keeps -- market
+            events (and a strategy's history window), per-record steps, audit
+            logs and results -- applied between records by
+            :meth:`~alphalab.runtime.run.RunEngine.advance`. Keeps everything by
+            default, as every run before v3.12 did. Never touches positions,
+            cash, orders or anything else a step computes from. Carried by the
+            pipeline snapshot. See :mod:`alphalab.runtime.retention` (ledger
+            PRF-004).
     """
 
     account: Account
@@ -260,6 +269,7 @@ class ExecutionPipelineConfig:
     instruments: InstrumentRegistry | None = None
     fill_timing: FillTiming = FillTiming.SAME_EVENT
     calendars: VenueCalendars = field(default_factory=VenueCalendars)
+    retention: RetentionPolicy = field(default_factory=RetentionPolicy)
 
     def __post_init__(self) -> None:
         if not self.currency:
@@ -427,6 +437,55 @@ class ExecutionPipelineState:
     id_position: IdStreamPosition = field(default_factory=IdStreamPosition)
 
 
+def retained(state: ExecutionPipelineState) -> ExecutionPipelineState:
+    """``state`` with each derived history held to the configured retention (PRF-004).
+
+    Trims only the logs :mod:`alphalab.runtime.retention` names, only once one
+    has grown past its bound by the slack, and never anything a step computes
+    from; with nothing bounded, or nothing grown that far, ``state`` itself is
+    returned. Called between records, never during one.
+    """
+
+    policy = state.config.retention
+    if policy.keeps_everything:
+        return state
+    changes: dict[str, object] = {}
+
+    market = state.market
+    history = trimmed(market.history, policy.market_history)
+    events = trimmed(market.events, policy.market_history)
+    if history is not market.history or events is not market.events:
+        changes["market"] = evolve(market, history=history, events=events)
+
+    audit = policy.audit_events
+    for name in ("allocation", "risk", "oms", "execution"):
+        part = getattr(state, name)
+        history = trimmed(part.history, audit)
+        events = trimmed(part.events, audit)
+        if history is not part.history or events is not part.events:
+            changes[name] = evolve(part, history=history, events=events)
+
+    portfolio = state.portfolio
+    portfolio_events = trimmed(portfolio.events, audit)
+    transactions = trimmed(portfolio.ledger.transactions, policy.results)
+    if (
+        portfolio_events is not portfolio.events
+        or transactions is not portfolio.ledger.transactions
+    ):
+        changes["portfolio"] = evolve(
+            portfolio,
+            events=portfolio_events,
+            ledger=evolve(portfolio.ledger, transactions=transactions),
+        )
+
+    for name in ("fills", "trades", "trade_records", "portfolio_snapshots"):
+        log = getattr(state, name)
+        kept = trimmed(log, policy.results)
+        if kept is not log:
+            changes[name] = kept
+    return evolve(state, **changes) if changes else state
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionPipelineResult:
     """Result emitted after one market event moves through the execution path."""
@@ -460,6 +519,7 @@ def _populate_context(
     shares: Mapping[str, tuple[OrderShare, ...]],
     instruments: InstrumentRegistry | None,
     as_of: float,
+    window: int | None,
 ) -> ContextFactory:
     """Wrap a caller's factory so the pipeline owns what only it can know.
 
@@ -495,7 +555,7 @@ def _populate_context(
     portfolio_view = PortfolioView(portfolio)
     risk_view = RiskView(risk)
     market_view = MarketView(market, market_prices)
-    history_view = HistoryView(market, as_of)
+    history_view = HistoryView(market, as_of, window)
     universe_view = UniverseView(instruments)
 
     def populate(strategy_id: str) -> StrategyContext:
@@ -1039,6 +1099,7 @@ class ExecutionPipeline:
             market_prices=market_prices,
             shares=order_shares_by_strategy(current.oms, current.allocation),
             instruments=state.config.instruments,
+            window=state.config.retention.market_history,
             # The look-ahead bound: this event's own timestamp, never a wall
             # clock. A strategy sees everything up to and including the event it
             # is being dispatched, and nothing after it.
@@ -1393,6 +1454,7 @@ class ExecutionPipeline:
             market_prices=state.market_prices,
             shares=order_shares_by_strategy(state.oms, state.allocation),
             instruments=state.config.instruments,
+            window=state.config.retention.market_history,
             as_of=timestamp,
         )
         strategy, intents = StrategyEngine.stop(state.strategy, populated, timestamp, strategy_ids)
@@ -1927,6 +1989,7 @@ def _deliver_instant(
         market_prices=state.market_prices,
         shares=order_shares_by_strategy(state.oms, state.allocation),
         instruments=state.config.instruments,
+        window=state.config.retention.market_history,
         as_of=at,
     )
     strategy, intents = StrategyEngine.process_event(state.strategy, event, populated, at)
@@ -2183,6 +2246,7 @@ def _deliver_feedback(
         market_prices=market_prices,
         shares=order_shares_by_strategy(state.oms, state.allocation),
         instruments=state.config.instruments,
+        window=state.config.retention.market_history,
         as_of=instant,
     )
     strategy, intents = StrategyEngine.deliver(state.strategy, deliveries, populated, instant)

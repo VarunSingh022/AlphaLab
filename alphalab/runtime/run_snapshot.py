@@ -59,7 +59,7 @@ resumes at record N+1; nothing is replayed.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final
 
 from alphalab.common.append_log import AppendOnlyLog
@@ -135,8 +135,9 @@ __all__ = [
 #: expiry and stop trigger (ledger EXE-003). Version 4 (v3.12) records how many
 #: point-in-time records the run has delivered and the last one's
 #: ``(known_at, delivery_id)`` (ledger OFE-009): the cursor that keeps a
-#: restored run from delivering one twice. Earlier versions are upgraded by
-#: :data:`RUN_SCHEMA_HISTORY`.
+#: restored run from delivering one twice -- and how many steps and skipped
+#: records a retention policy dropped (``dropped``, ledger PRF-004). Earlier
+#: versions are upgraded by :data:`RUN_SCHEMA_HISTORY`.
 RUN_SNAPSHOT_SCHEMA: Final = 4
 
 _SUBSYSTEM: Final = "run"
@@ -187,6 +188,10 @@ class RunSnapshot:
     #: ``(known_at, delivery_id)`` (ledger OFE-009).
     observations_delivered: int = 0
     last_observation: tuple[float, str] | None = None
+    #: How many entries the run's own logs dropped before those recorded, by
+    #: name -- ``"steps"``, ``"skipped"`` -- when a retention policy trimmed
+    #: them. Only non-zero counts are written (ledger PRF-004).
+    dropped: Mapping[str, int] = field(default_factory=dict)
     schema_version: int = RUN_SNAPSHOT_SCHEMA
 
 
@@ -243,6 +248,11 @@ def capture(state: RunState) -> RunSnapshot:
             SkippedRecordRecord(type(entry.record.payload).__name__, entry.record, entry.reason)
             for entry in state.skipped
         ),
+        dropped={
+            name: count
+            for name, count in (("skipped", state.skipped.dropped), ("steps", state.steps.dropped))
+            if count
+        },
     )
 
 
@@ -297,9 +307,10 @@ def restore(snapshot: RunSnapshot, objects: RunObjects) -> RunState:
         observations_delivered=snapshot.observations_delivered,
         last_observation=snapshot.last_observation,
         source_id=snapshot.source_id,
-        steps=AppendOnlyLog(snapshot.steps),
-        skipped=AppendOnlyLog(
-            SkippedRecord(entry.record, entry.reason) for entry in snapshot.skipped
+        steps=AppendOnlyLog.restored(snapshot.steps, snapshot.dropped.get("steps", 0)),
+        skipped=AppendOnlyLog.restored(
+            (SkippedRecord(entry.record, entry.reason) for entry in snapshot.skipped),
+            snapshot.dropped.get("skipped", 0),
         ),
     )
 
@@ -399,13 +410,30 @@ def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
-    """Record that a version-3 run delivered no point-in-time record.
+    """Record that a version-3 run delivered no point-in-time record and dropped no step.
 
     None could: nothing on the execution path delivered one before v3.12
-    (ledger OFE-009).
+    (ledger OFE-009), and no run trimmed its steps (PRF-004).
     """
 
-    return {**payload, "observations_delivered": 0, "last_observation": None}
+    return {**payload, "observations_delivered": 0, "last_observation": None, "dropped": {}}
+
+
+def _dropped(value: Any) -> dict[str, int]:
+    payload = as_mapping(value, "dropped")
+    counts: dict[str, int] = {}
+    for name, count in payload.items():
+        if name not in ("skipped", "steps"):
+            raise StateDecodeError(
+                f"dropped names {name!r}; the run's own logs are 'steps' and 'skipped'."
+            )
+        number = as_int(count, f"dropped.{name}")
+        if number < 1:
+            raise StateDecodeError(
+                f"dropped.{name} is {number}; only a positive count of dropped entries is written."
+            )
+        counts[name] = number
+    return counts
 
 
 RUN_SCHEMA_HISTORY = SchemaHistory(
@@ -425,8 +453,8 @@ RUN_SCHEMA_HISTORY = SchemaHistory(
         ),
         SchemaStep(
             3,
-            "version 4 records the point-in-time records the run delivered; no earlier run "
-            "delivered any",
+            "version 4 records the point-in-time records the run delivered and the steps it "
+            "dropped; no earlier run delivered any or dropped one",
             upgrade=_v3_to_v4,
         ),
     ),
@@ -496,5 +524,6 @@ def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
         source_id=as_optional_str(require(payload, "source_id"), "source_id"),
         steps=sequence("steps", _step),
         skipped=sequence("skipped", _skipped),
+        dropped=_dropped(require(payload, "dropped")),
         schema_version=RUN_SNAPSHOT_SCHEMA,
     )
