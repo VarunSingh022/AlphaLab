@@ -44,7 +44,7 @@ The framework is designed for researchers, quantitative developers, students, an
 | Python | 3.12+ |
 | Version | 3.12.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **8,633 Passing, 0 skipped, 0 warnings** |
+| Tests | **8,638 Passing, 0 skipped, 0 warnings** |
 | Static Typing | **Strict MyPy** (1,158 source files, repository-wide) |
 | Linting | **Ruff Clean** |
 | Benchmarks | **54 / 54 Passing** |
@@ -1381,10 +1381,16 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **8,215 passing tests** (4,415 unit, 516 integration, 3,284 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1,122 source files)
+- ✅ **8,638 passing tests** (4,628 unit, 649 integration, 3,361 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1,158 source files)
 - ✅ Ruff linting and formatting
-- ✅ 54 / 54 benchmarks, 65 / 65 examples
+- ✅ 55 / 55 benchmarks, 65 / 65 examples
+- ✅ A defect-injection harness (`docs/audit/scripts/mutation_v3_12.py`): 123
+  mutations, each against the whole suite; every one caught but one equivalent
+  mutant, once the five rules it found unpinned were pinned
+- ✅ A stress program (`docs/audit/scripts/stress_v3_12.py`): 10,000 assets,
+  1,000 strategies, 100 venues, 10,000-asset construction, 20,000-record
+  checkpoint chains
 - ✅ Source distribution, wheel and `twine check` validation, and each
   distribution installed into a clean environment and exercised from outside
   the checkout (`tests/installed_smoke.py`)

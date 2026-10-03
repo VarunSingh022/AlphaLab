@@ -191,6 +191,12 @@ grew faster than the work, both fixed:
   run. Fixed.
 * **PRF-010** (shipped since 3.11): every event asked every strategy whether it
   subscribed. Found by the stress run. Fixed.
+* **TST-013**: five of this release's rules had no test that pinned them —
+  valuing a run in a currency other than its own, a reduction that leaves its
+  bucket still over a classification limit, an evidence value refused before
+  any byte is written, and the research policy's windows and ruin bound
+  reaching their reports. Mutating each passed the whole suite in this
+  release's defect-injection run. Each is pinned now.
 
 ## Snapshot schemas
 
@@ -201,13 +207,35 @@ and read by `tests/regression/test_schema_upgrades_v3_11.py`.
 
 ## Tests, CI and tooling
 
-8,633 tests pass under `-W error` — 4,626 unit, 648 integration and 3,359
+8,638 tests pass under `-W error` — 4,628 unit, 649 integration and 3,361
 regression, none skipped (3.11.0: 8,215). The defect-injection harness is in
 the repository now (`docs/audit/scripts/mutation_v3_12.py`), with the stress
-program beside it (`docs/audit/scripts/stress_v3_12.py`). Every benchmark
+program beside it (`docs/audit/scripts/stress_v3_12.py`). It ran 123
+mutations — the 79 of 3.11 and 44 of 3.12's own behaviour — each against the
+whole suite with the clock-reading tests deselected: 117 were caught. Five of
+the six that survived were rules no test pinned, now pinned (TST-013) and
+caught on re-run; the sixth is equivalent (the clause it removes is implied by
+the change's own validation). Every benchmark
 ceiling is judged by one method (`benchmarks/_stable_timing.py`) [TST-011], and
 `benchmarks/benchmark_construction_scaling.py` measures structured construction
 at 200, 400 and 800 assets against a growth ceiling (55 benchmarks).
+
+## Examples
+
+All sixty-five examples run as a release gate; 61 print byte-identical output
+under two hash seeds, and the other four differ only in a random run or order
+id, a process id or CPU time, as in 3.11.
+
+Compared with 3.11.0's output, 56 print what they printed. `01_research.py` is
+rewritten for the restated research engine (RES-001). Eight differ, each for a
+reason above: `12`, `45` and `48` only in a random id or CPU time, as between
+any two runs; `13` stores larger snapshots (the new schema fields); `15` only
+in the path of the checkout it ran from; `36` refuses its 1e-20 quote for its
+vega rather than as unreachable (NUM-004); `47` and `55` have new
+configuration, result and manifest identities — a run's configuration now
+records its calendars, retention and classification limits. With identities
+masked, no price, quantity, P&L or statistic moved; thetas print the same to
+four decimals.
 
 ## Still open
 

@@ -727,6 +727,159 @@ TST-012 added one test for each, and both mutants, re-run against them, fail.
 | W37 a rebase keeps a deleted key (PRF-008) | caught | `tests/regression/test_contributions_are_retired.py::test_unpriced_requests_retire_their_contributions` | 16.9 |
 | W34 an upgraded OMS payload discarded (OMS-001) | caught | `tests/regression/test_oms_snapshot_schema.py::test_a_version_one_order_is_a_day_order_with_no_expiry_or_trigger` | 34.2 |
 
+### W.4 Run against v3.12.0
+
+The method of W.2 and W.3, now kept in the repository (`docs/audit/scripts/mutation_v3_12.py`):
+`git archive HEAD` unpacked into three scratch copies, one mutation at a time on each, the whole
+suite with `-x` and the tests that read a clock deselected test by test, an unmutated baseline
+first. The table: the seventy-nine mutations of W.3 (M21 re-pointed where v3.12 moved the
+duplicate check) and forty-seven of v3.12's own behaviour (X01–X47).
+
+**First run**, on the tree before the routing index (commit `d710da4`): baseline passed — 8,526
+passed, 89 deselected (170.7 s). **117 of 123 caught.** Six survived. Five were rules no test
+pinned — valuing a run in a currency other than its own (X06), a reduction that leaves its bucket
+over a classification limit (X13; the one reduction tested landed exactly on the cap), an evidence
+value refused before any byte is written (X19), and the research policy's windows and ruin bound
+reaching their reports (X39, X40; the only test policy used the values the mutants hard-coded).
+TST-013 added a test for each. The sixth, X17, is **equivalent**: it removes the clause that a
+share change applies only once knowable, and `ShareCountChange` refuses a change known after it
+takes effect, so the clause is implied by the change's own validation and no input distinguishes
+the mutant. The clause is kept as the rule's statement.
+
+**Final tree** (commit `c182af7`): baseline passed — 8,547 passed, 90 deselected (172.9 s). Every
+mutation whose file changed after the first run (the execution pipeline and the strategy runtime,
+for PRF-010), the three routing-index mutations (X45–X47), and the six survivors: **21 of 22
+caught**; X17 survives, as it must.
+
+| Mutation | Result | Caught by | Seconds |
+| --- | --- | --- | ---: |
+| M01 risk order-size > to >= | caught | `tests/regression/test_mutation_pins.py::test_an_order_of_exactly_the_permitted_quantity_is_approved` | 32.4 |
+| M02 duplicate fill applied (remove DUPLICATE check) | caught | `tests/regression/test_ambient_decimal_context.py` | 3.1 |
+| M03 to_money rounds down | caught | `tests/integration/test_backtest_pipeline.py::test_the_accounting_identity_holds_with_commission_and_slippage` | 14.2 |
+| M04 partial close relieves wrong basis | caught | `tests/integration/test_mark_to_market_pipeline.py::test_partial_close_realizes_only_the_closed_portion` | 15.6 |
+| M05 fill during cancel-pending drops pending | caught | `tests/unit/core/test_order_lifecycle_table.py::test_fills_are_only_legal_once_the_order_is_working_at_the_venue` | 135.1 |
+| M06 FX future-dated rate accepted | caught | `tests/integration/test_external_information.py::test_a_conversion_refuses_what_has_no_currency_and_a_rate_from_the_future` | 6.7 |
+| M07 risk rejection does not release reservation | caught (and on the final tree) | `tests/integration/test_backtest_pipeline.py::test_a_request_risk_refuses_never_reaches_the_oms` | 4.2 |
+| M08 quote price uses bid not mid | caught (and on the final tree) | `tests/integration/test_execution_pipeline.py::test_quote_drives_full_end_to_end_execution_pipeline` | 15.8 |
+| M09 sample variance divides by n | caught | `tests/unit/analytics/test_analytics.py::test_annualized_volatility` | 133.3 |
+| M10 purge boundary >= to > | caught | `tests/integration/test_v32_capabilities.py::test_walk_forward_folds_over_the_real_index_never_contaminate` | 15.5 |
+| M11 forward return look-ahead shift | caught | `tests/integration/test_v32_capabilities.py::test_a_delisting_set_must_be_the_one_the_study_names` | 15.8 |
+| M12 PIT visibility strict < | caught | `tests/unit/alt_data/test_fundamentals.py::test_a_quarter_is_invisible_until_it_is_published` | 136.7 |
+| M13 stale venue status applied | caught | `tests/regression/test_v39_invariants.py::test_replaying_any_stream_changes_nothing_and_breaks_nothing` | 130.2 |
+| M14 out-of-order record accepted | caught | `tests/integration/test_provider_source_session.py::test_an_unordered_session_skips_the_regressing_record_and_records_it` | 9.2 |
+| M15 run store skips digest check | caught | `tests/regression/test_run_state_store.py::test_an_altered_payload_fails_its_digest` | 92.3 |
+| M16 OMS overfill accepted | caught | `tests/unit/core/test_order_lifecycle_table.py::test_a_complete_fill_must_complete_the_order_exactly` | 138.2 |
+| M17 pearson uses population denominators inconsistently | caught | `tests/regression/test_numeric_refusals.py::test_correlation_is_defined_at_any_representable_magnitude[tiny]` | 40.5 |
+| M18 contribution split last share off by quantum | caught | `tests/integration/test_instrument_economics.py::test_a_split_changes_the_count_and_not_the_value` | 6.8 |
+| M19 capability UNDECLARED treated as SUPPORTED | caught | `tests/regression/test_v39_invariants.py::test_compatible_means_every_check_supported_and_nothing_else_does` | 127.4 |
+| M20 unpriced request not dropped (price 0 order) | caught (and on the final tree) | `tests/integration/test_mark_to_market_pipeline.py::test_request_for_an_asset_with_no_market_price_never_reaches_the_oms` | 17.0 |
+| M21 dataset duplicate row accepted | caught | `tests/integration/test_trade_prints.py::TestTwoPrintsAtOneInstant::test_one_identifier_twice_is_a_duplicate_refused_or_resolved_by_policy` | 15.3 |
+| M22 FX staleness check disabled | caught | `tests/regression/test_fx_rate_feed.py::test_the_feed_does_not_decide_whether_a_rate_is_too_old_to_use` | 28.6 |
+| M23 allocation budget check ignores outstanding | caught | `tests/regression/test_outstanding_capital_guard.py::test_six_external_events_no_longer_commit_five_times_the_budget` | 76.9 |
+| M24 moving average window includes next value | caught | `tests/regression/test_research_cannot_see_the_future.py::test_no_feature_kind_changes_when_the_future_is_removed[FeatureKind.ROLLING_MEAN]` | 81.6 |
+| V01 incremental marking forgets pending marks | caught | `tests/regression/test_universe_scaling.py::test_marking_one_change_equals_marking_every_price` | 99.3 |
+| V02 NEXT_EVENT fills at the deciding event | caught (and on the final tree) | `tests/integration/test_order_terms.py::test_market_orders_are_worked_exactly_as_before_under_either_timing` | 8.4 |
+| V03 ingested start-stamped bars not moved | caught | `tests/regression/test_bar_stamp_convention.py::test_start_stamped_bars_are_moved_to_the_end_of_their_interval` | 18.2 |
+| V04 wire start-stamped bar not moved | caught | `tests/regression/test_bar_stamp_convention.py::test_a_start_stamped_wire_bar_is_moved_by_its_timeframe` | 17.4 |
+| V05 long-only ignores working orders | caught (and on the final tree) | `tests/regression/test_allocation_semantics.py::test_a_working_sale_counts_against_long_only` | 16.3 |
+| V06 buying power charged on reductions | caught | `tests/regression/test_risk_projection.py::test_a_fully_invested_account_can_sell_what_it_holds` | 86.5 |
+| V07 bool seed accepted | caught | `tests/regression/test_id_stream_is_pinned.py::test_a_seed_that_is_not_a_non_negative_integer_is_refused[True]` | 28.4 |
+| V08 statistics accept non-finite input | caught | `tests/regression/test_numeric_refusals.py::test_every_statistic_refuses_a_non_finite_observation_by_position[mean-nan]` | 38.9 |
+| V09 normalization currency defaults to USD | caught | `tests/unit/market/test_normalization.py::test_a_quote_or_a_trade_is_refused_by_a_policy_that_names_no_currency` | 135.9 |
+| V10 pipeline currency not the account's | caught (and on the final tree) | `tests/regression/test_v34_invariants.py::test_the_currency_roles_are_named_not_defaulted` | 96.7 |
+| V11 misspelled risk severity accepted | caught | `tests/regression/test_risk_projection.py::test_a_severity_is_a_member_and_a_misspelled_one_is_refused` | 86.1 |
+| V12 execution fields compared as text | caught | `tests/regression/test_reconciliation_compares_numbers.py::test_a_fill_reported_with_other_exponents_is_not_a_mismatch` | 78.3 |
+| V13 daily loss never maintained | caught | `tests/regression/test_risk_projection.py::test_the_daily_loss_is_measured_from_the_trading_days_start` | 85.0 |
+| V14 analytics returns per snapshot, not per instant | caught | `tests/unit/analytics/test_analytics.py::test_the_report_takes_one_equity_point_per_instant` | 128.3 |
+| V15 position book keeps a replaced position's totals | caught | `tests/regression/test_prf006_fast_paths.py::test_a_position_re_marked_on_its_side_keeps_fresh_sum_totals[USD]` | 76.2 |
+| V16 cluster outcomes applied out of submission order | caught | `tests/regression/test_cluster_outcomes_are_ordered.py::test_outcomes_are_recorded_in_submission_order_whatever_finishes_first` | 22.9 |
+| V17 halt on strategy failure ignored | caught | `tests/regression/test_strategy_failures_are_reported.py::test_a_run_configured_to_halt_stops_after_the_failing_record` | 89.4 |
+| V18 order-size limit exclusive (M01 again) | caught | `tests/regression/test_mutation_pins.py::test_an_order_of_exactly_the_permitted_notional_is_approved` | 32.6 |
+| W01 a reduction commits its whole notional (ALC-007) | caught | `tests/unit/allocation/test_budget_commitment.py::test_a_fully_invested_book_can_rotate_in_one_batch` | 127.1 |
+| W02 reductions not sent first (ALC-007) | caught | `tests/unit/allocation/test_budget_commitment.py::test_a_fully_invested_book_can_rotate_in_one_batch` | 127.5 |
+| W03 target rounded to the nearest unit (ALC-006) | caught | `tests/integration/test_target_intents.py::test_whole_units_round_a_target_toward_zero_not_to_the_nearest_unit` | 13.9 |
+| W04 lot count divided in the caller's context (NUM-013) | caught | `tests/unit/conventions/test_conventions.py::test_rounding_down_to_a_lot_never_rounds_up_in_a_low_precision_context[3]` | 129.9 |
+| W05 LiveSession.settle unpinned (NUM-012) | caught | `tests/regression/test_ambient_decimal_context.py::test_every_entry_point_of_a_run_is_pinned[LiveSession]` | 17.5 |
+| W06 ExecutionPipeline.process_record unpinned (NUM-012) | caught (and on the final tree) | `tests/regression/test_ambient_decimal_context.py::test_every_entry_point_of_a_run_is_pinned[ExecutionPipeline]` | 16.3 |
+| W07 a log slice copies the whole log (PRF-007) | caught | `tests/regression/test_checkpoints.py::test_a_chain_reads_back_as_the_full_capture[1-retained]` | 19.3 |
+| W08 a buy limit fills at an open above its limit (EXE-003) | caught (and on the final tree) | `tests/integration/test_order_terms.py::test_a_bar_fills_a_resting_buy_limit_at_its_limit_or_at_a_better_open` | 8.1 |
+| W09 a sell limit crosses on a lower bid (EXE-003) | caught (and on the final tree) | `tests/integration/test_order_terms.py::test_a_resting_sell_limit_fills_only_once_the_bid_reaches_it` | 8.0 |
+| W10 a buy stop triggers below its stop (EXE-003) | caught (and on the final tree) | `tests/integration/test_order_terms.py::test_a_stop_waits_for_its_price_then_takes_the_market` | 8.2 |
+| W11 subscriptions not enforced (EXE-007) | caught (and on the final tree) | `tests/integration/test_external_information.py::test_a_subscription_can_name_one_subject` | 6.3 |
+| W12 a slice closed twice (EXE-004) | caught | `tests/integration/test_external_information.py::test_an_observation_arrives_between_the_records_it_falls_between` | 6.3 |
+| W13 on_start never delivered (EXE-005) | caught | `tests/unit/strategy/test_subscriptions_and_start.py::test_a_strategy_receives_only_what_it_subscribed_to` | 161.8 |
+| W14 forward returns ignore the lag (DAT-003) | caught | `tests/integration/test_v32_capabilities.py::test_the_lag_is_part_of_the_identity_and_of_the_numbers` | 15.1 |
+| W15 a delisting return dropped (DAT-002) | caught | `tests/unit/factor_library/test_v311_research_integrity.py::test_a_delisted_symbol_realizes_its_terminal_return` | 134.0 |
+| W16 a stale venue sequence applied (BRK-002) | caught | `tests/unit/broker/test_venue_sequence.py::test_numbered_amendments_are_ordered_by_the_venue_not_by_delivery` | 130.3 |
+| W17 a paper sale's commission credited (BRK-009) | caught | `tests/unit/broker/test_paper_costs.py::test_cash_charges_leave_the_account_on_both_sides` | 129.1 |
+| W18 variation margin never paid (ACC-005) | caught | `tests/integration/test_instrument_economics.py::test_a_future_pays_no_notional_and_settles_every_mark_as_variation_margin` | 6.3 |
+| W19 a split keeps the mark (ACC-006) | caught | `tests/integration/test_instrument_economics.py::test_a_split_changes_the_count_and_not_the_value` | 6.0 |
+| W20 a non-positive price admitted (ACC-007) | caught | `tests/unit/portfolio/test_portfolio_invariants.py::test_malformed_fills_are_rejected[quantity4-price4-commission4-must be positive]` | 135.7 |
+| W21 walk-forward selects on the test instants (FEA-003) | caught | `tests/unit/research/test_walk_forward_optimization.py::test_no_selection_call_holds_an_instant_of_its_test_window_or_later` | 161.3 |
+| W22 Holm becomes Bonferroni (OFE-005) | caught | `tests/unit/research/test_multiple_testing.py::test_adjusted_p_values_match_r[Correction.HOLM-expected1]` | 159.3 |
+| W23 an uncertified cost orthant returned (OFE-002) | caught | `tests/unit/portfolio_optimizer/test_costs_and_lots.py::test_the_costed_optimum_is_the_best_of_every_orthant[9]` | 151.1 |
+| W24 Newey-West lag zero (OFE-006) | caught | `tests/unit/factor_library/test_v311_research_integrity.py::test_the_t_statistic_uses_the_overlap_lag_and_is_reported_with_it` | 131.5 |
+| W25 tracking error annualized by periods (FEA-002) | caught | `tests/unit/analytics/test_benchmark_statistics.py::test_the_information_ratio_is_active_return_over_tracking_error` | 128.6 |
+| W26 carry adds the yield (NUM-005) | caught | `tests/unit/options/test_carry.py::test_merton_1973_dividend_yield_reference` | 134.1 |
+| W27 identities render a Decimal by its text (DET-006) | caught | `tests/integration/test_live_requests_and_children.py::test_an_amendment_reaches_the_venue_once_however_it_is_spelled_on_retry` | 6.5 |
+| W28 later aliases not restored (INS-001) | caught | `tests/regression/test_dated_aliases.py::test_dated_and_later_aliases_survive_a_round_trip` | 23.7 |
+| W29 a held order routed whole (LIV-001) | caught | `tests/integration/test_live_requests_and_children.py::test_a_held_parent_is_never_sent_whole_even_before_its_first_child` | 6.3 |
+| W30 issued requests not restored (BRK-003) | caught | `tests/integration/test_live_requests_and_children.py::test_a_restarted_run_still_recognises_a_retried_request` | 6.8 |
+| W31 a dated alias claims its end instant (DAT-004) | caught | `tests/regression/test_dated_aliases.py::test_a_reused_ticker_names_the_new_company_after_its_reissue` | 23.2 |
+| W32 a minute is 61 seconds (DAT-005) | caught | `tests/regression/test_bar_stamp_convention.py::test_a_start_stamped_wire_bar_is_moved_by_its_timeframe` | 17.5 |
+| W33 the engine build left out of the manifest (REP-002) | caught | `tests/unit/lifecycle/test_engine_build.py::test_the_build_enters_the_manifest_identity_only_when_recorded` | 136.1 |
+| W34 an upgraded OMS payload discarded (OMS-001) | caught | `tests/regression/test_oms_snapshot_schema.py::test_a_version_one_order_is_a_day_order_with_no_expiry_or_trigger` | 39.1 |
+| W35 a same-side re-mark leaves the book's totals (PRF-006) | caught | `tests/integration/test_backtest_pipeline.py::test_the_accounting_identity_holds_at_non_round_prices` | 4.6 |
+| W36 an older view reads a write made after it (PRF-008) | caught | `tests/regression/test_ambient_decimal_context.py` | 1.4 |
+| W37 a rebase keeps a deleted key (PRF-008) | caught | `tests/integration/test_bucket_gross_kept_by_the_book.py::test_every_order_reads_the_gross_the_member_sum_gives[0]` | 4.4 |
+| X01 a constant series explains all of nothing: r-squared zero, not undefined (NUM-003) | caught | `tests/unit/common/test_statistics.py::test_r_squared_of_a_constant_series_is_undefined_not_zero` | 130.1 |
+| X02 the normal CDF by 1 + erf, which underflows in the lower tail (NUM-004) | caught | `tests/unit/options/test_carry.py::test_a_zero_yield_reproduces_the_plain_formula_bit_for_bit` | 132.5 |
+| X03 theta on a 365-day year against a 365.25-day pricing year (NUM-004) | caught | `tests/unit/options/test_carry.py::test_greeks_match_central_differences[85-OptionType.CALL-no-yield]` | 132.4 |
+| X04 an ill-conditioned design solved anyway (NUM-007) | caught | `tests/unit/common/test_linalg.py::test_a_rank_deficient_design_is_refused` | 129.2 |
+| X05 a directory never flushed after a rename (PER-003) | caught | `tests/regression/test_durable_writes.py::test_a_checkpoint_and_its_directories_survive_a_crash` | 25.3 |
+| X06 a backtest valued in its own currency whatever was asked (API-004) | **survived**; caught after TST-013 | `tests/regression/test_backtest_result_valuation.py::test_valuation_in_values_in_the_currency_it_is_asked_for` | 17.0 |
+| X07 a duplicate intent sized twice (ALC-004) | caught | `tests/unit/allocation/test_intent_intake.py::test_a_duplicate_intent_is_counted_once_and_the_duplicate_is_recorded` | 126.5 |
+| X08 an instant's resolution reported as exact (DAT-008) | caught | `tests/unit/common/test_time_precision.py::test_an_instant_resolves_to_a_quarter_microsecond_at_current_epochs` | 127.3 |
+| X09 a day order expires at its first window's close, before lunch (EXE-010) | caught | `tests/integration/test_day_order_sessions.py::test_a_day_order_is_good_for_the_whole_trading_day_not_the_window_in_progress` | 5.9 |
+| X10 strategy capital ceilings never enforced (OFE-003) | caught | `tests/integration/test_strategy_ceilings.py::test_an_intent_over_its_strategys_ceiling_is_refused_and_another_strategys_is_not` | 10.0 |
+| X11 a budget's currency dropped on restore (PER-006) | caught | `tests/integration/test_strategy_ceilings.py::test_the_ledger_and_the_budget_currency_survive_an_allocation_snapshot` | 9.9 |
+| X12 classification limits never checked (OFE-001) | caught | `tests/integration/test_bucket_gross_kept_by_the_book.py::test_every_order_reads_the_gross_the_member_sum_gives[0]` | 4.9 |
+| X13 a reduction refused while its bucket is over the limit (OFE-001) | **survived**; caught after TST-013 | `tests/integration/test_classification_limits.py::test_a_reduction_that_leaves_its_bucket_over_the_limit_still_passes` | 5.9 |
+| X14 a labelled limit ignored for its own bucket (OFE-001) | caught | `tests/integration/test_classification_limits.py::test_a_labelled_limit_replaces_the_dimensions_for_its_bucket` | 6.3 |
+| X15 an observation delivered with the records of its own instant (OFE-009) | caught | `tests/integration/test_external_information.py::test_one_known_at_a_records_instant_comes_after_it_and_before_its_slice` | 6.3 |
+| X16 a share change before publication applied again (OFE-011) | caught | `tests/integration/test_external_information.py::test_a_split_before_publication_or_of_another_issuer_is_not_applied` | 6.6 |
+| X17 a share change applied before it was knowable (OFE-011) | **survived** — equivalent (see below) |  | 157.1 |
+| X18 a revision published ahead of the figure it revises accepted (OFE-011) | caught | `tests/integration/test_external_information.py::test_a_stream_refuses_what_a_set_refuses_and_is_left_unchanged` | 6.6 |
+| X19 evidence under an identity overwritten by another value (OFE-016) | **survived**; caught after TST-013 | `tests/regression/test_evidence_store.py::test_a_refused_value_leaves_no_bytes_behind` | 25.2 |
+| X20 a health window includes its open start (OFE-017) | caught | `tests/unit/lifecycle/test_health.py::TestHealthWindow::test_only_observations_inside_the_window_are_judged` | 134.2 |
+| X21 an over-fixed point certified (PRF-005) | caught | `tests/unit/portfolio_optimizer/test_factor_quadratic.py::test_the_solver_agrees_with_the_dense_method[329]` | 157.7 |
+| X22 a checkpoint chain's links not verified (PRF-004) | caught | `tests/regression/test_checkpoints.py::test_an_altered_checkpoint_breaks_the_next_link` | 22.5 |
+| X23 history beyond the retention window answered short (PRF-004) | caught | `tests/regression/test_retention.py::test_a_question_older_than_the_window_is_refused_not_answered_short` | 85.7 |
+| X24 retention keeps one entry fewer than declared (PRF-004) | caught | `tests/regression/test_checkpoints.py::test_every_cut_log_sits_where_the_checkpoint_says` | 17.4 |
+| X25 an order bound at another account than declared not reported (BRK-004) | caught | `tests/unit/lifecycle/test_reconcile_accounts.py::TestAssignment::test_an_order_bound_at_an_account_it_was_not_declared_for` | 133.0 |
+| X26 positions compared against one account, not the sum (BRK-004) | caught | `tests/unit/lifecycle/test_reconcile_accounts.py::TestAgreement::test_a_book_spread_across_two_accounts_reconciles_in_one_pass` | 132.6 |
+| X27 a filled order no account was declared for passed over (BRK-004) | caught | `tests/unit/lifecycle/test_reconcile_accounts.py::TestAssignment::test_fills_of_an_undeclared_unbound_order_are_unassigned` | 132.7 |
+| X28 trade prints deduplicated by instant (FEA-004) | caught | `tests/integration/test_trade_prints.py::TestADeclaredTableOfPrints::test_every_print_is_read_with_its_identifier_and_its_flag` | 14.5 |
+| X29 a print's aggressor dropped at normalization (FEA-004) | caught | `tests/integration/test_trade_prints.py::TestThePrintsReachTheExecutionPath::test_normalization_carries_the_identifier_and_the_flag` | 14.4 |
+| X30 a v3.11 tick read with no aggressor field (FEA-004 upgrade) | caught | `tests/integration/test_trade_prints.py::test_a_version_5_tick_is_read_as_unflagged` | 14.5 |
+| X31 every quote internally consistent (DAT-009) | caught | `tests/integration/test_trade_prints.py::TestTwoPrintsAtOneInstant::test_a_quote_reported_invalid_is_dropped_as_invalid_too` | 14.6 |
+| X32 the cell gradient not gated by the forget gate (SCF-004) | caught | `tests/unit/deep_learning/test_sequence_backprop.py::test_lstm_parameter_gradients_match_central_differences` | 129.9 |
+| X33 the softmax Jacobian without its weights (SCF-004) | caught | `tests/unit/deep_learning/test_sequence_backprop.py::test_attention_gradients_match_central_differences[queries]` | 131.5 |
+| X34 a sweep that minimizes picks the largest score (SCF-003) | caught | `tests/unit/research/test_signal_and_robustness.py::test_a_sweep_selects_the_lowest_score_when_lower_is_better` | 159.8 |
+| X35 a cancelled assigned job keeps its worker's slot (SCF-003) | caught | `tests/unit/distributed/test_distributed.py::test_cancelling_an_assigned_job_frees_its_worker_slot` | 132.8 |
+| X36 session timers fire at the opposite boundary (SCF-003) | caught | `tests/unit/scheduler/test_session_timers.py::test_a_session_open_timer_fires_at_each_trading_days_open_and_skips_the_weekend` | 159.5 |
+| X37 a report's Decimal written as a float (SCF-003) | caught | `tests/unit/reporting/test_reporting.py::test_export_json` | 159.4 |
+| X38 the research Sharpe ignores the risk-free rate (RES-001) | caught | `tests/unit/research/test_research.py::test_annualization_uses_the_periods_it_is_given` | 162.0 |
+| X39 the research walk-forward ignores the policy's windows (RES-001) | **survived**; caught after TST-013 | `tests/unit/research/test_research.py::test_the_policy_reaches_every_report_it_bounds` | 157.1 |
+| X40 the research ruin threshold ignores the policy (RES-001) | **survived**; caught after TST-013 | `tests/unit/research/test_research.py::test_the_policy_reaches_every_report_it_bounds` | 156.4 |
+| X41 a group's gross not moved by a re-mark (v3.12 stress finding) | caught | `tests/integration/test_bucket_gross_kept_by_the_book.py::test_every_order_reads_the_gross_the_member_sum_gives[0]` | 4.6 |
+| X42 an emptied group keeps a zero entry (v3.12 stress finding) | caught | `tests/integration/test_bucket_gross_kept_by_the_book.py::test_every_order_reads_the_gross_the_member_sum_gives[3]` | 6.4 |
+| X43 a kept bucket gross leaves out working orders (v3.12 stress finding) | caught (and on the final tree) | `tests/integration/test_bucket_gross_kept_by_the_book.py::test_every_order_reads_the_gross_the_member_sum_gives[0]` | 4.5 |
+| X44 totals kept for one registry read under another (v3.12 stress finding) | caught (and on the final tree) | `tests/integration/test_bucket_gross_kept_by_the_book.py::test_a_registry_other_than_the_one_grouped_by_is_summed_instead` | 5.9 |
+| X45 an event misses the strategies subscribed to everything (PRF-010) | caught (final tree) | `tests/regression/test_ambient_decimal_context.py` | 1.3 |
+| X46 overlapping subscriptions reach a strategy twice, out of order (PRF-010) | caught (final tree) | `tests/unit/strategy/test_routing_index.py::test_the_index_reaches_exactly_the_strategies_that_accept_in_their_order[0]` | 162.4 |
+| X47 an index handed on when a strategy's subscriptions changed (PRF-010) | caught (final tree) | `tests/unit/strategy/test_routing_index.py::test_an_evolution_that_changes_subscriptions_builds_its_own_index` | 164.5 |
+
 ## X. New feature proposals
 
 Proposed only where the gap blocks broad, serious use; each is justified in its ledger entry with
@@ -1173,3 +1326,4 @@ interpolation (FEA-005); then the fresh pre-v4 audit (Phase 26) and every findin
 | PRF-009 | Every order judged against a classification limit summed its bucket's members: a rebalance of N names under sector limits cost N^2 over the number of sectors. At 10,000 assets the per-record cost was 3.34x that at 400 (1,225 against 366 us), where the same run without limits grew 1.23x. | medium | runtime/portfolio | The v3.12 stress run (docs/audit/scripts/stress_v3_12.py assets). | Keep each limited bucket's gross with the book, exactly, on every change; read it and add what working orders commit; sum the members only where the two could differ. | v3.12.0 | tests/integration/test_bucket_gross_kept_by_the_book.py; tests/unit/portfolio/test_book_groups.py; tests/regression/test_sector_classification_reaches_attribution.py | implemented (v3.12.0) | FIX |
 | PRF-010 | Every event asked every registered strategy whether it subscribed: each strategy cost about 0.34 us on every record whatever its subscriptions. Ten strategies trading one asset took 665 us a record alone, 1,012 beside 1,000 strategies trading other assets and 4,097 beside 10,000. | medium | strategy | The v3.12 stress run's 1,000-strategy scenario, then a probe holding the reached strategies fixed and varying the others. | Route from an index of the subscriptions, in registration order, kept with the runtime state. | v3.12.0 | tests/unit/strategy/test_routing_index.py; tests/regression/test_strategy_routing_complexity.py | implemented (v3.12.0) | FIX |
 | ANA-006 | A report's JSON wrote a Decimal as a binary float and any value the encoder did not know as str(value), which can carry a memory address: exact money left the library approximately, and an export was not deterministic. | low | reporting | Found while consolidating the reporting package (SCF-003). | Write a Decimal as its exact text; refuse an unknown value. | v3.12.0 | tests/unit/reporting/test_reporting.py | implemented (v3.12.0) | FIX |
+| TST-013 | Five v3.12 rules had no test that pinned them: valuing a run in a currency other than its own (API-004), a reduction that leaves its bucket still over a classification limit (OFE-001's reduce-only rule; the one reduction tested landed exactly on the cap), an evidence value refused before any byte is written (OFE-016), and the research policy's walk-forward windows and ruin bound reaching their reports (RES-001; the only test policy used the values the mutants hard-coded). Mutating each passed the whole suite. | medium | tests | v3.12 defect-injection harness (docs/audit/scripts/mutation_v3_12.py): 123 mutations, 117 caught; X06, X13, X19, X39 and X40 survived, and X17 survived as an equivalent mutant. | A test for each rule, failing on each mutant. | v3.12.0 | tests/regression/test_backtest_result_valuation.py::test_valuation_in_values_in_the_currency_it_is_asked_for; tests/integration/test_classification_limits.py::test_a_reduction_that_leaves_its_bucket_over_the_limit_still_passes; tests/regression/test_evidence_store.py::test_a_refused_value_leaves_no_bytes_behind; tests/unit/research/test_research.py::test_the_policy_reaches_every_report_it_bounds | implemented (v3.12.0) | FIX |

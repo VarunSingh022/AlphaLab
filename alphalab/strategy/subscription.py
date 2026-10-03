@@ -296,6 +296,14 @@ class RoutingIndex:
             MappingProxyType({key: tuple(found) for key, found in scoped.items()}),
         )
 
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        """Pickled and copied as plain mappings, read-only again once rebuilt."""
+
+        return (
+            _routing_index,
+            (self.ids, self.everything, dict(self.topics), dict(self.scoped)),
+        )
+
     def reaching(self, topic: Topic, asset_id: str | None = None) -> tuple[str, ...]:
         """Every strategy whose subscriptions accept ``topic`` -- about ``asset_id`` -- in order.
 
@@ -317,3 +325,14 @@ class RoutingIndex:
         positions = lists[0] if len(lists) == 1 else sorted(set().union(*lists))
         ids = self.ids
         return tuple(ids[position] for position in positions)
+
+
+def _routing_index(
+    ids: tuple[str, ...],
+    everything: tuple[int, ...],
+    topics: dict[Topic, tuple[int, ...]],
+    scoped: dict[tuple[Topic, str], tuple[int, ...]],
+) -> RoutingIndex:
+    """A routing index rebuilt from its pickled parts."""
+
+    return RoutingIndex(ids, everything, MappingProxyType(topics), MappingProxyType(scoped))

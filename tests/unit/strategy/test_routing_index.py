@@ -11,6 +11,8 @@ topic and asset.
 
 from __future__ import annotations
 
+import copy
+import pickle
 import random
 import uuid
 from collections.abc import Iterable
@@ -176,6 +178,24 @@ def test_the_index_takes_no_part_in_a_states_value() -> None:
 
     assert built == fresh
     assert repr(built) == repr(fresh)
+
+
+def test_a_copied_or_pickled_state_routes_as_the_original() -> None:
+    """The index is derived: a copy or a pickle rebuilds it, and routes the same."""
+
+    state = _runtime(3, 30, [])
+    built = state.reach
+
+    for other in (copy.deepcopy(state), pickle.loads(pickle.dumps(state))):
+        # The strategies are copies (an instance compares by identity); their
+        # ids, order and subscriptions are the original's.
+        assert list(other.strategies) == list(state.strategies)
+        for topic in Topic:
+            for asset_id in (None, *ASSETS, *SUBJECTS):
+                assert other.reach.reaching(topic, asset_id) == built.reaching(topic, asset_id)
+    restored = pickle.loads(pickle.dumps(built))
+    assert restored == built
+    assert restored.reaching(Topic.BARS, ASSETS[0]) == built.reaching(Topic.BARS, ASSETS[0])
 
 
 def test_overlapping_subscriptions_reach_a_strategy_once() -> None:

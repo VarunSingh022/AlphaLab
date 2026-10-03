@@ -83,6 +83,11 @@ class _Reach:
     def __init__(self) -> None:
         self.index: RoutingIndex | None = None
 
+    def __reduce__(self) -> tuple[type[_Reach], tuple[()]]:
+        """A copy or a pickle starts empty: the index is rebuilt from what it holds."""
+
+        return (_Reach, ())
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeState:
