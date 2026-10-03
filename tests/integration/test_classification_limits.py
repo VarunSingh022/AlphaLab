@@ -355,6 +355,29 @@ def test_a_reduction_passes_a_bucket_over_its_limit() -> None:
     assert _refused(reduced) == []
 
 
+def test_a_reduction_that_leaves_its_bucket_over_the_limit_still_passes() -> None:
+    """Reduce-only: 2,000 held against a 1,500 cap, one unit sold, 1,900 left (mutation X13).
+
+    The reduction above lands exactly on the cap, which a limit with no
+    reduce-only rule would also pass; this one does not.
+    """
+
+    state, _ = _pipeline({2.0: ("20", MARKET), 3.0: ("-1", MARKET)})
+    over = _at(state, ACME_A, 2.0).state
+    over = replace(
+        over,
+        risk=replace(
+            over.risk,
+            active_limits=replace(over.risk.active_limits, classification=(ISSUER_CAP,)),
+        ),
+    )
+
+    reduced = _at(over, ACME_A, 3.0)
+
+    assert [fill.quantity for fill in reduced.fills] == [Decimal("1")]
+    assert _refused(reduced) == []
+
+
 def test_working_orders_count_toward_their_bucket() -> None:
     resting = OrderTerms.limit(Decimal("90"), TimeInForce.GTC)
     state, _ = _pipeline({2.0: ("10", resting), 3.0: ("6", MARKET)}, ISSUER_CAP)

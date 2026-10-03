@@ -31,8 +31,8 @@ payloads v3.11.0 itself wrote are frozen as fixtures
 (`tests/fixtures/snapshots/v3.11.0`) that every later build must read.
 
 Amends **ADR-0030** (the run carries two more continuation fields, eleven in
-all; the pipeline's sixteen are unchanged), **ADR-0031** (classification is
-any dimension, not only the sector), **ADR-0043** (construction has a
+all; the pipeline's sixteen are unchanged), **ADR-0027** and **ADR-0031**
+(classification is along any dimension, with the sector's provenance rules), **ADR-0043** (construction has a
 factor-structured solver beside the dense one), **ADR-0045** decision 10 (the
 v1 research engine's exemption from the no-silent-defaults rule ends: it is
 restated, RES-001) and **ADR-0046** decision 3 (a simulated DAY order reads its
@@ -43,14 +43,18 @@ ADR-0046 throughout.
 
 # Context
 
-The ledger assigns twenty-six items to v3.12. Four were numerical defects in
-methods that pass their ordinary tests: an R² reported as zero where it is
-undefined, a normal CDF that underflows in the lower tail, a regression solved
-through its normal equations, and an option's theta on a different year from
-its price. One was a durability defect: a rename reported durable before its
-directory was flushed. Eleven were deferred capabilities. The rest were
-consolidation (SCF-003, RES-001), scale (PRF-004, PRF-005) and test method
-(TST-011).
+The ledger assigns twenty-six items to v3.12. Three are numerical (NUM-003,
+NUM-004, NUM-007): methods right in their ordinary range and wrong at its
+edges — an R² reported as zero where it is undefined, a normal CDF that
+underflows in the lower tail and a theta on a different year from its price,
+a regression solved through its normal equations. One is a limitation to
+state (DAT-008). Two are defects of durability and API (PER-003, a rename
+reported durable before its directory was flushed; API-004) and one is
+technical debt (ALC-004). Twelve are capabilities: the eight former optional
+evolutions the audit made required (OFE-001, -003, -009, -011, -013, -016,
+-017, -023), BRK-004, FEA-004, EXE-010 and SCF-004. Two are boundaries
+re-examined (BDY-008, BDY-018). The rest are consolidation (SCF-003, RES-001),
+scale (PRF-004, PRF-005) and test method (TST-011).
 
 Building and auditing them found five more, recorded as findings of this
 release: PER-006 (an allocation snapshot dropped its budget's currency on

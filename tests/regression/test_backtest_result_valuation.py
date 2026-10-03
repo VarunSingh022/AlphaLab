@@ -53,6 +53,22 @@ def test_valuation_in_converts_every_other_currency_at_the_callers_rates() -> No
     assert valuation.equity == START_CASH + Decimal("1100.00")
 
 
+def test_valuation_in_values_in_the_currency_it_is_asked_for() -> None:
+    """Not the run's own: a run settled in dollars, valued in euros (mutation X06)."""
+
+    both_ways = FxRates.of(
+        [
+            FxRate("EUR", "USD", Decimal("1.25"), 0.0, "test"),
+            FxRate("USD", "EUR", Decimal("0.80"), 0.0, "test"),
+        ]
+    )
+
+    valuation = _finished_run_holding_euros().valuation_in("EUR", both_ways)
+
+    assert valuation.currency == "EUR"
+    assert valuation.cash == Decimal("1000.00") + START_CASH * Decimal("0.80")
+
+
 def test_a_single_currency_run_values_the_same_either_way() -> None:
     config = RunConfig(
         mode=ExecutionMode.BACKTEST, pipeline=pipeline_config("S"), seed=7, start_timestamp=1.0

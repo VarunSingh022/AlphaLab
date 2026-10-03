@@ -205,7 +205,9 @@ and read by `tests/regression/test_schema_upgrades_v3_11.py`.
 regression, none skipped (3.11.0: 8,215). The defect-injection harness is in
 the repository now (`docs/audit/scripts/mutation_v3_12.py`), with the stress
 program beside it (`docs/audit/scripts/stress_v3_12.py`). Every benchmark
-ceiling is judged by one method (`benchmarks/_stable_timing.py`) [TST-011].
+ceiling is judged by one method (`benchmarks/_stable_timing.py`) [TST-011], and
+`benchmarks/benchmark_construction_scaling.py` measures structured construction
+at 200, 400 and 800 assets against a growth ceiling (55 benchmarks).
 
 ## Still open
 

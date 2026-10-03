@@ -72,6 +72,19 @@ def test_a_different_value_under_a_filed_identity_is_refused() -> None:
         store.put(_Note("second", 2), kind="note", identity="n-1")
 
 
+def test_a_refused_value_leaves_no_bytes_behind(tmp_path: Path) -> None:
+    """The conflict is found before anything is written (mutation X19)."""
+
+    store = file_evidence_store(tmp_path)
+    store.put(_Note("first", 1), kind="note", identity="n-1")
+    held = sorted(path for path in (tmp_path / "artifacts").rglob("*") if path.is_file())
+
+    with pytest.raises(PersistenceValidationError, match="An identity names one value"):
+        store.put(_Note("second", 2), kind="note", identity="n-1")
+
+    assert sorted(path for path in (tmp_path / "artifacts").rglob("*") if path.is_file()) == held
+
+
 def test_a_value_with_no_identity_is_filed_under_its_content() -> None:
     store = memory_evidence_store()
     one = store.put(_Note("text", 1), kind="note")

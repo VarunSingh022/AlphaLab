@@ -372,6 +372,22 @@ def test_the_periods_change_every_annualized_measurement(sample_payload: Researc
     assert daily["max_drawdown"] == weekly["max_drawdown"]
 
 
+def test_the_policy_reaches_every_report_it_bounds(sample_payload: ResearchPayload) -> None:
+    """Each bound the policy states is the one its report used (mutations X39, X40)."""
+
+    policy = replace(POLICY, walk_forward_windows=3, ruin_drawdown=0.35, shock_return=-0.25)
+    state = ResearchEngine.initialize("R-1", "S-1", 1000.0)
+    done = ResearchEngine.run_full_research(state, sample_payload, policy, 1001.0, seed=42)
+
+    assert done.walk_forward_report is not None
+    assert done.walk_forward_report.windows_evaluated == 3
+    assert len(done.walk_forward_report.window_sharpes) == 3
+    assert done.monte_carlo_report is not None
+    assert done.monte_carlo_report.ruin_drawdown == 0.35
+    assert done.stress_report is not None
+    assert done.stress_report.shock_return == -0.25
+
+
 def test_engine_double_run(sample_payload: ResearchPayload) -> None:
     state = ResearchEngine.initialize("R-1", "S-1", 1000.0)
     done = ResearchEngine.run_full_research(state, sample_payload, POLICY, 1001.0, seed=42)
