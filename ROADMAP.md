@@ -83,6 +83,16 @@ against named references. `alphalab.core`, `broker`, `execution`, `runtime` and
 `lifecycle` deepen; no package and no package edge is added, and no snapshot
 schema changes. ADR-0044.
 
+**v3.12.0** is the third of four **pre-v4 releases**: numerical methods right
+at the edges of their range, durable state that restores what was captured,
+costs that follow the work at 10,000 assets, 1,000 strategies and 100 venues,
+and the capabilities deferred to it — calendars inside simulation, strategy
+capital ceilings, classification limits, external information on the
+execution path, retention and incremental checkpoints, an evidence store,
+multi-account reconciliation, declared trade prints and trainable sequence
+models (ADR-0047). The package removals SCF-003 calls for await the
+maintainer's decision.
+
 **v3.11.0** is the second of four **pre-v4 releases**: the capabilities a
 strategy needs before its API is frozen — instrument economics, order terms,
 target positions, slices, leak-proof research, construction with costs and
@@ -215,6 +225,42 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.12.0 — the pre-v4 hardening release
+
+- **Numerics** (NUM-003, NUM-004, NUM-007, DAT-008): R² undefined for a
+  constant series; the normal CDF from `erfc`, precise deep in the lower tail;
+  least squares by Householder QR with a condition bound; theta on the
+  pricing year; a float instant's resolution stated.
+- **Durability** (PER-003, PER-006): directories flushed after a rename; an
+  allocation budget's currency restored; every v3.11.0 payload read from
+  frozen fixtures.
+- **Simulation** (EXE-010): a DAY order expires at its venue's last close of
+  the trading day.
+- **Capital and risk** (OFE-003, OFE-001, PRF-009): per-strategy capital
+  ceilings; classification along any dimension and limits on its buckets,
+  their gross kept by the book.
+- **External information** (OFE-009, OFE-011): observations delivered at the
+  instant they became knowable; streaming observation sets; split-adjusted and
+  converted fundamentals.
+- **Memory and checkpoints** (PRF-004): declared retention, history refused
+  beyond it, incremental checkpoints verified link by link.
+- **Evidence and health** (OFE-016, BDY-008, OFE-017): a durable evidence
+  store; health over a window.
+- **Reconciliation** (BRK-004, OFE-023): one book against every account it is
+  spread across.
+- **Data** (FEA-004, BDY-018, DAT-009): declared trade prints with venue
+  identifiers and aggressor sides; cleaning judges quotes as validation does.
+- **Models** (SCF-004): backpropagation through time for the LSTM, and
+  attention's backward pass.
+- **Research** (RES-001, SCF-003 in part): the v1 engine restated as
+  measurements under a stated policy; one parameter-search authority;
+  distributed cancellation fixed; session timers over a calendar; exact
+  report numbers (ANA-006).
+- **Scale** (PRF-005, PRF-010, TST-011): factor-structured construction to
+  10,000 assets; an event reaches strategies through an index; every benchmark
+  ceiling judged by one method; a stress program at 10,000 assets, 1,000
+  strategies and 100 venues.
 
 ## v3.11.0 — the pre-v4 capability release
 
@@ -733,10 +779,11 @@ future "simplification" would have to break first —
   exposure depends on whether it holds shares or contracts, so it is supplied by
   the caller from whichever authority their book calls for. A third exposure
   site would be the one that forgot the multiplier.
-- **No durable state for the v3.5 values — until v3.12.** The reason this was a
+- **Durable state for the v3.5 values — since v3.12.** The reason this was a
   boundary was that a new field would have made every earlier payload
-  unreadable; v3.10's schema upgrades remove that reason, and a durable evidence
-  store is planned for v3.12 (BDY-008, OFE-016).
+  unreadable; v3.10's schema upgrades removed that reason, and v3.12's
+  evidence store files manifests, fingerprints and reports under their own
+  identities (BDY-008, OFE-016). `LifecycleState` itself is unchanged.
 - **No `SettlementPolicy` object.** `STRICT_MATCH` is the only settlement rule
   because no alternative exists: a permissive mode could only book honestly —
   making the book mixed, which the next valuation refuses without rates — or
@@ -807,10 +854,11 @@ future "simplification" would have to break first —
   position `MarketCalendar` takes on holidays, for the same reason: an exchange
   revises them, they differ between segments of one venue, and a table baked in
   here would be wrong within a year while looking authoritative.
-- **No trade or depth ingestion from a flat file.** A `price`/`size` pair is
-  indistinguishable from a partially populated bar without a declaration, and a
-  depth book is not a flat table. `RecordType` has `BAR` and `QUOTE` only; a
-  caller that builds the records itself can still ingest them.
+- **No depth ingestion from a flat file; trade prints only when declared.** A
+  `price`/`size` pair is indistinguishable from a partially populated bar
+  without a declaration, so since v3.12 a print is read only from the columns a
+  caller names (`TradeColumns`, FEA-004) and never detected from a header; a
+  depth book is not a flat table, and stays out (BDY-018).
 - **No marketplace logic.** AlphaLab provides fingerprints, manifests,
   certification reports and portability reports; listing, publishing, purchase,
   payment, subscription, ranking, search, seller and buyer accounts, licensing
@@ -957,24 +1005,17 @@ compared different units, the daily loss limit that was never enforced, the net
 exposure limit nothing read, and `ingest_rows` identifying rows by the source
 its caller named — are fixed in v3.10 (KD-001–004).
 
-What remains known is in the pre-v4 ledger, each with an ID and a release. The
-defects among them, as distinct from missing capabilities:
+What remains known is in the pre-v4 ledger, each with an ID and a release.
+v3.12 fixed the research engine's daily assumption and 0–100 scores (RES-001),
+the single-currency `BacktestResult.valuation` (API-004), the calendar-less
+DAY order (EXE-010), the single-sample benchmark ceilings (TST-011), the three
+numerical defects (NUM-003, NUM-004, NUM-007) and the unflushed directory
+(PER-003). What is still known:
 
-- **Research integrity**: the v1 research engine assumes daily returns and
-  scores with uncalibrated constants (RES-001, v3.12). (Delisting returns and
-  the implementation lag were fixed in v3.11 — DAT-002, DAT-003.)
-- **Accounting**: `BacktestResult.valuation` takes no FX rates and raises for a
-  multi-currency run (API-004, v3.12). (Live FX settlement and the paper cost
-  model were fixed in v3.11 — EXE-009, BRK-008.)
-- **Simulation**: a simulated DAY order must state its `expire_at`; exchange
-  calendars are not read inside simulation (EXE-010, v3.12).
-- **Benchmarks**: five benchmarks judge a scaling ceiling on one sample of each
-  size, the method that failed the institutional benchmark's guard in the v3.11
-  gate (TST-011, v3.12; the institutional one is fixed — TST-010).
-- **Numerics**: `r_squared` of a constant series is reported as 0.0 (NUM-003);
-  the normal CDF loses relative precision deep in its lower tail (NUM-004);
-  regression squares the condition number (NUM-007) — all v3.12.
-- **Durability**: an atomic write does not fsync its directory (PER-003, v3.12).
+- **Memory** (stated by PRF-004; classified by the v3.13 audit): the OMS order
+  book, execution reports by order, and a live session's routed and settled
+  orders grow with the orders a run places — retention bounds the logs, not
+  these, and a checkpoint segment carries the whole order book.
 - **Performance** (PRF-006, v3.11 — bounded, not eliminated): against v3.9 on
   one machine (five interleaved rounds), the portfolio-engine micro-benchmark
   runs at 1.69× v3.9's time (1.51–1.72; exact per-currency totals and
@@ -998,14 +1039,14 @@ the disposition the pre-v4 audit gave it.
 | A t-statistic on an information coefficient, corrected for overlapping windows (Newey–West) | OFE-006 | v3.11 — delivered |
 | Pipeline-driven `on_fill` / `on_order` / `on_timer` | OFE-014 | v3.11 — delivered |
 | A venue sequence number; persisted child bindings and request ledger | OFE-021, OFE-022 | v3.11 — delivered |
-| Classification dimensions beyond sector; sector-based pre-trade limits | OFE-001 | v3.12 |
-| Per-strategy capital ceilings on the execution path | OFE-003 | v3.12 |
-| Execution-path delivery of external information | OFE-009 | v3.12 |
-| A streaming observation set; split-adjusted and currency-converted fundamentals | OFE-011 | v3.12 |
-| The optimizer's super-linear `pending_trials`, removed with the research consolidation | OFE-013 | v3.12 |
-| A durable home for progressions, fingerprints, manifests and reports | OFE-016 | v3.12 |
-| Health evaluated over a window | OFE-017 | v3.12 |
-| Book-to-mirror reconciliation across several brokers' accounts | OFE-023 | v3.12 |
+| Classification dimensions beyond sector; sector-based pre-trade limits | OFE-001 | v3.12 — delivered |
+| Per-strategy capital ceilings on the execution path | OFE-003 | v3.12 — delivered |
+| Execution-path delivery of external information | OFE-009 | v3.12 — delivered |
+| A streaming observation set; split-adjusted and currency-converted fundamentals | OFE-011 | v3.12 — delivered |
+| The optimizer's super-linear `pending_trials`, removed with the research consolidation | OFE-013 | v3.12 — pending the maintainer's decision on removing the optimizer (SCF-003) |
+| A durable home for progressions, fingerprints, manifests and reports | OFE-016 | v3.12 — delivered |
+| Health evaluated over a window | OFE-017 | v3.12 — delivered |
+| Book-to-mirror reconciliation across several brokers' accounts | OFE-023 | v3.12 — delivered |
 | A lock-file reader | OFE-019 | v3.13 |
 | A rerun harness | OFE-020 | v3.13 |
 | An optimal split; estimated urgency and randomized iceberg tranches | OFE-024, OFE-025 | v3.13 |

@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.11)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.12)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.11)
+# Implementation Status (v3.12)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -138,7 +138,22 @@ covariances, costed construction and lot rounding
 accounting context. It removes `alphalab.studio`, `alphalab.workbench` and
 `alphalab.enterprise` to the host application, adds one package edge
 (`portfolio_optimizer` → `conventions`) and no package, and upgrades eight
-snapshot schemas (ADR-0046). **v3.0.0 adds no capability**: it freezes the architecture described here and makes the
+snapshot schemas (ADR-0046). **v3.12.0 is the third pre-v4 release, a
+hardening one**: numerical methods right at the edges of their range
+(`alphalab.common.linalg`, the normal CDF from `erfc`); durable directories and
+exact restores; venue calendars inside simulation (`alphalab.runtime.calendars`);
+per-strategy capital ceilings (`alphalab.allocation.ceilings`); classification
+along any dimension and limits on its buckets (`alphalab.risk.ClassificationLimit`),
+their gross kept by the position book; observations delivered on the execution
+path; retention and incremental checkpoints (`alphalab.runtime.retention`,
+`alphalab.runtime.checkpoint`); an evidence store
+(`alphalab.model_registry.evidence`); multi-account reconciliation
+(`alphalab.lifecycle.reconcile_accounts`); declared trade prints
+(`alphalab.data.TradeColumns`); LSTM and attention backpropagation;
+factor-structured construction (`alphalab.portfolio_optimizer.factor_quadratic`);
+and routing by index (`alphalab.strategy.subscription.RoutingIndex`). It adds no
+package and eight package edges, none a cycle, and upgrades four snapshot
+schemas (ADR-0047). **v3.0.0 adds no capability**: it freezes the architecture described here and makes the
 documentation match it.
 
 ## AlphaLab is a library
@@ -452,6 +467,7 @@ schema is unchanged.
 | **Structured runtime health** | **Implemented (v3.5).** `alphalab.lifecycle.health.evaluate_health` — seven categories, severities, machine-readable detail, from **supplied** observations against a specification's declared budgets. It observes nothing on its own and remediates nothing |
 | **Expected / paper / live comparison** | **Implemented (v3.5).** `alphalab.lifecycle.comparison` — trades, fills, slippage, P&L, exposure and latency, with declared alignment and explicit tolerances. It opens no connection and reads no feed |
 | **Reconciliation of the book against the mirror** | **Implemented (v3.5).** `alphalab.lifecycle.reconciliation.reconcile_execution_state` — fourteen mismatch classes across the OMS book, the portfolio and the applied fills. `broker.reconciliation.reconcile` still owns the mirror-against-the-venue pair |
+| **Reconciliation of one book against several accounts** | **Implemented (v3.12).** `alphalab.lifecycle.reconciliation.reconcile_accounts` — orders and fills per account over the orders declared for it, positions and cash in total with each account's share named; a fifteenth class, `ACCOUNT_ASSIGNMENT_MISMATCH`; undeclared orders listed, never placed by inference |
 | Automated remediation of a health finding or a mismatch | **Not implemented, deliberately.** Both detect and report; neither declares a side authoritative and neither mutates anything. Re-sending an order that actually exists would duplicate it, so the decision stays with the caller |
 | **Strategy fingerprints** | **Implemented (v3.6).** `alphalab.lifecycle.fingerprint` — an immutable identity over code, declared dependencies (with their completeness), parameters, research configuration and engine. Nothing environmental enters it, and nothing reads the installed environment to decide it |
 | **Reproducibility manifests** | **Implemented (v3.6).** `alphalab.lifecycle.reproducibility` — everything one result was produced from, each identity read from its owner, with identity, completeness, rerun and external dependencies assessed separately. Nothing is stored and nothing is re-executed inside the library |

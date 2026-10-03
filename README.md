@@ -37,15 +37,15 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.11.0 — the second pre-v4 release: instrument economics, order types and resting orders, target positions, complete instants, leak-proof research and walk-forward optimization, and construction that pays for trading and answers in lots — with the application's packages moved out of the library and the v3.10 performance cost paid back**
+**Current Release:** **v3.12.0 — the third pre-v4 release: numerical methods right at the edges of their range, durable state that restores what was captured, costs that follow the work at 10,000 assets, 1,000 strategies and 100 venues, and the capabilities deferred to it — calendars inside simulation, strategy capital ceilings, classification limits, external information on the execution path, an evidence store, multi-account reconciliation, declared trade prints and trainable sequence models**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.11.0 |
+| Version | 3.12.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **8,215 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (1,122 source files, repository-wide) |
+| Tests | **8,633 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (1,158 source files, repository-wide) |
 | Linting | **Ruff Clean** |
 | Benchmarks | **54 / 54 Passing** |
 | Examples | **65 / 65 Passing** |
@@ -53,6 +53,54 @@ The framework is designed for researchers, quantitative developers, students, an
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
 | License | MIT |
+
+## What v3.12.0 is
+
+The third of four releases the **pre-v4 audit** plans before the v4.0 freeze.
+v3.10 made the canonical path correct and v3.11 gave it what a strategy needs;
+v3.12 hardens it and builds what the audit deferred here. Every item the ledger
+assigns to v3.12 is closed, each pinned by the tests its entry names, except
+the package removals SCF-003 calls for, which await the maintainer's decision.
+Five defects found while building, stressing and auditing it are fixed — four
+had shipped. ADR-0047.
+
+**Right at the edges of the range.** R² of a constant series is undefined, not
+zero; the normal CDF keeps its precision deep in the lower tail, so far
+out-of-the-money options price and invert; least squares runs by Householder QR
+and refuses an ill-conditioned or rank-deficient design; theta uses the year
+the price uses.
+
+**Durable, and restored as captured.** A rename is flushed with its directory;
+an allocation snapshot keeps its budget's currency (it had been dropped since
+v2.17). Every payload v3.11.0 wrote is frozen as a fixture and read by the
+suite. A run can bound the history it keeps — a strategy asking for more is
+refused rather than answered short — and checkpoint incrementally, as a base
+and a chain of segments verified link by link.
+
+**Capital, classification and information on the path.** Simulated DAY orders
+expire at their venue's last close; a strategy's capital can be capped; any
+classification dimension — issuer, country, rating — can bound a bucket's
+gross or share, counting working orders, reduce-only; a point-in-time
+observation reaches a strategy at the instant it became knowable.
+
+**Scale, measured.** A stress program runs 10,000 assets under classification
+limits, 1,000 strategies with ceilings and 100 venues' calendars, accounts and
+session timers. It found two costs that grew faster than the work, both fixed:
+a classification limit summed its bucket for every order, and every event asked
+every strategy whether it subscribed. Construction on a factor-model covariance
+is solved in O(n k²) per step: 10,000 assets in 1.6 s, where the dense solver
+took 135 s at 800.
+
+**Multi-account, prints, sequence models.** One book reconciles against every
+account it is spread across; trade prints are read from declared columns with
+their venue identifiers and aggressor sides; LSTMs and attention train by
+backpropagation checked against central differences; the v1 research engine
+reports measurements instead of 0–100 scores, with every bound stated.
+
+**This release breaks things on purpose**: each break is listed, with what to
+do instead, in the [CHANGELOG](CHANGELOG.md)'s migration table.
+
+---
 
 ## What v3.11.0 is
 
@@ -891,6 +939,7 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v3.8.0** | Advanced portfolio and risk: one risk model with stated currency, period and definiteness; constrained construction — minimum variance, mean-variance, maximum diversification, risk parity, robust, Black–Litterman, factor-neutral — by one certified solver that names conflicts; risk budgets along five dimensions; multi-strategy books with provenance across currencies; cross-strategy correlation, overlap and crowding; and capital allocation across strategies, markets, brokers, accounts and currencies (ADR-0043) |
 | **v3.9.0** | The universal execution contract: broker capabilities declared at venue, market and account level and checked three-valued; one order-transition table read by the OMS and the venue boundary, with every venue report given one outcome and cancels and amendments given identities; TWAP, VWAP, participation, slicing and iceberg-like algorithms whose children stay their parent's; route selection from supplied venue evidence, explained; implementation shortfall, slippage, fill quality, latency, rejection rate and venue quality; and snapshot reconciliation (ADR-0044) |
 | **v3.10.0** | The first pre-v4 release: risk judged on the projected book, never refusing a reduction; money exact at each currency's minor unit; analytics per instant with declared or observed annualization; next-event fills and recorded execution assumptions; a canonical path linear in the universe; bars stamped at their close; upgradeable snapshots; vendor code and silent defaults removed (ADR-0045) |
+| **v3.12.0** | The third pre-v4 release: numerics right at the edges of their range; durable writes and exact restores; exchange calendars inside simulation; strategy capital ceilings; classification limits along any dimension; external information on the execution path; retention and incremental checkpoints; an evidence store; multi-account reconciliation; declared trade prints; LSTM and attention backpropagation; factor-structured construction; a stress program at 10,000 assets, 1,000 strategies and 100 venues (ADR-0047) |
 | **v3.11.0** | The second pre-v4 release: instrument economics, corporate actions and negative prices; order terms and resting orders; target positions; slices, subscriptions and feedback; leak-proof research, walk-forward optimization and multiple-testing corrections; construction with costs and lots; `studio`, `workbench`, `enterprise` and venue credentials moved to the application; every run entry point pinned; v3.10's performance cost paid back (ADR-0046) |
 
 > **What connectivity means here.** `alphalab.broker.BrokerProtocol` and the
@@ -1497,15 +1546,15 @@ re-classified every one; each below is a ledger item with a release
   pipeline-driven `on_fill` / `on_order` / `on_timer` (OFE-014); a venue
   sequence number and persisted child bindings and request ledger (OFE-021,
   OFE-022).
-- **v3.12** — exchange calendars inside simulation, so a DAY order need not
-  state its session close; classification dimensions beyond sector and sector-based
-  pre-trade limits (OFE-001); per-strategy capital ceilings on the execution
-  path (OFE-003); execution-path delivery of external information (OFE-009);
-  streaming observation sets and split-adjusted fundamentals (OFE-011); the
-  optimizer's super-linear pending trials, removed with the research
-  consolidation (OFE-013); a durable home for progressions, fingerprints,
-  manifests and reports (OFE-016); health over a window (OFE-017);
-  book-to-mirror reconciliation across brokers (OFE-023).
+- **v3.12** — *done* (ADR-0047): exchange calendars inside simulation
+  (EXE-010); classification dimensions beyond sector and limits on their
+  buckets (OFE-001); per-strategy capital ceilings on the execution path
+  (OFE-003); execution-path delivery of external information (OFE-009);
+  streaming observation sets, split-adjusted and converted fundamentals
+  (OFE-011); a durable evidence store (OFE-016); health over a window
+  (OFE-017); book-to-mirror reconciliation across brokers (OFE-023). *Pending
+  the maintainer's decision*: the optimizer's super-linear pending trials,
+  removed with the optimizer (OFE-013, with SCF-003's removals).
 - **v3.13** — a lock-file reader (OFE-019); a rerun harness (OFE-020); an
   optimal split, estimated urgency and randomized iceberg tranches (OFE-024,
   OFE-025).

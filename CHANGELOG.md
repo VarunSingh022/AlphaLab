@@ -14,6 +14,210 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.12.0] - Unreleased
+
+**The third pre-v4 release: numerical methods right at the edges of their
+range, durable state that is durable and restores what was captured, costs
+that follow the work at 10,000 assets, 1,000 strategies and 100 venues, and
+the capabilities the audit deferred here — calendars inside simulation,
+strategy capital ceilings, classification limits, external information on the
+execution path, an evidence store, multi-account reconciliation, declared
+trade prints and trainable sequence models.**
+
+v3.10 made the canonical path correct and v3.11 gave it what a strategy needs.
+v3.12 hardens it. Every item the ledger (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`)
+assigns to v3.12 is closed here, each pinned by the tests its entry names —
+except the package removals SCF-003 calls for (and OFE-013 with them), which
+await the maintainer's decision (see *Still open*). Building, stressing and
+auditing the rest found five defects, all fixed here: four had shipped
+(PER-006, DAT-009, ANA-006 and PRF-010) and one was introduced and caught
+within this release (PRF-009). ADR-0047 records the decisions. Ledger IDs are
+given in brackets.
+
+A run configured as in 3.11 behaves as in 3.11: ceilings, classification
+limits, calendars and retention are all off until declared, and every payload
+3.11.0 wrote is read. What breaks is listed in the migration table.
+
+## Added — the execution path (`alphalab.runtime`, `alphalab.allocation`, `alphalab.risk`, `alphalab.instrument`)
+
+* **Exchange calendars inside simulation** [EXE-010]:
+  `ExecutionPipelineConfig.calendars` (`runtime.VenueCalendars`, keyed by the
+  instrument's exchange). A simulated DAY order with no `expire_at` expires at
+  its trading day's *last* close (`MarketCalendar.day_order_expiry`), not at
+  `next_close` — the end of the morning window on a market with a lunch break.
+  Without a calendar the 3.11 refusal stands.
+* **Per-strategy capital ceilings** [OFE-003]:
+  `CapitalBudget.enforce_strategy_budgets` (default off). Each strategy's
+  deployed capital at cost plus what its working orders reserve
+  (`allocation.ceilings.StrategyCapital`); reductions are free; a breach is
+  refused on the record with plain amounts.
+* **Classification along any dimension, and limits on its buckets**
+  [OFE-001]: `instrument.classify_dimension` / `classify_dimensions` with the
+  sector's provenance rules, `dimension_history`, `label_as_of`, and
+  `InstrumentRegistry.label_of` / `bucket_members`;
+  `risk.ClassificationLimit(dimension, max_gross, max_share, label,
+  refuse_unclassified)` on `RiskLimits.classification` — gross or share of NAV,
+  a labelled bucket overriding its dimension, working orders counted,
+  reduce-only.
+* **External information on the execution path** [OFE-009]: an
+  `ObservationReceived` reaches strategies subscribed to `"observations"` or
+  `"observations:<subject>"` that define `on_observation`, at the instant it
+  became knowable — `ExecutionPipeline.process_observation`,
+  `RunEngine.deliver_observation`, `BacktestEngine.run(observations=)` —
+  and its orders rest to the next market event.
+* **Retention and incremental checkpoints** [PRF-004]: `RetentionPolicy`
+  bounds the market history, steps, audit events and results a run keeps; a
+  history request beyond the window is refused (`HistoryNotRetainedError`),
+  never answered short. `runtime.checkpoint`: a base capture, then segments of
+  what each log appended, chained by digest; a broken chain is refused on read.
+
+## Added — research, data and models
+
+* **Streaming observations and adjusted fundamentals** [OFE-011]:
+  `alt_data.ObservationStream`, `adjusted_for_share_changes`,
+  `converted_fundamental`, `DeliverySchedule`.
+* **Declared trade prints** [FEA-004, BDY-018]: `data.TradeColumns` and
+  `declare_trade_schema` — a print is read only from the columns the caller
+  names, deduplicated by the venue's trade identifier, with its aggressor side
+  from declared codes (`TradeAggressor`). `Trade.trade_id` / `aggressor`,
+  `Tick.aggressor`. Depth stays out.
+* **Backpropagation through time and attention** [SCF-004]: `lstm_backward`,
+  `LSTMRegressor` / `train_lstm`; `scaled_dot_product_attention_backward` and a
+  trainable `SelfAttentionLayer` — every gradient checked against central
+  differences.
+* **A health window** [OFE-017]: `lifecycle.evaluate_health_window`.
+* **A durable evidence store** [OFE-016, BDY-008]: `model_registry.EvidenceStore`
+  (`file_evidence_store`, `memory_evidence_store`) files manifests,
+  fingerprints and reports under their own identities on the content-addressed
+  artifact store.
+* **Multi-account reconciliation** [BRK-004, OFE-023]:
+  `lifecycle.reconcile_accounts` — orders and fills per account, positions and
+  cash in total with each account's share named; a fifteenth mismatch class,
+  `ACCOUNT_ASSIGNMENT_MISMATCH`; undeclared orders listed in
+  `StateReconciliation.unassigned`, never placed by inference.
+* **Factor-structured construction** [PRF-005]: a covariance from
+  `factor_model` carries its `FactorStructure`, and construction solves it in
+  O(n k²) per step (`portfolio_optimizer.solve_factor_quadratic_program`),
+  certified by the dense solver's own criteria. 800 assets: 134.6 s dense,
+  0.14 s structured; 10,000 assets: 1.61 s (CPU, the solve alone).
+* **Session timers** [SCF-003]: `scheduler.session_timer`,
+  `next_session_boundary`, `is_session_boundary` — `SESSION_OPEN` and
+  `SESSION_CLOSE` over a `MarketCalendar`.
+* `BacktestResult.valuation_in(currency, rates)` [API-004];
+  `common.time.instant_resolution` [DAT-008]; `persistence.fsync_directory` and
+  `ensure_directory` [PER-003].
+
+## Changed — numerics and durability
+
+* **R² of a constant series is undefined** [NUM-003]: `LinearFit.r_squared` is
+  `None`, not `0.0`.
+* **The normal CDF from `erfc`** [NUM-004]: deep out-of-the-money values and
+  their implied volatilities no longer underflow to zero; theta uses the
+  365.25-day year the price uses, so every theta is 365/365.25 of 3.11's.
+* **Least squares by Householder QR** [NUM-007]: `ml.train_linear_regression`
+  refuses a design whose condition number exceeds `maximum_condition`
+  (default 1e6) or whose rank is deficient, and names a zero feature.
+* **Durable renames** [PER-003]: the run and artifact stores flush the
+  directory after `os.replace`.
+* **Duplicate intents** [ALC-004] are refused on the record, in linear time.
+
+## Changed — the research engine is restated [RES-001]
+
+The v1 engine annualized with 252 periods whatever the data were and scored
+everything 0–100. `ResearchPayload` now states `periods_per_year` and
+`risk_free_rate`; `ResearchPolicy` states every bound (no defaults);
+`run_full_research(state, payload, policy, timestamp, seed)` records
+`research_metrics` — measurements, with what was not measured omitted rather
+than zero. Every report is restated as measurements; `ResearchScore`,
+`compute_overall_score`, `overall_score` and `BiasDetected` are gone.
+
+## Changed — one authority per capability [SCF-003, partial]
+
+`research.parameter_sweep(..., higher_is_better=)` is the one search count;
+`research_assistant` and `cloud_research` enumerate through
+`research.ParameterSpace` (`cloud_research.sweep_space` orders axes by name)
+and `cloud_research.collect_sweep` reads a finished cluster sweep. A
+distributed cancellation is a `JobCancelled` event in
+`DistributedState.cancelled_jobs`, and an assigned job not yet running can be
+cancelled. Reports write a `Decimal` as its exact text [ANA-006].
+
+## Changed — performance [PRF-009, PRF-010]
+
+The stress program (`docs/audit/scripts/stress_v3_12.py`) found two costs that
+grew faster than the work, both fixed:
+
+* **A classification limit read its bucket's gross from the book** [PRF-009]:
+  the book keeps an exact gross per limited bucket as it changes. From 400 to
+  10,000 assets the cost per record grew 3.34x (366 → 1,225 µs); it now grows
+  1.31x (381 → 498 µs).
+* **An event reaches strategies through an index** [PRF-010]: every strategy
+  cost about 0.34 µs on every record whatever it subscribed to. Ten strategies
+  on one asset: 665 µs a record alone, 1,012 beside 1,000 others, 4,097 beside
+  10,000 — now 667, 629 and 661.
+
+## Migrating from 3.11
+
+| If you… | Now… |
+|---|---|
+| called `ResearchEngine.run_full_research(state, payload, timestamp, seed)` | pass a `ResearchPolicy` (every bound stated) after the payload; read `state.metrics` instead of `state.score` |
+| built a `ResearchPayload` | state `periods_per_year` and `risk_free_rate`; pass `sweep=` the search's `SweepResult` if there was one |
+| called `calculate_cagr` / `calculate_volatility` / `calculate_sharpe`, `walk_forward_analysis`, `monte_carlo_simulation`, `apply_stress_tests`, `generate_diagnostics` | pass the periods, rate, windows, ruin drawdown, shocks and bounds they now require |
+| read `ResearchScore`, `compute_overall_score`, `overall_score`, `BiasDetected`, or a report's scores | read `research_metrics_of(state)` and the reports' measurements |
+| read `lifecycle.evidence_from_research(...)` keys | read the measurements it records (`sharpe`, `max_drawdown`, …); it needs completed research |
+| read `LinearFit.r_squared` as a float | handle `None` (a constant response) |
+| compared option thetas with 3.11's | expect 365/365.25 of them; deep out-of-the-money values are no longer zero |
+| trained `ml.train_linear_regression` on a collinear or ill-conditioned design | remove the redundant feature, or raise `maximum_condition` knowingly |
+| read cancelled jobs from `DistributedState.failed_jobs` | read `cancelled_jobs` (a `JobCancelled` event is recorded) |
+| enumerated `cloud_research.sweep_space` in insertion order | expect axes sorted by name |
+| treated `StrategyCandidate.parameters` values as floats | convert: they are `ParamValue` (`research.ParameterSpace` axes) |
+| built `ResearchWorkflowResult` yourself | pass its `sweep` |
+| parsed a report's JSON numbers as floats | read exact text for a `Decimal`; an unknown value is refused |
+| matched `MismatchCategory` exhaustively | handle `ACCOUNT_ASSIGNMENT_MISMATCH` |
+| relied on `CleaningPolicy`'s DROP keeping an invalid quote | it is dropped and recorded now (DAT-009) |
+| read a 3.11 snapshot | nothing: pipeline 5→6, run 3→4, allocation 2→3 and instrument 2→3 are upgraded on read |
+
+## Found during this release
+
+* **PER-006** (shipped since 2.17): the allocation snapshot decoder ignored the
+  budget's currency, so a restore was not what was captured. Fixed in
+  allocation schema 3; checked against a payload 3.11.0 wrote.
+* **DAT-009** (shipped): cleaning judged every quote consistent while
+  validation refused non-positive prices, so DROP kept what REFUSE refused.
+  Fixed.
+* **ANA-006** (shipped): a report's JSON wrote exact money as a binary float
+  and stringified unknown values. Fixed.
+* **PRF-009** (introduced with OFE-001 in this release, never shipped): a
+  classification limit summed its bucket for every order. Found by the stress
+  run. Fixed.
+* **PRF-010** (shipped since 3.11): every event asked every strategy whether it
+  subscribed. Found by the stress run. Fixed.
+
+## Snapshot schemas
+
+Pipeline 5→6, run 3→4, allocation 2→3, instrument 2→3; new envelopes:
+checkpoint 1, evidence 1. Every older payload is upgraded on read, and the
+payloads 3.11.0 itself wrote are frozen in `tests/fixtures/snapshots/v3.11.0`
+and read by `tests/regression/test_schema_upgrades_v3_11.py`.
+
+## Tests, CI and tooling
+
+8,633 tests pass under `-W error` — 4,626 unit, 648 integration and 3,359
+regression, none skipped (3.11.0: 8,215). The defect-injection harness is in
+the repository now (`docs/audit/scripts/mutation_v3_12.py`), with the stress
+program beside it (`docs/audit/scripts/stress_v3_12.py`). Every benchmark
+ceiling is judged by one method (`benchmarks/_stable_timing.py`) [TST-011].
+
+## Still open
+
+* **SCF-003's removals and OFE-013.** Removing `alphalab.plugins`,
+  `alphalab.optimizer` and the reporting dashboards was not performed: the
+  permission policy of the session that built this release refused the
+  deletion as irreversible, and the maintainer decides. They are present and
+  unchanged.
+* v3.13.0: the final pre-v4 audit. Nothing in this release is v4 work.
+
+---
+
 # [3.11.0] - 2026-09-29
 
 **The second pre-v4 release: the capabilities a strategy needs before its API is

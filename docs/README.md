@@ -324,13 +324,27 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.11.0
+v3.12.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.12.0 — the third pre-v4 release.** Hardening, and the capabilities the
+audit deferred here: R² undefined for a constant series, the normal CDF from
+`erfc`, least squares by Householder QR, theta on the pricing year; directories
+flushed after a rename and an allocation budget's currency restored; venue
+calendars inside simulation; per-strategy capital ceilings; classification
+limits along any dimension; observations delivered on the execution path;
+retention and incremental checkpoints; a durable evidence store; a health
+window; multi-account reconciliation; declared trade prints; LSTM and
+attention backpropagation; the v1 research engine restated as measurements;
+factor-structured construction to 10,000 assets; and a stress program at
+10,000 assets, 1,000 strategies and 100 venues, whose two findings are fixed.
+The package removals SCF-003 calls for await the maintainer's decision. See
+`ADR/0047` and the CHANGELOG's migration table.
 
 **v3.11.0 — the second pre-v4 release.** The capabilities a strategy needs
 before its API is frozen: instrument economics (multipliers, futures variation

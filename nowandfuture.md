@@ -51,7 +51,32 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 ---
 
-# 2. What v3.11.0 adds, what v3.10.0 corrects, what v3.9.0 – v3.1.0 add, and what v3.0.0 means
+# 2. What v3.12.0 hardens, what v3.11.0 adds, what v3.10.0 corrects, what v3.9.0 – v3.1.0 add, and what v3.0.0 means
+
+## v3.12.0 — the pre-v4 hardening release
+
+The third of four pre-v4 releases. Numerical methods are right at the edges of
+their range: R² of a constant series is undefined, the normal CDF is computed
+from `erfc` so the lower tail keeps its precision, least squares runs by
+Householder QR and refuses an ill-conditioned or rank-deficient design, and
+theta uses the year the price uses. Durable state is durable — a rename is
+flushed with its directory — and restores what was captured: an allocation
+budget had lost its currency on every restore since v2.17, and every payload
+v3.11.0 wrote is now frozen as a fixture the suite reads. Simulation reads its
+venues' calendars, so a DAY order expires at its trading day's last close. A
+strategy's capital can be capped; any classification dimension can bound a
+bucket, counting working orders, reduce-only, with the bucket's gross kept by
+the book; an observation reaches the strategies subscribed to it at the
+instant it became knowable. A run can bound the history it keeps and
+checkpoint incrementally. Evidence has a durable home, health a window, one
+book a reconciliation against every account it is spread across. Trade prints
+are read from declared columns; LSTMs and attention train; the v1 research
+engine reports measurements under a stated policy. A stress program runs
+10,000 assets, 1,000 strategies and 100 venues; it found a classification
+limit summing its bucket for every order and every event asking every strategy
+whether it subscribed, and both are fixed. The package removals SCF-003 calls
+for — `plugins`, `optimizer`, the reporting dashboards — await the
+maintainer's decision. ADR-0047.
 
 ## v3.11.0 — the pre-v4 capability release
 
@@ -730,10 +755,10 @@ All 48 packages, and which path reaches each. (v3.10 removed `feed` and `live`.)
 | Package | Owns |
 | --- | --- |
 | `core` | The canonical execution domain models: `Side`, `OrderRequest`, `Fill`, `Trade`, `StrategyContribution`, `AssetType`, `OrderType`, `TimeInForce`, and the id validators. Since v3.9 also the capability model (`core.capabilities`), the normalized execution events and the one order-transition table (`core.lifecycle`), and the strategy split (`split_by_contribution`) |
-| `runtime` | The execution step, the run, the four drivers, broker routing, and four snapshot modules. Since v3.9 broker routing also sends an algorithm's children for their parent (`route_child_order`, `ChildOrderBindings`) and can gate on a capability report |
+| `runtime` | The execution step, the run, the four drivers, broker routing, and four snapshot modules. Since v3.9 broker routing also sends an algorithm's children for their parent (`route_child_order`, `ChildOrderBindings`) and can gate on a capability report. Since v3.12 it reads venue calendars (`runtime.calendars`, over `data`'s `MarketCalendar`), delivers point-in-time observations (`alt_data`), bounds what a run keeps (`runtime.retention`) and checkpoints incrementally (`runtime.checkpoint`) |
 | `strategy` | What a strategy *is*: `StrategyProtocol`, `StrategyStateProtocol`, `StrategyContext`, the `Dispatcher`, the `RuntimeSupervisor`, and the strategy-class registry. Since v3.7 also the adaptive engine — configuration, observation, immutable learned state with lineage, `apply_update`, replay, checkpoint and restore — three rules, and `AdaptiveStrategy`. Since v3.11 also `StrategyDefinition` (`strategy.definition`, moved from the removed `studio`). Still imports only `common` |
 | `allocation` | Intent sizing and netting into `OrderRequest`, the capital budget, the per-order reservation ledger and the contribution ledger. Since v3.8 also capital plans across strategies, markets, brokers, accounts and currencies (`allocation.capital`), reading reserved capital from the reservation ledger and producing each run's budget; FX reaches it through a structural protocol, and it still does not import `portfolio` |
-| `risk` | Pre-trade checks and limits. Since v3.10 every check reads one projection of the book after the order, working orders included (`risk.projection`), and a limit never refuses a trade that reduces what it limits |
+| `risk` | Pre-trade checks and limits. Since v3.10 every check reads one projection of the book after the order, working orders included (`risk.projection`), and a limit never refuses a trade that reduces what it limits. Since v3.12 classification limits (`ClassificationLimit`), whose dimension and label are normalized by `instrument`'s rules — names only: the gate is handed each bucket's exposure and never reads the registry |
 | `oms` | The order lifecycle. `oms.order.Order` is *the* lifecycle order; since v3.9 its methods read `core.lifecycle.ORDER_TRANSITIONS` rather than their own guards |
 | `execution` | The deterministic execution simulator, commission models, fill policies, slippage, latency. Since v3.9 also execution algorithms (`algorithms`), route selection (`routing`) and execution quality (`quality`) — all over the canonical `OrderRequest` and `ExecutionReport`, importing only `common` and `core` beyond itself |
 | `portfolio` | Cash, positions, the transaction ledger, NAV, per-currency P&L, valuation, margin, exposure, FX and the FX feed. Since v3.4 also FX research (cross rates, covered-parity forwards, carry, hedging, currency attribution) and contract-aware exposure. Since v3.8 also multi-strategy books (`portfolio.multi_strategy`) — sleeves of canonical positions, never a second book of record — which is why it now imports `core`. Since v3.10 `PositionBook` keeps exact per-currency totals and a market event re-marks only what was priced (`pending_marks`) |
@@ -742,7 +767,7 @@ All 48 packages, and which path reaches each. (v3.10 removed `feed` and `live`.)
 | `instrument` | Canonical instrument identity, the registry, classification and its provenance |
 | `common` | Version, `BaseEvent`, deterministic serialization, the seeded identifier source, `AppendOnlyLog` / `PersistentMap` / `PersistentSet`, TLS policy, and the point-in-time core: `known_as_of`, and since v3.7 `PointInTimeStamp`, `AvailabilityBasis`, `VisibilityRule` and `PointInTimeIndex`. Since v3.9 the currency-conversion protocols (`common.currency`), moved down from `allocation.capital`. Since v3.10 the one version declaration (`common._version`), each currency's minor unit (`common.currency_units`) and the pinned accounting context (`common.arithmetic`) |
 | `persistence` | The codec spine (`serialize`, typed `decode`, exceptions), `RunStateStore`, and since v3.10 versioned schema upgrades (`persistence.upgrade`) |
-| `backtesting` | The dataset type and the two drivers over it |
+| `backtesting` | The dataset type and the two drivers over it. Since v3.12 a backtest merges point-in-time observations (`alt_data`) with its records |
 | `replay` | The deterministic replay cursor, clock and session lifecycle |
 | `broker` | **One** venue: `BrokerProtocol`, the canonical broker vocabulary, reconciliation, `PaperBroker` (the HMAC transport and `RestVenueBroker` left in v3.11 with their credentials, BRK-007). Since v3.9 also normalized venue events and their application to the mirror (`broker.lifecycle`), cancel and amend request identities (`broker.requests`) and snapshot reconciliation; it re-exports the capability model |
 | `data` | The canonical **wire** record, and the Universal Data Engine: source provenance, delimited reading, schema detection, timestamps and frequency, validation findings, cleaning policy, quality reporting, asset-class semantics, market calendars, corporate-action basis, and the derived dataset version. Its only outward edges are `common` and `options` (one leaf enum), which is what keeps the package graph acyclic |
@@ -792,6 +817,17 @@ which `lifecycle` imports, imports both. Each edge runs one way and each is
 measured — `test_one_research_authority_per_concept.py` for the first,
 `test_v37_invariants.py` (which asserts `alt_data` imports only `common`) for the
 second.
+
+**v3.12 adds eight package edges, each one way and none a cycle**:
+`runtime → data` and `scheduler → data` (a `MarketCalendar` for venue calendars
+and session timers), `runtime → alt_data` and `backtesting → alt_data`
+(observations delivered on the path), `cloud_research → research` and
+`research_assistant → research` (one parameter-search authority, SCF-003),
+`lifecycle → execution` (multi-account reconciliation reads `ExecutionReport`),
+and `risk → instrument` (a classification limit normalizes its dimension and
+label by the registry's own rules; the gate still never reads the registry,
+which `test_sector_classification_reaches_attribution.py` asserts).
+`test_import_graph_stays_acyclic.py` asserts there is no cycle.
 
 `conventions` (v3.4) is not on this list and is not on either path either. It is
 a **leaf library imported by other packages** — `macro` and `portfolio` today,
@@ -1793,14 +1829,14 @@ and release, and `ROADMAP.md` has the table. In short:
   Bonferroni (OFE-005); an overlap-corrected IC t-statistic (OFE-006);
   pipeline-driven `on_fill` / `on_order` / `on_timer` (OFE-014); a venue
   sequence number and persisted child bindings (OFE-021, OFE-022).
-- **Planned for v3.12**: classification beyond sector and sector pre-trade
-  limits (OFE-001); per-strategy capital ceilings (OFE-003); execution-path
+- **Delivered in v3.12**: classification beyond sector and limits on its
+  buckets (OFE-001); per-strategy capital ceilings (OFE-003); execution-path
   delivery of external information (OFE-009); streaming observation sets and
-  adjusted fundamentals (OFE-011); the optimizer's `pending_trials`, removed
-  with the research consolidation rather than patched (OFE-013); durable
-  evidence for progressions, fingerprints, manifests and reports (OFE-016);
-  health over a window (OFE-017); cross-broker book-to-mirror reconciliation
-  (OFE-023).
+  adjusted fundamentals (OFE-011); durable evidence for progressions,
+  fingerprints, manifests and reports (OFE-016); health over a window
+  (OFE-017); cross-broker book-to-mirror reconciliation (OFE-023). *Pending the
+  maintainer's decision*: the optimizer's `pending_trials`, to be removed with
+  the optimizer rather than patched (OFE-013, with SCF-003's removals).
 - **Planned for v3.13**: a lock-file reader (OFE-019); a rerun harness
   (OFE-020); an optimal split, estimated urgency and randomized icebergs
   (OFE-024, OFE-025).
@@ -1837,8 +1873,9 @@ and release, and `ROADMAP.md` has the table. In short:
 | **v3.10.0** | **The first pre-v4 release: risk on the projected book, never refusing a reduction; money exact at each currency's minor unit; analytics per instant with stated annualization; next-event fills and recorded execution assumptions; a canonical path linear in the universe; bars stamped at their close; upgradeable snapshots (portfolio 4, pipeline 4, run 2); vendor code, `feed`, `live` and silent defaults removed (ADR-0045)** |
 
 | **v3.11.0** | **The second pre-v4 release: instrument economics, corporate actions and negative prices; order terms and resting orders; target positions against each strategy's own position; enforced subscriptions, slices and feedback; leak-proof research, walk-forward optimization and multiple-testing corrections; construction with costs and lots; `studio`, `workbench`, `enterprise` and venue credentials moved to the application; snapshots pipeline 5, run 3, portfolio 5 (ADR-0046)** |
+| **v3.12.0** | **The third pre-v4 release: numerics right at the edges of their range; durable writes and exact restores; calendars inside simulation; strategy capital ceilings; classification limits along any dimension; external information on the execution path; retention and incremental checkpoints; an evidence store; multi-account reconciliation; declared trade prints; LSTM and attention backpropagation; factor-structured construction; a stress program at 10,000 assets, 1,000 strategies and 100 venues; snapshots pipeline 6, run 4, allocation 3, instrument 3 (ADR-0047)** |
 
-46 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+47 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---
