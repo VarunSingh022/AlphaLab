@@ -9,11 +9,14 @@ from alphalab.distributed import (
     DistributedValidationError,
     InvalidJobStateError,
     Job,
+    JobCancelled,
+    JobCoordinator,
     JobStatus,
     JobType,
     WorkerNode,
     WorkerStatus,
     active_workers,
+    cancelled_jobs,
     cluster_statistics,
     completed_jobs,
     failed_jobs,
@@ -115,8 +118,54 @@ def test_cancel_job(base_state: DistributedState, standard_job: Job) -> None:
 
     assert queue_length(s2) == 0
     assert cluster_statistics(s2).total_jobs_cancelled == 1
-    assert len(failed_jobs(s2)) == 1
-    assert failed_jobs(s2)[0].status == JobStatus.CANCELLED
+    # A cancellation is not a failure, and it is recorded (v3.12, ledger SCF-003):
+    # until then it was stored among the failed jobs with no event.
+    assert failed_jobs(s2) == ()
+    assert [job.status for job in cancelled_jobs(s2)] == [JobStatus.CANCELLED]
+    assert isinstance(s2.events[-1], JobCancelled)
+    assert s2.events[-1].job_id == "J-1"
+
+
+def test_cancelling_an_assigned_job_frees_its_worker_slot(
+    base_state: DistributedState, standard_job: Job
+) -> None:
+    worker = WorkerNode("W-1", "host", WorkerStatus.IDLE, capacity=1)
+    state = DistributedEngine.register_worker(base_state, worker, 1000.0)
+    state = DistributedEngine.submit_job(state, standard_job, 1001.0)
+    state = DistributedEngine.assign_jobs(state, 1002.0)
+    assert "J-1" in state.running_jobs
+    assert state.workers["W-1"].running_jobs == ("J-1",)
+
+    cancelled = DistributedEngine.cancel_job(state, "J-1", 1003.0)
+
+    assert "J-1" not in cancelled.running_jobs
+    assert cancelled.workers["W-1"].running_jobs == ()
+    event = cancelled.events[-1]
+    assert isinstance(event, JobCancelled)
+    assert event.worker_id == "W-1"
+    assert [job.job_id for job in cancelled_jobs(cancelled)] == ["J-1"]
+
+
+def test_a_running_job_cannot_be_cancelled(base_state: DistributedState, standard_job: Job) -> None:
+    worker = WorkerNode("W-1", "host", WorkerStatus.IDLE, capacity=1)
+    state = DistributedEngine.register_worker(base_state, worker, 1000.0)
+    state = DistributedEngine.submit_job(state, standard_job, 1001.0)
+    state = DistributedEngine.assign_jobs(state, 1002.0)
+    state = JobCoordinator.start_job(state, "J-1", 1003.0)
+
+    with pytest.raises(InvalidJobStateError, match="RUNNING to CANCELLED"):
+        DistributedEngine.cancel_job(state, "J-1", 1004.0)
+
+
+def test_a_cancelled_job_id_cannot_be_submitted_again(
+    base_state: DistributedState, standard_job: Job
+) -> None:
+    state = DistributedEngine.submit_job(base_state, standard_job, 1001.0)
+    state = DistributedEngine.cancel_job(state, "J-1", 1002.0)
+
+    with pytest.raises(DistributedValidationError, match="Duplicate"):
+        DistributedEngine.submit_job(state, standard_job, 1003.0)
+    assert DistributedEngine.cancel_job(state, "J-1", 1004.0) == state
 
 
 def test_priority_queue_ordering(base_state: DistributedState) -> None:

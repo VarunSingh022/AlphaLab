@@ -14,6 +14,7 @@ from alphalab.experiment_tracking.tracker import (
     log_metrics,
     start_run,
 )
+from alphalab.research.overfitting import SweepResult, parameter_sweep
 from alphalab.research_assistant.evaluation import (
     CandidateEvaluation,
     Evaluator,
@@ -21,9 +22,11 @@ from alphalab.research_assistant.evaluation import (
     evaluate_candidates,
 )
 from alphalab.research_assistant.generation import (
+    ParameterAxes,
     ParameterSpace,
     StrategyCandidate,
     generate_candidates,
+    parameter_space,
 )
 from alphalab.research_assistant.report import AssistantReport, build_report
 
@@ -39,6 +42,11 @@ class ResearchWorkflowResult:
         evaluations: Every evaluation, ranked best first.
         best: The winning evaluation.
         report: A built :class:`AssistantReport`.
+        sweep: The search as the research authority counts it
+            (:func:`~alphalab.research.overfitting.parameter_sweep`): every
+            candidate's objective score keyed by its rendered parameters, the
+            trial count every multiple-testing correction needs, and the
+            surface's sensitivity. Since v3.12 (ledger SCF-003).
         tracker: The experiment tracker, populated with one completed run per
             candidate -- ``None`` when no tracker was passed in.
     """
@@ -49,12 +57,13 @@ class ResearchWorkflowResult:
     evaluations: tuple[CandidateEvaluation, ...]
     best: CandidateEvaluation
     report: AssistantReport
+    sweep: SweepResult
     tracker: ExperimentTracker | None = None
 
 
 def run_research_workflow(
     template: str,
-    space: ParameterSpace,
+    space: ParameterSpace | ParameterAxes,
     evaluator: Evaluator,
     objective: str,
     timestamp: float,
@@ -72,9 +81,21 @@ def run_research_workflow(
         ResearchAssistantInputError: Propagated from generation or evaluation on
             invalid inputs.
     """
-    candidates = generate_candidates(template, space, limit=limit)
+    searched = parameter_space(space)
+    candidates = generate_candidates(template, searched, limit=limit)
     evaluations = evaluate_candidates(
         candidates, evaluator, objective, higher_is_better=higher_is_better
+    )
+    # Every candidate was evaluated exactly once above; the sweep reads those
+    # scores, in the space's order, so its trial count is the search's.
+    rendered = searched.rendered[: len(candidates)]
+    position = {candidate.candidate_id: index for index, candidate in enumerate(candidates)}
+    score_of = {
+        rendered[position[evaluation.candidate.candidate_id]]: evaluation.score
+        for evaluation in evaluations
+    }
+    sweep = parameter_sweep(
+        objective, rendered, score_of.__getitem__, higher_is_better=higher_is_better
     )
     best = best_evaluation(evaluations, higher_is_better=higher_is_better)
     report = build_report(
@@ -101,5 +122,6 @@ def run_research_workflow(
         evaluations=evaluations,
         best=best,
         report=report,
+        sweep=sweep,
         tracker=updated_tracker,
     )

@@ -211,6 +211,7 @@ CANONICAL_FIELDS: dict[str, dict[str, type]] = {
         "running_jobs": PersistentMap,
         "completed_jobs": PersistentMap,
         "failed_jobs": PersistentMap,
+        "cancelled_jobs": PersistentMap,
         "events": AppendOnlyLog,
     },
     "alphalab.plugins.state.PluginState": {
@@ -588,7 +589,8 @@ def test_a_duplicate_job_id_is_still_refused_from_every_container() -> None:
 
     state = DistributedEngine.submit_job(state, _job("cancelled"), 6.0)
     state = DistributedEngine.cancel_job(state, "cancelled", 7.0)
-    assert "cancelled" in state.failed_jobs
+    # Recorded among the cancellations since v3.12 (ledger SCF-003), not the failures.
+    assert "cancelled" in state.cancelled_jobs
     with pytest.raises(DistributedValidationError, match="Duplicate"):
         DistributedEngine.submit_job(state, _job("cancelled"), 8.0)
 

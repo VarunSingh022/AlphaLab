@@ -17,6 +17,8 @@ class ResearchAdapter:
         parameters: Mapping[str, float],
         market_regimes: tuple[str, ...],
         aum: float,
+        periods_per_year: int,
+        risk_free_rate: float,
     ) -> ResearchPayload:
 
         parsed_trades = tuple(
@@ -39,4 +41,6 @@ class ResearchAdapter:
             parameters=parameters,
             market_regimes=market_regimes,
             aum=aum,
+            periods_per_year=periods_per_year,
+            risk_free_rate=risk_free_rate,
         )

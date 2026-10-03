@@ -6,9 +6,12 @@ This example demonstrates the public AlphaLab Research API.
 Topics
 ------
 - Initializing a research session
-- Creating a ResearchPayload
+- Creating a ResearchPayload, stating how many returns make a year and the
+  risk-free rate (nothing assumes daily returns since v3.12)
+- Stating the bounds the evaluation is judged against (a ResearchPolicy)
 - Running the complete research pipeline
-- Inspecting the resulting immutable ResearchState
+- Inspecting the resulting immutable ResearchState: its measurements and the
+  findings -- there is no overall grade
 
 Run
 
@@ -18,8 +21,9 @@ Run
 from alphalab.research import (
     ResearchEngine,
     ResearchPayload,
+    ResearchPolicy,
     TradePayload,
-    overall_score,
+    research_metrics_of,
     warnings,
 )
 
@@ -84,6 +88,25 @@ def main() -> None:
             "Bull",
         ),
         aum=1_000_000.0,
+        # Six daily returns: a year holds 252 of them, and excess returns are
+        # measured over a 4% annual rate. Both are stated, never assumed.
+        periods_per_year=252,
+        risk_free_rate=0.04,
+    )
+
+    # ------------------------------------------------------------------
+    # Step 2b: State the bounds the evaluation is judged against
+    # ------------------------------------------------------------------
+
+    policy = ResearchPolicy(
+        walk_forward_windows=3,
+        ruin_drawdown=0.20,
+        minimum_trades=50,
+        maximum_trade_share=0.30,
+        worst_period_return=-0.10,
+        shock_return=-0.10,
+        gain_multiplier=0.5,
+        loss_multiplier=2.0,
     )
 
     # ------------------------------------------------------------------
@@ -93,6 +116,7 @@ def main() -> None:
     result = ResearchEngine.run_full_research(
         state=state,
         payload=payload,
+        policy=policy,
         timestamp=1_720_000_001.0,
         # The resampling seed is stated, not assumed: v3.10 removed the default.
         # 42 is the value that default was, so this reproduces the v3.9 figures.
@@ -112,14 +136,13 @@ def main() -> None:
     print(f"Completed   : {result.completed}")
     print()
 
-    score = overall_score(result)
-
-    if score is not None:
-        print(f"Overall Score : {score.overall_score:.2f}")
+    print("Measurements")
+    for name, value in research_metrics_of(result).items():
+        print(f"  {name:<32} {value: .4f}")
 
     print()
 
-    print("Warnings")
+    print("Findings (each against a bound the policy stated)")
 
     report = warnings(result)
 

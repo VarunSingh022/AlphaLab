@@ -933,14 +933,16 @@ def test_the_feature_metadata_and_the_feature_definition_answer_different_questi
 
 
 def test_the_two_capacity_models_answer_different_questions() -> None:
-    """One degrades a CAGR. The other finds where the market pushes back.
+    """One reports the scale a run traded at. The other finds where the market pushes back.
 
     ``alphalab.research.capacity.estimate_capacity`` reads a
     :class:`~alphalab.research.protocol.ResearchPayload` -- a return series, a
-    trade count and an AUM -- and reports what the CAGR would be at three fixed
-    capital levels. It sees no prices, no volumes and no positions, so it cannot
-    know which *name* would bind first or why; the degradation is a stated
-    heuristic on trade frequency.
+    trade count and an AUM -- and reports the run's own scale. It sees no
+    prices, no volumes and no positions, so it cannot know which *name* would
+    bind first or why. Until v3.12 it degraded the CAGR at three fixed capital
+    levels by a heuristic on trade frequency; that table went with the v1
+    engine's other uncalibrated scores (ledger RES-001), and the estimate is
+    this other module's.
 
     ``alphalab.execution.capacity.CapacityModel`` reads liquidity: a price, an
     average daily volume and a weight per name, a turnover, a participation
@@ -964,12 +966,13 @@ def test_the_two_capacity_models_answer_different_questions() -> None:
     assert {"participation_limit", "turnover", "impact_model"} <= execution_inputs
     assert research_inputs & execution_inputs == set()
 
-    heuristic = set(CapacityReport.__dataclass_fields__)
+    scale = set(CapacityReport.__dataclass_fields__)
     measured = set(CapacityResult.__dataclass_fields__)
 
-    assert {"cagr_at_10m", "cagr_at_100m", "capacity_score"} <= heuristic
+    assert {"base_aum", "base_cagr", "trade_count"} <= scale
+    assert not {"cagr_at_10m", "cagr_at_100m", "capacity_score"} & scale
     assert {"capacity", "constraint", "binding_asset_id", "assumptions"} <= measured
-    assert heuristic & measured == set(), "the two reports share no field"
+    assert scale & measured == set(), "the two reports share no field"
 
 
 def test_only_the_execution_capacity_model_reads_liquidity() -> None:
@@ -994,8 +997,9 @@ def test_the_two_stress_surfaces_shock_different_objects() -> None:
     """One perturbs a curve of numbers. The other shocks positions.
 
     ``alphalab.research.stress.apply_stress_tests`` edits a **return series**:
-    it subtracts a tenth from one observation and rescales the rest, then
-    measures the drawdown of the result. It never sees a position, a price or a
+    it adds a declared shock to one observation and rescales the rest by
+    declared multipliers (literals until v3.12, ledger RES-001), then measures
+    the drawdown of the result. It never sees a position, a price or a
     currency, so it cannot express "energy fell twenty percent" or "the euro
     fell against the dollar" at all.
 
@@ -1014,13 +1018,13 @@ def test_the_two_stress_surfaces_shock_different_objects() -> None:
     research_inputs = set(inspect.signature(apply_stress_tests).parameters)
     scenario_inputs = set(inspect.signature(Scenario.apply).parameters)
 
-    assert research_inputs == {"payload"}
+    assert research_inputs == {"payload", "shock_return", "gain_multiplier", "loss_multiplier"}
     assert scenario_inputs == {"self", "state"}
 
     curve_report = set(StressReport.__dataclass_fields__)
     book_report = set(ScenarioResult.__dataclass_fields__)
 
-    assert {"flash_crash_drawdown", "stress_survival_score"} <= curve_report
+    assert {"shock_drawdown", "liquidity_drawdown"} <= curve_report
     assert {"base_state", "shocked_state", "change_by_asset"} <= book_report
     assert curve_report & book_report == set()
 
@@ -1600,10 +1604,11 @@ def test_an_engine_event_and_an_information_event_are_different_things() -> None
 
 
 def test_the_three_regime_shaped_things_answer_three_questions() -> None:
-    """``research.analyze_regimes`` (v1) **scores a finished run's returns** by
-    labels somebody supplied on the payload -- it detects nothing and blends a
-    score. ``research.classify_regimes`` (v3.7) **detects** labels from signals
-    under a declared rule with a reconstructable state, and scores nothing.
+    """``research.analyze_regimes`` (v1) **measures a finished run's returns** by
+    labels somebody supplied on the payload -- it detects nothing (and, until
+    v3.12, blended a score; ledger RES-001). ``research.classify_regimes``
+    (v3.7) **detects** labels from signals under a declared rule with a
+    reconstructable state, and measures nothing.
     ``FeatureKind.VOLATILITY_REGIME`` (v3.2) is **a number** -- short over long
     volatility -- which a detector may read as its signal.
 
@@ -1618,7 +1623,10 @@ def test_the_three_regime_shaped_things_answer_three_questions() -> None:
 
     assert "payload" in _inspect.signature(analyze_regimes).parameters
     assert "signals" in _inspect.signature(classify_regimes).parameters
-    assert "regime_generalisation_score" in {f.name for f in dataclasses.fields(RegimeReport)}
+    assert {f.name for f in dataclasses.fields(RegimeReport)} == {
+        "observations_by_regime",
+        "sharpe_by_regime",
+    }
     assert FeatureKind.VOLATILITY_REGIME.name == "VOLATILITY_REGIME"
 
 

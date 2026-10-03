@@ -5,6 +5,10 @@ until v3.10 nothing implemented them: nothing parsed a cron expression and the
 scheduler knew no session or bar boundary. A timer of one of those types was
 accepted, fired once at its target, and was never rescheduled -- the audit's
 probe registered a CRON timer and found none left after its first firing.
+
+v3.12 implemented SESSION_OPEN and SESSION_CLOSE over the venue's
+``MarketCalendar`` (ledger SCF-003; see ``tests/unit/scheduler/test_session_timers.py``),
+so CRON and BAR_BOUNDARY are what is still refused.
 """
 
 import pytest
@@ -39,4 +43,7 @@ def test_the_implemented_types_are_still_accepted() -> None:
         ScheduleType.INTERVAL,
         ScheduleType.REPEATING,
         ScheduleType.MANUAL,
+        ScheduleType.SESSION_OPEN,
+        ScheduleType.SESSION_CLOSE,
     }
+    assert {ScheduleType.CRON, ScheduleType.BAR_BOUNDARY} == UNIMPLEMENTED_SCHEDULES

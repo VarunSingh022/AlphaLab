@@ -2,17 +2,18 @@
 
 from alphalab.scheduler.exceptions import SchedulerValidationError
 from alphalab.scheduler.schedule import ScheduleType
+from alphalab.scheduler.scheduler import SESSION_SCHEDULES, is_session_boundary
 from alphalab.scheduler.timer import Timer
 
 #: Declared in :class:`ScheduleType` and not implemented. Until v3.10 a timer of
 #: one of these types was accepted, fired once at its target, and was never
 #: rescheduled -- a repeating schedule that silently stopped repeating (ledger
-#: DAT-006). They are refused at registration until they are implemented.
+#: DAT-006). They are refused at registration. ``SESSION_OPEN`` and
+#: ``SESSION_CLOSE`` left this set in v3.12, when they were implemented over
+#: :class:`~alphalab.data.calendar.MarketCalendar` (ledger SCF-003).
 UNIMPLEMENTED_SCHEDULES: frozenset[ScheduleType] = frozenset(
     {
         ScheduleType.CRON,
-        ScheduleType.SESSION_OPEN,
-        ScheduleType.SESSION_CLOSE,
         ScheduleType.BAR_BOUNDARY,
     }
 )
@@ -37,8 +38,26 @@ def validate_timer(timer: Timer, current_time: float) -> None:
     if timer.schedule_type in UNIMPLEMENTED_SCHEDULES:
         raise SchedulerValidationError(
             f"{timer.schedule_type.name} timers are declared and not implemented: nothing "
-            "parses a cron expression, and the scheduler knows no session or bar boundary, "
+            "parses a cron expression, and a bar's boundary is a convention of its data, "
             "so such a timer would fire once at its target and never again. Use ONE_SHOT "
-            "for one firing or INTERVAL with its period, and take session and bar instants "
-            "from alphalab.data.calendar.MarketCalendar."
+            "for one firing, INTERVAL with its period, or SESSION_OPEN / SESSION_CLOSE "
+            "over the venue's MarketCalendar."
+        )
+
+    if timer.schedule_type in SESSION_SCHEDULES:
+        if timer.calendar is None:
+            raise SchedulerValidationError(
+                f"A {timer.schedule_type.name} timer follows a market's trading days and "
+                "names no calendar; see alphalab.scheduler.session_timer."
+            )
+        if not is_session_boundary(timer.calendar, timer.target_timestamp, timer.schedule_type):
+            raise SchedulerValidationError(
+                f"{timer.target_timestamp!r} is not a {timer.schedule_type.name} instant on "
+                f"{timer.calendar.calendar_id}; a session timer fires only at the calendar's "
+                "own boundaries. Build it with alphalab.scheduler.session_timer."
+            )
+    elif timer.calendar is not None:
+        raise SchedulerValidationError(
+            f"A {timer.schedule_type.name} timer does not follow a calendar; only "
+            "SESSION_OPEN and SESSION_CLOSE timers name one."
         )

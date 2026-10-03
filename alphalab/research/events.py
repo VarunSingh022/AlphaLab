@@ -17,13 +17,6 @@ class ResearchStarted(ResearchEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class BiasDetected(ResearchEvent):
-    research_id: str
-    bias_type: str
-    severity: float
-
-
-@dataclass(frozen=True, slots=True)
 class AnalysisCompleted(ResearchEvent):
     research_id: str
     analysis_type: str
@@ -37,5 +30,12 @@ class DiagnosticsGenerated(ResearchEvent):
 
 @dataclass(frozen=True, slots=True)
 class ResearchCompleted(ResearchEvent):
+    """The evaluation finished: how many measurements it made, and how many findings.
+
+    Until v3.12 it carried the blended ``overall_score`` (ledger RES-001), and a
+    ``BiasDetected`` event carried a "look-ahead risk" read from a win rate.
+    """
+
     research_id: str
-    overall_score: float
+    metric_count: int
+    finding_count: int

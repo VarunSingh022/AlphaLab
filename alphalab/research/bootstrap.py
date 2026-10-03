@@ -1,4 +1,10 @@
-"""Deterministic Bootstrap Confidence Intervals."""
+"""Seeded bootstrap of the Sharpe ratio.
+
+Until v3.12 the report also carried a ``confidence_score`` -- the 5th
+percentile over the median, plus 0.001, times 100, clipped to [0, 100] -- which
+measured nothing a reader could check (ledger RES-001). The percentiles are the
+measurement.
+"""
 
 import random
 from dataclasses import dataclass
@@ -9,19 +15,30 @@ from alphalab.research.protocol import ResearchPayload
 
 @dataclass(frozen=True, slots=True)
 class BootstrapReport:
+    """Percentiles of the resampled Sharpe ratio; ``None`` with fewer than two returns.
+
+    Attributes:
+        metric: What was resampled.
+        iterations: How many resamples were drawn.
+        lower_bound_5th: The 5th percentile.
+        median_50th: The median.
+        upper_bound_95th: The 95th percentile.
+    """
+
     metric: str
-    lower_bound_5th: float
-    median_50th: float
-    upper_bound_95th: float
-    confidence_score: float
+    iterations: int
+    lower_bound_5th: float | None
+    median_50th: float | None
+    upper_bound_95th: float | None
 
 
 def bootstrap_statistics(
     payload: ResearchPayload, seed: int, iterations: int = 1000
 ) -> BootstrapReport:
-    """Samples returns with replacement to build metric confidence intervals."""
-    if not payload.returns:
-        return BootstrapReport("Sharpe", 0.0, 0.0, 0.0, 0.0)
+    """Samples returns with replacement, ``iterations`` times, seeded by ``seed``."""
+
+    if len(payload.returns) < 2:
+        return BootstrapReport("Sharpe", 0, None, None, None)
 
     prng = random.Random(seed)
     results = []
@@ -29,16 +46,13 @@ def bootstrap_statistics(
 
     for _ in range(iterations):
         sample = prng.choices(payload.returns, k=n)
-        results.append(calculate_sharpe(sample))
+        results.append(calculate_sharpe(sample, payload.periods_per_year, payload.risk_free_rate))
 
     results.sort()
-    p5 = results[int(iterations * 0.05)]
-    p50 = results[int(iterations * 0.50)]
-    p95 = results[int(iterations * 0.95)]
-
-    # Confidence Score: Higher if 5th percentile is still strongly positive
-    conf_score = max(0.0, min(100.0, (p5 / (p50 + 0.001)) * 100.0))
-
     return BootstrapReport(
-        "Sharpe", round(p5, 4), round(p50, 4), round(p95, 4), round(conf_score, 2)
+        "Sharpe",
+        iterations,
+        results[int(iterations * 0.05)],
+        results[int(iterations * 0.50)],
+        results[int(iterations * 0.95)],
     )

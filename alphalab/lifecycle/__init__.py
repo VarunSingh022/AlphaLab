@@ -46,7 +46,8 @@ one canonical rendering, and refuses a name that would not round-trip.
 measured, over what data, with what seed, and against thresholds stated in
 advance. The measurements come from the two deterministic producers AlphaLab
 already has -- a run's ``PerformanceReport`` and the research engine's
-``ResearchScore`` -- and are referenced, not recomputed.
+measurements (its ``ResearchScore`` grade until v3.12) -- and are referenced,
+not recomputed.
 
 **A strategy version.** :mod:`~alphalab.lifecycle.strategy_version` is the
 immutable, numbered record that was missing: distinct from the strategy line,

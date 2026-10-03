@@ -1,5 +1,6 @@
 """Comprehensive tests validating strict reporting synthesis and immutable formats."""
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -9,6 +10,7 @@ from alphalab.reporting import (
     DashboardCard,
     DashboardSection,
     DashboardTable,
+    ExportError,
     Report,
     ReportingAdapter,
     ReportingEngine,
@@ -142,7 +144,8 @@ def test_export_json(sample_report: Report) -> None:
     assert "R-100" in output
     assert "Weekly Performance" in output
     assert "PERFORMANCE" in output
-    assert "1000.5" in output  # Decimal serialized safely
+    # A Decimal is written as its exact text, not a float (v3.12).
+    assert '"Total PnL": "1000.50"' in output
 
 
 def test_export_csv(sample_report: Report) -> None:
@@ -234,3 +237,19 @@ def test_immutability(base_state: ReportingState, sample_report: Report) -> None
     assert base_state is not s1
     assert len(base_state.reports) == 0
     assert len(s1.reports) == 1
+
+
+def test_export_json_refuses_a_value_it_cannot_write_exactly(sample_report: Report) -> None:
+    """Until v3.12 an unknown value was written as ``str(value)`` -- for most objects a
+    text carrying a memory address, different in every process."""
+
+    class Opaque:
+        pass
+
+    section = ReportSection(
+        name="Opaque", section_type=ReportSectionType.METRICS, content={"value": Opaque()}
+    )
+    report = replace(sample_report, sections=(section,))
+
+    with pytest.raises(ExportError, match="not JSON serializable"):
+        export_json(report)

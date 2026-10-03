@@ -56,7 +56,7 @@ from alphalab.lifecycle import (
 )
 from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance, StaticPermissions
 from alphalab.model_registry import ModelStage, deployment_metadata, get_version, promote
-from alphalab.research import ResearchEngine, ResearchPayload, TradePayload
+from alphalab.research import ResearchEngine, ResearchPayload, ResearchPolicy, TradePayload
 from alphalab.research_assistant import (
     generate_candidates,
     run_research_workflow,
@@ -115,15 +115,29 @@ def _backtest(seed: int | None = 20240) -> BacktestResult:
     return BacktestEngine.run(config, dataset, strategy_state, context_factory)
 
 
+RESEARCH_POLICY = ResearchPolicy(
+    walk_forward_windows=5,
+    ruin_drawdown=0.20,
+    minimum_trades=50,
+    maximum_trade_share=0.30,
+    worst_period_return=-0.10,
+    shock_return=-0.10,
+    gain_multiplier=0.5,
+    loss_multiplier=2.0,
+)
+
+
 def _research_state() -> object:
     returns = (0.01, -0.02, 0.03, 0.01, -0.01, 0.02) * 42
     regimes = ("BULL", "BEAR", "BULL", "BULL", "SIDEWAYS", "BULL") * 42
     trades = tuple(
         TradePayload(f"T{i}", ASSET, 100.0, 105.0, 10.0, 50.0, 86400.0) for i in range(100)
     )
-    payload = ResearchPayload(STRATEGY_LINE, returns, trades, {"fast": 5.0}, regimes, 1_000_000.0)
+    payload = ResearchPayload(
+        STRATEGY_LINE, returns, trades, {"fast": 5.0}, regimes, 1_000_000.0, 252, 0.0
+    )
     state = ResearchEngine.initialize("RES-1", STRATEGY_LINE, 1.0)
-    return ResearchEngine.run_full_research(state, payload, 2.0, seed=42)
+    return ResearchEngine.run_full_research(state, payload, RESEARCH_POLICY, 2.0, seed=42)
 
 
 def _candidate() -> StrategyCandidate:
@@ -131,7 +145,7 @@ def _candidate() -> StrategyCandidate:
 
     def evaluator(candidate: StrategyCandidate) -> Mapping[str, float]:
         # Deterministic and monotone in `fast`: the search has a real answer.
-        return {"sharpe": 1.0 + candidate.parameters["fast"] / 100.0}
+        return {"sharpe": 1.0 + float(candidate.parameters["fast"]) / 100.0}
 
     workflow = run_research_workflow(
         template=STRATEGY_LINE,
@@ -317,16 +331,11 @@ def test_a_research_evaluation_can_stand_as_evidence() -> None:
 
     assert evidence.method is ValidationMethod.RESEARCH
     assert evidence.source_id == "RES-1"
-    assert set(evidence.metrics) == {
-        "bias_score",
-        "capacity_score",
-        "confidence_score",
-        "generalisation_score",
-        "overall_score",
-        "robustness_score",
-        "stability_score",
-        "stress_score",
-    }
+    # Measurements since v3.12 (ledger RES-001), never the v1 grades.
+    assert {"sharpe", "max_drawdown", "bootstrap_sharpe_p05", "trade_count"} <= set(
+        evidence.metrics
+    )
+    assert not any("score" in name for name in evidence.metrics)
 
 
 def test_research_evidence_can_gate_a_promotion() -> None:
@@ -342,7 +351,7 @@ def test_research_evidence_can_gate_a_promotion() -> None:
     state = record_evidence(state, evidence)
     policy = ValidationPolicy(
         "research-v1",
-        (MetricThreshold("overall_score", minimum=0.0),),
+        (MetricThreshold("sharpe", minimum=0.0),),
         required_method=ValidationMethod.RESEARCH,
     )
     state = promote_strategy_version(
@@ -359,7 +368,7 @@ def test_backtest_evidence_does_not_satisfy_a_research_policy() -> None:
     state, _, evidence_id = _lifecycle_through_promotion()
     policy = ValidationPolicy(
         "research-v1",
-        (MetricThreshold("overall_score", minimum=0.0),),
+        (MetricThreshold("sharpe", minimum=0.0),),
         required_method=ValidationMethod.RESEARCH,
     )
     outcome = validate_strategy_version(state, STRATEGY_LINE, 1, policy, evidence_id)

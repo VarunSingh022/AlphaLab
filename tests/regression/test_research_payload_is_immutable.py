@@ -38,6 +38,8 @@ def _payload(parameters: dict[str, float] | None = None) -> ResearchPayload:
         parameters={"ma": 20.0} if parameters is None else parameters,
         market_regimes=("BULL",),
         aum=1_000_000.0,
+        periods_per_year=252,
+        risk_free_rate=0.0,
     )
 
 
@@ -175,6 +177,8 @@ def test_the_adapter_builds_an_immutable_payload_too() -> None:
         parameters=source,
         market_regimes=("BULL",),
         aum=1_000.0,
+        periods_per_year=252,
+        risk_free_rate=0.0,
     )
 
     source["ma"] = 99.0

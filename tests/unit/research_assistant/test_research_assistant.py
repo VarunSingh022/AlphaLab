@@ -29,8 +29,8 @@ SPACE: Mapping[str, tuple[float, ...]] = {"fast": (3.0, 5.0, 7.0), "slow": (10.0
 
 def _evaluator(candidate: StrategyCandidate) -> Mapping[str, float]:
     """Peaks (score 0.0) at fast=5, slow=20; strictly worse elsewhere."""
-    fast = candidate.parameters["fast"]
-    slow = candidate.parameters["slow"]
+    fast = float(candidate.parameters["fast"])
+    slow = float(candidate.parameters["slow"])
     return {"sharpe": -abs(fast - 5.0) - abs(slow - 20.0), "turnover": fast + slow}
 
 

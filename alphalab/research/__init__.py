@@ -4,7 +4,11 @@ Two layers, and they consume different things.
 
 * **Run evaluation** (v2) -- ``ResearchEngine`` and the reports it compiles,
   which read a *completed run's* returns, trades and parameters through
-  ``ResearchPayload`` and score them. Nothing there knows about a dataset.
+  ``ResearchPayload`` and measure them against the bounds a ``ResearchPolicy``
+  states. Nothing there knows about a dataset. Until v3.12 it also *scored*
+  them -- a blended grade from constants nobody chose -- and annualized every
+  series as daily; it now reports measurements and findings only, with the
+  periods and the rate declared (ledger RES-001).
 * **Study methodology** (v3.2) -- features, forward returns, signal
   diagnostics, walk-forward and cross-validation splits with purging and
   embargo, robustness perturbations and overfitting diagnostics. These run
@@ -51,7 +55,6 @@ from alphalab.research.event_study import (
 )
 from alphalab.research.events import (
     AnalysisCompleted,
-    BiasDetected,
     DiagnosticsGenerated,
     ResearchCompleted,
     ResearchEvent,
@@ -129,7 +132,7 @@ from alphalab.research.regimes import (
     regime_profile,
     regime_series_from_features,
 )
-from alphalab.research.research import ResearchScore, compute_overall_score
+from alphalab.research.research import ResearchPolicy, research_metrics
 from alphalab.research.sensitivity import RobustnessReport, parameter_robustness
 from alphalab.research.sharpe_inference import (
     DeflatedSharpe,
@@ -171,7 +174,7 @@ from alphalab.research.views import (
     bias_report,
     capacity_report,
     diagnostic_report,
-    overall_score,
+    research_metrics_of,
     stress_report,
     warnings,
 )
@@ -196,7 +199,6 @@ __all__ = [
     "WALK_FORWARD_DESIGN_SCHEME",
     "AbnormalReturnModel",
     "AnalysisCompleted",
-    "BiasDetected",
     "BiasReport",
     "BootstrapReport",
     "CVMethod",
@@ -241,8 +243,8 @@ __all__ = [
     "ResearchError",
     "ResearchEvent",
     "ResearchPayload",
+    "ResearchPolicy",
     "ResearchProtocol",
-    "ResearchScore",
     "ResearchStarted",
     "ResearchState",
     "ResearchStudy",
@@ -285,7 +287,6 @@ __all__ = [
     "canonical_study_key",
     "capacity_report",
     "classify_regimes",
-    "compute_overall_score",
     "conditional_diagnostics",
     "correct_p_values",
     "cross_validation_splits",
@@ -305,7 +306,6 @@ __all__ = [
     "label_ends_from_horizon",
     "monte_carlo_orders",
     "monte_carlo_simulation",
-    "overall_score",
     "parameter_robustness",
     "parameter_sweep",
     "per_period_sharpe",
@@ -316,6 +316,8 @@ __all__ = [
     "regime_profile",
     "regime_series_from_features",
     "require_chronological",
+    "research_metrics",
+    "research_metrics_of",
     "sample_by",
     "sample_degradation",
     "shift_parameter",

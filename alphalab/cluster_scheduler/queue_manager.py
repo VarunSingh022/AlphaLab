@@ -1,12 +1,14 @@
 """Queue inspection.
 
 Job cancellation is not duplicated here: `alphalab.distributed.engine.DistributedEngine.cancel_job`
-already exists, is already exported, and already does this correctly (removes the
-job from the queue, marks it CANCELLED, records it in failed_jobs, and increments
-DistributedStatistics.total_jobs_cancelled). An earlier version of this module
-built a duplicate of it before this was checked carefully enough -- caught and
-removed rather than shipped. `queue_position` is genuinely not available anywhere
-in `alphalab.distributed`, including its own `views.py`.
+already exists and is already exported (it withdraws a queued or assigned job,
+marks it CANCELLED, records it among the cancelled jobs with a ``JobCancelled``
+event, and increments DistributedStatistics.total_jobs_cancelled -- since v3.12;
+until then it stored the job among the failures and recorded no event). An
+earlier version of this module built a duplicate of it before this was checked
+carefully enough -- caught and removed rather than shipped. `queue_position` is
+genuinely not available anywhere in `alphalab.distributed`, including its own
+`views.py`.
 """
 
 from alphalab.distributed.state import DistributedState

@@ -20,17 +20,19 @@ from alphalab.cloud_research.cluster import (
     submit_research_job,
 )
 from alphalab.cloud_research.exceptions import CloudResearchError, CloudResearchInputError
-from alphalab.cloud_research.sweep import submit_parameter_sweep
+from alphalab.cloud_research.sweep import collect_sweep, submit_parameter_sweep, sweep_space
 from alphalab.cloud_research.task import resolve_task, run_task
 
 __all__ = [
     "CloudResearchError",
     "CloudResearchInputError",
     "CloudResearchState",
+    "collect_sweep",
     "initialize_cluster",
     "resolve_task",
     "run_cluster_cycle",
     "run_task",
     "submit_parameter_sweep",
     "submit_research_job",
+    "sweep_space",
 ]

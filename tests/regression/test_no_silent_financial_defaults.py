@@ -84,13 +84,6 @@ FINANCIAL = (
     "periods_per_year",
 )
 
-#: The ledger finding that tracks the v1 research engine's daily assumption.
-_RES_001 = (
-    "ledger RES-001: the v1 ResearchEngine assumes a daily return series, says so "
-    "in these functions' docstrings, and is consolidated into the one research "
-    "authority in v3.12 (SCF-003) rather than re-shaped twice"
-)
-
 #: A risk-free rate the report it produces records.
 _RECORDED_RATE = (
     "the rate is written into the PerformanceReport it produces "
@@ -114,9 +107,8 @@ PERMITTED: dict[tuple[str, str], str] = {
     ("assign_jobs_with_aging", "aging_rate"): "a job scheduler's aging rate, not a price",
     ("AnalyticsEngine.compile_report", "risk_free_rate"): _RECORDED_RATE,
     ("ExecutionPipeline.compile_analytics", "risk_free_rate"): _RECORDED_RATE,
-    ("calculate_cagr", "periods_per_year"): _RES_001,
-    ("calculate_volatility", "periods_per_year"): _RES_001,
-    ("calculate_sharpe", "risk_free_rate"): _RES_001,
+    # The v1 research engine's three exemptions (ledger RES-001) went in v3.12,
+    # when the periods and the rate became the caller's to state.
 }
 
 #: Literals passed to a financial keyword, or read as a mapping fallback, inside

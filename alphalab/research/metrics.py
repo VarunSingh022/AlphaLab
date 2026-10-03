@@ -1,21 +1,37 @@
 """Deterministic mathematical operations for research metrics.
 
-These are the v1 research engine's metrics, and they assume a **daily** return
-series: annualization defaults to 252 periods, and :func:`calculate_sharpe`
-annualizes with 252 whatever it is given. The canonical run's analytics do not
-(:class:`~alphalab.analytics.report.PerformanceReport` records the periodicity
-it used, observed or declared). The v1 engine is consolidated into the one
-research authority in v3.12 (ledger RES-001, SCF-003); until then, pass the
-periods a year holds for anything but daily returns.
+The v1 research engine's metrics. Until v3.12 they assumed a **daily** return
+series: annualization defaulted to 252 periods, and :func:`calculate_sharpe`
+annualized with 252 whatever it was given (ledger RES-001). The periods a year
+holds are now stated by the caller -- carried on the
+:class:`~alphalab.research.protocol.ResearchPayload` -- and so is the risk-free
+rate, exactly as the canonical analytics record the periodicity and the rate a
+:class:`~alphalab.analytics.report.PerformanceReport` used.
 """
 
 import math
 from collections.abc import Sequence
 
 from alphalab.common.statistics import sample_variance
+from alphalab.research.exceptions import ResearchValidationError
 
 
-def calculate_cagr(returns: Sequence[float], periods_per_year: int = 252) -> float:
+def _periods(periods_per_year: int) -> int:
+    if isinstance(periods_per_year, bool) or not isinstance(periods_per_year, int):
+        raise ResearchValidationError(
+            f"periods_per_year is {periods_per_year!r}; it is a whole number of periods."
+        )
+    if periods_per_year <= 0:
+        raise ResearchValidationError(
+            f"periods_per_year is {periods_per_year}; a year holds a positive number of periods."
+        )
+    return periods_per_year
+
+
+def calculate_cagr(returns: Sequence[float], periods_per_year: int) -> float:
+    """Compound annual growth of ``returns``, a year being ``periods_per_year`` of them."""
+
+    periods = _periods(periods_per_year)
     if not returns:
         return 0.0
     cumulative = 1.0
@@ -23,22 +39,36 @@ def calculate_cagr(returns: Sequence[float], periods_per_year: int = 252) -> flo
         cumulative *= 1.0 + r
     if cumulative <= 0:
         return -1.0
-    years = len(returns) / periods_per_year
-    return (cumulative ** (1.0 / years)) - 1.0 if years > 0 else 0.0
+    years = len(returns) / periods
+    growth: float = cumulative ** (1.0 / years)
+    return growth - 1.0
 
 
-def calculate_volatility(returns: Sequence[float], periods_per_year: int = 252) -> float:
+def calculate_volatility(returns: Sequence[float], periods_per_year: int) -> float:
     """Annualized standard deviation, over the one shared unbiased estimator."""
+
+    periods = _periods(periods_per_year)
     if len(returns) < 2:
         return 0.0
-    return math.sqrt(sample_variance(returns)) * math.sqrt(periods_per_year)
+    return math.sqrt(sample_variance(returns)) * math.sqrt(periods)
 
 
-def calculate_sharpe(returns: Sequence[float], risk_free_rate: float = 0.0) -> float:
-    vol = calculate_volatility(returns)
+def calculate_sharpe(
+    returns: Sequence[float], periods_per_year: int, risk_free_rate: float
+) -> float:
+    """Annualized excess mean over annualized volatility; ``0.0`` without dispersion.
+
+    Both the mean and the volatility are annualized with ``periods_per_year``
+    and ``risk_free_rate`` is an annual rate.
+    """
+
+    periods = _periods(periods_per_year)
+    if not math.isfinite(risk_free_rate):
+        raise ResearchValidationError(f"risk_free_rate is {risk_free_rate!r}; a rate is finite.")
+    vol = calculate_volatility(returns, periods)
     if vol == 0.0:
         return 0.0
-    mean_return = (sum(returns) / len(returns)) * 252
+    mean_return = (sum(returns) / len(returns)) * periods
     return (mean_return - risk_free_rate) / vol
 
 
