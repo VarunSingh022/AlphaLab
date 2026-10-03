@@ -184,7 +184,8 @@ def evaluate_quality(
         row_count=row_count,
         valid_rows=len(records),
         rejected_rows=tuple(rejected),
-        duplicate_count=_count(findings, FindingKind.DUPLICATE_TIMESTAMP),
+        duplicate_count=_count(findings, FindingKind.DUPLICATE_TIMESTAMP)
+        + _count(findings, FindingKind.DUPLICATE_TRADE_ID),
         missing_count=missing,
         invalid_count=_invalid_records(records),
         out_of_order_count=_count(findings, FindingKind.OUT_OF_ORDER),

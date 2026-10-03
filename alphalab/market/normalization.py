@@ -41,9 +41,11 @@ Bar timeframe  Not present on the wire; supplied by the policy, and a bar is
                ``trade_count`` are ``None`` because a wire bar carries
                neither (v3.11; until then a zero stood in for "not
                reported").
-Trade side     Not represented. Wire trades carry no aggressor flag, so the
-               canonical :class:`~alphalab.market.tick.Tick` records the print
-               without inferring a direction.
+Trade side     Carried when reported, never inferred. Since v3.12 a wire
+               trade carries the venue's identifier and aggressor flag when its
+               source does (ledger FEA-004); the canonical
+               :class:`~alphalab.market.tick.Tick` records both as given, and a
+               print the source did not flag has no direction.
 Book levels    ``orders`` defaults to ``0``: the wire level has no order count.
                Levels are passed through in the order the provider sent them.
 Validation     Every canonical record is validated on the way out
@@ -313,22 +315,29 @@ def normalize_wire_trade(
 ) -> Tick:
     """Lift a wire trade print into the canonical tick.
 
-    A wire trade carries no identifier and no aggressor side. ``trade_id``
-    defaults to empty rather than being invented, and no direction is inferred.
+    The identifier and the aggressor side are the print's own, when its source
+    reported them (v3.12); neither is invented. ``trade_id`` names the print for
+    a source whose wire record carries none, and must agree with one that does.
 
     Raises:
-        MarketValidationError: If ``policy`` names no currency, or the print is
-            invalid.
+        MarketValidationError: If ``policy`` names no currency, the print is
+            invalid, or ``trade_id`` contradicts the print's own identifier.
     """
 
+    if trade_id and trade.trade_id and trade_id != trade.trade_id:
+        raise MarketValidationError(
+            f"The print is identified as {trade.trade_id!r} and was given {trade_id!r}; one "
+            "print has one identifier, and choosing between two would be a guess."
+        )
     canonical = Tick(
         asset_id=policy.asset_id(trade.symbol, trade.timestamp),
         timestamp=trade.timestamp,
         price=to_decimal(trade.price),
         quantity=to_decimal(trade.size),
-        trade_id=trade_id,
+        trade_id=trade_id or trade.trade_id,
         venue=policy.venue,
         currency=_currency(policy, "trade"),
+        aggressor=trade.aggressor,
     )
     validate_tick(canonical)
     return canonical

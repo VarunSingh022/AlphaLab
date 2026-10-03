@@ -390,12 +390,14 @@ from alphalab.lifecycle.promotion import (
 )
 from alphalab.lifecycle.reconciliation import (
     BROKER_STATUS_EQUIVALENTS,
+    AccountMirror,
     Mismatch,
     MismatchCategory,
     ReconciliationTolerances,
     StateReconciliation,
     SymbolMapping,
     UnreconciledArea,
+    reconcile_accounts,
     reconcile_execution_state,
 )
 from alphalab.lifecycle.registration import register_model_version, register_strategy
@@ -499,6 +501,7 @@ __all__ = [
     "STRATEGY_FINGERPRINT_SCHEME",
     "STRATEGY_SOURCE_SCHEME",
     "UNDECLARED_DEPENDENCIES",
+    "AccountMirror",
     "AdaptiveReplayAssessment",
     "AlignmentKey",
     "ApprovalRecord",
@@ -662,6 +665,7 @@ __all__ = [
     "pause_progression",
     "progression_conflicts",
     "promote_strategy_version",
+    "reconcile_accounts",
     "reconcile_execution_state",
     "record_evidence",
     "record_stage_change",

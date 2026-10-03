@@ -20,6 +20,19 @@ A backtest that guessed at its own input's shape would make the guess once per
 run, invisibly, with no record of what it decided. The schema is a property of
 the *dataset*, settled once at ingestion and carried in its provenance, so that
 two runs over the same dataset cannot read it two different ways.
+
+Trade prints are declared, never detected (v3.12)
+-------------------------------------------------
+
+A ``price``/``size`` pair is indistinguishable from a partially populated bar --
+:data:`~alphalab.data.formats.COLUMN_ALIASES` reads ``price`` as a bar's close --
+so no header is ever *recognised* as a trade print. A table of prints is read
+only through a :class:`TradeColumns` the caller states: which column is the
+instant, the price and the size, and, when the source has them, the print's
+identifier and its aggressor flag with the codes that flag is written in.
+:func:`declare_trade_schema` turns that declaration into a resolved detection,
+and :func:`detect_schema` refuses ``RecordType.TRADE`` without one (ledger
+FEA-004). The ambiguity is resolved by declaration, never inference.
 """
 
 from __future__ import annotations
@@ -27,9 +40,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from types import MappingProxyType
 
 from alphalab.data.csv_source import RawTable
 from alphalab.data.exceptions import DataValidationError
+from alphalab.data.feed import TradeAggressor
 from alphalab.data.formats import canonical_field
 from alphalab.data.time import TimestampFormat, detect_timestamp_format
 
@@ -40,6 +55,8 @@ __all__ = [
     "FieldRole",
     "RecordType",
     "SchemaDetection",
+    "TradeColumns",
+    "declare_trade_schema",
     "detect_schema",
 ]
 
@@ -59,21 +76,28 @@ class FieldRole(Enum):
     ASK = auto()
     BID_SIZE = auto()
     ASK_SIZE = auto()
+    #: A trade print's price, size, identifier and aggressor flag. Bound only by
+    #: a :class:`TradeColumns` declaration, never from a header (v3.12).
+    PRICE = auto()
+    SIZE = auto()
+    TRADE_ID = auto()
+    AGGRESSOR = auto()
 
 
 class RecordType(Enum):
     """Which canonical wire record a row becomes.
 
-    Only the two shapes a delimited file can be recognised as without a
-    declaration. :class:`~alphalab.data.feed.Trade` and
-    :class:`~alphalab.data.feed.OrderBook` are deliberately absent: a
-    ``price``/``size`` pair is indistinguishable from a partially populated bar,
-    and a depth book is not a flat table at all. Both remain ingestible by a
-    caller that builds the records itself; what is not offered is a *guess*.
+    ``BAR`` and ``QUOTE`` are the two shapes a delimited file can be recognised
+    as without a declaration. ``TRADE`` (v3.12) is read only through a declared
+    :class:`TradeColumns`: a ``price``/``size`` pair is indistinguishable from a
+    partially populated bar, so it is never detected. A depth book
+    (:class:`~alphalab.data.feed.OrderBook`) is not a flat table at all and has
+    no member here; a caller builds those records itself.
     """
 
     BAR = auto()
     QUOTE = auto()
+    TRADE = auto()
 
 
 #: Canonical field name to the role it plays in a record.
@@ -106,12 +130,106 @@ _REQUIRED: Mapping[RecordType, tuple[FieldRole, ...]] = {
         FieldRole.CLOSE,
     ),
     RecordType.QUOTE: (FieldRole.TIMESTAMP, FieldRole.BID, FieldRole.ASK),
+    RecordType.TRADE: (FieldRole.TIMESTAMP, FieldRole.PRICE, FieldRole.SIZE),
 }
 
 #: Roles a record of each type may carry, beyond the required ones.
 _OPTIONAL: Mapping[RecordType, tuple[FieldRole, ...]] = {
     RecordType.BAR: (FieldRole.SYMBOL, FieldRole.VOLUME, FieldRole.TRADE_COUNT),
     RecordType.QUOTE: (FieldRole.SYMBOL, FieldRole.BID_SIZE, FieldRole.ASK_SIZE),
+    RecordType.TRADE: (FieldRole.SYMBOL, FieldRole.TRADE_ID, FieldRole.AGGRESSOR),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class TradeColumns:
+    """Which columns of a table of trade prints hold what -- stated, not found.
+
+    Column names are matched exactly as the table spells them; there is no alias
+    table for trades, because the alias table is what would read ``price`` as a
+    bar's close.
+
+    Attributes:
+        timestamp: The column holding each print's instant.
+        price: The column holding the price.
+        size: The column holding the size.
+        symbol: The column naming the instrument, or ``None`` when the table is
+            one instrument's and the ingestion names it.
+        trade_id: The column holding the venue's identifier for each print, or
+            ``None`` when the source has none. Without it two identical prints
+            at one instant cannot be told from a repeated row, and both are kept.
+        aggressor: The column holding the aggressor flag, or ``None``.
+        aggressor_codes: How that column writes each side -- ``{"B":
+            TradeAggressor.BUYER, "S": TradeAggressor.SELLER}`` -- required with
+            ``aggressor`` and refused without it. Matched after surrounding
+            whitespace is stripped; an empty cell is a print the source did not
+            flag, and a value the codes do not name rejects its row.
+
+    Raises:
+        DataValidationError: If a column is blank, two roles name one column,
+            or the aggressor column and its codes are not declared together.
+    """
+
+    timestamp: str
+    price: str
+    size: str
+    symbol: str | None = None
+    trade_id: str | None = None
+    aggressor: str | None = None
+    aggressor_codes: Mapping[str, TradeAggressor] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        named = [(role, column) for role, column in self.columns() if column is not None]
+        for role, column in named:
+            if not column.strip():
+                raise DataValidationError(f"TradeColumns.{role} names a blank column.")
+        columns = [column for _, column in named]
+        if len(set(columns)) != len(columns):
+            raise DataValidationError(
+                f"TradeColumns names one column for two roles ({columns}); a column holds "
+                "one field of a print."
+            )
+        if (self.aggressor is None) != (not self.aggressor_codes):
+            raise DataValidationError(
+                "An aggressor column and its codes are declared together: the column says "
+                "where the flag is, and the codes say what each of its values means."
+            )
+        codes: dict[str, TradeAggressor] = {}
+        for raw, side in self.aggressor_codes.items():
+            if not isinstance(side, TradeAggressor):
+                raise DataValidationError(
+                    f"Aggressor code {raw!r} maps to {side!r}, which is not a TradeAggressor."
+                )
+            code = raw.strip()
+            if not code or code in codes:
+                raise DataValidationError(
+                    f"Aggressor code {raw!r} is blank or repeated once surrounding whitespace "
+                    "is stripped; each code names one side."
+                )
+            codes[code] = side
+        object.__setattr__(self, "aggressor_codes", MappingProxyType(codes))
+
+    def columns(self) -> tuple[tuple[str, str | None], ...]:
+        """Each role and the column declared for it, ``None`` where none is."""
+
+        return (
+            ("timestamp", self.timestamp),
+            ("price", self.price),
+            ("size", self.size),
+            ("symbol", self.symbol),
+            ("trade_id", self.trade_id),
+            ("aggressor", self.aggressor),
+        )
+
+
+#: The declared role each :class:`TradeColumns` attribute binds.
+_TRADE_ROLES: Mapping[str, FieldRole] = {
+    "timestamp": FieldRole.TIMESTAMP,
+    "price": FieldRole.PRICE,
+    "size": FieldRole.SIZE,
+    "symbol": FieldRole.SYMBOL,
+    "trade_id": FieldRole.TRADE_ID,
+    "aggressor": FieldRole.AGGRESSOR,
 }
 
 
@@ -148,6 +266,8 @@ class SchemaDetection:
         timestamp_format: How the timestamp column is to be read.
         timestamp_rationale: Why, in words.
         assumptions: Conventions applied that a caller may wish to override.
+        aggressor_codes: How a declared trade aggressor column writes each side
+            (:class:`TradeColumns`); empty for every other table.
     """
 
     bindings: tuple[FieldBinding, ...]
@@ -159,6 +279,7 @@ class SchemaDetection:
     timestamp_format: TimestampFormat | None
     timestamp_rationale: str
     assumptions: tuple[str, ...] = ()
+    aggressor_codes: Mapping[str, TradeAggressor] = field(default_factory=dict)
 
     @property
     def is_resolved(self) -> bool:
@@ -216,7 +337,9 @@ class DatasetSchema:
     ``fields`` and ``data_type`` are the original v1 shape and keep their
     positions and meaning. The rest record *how* that shape was arrived at, so
     a dataset can answer "which column was the close?" long after the file that
-    produced it is gone.
+    produced it is gone. ``aggressor_codes`` (v3.12) records how a trade
+    dataset's aggressor flag was read, raw code to side, and is empty for every
+    other dataset.
     """
 
     fields: tuple[str, ...]
@@ -225,6 +348,7 @@ class DatasetSchema:
     timestamp_format: str | None = None
     timezone: str | None = None
     source_columns: tuple[str, ...] = ()
+    aggressor_codes: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_detection(
@@ -248,6 +372,7 @@ class DatasetSchema:
             timestamp_format=timestamp_format.name,
             timezone=timezone_name,
             source_columns=tuple(source_columns),
+            aggressor_codes={code: side.value for code, side in resolved.aggressor_codes.items()},
         )
 
 
@@ -313,35 +438,10 @@ def detect_schema(
             if role not in bound_roles and role not in {item.role for item in ambiguous}
         )
 
-    timestamp_format: TimestampFormat | None = None
-    timestamp_rationale = "no column was bound to the timestamp role"
-    assumptions: list[str] = []
     timestamp_column = next((b.column for b in bindings if b.role is FieldRole.TIMESTAMP), None)
-    if timestamp_column is not None:
-        timestamp_format, timestamp_rationale = detect_timestamp_format(
-            table.column_values(timestamp_column)
-        )
-        if timestamp_format is TimestampFormat.EPOCH_SECONDS:
-            assumptions.append(
-                "numeric timestamps are read as Unix seconds, which is AlphaLab's canonical "
-                "unit; declare EPOCH_MILLISECONDS if this column is in milliseconds"
-            )
-        if timestamp_format is TimestampFormat.DATE_ONLY:
-            assumptions.append(
-                "the timestamp column holds bare dates, so a DateOnlyPolicy and a timezone "
-                "must be named before each one denotes an instant"
-            )
-        if timestamp_format is TimestampFormat.ISO_8601_NAIVE:
-            assumptions.append(
-                "the timestamp column carries no UTC offset, so a timezone must be named "
-                "before each reading denotes an instant"
-            )
-
+    timestamp_format, timestamp_rationale, assumptions = _timestamp_reading(table, timestamp_column)
     if FieldRole.SYMBOL not in bound_roles and record_type is not None:
-        assumptions.append(
-            "no column identifies the instrument, so every row is taken to describe the one "
-            "symbol the caller names for the dataset"
-        )
+        assumptions.append(_ONE_SYMBOL)
 
     return SchemaDetection(
         bindings=tuple(bindings),
@@ -356,11 +456,109 @@ def detect_schema(
     )
 
 
+_ONE_SYMBOL = (
+    "no column identifies the instrument, so every row is taken to describe the one "
+    "symbol the caller names for the dataset"
+)
+
+
+def _timestamp_reading(
+    table: RawTable, column: str | None
+) -> tuple[TimestampFormat | None, str, list[str]]:
+    """How the timestamp column reads, why, and the conventions that reading applies."""
+
+    if column is None:
+        return None, "no column was bound to the timestamp role", []
+    timestamp_format, rationale = detect_timestamp_format(table.column_values(column))
+    assumptions: list[str] = []
+    if timestamp_format is TimestampFormat.EPOCH_SECONDS:
+        assumptions.append(
+            "numeric timestamps are read as Unix seconds, which is AlphaLab's canonical "
+            "unit; declare EPOCH_MILLISECONDS if this column is in milliseconds"
+        )
+    if timestamp_format is TimestampFormat.DATE_ONLY:
+        assumptions.append(
+            "the timestamp column holds bare dates, so a DateOnlyPolicy and a timezone "
+            "must be named before each one denotes an instant"
+        )
+    if timestamp_format is TimestampFormat.ISO_8601_NAIVE:
+        assumptions.append(
+            "the timestamp column carries no UTC offset, so a timezone must be named "
+            "before each reading denotes an instant"
+        )
+    return timestamp_format, rationale, assumptions
+
+
+def declare_trade_schema(table: RawTable, columns: TradeColumns) -> SchemaDetection:
+    """A table of trade prints, read as ``columns`` declares (v3.12, ledger FEA-004).
+
+    Every role is bound from the declaration and none from a header, so the
+    detection is resolved once the timestamp column reads in one format. Columns
+    the declaration does not name are carried as unmapped, as detection carries
+    them.
+
+    Raises:
+        DataValidationError: If a declared column is not in the table.
+    """
+
+    absent = [
+        f"{role}={column!r}"
+        for role, column in columns.columns()
+        if column is not None and column not in table.columns
+    ]
+    if absent:
+        raise DataValidationError(
+            f"The trade columns declared are not in this table: {', '.join(absent)}. Its "
+            f"columns are {list(table.columns)}; a declaration names them exactly as written."
+        )
+
+    bindings = tuple(
+        FieldBinding(
+            role=_TRADE_ROLES[role],
+            column=column,
+            rationale=f"column {column!r} was declared as the print's {role}",
+        )
+        for role, column in columns.columns()
+        if column is not None
+    )
+    declared = {column for _, column in columns.columns() if column is not None}
+    timestamp_format, timestamp_rationale, assumptions = _timestamp_reading(
+        table, columns.timestamp
+    )
+    if columns.symbol is None:
+        assumptions.append(_ONE_SYMBOL)
+    if columns.trade_id is None:
+        assumptions.append(
+            "no trade identifier was declared, so two identical prints at one instant cannot "
+            "be told from a repeated row; both are kept, and reported"
+        )
+    if columns.aggressor is None:
+        assumptions.append("no aggressor column was declared, so no print has a direction")
+    return SchemaDetection(
+        bindings=bindings,
+        ambiguous=(),
+        unresolved=(),
+        unmapped_columns=tuple(column for column in table.columns if column not in declared),
+        record_type=RecordType.TRADE,
+        record_type_rationale="TRADE was declared by the caller, column by column",
+        timestamp_format=timestamp_format,
+        timestamp_rationale=timestamp_rationale,
+        assumptions=tuple(assumptions),
+        aggressor_codes=columns.aggressor_codes,
+    )
+
+
 def _resolve_record_type(
     bound: set[FieldRole], declared: RecordType | None
 ) -> tuple[RecordType | None, str]:
     """Decide the record shape from what resolved, or take the declaration."""
 
+    if declared is RecordType.TRADE:
+        return None, (
+            "TRADE was declared, and a trade print's columns are read only from a declared "
+            "TradeColumns (declare_trade_schema): a price/size pair is indistinguishable "
+            "from a partially populated bar, so no header is taken to be one"
+        )
     if declared is not None:
         return declared, f"{declared.name} was declared by the caller rather than inferred"
 

@@ -186,6 +186,11 @@ def canonical_dataset_key(
             for record in adjustments
         ),
     ]
+    if schema.aggressor_codes:
+        # Only a trade dataset that declared an aggressor column has codes, so
+        # every other dataset's key -- and version -- is what it always was.
+        codes = schema.aggressor_codes
+        lines += ["aggressor_codes", *(f"{code!r}={codes[code]}" for code in sorted(codes))]
     return "\n".join(lines)
 
 

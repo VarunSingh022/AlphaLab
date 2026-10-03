@@ -110,7 +110,9 @@ def test_duplicate_detection_uses_a_hashed_set_rather_than_rescanning() -> None:
 
     source = inspect.getsource(validation.validate_records)
 
-    assert "seen: set[tuple[str, float]] = set()" in source
+    # Keyed by ``duplicate_key`` since v3.12, so a trade print is keyed by its
+    # identifier rather than its instant (ledger FEA-004); still one set.
+    assert "seen: set[tuple[object, ...]] = set()" in source
     assert "seen.add(key)" in source
     assert "in seen" in source
 
@@ -128,7 +130,9 @@ def test_ordering_is_checked_against_a_high_water_mark_per_instrument() -> None:
 def test_deduplication_keeps_one_pass_and_one_dict() -> None:
     source = inspect.getsource(cleaning._deduplicate)
 
-    assert "chosen: dict[tuple[str, float], CanonicalRecord] = {}" in source
+    # One dict from each key to where its survivor stands (v3.12: keyed by
+    # ``duplicate_key``, and a print with no identifier has no key).
+    assert "position: dict[tuple[object, ...], int] = {}" in source
     assert "for record in records:" in source
     assert source.count("for ") == 1, "one pass, not a nested scan"
 

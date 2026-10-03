@@ -112,6 +112,7 @@ from alphalab.core.ids import AssetId, FillId, TradeId
 from alphalab.core.ids import OrderId as CoreOrderId
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
+from alphalab.data.feed import TradeAggressor
 from alphalab.execution.events import (
     ExecutionCompleted,
     ExecutionEvent,
@@ -282,8 +283,10 @@ __all__ = [
 #: ledger OFE-003) and each classification-bucket limit
 #: (``risk_limits.classification``, ledger OFE-001) -- and the run's retention
 #: policy (``config.retention``) with, for each log it trimmed, how many entries
-#: were dropped before those recorded (``dropped``, ledger PRF-004). Every
-#: earlier version is read through :data:`PIPELINE_SCHEMA_HISTORY`.
+#: were dropped before those recorded (``dropped``, ledger PRF-004), and each
+#: trade print's aggressor side, when its source reported one (``aggressor`` on
+#: every tick, ledger FEA-004). Every earlier version is read through
+#: :data:`PIPELINE_SCHEMA_HISTORY`.
 PIPELINE_SNAPSHOT_SCHEMA: Final = 6
 
 _SUBSYSTEM: Final = "pipeline"
@@ -592,7 +595,8 @@ def _v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _v5_to_v6(payload: dict[str, Any]) -> dict[str, Any]:
-    """Record that a version-5 run declared no venue calendar, ceiling, bucket limit or retention.
+    """Record that a version-5 run declared no venue calendar, ceiling, bucket limit or retention,
+    and that none of its prints carried an aggressor side (:func:`_v5_ticks`).
 
     A v3.11 pipeline could hold no calendar (ledger EXE-010): it refused a
     simulated day order that did not state its close, and that is exactly what
@@ -612,7 +616,38 @@ def _v5_to_v6(payload: dict[str, Any]) -> dict[str, Any]:
     config["retention"] = dict.fromkeys(("market_history", "steps", "audit_events", "results"))
     risk = dict(payload["risk"])
     risk["active_limits"] = {**risk["active_limits"], "classification": []}
-    return {**payload, "config": config, "risk": risk, "dropped": {}}
+    return {
+        **payload,
+        "config": config,
+        "risk": risk,
+        "dropped": {},
+        "market": _v5_ticks(payload["market"]),
+    }
+
+
+#: A version-5 tick's fields, exactly: what identifies one inside the market record.
+_V5_TICK_FIELDS: Final = frozenset(
+    ("asset_id", "timestamp", "price", "quantity", "trade_id", "venue", "currency")
+)
+
+
+def _v5_ticks(value: Any) -> Any:
+    """Give every version-5 tick the aggressor side it could not record: none.
+
+    Ticks sit in the market record's latest ticks and inside its history and
+    event logs, and a mapping holding exactly a tick's seven fields is one. No
+    v3.11 print carried a direction (ledger FEA-004), so ``None`` -- "not
+    reported" -- is what each one already meant.
+    """
+
+    if isinstance(value, dict):
+        rewritten = {key: _v5_ticks(item) for key, item in value.items()}
+        if set(rewritten) == _V5_TICK_FIELDS:
+            rewritten["aggressor"] = None
+        return rewritten
+    if isinstance(value, list):
+        return [_v5_ticks(item) for item in value]
+    return value
 
 
 #: How every pipeline payload a release has written is read by this one.
@@ -654,7 +689,8 @@ PIPELINE_SCHEMA_HISTORY: Final = SchemaHistory(
         SchemaStep(
             5,
             "version 6 carries the trading calendar declared for each listing venue, "
-            "whether the budget enforces per-strategy ceilings, and classification limits",
+            "whether the budget enforces per-strategy ceilings, classification limits, the "
+            "retention policy with what each trimmed log dropped, and each print's aggressor",
             upgrade=_v5_to_v6,
         ),
     ),
@@ -1621,6 +1657,7 @@ def _quote(value: Any, where: str) -> Quote:
 
 def _tick(value: Any, where: str) -> Tick:
     payload = as_mapping(value, where)
+    aggressor = require(payload, "aggressor")
     return Tick(
         asset_id=as_str(require(payload, "asset_id"), f"{where}.asset_id"),
         timestamp=as_float(require(payload, "timestamp"), f"{where}.timestamp"),
@@ -1629,6 +1666,9 @@ def _tick(value: Any, where: str) -> Tick:
         trade_id=as_str(require(payload, "trade_id"), f"{where}.trade_id"),
         venue=as_str(require(payload, "venue"), f"{where}.venue"),
         currency=as_str(require(payload, "currency"), f"{where}.currency"),
+        aggressor=None
+        if aggressor is None
+        else as_value_enum(TradeAggressor, aggressor, f"{where}.aggressor"),
     )
 
 

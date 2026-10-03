@@ -140,6 +140,7 @@ from alphalab.data.feed import (
     EconomicEvent,
     FundamentalRecord,
     Quote,
+    Trade,
 )
 from alphalab.data.ingestion import (
     IngestionRequest,
@@ -178,6 +179,7 @@ from alphalab.market.normalization import (
     NormalizationPolicy,
     normalize_wire_bar,
     normalize_wire_quote,
+    normalize_wire_trade,
 )
 from alphalab.market.record import MarketInput
 from alphalab.options.contract import OptionContract
@@ -378,7 +380,7 @@ def normalize_records(
     have said it on the caller's behalf.
 
     Raises:
-        DataValidationError: If a record is neither a wire bar nor a wire quote.
+        DataValidationError: If a record is not a wire bar, quote or trade.
     """
 
     lifted: list[MarketInput] = []
@@ -387,10 +389,12 @@ def normalize_records(
             lifted.append(normalize_wire_bar(record, policy))
         elif isinstance(record, Quote):
             lifted.append(normalize_wire_quote(record, policy))
+        elif isinstance(record, Trade):
+            lifted.append(normalize_wire_trade(record, policy))
         else:
             raise DataValidationError(
                 f"{type(record).__name__} has no canonical domain form on the execution "
-                "path; only wire bars and wire quotes can be normalized into market inputs."
+                "path; only wire bars, quotes and trades can be normalized into market inputs."
             )
     return tuple(lifted)
 

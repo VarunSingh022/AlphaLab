@@ -103,6 +103,7 @@ from alphalab.data.feed import (
     Quote,
     Split,
     Trade,
+    TradeAggressor,
 )
 from alphalab.data.formats import COLUMN_ALIASES, canonical_field
 from alphalab.data.ingestion import (
@@ -138,6 +139,8 @@ from alphalab.data.schema import (
     FieldRole,
     RecordType,
     SchemaDetection,
+    TradeColumns,
+    declare_trade_schema,
     detect_schema,
 )
 from alphalab.data.source import (
@@ -167,6 +170,7 @@ from alphalab.data.validation import (
     Severity,
     ValidationFinding,
     coerce_row,
+    duplicate_key,
     validate_records,
 )
 from alphalab.data.views import (
@@ -263,6 +267,8 @@ __all__ = [
     "TimeFrequency",
     "TimestampFormat",
     "Trade",
+    "TradeAggressor",
+    "TradeColumns",
     "TransformationRecord",
     "UniversalDataEngine",
     "UniversalDataError",
@@ -280,12 +286,14 @@ __all__ = [
     "dataset_lineage",
     "dataset_provenance",
     "dataset_summary",
+    "declare_trade_schema",
     "decode_text",
     "derive_dataset_version",
     "derive_transformed_version",
     "detect_delimiter",
     "detect_schema",
     "detect_timestamp_format",
+    "duplicate_key",
     "evaluate_bar_quality",
     "evaluate_quality",
     "frequency_seconds",

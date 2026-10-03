@@ -47,7 +47,14 @@ from alphalab.data.metadata import DatasetMetadata
 from alphalab.data.parser import parse_raw_rows
 from alphalab.data.provenance import DatasetProvenance, derive_dataset_version
 from alphalab.data.quality import DataQualityReport, evaluate_quality
-from alphalab.data.schema import DatasetSchema, RecordType, SchemaDetection, detect_schema
+from alphalab.data.schema import (
+    DatasetSchema,
+    RecordType,
+    SchemaDetection,
+    TradeColumns,
+    declare_trade_schema,
+    detect_schema,
+)
 from alphalab.data.source import RawSource
 from alphalab.data.symbols import DataAssetClass
 from alphalab.data.time import (
@@ -101,6 +108,10 @@ class IngestionRequest:
         calendar: The venue's calendar, when one is declared.
         instrument: What the series describes, when one spec covers it.
         declared_record_type: Overrides detection when a file is ambiguous.
+        trade_columns: Which columns of a table of trade prints hold what. A
+            trade print is read only through this declaration, never detected
+            from a header (v3.12, ledger FEA-004); ``declared_record_type`` is
+            then ``TRADE`` or left unset.
         splits: Split actions, applied for a non-raw target basis.
         dividends: Cash dividends, applied for ``TOTAL_RETURN``.
         target_basis: The basis to produce. ``None`` leaves the prices as they
@@ -123,8 +134,15 @@ class IngestionRequest:
     splits: tuple[Split, ...] = ()
     dividends: tuple[Dividend, ...] = ()
     target_basis: PriceBasis | None = None
+    trade_columns: TradeColumns | None = None
 
     def __post_init__(self) -> None:
+        declared = self.declared_record_type
+        if self.trade_columns is not None and declared not in (None, RecordType.TRADE):
+            raise DataValidationError(
+                f"{self.name}: trade columns were declared for a table declared as "
+                f"{declared}; a table is one or the other."
+            )
         if self.instrument is not None:
             implied = asset_class_of(self.instrument)
             if implied is not self.asset_class:
@@ -205,7 +223,11 @@ def ingest_table(
             present.
     """
 
-    detection = detect_schema(table, request.declared_record_type).require()
+    detection = (
+        detect_schema(table, request.declared_record_type)
+        if request.trade_columns is None
+        else declare_trade_schema(table, request.trade_columns)
+    ).require()
     schema = DatasetSchema.from_detection(detection, request.timezone_name, table.columns)
 
     records: list[CanonicalRecord] = []
