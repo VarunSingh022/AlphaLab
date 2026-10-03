@@ -52,6 +52,18 @@ Anything else is refused -- an unknown topic, an asset on a topic that has none,
 a blank asset, an empty declaration. An empty set would be a strategy that can
 never be called, which is a mistake rather than a configuration; a strategy that
 wants everything says ``"*"``.
+
+Routing by index (v3.12)
+------------------------
+
+Until v3.12 every event asked every strategy whether it wanted it, so each
+strategy cost about a third of a microsecond on every record whatever it had
+subscribed to: 10,000 strategies trading other instruments added 3.4 ms to
+every record (the stress run's finding, ledger PRF-010). :class:`RoutingIndex`
+answers the same question from the subscriptions themselves -- which strategies
+take everything, which a whole topic, which one topic of one asset -- in the
+order the strategies were registered, so the cost is the strategies an event
+reaches.
 """
 
 from __future__ import annotations
@@ -74,6 +86,7 @@ from alphalab.strategy.exceptions import StrategyValidationError
 __all__ = [
     "MARKET_TOPICS",
     "SUBSCRIBE_ALL",
+    "RoutingIndex",
     "Subscriptions",
     "Topic",
     "market_topic",
@@ -234,3 +247,73 @@ class Subscriptions:
         if self.everything or topic in self.topics:
             return True
         return asset_id is not None and (topic, asset_id) in self.scoped
+
+
+@dataclass(frozen=True, slots=True)
+class RoutingIndex:
+    """Which strategies each topic reaches, in registration order.
+
+    Built from every strategy's :class:`Subscriptions`; :meth:`reaching` is
+    exactly the strategies whose subscriptions accept an event, in the order
+    they were registered, at the cost of the strategies it returns. Whether a
+    strategy is running is not the index's: a caller reads that from the
+    strategy's own state.
+
+    Attributes:
+        ids: Every strategy, in registration order; an index into it is a
+            strategy's position.
+        everything: The positions of the strategies subscribed to ``"*"``.
+        topics: Topic -> the positions of the strategies subscribed to all of it.
+        scoped: ``(topic, asset_id)`` -> the positions subscribed to that asset's
+            topic alone.
+    """
+
+    ids: tuple[str, ...]
+    everything: tuple[int, ...]
+    topics: Mapping[Topic, tuple[int, ...]]
+    scoped: Mapping[tuple[Topic, str], tuple[int, ...]]
+
+    @classmethod
+    def of(cls, routes: Iterable[tuple[str, Subscriptions]]) -> RoutingIndex:
+        """The index of ``(strategy_id, subscriptions)`` pairs, in the order given."""
+
+        ids: list[str] = []
+        everything: list[int] = []
+        topics: dict[Topic, list[int]] = {}
+        scoped: dict[tuple[Topic, str], list[int]] = {}
+        for position, (strategy_id, routing) in enumerate(routes):
+            ids.append(strategy_id)
+            if routing.everything:
+                everything.append(position)
+            for topic in routing.topics:
+                topics.setdefault(topic, []).append(position)
+            for key in routing.scoped:
+                scoped.setdefault(key, []).append(position)
+        return cls(
+            tuple(ids),
+            tuple(everything),
+            MappingProxyType({topic: tuple(found) for topic, found in topics.items()}),
+            MappingProxyType({key: tuple(found) for key, found in scoped.items()}),
+        )
+
+    def reaching(self, topic: Topic, asset_id: str | None = None) -> tuple[str, ...]:
+        """Every strategy whose subscriptions accept ``topic`` -- about ``asset_id`` -- in order.
+
+        The strategies :meth:`Subscriptions.accepts` would accept, asked one by
+        one in registration order, and no other.
+        """
+
+        lists = [
+            found
+            for found in (
+                self.everything,
+                self.topics.get(topic, ()),
+                () if asset_id is None else self.scoped.get((topic, asset_id), ()),
+            )
+            if found
+        ]
+        if not lists:
+            return ()
+        positions = lists[0] if len(lists) == 1 else sorted(set().union(*lists))
+        ids = self.ids
+        return tuple(ids[position] for position in positions)

@@ -1,13 +1,15 @@
 """Global and per-strategy immutable state tracking."""
 
-from collections.abc import Mapping
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any
 
 from alphalab.strategy.events import StrategyRuntimeEvent
 from alphalab.strategy.protocol import StrategyProtocol
-from alphalab.strategy.subscription import SUBSCRIBE_ALL, Subscriptions
+from alphalab.strategy.subscription import SUBSCRIBE_ALL, RoutingIndex, Subscriptions
 
 
 def _everything() -> frozenset[str]:
@@ -67,6 +69,21 @@ class StrategyState:
         object.__setattr__(self, "routing", Subscriptions.parse(self.subscriptions))
 
 
+class _Reach:
+    """Where a runtime state keeps its routing index once it is first built.
+
+    The index is derived from the strategies, takes no part in the state's value,
+    and is built at most once per state: a fresh state starts empty, and a change
+    the runtime makes that keeps every strategy's id, order and subscriptions
+    hands the index on (:meth:`RuntimeState.evolved`).
+    """
+
+    __slots__ = ("index",)
+
+    def __init__(self) -> None:
+        self.index: RoutingIndex | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeState:
     """
@@ -76,3 +93,47 @@ class RuntimeState:
 
     strategies: Mapping[str, StrategyState] = field(default_factory=dict)
     events: tuple[StrategyRuntimeEvent, ...] = field(default_factory=tuple)
+    #: The routing index, built on first use. Derived: no part of equality.
+    _reach: _Reach = field(default_factory=_Reach, init=False, repr=False, compare=False)
+
+    @property
+    def reach(self) -> RoutingIndex:
+        """Which strategies each topic reaches, in registration order (v3.12).
+
+        Built from the strategies' subscriptions the first time it is read, then
+        kept with this state.
+        """
+
+        held = self._reach
+        if held.index is None:
+            held.index = RoutingIndex.of(
+                (strategy_id, entry.routing) for strategy_id, entry in self.strategies.items()
+            )
+        return held.index
+
+    def evolved(
+        self,
+        strategies: Mapping[str, StrategyState],
+        events: tuple[StrategyRuntimeEvent, ...],
+        changed: Iterable[str],
+    ) -> RuntimeState:
+        """This runtime with ``strategies`` and ``events``, keeping its routing index.
+
+        For a change that replaces the ``changed`` strategies' states -- a
+        start, a failure, a stop -- and leaves every strategy's id, order and
+        subscriptions as they were. Anything else builds its index afresh.
+        """
+
+        state = RuntimeState(strategies=strategies, events=events)
+        index = self._reach.index
+        if (
+            index is not None
+            and len(strategies) == len(self.strategies)
+            and all(
+                strategy_id in self.strategies
+                and strategies[strategy_id].routing == self.strategies[strategy_id].routing
+                for strategy_id in changed
+            )
+        ):
+            state._reach.index = index
+        return state

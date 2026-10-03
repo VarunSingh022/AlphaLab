@@ -2034,11 +2034,11 @@ def wants_observation(strategies: StrategyRuntimeState, subject: str) -> bool:
     whose strategies would act on it builds no context and dispatches nothing.
     """
 
+    held = strategies.strategies
     return any(
-        entry.status is LifecycleState.RUNNING
-        and entry.routing.accepts(Topic.OBSERVATIONS, subject)
-        and defines_on_observation(entry.instance)
-        for entry in strategies.strategies.values()
+        held[strategy_id].status is LifecycleState.RUNNING
+        and defines_on_observation(held[strategy_id].instance)
+        for strategy_id in strategies.reach.reaching(Topic.OBSERVATIONS, subject)
     )
 
 
@@ -2050,11 +2050,11 @@ def wants_slices(strategies: StrategyRuntimeState) -> bool:
     records nothing, and is exactly the run it was before slices existed.
     """
 
+    held = strategies.strategies
     return any(
-        entry.status is LifecycleState.RUNNING
-        and entry.routing.accepts(Topic.SLICES)
-        and defines_on_slice(entry.instance)
-        for entry in strategies.strategies.values()
+        held[strategy_id].status is LifecycleState.RUNNING
+        and defines_on_slice(held[strategy_id].instance)
+        for strategy_id in strategies.reach.reaching(Topic.SLICES)
     )
 
 
@@ -2079,10 +2079,12 @@ def _instant_assets(events: AppendOnlyLog[MarketEvent], at: float) -> tuple[str,
 def _wants_feedback(strategies: StrategyRuntimeState) -> bool:
     """Whether any running strategy subscribed to fills or to orders."""
 
+    held = strategies.strategies
+    reach = strategies.reach
     return any(
-        entry.status is LifecycleState.RUNNING
-        and (entry.routing.accepts(Topic.FILLS) or entry.routing.accepts(Topic.ORDERS))
-        for entry in strategies.strategies.values()
+        held[strategy_id].status is LifecycleState.RUNNING
+        for topic in (Topic.FILLS, Topic.ORDERS)
+        for strategy_id in reach.reaching(topic)
     )
 
 

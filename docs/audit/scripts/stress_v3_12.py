@@ -33,7 +33,7 @@ import gc
 import resource
 import sys
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from datetime import time as clock_time
 from decimal import Decimal
@@ -126,7 +126,16 @@ def _context(strategy_id: str) -> StrategyContext:
     )
 
 
-def _running(strategies: dict[str, BaseStrategy], topics: frozenset[str]) -> RuntimeState:
+def _running(
+    strategies: Mapping[str, BaseStrategy],
+    topics: frozenset[str],
+    each: Mapping[str, frozenset[str]] | None = None,
+) -> RuntimeState:
+    """Every strategy registered, configured and started, subscribed to ``topics``.
+
+    ``each`` overrides the subscriptions of the strategies it names.
+    """
+
     state = create_runtime()
     for strategy_id, strategy in strategies.items():
         state = register_strategy(state, strategy_id, strategy)
@@ -134,7 +143,7 @@ def _running(strategies: dict[str, BaseStrategy], topics: frozenset[str]) -> Run
     for strategy_id, held in state.strategies.items():
         held, _ = RuntimeSupervisor.configure(held, {}, 1.0)
         held, _ = RuntimeSupervisor.initialize(held, 1.1)
-        held, _ = RuntimeSupervisor.subscribe(held, topics, 1.2)
+        held, _ = RuntimeSupervisor.subscribe(held, (each or {}).get(strategy_id, topics), 1.2)
         held, _ = RuntimeSupervisor.start(held, 1.3)
         running[strategy_id] = held
     return RuntimeState(strategies=running)
@@ -319,8 +328,23 @@ def scenario_strategies() -> None:
     assert fills > 1_000, "the strategies traded"
     print(f"  1,000 strategies registered and started: {setup:.2f}s CPU")
     print(
-        f"  {len(data)} records, {fills} fills, {len(result.trades)} trades: {cpu:.2f}s CPU "
-        f"({cpu / len(data) * 1e3:.1f} ms/record); peak RSS {_peak_mb():.0f} MB"
+        f"  every strategy on every bar: {len(data)} records, {fills} fills, "
+        f"{len(result.trades)} trades: {cpu:.2f}s CPU ({cpu / len(data) * 1e3:.1f} ms/record)"
+    )
+    # Each strategy subscribed to its own asset's bars: an event reaches ten.
+    own = {
+        strategy_id: frozenset({f"bars:{assets[index % 100]}"})
+        for index, strategy_id in enumerate(strategy_ids)
+    }
+    targeted = _running(strategies, frozenset({"bars"}), own)
+    scoped, scoped_cpu = _timed(
+        lambda: BacktestEngine.run(_config(pipeline), dataset, targeted, _context)
+    )
+    assert scoped.fills == result.fills, "subscribing to its own asset changes nothing it does"
+    print(
+        f"  each subscribed to its own asset: {scoped_cpu:.2f}s CPU "
+        f"({scoped_cpu / len(data) * 1e3:.1f} ms/record), the same {len(scoped.fills)} fills; "
+        f"peak RSS {_peak_mb():.0f} MB"
     )
 
 
@@ -432,9 +456,9 @@ def scenario_venues() -> None:
     )
 
     state = SchedulerEngine.initialize(FIRST)
-    for venue, calendar in calendars.items():
+    for exchange, calendar in calendars.items():
         state = SchedulerEngine.schedule_timer(
-            state, session_timer(venue, ScheduleType.SESSION_OPEN, calendar, FIRST), FIRST
+            state, session_timer(exchange, ScheduleType.SESSION_OPEN, calendar, FIRST), FIRST
         )
 
     def month() -> int:

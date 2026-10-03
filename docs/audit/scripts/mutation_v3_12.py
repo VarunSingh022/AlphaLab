@@ -962,8 +962,35 @@ V312: tuple[Mutation, ...] = (
     ),
 )
 
+#: Mutations of the routing index (PRF-010), found by the stress run after the
+#: first run of this harness; run against the release tree with the rest.
+V312_ROUTING: tuple[Mutation, ...] = (
+    Mutation(
+        "X45",
+        "an event misses the strategies subscribed to everything (PRF-010)",
+        "alphalab/strategy/subscription.py",
+        "                self.everything,\n                self.topics.get(topic, ()),\n",
+        "                self.topics.get(topic, ()),\n",
+    ),
+    Mutation(
+        "X46",
+        "overlapping subscriptions reach a strategy twice, out of order (PRF-010)",
+        "alphalab/strategy/subscription.py",
+        "positions = lists[0] if len(lists) == 1 else sorted(set().union(*lists))",
+        "positions = lists[0] if len(lists) == 1 else [p for found in lists for p in found]",
+    ),
+    Mutation(
+        "X47",
+        "an index handed on when a strategy's subscriptions changed (PRF-010)",
+        "alphalab/strategy/state.py",
+        "                and strategies[strategy_id].routing"
+        " == self.strategies[strategy_id].routing\n",
+        "",
+    ),
+)
+
 #: Every mutation, in the order the run reports them.
-MUTATIONS: tuple[Mutation, ...] = EARLIER + V312
+MUTATIONS: tuple[Mutation, ...] = EARLIER + V312 + V312_ROUTING
 
 #: Tests whose own source reads a clock are deselected: their failing under a
 #: mutation, or under the load of parallel copies, says nothing of the mutation.

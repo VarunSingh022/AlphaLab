@@ -35,8 +35,11 @@ class StrategyEngine:
         registered strategy and :class:`~alphalab.strategy.dispatcher.Dispatcher`
         discarded the result a moment later, which was free while a context held
         ``object()`` placeholders and becomes O(strategies x events) once one
-        holds the marked portfolio; see ADR-0026 decision 7. A strategy that did
-        not subscribe to the event now costs a set lookup.
+        holds the marked portfolio; see ADR-0026 decision 7. Since v3.12 a
+        strategy that did not subscribe to the event costs nothing at all: the
+        runtime's routing index (:attr:`RuntimeState.reach`) names the strategies
+        an event reaches, in registration order, where every strategy used to be
+        asked (ledger PRF-010).
 
         A strategy's first dispatch after it starts running is preceded by its
         ``on_start``, with the same context (ledger EXE-005).
@@ -47,13 +50,14 @@ class StrategyEngine:
         kind, asset_id = topic
 
         new_strategies: dict[str, StrategyState] | None = None
+        changed: list[str] = []
         aggregated_intents: list[Intent] = []
         new_events: list[StrategyRuntimeEvent] = []
+        held = state.strategies
 
-        for strategy_id, strategy_state in state.strategies.items():
+        for strategy_id in state.reach.reaching(kind, asset_id):
+            strategy_state = held[strategy_id]
             if strategy_state.status is not LifecycleState.RUNNING:
-                continue
-            if not strategy_state.routing.accepts(kind, asset_id):
                 continue
 
             context = context_factory(strategy_id)
@@ -70,14 +74,16 @@ class StrategyEngine:
                 if new_strategies is None:
                     new_strategies = dict(state.strategies)
                 new_strategies[strategy_id] = current
+                changed.append(strategy_id)
             aggregated_intents.extend(intents)
 
         if new_strategies is None and not new_events:
             return state, tuple(aggregated_intents)
         return (
-            RuntimeState(
-                strategies=new_strategies if new_strategies is not None else state.strategies,
-                events=(*state.events, *new_events),
+            state.evolved(
+                new_strategies if new_strategies is not None else state.strategies,
+                (*state.events, *new_events),
+                changed,
             ),
             tuple(aggregated_intents),
         )
@@ -100,6 +106,7 @@ class StrategyEngine:
         """
 
         strategies: dict[str, StrategyState] | None = None
+        changed: list[str] = []
         aggregated_intents: list[Intent] = []
         new_events: list[StrategyRuntimeEvent] = []
 
@@ -124,14 +131,16 @@ class StrategyEngine:
                 if strategies is None:
                     strategies = dict(state.strategies)
                 strategies[strategy_id] = current
+                changed.append(strategy_id)
             aggregated_intents.extend(intents)
 
         if strategies is None and not new_events:
             return state, tuple(aggregated_intents)
         return (
-            RuntimeState(
-                strategies=strategies if strategies is not None else state.strategies,
-                events=(*state.events, *new_events),
+            state.evolved(
+                strategies if strategies is not None else state.strategies,
+                (*state.events, *new_events),
+                changed,
             ),
             tuple(aggregated_intents),
         )
@@ -153,6 +162,7 @@ class StrategyEngine:
 
         chosen = tuple(state.strategies) if strategy_ids is None else tuple(strategy_ids)
         strategies = dict(state.strategies)
+        changed: list[str] = []
         aggregated_intents: list[Intent] = []
         new_events: list[StrategyRuntimeEvent] = []
         for strategy_id in chosen:
@@ -165,11 +175,12 @@ class StrategyEngine:
             context = context_factory(strategy_id)
             stopped, intents, events = Dispatcher.stop(strategy_state, context, timestamp)
             strategies[strategy_id] = stopped
+            changed.append(strategy_id)
             aggregated_intents.extend(intents)
             new_events.extend(events)
         if not new_events:
             return state, ()
         return (
-            RuntimeState(strategies=strategies, events=(*state.events, *new_events)),
+            state.evolved(strategies, (*state.events, *new_events), changed),
             tuple(aggregated_intents),
         )
