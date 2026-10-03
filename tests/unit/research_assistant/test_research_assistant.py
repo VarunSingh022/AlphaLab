@@ -288,3 +288,44 @@ def test_strategy_candidate_is_frozen() -> None:
     candidate = generate_candidates("t", SPACE)[0]
     with pytest.raises(FrozenInstanceError):
         candidate.template = "other"  # type: ignore[misc]
+
+
+def test_the_workflow_counts_its_search_as_the_research_authority_does() -> None:
+    """v3.12 (ledger SCF-003): the assistant enumerates through ``ParameterSpace`` and
+    reports the search as a ``SweepResult`` -- one trial per candidate evaluated."""
+
+    from alphalab.research import ParameterSpace
+
+    result = run_research_workflow("t", SPACE, _evaluator, "sharpe", timestamp=1.0)
+    space = ParameterSpace.grid(SPACE)
+
+    assert result.sweep.trials == 9 == len(space)
+    assert tuple(result.sweep.scores) == space.rendered
+    assert result.sweep.best == "fast=5.0,slow=20.0"
+    assert result.sweep.best_score == result.best.score
+    assert [candidate.parameters for candidate in result.candidates] == [
+        dict(candidate) for candidate in space.candidates
+    ]
+
+    limited = run_research_workflow("t", SPACE, _evaluator, "sharpe", timestamp=1.0, limit=4)
+    assert limited.sweep.trials == 4
+
+    lowest = run_research_workflow(
+        "t", SPACE, _evaluator, "turnover", timestamp=1.0, higher_is_better=False
+    )
+    assert lowest.sweep.best == "fast=3.0,slow=10.0"
+    assert lowest.best.candidate.parameters == {"fast": 3.0, "slow": 10.0}
+
+
+def test_a_research_parameter_space_is_accepted_as_it_is() -> None:
+    from alphalab.research import ParameterSpace
+
+    space = ParameterSpace.of([{"fast": 5.0, "slow": 20.0}, {"fast": 3.0, "slow": 10.0}])
+
+    assert [c.parameters for c in generate_candidates("t", space)] == [
+        {"fast": 5.0, "slow": 20.0},
+        {"fast": 3.0, "slow": 10.0},
+    ]
+    assert candidate_count(space) == 2
+    with pytest.raises(ResearchAssistantInputError, match="finite"):
+        generate_candidates("t", {"fast": (float("nan"),)})

@@ -549,3 +549,22 @@ def test_observations_per_parameter_is_none_for_a_rule_with_nothing_to_fit() -> 
 
     assert build_overfitting_report("ic", 0.1, 0.1, policy, 0).observations_per_parameter is None
     assert build_overfitting_report("ic", 0.1, 0.1, policy, 2).observations_per_parameter == 0.5
+
+
+def test_a_sweep_selects_the_lowest_score_when_lower_is_better() -> None:
+    """The one parameter search can minimise (v3.12, ledger SCF-003): a drawdown sweep."""
+
+    surface = {"w=5": 0.30, "w=10": 0.10, "w=20": 0.18}
+    lowest = parameter_sweep("drawdown", list(surface), surface.__getitem__, higher_is_better=False)
+    highest = parameter_sweep("drawdown", list(surface), surface.__getitem__)
+
+    assert (lowest.best, lowest.best_score, lowest.higher_is_better) == ("w=10", 0.10, False)
+    assert highest.best == "w=5"
+    # The best neighbour is worse by 0.08 on a best of 0.10: the cliff, read downhill.
+    assert lowest.neighbour_drop == pytest.approx(0.8)
+    assert lowest.trials == 3 and lowest.sensitivity == highest.sensitivity
+    # Ties go to the earlier configuration whichever way the metric improves.
+    tied = parameter_sweep(
+        "x", ["a", "b"], {"a": 1.0, "b": 1.0}.__getitem__, higher_is_better=False
+    )
+    assert tied.best == "a"

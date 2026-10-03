@@ -656,9 +656,13 @@ def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -
     """ADR-0016 keeps resolution at the wire boundary; v2.11 takes none of it back.
 
     Until v3.12 every read was ``record_for``. A classification-bucket limit
-    (OFE-001) adds two more keyed reads of declared facts, and no write: one
-    ``label_of`` and one ``bucket_members`` per limited dimension of a judged
-    order, both lookups in the registry's own index.
+    (OFE-001) adds keyed reads of declared facts, and no write: one
+    ``label_of`` per limited dimension of a judged order, and either one
+    ``label_of`` per asset with working orders -- when the book keeps the
+    bucket's gross -- or one ``bucket_members``, both lookups in the registry's
+    own index; and one read of that index, ``members``, when a pipeline state
+    comes into being, for the book to keep each bucket's gross (the v3.12
+    stress finding).
     """
 
     from alphalab.runtime import execution_pipeline as module
@@ -678,8 +682,9 @@ def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -
     # and (v3.12, EXE-010) one in `_listing_exchange`, once per simulated resting
     # day order that states no close, for the venue whose calendar it reads.
     assert source.count("record_for(") == 6
-    assert source.count(".label_of(") == 1
+    assert source.count(".label_of(") == 2
     assert source.count(".bucket_members(") == 1
+    assert source.count(".members") == 1
 
 
 def test_sector_resolution_is_a_keyed_lookup_and_never_a_scan() -> None:

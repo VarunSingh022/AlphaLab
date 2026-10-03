@@ -7,6 +7,7 @@ remains explicit and the canonical core entities are preserved.
 
 from __future__ import annotations
 
+import decimal
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -73,7 +74,7 @@ from alphalab.oms.state import OMSState
 from alphalab.oms.status import OrderStatus, OrderType
 from alphalab.oms.status import Side as OMSSide
 from alphalab.portfolio.account import Account
-from alphalab.portfolio.book import PositionBook
+from alphalab.portfolio.book import BookGroups, BookMarketValues, PositionBook
 from alphalab.portfolio.corporate_actions import CashFlow, Split
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
@@ -787,7 +788,7 @@ class ExecutionPipeline:
         _require_settleable_budget(config)
         _require_classifiable(config)
 
-        portfolio = PortfolioState(account=config.account)
+        portfolio = _grouped_book(PortfolioState(account=config.account), config)
         portfolio = PortfolioEngine.apply_deposit(
             portfolio, config.starting_cash, config.currency, timestamp
         )
@@ -2828,11 +2829,19 @@ def _bucket_exposures(
 ) -> tuple[BucketExposure, ...]:
     """The bucket the order's instrument is in along each limited dimension (OFE-001).
 
-    A bucket's gross exposure is summed over its members -- the registry's
+    A bucket's gross exposure is the sum over its members -- the registry's
     index of every instrument carrying the label -- each at its filled value
-    plus what its working orders commit, as the projection values the book. So
-    the cost follows the bucket, and is paid only when a classification limit
-    is declared; a run that declares none takes one empty-tuple test.
+    plus what its working orders commit, as the projection values the book. It
+    is paid only when a classification limit is declared; a run that declares
+    none takes one empty-tuple test.
+
+    v3.12 reads the filled part from the gross the book keeps per bucket (see
+    :func:`_grouped_book`) and adds what the assets with working orders commit,
+    so an order costs the working orders rather than the bucket: summing the
+    bucket made a 10,000-name rebalance under sector limits cost the square of
+    the book over the number of sectors. Where the book keeps no such total --
+    a mixed-currency book, a restored state not yet re-marked -- the members are
+    summed as before, and both give the same figure, written the same way.
     """
 
     limits = state.risk.active_limits.classification
@@ -2840,6 +2849,7 @@ def _bucket_exposures(
         return ()
     instruments = state.config.instruments
     values = state.risk.exposure.asset_exposure
+    base = state.portfolio.account.base_currency
     ctx = ACCOUNTING_CONTEXT
     signed = request.quantity if request.side is CoreSide.BUY else -request.quantity
     order_value = ctx.multiply(signed, price)
@@ -2849,13 +2859,102 @@ def _bucket_exposures(
         if label is None or instruments is None:
             buckets.append(BucketExposure(dimension, None, Decimal("0"), Decimal("0")))
             continue
-        committed = Decimal("0")
-        for member in instruments.bucket_members(dimension, label):
-            committed = ctx.add(committed, abs(_committed_value(values, working, member)))
+        committed = _kept_bucket_gross(values, working, instruments, dimension, label, base)
+        if committed is None:
+            committed = Decimal("0")
+            for member in instruments.bucket_members(dimension, label):
+                committed = ctx.add(committed, abs(_committed_value(values, working, member)))
         here = _committed_value(values, working, request.asset_id)
         projected = ctx.add(ctx.subtract(committed, abs(here)), abs(ctx.add(here, order_value)))
         buckets.append(BucketExposure(dimension, label, committed, projected))
     return tuple(buckets)
+
+
+#: Sums kept exactly or not at all: a bucket's gross read from the book is used
+#: only when it is the exact figure the sum over its members gives.
+_EXACT_SUM = ACCOUNTING_CONTEXT.copy()
+_EXACT_SUM.traps[decimal.Inexact] = True
+
+
+def _book_groups(config: ExecutionPipelineConfig) -> BookGroups | None:
+    """The buckets the run's classification limits bound, as groups for the book to total.
+
+    ``None`` -- the book keeps nothing -- when no limit bounds a bucket.
+    """
+
+    instruments = config.instruments
+    dimensions = frozenset(limit.dimension for limit in config.risk_limits.classification)
+    index = None if instruments is None else instruments.members
+    if not dimensions or instruments is None or index is None:
+        return None
+    keys: dict[str, list[tuple[str, str]]] = {}
+    for dimension in sorted(dimensions):
+        labels = index.get(dimension)
+        if labels is None:
+            continue
+        for label, members in labels.items():
+            for asset_id in members:
+                keys.setdefault(asset_id, []).append((dimension, label))
+    return BookGroups(
+        dimensions, {asset_id: tuple(found) for asset_id, found in keys.items()}, instruments
+    )
+
+
+def _grouped_book(portfolio: PortfolioState, config: ExecutionPipelineConfig) -> PortfolioState:
+    """``portfolio`` keeping the gross of every bucket the run's classification limits bound.
+
+    Installed where a pipeline state comes into being -- :meth:`ExecutionPipeline.initialize`
+    and a snapshot's restore -- and carried through every change the portfolio
+    engine makes. The grouping is not part of the portfolio's value: equality,
+    snapshots and digests never see it. A run with no classification limit
+    keeps no groups and pays nothing.
+    """
+
+    groups = _book_groups(config)
+    if groups is None:
+        return portfolio
+    return evolve(portfolio, positions=portfolio.book.grouped(groups))
+
+
+def _kept_bucket_gross(
+    values: Mapping[str, Decimal],
+    working: Mapping[str, WorkingExposure],
+    instruments: InstrumentRegistry,
+    dimension: str,
+    label: str,
+    base: str,
+) -> Decimal | None:
+    """The bucket's committed gross from the book's kept total, or ``None`` to sum its members.
+
+    The book's gross is the sum of the members' absolute filled values; each
+    member with working orders is then counted at its filled value plus what
+    they commit instead. Read only from the book the exposure was computed from,
+    grouped by this registry, every figure in the base currency; every step
+    exact, so the result is the figure the member sum gives -- and ``None``
+    whenever it could differ.
+    """
+
+    if not isinstance(values, BookMarketValues):
+        return None
+    groups = values.groups
+    if groups is None or groups.source is not instruments:
+        return None
+    kept = values.group_gross(dimension, label)
+    if kept is None or any(currency != base for currency in kept):
+        return None
+    total = kept.get(base, Decimal("0"))
+    try:
+        for asset_id in working:
+            if instruments.label_of(asset_id, dimension) != label:
+                continue
+            filled = abs(values.get(asset_id, Decimal("0")))
+            total = _EXACT_SUM.add(
+                _EXACT_SUM.subtract(total, filled),
+                abs(_committed_value(values, working, asset_id)),
+            )
+    except decimal.Inexact:
+        return None
+    return total
 
 
 def _committed_value(

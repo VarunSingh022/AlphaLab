@@ -30,6 +30,24 @@ digits -- raises rather than rounds.
 
 Every update costs the same whatever the book holds: the persistent maps share
 structure, and the per-currency table is as large as the number of currencies.
+
+Gross per group (v3.12)
+-----------------------
+
+A book given a :class:`BookGroups` -- which group each asset belongs to along
+each of a few dimensions -- also keeps, per group and currency, the summed
+absolute market value of its members' positions and how many there are, updated
+on the same :meth:`~PositionBook.set` and :meth:`~PositionBook.delete`. It is
+what a classification limit reads: until v3.12 every order judged against one
+summed its whole bucket, so a rebalance of a 10,000-name book under sector
+limits cost the square of the book divided by the number of sectors. Each gross
+is exact and written as a fresh sum of its members' values would be -- every
+value in one currency has that currency's minor unit, and a group nobody holds
+has no entry rather than a zero -- and an update it could not keep exactly
+raises, as every other total here does. The grouping is the caller's and is not
+part of the book's value: two books holding the same positions are equal
+whatever either groups by, and a book built from a plain mapping groups by
+nothing.
 """
 
 from __future__ import annotations
@@ -47,7 +65,7 @@ from alphalab.portfolio.exceptions import PortfolioError
 from alphalab.portfolio.money import ZERO_MONEY
 from alphalab.portfolio.position import Position
 
-__all__ = ["CurrencyTotals", "PositionBook"]
+__all__ = ["BookGroups", "BookMarketValues", "CurrencyTotals", "PositionBook"]
 
 #: Totals are kept exactly or not at all: rounding a running total would make it
 #: depend on the order positions changed in.
@@ -84,6 +102,87 @@ class CurrencyTotals:
 
 
 _NO_TOTALS = CurrencyTotals()
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class BookGroups:
+    """Which groups each asset belongs to, for the gross a :class:`PositionBook` keeps per group.
+
+    A group is a ``(dimension, label)`` pair -- ``("sector", "Energy")``.
+
+    Attributes:
+        dimensions: Every dimension the grouping covers. A dimension it does
+            not cover has no totals, which :meth:`PositionBook.group_gross`
+            reports as ``None`` rather than as zero.
+        keys: ``asset_id`` -> the groups it belongs to; an asset absent from it
+            belongs to none.
+        source: What the grouping was derived from, compared by identity: a
+            reader holding the classification it would group by now can tell
+            whether these totals are of that classification or of another.
+    """
+
+    dimensions: frozenset[str]
+    keys: Mapping[str, tuple[tuple[str, str], ...]]
+    source: object = None
+
+
+def _exact_sum(total: Decimal, amount: Decimal) -> Decimal:
+    try:
+        return _EXACT.add(total, amount)
+    except decimal.Inexact as exc:
+        raise PortfolioError(
+            f"A group total of {total} + {amount} exceeds the {_EXACT.prec} significant digits "
+            "it is kept to exactly."
+        ) from exc
+
+
+#: ``(dimension, label, currency)`` -> how many positions the group holds in the
+#: currency, flat ones included, and their summed absolute market value.
+_GroupTotals = PersistentMap[tuple[str, str, str], tuple[int, Decimal]]
+
+_NO_GROUP_TOTALS: _GroupTotals = PersistentMap()
+
+
+def _regrouped(
+    groups: BookGroups | None,
+    totals: _GroupTotals,
+    asset_id: str,
+    old: tuple[str, Decimal] | None,
+    new: tuple[str, Decimal] | None,
+) -> _GroupTotals:
+    """``totals`` with ``asset_id``'s market value moved from ``old`` to ``new``.
+
+    Each side is ``(currency, market value)``, ``None`` for no position. A
+    group's entry goes when its last position does, so a gross is always a sum
+    over positions the book holds and is written as a fresh one would be.
+    """
+
+    if groups is None:
+        return totals
+    keys = groups.keys.get(asset_id)
+    if not keys:
+        return totals
+    for dimension, label in keys:
+        if old is not None and new is not None and old[0] == new[0]:
+            # Re-marked or resized in the same currency: one update.
+            key = (dimension, label, new[0])
+            count, gross = totals[key]
+            change = _exact_sum(new[1].copy_abs(), old[1].copy_abs().copy_negate())
+            totals = totals.set(key, (count, _exact_sum(gross, change)))
+            continue
+        if old is not None:
+            key = (dimension, label, old[0])
+            count, gross = totals[key]
+            if count == 1:
+                totals = totals.delete(key)
+            else:
+                gross = _exact_sum(gross, old[1].copy_abs().copy_negate())
+                totals = totals.set(key, (count - 1, gross))
+        if new is not None:
+            key = (dimension, label, new[0])
+            count, gross = totals.get(key, (0, ZERO_MONEY))
+            totals = totals.set(key, (count + 1, _exact_sum(gross, new[1].copy_abs())))
+    return totals
 
 
 def _add(total: Decimal, amount: Decimal, count: int) -> Decimal:
@@ -186,17 +285,21 @@ class PositionBook(Mapping[str, Position]):
     iterates in insertion order as a ``dict`` does, and serializes as one.
     """
 
-    __slots__ = ("_entries", "_positions", "_totals")
+    __slots__ = ("_entries", "_group_totals", "_groups", "_positions", "_totals")
 
     _positions: PersistentMap[str, Position]
     _entries: PersistentMap[str, tuple[Decimal, Decimal, Decimal]]
     _totals: Mapping[str, CurrencyTotals]
+    _groups: BookGroups | None
+    _group_totals: _GroupTotals
 
     def __init__(self, positions: Mapping[str, Position] | None = None) -> None:
         if isinstance(positions, PositionBook):
             self._positions = positions._positions
             self._entries = positions._entries
             self._totals = positions._totals
+            self._groups = positions._groups
+            self._group_totals = positions._group_totals
             return
         items = dict(positions or {})
         totals: dict[str, CurrencyTotals] = {}
@@ -209,6 +312,8 @@ class PositionBook(Mapping[str, Position]):
         self._positions = PersistentMap(items)
         self._entries = PersistentMap(entries)
         self._totals = MappingProxyType(totals)
+        self._groups = None
+        self._group_totals = _NO_GROUP_TOTALS
 
     @classmethod
     def _of(
@@ -216,12 +321,64 @@ class PositionBook(Mapping[str, Position]):
         positions: PersistentMap[str, Position],
         entries: PersistentMap[str, tuple[Decimal, Decimal, Decimal]],
         totals: Mapping[str, CurrencyTotals],
+        groups: BookGroups | None = None,
+        group_totals: _GroupTotals = _NO_GROUP_TOTALS,
     ) -> PositionBook:
         book: PositionBook = cls.__new__(cls)
         book._positions = positions
         book._entries = entries
         book._totals = totals
+        book._groups = groups
+        book._group_totals = group_totals
         return book
+
+    def grouped(self, groups: BookGroups | None) -> PositionBook:
+        """This book keeping a gross per group of ``groups``; ``None`` keeps none.
+
+        One pass over the positions; every later change keeps the totals at the
+        cost of the changed asset's groups.
+        """
+
+        if groups is None:
+            return PositionBook._of(self._positions, self._entries, self._totals)
+        totals: dict[tuple[str, str, str], tuple[int, Decimal]] = {}
+        for asset_id, (value, _, _) in self._entries.items():
+            keys = groups.keys.get(asset_id)
+            if not keys:
+                continue
+            currency = self._positions[asset_id].currency
+            for dimension, label in keys:
+                key = (dimension, label, currency)
+                count, gross = totals.get(key, (0, ZERO_MONEY))
+                totals[key] = (count + 1, _exact_sum(gross, value.copy_abs()))
+        return PositionBook._of(
+            self._positions, self._entries, self._totals, groups, PersistentMap(totals)
+        )
+
+    @property
+    def groups(self) -> BookGroups | None:
+        """What this book keeps a gross per group of, or ``None``."""
+
+        return self._groups
+
+    def group_gross(self, dimension: str, label: str) -> Mapping[str, Decimal] | None:
+        """The summed absolute market value of the group's positions, per currency.
+
+        A currency appears when the group holds a position in it, flat ones
+        included, so a group whose positions are all flat reads a zero written
+        in its currency's minor unit, and a group holding nothing reads empty.
+        ``None`` when this book keeps no totals along ``dimension`` -- which is
+        not the same as a group holding nothing.
+        """
+
+        if self._groups is None or dimension not in self._groups.dimensions:
+            return None
+        found: dict[str, Decimal] = {}
+        for currency in self._totals:
+            held = self._group_totals.get((dimension, label, currency))
+            if held is not None:
+                found[currency] = held[1]
+        return found
 
     # -- the mapping --------------------------------------------------------
 
@@ -276,6 +433,13 @@ class PositionBook(Mapping[str, Position]):
         entries = self._entries
         previous = self._positions.get(asset_id)
         entry = _entry(position)
+        group_totals = _regrouped(
+            self._groups,
+            self._group_totals,
+            asset_id,
+            None if previous is None else (previous.currency, entries[asset_id][0]),
+            (position.currency, entry[0]),
+        )
         if (
             previous is not None
             and previous.currency == position.currency
@@ -301,6 +465,8 @@ class PositionBook(Mapping[str, Position]):
                         ),
                     }
                 ),
+                self._groups,
+                group_totals,
             )
         totals = dict(self._totals)
         if previous is not None:
@@ -314,6 +480,8 @@ class PositionBook(Mapping[str, Position]):
             self._positions.set(asset_id, position),
             entries.set(asset_id, entry),
             MappingProxyType({c: t for c, t in totals.items() if t.positions}),
+            self._groups,
+            group_totals,
         )
 
     def delete(self, asset_id: str) -> PositionBook:
@@ -330,6 +498,14 @@ class PositionBook(Mapping[str, Position]):
             self._positions.delete(asset_id),
             self._entries.delete(asset_id),
             MappingProxyType({c: t for c, t in totals.items() if t.positions}),
+            self._groups,
+            _regrouped(
+                self._groups,
+                self._group_totals,
+                asset_id,
+                (previous.currency, self._entries[asset_id][0]),
+                None,
+            ),
         )
 
     # -- what the book sums to ----------------------------------------------
@@ -358,16 +534,33 @@ class PositionBook(Mapping[str, Position]):
         book holds; each value was computed when its position was booked.
         """
 
-        return _MarketValues(self._entries)
+        return BookMarketValues(self)
 
 
-class _MarketValues(Mapping[str, Decimal]):
-    """A position book's market values, read through without copying."""
+class BookMarketValues(Mapping[str, Decimal]):
+    """A position book's market values, read through without copying.
 
-    __slots__ = ("_entries",)
+    It answers :meth:`group_gross` from the same book, so a reader holding the
+    values a risk check is computed from holds the group totals of exactly that
+    book, never of a later or an earlier one.
+    """
 
-    def __init__(self, entries: PersistentMap[str, tuple[Decimal, Decimal, Decimal]]) -> None:
-        self._entries = entries
+    __slots__ = ("_book", "_entries")
+
+    def __init__(self, book: PositionBook) -> None:
+        self._book = book
+        self._entries = book._entries
+
+    @property
+    def groups(self) -> BookGroups | None:
+        """:attr:`PositionBook.groups` of the book these values are of."""
+
+        return self._book.groups
+
+    def group_gross(self, dimension: str, label: str) -> Mapping[str, Decimal] | None:
+        """:meth:`PositionBook.group_gross` of the book these values are of."""
+
+        return self._book.group_gross(dimension, label)
 
     def __getitem__(self, asset_id: str) -> Decimal:
         return self._entries[asset_id][0]

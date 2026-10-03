@@ -204,6 +204,7 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionRouting,
     UnpricedAsset,
     UnpricedReason,
+    _grouped_book,
     _require_classifiable,
     _require_one_account_currency,
 )
@@ -1442,7 +1443,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
             history=AppendOnlyLog(snapshot.execution.history),
             events=AppendOnlyLog(record.event for record in snapshot.execution.events),
         ),
-        portfolio=restore_portfolio(snapshot.portfolio),
+        portfolio=_grouped_book(restore_portfolio(snapshot.portfolio), config),
         analytics=AnalyticsState(
             reports=snapshot.analytics.reports,
             events=tuple(record.event for record in snapshot.analytics.events),
