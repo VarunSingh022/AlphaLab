@@ -41,6 +41,7 @@ from alphalab.persistence.decode import (
     require,
     require_schema_version,
 )
+from alphalab.persistence.durable import ensure_directory, fsync_directory
 from alphalab.persistence.exceptions import (
     PersistenceError,
     PersistenceValidationError,
@@ -76,6 +77,8 @@ __all__ = [
     "as_str",
     "as_value_enum",
     "deserialize",
+    "ensure_directory",
+    "fsync_directory",
     "require",
     "require_schema_version",
     "serialize",

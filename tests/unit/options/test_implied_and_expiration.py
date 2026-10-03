@@ -193,10 +193,27 @@ def test_a_vanishing_vega_is_refused_rather_than_fitted_to_noise() -> None:
 
 def test_a_price_the_model_cannot_reach_at_all_is_its_own_refusal() -> None:
     """Distinct from the ceiling: the ceiling is the limit at *infinite*
-    volatility, and this is the limit at the highest one searched."""
+    volatility, and this is the limit at the highest one searched.
+
+    A one-hour call 250 over the money is worth 5.8e-20 at 1000% volatility, so
+    a quote of 1e-10 is past it. (Until v3.12 this test quoted 1e-20, which the
+    model then priced at exactly zero because its normal CDF lost the lower tail;
+    the model does reach 1e-20, and that quote is the next test's -- NUM-004.)
+    """
 
     contract = _contract(strike="400", expiry=3600.0)
     with pytest.raises(ImpliedVolatilityError, match="does not reach"):
+        implied_volatility(
+            contract, Decimal("1e-10"), Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        )
+
+
+def test_a_price_reached_only_where_vega_vanishes_is_refused_as_unidentifiable() -> None:
+    """The model reaches 1e-20 for this contract, but at a volatility where a
+    whole point moves the price by nothing a float can see."""
+
+    contract = _contract(strike="400", expiry=3600.0)
+    with pytest.raises(ImpliedVolatilityError, match="Vega at the solution"):
         implied_volatility(
             contract, Decimal("1e-20"), Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
         )

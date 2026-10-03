@@ -140,19 +140,36 @@ class AllocationEngine:
             AllocationStarted(AllocationEngine._create_id(), timestamp, len(intents))
         )
 
-        # 1. Validation
-        valid_intents = []
+        # 1. Validation. Only a validation refusal is a rejection: anything else
+        # raised here is a defect and propagates, where until v3.12 every
+        # exception was recorded as a refused intent. An intent equal to one
+        # already in the batch is refused and recorded -- it is one request
+        # stated twice -- where until v3.12 it was dropped without a trace, by
+        # a membership test that was quadratic in the batch (ledger ALC-004).
+        valid_intents: list[Intent] = []
+        seen: set[tuple[object, ...]] = set()
         for intent in intents:
             try:
                 validate_intent(intent)
-                # Reject duplicates dynamically in batch
-                if intent in valid_intents:
-                    continue
-                valid_intents.append(intent)
-            except Exception as e:
+            except AllocationValidationError as refusal:
                 events = events.append(
-                    AllocationRejected(AllocationEngine._create_id(), timestamp, str(e))
+                    AllocationRejected(AllocationEngine._create_id(), timestamp, str(refusal))
                 )
+                continue
+            key = _intent_key(intent)
+            if key in seen:
+                events = events.append(
+                    AllocationRejected(
+                        AllocationEngine._create_id(),
+                        timestamp,
+                        f"{intent.strategy_id} stated the same intent twice in one batch -- "
+                        f"{intent.kind.value} {intent.target} of {intent.instrument} at "
+                        f"{intent.timestamp!r} -- and it is counted once.",
+                    )
+                )
+                continue
+            seen.add(key)
+            valid_intents.append(intent)
 
         if not valid_intents:
             return evolve(state, events=events), ()
@@ -637,3 +654,24 @@ def _target_delta(
             "rather than scaled up."
         )
     return delta
+
+
+def _intent_key(intent: Intent) -> tuple[object, ...]:
+    """Everything an :class:`Intent` compares on, hashable.
+
+    ``Intent`` holds its metadata in a mapping and so has no hash of its own;
+    equal intents give equal keys, as ``==`` on the intents would decide.
+    """
+
+    return (
+        intent.strategy_id,
+        intent.instrument,
+        intent.target,
+        intent.strength,
+        intent.horizon,
+        intent.terms,
+        intent.correlation_id,
+        intent.timestamp,
+        tuple(sorted(intent.metadata.items())),
+        intent.kind,
+    )

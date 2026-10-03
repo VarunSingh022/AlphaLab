@@ -96,19 +96,34 @@ def test_garman_kohlhagen_currency_reference() -> None:
     assert round(value, 4) == 0.0291
 
 
-def test_a_zero_yield_reproduces_the_v310_formula_bit_for_bit() -> None:
-    """``dividend_yield(0.0)`` is the formula v3.10 computed, to the last bit.
+def test_a_zero_yield_reproduces_the_plain_formula_bit_for_bit() -> None:
+    """``dividend_yield(0.0)`` is the plain Black-Scholes formula, to the last bit.
 
-    The v3.10 closed form is restated here rather than imported, since it no
+    The plain closed form is restated here rather than imported, since it no
     longer exists in the library: with ``b = r`` the generalized formula's extra
     factor is ``exp(0.0) == 1.0`` and its extra theta term is ``0.0``, so the
-    two agree exactly rather than to a tolerance.
+    two agree exactly rather than to a tolerance. v3.12 computes the normal CDF
+    through ``erfc`` (NUM-004); v3.10's ``1 + erf`` form, which lost the lower
+    tail, agrees with it here to within rounding.
     """
 
     def cdf(x: float) -> float:
+        return 0.5 * math.erfc(-x / math.sqrt(2.0))
+
+    def cdf_v310(x: float) -> float:
         return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
     def v310(
+        option_type: OptionType, spot: float, strike: float, sigma: float, r: float, t: float
+    ) -> float:
+        d1 = (math.log(spot / strike) + (r + 0.5 * sigma**2) * t) / (sigma * math.sqrt(t))
+        d2 = d1 - sigma * math.sqrt(t)
+        discount = math.exp(-r * t)
+        if option_type is OptionType.CALL:
+            return spot * cdf_v310(d1) - strike * discount * cdf_v310(d2)
+        return strike * discount * cdf_v310(-d2) - spot * cdf_v310(-d1)
+
+    def plain(
         option_type: OptionType, spot: float, strike: float, sigma: float, r: float, t: float
     ) -> float:
         d1 = (math.log(spot / strike) + (r + 0.5 * sigma**2) * t) / (sigma * math.sqrt(t))
@@ -125,7 +140,10 @@ def test_a_zero_yield_reproduces_the_v310_formula_bit_for_bit() -> None:
                 generalized = black_scholes_value(
                     contract, spot, sigma, rate, years, carry=dividend_yield(0.0)
                 )
-                assert generalized == v310(option_type, spot, float(strike), sigma, rate, years)
+                assert generalized == plain(option_type, spot, float(strike), sigma, rate, years)
+                assert generalized == pytest.approx(
+                    v310(option_type, spot, float(strike), sigma, rate, years), rel=1e-12
+                )
 
 
 # --------------------------------------------------------------------------- #
@@ -188,7 +206,7 @@ def test_greeks_match_central_differences(
     gamma = (value(s=spot + ds) - 2 * value() + value(s=spot - ds)) / ds**2
     vega = (value(v=sigma + dv) - value(v=sigma - dv)) / (2 * dv)
     rho = (value(r=rate + dr) - value(r=rate - dr)) / (2 * dr)
-    theta_per_day = -(value(t=years + dt) - value(t=years - dt)) / (2 * dt) / 365.0
+    theta_per_day = -(value(t=years + dt) - value(t=years - dt)) / (2 * dt) / 365.25
 
     assert greeks.delta == pytest.approx(delta, abs=1e-7)
     assert greeks.gamma == pytest.approx(gamma, rel=1e-4)
@@ -327,3 +345,32 @@ def test_the_carry_is_required() -> None:
         black_scholes_price(contract, Decimal("100"), 0.2, 0.05, 0.0)  # type: ignore[call-arg]
     with pytest.raises(TypeError, match="carry"):
         implied_volatility(contract, Decimal("5"), Decimal("100"), 0.05, 0.0)  # type: ignore[call-arg]
+
+
+# --------------------------------------------------------------------------- #
+# NUM-004 (v3.12): the lower tail, and one year
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("x", [3.0, 8.0, 10.0, 20.0, 37.0])
+def test_the_normal_lower_tail_keeps_its_relative_precision(x: float) -> None:
+    """Mills' bounds: phi(x)/x * (1 - 1/x^2) < Phi(-x) < phi(x)/x for x > 0.
+
+    Until v3.12 ``Phi(-x)`` was ``0.5 * (1 + erf(-x / sqrt 2))``, which cancels
+    to exactly zero from about x = 8.3 -- below the lower bound.
+    """
+
+    from alphalab.options.pricing import _norm_cdf
+
+    density = math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
+    tail = _norm_cdf(-x)
+    assert density / x * (1.0 - 1.0 / (x * x)) < tail < density / x
+    assert _norm_cdf(x) + tail == pytest.approx(1.0, abs=1e-15)
+
+
+def test_theta_and_maturity_use_the_year_the_assumptions_record() -> None:
+    from alphalab.options import pricing
+    from alphalab.options.model import BLACK_SCHOLES_MERTON
+
+    assert BLACK_SCHOLES_MERTON.year_basis_days == pricing._DAYS_PER_YEAR
+    assert BLACK_SCHOLES_MERTON.year_basis_days * 86400 == pricing._SECONDS_PER_YEAR

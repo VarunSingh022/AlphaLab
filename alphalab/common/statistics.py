@@ -141,7 +141,10 @@ class LinearFit:
     Attributes:
         slope: The fitted coefficient on ``x``.
         intercept: The fitted constant.
-        r_squared: Share of ``y``'s variance the fit explains, in ``[0, 1]``.
+        r_squared: Share of ``y``'s variance the fit explains, in ``[0, 1]``;
+            ``None`` when ``y`` is constant, which leaves it 0/0. Until v3.12 that
+            case read ``0.0`` -- "explains none of it" -- when there was nothing
+            to explain (ledger NUM-003).
         observations: How many pairs the fit was computed from.
         residuals: ``y - (intercept + slope * x)``, in input order. What
             beta neutralization keeps.
@@ -149,7 +152,7 @@ class LinearFit:
 
     slope: float
     intercept: float
-    r_squared: float
+    r_squared: float | None
     observations: int
     residuals: tuple[float, ...]
 
@@ -654,11 +657,16 @@ def linear_regression(ys: Sequence[float], xs: Sequence[float]) -> LinearFit:
         residuals = tuple(y - (intercept + slope * x) for x, y in zip(xs, ys, strict=True))
 
         total = sum((y - mean_y) ** 2 for y in ys)
-        explained = 0.0 if total == 0.0 else 1.0 - sum(r**2 for r in residuals) / total
+        explained = None if total == 0.0 else 1.0 - sum(r**2 for r in residuals) / total
     except OverflowError:
         raise beyond_range from None
 
-    if not all(map(math.isfinite, (slope, intercept, explained, *residuals))):
+    checked = (
+        (slope, intercept, *residuals)
+        if explained is None
+        else (slope, intercept, explained, *residuals)
+    )
+    if not all(map(math.isfinite, checked)):
         raise beyond_range
 
     return LinearFit(

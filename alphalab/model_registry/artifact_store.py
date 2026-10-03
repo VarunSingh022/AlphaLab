@@ -89,6 +89,7 @@ from pathlib import Path
 from typing import Final, Protocol
 
 from alphalab.model_registry.registry import ArtifactRef
+from alphalab.persistence.durable import ensure_directory, fsync_directory
 from alphalab.persistence.exceptions import PersistenceValidationError, StorageError
 
 __all__ = [
@@ -315,7 +316,8 @@ class FileArtifactStore:
         The rename is atomic within a filesystem, so a reader never sees a
         half-written artifact -- and a crash mid-write leaves the temporary file
         rather than a corrupt artifact under a name that claims to hash
-        correctly.
+        correctly. The directory is flushed after the rename, so a completed
+        store survives a crash (ledger PER-003).
         """
 
         handle, temporary = tempfile.mkstemp(dir=str(destination.parent), suffix=".partial")
@@ -328,6 +330,7 @@ class FileArtifactStore:
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
             raise
+        fsync_directory(destination.parent)
 
     def put(self, payload: bytes, media_type: str = DEFAULT_MEDIA_TYPE) -> ArtifactRef:
         """Store ``payload`` and return the reference naming it.
@@ -351,7 +354,7 @@ class FileArtifactStore:
         destination = self._path(digest_of(ref))
 
         try:
-            destination.parent.mkdir(parents=True, exist_ok=True)
+            ensure_directory(destination.parent)
         except OSError as exc:
             raise StorageError(f"Cannot create storage for artifact {ref.uri}: {exc}") from exc
 

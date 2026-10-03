@@ -206,6 +206,16 @@ def test_a_regression_recovers_the_line_it_was_given() -> None:
     assert all(residual == pytest.approx(0.0) for residual in fit.residuals)
 
 
+def test_r_squared_of_a_constant_series_is_undefined_not_zero() -> None:
+    """0/0: a constant y has no variance to explain (ledger NUM-003, v3.12)."""
+
+    fit = linear_regression([5.0, 5.0, 5.0, 5.0], [1.0, 2.0, 3.0, 4.0])
+
+    assert fit.r_squared is None
+    assert (fit.slope, fit.intercept) == (0.0, 5.0)
+    assert fit.residuals == (0.0, 0.0, 0.0, 0.0)
+
+
 def test_residuals_sum_to_zero_and_are_uncorrelated_with_the_regressor() -> None:
     """The two defining properties of an OLS fit with an intercept."""
 

@@ -77,6 +77,7 @@ from pathlib import Path
 from typing import Any, Final, Protocol
 
 from alphalab.common.constants import DEFAULT_ENCODING
+from alphalab.persistence.durable import ensure_directory, fsync_directory
 from alphalab.persistence.exceptions import StorageError
 from alphalab.persistence.run_state import RUN_STATE_ENVELOPE_SCHEMA, RunStateRef
 from alphalab.persistence.serializer import deserialize, serialize
@@ -306,8 +307,9 @@ class FileRunStateStore:
 
         The temporary file is created in the destination's own directory, so the
         final :func:`os.replace` is a rename within one filesystem and therefore
-        atomic. :func:`tempfile.mkstemp` draws its name from its own entropy and
-        never from :mod:`alphalab.common.ids`.
+        atomic, and the directory is flushed after it, so the rename survives a
+        crash (ledger PER-003). :func:`tempfile.mkstemp` draws its name from its
+        own entropy and never from :mod:`alphalab.common.ids`.
         """
 
         handle, temporary = tempfile.mkstemp(dir=destination.parent, suffix=".tmp")
@@ -321,6 +323,7 @@ class FileRunStateStore:
             # A failed write leaves nothing behind, including on interrupt.
             Path(temporary).unlink(missing_ok=True)
             raise
+        fsync_directory(destination.parent)
 
     def put(self, run_id: str, sequence: int, payload: str) -> RunStateRef:
         """Store ``payload`` as checkpoint ``sequence`` of ``run_id``.
@@ -340,7 +343,7 @@ class FileRunStateStore:
         destination = self._state_file(run_dir, sequence)
 
         try:
-            run_dir.mkdir(parents=True, exist_ok=True)
+            ensure_directory(run_dir)
         except OSError as exc:
             raise StorageError(f"Cannot create storage for run {run_id!r}: {exc}") from exc
 

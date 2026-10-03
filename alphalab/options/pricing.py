@@ -24,13 +24,24 @@ from alphalab.options.exceptions import OptionInputError
 from alphalab.options.greeks import Greeks
 
 _PRICE_QUANT = Decimal("0.0001")
-_SECONDS_PER_YEAR = 365.25 * 86400
-_DAYS_PER_YEAR = 365.0
+#: The one year basis: a maturity is seconds over a 365.25-day year, and a theta
+#: per day is the year's theta over the same 365.25 days. Until v3.12 theta was
+#: divided by 365 while maturities used 365.25, so the two disagreed about how
+#: long a year is (ledger NUM-004). ``BLACK_SCHOLES_MERTON.year_basis_days``
+#: records it, and a test holds the two together.
+_DAYS_PER_YEAR = 365.25
+_SECONDS_PER_YEAR = _DAYS_PER_YEAR * 86400
 
 
 def _norm_cdf(x: float) -> float:
-    """Standard normal cumulative distribution function."""
-    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+    """Standard normal cumulative distribution function.
+
+    Through ``erfc``, which keeps its relative precision in the lower tail. Until
+    v3.12 it was ``0.5 * (1 + erf(x / sqrt 2))``, where ``1 + erf`` cancels to
+    zero below about ``x = -8.3``: a deep out-of-the-money value read as exactly
+    nothing (ledger NUM-004).
+    """
+    return 0.5 * math.erfc(-x / math.sqrt(2.0))
 
 
 def _norm_pdf(x: float) -> float:
