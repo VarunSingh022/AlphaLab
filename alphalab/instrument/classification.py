@@ -60,7 +60,7 @@ Dimensions beyond sector (v3.12)
 Sector was the one dimension an instrument could be classified along. An
 institutional book is limited by more -- the country it is exposed to, the
 issuer whose default it bears, the industry, the rating -- and AlphaLab ships
-the taxonomy of none of them (ledger OFE-001). :class:`Classification` and
+the taxonomy of none of them (ledger OFE-001). :class:`DimensionClassification` and
 :class:`DimensionHistory` are the same rules as the sector's, for a dimension
 the caller names: an append-only history per instrument and dimension, each act
 carrying its label, its source and its effective date. The dimension name is
@@ -84,8 +84,8 @@ from alphalab.instrument.record import normalize_sector_label
 __all__ = [
     "OPERATOR",
     "SECTOR",
-    "Classification",
     "ClassificationHistory",
+    "DimensionClassification",
     "DimensionHistory",
     "SectorClassification",
     "normalize_dimension",
@@ -297,7 +297,7 @@ def normalize_dimension(value: str) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class Classification:
+class DimensionClassification:
     """One act of classifying an instrument along a named dimension.
 
     The rules :class:`SectorClassification` states, for any dimension: a label
@@ -334,9 +334,9 @@ class DimensionHistory:
     :class:`ClassificationHistory` gives.
     """
 
-    entries: tuple[Classification, ...] = field(default_factory=tuple)
+    entries: tuple[DimensionClassification, ...] = field(default_factory=tuple)
 
-    def __iter__(self) -> Iterator[Classification]:
+    def __iter__(self) -> Iterator[DimensionClassification]:
         return iter(self.entries)
 
     def __len__(self) -> int:
@@ -345,13 +345,13 @@ class DimensionHistory:
     def __bool__(self) -> bool:
         return bool(self.entries)
 
-    def append(self, classification: Classification) -> DimensionHistory:
+    def append(self, classification: DimensionClassification) -> DimensionHistory:
         """This history plus one more act. The original is unchanged."""
 
         return DimensionHistory((*self.entries, classification))
 
     @property
-    def current(self) -> Classification | None:
+    def current(self) -> DimensionClassification | None:
         """The most recently declared classification, or ``None`` if never classified."""
 
         return self.entries[-1] if self.entries else None
@@ -363,7 +363,7 @@ class DimensionHistory:
         entry = self.current
         return None if entry is None else entry.label
 
-    def at(self, timestamp: float) -> Classification | None:
+    def at(self, timestamp: float) -> DimensionClassification | None:
         """The last declared classification effective at ``timestamp``, or ``None``."""
 
         applicable = [entry for entry in self.entries if entry.effective_at(timestamp)]

@@ -415,6 +415,18 @@ class ReproducibilityManifest:
     build: EngineBuild | None = None
 
     @property
+    def evidence_kind(self) -> str:
+        """What kind of evidence this is, for an evidence store (ledger OFE-016)."""
+
+        return "reproducibility_manifest"
+
+    @property
+    def evidence_identity(self) -> str:
+        """What identifies it there: its ``manifest_id``."""
+
+        return self.manifest_id
+
+    @property
     def mode(self) -> ExecutionMode | None:
         """The environment a run was in, read from its configuration.
 

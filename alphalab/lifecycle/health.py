@@ -47,6 +47,18 @@ wrong and something unevaluated is :attr:`~HealthStatus.UNKNOWN`, never
 heartbeat is fine, and the only way to make that impossible to misread is to
 make it impossible to spell.
 
+Over a window (v3.12)
+---------------------
+
+One report answers for one instant. Whether a feed has been stale for the last
+hour, or a connection has dropped three times in it, is a question about
+several: :func:`evaluate_health_window` judges every supplied observation in a
+stated window by :func:`evaluate_health` and says how often each category was
+found, which were found at every instant, and which were never judged at all
+(ledger OFE-017). The window's end is supplied like everything else, and a
+window holding no observation is ``UNKNOWN`` -- an hour nobody reported on is
+not a healthy hour.
+
 No clock
 --------
 
@@ -76,10 +88,12 @@ __all__ = [
     "HealthReport",
     "HealthSeverity",
     "HealthStatus",
+    "HealthWindowReport",
     "RuntimeObservation",
     "StateExpectation",
     "UnevaluatedCategory",
     "evaluate_health",
+    "evaluate_health_window",
     "observation_from_live_run",
 ]
 
@@ -881,4 +895,118 @@ def observation_from_live_run(
         expected_positions=expected_positions,
         risk_violations=risk_violations,
         state_expectations=state_expectations,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class HealthWindowReport:
+    """What every observation in one window established, together (ledger OFE-017).
+
+    Attributes:
+        specification_id: The specification every report was judged against.
+        start: The window's start, exclusive.
+        end: The window's end, inclusive -- the evaluation instant.
+        reports: One report per observation in the window, oldest first.
+        occurrences: For each category, how many of the reports found
+            something in it; a category never found is absent.
+        persistent: The categories found in *every* report of the window, in
+            declaration order -- a condition that held throughout, not a blip.
+        never_evaluated: The categories no report in the window could judge,
+            in declaration order.
+    """
+
+    specification_id: str
+    start: float
+    end: float
+    reports: tuple[HealthReport, ...]
+    occurrences: Mapping[HealthCategory, int]
+    persistent: tuple[HealthCategory, ...]
+    never_evaluated: tuple[HealthCategory, ...]
+
+    @property
+    def status(self) -> HealthStatus:
+        """The window's answer: its worst report's, and ``UNKNOWN`` when it holds none.
+
+        ``BREACHED`` if any report breached, else ``DEGRADED`` if any warned,
+        else ``UNKNOWN`` if the window holds no report or some category was
+        never judged in it, else ``HEALTHY``.
+        """
+
+        if not self.reports:
+            return HealthStatus.UNKNOWN
+        statuses = {report.status for report in self.reports}
+        for worst in (HealthStatus.BREACHED, HealthStatus.DEGRADED):
+            if worst in statuses:
+                return worst
+        if self.never_evaluated:
+            return HealthStatus.UNKNOWN
+        return HealthStatus.HEALTHY
+
+
+def evaluate_health_window(
+    specification: DeploymentSpecification,
+    observations: Sequence[RuntimeObservation],
+    *,
+    as_of: float,
+    window_seconds: float,
+) -> HealthWindowReport:
+    """Judge every observation in ``(as_of - window_seconds, as_of]`` and say what held.
+
+    Pure, like :func:`evaluate_health`: each observation in the window is
+    judged by it, the rest are ignored, and nothing is read that was not passed
+    in. Observations are taken in ``observed_at`` order; two at one instant are
+    both judged, in the order given.
+
+    Raises:
+        LifecycleInputError: If ``as_of`` is not a finite instant or the window
+            is not a finite, positive span.
+    """
+
+    if not _finite(as_of):
+        raise LifecycleInputError(f"as_of must be a finite instant, got {as_of!r}.")
+    if not _finite(window_seconds) or window_seconds <= 0:
+        raise LifecycleInputError(
+            f"A health window is a finite, positive span of seconds, got {window_seconds!r}."
+        )
+    start = as_of - window_seconds
+    inside = sorted(
+        (item for item in observations if start < item.observed_at <= as_of),
+        key=lambda item: item.observed_at,
+    )
+    reports = tuple(evaluate_health(specification, item) for item in inside)
+    occurrences: dict[HealthCategory, int] = {}
+    for report in reports:
+        for category in {finding.category for finding in report.findings}:
+            occurrences[category] = occurrences.get(category, 0) + 1
+    persistent = tuple(
+        category
+        for category in HealthCategory
+        if reports and occurrences.get(category, 0) == len(reports)
+    )
+    never_evaluated = tuple(
+        category
+        for category in HealthCategory
+        if all(not report.was_evaluated(category) for report in reports)
+    )
+    return HealthWindowReport(
+        specification_id=specification.specification_id,
+        start=start,
+        end=as_of,
+        reports=reports,
+        occurrences={
+            category: occurrences[category]
+            for category in HealthCategory
+            if category in occurrences
+        },
+        persistent=persistent,
+        never_evaluated=never_evaluated,
+    )
+
+
+def _finite(value: float) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, int | float)
+        and value == value
+        and value not in (float("inf"), float("-inf"))
     )

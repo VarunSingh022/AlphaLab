@@ -66,6 +66,7 @@ from alphalab.strategy.events import (
     FillEvent,
     Intent,
     LifecycleTransitioned,
+    ObservationReceived,
     OrderEvent,
     SliceClosed,
     StrategyInboundEvent,
@@ -207,6 +208,11 @@ class Dispatcher:
                 on_slice = getattr(instance, "on_slice", None)
                 if on_slice is not None:
                     intents_iter = on_slice(context, event)
+            elif isinstance(event, ObservationReceived):
+                # Optional for the same reason (ObservationStrategyProtocol).
+                on_observation = getattr(instance, "on_observation", None)
+                if on_observation is not None:
+                    intents_iter = on_observation(context, event)
             else:
                 hook = market_hook_for(event)
                 if hook is not None:

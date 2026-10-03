@@ -39,7 +39,7 @@ from alphalab.core.enums import Side
 from alphalab.core.order_request import OrderRequest
 from alphalab.risk.state import RiskState
 
-__all__ = ["NO_WORKING_ORDERS", "RiskProjection", "WorkingExposure", "project"]
+__all__ = ["NO_WORKING_ORDERS", "BucketExposure", "RiskProjection", "WorkingExposure", "project"]
 
 _ZERO: Final = Decimal("0")
 
@@ -64,6 +64,29 @@ class WorkingExposure:
 
 #: No order is working: every simulated fill that completes on its event.
 NO_WORKING_ORDERS: Final[Mapping[str, WorkingExposure]] = MappingProxyType({})
+
+
+@dataclass(frozen=True, slots=True)
+class BucketExposure:
+    """The bucket an order's instrument is in along one dimension, before and after it.
+
+    What a :class:`~alphalab.risk.limits.ClassificationLimit` reads (ledger
+    OFE-001). The gate does not know which instruments share a label -- the
+    registry does -- so the caller sums the bucket and says what it holds.
+
+    Attributes:
+        dimension: The dimension, as the limit names it.
+        label: The bucket: the label the order's instrument carries along the
+            dimension, or ``None`` when it carries none.
+        committed_gross: The bucket's gross exposure counting working orders,
+            before the order, in the base currency. Zero for ``label=None``.
+        projected_gross: The same, after it.
+    """
+
+    dimension: str
+    label: str | None
+    committed_gross: Decimal
+    projected_gross: Decimal
 
 
 @dataclass(frozen=True, slots=True)

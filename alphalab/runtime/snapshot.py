@@ -182,6 +182,7 @@ from alphalab.risk.events import (
 )
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import (
+    ClassificationLimit,
     DailyLossLimit,
     DrawdownLimit,
     ExposureLimit,
@@ -201,6 +202,7 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionRouting,
     UnpricedAsset,
     UnpricedReason,
+    _require_classifiable,
     _require_one_account_currency,
 )
 from alphalab.strategy.events import (
@@ -274,8 +276,9 @@ __all__ = [
 #: venue (``config.calendars``, ledger EXE-010): a calendar is data, so it is
 #: recorded rather than supplied back. It also records whether the budget
 #: enforces per-strategy ceilings (``config.budget.enforce_strategy_budgets``,
-#: ledger OFE-003). Every earlier version is read through
-#: :data:`PIPELINE_SCHEMA_HISTORY`.
+#: ledger OFE-003) and each classification-bucket limit
+#: (``risk_limits.classification``, ledger OFE-001). Every earlier version is
+#: read through :data:`PIPELINE_SCHEMA_HISTORY`.
 PIPELINE_SNAPSHOT_SCHEMA: Final = 6
 
 _SUBSYSTEM: Final = "pipeline"
@@ -480,7 +483,7 @@ def _v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _v5_to_v6(payload: dict[str, Any]) -> dict[str, Any]:
-    """Record that a version-5 run declared no venue calendar and enforced no ceiling.
+    """Record that a version-5 run declared no venue calendar, ceiling or bucket limit.
 
     A v3.11 pipeline could hold no calendar (ledger EXE-010): it refused a
     simulated day order that did not state its close, and that is exactly what
@@ -494,7 +497,11 @@ def _v5_to_v6(payload: dict[str, Any]) -> dict[str, Any]:
     config = dict(payload["config"])
     config["calendars"] = {"by_exchange": {}, "default": None}
     config["budget"] = {**config["budget"], "enforce_strategy_budgets": False}
-    return {**payload, "config": config}
+    # Nor did any limit a classification bucket (OFE-001).
+    config["risk_limits"] = {**config["risk_limits"], "classification": []}
+    risk = dict(payload["risk"])
+    risk["active_limits"] = {**risk["active_limits"], "classification": []}
+    return {**payload, "config": config, "risk": risk}
 
 
 #: How every pipeline payload a release has written is read by this one.
@@ -535,8 +542,8 @@ PIPELINE_SCHEMA_HISTORY: Final = SchemaHistory(
         ),
         SchemaStep(
             5,
-            "version 6 carries the trading calendar declared for each listing venue and "
-            "whether the budget enforces per-strategy ceilings",
+            "version 6 carries the trading calendar declared for each listing venue, "
+            "whether the budget enforces per-strategy ceilings, and classification limits",
             upgrade=_v5_to_v6,
         ),
     ),
@@ -1239,13 +1246,14 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
             type.
         RuntimeValidationError: If the restored configuration fails a validation
             :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.initialize`
-            enforces -- today, that its two currencies agree. The check runs
-            before the state is built, so nothing is reconstructed against a
-            refused configuration.
+            enforces -- that its two currencies agree, and that classification
+            limits have a registry to read. The checks run before the state is
+            built, so nothing is reconstructed against a refused configuration.
     """
 
     config = _restore_config(snapshot.config, objects)
     _require_one_account_currency(config)
+    _require_classifiable(config)
 
     return ExecutionPipelineState(
         config=config,
@@ -1433,7 +1441,31 @@ def _risk_limits(value: Any, where: str) -> RiskLimits:
         margin=limit("margin", MarginLimit, "max_margin_utilization"),
         daily_loss=_daily_loss_limit(require(payload, "daily_loss"), f"{where}.daily_loss"),
         drawdown=limit("drawdown", DrawdownLimit, "max_drawdown_pct"),
+        # Empty in a payload upgraded from version 5 or earlier: nothing before
+        # v3.12 limited a classification bucket (OFE-001).
+        classification=tuple(
+            _classification_limit(item, f"{where}.classification[{index}]")
+            for index, item in enumerate(
+                as_sequence(require(payload, "classification"), f"{where}.classification")
+            )
+        ),
     )
+
+
+def _classification_limit(value: Any, where: str) -> ClassificationLimit:
+    payload = as_mapping(value, where)
+    try:
+        return ClassificationLimit(
+            dimension=as_str(require(payload, "dimension"), f"{where}.dimension"),
+            max_gross=as_optional_decimal(require(payload, "max_gross"), f"{where}.max_gross"),
+            max_share=as_optional_decimal(require(payload, "max_share"), f"{where}.max_share"),
+            label=as_optional_str(require(payload, "label"), f"{where}.label"),
+            refuse_unclassified=as_bool(
+                require(payload, "refuse_unclassified"), f"{where}.refuse_unclassified"
+            ),
+        )
+    except AlphaLabError as exc:
+        raise StateDecodeError(f"{where} is not a valid classification limit: {exc}") from exc
 
 
 def _daily_loss_limit(value: Any, where: str) -> DailyLossLimit | None:

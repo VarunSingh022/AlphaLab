@@ -39,11 +39,14 @@ Topic        Hook               What arrives
 ``timers``   ``on_timer``       a timer
 ``slices``   ``on_slice``       the close of an instant every record of which
                                 has been published
+``observ-    ``on_observation`` a point-in-time record, at the instant it
+ations``                        became knowable (v3.12, ledger OFE-009)
 ===========  =================  ==============================================
 
-Only the four market topics take an asset: a fill or an order event is already
-addressed to the strategies that asked for the order, and a timer or a slice is
-not about one instrument.
+The four market topics take an asset, and ``observations`` takes a subject --
+``"observations:<subject>"`` is what one issuer's filings or one ticker's news
+look like. A fill or an order event is already addressed to the strategies that
+asked for the order, and a timer or a slice is not about one instrument.
 
 Anything else is refused -- an unknown topic, an asset on a topic that has none,
 a blank asset, an empty declaration. An empty set would be a strategy that can
@@ -59,7 +62,13 @@ from enum import StrEnum, unique
 from types import MappingProxyType
 from typing import Final
 
-from alphalab.strategy.events import FillEvent, OrderEvent, SliceClosed, TimerEvent
+from alphalab.strategy.events import (
+    FillEvent,
+    ObservationReceived,
+    OrderEvent,
+    SliceClosed,
+    TimerEvent,
+)
 from alphalab.strategy.exceptions import StrategyValidationError
 
 __all__ = [
@@ -87,10 +96,14 @@ class Topic(StrEnum):
     ORDERS = "orders"
     TIMERS = "timers"
     SLICES = "slices"
+    OBSERVATIONS = "observations"
 
 
 #: The topics a subscription may scope to one asset.
 MARKET_TOPICS: Final = frozenset({Topic.TICKS, Topic.QUOTES, Topic.TRADES, Topic.BARS})
+
+#: The topics a subscription may scope to one asset or subject.
+_SCOPED_TOPICS: Final = MARKET_TOPICS | {Topic.OBSERVATIONS}
 
 #: The module the canonical market vocabulary lives in. Named rather than
 #: imported: ADR-0016 decision 3 keeps this package free of ``alphalab.market``.
@@ -145,6 +158,8 @@ def topic_of(event: object) -> tuple[Topic, str | None] | None:
         return Topic.TIMERS, None
     if isinstance(event, SliceClosed):
         return Topic.SLICES, None
+    if isinstance(event, ObservationReceived):
+        return Topic.OBSERVATIONS, event.subject
     return None
 
 
@@ -202,10 +217,11 @@ class Subscriptions:
             if not separator:
                 topics.add(topic)
                 continue
-            if topic not in MARKET_TOPICS:
+            if topic not in _SCOPED_TOPICS:
                 raise StrategyValidationError(
                     f"Subscription {entry!r} scopes {topic.value!r} to an asset; only market "
-                    "topics (bars, quotes, ticks, trades) are about one asset."
+                    "topics (bars, quotes, ticks, trades) are about one asset, and "
+                    "observations about one subject."
                 )
             if not asset_id.strip():
                 raise StrategyValidationError(f"Subscription {entry!r} names a blank asset.")

@@ -521,6 +521,8 @@ def test_each_class_one_subtree_is_identical(crossing: dict[str, Any], subtree: 
         "steps",
         "skipped",
         "last_slice_at",
+        "observations_delivered",
+        "last_observation",
     ],
 )
 def test_each_run_bookkeeping_field_is_identical(crossing: dict[str, Any], field: str) -> None:
@@ -660,7 +662,7 @@ def test_the_child_read_a_state_written_by_a_process_that_had_exited(
 def test_the_crossing_moved_no_schema(crossing: dict[str, Any]) -> None:
     continued = deserialize(crossing["continued"])
 
-    assert continued["schema_version"] == 3, "RUN_SNAPSHOT_SCHEMA (v3.11)"
+    assert continued["schema_version"] == 4, "RUN_SNAPSHOT_SCHEMA (v3.12)"
     assert continued["pipeline"]["schema_version"] == 6, "PIPELINE_SNAPSHOT_SCHEMA (v3.12)"
     assert continued["pipeline"]["oms"]["schema_version"] == 2  # v3.11: order terms
     assert continued["pipeline"]["portfolio"]["schema_version"] == 5  # v3.11: economics

@@ -951,6 +951,18 @@ class StrategyFingerprint:
     engine: EngineIdentity
 
     @property
+    def evidence_kind(self) -> str:
+        """What kind of evidence this is, for an evidence store (ledger OFE-016)."""
+
+        return "strategy_fingerprint"
+
+    @property
+    def evidence_identity(self) -> str:
+        """What identifies it there: its ``fingerprint``."""
+
+        return self.fingerprint
+
+    @property
     def digest(self) -> str:
         """The SHA-256 part of :attr:`fingerprint`."""
 

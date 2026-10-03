@@ -386,7 +386,8 @@ def test_the_run_state_gained_no_broker_fields() -> None:
 
     The slice cursor (ledger EXE-004) is continuation state, as the record cursor
     is, and ADR-0030's own performance budget is why it is here and not on the
-    pipeline state. Pinned."""
+    pipeline state. v3.12 adds the observation cursor (OFE-009) on the same
+    terms: how many were delivered and the last one's place. Pinned."""
 
     from dataclasses import fields
 
@@ -402,6 +403,8 @@ def test_the_run_state_gained_no_broker_fields() -> None:
         "steps",
         "skipped",
         "last_slice_at",
+        "observations_delivered",
+        "last_observation",
     }
 
 
@@ -410,9 +413,9 @@ def test_the_run_snapshot_schema_did_not_move() -> None:
 
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 
-    # Moved to 2 by v3.10's analytics basis and to 3 by v3.11's order terms, not
-    # by the live driver.
-    assert RUN_SNAPSHOT_SCHEMA == 3
+    # Moved to 2 by v3.10's analytics basis, to 3 by v3.11's order terms and to 4
+    # by v3.12's observation cursor, not by the live driver.
+    assert RUN_SNAPSHOT_SCHEMA == 4
 
 
 # ---------------------------------------------------------------------------

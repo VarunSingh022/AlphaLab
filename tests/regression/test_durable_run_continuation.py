@@ -304,11 +304,12 @@ def test_an_unseeded_run_round_trips_without_claiming_identifier_continuity() ->
 # ---------------------------------------------------------------------------
 
 
-def test_the_run_schema_moved_in_v3_10_and_v3_11() -> None:
+def test_the_run_schema_moved_in_v3_10_v3_11_and_v3_12() -> None:
     """Version 2 in v3.10 (the analytics basis), 3 in v3.11 (each step's orders
-    carry their terms); every earlier version is upgraded, not refused."""
+    carry their terms), 4 in v3.12 (the observation cursor); every earlier
+    version is upgraded, not refused."""
 
-    assert RUN_SNAPSHOT_SCHEMA == 3
+    assert RUN_SNAPSHOT_SCHEMA == 4
 
 
 @pytest.mark.parametrize(
@@ -323,7 +324,7 @@ def test_the_constant_is_not_an_alias_of_the_shared_default(module: str, name: s
     source = inspect.getsource(loaded)
 
     assert not hasattr(loaded, "DEFAULT_SCHEMA_VERSION")
-    assert f"{name}: Final = 3" in source
+    assert f"{name}: Final = 4" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -332,11 +333,11 @@ def test_session_capture_declares_the_version() -> None:
     payload = deserialize(serialize(capture_run(state)))
 
     assert capture_run(state).schema_version == RUN_SNAPSHOT_SCHEMA
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
     # Each envelope carries its own version: the run moved to 2 and the nested
     # pipeline to 4 in v3.10, independently -- ADR-0023 decision 1's split -- and
     # in v3.11 the run to 3 and the pipeline to 5, each for its own reasons; in
-    # v3.12 the pipeline alone, to 6.
+    # v3.12 the run to 4 (the observation cursor) and the pipeline to 6.
     assert payload["pipeline"]["schema_version"] == 6
 
 
@@ -348,7 +349,7 @@ def test_a_missing_session_version_is_refused_with_no_legacy_path() -> None:
         run_from_primitives(payload)
 
 
-@pytest.mark.parametrize("version", [4, 99, 0, -1])
+@pytest.mark.parametrize("version", [5, 99, 0, -1])
 def test_an_unreadable_session_version_is_refused(version: int) -> None:
     payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     payload["schema_version"] = version
@@ -368,7 +369,7 @@ def test_a_malformed_session_version_is_refused(version: object) -> None:
 
 def test_the_refusal_names_the_run_subsystem() -> None:
     payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
-    payload["schema_version"] = 4
+    payload["schema_version"] = 5
 
     with pytest.raises(StateDecodeError) as excinfo:
         run_from_primitives(payload)

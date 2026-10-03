@@ -3,6 +3,7 @@
 from alphalab.core.order_request import OrderRequest
 from alphalab.risk.checks import (
     check_buying_power,
+    check_classification,
     check_daily_loss,
     check_drawdown,
     check_exposure,
@@ -29,6 +30,7 @@ from alphalab.risk.events import (
 from alphalab.risk.exceptions import RiskConfigurationError, RiskError, RiskValidationError
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import (
+    ClassificationLimit,
     DailyLossLimit,
     DrawdownLimit,
     ExposureLimit,
@@ -40,7 +42,13 @@ from alphalab.risk.limits import (
 )
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.models import RiskSeverity, RiskViolation
-from alphalab.risk.projection import NO_WORKING_ORDERS, RiskProjection, WorkingExposure, project
+from alphalab.risk.projection import (
+    NO_WORKING_ORDERS,
+    BucketExposure,
+    RiskProjection,
+    WorkingExposure,
+    project,
+)
 from alphalab.risk.state import RiskState
 from alphalab.risk.validation import validate_order_request
 from alphalab.risk.views import (
@@ -54,7 +62,9 @@ from alphalab.risk.views import (
 
 __all__ = [
     "NO_WORKING_ORDERS",
+    "BucketExposure",
     "BuyingPowerUpdated",
+    "ClassificationLimit",
     "DailyLossLimit",
     "DrawdownLimit",
     "DrawdownTriggered",
@@ -85,6 +95,7 @@ __all__ = [
     "WorkingExposure",
     "active_limits",
     "check_buying_power",
+    "check_classification",
     "check_daily_loss",
     "check_drawdown",
     "check_exposure",

@@ -652,8 +652,14 @@ def test_the_instrument_package_still_imports_no_higher_layer() -> None:
             assert f"import {name}" not in source, f"{module.name} imports {name}"
 
 
-def test_the_runtime_reads_the_registry_through_record_for_and_nothing_else() -> None:
-    """ADR-0016 keeps resolution at the wire boundary; v2.11 takes none of it back."""
+def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -> None:
+    """ADR-0016 keeps resolution at the wire boundary; v2.11 takes none of it back.
+
+    Until v3.12 every read was ``record_for``. A classification-bucket limit
+    (OFE-001) adds two more keyed reads of declared facts, and no write: one
+    ``label_of`` and one ``bucket_members`` per limited dimension of a judged
+    order, both lookups in the registry's own index.
+    """
 
     from alphalab.runtime import execution_pipeline as module
 
@@ -672,6 +678,8 @@ def test_the_runtime_reads_the_registry_through_record_for_and_nothing_else() ->
     # and (v3.12, EXE-010) one in `_listing_exchange`, once per simulated resting
     # day order that states no close, for the venue whose calendar it reads.
     assert source.count("record_for(") == 6
+    assert source.count(".label_of(") == 1
+    assert source.count(".bucket_members(") == 1
 
 
 def test_sector_resolution_is_a_keyed_lookup_and_never_a_scan() -> None:
@@ -856,13 +864,30 @@ def test_the_exposure_payload_gained_no_key() -> None:
     }
 
 
-def test_risk_limits_still_read_no_sector() -> None:
-    """Exposure by sector is visibility. Enforcement was not extended."""
+def test_the_risk_gate_still_reads_no_registry() -> None:
+    """Exposure by sector was visibility until v3.12, and enforcement was not extended.
 
-    from alphalab.risk import checks, limits
+    v3.12 extends it, opt-in: a ``ClassificationLimit`` bounds the buckets of
+    any dimension, the sector among them (ledger OFE-001). What v2.11 kept true
+    still holds -- the gate never reads the instrument registry. The pipeline
+    says which bucket an order's instrument is in and what the bucket holds
+    (``BucketExposure``), as it says the order's price.
+    """
 
-    for module in (checks, limits):
-        assert "sector" not in inspect.getsource(module)
+    import ast
+
+    from alphalab.risk import checks, engine, limits, projection
+
+    for module in (checks, engine, limits, projection):
+        tree = ast.parse(inspect.getsource(module))
+        imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+        called = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert "alphalab.instrument.registry" not in imported, module.__name__
+        assert not called & {"label_of", "bucket_members", "record_for"}, module.__name__
 
 
 def test_the_simulator_and_registry_are_independent_configuration() -> None:

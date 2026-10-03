@@ -488,7 +488,7 @@ def test_no_capability_moved_another_ones_boundary() -> None:
 
     # --- The registry added no field to any run or pipeline state, and no
     # dependency on anything above alphalab.strategy.
-    assert len({f.name for f in fields(RunState)}) == 9, "ADR-0030 decision 2, ADR-0046"
+    assert len({f.name for f in fields(RunState)}) == 11, "ADR-0030, ADR-0046, OFE-009"
     assert len(fields(ExecutionPipelineState)) == 16, "ADR-0030's performance budget"
     assert "registry" not in {f.name for f in fields(ExecutionPipelineState)}
     registry_imports = {
@@ -512,9 +512,10 @@ def test_no_capability_moved_another_ones_boundary() -> None:
     from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 
-    # RUN_SNAPSHOT_SCHEMA moved to 2 in v3.10 (the analytics basis) and to 3 in
-    # v3.11 with OMS_SNAPSHOT_SCHEMA to 2 (order terms) -- not here.
-    assert (OMS_SNAPSHOT_SCHEMA, RUN_SNAPSHOT_SCHEMA, DEFAULT_SCHEMA_VERSION) == (2, 3, 1)
+    # RUN_SNAPSHOT_SCHEMA moved to 2 in v3.10 (the analytics basis), to 3 in
+    # v3.11 with OMS_SNAPSHOT_SCHEMA to 2 (order terms) and to 4 in v3.12 (the
+    # observation cursor) -- not here.
+    assert (OMS_SNAPSHOT_SCHEMA, RUN_SNAPSHOT_SCHEMA, DEFAULT_SCHEMA_VERSION) == (2, 4, 1)
 
     # --- And the feed took no dependency on the execution path.
     from alphalab.portfolio import fx_feed

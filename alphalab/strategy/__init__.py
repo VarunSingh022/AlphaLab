@@ -67,6 +67,7 @@ from alphalab.strategy.events import (
     Intent,
     IntentKind,
     LifecycleTransitioned,
+    ObservationReceived,
     OrderEvent,
     SliceClosed,
     StrategyRuntimeEvent,
@@ -83,9 +84,11 @@ from alphalab.strategy.exceptions import (
 )
 from alphalab.strategy.protocol import (
     BaseStrategy,
+    ObservationStrategyProtocol,
     SliceStrategyProtocol,
     StrategyProtocol,
     StrategyStateProtocol,
+    defines_on_observation,
     defines_on_slice,
 )
 from alphalab.strategy.registry import (
@@ -146,6 +149,8 @@ __all__ = [
     "NoPortfolio",
     "NoRiskView",
     "NoUniverse",
+    "ObservationReceived",
+    "ObservationStrategyProtocol",
     "OrderEvent",
     "OrderFacadeProtocol",
     "PortfolioSnapshotProtocol",
@@ -183,6 +188,7 @@ __all__ = [
     "canonical_configuration_key",
     "checkpoint",
     "create_runtime",
+    "defines_on_observation",
     "defines_on_slice",
     "failed_strategies",
     "get_strategy",

@@ -118,15 +118,17 @@ def test_the_lifecycle_constant_moved_on_its_own_terms() -> None:
     """And not as a side effect of anything the run envelope did."""
 
     assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
-    assert RUN_SNAPSHOT_SCHEMA == 3  # v3.10: the analytics basis; v3.11: step orders' terms
+    # v3.10: the analytics basis; v3.11: step orders' terms; v3.12: observations.
+    assert RUN_SNAPSHOT_SCHEMA == 4
     assert DEFAULT_SCHEMA_VERSION == 1
 
 
 def test_the_run_envelope_is_the_only_new_constant() -> None:
-    assert RUN_SNAPSHOT_SCHEMA == 3  # v3.10: the analytics basis; v3.11: step orders' terms
+    # v3.10: the analytics basis; v3.11: step orders' terms; v3.12: observations.
+    assert RUN_SNAPSHOT_SCHEMA == 4
 
     source = inspect.getsource(importlib.import_module("alphalab.runtime.run_snapshot"))
-    assert "RUN_SNAPSHOT_SCHEMA: Final = 3" in source
+    assert "RUN_SNAPSHOT_SCHEMA: Final = 4" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -584,15 +586,23 @@ def test_a_fully_consumed_run_round_trips() -> None:
         "steps",
         "skipped",
         "last_slice_at",
+        "observations_delivered",
+        "last_observation",
     ],
 )
 def test_every_bookkeeping_field_survives_the_round_trip(field: str) -> None:
     from dataclasses import replace as _replace
 
     state, objects = _run()
-    # Neither is set by the drive itself: this run is named by no stream and
-    # its strategy receives no slice.
-    state = _replace(state, source_id="DS-BOUNDARY", last_slice_at=state.current_timestamp)
+    # None is set by the drive itself: this run is named by no stream, its
+    # strategy receives no slice and it is delivered no observation.
+    state = _replace(
+        state,
+        source_id="DS-BOUNDARY",
+        last_slice_at=state.current_timestamp,
+        observations_delivered=2,
+        last_observation=(state.current_timestamp, "SET@abc:record"),
+    )
 
     assert getattr(_round_trip(state, objects), field) == getattr(state, field)
 

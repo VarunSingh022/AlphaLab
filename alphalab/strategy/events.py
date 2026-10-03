@@ -36,12 +36,14 @@ from enum import StrEnum
 
 from alphalab.common.events import BaseEvent
 from alphalab.common.order_terms import MARKET, OrderTerms
+from alphalab.common.point_in_time import StampedRecord
 
 __all__ = [
     "FillEvent",
     "Intent",
     "IntentKind",
     "LifecycleTransitioned",
+    "ObservationReceived",
     "OrderEvent",
     "SliceClosed",
     "StrategyInboundEvent",
@@ -229,3 +231,31 @@ class SliceClosed(StrategyRuntimeEvent):
     """
 
     assets: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationReceived(StrategyRuntimeEvent):
+    """A point-in-time record has become knowable (ledger OFE-009).
+
+    External information -- a statement figure, a news item, an alternative-data
+    reading -- delivered on the execution path at its **knowledge instant**:
+    ``timestamp`` is the instant the record became knowable under the rule its
+    schedule was made with, never earlier. Delivered to strategies subscribed to
+    ``observations`` (or to ``observations:<subject>``) that define
+    ``on_observation``; what they ask for rests until each asset's next event,
+    as a timer's orders do -- information is not a price.
+
+    Attributes:
+        delivery_id: ``"<set version>:<record id>"`` -- which set, which record.
+        subject: What the record is about, by the source's key.
+        record: The record itself: an
+            :class:`~alphalab.alt_data.observation.ExternalObservation`,
+            :class:`~alphalab.alt_data.information.InformationEvent` or
+            :class:`~alphalab.alt_data.fundamentals.FundamentalObservation`.
+            Typed by the protocol in ``alphalab.common`` they all satisfy,
+            because this package imports nothing else.
+    """
+
+    delivery_id: str = ""
+    subject: str = ""
+    record: StampedRecord | None = None

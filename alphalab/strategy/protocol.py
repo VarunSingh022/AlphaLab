@@ -4,7 +4,14 @@ from collections.abc import Iterable
 from typing import Any, Protocol, runtime_checkable
 
 from alphalab.strategy.context import StrategyContext
-from alphalab.strategy.events import FillEvent, Intent, OrderEvent, SliceClosed, TimerEvent
+from alphalab.strategy.events import (
+    FillEvent,
+    Intent,
+    ObservationReceived,
+    OrderEvent,
+    SliceClosed,
+    TimerEvent,
+)
 
 
 @runtime_checkable
@@ -104,6 +111,23 @@ class SliceStrategyProtocol(Protocol):
 
     def on_slice(self, context: StrategyContext, event: SliceClosed) -> Iterable[Intent]:
         """React to a completed instant: every record at ``event.timestamp`` is in."""
+        ...
+
+
+class ObservationStrategyProtocol(Protocol):
+    """The hook a strategy adds to act on external information (ledger OFE-009).
+
+    Separate from :class:`StrategyProtocol`, as :class:`SliceStrategyProtocol`
+    is, so every strategy written against the ten hooks keeps satisfying it. A
+    strategy defining ``on_observation`` and subscribed to ``observations`` (or
+    ``observations:<subject>``, or ``*``) is called when a point-in-time record
+    becomes knowable; one without it is not called.
+    """
+
+    def on_observation(
+        self, context: StrategyContext, event: ObservationReceived
+    ) -> Iterable[Intent]:
+        """React to a record that has just become knowable."""
         ...
 
 
@@ -220,6 +244,23 @@ class BaseStrategy:
 
     def on_slice(self, context: StrategyContext, event: SliceClosed) -> Iterable[Intent]:
         return ()
+
+    def on_observation(
+        self, context: StrategyContext, event: ObservationReceived
+    ) -> Iterable[Intent]:
+        return ()
+
+
+def defines_on_observation(strategy: object) -> bool:
+    """Whether ``strategy`` has an ``on_observation`` of its own (ledger OFE-009).
+
+    :class:`BaseStrategy`'s answers nothing, so an observation reaches only a
+    strategy that says what it does with one, and a run whose strategies define
+    none delivers observations without building a context for any of them.
+    """
+
+    hook = getattr(type(strategy), "on_observation", None)
+    return hook is not None and hook is not BaseStrategy.on_observation
 
 
 def defines_on_slice(strategy: object) -> bool:

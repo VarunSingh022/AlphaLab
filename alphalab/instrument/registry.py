@@ -76,8 +76,12 @@ from dataclasses import dataclass, field, replace
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.instrument.classification import (
     OPERATOR,
+    SECTOR,
     ClassificationHistory,
+    DimensionClassification,
+    DimensionHistory,
     SectorClassification,
+    normalize_dimension,
 )
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
 from alphalab.instrument.record import DatedAlias, InstrumentRecord, normalize_sector_label
@@ -86,9 +90,13 @@ __all__ = [
     "InstrumentRegistry",
     "classification_history",
     "classification_of",
+    "classify_dimension",
+    "classify_dimensions",
     "classify_instrument",
     "classify_instruments",
+    "dimension_history",
     "get_instrument",
+    "label_as_of",
     "register_alias",
     "register_dated_alias",
     "register_instrument",
@@ -120,6 +128,18 @@ class InstrumentRegistry:
             unaffected. The label in effect stays on the record, where the
             pipeline reads it in O(1); this answers the audit question beside
             it. See ADR-0031.
+        dated: provider -> symbol -> every dated meaning of it (DAT-004).
+        dimensions: dimension -> ``asset_id`` -> every classification that
+            instrument has been given along that dimension (v3.12, ledger
+            OFE-001). Every dimension but ``"sector"``, which stays on the
+            record and in ``classifications``. See
+            :func:`classify_dimension`.
+        members: dimension -> label -> the instruments carrying that label now,
+            ``"sector"`` included: what a limit on one bucket of a dimension
+            reads, so its cost follows the bucket rather than the registry.
+            An index over the records and ``dimensions`` -- derived, never
+            declared: left ``None`` it is built from them, and every write
+            here keeps it true.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -130,6 +150,10 @@ class InstrumentRegistry:
     dated: PersistentMap[str, PersistentMap[str, tuple[tuple[DatedAlias, str], ...]]] = field(
         default_factory=PersistentMap
     )
+    dimensions: PersistentMap[str, PersistentMap[str, DimensionHistory]] = field(
+        default_factory=PersistentMap
+    )
+    members: PersistentMap[str, PersistentMap[str, PersistentMap[str, None]]] | None = None
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -143,6 +167,12 @@ class InstrumentRegistry:
             object.__setattr__(self, "classifications", PersistentMap(self.classifications))
         if not isinstance(self.dated, PersistentMap):
             object.__setattr__(self, "dated", PersistentMap(self.dated))
+        if not isinstance(self.dimensions, PersistentMap):
+            object.__setattr__(self, "dimensions", PersistentMap(self.dimensions))
+        if self.members is None:
+            # Built once, when a registry is declared from mappings; every write
+            # below passes the index on, kept true, so this never runs again.
+            object.__setattr__(self, "members", _index(self.instruments, self.dimensions))
 
     def resolve(self, provider: str, symbol: str) -> str | None:
         """The ``asset_id`` ``provider`` means by ``symbol``, or ``None``.
@@ -187,6 +217,86 @@ class InstrumentRegistry:
         """The instrument ``asset_id`` identifies, or ``None`` if unregistered."""
 
         return self.instruments.get(asset_id)
+
+    def label_of(self, asset_id: str, dimension: str) -> str | None:
+        """The label ``asset_id`` carries along ``dimension`` now, or ``None``.
+
+        ``dimension`` as :func:`~alphalab.instrument.classification.normalize_dimension`
+        writes it; ``"sector"`` reads the record's own sector. Two keyed
+        lookups, no scan.
+        """
+
+        if dimension == SECTOR:
+            record = self.instruments.get(asset_id)
+            return None if record is None else record.sector
+        histories = self.dimensions.get(dimension)
+        history = None if histories is None else histories.get(asset_id)
+        return None if history is None else history.label
+
+    def bucket_members(self, dimension: str, label: str) -> Mapping[str, None]:
+        """Every instrument carrying ``label`` along ``dimension`` now, as a set of ``asset_id``.
+
+        Empty for a label nobody carries. Keyed lookups into the index the
+        registry keeps, so its cost is the bucket's, not the registry's.
+        """
+
+        index = self.members
+        labels = None if index is None else index.get(dimension)
+        found = None if labels is None else labels.get(label)
+        return _NO_MEMBERS if found is None else found
+
+
+_NO_MEMBERS: PersistentMap[str, None] = PersistentMap()
+
+
+def _index(
+    instruments: Mapping[str, InstrumentRecord],
+    dimensions: Mapping[str, Mapping[str, DimensionHistory]],
+) -> PersistentMap[str, PersistentMap[str, PersistentMap[str, None]]]:
+    """The members index, built from what the registry declares."""
+
+    index: dict[str, dict[str, dict[str, None]]] = {}
+    for asset_id, record in instruments.items():
+        if record.sector is not None:
+            index.setdefault(SECTOR, {}).setdefault(record.sector, {})[asset_id] = None
+    for dimension, histories in dimensions.items():
+        for asset_id, history in histories.items():
+            label = history.label
+            if label is not None:
+                index.setdefault(dimension, {}).setdefault(label, {})[asset_id] = None
+    return PersistentMap(
+        {
+            dimension: PersistentMap(
+                {label: PersistentMap(assets) for label, assets in labels.items()}
+            )
+            for dimension, labels in index.items()
+        }
+    )
+
+
+def _relabelled(
+    members: PersistentMap[str, PersistentMap[str, PersistentMap[str, None]]] | None,
+    dimension: str,
+    asset_id: str,
+    before: str | None,
+    after: str | None,
+) -> PersistentMap[str, PersistentMap[str, PersistentMap[str, None]]]:
+    """The members index with ``asset_id`` moved from bucket ``before`` to ``after``."""
+
+    index = PersistentMap() if members is None else members
+    if before == after:
+        return index
+    labels: PersistentMap[str, PersistentMap[str, None]] = index.get(dimension, PersistentMap())
+    if before is not None:
+        held = labels.get(before)
+        if held is not None and asset_id in held:
+            held = held.delete(asset_id)
+            labels = labels.set(before, held) if held else labels.delete(before)
+    if after is not None:
+        labels = labels.set(after, labels.get(after, PersistentMap()).set(asset_id, None))
+    if labels:
+        return index.set(dimension, labels)
+    return index.delete(dimension) if dimension in index else index
 
 
 def get_instrument(registry: InstrumentRegistry, asset_id: str) -> InstrumentRecord:
@@ -296,7 +406,11 @@ def register_instrument(
     updated = (
         registry
         if existing is not None
-        else replace(registry, instruments=registry.instruments.set(record.asset_id, record))
+        else replace(
+            registry,
+            instruments=registry.instruments.set(record.asset_id, record),
+            members=_relabelled(registry.members, SECTOR, record.asset_id, None, record.sector),
+        )
     )
     for provider, symbol in record.aliases.items():
         updated = _with_alias(updated, provider, symbol, record.asset_id)
@@ -450,7 +564,9 @@ def classify_instrument(
         return updated
 
     return replace(
-        updated, instruments=updated.instruments.set(asset_id, replace(record, sector=label))
+        updated,
+        instruments=updated.instruments.set(asset_id, replace(record, sector=label)),
+        members=_relabelled(updated.members, SECTOR, asset_id, record.sector, label),
     )
 
 
@@ -533,3 +649,116 @@ def sector_as_of(registry: InstrumentRegistry, asset_id: str, timestamp: float) 
     """
 
     return classification_history(registry, asset_id).sector_at(timestamp)
+
+
+def classify_dimension(
+    registry: InstrumentRegistry,
+    asset_id: str,
+    dimension: str,
+    label: str | None,
+    source: str = OPERATOR,
+    as_of: float | None = None,
+) -> InstrumentRegistry:
+    """Declare what an instrument is along a named dimension other than sector (OFE-001).
+
+    The dimension's sibling of :func:`classify_instrument`, with its rules: the
+    registry must hold ``asset_id``; ``label=None`` withdraws the label; every
+    act that says something new -- a new label, or the same label from a new
+    source or with a new effective date -- is appended to the instrument's
+    history along that dimension, and one that says nothing new returns the
+    **same registry object**; the identity is untouched; nothing reads a clock.
+    The members index moves the instrument between buckets in the same write.
+
+    ``"sector"`` is refused: the sector has its own path,
+    :func:`classify_instrument`, because its label lives on the record and is
+    frozen onto every fill. One dimension, one authority.
+
+    Raises:
+        InstrumentInputError: If ``asset_id`` is not registered, ``dimension``
+            is not a dimension name or is ``"sector"``, or the label, source or
+            ``as_of`` is invalid.
+    """
+
+    get_instrument(registry, asset_id)
+    name = normalize_dimension(dimension)
+    if name == SECTOR:
+        raise InstrumentInputError(
+            "The sector is classified by classify_instrument, whose label is the record's and "
+            "is frozen onto every fill; it has no second path."
+        )
+    declaration = DimensionClassification(label, source, as_of)
+    histories: PersistentMap[str, DimensionHistory] = registry.dimensions.get(name, PersistentMap())
+    history = histories.get(asset_id, DimensionHistory())
+    if history.current == declaration:
+        return registry
+    if declaration.label is None and not history:
+        # Withdrawing a label never given: nothing happened.
+        return registry
+    return replace(
+        registry,
+        dimensions=registry.dimensions.set(
+            name, histories.set(asset_id, history.append(declaration))
+        ),
+        members=_relabelled(registry.members, name, asset_id, history.label, declaration.label),
+    )
+
+
+def classify_dimensions(
+    registry: InstrumentRegistry,
+    dimension: str,
+    labels: Mapping[str, str | None],
+    source: str = OPERATOR,
+    as_of: float | None = None,
+) -> InstrumentRegistry:
+    """Classify several instruments along one dimension, in the mapping's order.
+
+    What loading one vendor file looks like: one dimension, one source, one
+    effective date. An entry that is refused raises before any later one is
+    applied, and the caller's registry is untouched.
+    """
+
+    for asset_id, label in labels.items():
+        registry = classify_dimension(registry, asset_id, dimension, label, source, as_of)
+    return registry
+
+
+def dimension_history(
+    registry: InstrumentRegistry, asset_id: str, dimension: str
+) -> DimensionHistory:
+    """Every classification ``asset_id`` has been given along ``dimension``, oldest first.
+
+    Raises:
+        InstrumentInputError: If ``asset_id`` is not registered, or ``dimension``
+            is not a dimension name or is ``"sector"`` (whose history is
+            :func:`classification_history`).
+    """
+
+    get_instrument(registry, asset_id)
+    name = normalize_dimension(dimension)
+    if name == SECTOR:
+        raise InstrumentInputError(
+            "The sector's history is classification_history(registry, asset_id)."
+        )
+    histories = registry.dimensions.get(name)
+    history = None if histories is None else histories.get(asset_id)
+    return DimensionHistory() if history is None else history
+
+
+def label_as_of(
+    registry: InstrumentRegistry, asset_id: str, dimension: str, timestamp: float
+) -> str | None:
+    """The label ``asset_id`` carried along ``dimension`` at ``timestamp``, or ``None``.
+
+    The reference data's answer to a historical question -- ``"sector"``
+    included, through :func:`sector_as_of` -- for the reasons that function
+    gives.
+
+    Raises:
+        InstrumentInputError: If ``asset_id`` is not registered or ``dimension``
+            is not a dimension name.
+    """
+
+    name = normalize_dimension(dimension)
+    if name == SECTOR:
+        return sector_as_of(registry, asset_id, timestamp)
+    return dimension_history(registry, asset_id, name).label_at(timestamp)

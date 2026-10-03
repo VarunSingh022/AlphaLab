@@ -54,7 +54,9 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, auto
+from typing import Any
 
+from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import in_accounting_context
 from alphalab.common.evolve import evolve
@@ -83,7 +85,7 @@ from alphalab.runtime.execution_pipeline import (
     price_refusal,
     wants_slices,
 )
-from alphalab.strategy.events import LifecycleTransitioned, TimerEvent
+from alphalab.strategy.events import LifecycleTransitioned, ObservationReceived, TimerEvent
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 
 __all__ = [
@@ -299,6 +301,12 @@ class RunState:
     #: decides twice on one instant. Set only when a strategy was there to
     #: receive the slice, which keeps a run without one exactly what it was.
     last_slice_at: float | None = None
+    #: How many point-in-time records the run has delivered (ledger OFE-009).
+    observations_delivered: int = 0
+    #: ``(known_at, delivery_id)`` of the last record delivered, or ``None``: a
+    #: cursor, so a delivery at or before it -- a restarted stream sending a
+    #: record again -- is not delivered twice.
+    last_observation: tuple[float, str] | None = None
 
     @property
     def working_orders(self) -> tuple[OMSOrder, ...]:
@@ -564,6 +572,59 @@ class RunEngine:
             state,
             pipeline=pipeline,
             current_timestamp=max(state.current_timestamp, timer.timestamp),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_observation(
+        state: RunState,
+        delivery: ObservationDelivery[Any],
+        context_factory: ContextFactory,
+        rates: FxRates = NO_RATES,
+        *,
+        now: float | None = None,
+    ) -> RunState:
+        """Deliver one record of a schedule at the instant it became knowable (ledger OFE-009).
+
+        Strategies subscribed to ``observations`` that define ``on_observation``
+        receive an :class:`~alphalab.strategy.events.ObservationReceived`; what
+        they ask for rests until each asset's next event. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.process_observation`.
+
+        A historical driver delivers each record at its knowledge instant, and
+        merges the schedule with its market records so that none is late
+        (:meth:`~alphalab.backtesting.engine.BacktestEngine.run`). A live driver
+        passes ``now``, its clock: a record arriving after it became knowable
+        is delivered when it arrived, never earlier. A delivery at or before the
+        run's cursor is a repeat and changes nothing.
+
+        Raises:
+            RuntimeValidationError: If the delivery instant is before the last
+                event the run processed.
+        """
+
+        key = delivery.order_key
+        if state.last_observation is not None and key <= state.last_observation:
+            return state
+        at = delivery.known_at if now is None else max(now, delivery.known_at)
+        event = ObservationReceived(
+            # Derived, not drawn from the run's identifier stream: delivering
+            # information must not move every identifier minted after it.
+            f"OBSERVATION-{delivery.delivery_id}",
+            at,
+            delivery_id=delivery.delivery_id,
+            subject=delivery.record.subject,
+            record=delivery.record,
+        )
+        pipeline, _, _ = ExecutionPipeline.process_observation(
+            state.pipeline, event, context_factory, rates
+        )
+        return evolve(
+            state,
+            pipeline=pipeline,
+            current_timestamp=max(state.current_timestamp, at),
+            observations_delivered=state.observations_delivered + 1,
+            last_observation=key,
         )
 
     @staticmethod

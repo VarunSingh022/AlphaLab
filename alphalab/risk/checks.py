@@ -18,7 +18,7 @@ from decimal import Decimal
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.core.order_request import OrderRequest
 from alphalab.risk.models import RiskSeverity, RiskViolation
-from alphalab.risk.projection import RiskProjection
+from alphalab.risk.projection import BucketExposure, RiskProjection
 from alphalab.risk.state import RiskState
 
 _ZERO = Decimal("0")
@@ -161,6 +161,76 @@ def check_net_exposure(
             current_value=projected,
             allowed_value=limit.max_net_exposure,
         )
+    return None
+
+
+def check_classification(
+    state: RiskState, projection: RiskProjection, buckets: tuple[BucketExposure, ...]
+) -> RiskViolation | None:
+    """Each bucket the order's instrument is in, against the limits that bind it (OFE-001).
+
+    Reduce-only: a bucket whose gross exposure the order does not grow is not
+    refused. An instrument carrying no label along a limited dimension is
+    refused only when the dimension's limit says so and the order grows its
+    position.
+    """
+
+    limits = state.active_limits
+    for bucket in buckets:
+        binding = limits.bucket_limits(bucket.dimension, bucket.label)
+        if bucket.label is None:
+            if projection.increases_exposure and any(
+                limit.refuse_unclassified for limit in binding
+            ):
+                return RiskViolation(
+                    rule="ClassificationUnclassified",
+                    description=(
+                        f"The instrument carries no {bucket.dimension}, and the "
+                        f"{bucket.dimension} limit refuses an unclassified instrument."
+                    ),
+                    severity=RiskSeverity.HIGH,
+                    current_value=projection.projected_position_value,
+                    allowed_value=_ZERO,
+                )
+            continue
+        if bucket.projected_gross <= bucket.committed_gross:
+            continue
+        for limit in binding:
+            if limit.max_gross is not None and bucket.projected_gross > limit.max_gross:
+                return RiskViolation(
+                    rule="ClassificationLimit",
+                    description=(
+                        f"Projected gross exposure of {bucket.dimension} {bucket.label!r} "
+                        "exceeds its limit."
+                    ),
+                    severity=RiskSeverity.HIGH,
+                    current_value=bucket.projected_gross,
+                    allowed_value=limit.max_gross,
+                )
+            if limit.max_share is not None:
+                if projection.nav <= _ZERO:
+                    return RiskViolation(
+                        rule="ClassificationShareLimit",
+                        description=(
+                            f"{bucket.dimension} {bucket.label!r}'s share of net asset value "
+                            "is undefined with no positive net asset value."
+                        ),
+                        severity=RiskSeverity.HIGH,
+                        current_value=bucket.projected_gross,
+                        allowed_value=_ZERO,
+                    )
+                share = ACCOUNTING_CONTEXT.divide(bucket.projected_gross, projection.nav)
+                if share > limit.max_share:
+                    return RiskViolation(
+                        rule="ClassificationShareLimit",
+                        description=(
+                            f"Projected gross exposure of {bucket.dimension} "
+                            f"{bucket.label!r} exceeds its share of net asset value."
+                        ),
+                        severity=RiskSeverity.HIGH,
+                        current_value=share,
+                        allowed_value=limit.max_share,
+                    )
     return None
 
 

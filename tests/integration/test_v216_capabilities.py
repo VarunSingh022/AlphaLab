@@ -266,11 +266,12 @@ def test_no_capability_moved_another_ones_boundary() -> None:
     from alphalab.runtime.snapshot import PIPELINE_SNAPSHOT_SCHEMA
 
     # The live driver added no field to the run and moved no run schema; the
-    # run schema moved to 2 in v3.10 for the analytics basis, and to 3 in v3.11
-    # for the terms of the orders each step records.
-    # (ADR-0046 gave the run a ninth field in v3.11: the slice cursor.)
-    assert len(fields(RunState)) == 9
-    assert RUN_SNAPSHOT_SCHEMA == 3
+    # run schema moved to 2 in v3.10 for the analytics basis, to 3 in v3.11 for
+    # the terms of the orders each step records, and to 4 in v3.12 for the
+    # observation cursor. (ADR-0046 gave the run a ninth field in v3.11, the
+    # slice cursor; v3.12 a tenth and an eleventh, the observation cursor.)
+    assert len(fields(RunState)) == 11
+    assert RUN_SNAPSHOT_SCHEMA == 4
 
     # FX added no field to run configuration and moved no pipeline schema (v3.10
     # moved it to 4, for minor units and the analytics basis; v3.11 to 5, for a

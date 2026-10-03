@@ -331,10 +331,12 @@ from alphalab.lifecycle.health import (
     HealthReport,
     HealthSeverity,
     HealthStatus,
+    HealthWindowReport,
     RuntimeObservation,
     StateExpectation,
     UnevaluatedCategory,
     evaluate_health,
+    evaluate_health_window,
     observation_from_live_run,
 )
 from alphalab.lifecycle.identity import (
@@ -536,6 +538,7 @@ __all__ = [
     "HealthReport",
     "HealthSeverity",
     "HealthStatus",
+    "HealthWindowReport",
     "LifecycleError",
     "LifecycleInputError",
     "LifecyclePermissionError",
@@ -631,6 +634,7 @@ __all__ = [
     "engine_source_digest",
     "environments_running",
     "evaluate_health",
+    "evaluate_health_window",
     "evaluate_policy",
     "evaluate_portability",
     "evidence_for",

@@ -88,6 +88,7 @@ from alphalab.factor_library.fundamentals import (
     SnapshotSpecification,
     fundamental_frame,
     fundamental_snapshot_as_of,
+    share_count_changes,
 )
 from alphalab.factor_library.ic import InformationCoefficient, information_coefficient
 from alphalab.factor_library.inputs import FundamentalSnapshot, PriceSeries
@@ -239,6 +240,7 @@ __all__ = [
     "rank_panel",
     "require_applicable",
     "sample_knowledge",
+    "share_count_changes",
     "to_factor_results",
     "weights_from_buckets",
 ]

@@ -9,6 +9,7 @@ from alphalab.common.ids import new_id
 from alphalab.core.order_request import OrderRequest
 from alphalab.risk.checks import (
     check_buying_power,
+    check_classification,
     check_daily_loss,
     check_drawdown,
     check_exposure,
@@ -32,7 +33,13 @@ from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.models import RiskViolation
-from alphalab.risk.projection import NO_WORKING_ORDERS, RiskProjection, WorkingExposure, project
+from alphalab.risk.projection import (
+    NO_WORKING_ORDERS,
+    BucketExposure,
+    RiskProjection,
+    WorkingExposure,
+    project,
+)
 from alphalab.risk.state import RiskState
 from alphalab.risk.validation import validate_order_request
 
@@ -59,6 +66,7 @@ class RiskEngine:
         position: Decimal = Decimal("0"),
         price: Decimal | None = None,
         working: Mapping[str, WorkingExposure] = NO_WORKING_ORDERS,
+        buckets: tuple[BucketExposure, ...] = (),
     ) -> tuple[RiskState, RiskDecision]:
         """Judge ``request`` against every limit, on the book it would leave.
 
@@ -72,6 +80,9 @@ class RiskEngine:
                 price when ``None`` (a single-currency book).
             working: Every asset with working orders, and what they commit. See
                 :mod:`alphalab.risk.projection`.
+            buckets: The bucket the order's instrument is in along each
+                dimension a :class:`~alphalab.risk.limits.ClassificationLimit`
+                names, before and after the order. Empty when none is limited.
         """
 
         validate_order_request(request)
@@ -97,6 +108,7 @@ class RiskEngine:
             check_buying_power(request, state, projection),
             check_daily_loss(state, projection),
             check_leverage(request, state, projection),
+            check_classification(state, projection, buckets) if buckets else None,
         )
         violations = tuple(result for result in checks if result is not None)
         breaches = RiskEngine.breaches(state)

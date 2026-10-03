@@ -62,14 +62,21 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final
 
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.conventions.economics import economics_from_primitives
 from alphalab.conventions.exceptions import ConventionInputError
 from alphalab.core.enums import AssetType
-from alphalab.instrument.classification import ClassificationHistory, SectorClassification
+from alphalab.instrument.classification import (
+    SECTOR,
+    ClassificationHistory,
+    DimensionClassification,
+    DimensionHistory,
+    SectorClassification,
+    normalize_dimension,
+)
 from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
 from alphalab.instrument.record import DatedAlias, InstrumentRecord
@@ -113,8 +120,11 @@ __all__ = [
 #:
 #: New in v2.15 at version 1. Version 2 (v3.11) carries dated aliases, the
 #: aliases registered after a record's declaration, and each instrument's
-#: economics (ledger ACC-005); see the module docstring.
-INSTRUMENT_SNAPSHOT_SCHEMA: Final = 2
+#: economics (ledger ACC-005); see the module docstring. Version 3 (v3.12)
+#: carries each instrument's classifications along every dimension but sector
+#: (ledger OFE-001); the index of each dimension's buckets is rebuilt, not
+#: carried.
+INSTRUMENT_SNAPSHOT_SCHEMA: Final = 3
 
 _SUBSYSTEM: Final = "instrument"
 
@@ -131,6 +141,15 @@ class ClassificationRecord:
     """
 
     sector: str | None
+    source: str
+    as_of: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class DimensionRecord:
+    """One classification act along a named dimension, as a snapshot carries it."""
+
+    label: str | None
     source: str
     as_of: float | None
 
@@ -167,6 +186,9 @@ class InstrumentRegistryRecord:
     later_aliases: tuple[tuple[str, str], ...] = ()
     later_dated_aliases: tuple[DatedAliasRecord, ...] = ()
     economics: InstrumentEconomics | None = None
+    #: Dimension -> every classification along it, oldest first; sorted by
+    #: dimension so a payload does not depend on the order they were declared in.
+    dimensions: Mapping[str, tuple[DimensionRecord, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +264,14 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
                 later_aliases=tuple(later),
                 later_dated_aliases=tuple(_dated_record(alias) for alias in later_dated),
                 economics=record.economics,
+                dimensions={
+                    dimension: tuple(
+                        DimensionRecord(entry.label, entry.source, entry.as_of)
+                        for entry in histories[asset_id]
+                    )
+                    for dimension, histories in sorted(registry.dimensions.items())
+                    if asset_id in histories
+                },
             )
         )
     return InstrumentRegistrySnapshot(
@@ -277,6 +307,7 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
 
     registry = InstrumentRegistry()
     classifications: dict[str, ClassificationHistory] = {}
+    dimensions: dict[str, dict[str, DimensionHistory]] = {}
     records: list[tuple[InstrumentRegistryRecord, InstrumentRecord]] = []
 
     try:
@@ -306,6 +337,13 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
                         for item in entry.classifications
                     )
                 )
+            for dimension, items in entry.dimensions.items():
+                dimensions.setdefault(dimension, {})[record.asset_id] = DimensionHistory(
+                    tuple(
+                        DimensionClassification(item.label, item.source, item.as_of)
+                        for item in items
+                    )
+                )
         for entry, record in records:
             for provider, symbol in entry.later_aliases:
                 registry = register_alias(registry, record.asset_id, provider, symbol)
@@ -316,11 +354,16 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
             f"The instrument snapshot describes a registry that could not have been built: {error}"
         ) from None
 
+    # The members index is derived from the records and the histories, so it is
+    # rebuilt here rather than read: one fact, one home.
     return InstrumentRegistry(
         instruments=registry.instruments,
         by_provider=registry.by_provider,
         classifications=PersistentMap(classifications),
         dated=registry.dated,
+        dimensions=PersistentMap(
+            {name: PersistentMap(histories) for name, histories in sorted(dimensions.items())}
+        ),
     )
 
 
@@ -339,6 +382,35 @@ def _classification(value: Any, where: str) -> ClassificationRecord:
         source=as_str(require(payload, "source"), f"{where}.source"),
         as_of=None if raw_as_of is None else as_float(raw_as_of, f"{where}.as_of"),
     )
+
+
+def _dimension(value: Any, where: str) -> DimensionRecord:
+    payload = as_mapping(value, where)
+    raw_as_of = require(payload, "as_of")
+    return DimensionRecord(
+        label=as_optional_str(require(payload, "label"), f"{where}.label"),
+        source=as_str(require(payload, "source"), f"{where}.source"),
+        as_of=None if raw_as_of is None else as_float(raw_as_of, f"{where}.as_of"),
+    )
+
+
+def _dimensions(value: Any, where: str) -> dict[str, tuple[DimensionRecord, ...]]:
+    declared: dict[str, tuple[DimensionRecord, ...]] = {}
+    for name, items in as_mapping(value, where).items():
+        try:
+            dimension = normalize_dimension(name)
+        except InstrumentInputError as exc:
+            raise StateDecodeError(f"{where} names no dimension: {exc}") from exc
+        if dimension != name or dimension == SECTOR:
+            raise StateDecodeError(
+                f"{where} holds {name!r}, which is not a dimension written as one is "
+                "(the sector is carried as classifications)."
+            )
+        declared[name] = tuple(
+            _dimension(item, f"{where}.{name}[{position}]")
+            for position, item in enumerate(as_sequence(items, f"{where}.{name}"))
+        )
+    return declared
 
 
 def _dated_alias(value: Any, where: str) -> DatedAliasRecord:
@@ -397,6 +469,7 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
             )
         ),
         economics=_economics(require(payload, "economics"), f"{where}.economics"),
+        dimensions=_dimensions(require(payload, "dimensions"), f"{where}.dimensions"),
     )
 
 
@@ -436,6 +509,19 @@ def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
+    """A version-2 instrument was classified along no dimension but sector.
+
+    Nothing before v3.12 could classify along another (ledger OFE-001), so
+    each record's dimensions are empty -- what the payload says.
+    """
+
+    return {
+        **payload,
+        "instruments": [{**entry, "dimensions": {}} for entry in payload["instruments"]],
+    }
+
+
 INSTRUMENT_SCHEMA_HISTORY = SchemaHistory(
     _SUBSYSTEM,
     INSTRUMENT_SNAPSHOT_SCHEMA,
@@ -445,6 +531,12 @@ INSTRUMENT_SCHEMA_HISTORY = SchemaHistory(
             "version 2 carries dated aliases, aliases registered after a declaration, and each "
             "instrument's economics",
             upgrade=_v1_to_v2,
+        ),
+        SchemaStep(
+            2,
+            "version 3 carries each instrument's classifications along dimensions other "
+            "than sector; no earlier registry had any",
+            upgrade=_v2_to_v3,
         ),
     ),
 )

@@ -359,7 +359,8 @@ def test_the_join_builds_no_state_and_starts_nothing() -> None:
 
 
 def test_the_run_state_still_carries_no_deployment_reference() -> None:
-    """ADR-0030 decision 2 fixed ``RunState`` at eight fields; ADR-0046 adds the slice cursor."""
+    """ADR-0030 decision 2 fixed ``RunState`` at eight fields; ADR-0046 adds the slice
+    cursor, and v3.12 the observation cursor (OFE-009)."""
 
     from dataclasses import fields
 
@@ -368,4 +369,4 @@ def test_the_run_state_still_carries_no_deployment_reference() -> None:
     names = {f.name for f in fields(RunState)}
     assert "deployment" not in names
     assert "environment" not in names
-    assert len(names) == 9  # the slice cursor, v3.11 (ADR-0046)
+    assert len(names) == 11  # the slice cursor (v3.11), the observation cursor (v3.12)

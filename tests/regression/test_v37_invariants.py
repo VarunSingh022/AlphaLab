@@ -769,9 +769,12 @@ def test_v37_added_no_snapshot_owner_and_no_schema_constant() -> None:
         }
     )
 
+    # v3.12 added one durable format, deliberately: the evidence store's
+    # envelope (ledger OFE-016, BDY-008), versioned like every other.
     assert constants == [
         "ALLOCATION_SNAPSHOT_SCHEMA",
         "BROKER_SNAPSHOT_SCHEMA",
+        "EVIDENCE_SCHEMA",
         "FX_FEED_SNAPSHOT_SCHEMA",
         "INSTRUMENT_SNAPSHOT_SCHEMA",
         "LIFECYCLE_SNAPSHOT_SCHEMA",

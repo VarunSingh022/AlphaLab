@@ -42,6 +42,10 @@ an identity: ``sector`` is outside the canonical key by ADR-0016 N5, and the
 signature exposes no identity field. Reclassifying is allowed and is O(1); what
 a *run* recorded is frozen onto each ``TradeRecord.sector_id`` at fill time and
 is never rewritten by a later classification. See ADR-0027.
+:func:`classify_dimension` does the same along any other dimension the caller
+names -- country, issuer, industry, rating -- with the same provenance, and the
+registry indexes every dimension's buckets so a risk limit can bound one (v3.12,
+ledger OFE-001).
 
 Resolution is a pure lookup here. Refusing an unregistered ``(provider,
 symbol)`` belongs to the wire boundary, which is why
@@ -61,8 +65,12 @@ v2.6 behaviour, and detecting it is not v2.7 work.
 
 from alphalab.instrument.classification import (
     OPERATOR,
+    SECTOR,
     ClassificationHistory,
+    DimensionClassification,
+    DimensionHistory,
     SectorClassification,
+    normalize_dimension,
 )
 from alphalab.instrument.economics import (
     CASH_EQUITY,
@@ -91,9 +99,13 @@ from alphalab.instrument.registry import (
     InstrumentRegistry,
     classification_history,
     classification_of,
+    classify_dimension,
+    classify_dimensions,
     classify_instrument,
     classify_instruments,
+    dimension_history,
     get_instrument,
+    label_as_of,
     register_alias,
     register_dated_alias,
     register_instrument,
@@ -106,8 +118,11 @@ __all__ = [
     "CASH_EQUITY",
     "INSTRUMENT_KEY_SCHEME",
     "OPERATOR",
+    "SECTOR",
     "ClassificationHistory",
     "DatedAlias",
+    "DimensionClassification",
+    "DimensionHistory",
     "InstrumentEconomics",
     "InstrumentError",
     "InstrumentInputError",
@@ -119,11 +134,16 @@ __all__ = [
     "canonical_instrument_key",
     "classification_history",
     "classification_of",
+    "classify_dimension",
+    "classify_dimensions",
     "classify_instrument",
     "classify_instruments",
     "derive_asset_id",
+    "dimension_history",
     "economics_for",
     "get_instrument",
+    "label_as_of",
+    "normalize_dimension",
     "normalize_key_field",
     "normalize_sector_label",
     "register_alias",

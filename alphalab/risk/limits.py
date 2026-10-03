@@ -22,6 +22,15 @@ pre-v4 audit (ledger KD-001..003) found them:
 * :attr:`ExposureLimit.max_net_exposure` was read by nothing, with no sign
   convention anywhere. Net exposure is long market value plus short market
   value (short negative), in the base currency; the gate limits its magnitude.
+
+Classification buckets (v3.12)
+------------------------------
+:class:`ClassificationLimit` bounds what one *bucket* of a classification
+dimension may hold -- every instrument of one sector, one issuer, one country
+(ledger OFE-001). The gate does not read the instrument registry: the caller
+says which bucket the order's instrument is in and what the bucket holds,
+before and after (:class:`~alphalab.risk.projection.BucketExposure`), as it
+says the order's price.
 """
 
 from dataclasses import dataclass
@@ -30,6 +39,9 @@ from decimal import Decimal
 
 from alphalab.data.exceptions import DataValidationError
 from alphalab.data.time import resolve_zone
+from alphalab.instrument.classification import normalize_dimension
+from alphalab.instrument.exceptions import InstrumentInputError
+from alphalab.instrument.record import normalize_sector_label
 from alphalab.risk.exceptions import RiskValidationError
 
 
@@ -151,6 +163,76 @@ class DrawdownLimit:
 
 
 @dataclass(frozen=True, slots=True)
+class ClassificationLimit:
+    """The most one bucket of a classification dimension may hold (ledger OFE-001).
+
+    A bucket is every instrument carrying one label along one dimension --
+    every ``"Energy"`` stock, every bond of one issuer, everything exposed to
+    one country. What it holds is its **gross** exposure counting working
+    orders: long value plus the magnitude of short value, in the base currency.
+    Reduce-only, as every exposure limit is: an order that does not grow its
+    bucket's gross exposure is never refused by it.
+
+    Attributes:
+        dimension: ``"sector"`` -- ``InstrumentRecord.sector`` -- or a dimension
+            declared through :func:`~alphalab.instrument.registry.classify_dimension`.
+        max_gross: The largest gross exposure a bucket may hold. ``None``: no
+            amount ceiling.
+        max_share: The largest share of net asset value a bucket's gross
+            exposure may be -- ``Decimal("0.25")`` for a quarter. ``None``: no
+            share ceiling. With no positive net asset value the share is
+            undefined, and an order growing the bucket is refused.
+        label: The one bucket this limit binds, or ``None`` for every bucket of
+            the dimension. A bucket a labelled limit names is bound by it
+            **instead of** the dimension's unlabelled ones -- how one issuer is
+            allowed more, or less, than the rest.
+        refuse_unclassified: Whether an order growing exposure in an instrument
+            that carries no label along the dimension is refused. ``False``
+            leaves such an instrument outside every bucket, which is stated
+            here because an issuer limit a bond escapes by being unclassified
+            has a hole in it. Read on unlabelled limits only.
+
+    Raises:
+        RiskValidationError: If the dimension or label is not one, neither
+            ceiling is stated, a ceiling is negative or not finite, or a
+            labelled limit asks to refuse the unclassified.
+    """
+
+    dimension: str
+    max_gross: Decimal | None = None
+    max_share: Decimal | None = None
+    label: str | None = None
+    refuse_unclassified: bool = False
+
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "dimension", normalize_dimension(self.dimension))
+            if self.label is not None:
+                object.__setattr__(self, "label", normalize_sector_label(self.label, "label"))
+        except InstrumentInputError as exc:
+            raise RiskValidationError(f"A classification limit is malformed: {exc}") from exc
+        if self.max_gross is None and self.max_share is None:
+            raise RiskValidationError(
+                f"A limit on {self.dimension} states a max_gross, a max_share or both."
+            )
+        for name, ceiling in (("max_gross", self.max_gross), ("max_share", self.max_share)):
+            if ceiling is not None and (not ceiling.is_finite() or ceiling < 0):
+                raise RiskValidationError(
+                    f"{name} must be a finite, non-negative amount, got {ceiling}."
+                )
+        if self.refuse_unclassified and self.label is not None:
+            raise RiskValidationError(
+                "refuse_unclassified is a rule for a whole dimension; a limit on one label "
+                "binds only instruments that carry it."
+            )
+
+    def binds(self, dimension: str, label: str | None) -> bool:
+        """Whether this limit is one that names ``label`` along ``dimension``."""
+
+        return self.dimension == dimension and self.label == label
+
+
+@dataclass(frozen=True, slots=True)
 class RiskLimits:
     """Aggregated risk limits configuration for an account or strategy.
 
@@ -165,3 +247,28 @@ class RiskLimits:
     margin: MarginLimit
     daily_loss: DailyLossLimit | None
     drawdown: DrawdownLimit
+    #: Limits on the buckets of classification dimensions (v3.12, ledger
+    #: OFE-001). Empty by default: no bucket is limited, as before.
+    classification: tuple[ClassificationLimit, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.classification, tuple):
+            object.__setattr__(self, "classification", tuple(self.classification))
+        for limit in self.classification:
+            if not isinstance(limit, ClassificationLimit):
+                raise RiskValidationError(
+                    f"classification holds ClassificationLimit values, got {limit!r}."
+                )
+
+    def bucket_limits(self, dimension: str, label: str | None) -> tuple[ClassificationLimit, ...]:
+        """The limits binding the bucket ``label`` of ``dimension``.
+
+        Those naming the label when any does, else the dimension's unlabelled
+        ones. ``label=None`` -- an unclassified instrument -- reads the
+        unlabelled ones, whose ``refuse_unclassified`` decides it.
+        """
+
+        named = tuple(limit for limit in self.classification if limit.binds(dimension, label))
+        if named or label is None:
+            return named
+        return tuple(limit for limit in self.classification if limit.binds(dimension, None))

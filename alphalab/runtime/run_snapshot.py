@@ -132,9 +132,12 @@ __all__ = [
 #: ``periods_per_year`` is new -- and whether the run stops when a strategy fails
 #: (``halt_on_strategy_failure``). Version 3 (v3.11) writes the orders each
 #: recorded step carries in the OMS's version-2 form, with their time in force,
-#: expiry and stop trigger (ledger EXE-003). Earlier versions are upgraded by
+#: expiry and stop trigger (ledger EXE-003). Version 4 (v3.12) records how many
+#: point-in-time records the run has delivered and the last one's
+#: ``(known_at, delivery_id)`` (ledger OFE-009): the cursor that keeps a
+#: restored run from delivering one twice. Earlier versions are upgraded by
 #: :data:`RUN_SCHEMA_HISTORY`.
-RUN_SNAPSHOT_SCHEMA: Final = 3
+RUN_SNAPSHOT_SCHEMA: Final = 4
 
 _SUBSYSTEM: Final = "run"
 
@@ -180,6 +183,10 @@ class RunSnapshot:
     #: The instant of the last slice the run closed, or ``None`` (ledger
     #: EXE-004): what stops a restored run closing one instant twice.
     last_slice_at: float | None = None
+    #: How many point-in-time records the run delivered, and the last one's
+    #: ``(known_at, delivery_id)`` (ledger OFE-009).
+    observations_delivered: int = 0
+    last_observation: tuple[float, str] | None = None
     schema_version: int = RUN_SNAPSHOT_SCHEMA
 
 
@@ -228,6 +235,8 @@ def capture(state: RunState) -> RunSnapshot:
         current_timestamp=state.current_timestamp,
         last_record_timestamp=state.last_record_timestamp,
         last_slice_at=state.last_slice_at,
+        observations_delivered=state.observations_delivered,
+        last_observation=state.last_observation,
         source_id=state.source_id,
         steps=state.steps.to_tuple(),
         skipped=tuple(
@@ -285,6 +294,8 @@ def restore(snapshot: RunSnapshot, objects: RunObjects) -> RunState:
         current_timestamp=snapshot.current_timestamp,
         last_record_timestamp=snapshot.last_record_timestamp,
         last_slice_at=snapshot.last_slice_at,
+        observations_delivered=snapshot.observations_delivered,
+        last_observation=snapshot.last_observation,
         source_id=snapshot.source_id,
         steps=AppendOnlyLog(snapshot.steps),
         skipped=AppendOnlyLog(
@@ -387,6 +398,16 @@ def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
     return {**payload, "steps": steps, "last_slice_at": None}
 
 
+def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record that a version-3 run delivered no point-in-time record.
+
+    None could: nothing on the execution path delivered one before v3.12
+    (ledger OFE-009).
+    """
+
+    return {**payload, "observations_delivered": 0, "last_observation": None}
+
+
 RUN_SCHEMA_HISTORY = SchemaHistory(
     _SUBSYSTEM,
     RUN_SNAPSHOT_SCHEMA,
@@ -402,8 +423,23 @@ RUN_SCHEMA_HISTORY = SchemaHistory(
             "instant of the last slice the run closed",
             upgrade=_v2_to_v3,
         ),
+        SchemaStep(
+            3,
+            "version 4 records the point-in-time records the run delivered; no earlier run "
+            "delivered any",
+            upgrade=_v3_to_v4,
+        ),
     ),
 )
+
+
+def _cursor(value: Any, where: str) -> tuple[float, str] | None:
+    if value is None:
+        return None
+    pair = as_sequence(value, where)
+    if len(pair) != 2:
+        raise StateDecodeError(f"{where} must be [known_at, delivery_id], got {value!r}.")
+    return as_float(pair[0], f"{where}[0]"), as_str(pair[1], f"{where}[1]")
 
 
 def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
@@ -453,6 +489,10 @@ def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
             require(payload, "last_record_timestamp"), "last_record_timestamp"
         ),
         last_slice_at=_optional_float(require(payload, "last_slice_at"), "last_slice_at"),
+        observations_delivered=as_int(
+            require(payload, "observations_delivered"), "observations_delivered"
+        ),
+        last_observation=_cursor(require(payload, "last_observation"), "last_observation"),
         source_id=as_optional_str(require(payload, "source_id"), "source_id"),
         steps=sequence("steps", _step),
         skipped=sequence("skipped", _skipped),

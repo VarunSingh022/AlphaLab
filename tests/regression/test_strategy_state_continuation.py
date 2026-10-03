@@ -498,7 +498,7 @@ def test_the_session_round_trips_and_the_session_schema_did_not_move() -> None:
 
     payload = dict(deserialize(serialize(capture_run(state))))
 
-    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 3
+    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 4
     assert payload["pipeline"]["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 6
     assert restore_run(run_from_primitives(payload), _objects(config, strategy)) == state
 
@@ -524,7 +524,7 @@ def test_the_backtest_round_trips_and_the_backtest_schema_did_not_move() -> None
         fill_policy=config.fill_policy,
     )
 
-    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 3
+    assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 4
     assert payload["pipeline"]["schema_version"] == 6
     assert restore_run(run_from_primitives(payload), objects) == state
 

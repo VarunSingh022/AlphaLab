@@ -180,7 +180,8 @@ def test_a_v3_9_instrument_registry_is_upgraded_with_no_alias_invented() -> None
     snapshot = from_primitives(payload)
     recaptured = deserialize(serialize(snapshot))
 
-    assert recaptured["schema_version"] == 2
+    # v3.12 moved it to 3: no instrument was classified along another dimension.
+    assert recaptured["schema_version"] == 3
     expected = [
         {
             **entry,
@@ -188,6 +189,7 @@ def test_a_v3_9_instrument_registry_is_upgraded_with_no_alias_invented() -> None
             "later_aliases": [],
             "later_dated_aliases": [],
             "economics": None,
+            "dimensions": {},
         }
         for entry in payload["instruments"]
     ]
@@ -275,7 +277,7 @@ def test_a_v3_9_backtest_run_is_upgraded_restored_and_continues() -> None:
     )
     assert continued.processed == 7
     recaptured = deserialize(serialize(capture(continued)))
-    assert recaptured["schema_version"] == RUN_SNAPSHOT_SCHEMA == 3
+    assert recaptured["schema_version"] == RUN_SNAPSHOT_SCHEMA == 4
     assert recaptured["pipeline"]["schema_version"] == 6
     assert recaptured["pipeline"]["portfolio"]["schema_version"] == 5
     assert recaptured["pipeline"]["oms"]["schema_version"] == 2
@@ -304,7 +306,7 @@ def test_a_v3_9_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
 
     assert snapshot.schema_version == 2
     assert snapshot.requests == ()  # version 1 recorded none
-    assert snapshot.run.schema_version == 3
+    assert snapshot.run.schema_version == 4
     assert snapshot.run.pipeline.schema_version == 6
     assert snapshot.broker.schema_version == 2
     assert snapshot.broker.order_bindings

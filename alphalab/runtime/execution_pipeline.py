@@ -91,7 +91,7 @@ from alphalab.risk.engine import RiskEngine
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
-from alphalab.risk.projection import NO_WORKING_ORDERS, WorkingExposure
+from alphalab.risk.projection import NO_WORKING_ORDERS, BucketExposure, WorkingExposure
 from alphalab.risk.state import RiskState
 from alphalab.runtime.calendars import VenueCalendars
 from alphalab.runtime.context_views import (
@@ -112,12 +112,13 @@ from alphalab.strategy.events import (
     FillEvent,
     Intent,
     IntentKind,
+    ObservationReceived,
     OrderEvent,
     SliceClosed,
     StrategyInboundEvent,
     TimerEvent,
 )
-from alphalab.strategy.protocol import defines_on_slice
+from alphalab.strategy.protocol import defines_on_observation, defines_on_slice
 from alphalab.strategy.state import LifecycleState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 from alphalab.strategy.subscription import Topic, market_topic
@@ -614,6 +615,25 @@ def _budget_prices(
     return converted
 
 
+def _require_classifiable(config: ExecutionPipelineConfig) -> None:
+    """Refuse classification limits a run could never apply (ledger OFE-001).
+
+    A bucket is read from the instrument registry. A run that declares a limit
+    on one and no registry would leave every instrument unclassified, and the
+    limit would bind nothing -- silently. Refused here instead, where the
+    configuration is judged, and on restore, which replays this.
+    """
+
+    limited = config.risk_limits.classification
+    if limited and config.instruments is None:
+        dimensions = sorted({limit.dimension for limit in limited})
+        raise RuntimeValidationError(
+            f"The risk limits bound {', '.join(dimensions)} buckets, and the run declares no "
+            "instrument registry to read an instrument's classification from; configure one "
+            "with ExecutionPipelineConfig.instruments."
+        )
+
+
 def _require_settleable_budget(config: ExecutionPipelineConfig) -> None:
     """Refuse a capital budget this pipeline cannot price.
 
@@ -697,13 +717,15 @@ class ExecutionPipeline:
 
         Raises:
             RuntimeValidationError: If ``config.currency`` and
-                ``config.account.base_currency`` disagree. The check runs before
-                the portfolio exists, so nothing is funded against a refused
-                configuration.
+                ``config.account.base_currency`` disagree, or the risk limits
+                bound classification buckets with no instrument registry to
+                read them from. The checks run before the portfolio exists, so
+                nothing is funded against a refused configuration.
         """
 
         _require_one_account_currency(config)
         _require_settleable_budget(config)
+        _require_classifiable(config)
 
         portfolio = PortfolioState(account=config.account)
         portfolio = PortfolioEngine.apply_deposit(
@@ -1237,6 +1259,48 @@ class ExecutionPipeline:
                 f"processed, at {last.timestamp!r}."
             )
         return _deliver_instant(state, timer, last, context_factory, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def process_observation(
+        state: ExecutionPipelineState,
+        event: ObservationReceived,
+        context_factory: ContextFactory,
+        rates: FxRates = NO_RATES,
+    ) -> tuple[ExecutionPipelineState, tuple[Intent, ...], tuple[OMSOrder, ...]]:
+        """Deliver a record that has become knowable, and place what it asks for (OFE-009).
+
+        Strategies subscribed to ``observations`` -- or to the record's subject
+        -- that define ``on_observation`` receive it, seeing the book as it
+        stands at ``event.timestamp``. Like a timer it is an instant, not a
+        price: what they ask for **rests** until each asset's next event, so an
+        order decided on information known at ``t`` never fills at a price
+        printed before ``t``. Which records are due, and in what order, is the
+        driver's business (:meth:`~alphalab.runtime.run.RunEngine.deliver_observation`).
+
+        Nothing happens -- the same state is returned -- when no running
+        strategy both accepts the observation and defines the hook
+        (:func:`wants_observation`).
+
+        Returns:
+            The state, the intents the observation produced, and the orders
+            placed.
+
+        Raises:
+            RuntimeValidationError: If the observation is delivered before the
+                last event the pipeline processed.
+        """
+
+        last = state.market.events[-1] if len(state.market.events) else None
+        if last is not None and event.timestamp < last.timestamp:
+            raise RuntimeValidationError(
+                f"An observation known at {event.timestamp!r} is delivered after the last event "
+                f"this pipeline processed, at {last.timestamp!r}: acting on it now would act on "
+                "information as of an instant the market has already moved past."
+            )
+        if not wants_observation(state.strategy, event.subject):
+            return state, (), ()
+        return _deliver_instant(state, event, last, context_factory, rates)
 
     @staticmethod
     @in_accounting_context
@@ -1840,14 +1904,14 @@ _NO_WORKING: Mapping[tuple[str, str], Decimal] = MappingProxyType({})
 
 def _deliver_instant(
     state: ExecutionPipelineState,
-    event: TimerEvent | SliceClosed,
+    event: TimerEvent | SliceClosed | ObservationReceived,
     last: MarketEvent | None,
     context_factory: ContextFactory,
     rates: FxRates,
 ) -> tuple[ExecutionPipelineState, tuple[Intent, ...], tuple[OMSOrder, ...]]:
     """Dispatch an instant that is not a market observation, and place what it asks for.
 
-    A timer and a slice alike: the strategies see the book as it stands at
+    A timer, a slice and an observation alike: the strategies see the book as it stands at
     ``event``'s instant, their orders rest until each asset's next event, and
     what becomes of the orders is fed back as for any step. With no event
     published there is no price to size or judge an order by; the intents are
@@ -1895,6 +1959,22 @@ def _deliver_instant(
         evolve(current, id_position=current_id_position()),
         (*intents, *feedback_intents),
         routed.then(feedback).orders,
+    )
+
+
+def wants_observation(strategies: StrategyRuntimeState, subject: str) -> bool:
+    """Whether any running strategy accepts an observation about ``subject`` and defines
+    ``on_observation`` (ledger OFE-009).
+
+    What decides whether delivering one does anything at all: a run none of
+    whose strategies would act on it builds no context and dispatches nothing.
+    """
+
+    return any(
+        entry.status is LifecycleState.RUNNING
+        and entry.routing.accepts(Topic.OBSERVATIONS, subject)
+        and defines_on_observation(entry.instance)
+        for entry in strategies.strategies.values()
     )
 
 
@@ -2656,21 +2736,76 @@ def _evaluate_risk(
     """
 
     position = state.portfolio.positions.get(request.asset_id)
+    # One unit's value, not its price: a notional limit reads a contract on
+    # fifty units of an index as fifty times its quote (ACC-005).
+    price = _unit_value(
+        state,
+        request.asset_id,
+        _price_in_base(state, request.asset_id, request.price, rates, timestamp),
+    ).copy_abs()
+    working = _working_exposure(state, rates, timestamp)
     risk, decision = RiskEngine.evaluate(
         state.risk,
         request,
         timestamp,
         position=position.quantity if position is not None else Decimal("0"),
-        # One unit's value, not its price: a notional limit reads a contract on
-        # fifty units of an index as fifty times its quote (ACC-005).
-        price=_unit_value(
-            state,
-            request.asset_id,
-            _price_in_base(state, request.asset_id, request.price, rates, timestamp),
-        ).copy_abs(),
-        working=_working_exposure(state, rates, timestamp),
+        price=price,
+        working=working,
+        buckets=_bucket_exposures(state, request, price, working),
     )
     return evolve(state, risk=risk), decision
+
+
+def _bucket_exposures(
+    state: ExecutionPipelineState,
+    request: OrderRequest,
+    price: Decimal,
+    working: Mapping[str, WorkingExposure],
+) -> tuple[BucketExposure, ...]:
+    """The bucket the order's instrument is in along each limited dimension (OFE-001).
+
+    A bucket's gross exposure is summed over its members -- the registry's
+    index of every instrument carrying the label -- each at its filled value
+    plus what its working orders commit, as the projection values the book. So
+    the cost follows the bucket, and is paid only when a classification limit
+    is declared; a run that declares none takes one empty-tuple test.
+    """
+
+    limits = state.risk.active_limits.classification
+    if not limits:
+        return ()
+    instruments = state.config.instruments
+    values = state.risk.exposure.asset_exposure
+    ctx = ACCOUNTING_CONTEXT
+    signed = request.quantity if request.side is CoreSide.BUY else -request.quantity
+    order_value = ctx.multiply(signed, price)
+    buckets: list[BucketExposure] = []
+    for dimension in sorted({limit.dimension for limit in limits}):
+        label = None if instruments is None else instruments.label_of(request.asset_id, dimension)
+        if label is None or instruments is None:
+            buckets.append(BucketExposure(dimension, None, Decimal("0"), Decimal("0")))
+            continue
+        committed = Decimal("0")
+        for member in instruments.bucket_members(dimension, label):
+            committed = ctx.add(committed, abs(_committed_value(values, working, member)))
+        here = _committed_value(values, working, request.asset_id)
+        projected = ctx.add(ctx.subtract(committed, abs(here)), abs(ctx.add(here, order_value)))
+        buckets.append(BucketExposure(dimension, label, committed, projected))
+    return tuple(buckets)
+
+
+def _committed_value(
+    values: Mapping[str, Decimal], working: Mapping[str, WorkingExposure], asset_id: str
+) -> Decimal:
+    """An asset's filled value plus what its working orders commit, in the base currency."""
+
+    filled = values.get(asset_id, Decimal("0"))
+    pending = working.get(asset_id)
+    if pending is None:
+        return filled
+    return ACCOUNTING_CONTEXT.add(
+        filled, ACCOUNTING_CONTEXT.multiply(pending.quantity, pending.price)
+    )
 
 
 def _price_in_base(
