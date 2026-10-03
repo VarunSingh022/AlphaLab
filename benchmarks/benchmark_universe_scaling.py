@@ -15,6 +15,13 @@ than twice as dear, or if the largest book misses its budget.
 
 ``tests/regression/test_universe_scaling.py`` holds the same property as
 standing assertions.
+
+The table is one run of each size, measured under ``tracemalloc`` for its peak
+memory column -- which makes every allocation dearer, and dearer the larger the
+heap. The growth ceiling is therefore judged on a separate measurement by
+``_stable_timing``: CPU time, no allocation tracing, the collector paused, the
+smallest and largest books interleaved, the fastest of three. Until v3.12 it was
+judged on the traced single runs (ledger TST-011).
 """
 
 import time
@@ -23,6 +30,8 @@ from collections.abc import Iterable
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
+
+from _stable_timing import SAMPLES, fastest
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
@@ -172,10 +181,23 @@ def run_benchmark() -> None:
             raise SystemExit(f"{universe} assets took {elapsed:.1f}s, over {BUDGET_SECONDS:.0f}s")
 
     smallest, largest = UNIVERSES[0], UNIVERSES[-1]
-    growth = per_record[largest] / per_record[smallest]
     print(
-        f"  a record in a {largest}-asset book costs {growth:.2f}x one in a "
-        f"{smallest}-asset book (linear: ~1.0x; the removed quadratic: ~{largest // smallest}x)"
+        f"  in these runs a record in a {largest}-asset book cost "
+        f"{per_record[largest] / per_record[smallest]:.2f}x one in a {smallest}-asset book"
+    )
+    small_dataset = MarketDataset.of(f"UNIVERSE-{smallest}", _bars(smallest))
+    large_dataset = MarketDataset.of(f"UNIVERSE-{largest}", _bars(largest))
+    small_cpu, large_cpu = fastest(
+        [
+            lambda: BacktestEngine.run(_config(), small_dataset, _strategy(), _context),
+            lambda: BacktestEngine.run(_config(), large_dataset, _strategy(), _context),
+        ]
+    )
+    growth = (large_cpu / (largest * BARS)) / max(small_cpu / (smallest * BARS), 1e-12)
+    print(
+        f"  judged (CPU time, untraced, collector paused, fastest of {SAMPLES}): a record in a "
+        f"{largest}-asset book costs {growth:.2f}x one in a {smallest}-asset book "
+        f"(linear: ~1.0x; the removed quadratic: ~{largest // smallest}x)"
     )
     if growth > MAX_PER_RECORD_GROWTH:
         raise SystemExit(

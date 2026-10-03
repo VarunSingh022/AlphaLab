@@ -29,20 +29,22 @@ development machine at the version stated, and the ceilings are what a later
 change has to stay under.
 
 The throughput lines are one run of each size with the collector on, which is
-what a real run pays. The scaling ceilings are judged separately, by the method
-the test suite's complexity guards use (``tests/regression/_timing.py``, ledger
-TST-001): CPU time, the collector paused, the two sizes interleaved, the fastest
-of three samples of each. Until v3.11 they were judged on the single runs, and a
-full collection landing in the larger scenario run failed the v3.11 release gate
-at 6.05x, where repeated runs of v3.10 and v3.11 read 3.0x to 5.2x (ledger
-TST-010).
+what a real run pays. The scaling ceilings are judged separately, by
+``_stable_timing`` -- the method the test suite's complexity guards use
+(``tests/regression/_timing.py``, ledger TST-001): CPU time, the collector
+paused, the two sizes interleaved, the fastest of three samples of each. Until
+v3.11 they were judged on the single runs, and a full collection landing in the
+larger scenario run failed the v3.11 release gate at 6.05x, where repeated runs
+of v3.10 and v3.11 read 3.0x to 5.2x (ledger TST-010). v3.11 fixed it here with
+a local copy of the method; v3.12 moved every benchmark ceiling onto the shared
+one (TST-011).
 """
 
-import gc
-import math
 import time
 from collections.abc import Callable
 from decimal import Decimal
+
+from _stable_timing import SAMPLES, growth
 
 from alphalab.analytics.attribution import (
     AttributionDimension,
@@ -79,9 +81,6 @@ from alphalab.scenario import ScenarioExposure, ScenarioState, scenario
 #: allocator noise and catches a return to quadratic behaviour.
 MAX_LINEAR_SCALING = 6.0
 
-#: Samples of each size the scaling judgement takes the fastest of.
-SCALING_REPEATS = 3
-
 #: Risk decomposition builds an n-by-n covariance matrix, so a 4x increase in
 #: positions is a 16x increase in pairs. Quadratic predicts 16.00; the ceiling
 #: catches a cubic regression, which would predict 64.
@@ -94,37 +93,15 @@ def _timed[T](work: Callable[[int], T], size: int) -> tuple[float, T]:
     return time.perf_counter() - start, result
 
 
-def _growth(work: Callable[[int], object], small: int, large: int) -> tuple[float, float]:
-    """The fastest CPU time at ``small`` and at ``large``, sampled for a scaling ceiling.
-
-    The collector is paused and the sizes interleaved, so a full collection
-    triggered by the heap the earlier stages built, or a slow phase of the
-    machine, is not read as the algorithm's growth.
-    """
-
-    best = {small: math.inf, large: math.inf}
-    enabled = gc.isenabled()
-    gc.collect()
-    gc.disable()
-    try:
-        for _ in range(SCALING_REPEATS):
-            for size in (small, large):
-                start = time.process_time()
-                work(size)
-                best[size] = min(best[size], time.process_time() - start)
-    finally:
-        if enabled:
-            gc.enable()
-    return best[small], best[large]
-
-
 def _report(label: str, size: int, duration: float, unit: str) -> None:
     rate = size / duration if duration > 0 else float("inf")
     print(f"  {label:<22} {size:>7,} {unit:<12} in {duration:6.3f}s  ({rate:>12,.0f}/s)")
 
 
-def _scaling(label: str, small: float, large: float, ceiling: float, expected: str) -> float:
-    scaling = large / max(small, 1e-9)
+def _scaling(
+    label: str, work: Callable[[int], object], small: int, large: int, ceiling: float, expected: str
+) -> float:
+    scaling = growth(work, small, large)
     print(f"  {label:<22} 4x workload cost {scaling:5.2f}x the time ({expected})")
     if scaling > ceiling:
         raise SystemExit(
@@ -405,24 +382,15 @@ def run_benchmark() -> None:
 
     print(
         "\nScaling across a 4x workload increase (CPU time, collector paused, "
-        f"fastest of {SCALING_REPEATS}):"
+        f"fastest of {SAMPLES}):"
     )
     linear = "linear = 4.00x"
-    _scaling(
-        "execution simulation", *_growth(bench_execution, 2_000, 8_000), MAX_LINEAR_SCALING, linear
-    )
-    _scaling(
-        "partial fills", *_growth(bench_partial_fills, 2_000, 8_000), MAX_LINEAR_SCALING, linear
-    )
-    _scaling("capacity", *_growth(bench_capacity, 250, 1_000), MAX_LINEAR_SCALING, linear)
-    _scaling("attribution", *_growth(bench_attribution, 1_000, 4_000), MAX_LINEAR_SCALING, linear)
-    _scaling(
-        "risk decomposition",
-        *_growth(bench_risk, 40, 160),
-        MAX_QUADRATIC_SCALING,
-        "quadratic = 16.00x",
-    )
-    _scaling("scenario", *_growth(bench_scenario, 5_000, 20_000), MAX_LINEAR_SCALING, linear)
+    _scaling("execution simulation", bench_execution, 2_000, 8_000, MAX_LINEAR_SCALING, linear)
+    _scaling("partial fills", bench_partial_fills, 2_000, 8_000, MAX_LINEAR_SCALING, linear)
+    _scaling("capacity", bench_capacity, 250, 1_000, MAX_LINEAR_SCALING, linear)
+    _scaling("attribution", bench_attribution, 1_000, 4_000, MAX_LINEAR_SCALING, linear)
+    _scaling("risk decomposition", bench_risk, 40, 160, MAX_QUADRATIC_SCALING, "quadratic = 16.00x")
+    _scaling("scenario", bench_scenario, 5_000, 20_000, MAX_LINEAR_SCALING, linear)
 
     print(
         "\n  note: risk decomposition is quadratic on purpose -- a pairwise\n"

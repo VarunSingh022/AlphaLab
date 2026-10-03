@@ -23,15 +23,23 @@ Two questions, and the second is the one this release cares about:
 Capture is measured too, because ADR-0029 decision 8 made the checkpoint cost a
 release-visible number and v2.14 nests the pipeline envelope inside a run
 envelope: the run layer must stay a rounding error on top of the core.
+
+The figures printed first are one run of each, with the collector on, which is
+what a real run pays. The three ceilings are judged on separate measurements by
+``_stable_timing`` -- CPU time, the collector paused, the workloads interleaved,
+the fastest of three. Until v3.12 they were judged on those single runs, the
+method that failed the v3.11 release gate in ``benchmark_institutional`` (ledger
+TST-010, TST-011).
 """
 
-import gc
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
+
+from _stable_timing import SAMPLES, fastest
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
@@ -68,10 +76,8 @@ START_CASH = Decimal("10000000")
 SEED = 20241114
 
 # Linear scaling predicts 4.0 for a 4x workload; quadratic predicts ~16. The
-# ceiling matches `benchmark_execution_pipeline.py`'s and for its reason: what a
-# run measures above 4.00x is the cyclic collector walking a growing live heap,
-# not an algorithmic term, and the benchmark leaves the collector on because that
-# is what a real run pays.
+# ceiling matches `benchmark_execution_pipeline.py`'s: it catches a regression
+# toward quadratic behaviour, not constant factors.
 MAX_SCALING_FACTOR = 6.0
 
 # What RunEngine.advance costs above ExecutionPipeline.process_record over the
@@ -191,39 +197,51 @@ def _run_config(strategy_id: str) -> RunConfig:
     )
 
 
-def _through_run_engine(records: int) -> tuple[float, RunState]:
-    """The run layer: gates, canonical step, RunStep, cursor."""
+def _run_engine_workload(records: int) -> Callable[[], RunState]:
+    """The run layer over ``records`` prebuilt records: gates, canonical step, RunStep, cursor."""
 
     strategy_id, asset_id = str(uuid4()), str(uuid4())
     config = _run_config(strategy_id)
     stream = _records(asset_id, records)
 
-    with id_scope(SEED):
-        state = RunEngine.initialize(config, _running_state(strategy_id, asset_id))
-        start = time.perf_counter()
-        for record in stream:
-            state, _ = RunEngine.advance(state, record, _context_factory)
-        duration = time.perf_counter() - start
-    return duration, state
+    def work() -> RunState:
+        with id_scope(SEED):
+            state = RunEngine.initialize(config, _running_state(strategy_id, asset_id))
+            for record in stream:
+                state, _ = RunEngine.advance(state, record, _context_factory)
+        return state
+
+    return work
 
 
-def _through_pipeline_only(records: int) -> float:
+def _pipeline_workload(records: int) -> Callable[[], object]:
     """The same records through the execution step alone -- the control."""
 
     strategy_id, asset_id = str(uuid4()), str(uuid4())
     config = _run_config(strategy_id)
     stream = _records(asset_id, records)
 
-    with id_scope(SEED):
-        state = ExecutionPipeline.initialize(
-            config.pipeline, _running_state(strategy_id, asset_id), 1.0
-        )
-        start = time.perf_counter()
-        for record in stream:
-            state = ExecutionPipeline.process_record(
-                state, record, _context_factory, config.fill_policy
-            ).state
-        return time.perf_counter() - start
+    def work() -> object:
+        with id_scope(SEED):
+            state = ExecutionPipeline.initialize(
+                config.pipeline, _running_state(strategy_id, asset_id), 1.0
+            )
+            for record in stream:
+                state = ExecutionPipeline.process_record(
+                    state, record, _context_factory, config.fill_policy
+                ).state
+        return state
+
+    return work
+
+
+def _through_run_engine(records: int) -> tuple[float, RunState]:
+    """One run of the run layer with the collector on, as reported."""
+
+    work = _run_engine_workload(records)
+    start = time.perf_counter()
+    state = work()
+    return time.perf_counter() - start, state
 
 
 def _report(records: int, duration: float, state: RunState) -> None:
@@ -242,22 +260,6 @@ def _totals(state: RunState) -> Mapping[str, Decimal]:
     }
 
 
-def _best(measure: Any, records: int, repeats: int = 3) -> float:
-    """Lowest of ``repeats``, with the collector run first.
-
-    The two paths are measured this way and interleaved rather than one after the
-    other, because a single timing of each compares one heap state against a
-    different one and reports the machine rather than the code.
-    """
-
-    lowest = float("inf")
-    for _ in range(repeats):
-        gc.collect()
-        result = measure(records)
-        lowest = min(lowest, result[0] if isinstance(result, tuple) else result)
-    return lowest
-
-
 def run_benchmark() -> None:
     small, large = 1_000, 4_000
 
@@ -268,26 +270,18 @@ def run_benchmark() -> None:
     large_duration, large_state = _through_run_engine(large)
     _report(large, large_duration, large_state)
 
-    scaling = large_duration / max(small_duration, 1e-9)
-    print(f"  4x workload cost {scaling:.2f}x the time (linear would be 4.00x)")
-
-    control = _best(_through_pipeline_only, small)
-    driven = _best(_through_run_engine, small)
-    overhead = driven / max(control, 1e-9)
     print(
-        f"  run layer cost {overhead:.3f}x the bare execution step over {small} records "
-        f"({(overhead - 1) * 100:+.2f}%)"
+        f"  in these runs: 4x workload cost {large_duration / max(small_duration, 1e-9):.2f}x "
+        "the time (linear would be 4.00x)"
     )
 
     # Capture against capture. Serialization is reported beside them rather than
     # inside the ratio: it is the same encoder either way and it dominates both,
     # so folding it in would measure the codec and call it envelope overhead.
-    gc.collect()
     core_start = time.perf_counter()
     pipeline_snapshot.capture(large_state.pipeline)
     core = time.perf_counter() - core_start
 
-    gc.collect()
     envelope_start = time.perf_counter()
     snapshot = run_snapshot.capture(large_state)
     envelope = time.perf_counter() - envelope_start
@@ -296,10 +290,9 @@ def run_benchmark() -> None:
     payload = serialize(snapshot)
     encoding = time.perf_counter() - serialize_start
 
-    capture_ratio = envelope / max(core, 1e-9)
     print(
         f"  capture(pipeline)={core * 1000:.1f}ms  capture(run)={envelope * 1000:.1f}ms "
-        f"({capture_ratio:.2f}x)"
+        f"({envelope / max(core, 1e-9):.2f}x)"
     )
     print(f"  serialize(run)={encoding:.4f}s  payload {len(payload) / 1e6:.2f} MB")
     print(f"  final totals: {_totals(large_state)}")
@@ -307,6 +300,27 @@ def run_benchmark() -> None:
         "  note: the run layer is two gates, one RunStep and one replace per record;\n"
         "        the execution step underneath it is unchanged since v2.13."
     )
+
+    # The ceilings, judged on their own measurements (module docstring).
+    run_small, run_large, pipeline_small = fastest(
+        [_run_engine_workload(small), _run_engine_workload(large), _pipeline_workload(small)]
+    )
+    scaling = run_large / max(run_small, 1e-9)
+    overhead = run_small / max(pipeline_small, 1e-9)
+    core_cpu, envelope_cpu = fastest(
+        [
+            lambda: pipeline_snapshot.capture(large_state.pipeline),
+            lambda: run_snapshot.capture(large_state),
+        ]
+    )
+    capture_ratio = envelope_cpu / max(core_cpu, 1e-9)
+    print(f"  judged (CPU time, collector paused, fastest of {SAMPLES}):")
+    print(f"    4x workload cost {scaling:.2f}x the time (linear would be 4.00x)")
+    print(
+        f"    run layer cost {overhead:.3f}x the bare execution step over {small} records "
+        f"({(overhead - 1) * 100:+.2f}%)"
+    )
+    print(f"    capture(run) cost {capture_ratio:.2f}x capture(pipeline)")
 
     if scaling > MAX_SCALING_FACTOR:
         raise SystemExit(

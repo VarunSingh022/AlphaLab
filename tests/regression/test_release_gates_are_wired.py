@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parents[2]
 CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 BENCHMARKS = ROOT / ".github" / "workflows" / "benchmarks.yml"
 PRE_COMMIT = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+#: Modules in ``benchmarks/`` that are imported by benchmarks rather than run:
+#: the stabilized timing every ceiling is judged by (ledger TST-011).
+BENCHMARK_HELPERS = frozenset({"_stable_timing.py"})
 DEV = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
     "optional-dependencies"
 ]["dev"]
@@ -79,7 +82,7 @@ def test_every_benchmark_runs_on_a_schedule() -> None:
     unmatched = [
         path.name
         for path in (ROOT / "benchmarks").glob("*.py")
-        if not path.name.startswith("benchmark_")
+        if not path.name.startswith("benchmark_") and path.name not in BENCHMARK_HELPERS
     ]
     assert unmatched == [], f"benchmarks the scheduled run would not find: {unmatched}"
 

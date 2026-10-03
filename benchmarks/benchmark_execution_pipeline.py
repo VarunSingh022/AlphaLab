@@ -14,6 +14,8 @@ from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
+from _stable_timing import SAMPLES, growth
+
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.market.quote import Quote
@@ -201,8 +203,14 @@ def run_benchmark() -> None:
     large_duration, large_state = _run(large_events)
     _report(large_events, large_duration, large_state)
 
-    scaling = large_duration / max(small_duration, 1e-9)
-    print(f"  4x workload cost {scaling:.2f}x the time (linear would be 4.00x)")
+    print(
+        f"  in these runs: 4x workload cost {large_duration / max(small_duration, 1e-9):.2f}x "
+        "the time (linear would be 4.00x)"
+    )
+    # The ceiling is judged on CPU time with the collector paused, interleaved,
+    # fastest of three, not on the two runs above (ledger TST-011).
+    scaling = growth(_run, small_events, large_events)
+    print(f"  judged (CPU time, collector paused, fastest of {SAMPLES}): {scaling:.2f}x")
     print(f"  final portfolio totals: {_totals(large_state)}")
     print(
         "  note: as of v2.2 no container on this path is copied per event --\n"

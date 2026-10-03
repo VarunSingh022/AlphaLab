@@ -16,9 +16,10 @@ workload at two sizes and reports the growth factor, which is what distinguishes
 a linear structure from a quadratic one regardless of machine speed.
 """
 
-import gc
 import time
 from decimal import Decimal
+
+from _stable_timing import SAMPLES, fastest
 
 from alphalab.oms import OMSEngine, OMSState, Order, OrderId, OrderStatus, OrderType, Side
 
@@ -49,36 +50,30 @@ def _orders(count: int, base_ts: float) -> list[Order]:
     ]
 
 
-def _full_workload(count: int, base_ts: float) -> float:
-    """Submit, cancel half, accept-and-fill half. Returns elapsed seconds.
+def _full_workload(count: int, base_ts: float) -> None:
+    """Submit, cancel half, accept-and-fill half.
 
-    The cyclic collector is paused around the timed section. Every order,
+    Timed by ``_stable_timing``, which pauses the cyclic collector: every order,
     event and state here is a container object, so a run keeps a large live
-    heap; with the collector on, what the timing measures is mostly how often
-    CPython walked that heap, which swamps the structure being compared. (Left
-    on, a 2x workload has been measured at anywhere from 1.3x to 5.2x on the
-    same build, in both directions -- the number stops meaning anything.)
+    heap, and with the collector on what a timing measures is mostly how often
+    CPython walked that heap. (Left on, a 2x workload has been measured at
+    anywhere from 1.3x to 5.2x on the same build, in both directions.) Until
+    v3.12 this paused the collector itself and was timed once per size; it is now
+    the fastest of three interleaved samples (ledger TST-011).
     """
 
     orders = _orders(count, base_ts)
     state = OMSState()
     half = count // 2
-
-    gc.disable()
-    try:
-        start = time.perf_counter()
-        for order in orders:
-            state = OMSEngine.submit(state, order, base_ts)
-        for order in orders[half:]:
-            state = OMSEngine.cancel(state, order.order_id, base_ts + 1)
-        for order in orders[:half]:
-            state = OMSEngine.accept(state, order.order_id, base_ts + 1)
-            state = OMSEngine.fill(
-                state, order.order_id, Decimal("100.0"), Decimal("150.0"), base_ts + 2
-            )
-        return time.perf_counter() - start
-    finally:
-        gc.enable()
+    for order in orders:
+        state = OMSEngine.submit(state, order, base_ts)
+    for order in orders[half:]:
+        state = OMSEngine.cancel(state, order.order_id, base_ts + 1)
+    for order in orders[:half]:
+        state = OMSEngine.accept(state, order.order_id, base_ts + 1)
+        state = OMSEngine.fill(
+            state, order.order_id, Decimal("100.0"), Decimal("150.0"), base_ts + 2
+        )
 
 
 def run_benchmark() -> None:
@@ -86,12 +81,14 @@ def run_benchmark() -> None:
 
     # Scaling first, on a clean heap: the 100k stages below retain a large
     # live state, and measuring growth alongside it measures the collector.
-    small = _full_workload(10_000, base_ts)
-    large = _full_workload(20_000, base_ts)
+    small, large = fastest(
+        [lambda: _full_workload(10_000, base_ts), lambda: _full_workload(20_000, base_ts)]
+    )
     scaling = large / max(small, 1e-9)
     print(
-        f"Scaling: 10k -> 20k order lifecycles cost {scaling:.2f}x the time "
-        f"({small:.3f}s -> {large:.3f}s; linear 2.00x, quadratic ~4.00x)"
+        f"Scaling: 10k -> 20k order lifecycles cost {scaling:.2f}x the CPU time "
+        f"({small:.3f}s -> {large:.3f}s, collector paused, fastest of {SAMPLES}; "
+        "linear 2.00x, quadratic ~4.00x)"
     )
 
     orders_to_add = _orders(N, base_ts)
