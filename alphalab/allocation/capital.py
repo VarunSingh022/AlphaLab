@@ -1022,6 +1022,7 @@ def capital_budget(
     account_id: str,
     maximum_exposure: Decimal,
     cash_buffer: Decimal,
+    enforce_strategy_budgets: bool = False,
 ) -> CapitalBudget:
     """The execution-path budget one account's allocation becomes.
 
@@ -1038,6 +1039,9 @@ def capital_budget(
             decision the plan does not make, so it is required.
         cash_buffer: Capital held back from the budget. Required; zero is a
             choice.
+        enforce_strategy_budgets: Whether each strategy's allocation is a
+            ceiling on what it may commit (ledger OFE-003), rather than only
+            what it is sized against.
 
     Raises:
         AllocationValidationError: If the result was refused or holds no such
@@ -1066,4 +1070,5 @@ def capital_budget(
         cash_buffer=cash_buffer,
         strategy_budgets=dict(sorted(strategies.items())),
         currency=entry.account.currency,
+        enforce_strategy_budgets=enforce_strategy_budgets,
     )

@@ -134,7 +134,8 @@ def test_a_v3_9_oms_is_upgraded_to_day_orders_with_nothing_else_changed() -> Non
 
 
 def test_a_v3_9_allocation_is_upgraded_to_market_terms_with_nothing_else_changed() -> None:
-    """v3.11 moved the allocation schema to 2: each request records its terms."""
+    """v3.11 moved the allocation schema to 2: each request records its terms. v3.12
+    moved it to 3: the budget says it enforced no ceiling, and nothing was committed."""
 
     from alphalab.allocation.snapshot import from_primitives
 
@@ -150,11 +151,15 @@ def test_a_v3_9_allocation_is_upgraded_to_market_terms_with_nothing_else_changed
     }
     assert recaptured == {
         **payload,
-        "schema_version": 2,
+        "schema_version": 3,
         "history": [{**request, "terms": market} for request in payload["history"]],
         # Nothing recorded what each strategy held: not an empty book, unknown
         # (FEA-001), so a target is refused rather than sized against zero.
         "strategy_positions": None,
+        # No budget before v3.12 enforced a strategy's amount (OFE-003); the
+        # currency v3.9 wrote is the one read back (PER-006).
+        "budget": {**payload["budget"], "enforce_strategy_budgets": False},
+        "strategy_capital": {},
     }
 
 
@@ -271,10 +276,10 @@ def test_a_v3_9_backtest_run_is_upgraded_restored_and_continues() -> None:
     assert continued.processed == 7
     recaptured = deserialize(serialize(capture(continued)))
     assert recaptured["schema_version"] == RUN_SNAPSHOT_SCHEMA == 3
-    assert recaptured["pipeline"]["schema_version"] == 5
+    assert recaptured["pipeline"]["schema_version"] == 6
     assert recaptured["pipeline"]["portfolio"]["schema_version"] == 5
     assert recaptured["pipeline"]["oms"]["schema_version"] == 2
-    assert recaptured["pipeline"]["allocation"]["schema_version"] == 2
+    assert recaptured["pipeline"]["allocation"]["schema_version"] == 3
     # Every order the v3.9 run recorded -- in the book and in each step -- is
     # the day order it was.
     for step in recaptured["steps"]:
@@ -300,7 +305,7 @@ def test_a_v3_9_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
     assert snapshot.schema_version == 2
     assert snapshot.requests == ()  # version 1 recorded none
     assert snapshot.run.schema_version == 3
-    assert snapshot.run.pipeline.schema_version == 5
+    assert snapshot.run.pipeline.schema_version == 6
     assert snapshot.broker.schema_version == 2
     assert snapshot.broker.order_bindings
 

@@ -58,6 +58,7 @@ from alphalab.runtime.broker_routing import (
     route_order,
     venue_order_type,
 )
+from alphalab.runtime.calendars import VenueCalendars
 from alphalab.runtime.exceptions import (
     AlphaLabRuntimeError,
     RuntimeValidationError,
@@ -125,6 +126,7 @@ __all__ = [
     "TradingSession",
     "UnpricedAsset",
     "UnpricedReason",
+    "VenueCalendars",
     "apply_broker_execution",
     "child_broker_order_id",
     "execution_assumptions",

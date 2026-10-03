@@ -79,10 +79,11 @@ def test_the_pipeline_schema_does_not_move() -> None:
     the stable core does not.
     """
 
-    # v2.14 did not move it; v3.10 did, to 4, and v3.11 to 5 (a bar's interval
-    # code, DAT-005), each reading every earlier version.
-    assert PIPELINE_SNAPSHOT_SCHEMA == 5
-    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4, 5)
+    # v2.14 did not move it; v3.10 did, to 4, v3.11 to 5 (a bar's interval code,
+    # DAT-005) and v3.12 to 6 (venue calendars, EXE-010), each reading every
+    # earlier version.
+    assert PIPELINE_SNAPSHOT_SCHEMA == 6
+    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4, 5, 6)
 
 
 @pytest.mark.parametrize(

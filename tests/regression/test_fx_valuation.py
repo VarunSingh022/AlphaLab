@@ -497,7 +497,7 @@ def test_the_pipeline_config_carries_no_rate_table() -> None:
     names = {f.name for f in dataclass_fields(ExecutionPipelineConfig)}
     assert "fx_rates" not in names
     assert "rates" not in names
-    assert PIPELINE_SNAPSHOT_SCHEMA == 5  # v3.10 minor units; v3.11 a bar's interval code
+    assert PIPELINE_SNAPSHOT_SCHEMA == 6  # v3.10 minor units; v3.11 interval code; v3.12 calendars
 
 
 # --------------------------------------------------------------------------- #

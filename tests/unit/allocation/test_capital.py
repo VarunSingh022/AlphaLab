@@ -390,6 +390,23 @@ def test_an_unstated_budget_currency_and_an_inconsistent_ledger_are_refused() ->
         reserved_capital(inconsistent, currency="USD")
 
 
+def test_an_allocation_can_become_enforced_per_strategy_ceilings() -> None:
+    """Each strategy's allocation, as the most it may commit (ledger OFE-003)."""
+
+    result = allocate_capital(plan(WEIGHTS), RATES)
+    budget = capital_budget(
+        result,
+        account_id="ACC-US",
+        maximum_exposure=Decimal("10000000"),
+        cash_buffer=Decimal("0"),
+        enforce_strategy_budgets=True,
+    )
+
+    assert budget.strategy_ceiling("MOM") == Decimal("580000")
+    assert budget.strategy_ceiling("MR") == Decimal("290000")
+    assert budget.strategy_ceiling("OTHER") is None
+
+
 def test_an_allocation_becomes_an_execution_budget_that_admits_exactly_the_allocation() -> None:
     result = allocate_capital(plan(WEIGHTS), RATES)
     budget = capital_budget(

@@ -194,6 +194,7 @@ from alphalab.risk.limits import (
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.models import RiskSeverity, RiskViolation
 from alphalab.risk.state import RiskState
+from alphalab.runtime.calendars import VenueCalendars, venue_calendars_from_primitives
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineConfig,
     ExecutionPipelineState,
@@ -267,9 +268,15 @@ __all__ = [
 #: allows a bar's ``vwap`` and ``trade_count`` to be ``null`` -- not reported
 #: (ledger DAT-005). Each strategy record says whether the strategy is owed its
 #: ``on_start`` (``started``, ledger EXE-005), and its subscriptions are the
-#: routing rather than a note (ledger EXE-007). Every earlier version is read
-#: through :data:`PIPELINE_SCHEMA_HISTORY`.
-PIPELINE_SNAPSHOT_SCHEMA: Final = 5
+#: routing rather than a note (ledger EXE-007).
+#:
+#: Version 6 (v3.12) carries the trading calendar declared for each listing
+#: venue (``config.calendars``, ledger EXE-010): a calendar is data, so it is
+#: recorded rather than supplied back. It also records whether the budget
+#: enforces per-strategy ceilings (``config.budget.enforce_strategy_budgets``,
+#: ledger OFE-003). Every earlier version is read through
+#: :data:`PIPELINE_SCHEMA_HISTORY`.
+PIPELINE_SNAPSHOT_SCHEMA: Final = 6
 
 _SUBSYSTEM: Final = "pipeline"
 
@@ -472,6 +479,24 @@ def _v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _v5_to_v6(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record that a version-5 run declared no venue calendar and enforced no ceiling.
+
+    A v3.11 pipeline could hold no calendar (ledger EXE-010): it refused a
+    simulated day order that did not state its close, and that is exactly what
+    an empty declaration does. The order a v3.11 run did place carries the
+    close its caller stated, so nothing it holds is reinterpreted. Nor did any
+    v3.11 budget enforce a strategy's amount as a ceiling (OFE-003). The nested
+    allocation payload carries its own version and is upgraded by its own
+    history.
+    """
+
+    config = dict(payload["config"])
+    config["calendars"] = {"by_exchange": {}, "default": None}
+    config["budget"] = {**config["budget"], "enforce_strategy_budgets": False}
+    return {**payload, "config": config}
+
+
 #: How every pipeline payload a release has written is read by this one.
 #:
 #: A version-1 payload is still missing nothing: it records every field its
@@ -507,6 +532,12 @@ PIPELINE_SCHEMA_HISTORY: Final = SchemaHistory(
             "records whether each strategy is owed on_start and routes on its subscriptions, "
             "and gives each order request its terms",
             upgrade=_v4_to_v5,
+        ),
+        SchemaStep(
+            5,
+            "version 6 carries the trading calendar declared for each listing venue and "
+            "whether the budget enforces per-strategy ceilings",
+            upgrade=_v5_to_v6,
         ),
     ),
 )
@@ -652,6 +683,7 @@ class ConfigRecord:
     simulator_type: str
     instruments_type: str | None
     fill_timing: FillTiming
+    calendars: VenueCalendars
 
 
 @dataclass(frozen=True, slots=True)
@@ -824,6 +856,7 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
         simulator_type=_type_name(config.simulator),
         instruments_type=(None if config.instruments is None else _type_name(config.instruments)),
         fill_timing=config.fill_timing,
+        calendars=config.calendars,
     )
 
 
@@ -1091,6 +1124,7 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
         routing=record.routing,
         instruments=instruments,
         fill_timing=record.fill_timing,
+        calendars=record.calendars,
     )
 
 
@@ -1358,6 +1392,11 @@ def _budget(value: Any, where: str = "config.budget") -> CapitalBudget:
         # "" in a payload upgraded from version 1 or 2, where it means
         # "unstated" -- what a single-currency pipeline's budget was.
         currency=as_str(require(payload, "currency"), f"{where}.currency"),
+        # False in a payload upgraded from version 5 or earlier: nothing before
+        # v3.12 enforced a strategy's budget (OFE-003).
+        enforce_strategy_budgets=as_bool(
+            require(payload, "enforce_strategy_budgets"), f"{where}.enforce_strategy_budgets"
+        ),
     )
 
 
@@ -1875,6 +1914,11 @@ def _config(value: Any) -> ConfigRecord:
             None if instruments is None else as_str(instruments, f"{where}.instruments_type")
         ),
         fill_timing=_fill_timing(require(payload, "fill_timing"), f"{where}.fill_timing"),
+        # Empty in a payload upgraded from version 5 or earlier: such a pipeline
+        # held no calendar. See PIPELINE_SCHEMA_HISTORY.
+        calendars=venue_calendars_from_primitives(
+            require(payload, "calendars"), f"{where}.calendars"
+        ),
     )
 
 

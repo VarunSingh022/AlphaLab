@@ -27,9 +27,12 @@ Time in force
 -------------
 
 =========  ================================================================
-``DAY``    Until the close of its session. A simulated resting order needs
-           that close as ``expire_at`` -- the pipeline holds no calendar -- and
-           :meth:`~alphalab.data.calendar.MarketCalendar.next_close` gives it.
+``DAY``    Until its trading day ends. A simulated resting order that states
+           no ``expire_at`` is given the last close of its trading day by the
+           calendar declared for its listing venue
+           (``ExecutionPipelineConfig.calendars``, v3.12), and is refused when
+           none is; until v3.12 the pipeline held no calendar and refused it
+           always.
 ``GTC``    Until filled or cancelled.
 ``GTD``    Until ``expire_at``.
 ``IOC``    Whatever fills at once; the rest is cancelled.

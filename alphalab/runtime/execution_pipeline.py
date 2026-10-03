@@ -27,7 +27,7 @@ from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context
 from alphalab.common.evolve import evolve
 from alphalab.common.ids import IdStreamPosition, current_id_position
-from alphalab.common.order_terms import TimeInForce
+from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.conventions.economics import InstrumentEconomics
 from alphalab.conventions.lot import LotSpecification
@@ -36,6 +36,7 @@ from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
+from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS
 from alphalab.execution.engine import ExecutionEngine
 from alphalab.execution.fill import FillStatus, OrderInstruction
 from alphalab.execution.policy import (
@@ -92,6 +93,7 @@ from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.projection import NO_WORKING_ORDERS, WorkingExposure
 from alphalab.risk.state import RiskState
+from alphalab.runtime.calendars import VenueCalendars
 from alphalab.runtime.context_views import (
     HistoryView,
     MarketView,
@@ -231,6 +233,16 @@ class ExecutionPipelineConfig:
             :class:`~alphalab.execution.policy.FillTiming`. Ignored under
             ``EXTERNAL`` routing, where nothing is simulated. Recorded with the
             run, its snapshot and its results.
+        calendars: The trading calendar of each listing venue, read for one
+            question: when a simulated resting **day** order that states no
+            ``expire_at`` expires. It is given the last close of its trading
+            day by the calendar of its instrument's listing venue -- read
+            through ``instruments`` -- or by ``calendars.default``, and is
+            refused, naming the venue, when neither is declared. Empty by
+            default, which refuses every such order, as v3.11 did. Ignored under
+            ``EXTERNAL`` routing, where the venue works the order. Carried by
+            the pipeline snapshot. See :mod:`alphalab.runtime.calendars`
+            (ledger EXE-010).
     """
 
     account: Account
@@ -246,6 +258,7 @@ class ExecutionPipelineConfig:
     routing: ExecutionRouting = ExecutionRouting.SIMULATED
     instruments: InstrumentRegistry | None = None
     fill_timing: FillTiming = FillTiming.SAME_EVENT
+    calendars: VenueCalendars = field(default_factory=VenueCalendars)
 
     def __post_init__(self) -> None:
         if not self.currency:
@@ -1788,13 +1801,18 @@ def _working_shares(
     What a target is measured against beside the strategy's own position: an
     order already working toward it must not be asked for twice. Each working
     order's remaining quantity is divided among the strategies that asked for it
-    by contribution, as its fills are. Computed only when a target is asked for.
+    by contribution, as its fills are. Computed only when a target is asked for
+    -- or, when the budget enforces per-strategy ceilings, for every intent of a
+    ceilinged strategy, whose order commits only the exposure it adds to that
+    same position (OFE-003).
     """
 
+    budget = state.allocation.budget
     wanted = {
         (intent.strategy_id, intent.instrument)
         for intent in intents
         if intent.kind is not IntentKind.DELTA
+        or budget.strategy_ceiling(intent.strategy_id) is not None
     }
     if not wanted:
         return _NO_WORKING
@@ -2174,10 +2192,10 @@ def _terms_refusal(
 
     An order already past its expiry is refused on either routing. Two more are
     refused only in simulation, where the pipeline itself must work the order:
-    a resting day order with no session close -- the pipeline holds no
-    calendar and will not guess one -- and an auction order for an asset the
-    run has no daily bars for, since an auction price is a daily bar's open or
-    close.
+    a resting day order that states no close when no calendar is declared for
+    its venue -- the pipeline will not guess a session (EXE-010) -- and an
+    auction order for an asset the run has no daily bars for, since an auction
+    price is a daily bar's open or close.
     """
 
     terms = request.terms
@@ -2188,18 +2206,64 @@ def _terms_refusal(
         )
     if state.config.routing is not ExecutionRouting.SIMULATED:
         return None
-    if terms.rests and terms.time_in_force is TimeInForce.DAY and terms.expire_at is None:
-        return (
-            "A day order rests until its session closes, and a simulated run holds no "
-            "calendar: state the close as expire_at (MarketCalendar.next_close gives it), or "
-            "use GTC or GTD."
-        )
+    if _needs_session_close(terms):
+        _, refusal = _day_order_close(state, request.asset_id, instant)
+        if refusal is not None:
+            return refusal
     if terms.is_auction and not _has_session_bars(state.market, request.asset_id):
         return (
             f"An auction order fills at a daily bar's open or close, and this run has published "
             f"no daily bar for {request.asset_id}."
         )
     return None
+
+
+def _needs_session_close(terms: OrderTerms) -> bool:
+    """Whether a simulated order on these terms expires at a session close nobody stated."""
+
+    return terms.rests and terms.time_in_force is TimeInForce.DAY and terms.expire_at is None
+
+
+def _listing_exchange(state: ExecutionPipelineState, asset_id: str) -> str | None:
+    """The venue ``asset_id`` is listed on, when the run's registry holds it."""
+
+    instruments = state.config.instruments
+    record = None if instruments is None else instruments.record_for(asset_id)
+    return None if record is None else record.exchange
+
+
+def _day_order_close(
+    state: ExecutionPipelineState, asset_id: str, instant: float
+) -> tuple[float | None, str | None]:
+    """When a simulated day order in ``asset_id`` placed at ``instant`` expires, or why
+    it cannot be said: ``(close, None)`` or ``(None, refusal)`` (EXE-010).
+
+    The close is the last of the trading day the order is good for, by the
+    declared calendar of the asset's listing venue
+    (:meth:`~alphalab.data.calendar.MarketCalendar.day_order_expiry`).
+    """
+
+    exchange = _listing_exchange(state, asset_id)
+    calendar = state.config.calendars.calendar_for(exchange)
+    if calendar is None:
+        venue = (
+            "its listing venue is not known"
+            if exchange is None
+            else f"its listing venue {exchange} has no calendar declared"
+        )
+        return None, (
+            f"A day order rests until its trading day ends, and {venue}: declare the "
+            "calendar on ExecutionPipelineConfig.calendars, state the close as expire_at, "
+            "or use GTC or GTD."
+        )
+    close = calendar.day_order_expiry(instant)
+    if close is None:
+        return None, (
+            f"A day order rests until its trading day ends, and calendar "
+            f"{calendar.calendar_id} declares no session within "
+            f"{MAX_SESSION_SEARCH_DAYS} days of {instant!r}."
+        )
+    return close, None
 
 
 def _kills(order: OMSOrder, decision: FillDecision) -> bool:
@@ -2826,7 +2890,11 @@ def _available_quantity(event: MarketEvent, side: OMSSide) -> Decimal | None:
 def _submit_and_accept_order(
     state: ExecutionPipelineState, request: OrderRequest, timestamp: float
 ) -> tuple[ExecutionPipelineState, OMSOrder]:
-    submitted_order = _oms_order(request)
+    expire_at = request.terms.expire_at
+    if state.config.routing is ExecutionRouting.SIMULATED and _needs_session_close(request.terms):
+        # _terms_refusal already refused the order when this has no answer.
+        expire_at, _ = _day_order_close(state, request.asset_id, timestamp)
+    submitted_order = _oms_order(request, expire_at)
     oms = OMSEngine.submit(state.oms, submitted_order, timestamp)
     oms = OMSEngine.accept(oms, submitted_order.order_id, timestamp)
     accepted = oms.orders.find(submitted_order.order_id)
@@ -2890,15 +2958,6 @@ def _apply_reports(
         current = _apply_report_to_oms(current, order.order_id, report)
         fill, trade = _canonical_execution(report, order.side)
         current = _apply_report_to_portfolio(current, report, order.side, rates)
-        # Each contributing strategy's own position (FEA-001), read while the
-        # order's contributions are still on the ledger.
-        signed = report.fill_quantity if order.side is OMSSide.BUY else -report.fill_quantity
-        current = evolve(
-            current,
-            allocation=AllocationEngine.record_fill(
-                current.allocation, report.order_id, report.asset_id, signed
-            ),
-        )
         # Reconcile allocation budgets with executed notional, expressed in the
         # budget's currency like the reservation it consumes. Converting here
         # rather than inside AllocationEngine is what keeps that package free of
@@ -2913,6 +2972,16 @@ def _apply_reports(
             report.currency,
             rates,
             report.timestamp,
+        )
+        # Each contributing strategy's own position (FEA-001), read while the
+        # order's contributions are still on the ledger -- and, for a ceilinged
+        # strategy, what its share deployed (OFE-003).
+        signed = report.fill_quantity if order.side is OMSSide.BUY else -report.fill_quantity
+        current = evolve(
+            current,
+            allocation=AllocationEngine.record_fill(
+                current.allocation, report.order_id, report.asset_id, signed, executed_notional
+            ),
         )
         allocation_state = AllocationEngine.apply_execution(
             current.allocation, report.order_id, executed_notional, report.timestamp
@@ -3156,11 +3225,13 @@ def _terminate_order(
     return OMSEngine.reject(oms, order.order_id, reason, timestamp)
 
 
-def _oms_order(request: OrderRequest) -> OMSOrder:
+def _oms_order(request: OrderRequest, expire_at: float | None) -> OMSOrder:
     """The OMS order a request becomes, on the terms it was asked with (EXE-003).
 
     Until v3.11 every order was built ``MARKET`` here whatever was asked; the
-    request had nowhere to say anything else.
+    request had nowhere to say anything else. ``expire_at`` is the terms' own,
+    or -- for a simulated day order that stated none -- its session close by the
+    declared calendar (EXE-010), so the order records when it will expire.
     """
 
     terms = request.terms
@@ -3181,7 +3252,7 @@ def _oms_order(request: OrderRequest) -> OMSOrder:
         request.timestamp,
         {"reference_price": str(request.price)},
         time_in_force=terms.time_in_force,
-        expire_at=terms.expire_at,
+        expire_at=expire_at,
     )
 
 

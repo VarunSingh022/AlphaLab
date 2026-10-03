@@ -7,9 +7,11 @@ from typing import Final
 
 from alphalab.allocation.allocator import IntentAllocator
 from alphalab.allocation.budget import CapitalBudget
+from alphalab.allocation.ceilings import StrategyCapital, adding_exposure
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.allocation.events import (
     AllocationCompleted,
+    AllocationEvent,
     AllocationExecutionApplied,
     AllocationRejected,
     AllocationReservationReleased,
@@ -30,6 +32,7 @@ from alphalab.allocation.validation import (
     validate_long_only,
     validate_net_quantity,
 )
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context
 from alphalab.common.evolve import evolve
 from alphalab.common.ids import new_id
@@ -135,6 +138,15 @@ class AllocationEngine:
                 worth fifty times its price, and every figure that values a quantity
                 -- a sizing model's, a target weight's, a minimum notional's and the
                 budget's -- values it so. ``OrderRequest.price`` stays the price.
+
+        **Per-strategy ceilings** (ledger OFE-003), when the budget enforces them,
+                are judged after sizing and before netting, one sized delta at a time
+                in the order the batch states them: a delta that would take its
+                strategy's committed capital over its ceiling is refused and recorded,
+                and its strategy's other deltas are judged without it. What a delta
+                commits is the exposure it adds to the strategy's own position plus
+                its share of its working orders -- ``working`` -- so a reduction
+                commits nothing and always passes. See :mod:`alphalab.allocation.ceilings`.
         """
         events = state.events.append(
             AllocationStarted(AllocationEngine._create_id(), timestamp, len(intents))
@@ -206,6 +218,14 @@ class AllocationEngine:
                 # The strategy already holds its target, to the nearest lot.
                 continue
             sized_deltas.append((intent.strategy_id, intent.instrument, intent.terms, quantity))
+
+        # 2b. Each strategy's own ceiling, before netting can hide whose
+        # exposure an order adds (OFE-003).
+        strategy_commitments: Mapping[tuple[str, str, OrderTerms], Decimal] = _NO_COMMITMENTS
+        if state.budget.enforce_strategy_budgets and sized_deltas:
+            sized_deltas, strategy_commitments, events = _within_ceilings(
+                state, sized_deltas, unit_prices, unit_budget_prices, working, timestamp, events
+            )
 
         # 3. Netting, per asset and terms: only equal terms net (EXE-003).
         net_quantities = NettingEngine.net_by_terms(sized_deltas)
@@ -363,11 +383,22 @@ class AllocationEngine:
         # against it can later be consumed or released by order id.
         reservations = state.reservations
         contributions = state.contributions
+        strategy_capital = state.strategy_capital
         for order, commitment, _ in emitted:
             # In the budget's currency, like the total it is a part of: what the
             # order commits, which is nothing for one that only reduces.
             reservations = reservations.set(order.order_id, commitment)
             contributions = contributions.set(order.order_id, order.contributions)
+            # And, per ceilinged strategy, what its own share will deploy.
+            for contribution in order.contributions if strategy_commitments else ():
+                amount = strategy_commitments.get(
+                    (contribution.strategy_id, order.asset_id, order.terms)
+                )
+                if amount is not None:
+                    capital = strategy_capital.get(contribution.strategy_id, _NO_CAPITAL)
+                    strategy_capital = strategy_capital.set(
+                        contribution.strategy_id, capital.reserve(order.order_id, amount)
+                    )
 
         new_state = evolve(
             state,
@@ -376,6 +407,7 @@ class AllocationEngine:
             notional_allocated=state.notional_allocated + total_notional,
             reservations=reservations,
             contributions=contributions,
+            strategy_capital=strategy_capital,
         )
 
         return new_state, tuple(orders)
@@ -410,14 +442,32 @@ class AllocationEngine:
         inherited its defect -- see ADR-0015 decision 5.
         """
 
-        if order_id not in state.contributions:
+        contributions = state.contributions.get(order_id)
+        if contributions is None:
             return state
-        return evolve(state, contributions=state.contributions.delete(order_id))
+        # What the order still reserved for each ceilinged strategy is freed
+        # with it: its life is over, whatever it did or did not fill (OFE-003).
+        strategy_capital = state.strategy_capital
+        for contribution in contributions if strategy_capital else ():
+            capital = strategy_capital.get(contribution.strategy_id)
+            if capital is not None and order_id in capital.reserved:
+                strategy_capital = strategy_capital.set(
+                    contribution.strategy_id, capital.release(order_id)
+                )
+        return evolve(
+            state,
+            contributions=state.contributions.delete(order_id),
+            strategy_capital=strategy_capital,
+        )
 
     @staticmethod
     @in_accounting_context
     def record_fill(
-        state: AllocationState, order_id: str, asset_id: str, signed_quantity: Decimal
+        state: AllocationState,
+        order_id: str,
+        asset_id: str,
+        signed_quantity: Decimal,
+        executed_notional: Decimal | None = None,
     ) -> AllocationState:
         """Add a fill to the positions of the strategies that asked for its order.
 
@@ -427,19 +477,36 @@ class AllocationEngine:
         of every order it took part in. Read the contributions before the order
         is retired: an order with none (placed outside allocation) is nobody's,
         and a run whose positions were never recorded (``None``) is left so.
+
+        ``executed_notional`` is the fill's value in the budget's currency, a
+        magnitude. When the budget enforces ceilings it is what each ceilinged
+        strategy's share deploys at, converted from that strategy's reservation
+        for the order (OFE-003); it is not read otherwise.
         """
 
         positions = state.strategy_positions
         contributions = state.contributions.get(order_id)
         if positions is None or not contributions or signed_quantity == 0:
             return state
+        ceilinged = state.budget.enforce_strategy_budgets and executed_notional is not None
+        unit_value = (
+            ACCOUNTING_CONTEXT.divide(executed_notional, abs(signed_quantity))
+            if ceilinged and executed_notional is not None
+            else Decimal("0")
+        )
+        strategy_capital = state.strategy_capital
         for strategy_id, share in split_by_contribution(
             signed_quantity, contributions, _POSITION_QUANTUM
         ):
             held = positions.get(strategy_id, PersistentMap())
-            total = held.get(asset_id, Decimal("0")) + share
-            positions = positions.set(strategy_id, held.set(asset_id, total))
-        return evolve(state, strategy_positions=positions)
+            before = held.get(asset_id, Decimal("0"))
+            positions = positions.set(strategy_id, held.set(asset_id, before + share))
+            if ceilinged and state.budget.strategy_ceiling(strategy_id) is not None:
+                capital = strategy_capital.get(strategy_id, _NO_CAPITAL)
+                strategy_capital = strategy_capital.set(
+                    strategy_id, capital.fill(order_id, asset_id, before, share, unit_value)
+                )
+        return evolve(state, strategy_positions=positions, strategy_capital=strategy_capital)
 
     @staticmethod
     @in_accounting_context
@@ -573,6 +640,100 @@ def _per_unit(
         if price is not None:
             scaled[asset_id] = price * multiplier
     return scaled
+
+
+#: What a batch commits for no ceilinged strategy, shared so it allocates nothing.
+_NO_COMMITMENTS: Mapping[tuple[str, str, OrderTerms], Decimal] = MappingProxyType({})
+
+#: A ceilinged strategy that has committed nothing yet.
+_NO_CAPITAL: Final = StrategyCapital()
+
+
+def _within_ceilings(
+    state: AllocationState,
+    sized_deltas: list[tuple[str, str, OrderTerms, Decimal]],
+    unit_prices: Mapping[str, Decimal],
+    unit_budget_prices: Mapping[str, Decimal],
+    working: Mapping[tuple[str, str], Decimal],
+    timestamp: float,
+    events: AppendOnlyLog[AllocationEvent],
+) -> tuple[
+    list[tuple[str, str, OrderTerms, Decimal]],
+    Mapping[tuple[str, str, OrderTerms], Decimal],
+    AppendOnlyLog[AllocationEvent],
+]:
+    """The sized deltas each strategy's ceiling admits, what each commits, and the refusals.
+
+    Judged in batch order, one delta at a time, against the strategy's committed
+    capital plus what its earlier admitted deltas commit; a refused delta is not
+    counted toward its strategy's position, so a later reduction is judged
+    against what was admitted. A strategy with no ceiling commits nothing here.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    budget = state.budget
+    positions = state.strategy_positions
+    admitted: list[tuple[str, str, OrderTerms, Decimal]] = []
+    commitments: dict[tuple[str, str, OrderTerms], Decimal] = {}
+    projected: dict[tuple[str, str], Decimal] = {}
+    running: dict[str, Decimal] = {}
+    for strategy_id, asset_id, terms, quantity in sized_deltas:
+        ceiling = budget.strategy_ceiling(strategy_id)
+        if ceiling is None:
+            admitted.append((strategy_id, asset_id, terms, quantity))
+            continue
+        key = (strategy_id, asset_id)
+        held = projected.get(key)
+        if held is None:
+            own = (
+                Decimal("0")
+                if positions is None
+                else positions.get(strategy_id, PersistentMap()).get(asset_id, Decimal("0"))
+            )
+            held = ctx.add(own, working.get(key, Decimal("0")))
+        added = adding_exposure(held, quantity)
+        unit = unit_budget_prices.get(asset_id, unit_prices.get(asset_id, Decimal("0")))
+        commitment = ctx.multiply(added, unit.copy_abs())
+        if commitment > 0:
+            committed = ctx.add(
+                state.strategy_capital.get(strategy_id, _NO_CAPITAL).committed,
+                running.get(strategy_id, Decimal("0")),
+            )
+            refusal = None
+            if positions is None:
+                refusal = _UNRECORDED_CEILING.format(strategy_id=strategy_id)
+            elif ctx.add(committed, commitment) > ceiling:
+                refusal = (
+                    f"{strategy_id} has committed {_plain(committed)} of its "
+                    f"{_plain(ceiling)} ceiling, and {_plain(quantity)} of {asset_id} would "
+                    f"commit {_plain(commitment)} more; it is refused, and the strategy's "
+                    "orders that reduce what it holds are not."
+                )
+            if refusal is not None:
+                events = events.append(
+                    AllocationRejected(AllocationEngine._create_id(), timestamp, refusal)
+                )
+                continue
+            running[strategy_id] = ctx.add(running.get(strategy_id, Decimal("0")), commitment)
+        projected[key] = ctx.add(held, quantity)
+        commitments[(strategy_id, asset_id, terms)] = ctx.add(
+            commitments.get((strategy_id, asset_id, terms), Decimal("0")), commitment
+        )
+        admitted.append((strategy_id, asset_id, terms, quantity))
+    return admitted, commitments, events
+
+
+def _plain(amount: Decimal) -> str:
+    """An amount as a reader writes it: ``800``, not ``800.000000`` or ``8E+2``."""
+
+    return format(amount.normalize(), "f")
+
+
+_UNRECORDED_CEILING: Final = (
+    "{strategy_id}'s budget is a ceiling, and this run's per-strategy positions were not "
+    "recorded -- it began before v3.11 -- so what an order adds to its exposure cannot be "
+    "measured; only orders that commit nothing are placed."
+)
 
 
 #: The unit a fill is divided among strategies in for their positions; every

@@ -662,14 +662,16 @@ def test_the_runtime_reads_the_registry_through_record_for_and_nothing_else() ->
     assert ".resolve(" not in source
     assert "register_instrument" not in source
     assert "classify_instrument" not in source
-    # Five keyed reads, and no sixth. One for the unpriced path; one in
+    # Six keyed reads, and no seventh. One for the unpriced path; one in
     # `_sector_of`, the single rule both the fill reader and the exposure reader
     # go through; one in `_currency_of`, its v2.12 sibling (ADR-0028); one on
     # `_settlement_refusal`'s cold path, which a healthy run never takes and
-    # which buys a message naming the instrument rather than only its id; and
+    # which buys a message naming the instrument rather than only its id;
     # (v3.11, FEA-001) one in `_instrument_grid`, once per distinct asset a
-    # batch of intents names, for the lot grid and minimum notional it declares.
-    assert source.count("record_for(") == 5
+    # batch of intents names, for the lot grid and minimum notional it declares;
+    # and (v3.12, EXE-010) one in `_listing_exchange`, once per simulated resting
+    # day order that states no close, for the venue whose calendar it reads.
+    assert source.count("record_for(") == 6
 
 
 def test_sector_resolution_is_a_keyed_lookup_and_never_a_scan() -> None:
@@ -831,7 +833,7 @@ def test_sector_exposure_survives_a_round_trip_without_moving_the_schema() -> No
     payload = deserialize(serialize(capture_pipeline(state)))
     restored = restore_pipeline(pipeline_from_primitives(payload), objects)
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 5
+    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 6
     assert payload["risk"]["exposure"]["sector_exposure"] == {
         "Technology": "1000.00",
         "Financials": "-400.00",

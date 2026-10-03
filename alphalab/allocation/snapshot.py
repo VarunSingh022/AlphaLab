@@ -62,11 +62,12 @@ Round trip
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from decimal import Decimal
 from typing import Any, Final
 
 from alphalab.allocation.budget import CapitalBudget
+from alphalab.allocation.ceilings import StrategyCapital
 from alphalab.allocation.events import (
     AllocationCompleted,
     AllocationEvent,
@@ -85,6 +86,7 @@ from alphalab.core.enums import Side
 from alphalab.core.order_request import OrderRequest
 from alphalab.persistence.decode import (
     MARKET_TERMS_PAYLOAD,
+    as_bool,
     as_decimal,
     as_decimal_mapping,
     as_float,
@@ -115,7 +117,15 @@ __all__ = [
 #: v2.6 gave for the portfolio and v2.8 for the lifecycle: that constant also
 #: versions ``BaseEvent``, so bumping it would version every
 #: event in the system as a side effect of one subsystem's change.
-ALLOCATION_SNAPSHOT_SCHEMA: Final = 2
+#:
+#: Version 3 (v3.12) records whether the budget enforces per-strategy ceilings
+#: and each ceilinged strategy's committed capital (ledger OFE-003), and reads
+#: the budget's ``currency`` back. Every version since v2.17 wrote it and none
+#: read it, so a restored allocation held an unstated budget whatever the
+#: captured one said -- ``restore(capture(state)) != state`` -- and a re-capture
+#: rewrote the payload (ledger PER-006). No figure changed: the pipeline reads
+#: its own configuration's budget for every currency decision.
+ALLOCATION_SNAPSHOT_SCHEMA: Final = 3
 
 _SUBSYSTEM: Final = "allocation"
 
@@ -171,6 +181,9 @@ class AllocationSnapshot:
     #: positions were never recorded (schema 2; see
     #: :attr:`~alphalab.allocation.state.AllocationState.strategy_positions`).
     strategy_positions: Mapping[str, Mapping[str, Decimal]] | None = None
+    #: Each ceilinged strategy's committed capital (schema 3; see
+    #: :attr:`~alphalab.allocation.state.AllocationState.strategy_capital`).
+    strategy_capital: Mapping[str, StrategyCapital] = field(default_factory=dict)
     schema_version: int = ALLOCATION_SNAPSHOT_SCHEMA
 
 
@@ -194,6 +207,7 @@ def capture(state: AllocationState) -> AllocationSnapshot:
         else {
             strategy_id: dict(assets) for strategy_id, assets in state.strategy_positions.items()
         },
+        strategy_capital=dict(state.strategy_capital),
     )
 
 
@@ -226,6 +240,7 @@ def restore(snapshot: AllocationSnapshot) -> AllocationState:
                 for strategy_id, assets in snapshot.strategy_positions.items()
             }
         ),
+        strategy_capital=PersistentMap(snapshot.strategy_capital),
     )
 
 
@@ -245,7 +260,30 @@ def _budget(value: Any) -> CapitalBudget:
         strategy_budgets=as_decimal_mapping(
             require(payload, "strategy_budgets"), "budget.strategy_budgets"
         ),
+        currency=as_str(require(payload, "currency"), "budget.currency"),
+        enforce_strategy_budgets=as_bool(
+            require(payload, "enforce_strategy_budgets"), "budget.enforce_strategy_budgets"
+        ),
     )
+
+
+def _strategy_capital(value: Any) -> dict[str, StrategyCapital]:
+    where = "strategy_capital"
+    ledger: dict[str, StrategyCapital] = {}
+    for strategy_id, record in as_mapping(value, where).items():
+        here = f"{where}[{strategy_id!r}]"
+        payload = as_mapping(record, here)
+        ledger[str(strategy_id)] = StrategyCapital(
+            deployed=PersistentMap(
+                as_decimal_mapping(require(payload, "deployed"), f"{here}.deployed")
+            ),
+            reserved=PersistentMap(
+                as_decimal_mapping(require(payload, "reserved"), f"{here}.reserved")
+            ),
+            deployed_total=as_decimal(require(payload, "deployed_total"), f"{here}.deployed_total"),
+            reserved_total=as_decimal(require(payload, "reserved_total"), f"{here}.reserved_total"),
+        )
+    return ledger
 
 
 def _contribution(value: Any, where: str) -> StrategyContribution:
@@ -293,13 +331,13 @@ def _event(value: Any, index: int) -> AllocationEventRecord:
 
     payload = as_mapping(require(record, "event"), f"{where}.event")
     kwargs: dict[str, Any] = {}
-    for field in fields(cls):
-        raw = require(payload, field.name)
-        decoder = _EVENT_FIELD_DECODERS.get(field.name)
-        kwargs[field.name] = (
-            decoder(raw, f"{where}.{field.name}")
+    for event_field in fields(cls):
+        raw = require(payload, event_field.name)
+        decoder = _EVENT_FIELD_DECODERS.get(event_field.name)
+        kwargs[event_field.name] = (
+            decoder(raw, f"{where}.{event_field.name}")
             if decoder is not None
-            else as_str(raw, f"{where}.{field.name}")
+            else as_str(raw, f"{where}.{event_field.name}")
         )
     return AllocationEventRecord(event_type, cls(**kwargs))
 
@@ -345,6 +383,19 @@ def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
     return {**payload, "history": history, "strategy_positions": None}
 
 
+def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record that a version-2 budget enforced no ceiling, and that nothing was committed.
+
+    Nothing before v3.12 enforced a strategy's budget (ledger OFE-003), so the
+    flag is ``False`` and the ledger it keeps is empty -- what the payload
+    meant, not a value invented for it. A budget written before v2.17 named no
+    currency, which is ``""``: unstated, what such a budget was.
+    """
+
+    budget = {"currency": "", **payload["budget"], "enforce_strategy_budgets": False}
+    return {**payload, "budget": budget, "strategy_capital": {}}
+
+
 ALLOCATION_SCHEMA_HISTORY = SchemaHistory(
     _SUBSYSTEM,
     ALLOCATION_SNAPSHOT_SCHEMA,
@@ -355,6 +406,12 @@ ALLOCATION_SCHEMA_HISTORY = SchemaHistory(
             "positions; every version-1 request was a market order good for the day, and its "
             "positions were not kept",
             upgrade=_v1_to_v2,
+        ),
+        SchemaStep(
+            2,
+            "version 3 records whether the budget enforces per-strategy ceilings and what each "
+            "ceilinged strategy has committed; no earlier budget enforced one",
+            upgrade=_v2_to_v3,
         ),
     ),
 )
@@ -382,5 +439,6 @@ def from_primitives(payload: Mapping[str, Any]) -> AllocationSnapshot:
         reservations=as_decimal_mapping(require(payload, "reservations"), "reservations"),
         contributions=_ledger(payload),
         strategy_positions=_strategy_positions(require(payload, "strategy_positions")),
+        strategy_capital=_strategy_capital(require(payload, "strategy_capital")),
         schema_version=ALLOCATION_SNAPSHOT_SCHEMA,
     )

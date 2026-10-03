@@ -178,10 +178,12 @@ def test_the_state_under_test_is_realistically_populated() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_constant_is_two() -> None:
-    """Version 2 (v3.11) records each allocated request's order terms."""
+def test_the_schema_constant_is_three() -> None:
+    """Version 2 (v3.11) records each allocated request's order terms; version 3
+    (v3.12) per-strategy ceilings (OFE-003), and reads the budget's currency back
+    (PER-006)."""
 
-    assert ALLOCATION_SNAPSHOT_SCHEMA == 2
+    assert ALLOCATION_SNAPSHOT_SCHEMA == 3
 
 
 def test_a_version_one_request_is_a_market_order_good_for_the_day() -> None:
@@ -213,7 +215,7 @@ def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
     source = inspect.getsource(allocation_snapshot)
 
     assert not hasattr(allocation_snapshot, "DEFAULT_SCHEMA_VERSION")
-    assert "ALLOCATION_SNAPSHOT_SCHEMA: Final = 2" in source
+    assert "ALLOCATION_SNAPSHOT_SCHEMA: Final = 3" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -221,7 +223,7 @@ def test_capture_declares_the_version() -> None:
     state = _netted_state()
 
     assert capture(state).schema_version == ALLOCATION_SNAPSHOT_SCHEMA
-    assert _payload(state)["schema_version"] == 2
+    assert _payload(state)["schema_version"] == 3
 
 
 def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
@@ -234,7 +236,7 @@ def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
         from_primitives(payload)
 
 
-@pytest.mark.parametrize("version", [3, 4, 99, 0, -1])
+@pytest.mark.parametrize("version", [4, 5, 99, 0, -1])
 def test_an_unreadable_version_is_refused_naming_it(version: int) -> None:
     payload = _payload(_netted_state())
     payload["schema_version"] = version
@@ -254,7 +256,7 @@ def test_a_malformed_version_is_refused(version: object) -> None:
 
 def test_the_refusal_names_the_allocation_subsystem() -> None:
     payload = _payload(_netted_state())
-    payload["schema_version"] = 3
+    payload["schema_version"] = 4
 
     with pytest.raises(StateDecodeError) as excinfo:
         from_primitives(payload)
@@ -412,6 +414,7 @@ def test_the_payload_carries_exactly_the_projected_fields() -> None:
         "reservations",
         "contributions",
         "strategy_positions",
+        "strategy_capital",
         "schema_version",
     }
 

@@ -335,8 +335,9 @@ def test_session_capture_declares_the_version() -> None:
     assert payload["schema_version"] == 3
     # Each envelope carries its own version: the run moved to 2 and the nested
     # pipeline to 4 in v3.10, independently -- ADR-0023 decision 1's split -- and
-    # in v3.11 the run to 3 and the pipeline to 5, each for its own reasons.
-    assert payload["pipeline"]["schema_version"] == 5
+    # in v3.11 the run to 3 and the pipeline to 5, each for its own reasons; in
+    # v3.12 the pipeline alone, to 6.
+    assert payload["pipeline"]["schema_version"] == 6
 
 
 def test_a_missing_session_version_is_refused_with_no_legacy_path() -> None:
@@ -379,9 +380,9 @@ def test_a_nested_pipeline_failure_arrives_through_the_pipeline_decoder() -> Non
     """Not normalized into a generic session error."""
 
     payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
-    payload["pipeline"]["schema_version"] = 6
+    payload["pipeline"]["schema_version"] = 7
 
-    with pytest.raises(StateDecodeError, match="pipeline snapshot declares schema version 6"):
+    with pytest.raises(StateDecodeError, match="pipeline snapshot declares schema version 7"):
         run_from_primitives(payload)
 
 

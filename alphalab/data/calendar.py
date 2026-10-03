@@ -274,6 +274,28 @@ class MarketCalendar:
                     return end
         return None
 
+    def day_order_expiry(self, timestamp: float) -> float | None:
+        """When a day order placed at ``timestamp`` expires: its trading day's last close.
+
+        A day order is good for the trading day it is placed in, or -- placed
+        while the market is shut -- for the next one, as a venue queues it. It
+        expires at that day's *last* close, which is not :meth:`next_close`: a
+        market with a lunch break closes its morning window at noon, and an
+        order placed at ten is still working after lunch. An overnight session
+        belongs to the day it opened (:meth:`trading_day_of`), so its order
+        expires when that session ends the next morning.
+
+        ``None`` when no session starts within :data:`MAX_SESSION_SEARCH_DAYS`
+        -- the order has no day to be good for.
+        """
+
+        opens = self.next_open(timestamp)
+        if opens is None:
+            return None
+        day = self.trading_day_of(opens)
+        bounds = None if day is None else self.session_bounds(day)
+        return None if bounds is None else bounds[1]
+
     def session_windows_on(self, day: date) -> tuple[tuple[float, float], ...]:
         """Every window traded on a local date, as absolute ``(open, close)``
         bounds in Unix seconds, ascending.

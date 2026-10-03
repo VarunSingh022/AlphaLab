@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from alphalab.allocation.budget import CapitalBudget
+from alphalab.allocation.ceilings import StrategyCapital
 from alphalab.allocation.events import AllocationEvent
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
@@ -51,3 +52,10 @@ class AllocationState:
     strategy_positions: PersistentMap[str, PersistentMap[str, Decimal]] | None = field(
         default_factory=PersistentMap
     )
+    #: Each ceilinged strategy's committed capital -- its positions at cost and
+    #: its working orders' reservations -- in the budget's currency (ledger
+    #: OFE-003). Kept only for a strategy whose budget is enforced as a ceiling
+    #: (:meth:`~alphalab.allocation.budget.CapitalBudget.strategy_ceiling`), so
+    #: empty for every run that enforces none. See
+    #: :mod:`alphalab.allocation.ceilings`.
+    strategy_capital: PersistentMap[str, StrategyCapital] = field(default_factory=PersistentMap)
