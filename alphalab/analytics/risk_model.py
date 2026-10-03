@@ -86,7 +86,7 @@ import math
 import sys
 from bisect import bisect_left
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from types import MappingProxyType
 from typing import Final
@@ -104,8 +104,10 @@ __all__ = [
     "Definiteness",
     "DefinitenessKind",
     "FactorLoadings",
+    "FactorStructure",
     "RiskContributions",
     "euler_decomposition",
+    "factor_cholesky_pivots",
     "herfindahl_index",
     "portfolio_factor_exposures",
 ]
@@ -418,6 +420,90 @@ def _definiteness(assets: Sequence[str], rows: Sequence[Sequence[float]]) -> Def
     )
 
 
+def _semidefinite_root(rows: Sequence[Sequence[float]]) -> list[tuple[float, ...]] | None:
+    """``R`` with ``F = R R'`` for a small positive semidefinite ``F``, or ``None``.
+
+    The pivoted factorization and stopping rule of :func:`_definiteness`, kept
+    as columns: ``R`` has one column per pivot taken, so its width is the rank.
+    ``None`` when ``F`` is indefinite.
+    """
+
+    count = len(rows)
+    work = [[float(value) for value in row] for row in rows]
+    if any(work[index][index] < 0.0 for index in range(count)):
+        return None
+    largest = max((work[index][index] for index in range(count)), default=0.0)
+    floor = count * _EPSILON * largest
+    remaining = list(range(count))
+    columns: list[list[float]] = []
+    while remaining:
+        pivot_index = max(remaining, key=lambda index: (work[index][index], -index))
+        pivot = work[pivot_index][pivot_index]
+        if pivot <= floor:
+            break
+        remaining.remove(pivot_index)
+        root = math.sqrt(pivot)
+        column = [0.0] * count
+        column[pivot_index] = root
+        for index in remaining:
+            column[index] = work[index][pivot_index] / root
+        for first in remaining:
+            for second in remaining:
+                work[first][second] -= column[first] * column[second]
+        columns.append(column)
+    if any(work[index][index] < -floor for index in remaining) or any(
+        abs(work[first][second]) > floor
+        for first in remaining
+        for second in remaining
+        if first != second
+    ):
+        return None
+    return [tuple(column[row] for column in columns) for row in range(count)]
+
+
+def factor_cholesky_pivots(
+    loadings: Sequence[Sequence[float]],
+    factor_covariance: Sequence[Sequence[float]],
+    specific: Sequence[float],
+) -> tuple[float, ...] | None:
+    """The natural-order Cholesky pivots of ``B F B' + D``, in ``O(n k^2)`` (ledger PRF-005).
+
+    Pivot ``i`` is the variance of asset ``i`` conditional on every asset
+    before it. With ``F = R R'`` and ``u_i = R' b_i`` it is
+    ``D_i + u_i' M_i^-1 u_i``, ``M_i = I + sum_{j<i} u_j u_j' / D_j`` -- and
+    ``M_i^-1`` is carried from one asset to the next by Sherman-Morrison, so no
+    ``n x n`` matrix is ever formed. Every term is non-negative: no pivot is
+    computed by cancellation.
+
+    Returns ``None`` when the structure does not establish definiteness on its
+    own -- a specific variance that is not positive, or a factor covariance that
+    is not positive semidefinite. The dense pivoted factorization
+    (:meth:`CovarianceMatrix.definiteness`) is then the authority.
+    """
+
+    if any(not value > 0.0 for value in specific):
+        return None
+    root = _semidefinite_root(factor_covariance)
+    if root is None:
+        return None
+    width = len(root[0]) if root else 0
+    columns = [tuple(row[column] for row in root) for column in range(width)]
+    inverse = [[1.0 if row == column else 0.0 for column in range(width)] for row in range(width)]
+    pivots: list[float] = []
+    for exposure, variance in zip(loadings, specific, strict=True):
+        u = [math.sumprod(exposure, column) for column in columns]
+        v = [math.sumprod(row, u) for row in inverse]
+        pivot = variance + math.sumprod(u, v)
+        pivots.append(pivot)
+        for row in range(width):
+            target = inverse[row]
+            for column in range(width):
+                # (v_r v_c) / pivot is the same float both ways round, so the
+                # carried inverse stays exactly symmetric.
+                target[column] -= v[row] * v[column] / pivot
+    return tuple(pivots)
+
+
 # --------------------------------------------------------------------------- #
 # Covariance and correlation
 # --------------------------------------------------------------------------- #
@@ -486,12 +572,20 @@ class CovarianceMatrix:
             from, or ``None`` for a matrix that was not derived.
         derivation: How it was derived from its parent -- the rule and its
             parameters -- or ``None`` when it was not.
+        factors: The :class:`FactorStructure` the matrix was implied by, when
+            :meth:`factor_model` built it, or ``None``. A solving aid rather than
+            part of the claim (v3.12, ledger PRF-005): not in
+            :attr:`covariance_id` -- whose parent and derivation already name the
+            factor covariance, the loadings and the specific variances -- and not
+            compared. One passed in directly is checked against every value. A
+            matrix derived from this one does not inherit it.
 
     Raises:
         AnalyticsValidationError: On a non-canonical order, a ragged, asymmetric
             or non-finite matrix, a negative variance, a blank currency, period
-            or source, fewer than two observations, or a derivation without a
-            parent (or the reverse).
+            or source, fewer than two observations, a derivation without a
+            parent (or the reverse), or a factor structure that does not imply
+            the matrix.
     """
 
     assets: tuple[str, ...]
@@ -502,6 +596,10 @@ class CovarianceMatrix:
     observations: int | None
     parent_id: str | None = None
     derivation: str | None = None
+    factors: FactorStructure | None = field(default=None, repr=False, compare=False)
+    #: :attr:`covariance_id`, derived once when the matrix is built: the digest
+    #: renders every value, ``O(n^2)``, and nothing about the matrix changes.
+    _identity: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         names, rows = _canonical_order(self.assets, self.values, "covariance matrix")
@@ -548,6 +646,13 @@ class CovarianceMatrix:
             _require_text(self.parent_id, "CovarianceMatrix.parent_id")
         if self.derivation is not None:
             _require_text(self.derivation, "CovarianceMatrix.derivation")
+        if self.factors is not None:
+            if not isinstance(self.factors, FactorStructure):
+                raise AnalyticsValidationError(
+                    f"CovarianceMatrix.factors must be a FactorStructure, got {self.factors!r}."
+                )
+            self.factors.require_implies(self)
+        object.__setattr__(self, "_identity", self._derive_identity())
 
     # -- construction ------------------------------------------------------- #
 
@@ -855,40 +960,17 @@ class CovarianceMatrix:
                     f"The specific variance of {asset!r} is {value!r}; a variance is not negative."
                 )
             specific.append(value)
-        b = loadings.values
-        f = factor_covariance.values
-        k = len(loadings.factors)
-        count = len(loadings.assets)
-        # B F, once; then (B F) B' for each pair, written to both cells.
-        bf = [
-            [math.fsum(b[i][g] * f[g][h] for g in range(k)) for h in range(k)] for i in range(count)
-        ]
-        rows = [[0.0] * count for _ in range(count)]
-        for i in range(count):
-            for j in range(i, count):
-                value = math.fsum(bf[i][h] * b[j][h] for h in range(k))
-                if i == j:
-                    value += specific[i]
-                rows[i][j] = value
-                rows[j][i] = value
-        rendered = _digest(
-            [
-                "specific",
-                *(f"{a}={_render(v)}" for a, v in zip(loadings.assets, specific, strict=True)),
-            ]
-        )
+        structure = FactorStructure(loadings, factor_covariance, tuple(specific))
         return cls(
             tuple(loadings.assets),
-            tuple(tuple(row) for row in rows),
+            structure.rows(),
             factor_covariance.currency,
             factor_covariance.period,
             f"factor model over {loadings.source}",
             None,
             parent_id=factor_covariance.covariance_id,
-            derivation=(
-                f"factor model: B F B' + D, loadings {loadings.loadings_id}, specific variances "
-                f"{rendered}"
-            ),
+            derivation=structure.derivation,
+            factors=structure,
         )
 
     # -- identity ----------------------------------------------------------- #
@@ -897,6 +979,9 @@ class CovarianceMatrix:
     def covariance_id(self) -> str:
         """The derived identity of this exact claim, in any process."""
 
+        return self._identity
+
+    def _derive_identity(self) -> str:
         return _digest(
             [
                 COVARIANCE_SCHEME,
@@ -909,7 +994,8 @@ class CovarianceMatrix:
                 "assets",
                 *(_render(asset) for asset in self.assets),
                 "values",
-                *(",".join(_render(value) for value in row) for row in self.values),
+                # map(repr, ...) is _render, applied without a call per value.
+                *(",".join(map(repr, row)) for row in self.values),
             ]
         )
 
@@ -1374,6 +1460,202 @@ class FactorLoadings:
         """``((factor, loading), ...)`` for one covered asset, factors sorted."""
 
         return tuple(zip(self.factors, self.values[self._position(asset)], strict=True))
+
+
+@dataclass(frozen=True, slots=True)
+class FactorStructure:
+    """The factor model a covariance was implied by, kept to solve with (ledger PRF-005).
+
+    :meth:`CovarianceMatrix.factor_model` writes ``B F B' + D`` out as a dense
+    matrix, because every consumer of a covariance reads one -- and the dense
+    matrix forgets what made it cheap: ``k`` factors and a diagonal. This is that
+    structure, attached to the matrix it implies (:attr:`CovarianceMatrix.factors`),
+    so a computation that can use it -- portfolio construction over a large
+    universe -- solves its linear systems in ``O(n k^2)`` rather than ``O(n^3)``.
+
+    Attributes:
+        loadings: ``B``: each asset's loading on each factor.
+        factor_covariance: ``F``: the covariance of the factor returns, over
+            exactly the loadings' factors.
+        specific: ``D``: one specific variance per asset, in the loadings'
+            asset order. Finite and not negative.
+
+    Raises:
+        AnalyticsValidationError: If the factor covariance is not over the
+            loadings' factors, or the specific variances are not one per asset,
+            finite and non-negative.
+    """
+
+    loadings: FactorLoadings
+    factor_covariance: CovarianceMatrix
+    specific: tuple[float, ...]
+    #: Derived once, here, from the three above -- the matrix they imply, each
+    #: factor's loadings across the assets, the natural-order Cholesky pivots
+    #: and the evidence they give. None of it is compared or printed.
+    implied: tuple[tuple[float, ...], ...] = field(init=False, repr=False, compare=False)
+    columns: tuple[tuple[float, ...], ...] = field(init=False, repr=False, compare=False)
+    _pivots: tuple[float, ...] | None = field(init=False, repr=False, compare=False)
+    _evidence: Definiteness | None = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.factor_covariance.assets != self.loadings.factors:
+            raise AnalyticsValidationError(
+                f"The factor covariance is over {list(self.factor_covariance.assets)} and the "
+                f"loadings name the factors {list(self.loadings.factors)}; a factor model needs "
+                "the same."
+            )
+        if len(self.specific) != len(self.loadings.assets):
+            raise AnalyticsValidationError(
+                f"{len(self.specific)} specific variances for {len(self.loadings.assets)} assets; "
+                "a factor model needs one per asset."
+            )
+        values = tuple(
+            _require_finite(value, f"specific variance of {asset!r}")
+            for asset, value in zip(self.loadings.assets, self.specific, strict=True)
+        )
+        negative = [
+            asset for asset, value in zip(self.loadings.assets, values, strict=True) if value < 0.0
+        ]
+        if negative:
+            raise AnalyticsValidationError(
+                f"The specific variances of {negative[:5]} are negative; a variance is not."
+            )
+        object.__setattr__(self, "specific", values)
+        object.__setattr__(self, "implied", self._implied())
+        object.__setattr__(
+            self,
+            "columns",
+            tuple(
+                tuple(row[factor] for row in self.loadings.values)
+                for factor in range(len(self.loadings.factors))
+            ),
+        )
+        pivots = factor_cholesky_pivots(
+            self.loadings.values, self.factor_covariance.values, self.specific
+        )
+        object.__setattr__(self, "_pivots", pivots)
+        object.__setattr__(self, "_evidence", self._definiteness(pivots))
+
+    @property
+    def derivation(self) -> str:
+        """The derivation a matrix this structure implies records: what made it."""
+
+        rendered = _digest(
+            [
+                "specific",
+                *(
+                    f"{asset}={_render(value)}"
+                    for asset, value in zip(self.loadings.assets, self.specific, strict=True)
+                ),
+            ]
+        )
+        return (
+            f"factor model: B F B' + D, loadings {self.loadings.loadings_id}, specific variances "
+            f"{rendered}"
+        )
+
+    def rows(self) -> tuple[tuple[float, ...], ...]:
+        """``B F B' + D`` written out: the matrix :meth:`CovarianceMatrix.factor_model` builds."""
+
+        return self.implied
+
+    def _implied(self) -> tuple[tuple[float, ...], ...]:
+        """Each cell computed once, by exactly-rounded sums, and written to both halves."""
+
+        b = self.loadings.values
+        f = self.factor_covariance.values
+        k = len(self.loadings.factors)
+        count = len(self.loadings.assets)
+        # B F, once; then (B F) B' for each pair, written to both cells.
+        bf = [
+            [math.fsum(b[i][g] * f[g][h] for g in range(k)) for h in range(k)] for i in range(count)
+        ]
+        rows = [[0.0] * count for _ in range(count)]
+        for i in range(count):
+            for j in range(i, count):
+                value = math.fsum(bf[i][h] * b[j][h] for h in range(k))
+                if i == j:
+                    value += self.specific[i]
+                rows[i][j] = value
+                rows[j][i] = value
+        return tuple(tuple(row) for row in rows)
+
+    def require_implies(self, matrix: CovarianceMatrix) -> None:
+        """Refuse a matrix this structure does not imply, value for value.
+
+        Raises:
+            AnalyticsValidationError: If the assets, units, parent, derivation or
+                any value differ from what :meth:`CovarianceMatrix.factor_model`
+                would build from this structure.
+        """
+
+        factor_covariance = self.factor_covariance
+        if matrix.assets != self.loadings.assets:
+            raise AnalyticsValidationError(
+                "A factor structure attached to a covariance must be over the same assets."
+            )
+        if (matrix.currency, matrix.period) != (
+            factor_covariance.currency,
+            factor_covariance.period,
+        ):
+            raise AnalyticsValidationError(
+                "A factor structure's covariance is in its factor covariance's currency and period."
+            )
+        if (
+            matrix.parent_id != factor_covariance.covariance_id
+            or matrix.derivation != self.derivation
+        ):
+            raise AnalyticsValidationError(
+                "A covariance carrying a factor structure records the factor covariance as its "
+                "parent and the structure's derivation; this one does not."
+            )
+        if matrix.values != self.rows():
+            raise AnalyticsValidationError(
+                "The attached factor structure does not imply these values: B F B' + D differs "
+                "from the matrix."
+            )
+
+    def pivots(self) -> tuple[float, ...] | None:
+        """:func:`factor_cholesky_pivots` of this structure, computed when it was built."""
+
+        return self._pivots
+
+    def definiteness(self) -> Definiteness | None:
+        """Positive definiteness established from the structure, or ``None`` when it is not.
+
+        ``B F B' + D`` is positive definite when every specific variance is
+        positive and ``F`` is positive semidefinite; the evidence is the
+        natural-order Cholesky pivots (:func:`factor_cholesky_pivots`) against
+        the same ``n * eps * max(diag)`` floor the dense factorization uses.
+        ``largest_pivot`` is the largest variance -- exactly the first pivot
+        diagonal pivoting takes -- and ``smallest_pivot`` the smallest
+        natural-order pivot, which can differ from the pivoted factorization's
+        last pivot by the ordering alone. ``None`` -- never a negative verdict --
+        when the structure cannot establish definiteness by itself: the dense
+        factorization then decides.
+        """
+
+        return self._evidence
+
+    def _definiteness(self, pivots: tuple[float, ...] | None) -> Definiteness | None:
+        if pivots is None:
+            return None
+        b = self.loadings.values
+        f = self.factor_covariance.values
+        k = len(self.loadings.factors)
+        diagonal = [
+            math.fsum(math.fsum(b[i][g] * f[g][h] for g in range(k)) * b[i][h] for h in range(k))
+            + self.specific[i]
+            for i in range(len(b))
+        ]
+        largest = max(diagonal)
+        floor = len(b) * _EPSILON * largest
+        smallest = min(pivots)
+        if smallest <= floor:
+            return None
+        return Definiteness(
+            DefinitenessKind.POSITIVE_DEFINITE, len(b), smallest, largest, floor, ()
+        )
 
 
 def portfolio_factor_exposures(

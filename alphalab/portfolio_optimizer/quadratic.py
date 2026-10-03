@@ -94,12 +94,13 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from itertools import pairwise
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Protocol
 
 from alphalab.portfolio_optimizer.exceptions import OptimizationError
 
 __all__ = [
     "AbsoluteSumLimit",
+    "Constrained",
     "LinearConstraint",
     "QuadraticProgram",
     "QuadraticSolution",
@@ -304,12 +305,23 @@ def _absolute_sum(family: AbsoluteSumLimit, x: Sequence[float]) -> float:
     )
 
 
-def constraint_residuals(program: QuadraticProgram, x: Sequence[float]) -> Mapping[str, float]:
+class Constrained(Protocol):
+    """Anything that carries a program's constraints: what :func:`constraint_residuals` reads."""
+
+    @property
+    def constraints(self) -> tuple[LinearConstraint, ...]: ...
+
+    @property
+    def absolute_sums(self) -> tuple[AbsoluteSumLimit, ...]: ...
+
+
+def constraint_residuals(program: Constrained, x: Sequence[float]) -> Mapping[str, float]:
     """Label -> how far ``x`` violates each constraint, in its own units; ``0`` when satisfied.
 
-    The single definition of "satisfies a constraint" in this package: the
-    solver certifies its answer with it, and risk parity -- whose solution is
+    The single definition of "satisfies a constraint" in this package: both
+    solvers certify their answers with it, and risk parity -- whose solution is
     unique and fixed before any constraint is read -- checks its point with it.
+    It reads only the constraints, so checking a point costs nothing ``n x n``.
     """
 
     residuals: dict[str, float] = {}

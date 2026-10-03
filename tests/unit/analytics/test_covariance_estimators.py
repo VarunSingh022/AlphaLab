@@ -259,3 +259,157 @@ def test_the_factor_model_refuses_mismatched_or_missing_inputs() -> None:
         CovarianceMatrix.factor_model(LOADINGS, FACTORS, {**SPECIFIC, "B": -0.1})
     with pytest.raises(AnalyticsValidationError):
         CovarianceMatrix.factor_model(LOADINGS, FACTORS, {**SPECIFIC, "B": float("inf")})
+
+
+# --------------------------------------------------------------------------- #
+# The factor structure kept beside the matrix (v3.12, ledger PRF-005)
+# --------------------------------------------------------------------------- #
+
+
+def _natural_pivots(rows: Sequence[Sequence[float]]) -> list[float]:
+    """Unpivoted Cholesky pivots, in exact rational arithmetic."""
+
+    size = len(rows)
+    work = [[Fraction(value) for value in row] for row in rows]
+    pivots: list[float] = []
+    for column in range(size):
+        pivot = work[column][column]
+        pivots.append(float(pivot))
+        for row in range(column + 1, size):
+            factor = work[row][column] / pivot
+            for other in range(column + 1, size):
+                work[row][other] -= factor * work[column][other]
+    return pivots
+
+
+def test_the_factor_model_keeps_its_structure_without_changing_its_identity() -> None:
+    implied = CovarianceMatrix.factor_model(LOADINGS, FACTORS, SPECIFIC)
+    plain = CovarianceMatrix(
+        implied.assets,
+        implied.values,
+        implied.currency,
+        implied.period,
+        implied.source,
+        implied.observations,
+        parent_id=implied.parent_id,
+        derivation=implied.derivation,
+    )
+
+    assert implied.factors is not None
+    assert implied.factors.loadings is LOADINGS
+    assert implied.factors.specific == tuple(SPECIFIC[a] for a in LOADINGS.assets)
+    assert implied.factors.derivation == implied.derivation
+    assert implied.factors.rows() == implied.values
+    # A solving aid, not part of the claim: the same identity, and equal.
+    assert plain.factors is None
+    assert plain.covariance_id == implied.covariance_id
+    assert plain == implied
+
+
+def test_a_structure_passed_in_is_checked_against_every_value() -> None:
+    implied = CovarianceMatrix.factor_model(LOADINGS, FACTORS, SPECIFIC)
+    structure = implied.factors
+    assert structure is not None
+    fields = (implied.assets, implied.values, "USD", "1D", implied.source, None)
+
+    accepted = CovarianceMatrix(
+        *fields, parent_id=implied.parent_id, derivation=implied.derivation, factors=structure
+    )
+    assert accepted.factors is structure
+    with pytest.raises(AnalyticsValidationError, match="parent"):
+        CovarianceMatrix(*fields, parent_id="x" * 64, derivation="d", factors=structure)
+    tampered = tuple(
+        tuple(value * (1.0 + 1e-12) if i == j == 0 else value for j, value in enumerate(row))
+        for i, row in enumerate(implied.values)
+    )
+    with pytest.raises(AnalyticsValidationError, match="does not imply these values"):
+        CovarianceMatrix(
+            implied.assets,
+            tampered,
+            "USD",
+            "1D",
+            implied.source,
+            None,
+            parent_id=implied.parent_id,
+            derivation=implied.derivation,
+            factors=structure,
+        )
+    with pytest.raises(AnalyticsValidationError, match="currency and period"):
+        CovarianceMatrix(
+            implied.assets,
+            implied.values,
+            "EUR",
+            "1D",
+            implied.source,
+            None,
+            parent_id=implied.parent_id,
+            derivation=implied.derivation,
+            factors=structure,
+        )
+
+
+def test_a_copy_keeps_the_structure_and_a_changed_copy_cannot() -> None:
+    from dataclasses import replace
+
+    implied = CovarianceMatrix.factor_model(LOADINGS, FACTORS, SPECIFIC)
+
+    assert replace(implied).factors is implied.factors
+    with pytest.raises(AnalyticsValidationError, match="does not imply"):
+        replace(implied, values=tuple(tuple(2.0 * v for v in row) for row in implied.values))
+
+
+def test_the_structured_pivots_are_the_natural_cholesky_pivots() -> None:
+    rng = random.Random(3)
+    assets = [f"A{index:02d}" for index in range(25)]
+    loadings = FactorLoadings.of(
+        {asset: {"f": rng.gauss(0, 1), "g": rng.gauss(0, 1)} for asset in assets},
+        source="test",
+        lineage={"f": "x", "g": "y"},
+        as_of=None,
+    )
+    factor = CovarianceMatrix.from_rows(
+        ("f", "g"),
+        ((0.04, 0.01), (0.01, 0.03)),
+        currency="USD",
+        period="1D",
+        source="test",
+        observations=None,
+    )
+    implied = CovarianceMatrix.factor_model(
+        loadings, factor, {asset: 0.01 + 0.01 * rng.random() for asset in assets}
+    )
+    assert implied.factors is not None
+
+    pivots = implied.factors.pivots()
+    assert pivots is not None
+    exact = _natural_pivots(implied.values)
+    assert max(abs(p - e) / e for p, e in zip(pivots, exact, strict=True)) < 1e-12
+    evidence = implied.factors.definiteness()
+    dense = implied.definiteness()
+    assert evidence is not None
+    assert evidence.kind is DefinitenessKind.POSITIVE_DEFINITE
+    # The largest variance is the first pivot diagonal pivoting takes.
+    assert evidence.largest_pivot == dense.largest_pivot
+    assert evidence.pivot_floor == dense.pivot_floor
+    assert evidence.smallest_pivot == min(pivots)
+
+
+def test_a_structure_that_cannot_establish_definiteness_says_none() -> None:
+    from alphalab.analytics.risk_model import factor_cholesky_pivots
+
+    assert factor_cholesky_pivots(((1.0,), (0.5,)), ((0.04,),), (0.01, 0.0)) is None
+    assert factor_cholesky_pivots(((1.0, 0.0),), ((0.04, 0.05), (0.05, 0.04)), (0.01,)) is None
+    # Rank-deficient but semidefinite: fine.
+    singular = factor_cholesky_pivots(((1.0, 1.0),), ((0.04, 0.04), (0.04, 0.04)), (0.01,))
+    assert singular == pytest.approx((0.01 + 0.16,))
+    zero = CovarianceMatrix.factor_model(LOADINGS, FACTORS, {**SPECIFIC, "B": 0.0})
+    assert zero.factors is not None
+    assert zero.factors.definiteness() is None
+
+
+def test_the_identity_is_derived_once_and_is_the_same_derivation() -> None:
+    implied = CovarianceMatrix.factor_model(LOADINGS, FACTORS, SPECIFIC)
+
+    first = implied.covariance_id
+    assert implied.covariance_id is first
+    assert implied._derive_identity() == first
