@@ -350,6 +350,7 @@ from alphalab.lifecycle.identity import (
     StrategyVersionRef,
     parse_ref,
 )
+from alphalab.lifecycle.lockfile import LockFormat, read_lock_file
 from alphalab.lifecycle.portability import (
     PORTABILITY_REPORT_SCHEME,
     EnvironmentPortability,
@@ -427,6 +428,7 @@ from alphalab.lifecycle.reproducibility import (
     manifest_gaps,
     verify_manifest,
 )
+from alphalab.lifecycle.rerun import RERUN_DIFFERENCE_LIMIT, RerunReport, rerun_from_manifest
 from alphalab.lifecycle.specification import (
     DEPLOYMENT_SPECIFICATION_SCHEME,
     BrokerCapabilities,
@@ -497,6 +499,7 @@ __all__ = [
     "PORTFOLIO_SETTING_PREFIX",
     "PROGRESSION_MODEL_STAGES",
     "REPRODUCIBILITY_MANIFEST_SCHEME",
+    "RERUN_DIFFERENCE_LIMIT",
     "ROUTING_SETTING_PREFIX",
     "STAGEABLE_MODEL_STAGES",
     "STRATEGY_FINGERPRINT_SCHEME",
@@ -548,6 +551,7 @@ __all__ = [
     "LifecyclePermissionError",
     "LifecycleState",
     "LifecycleTransitionError",
+    "LockFormat",
     "MarketAvailability",
     "MarketRequirements",
     "MeasurementBasis",
@@ -567,6 +571,7 @@ __all__ = [
     "RequirementCheck",
     "RequirementOutcome",
     "RerunOutcome",
+    "RerunReport",
     "ResearchConfiguration",
     "ResourceBudget",
     "ResourceMeasurement",
@@ -666,6 +671,7 @@ __all__ = [
     "pause_progression",
     "progression_conflicts",
     "promote_strategy_version",
+    "read_lock_file",
     "reconcile_accounts",
     "reconcile_execution_state",
     "record_evidence",
@@ -675,6 +681,7 @@ __all__ = [
     "register_strategy_version",
     "release_manifest",
     "replace_strategy_version",
+    "rerun_from_manifest",
     "research_configuration",
     "research_configuration_for_study",
     "research_configuration_with_adaptive",
