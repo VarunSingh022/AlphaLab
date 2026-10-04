@@ -324,13 +324,27 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.12.0
+v3.13.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
 without updating it — and the v2.17 audit corrected it. The release checklist now
 has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
 block together, because all three have drifted independently before.)*
+
+**v3.13.0 — the final pre-v4 release.** Nothing required is left for later:
+every item the ledger assigned to v3.13 and the four it had assigned to v4.0 are
+closed. American options on a Cox–Ross–Rubinstein lattice and a volatility term
+structure linear in total variance; the optimal split of an order across
+venues; an Almgren–Chriss urgency estimated from stated inputs, the shortfall
+the same model expects, and seeded iceberg tranches; a rerun from a manifest
+that says where it diverged, and a lock-file reader; cron timers on a stated
+zone's wall clock; an exact liquidation price; exchange-rate risk as factors;
+a box uncertainty set on a book that may short; checkpoint segments that carry
+only the orders that changed. The freeze: one name for one contract across the
+public API, the API and every persisted name recorded as data and held by tests,
+every limitation and deferral an ADR states held to the ledger, and a release
+certificate run in CI. See `ADR/0048` and the CHANGELOG's migration table.
 
 **v3.12.0 — the third pre-v4 release.** Hardening, and the capabilities the
 audit deferred here: R² undefined for a constant series, the normal CDF from

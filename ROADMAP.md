@@ -88,7 +88,10 @@ later. It closes every item the ledger assigned to it and the four it had
 assigned to v4.0.0 — American options and a volatility term structure, the
 optimal split, an estimated urgency and randomized icebergs, a rerun harness, a
 lock-file reader, cron timers, an exact liquidation price, checkpoint segments
-that no longer grow with a run's orders — and does the freeze's own work: one
+that no longer grow with a run's orders — with the two capabilities and the
+limitations three ADRs had stated and the ledger had never recorded:
+exchange-rate risk as factors, the shortfall an impact model expects, and a box
+uncertainty set on a book that may short. And it does the freeze's own work: one
 name for one contract across the public API, the API and every persisted name
 recorded as data and held by tests, and a certificate of what the build was
 checked to do (ADR-0048). Every boundary and limitation was re-read against the
@@ -243,9 +246,15 @@ The first capability release on the frozen architecture, confined to
   discrete dividends on a Cox–Ross–Rubinstein lattice, reproducing Hull's
   table; implied volatility through the lattice; interpolation across expiries,
   linear in total variance, by name.
-- **Execution** (BRK-005, OFE-024, BRK-006, OFE-025): the optimal split of an
-  order across venues; an Almgren–Chriss urgency estimated from stated inputs;
-  iceberg tranches drawn from a seed.
+- **Execution** (BRK-005, OFE-024, BRK-006, OFE-025, FEA-008): the optimal
+  split of an order across venues; an Almgren–Chriss urgency estimated from
+  stated inputs, and the expected shortfall and variance of a schedule under the
+  same model, a measured shortfall read beside them; iceberg tranches drawn from
+  a seed.
+- **Risk and construction** (FEA-007, FEA-009, RSK-007, OPT-001): exchange-rate
+  loadings and every factor's share of a book's volatility; a box uncertainty
+  set on a book that may short; the v1 optimizer's risk constraints state only
+  what is checked, and its manager applies only the constraints configured.
 - **Reproducibility** (REP-003, OFE-020, OFE-019): a run re-executed from its
   manifest, its divergence located; a lock file read into a dependency
   manifest.
@@ -255,11 +264,12 @@ The first capability release on the frozen architecture, confined to
 - **Persistence** (PRF-011, PER-007, DOC-005): checkpoint segments that carry
   only the orders that changed; a qualified enum name read only under its own
   class; durability tables held to the code.
-- **The freeze** (API-001, API-002, PER-004, FEA-006, DOC-006, TST-014): 52
-  shared public names reduced to 31, each with its reason; the public API
-  recorded per release and every change to it required in the CHANGELOG; the
-  persisted names pinned; a release certificate run in CI; the ledger's cited
-  tests checked to exist.
+- **The freeze** (API-001, API-002, PER-004, FEA-006, DOC-006, TST-014,
+  TST-015): 52 shared public names reduced to 31, each with its reason; the
+  public API recorded per release and every change to it required in the
+  CHANGELOG; the persisted names pinned; a release certificate run in CI; the
+  ledger's cited tests checked to exist; every limitation and deferral an ADR
+  states held to a closed ledger entry.
 - **Boundaries** (BND-005): the research path no longer loads the market-data
   transports.
 
@@ -1059,8 +1069,10 @@ the single-currency `BacktestResult.valuation` (API-004), the calendar-less
 DAY order (EXE-010), the single-sample benchmark ceilings (TST-011), the three
 numerical defects (NUM-003, NUM-004, NUM-007) and the unflushed directory
 (PER-003). v3.13 fixed the liquidation price (NUM-014), the broker codec's
-unread qualifier (PER-007) and the research path's network imports (BND-005),
-and classified the two items v3.12 left open. The ledger holds no open defect;
+unread qualifier (PER-007), the research path's network imports (BND-005), and
+the v1 optimizer's unread risk limits and unconfigured clipping (RSK-007,
+OPT-001), and classified the two items v3.12 left open and every limitation the
+release ADRs state (LIM-001–003). The ledger holds no open defect;
 what remains is stated as a limitation, with its reason:
 
 - **Memory** (PRF-011, an explicit limitation): the OMS order book, execution

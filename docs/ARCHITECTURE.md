@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.12)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.13)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.12)
+# Implementation Status (v3.13)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -153,7 +153,20 @@ path; retention and incremental checkpoints (`alphalab.runtime.retention`,
 factor-structured construction (`alphalab.portfolio_optimizer.factor_quadratic`);
 and routing by index (`alphalab.strategy.subscription.RoutingIndex`). It adds no
 package and eight package edges, none a cycle, and upgrades four snapshot
-schemas (ADR-0047). **v3.0.0 adds no capability**: it freezes the architecture described here and makes the
+schemas (ADR-0047). **v3.13.0 is the final pre-v4 release**, and leaves nothing
+required for later: American options on a lattice (`alphalab.options.binomial`)
+and a volatility term structure; the optimal split
+(`alphalab.execution.SplitMethod.OPTIMAL`); an estimated urgency, the shortfall
+its model expects and seeded iceberg tranches (`alphalab.execution.algorithms`);
+a rerun from a manifest and a lock-file reader (`alphalab.lifecycle.rerun`,
+`alphalab.lifecycle.lockfile`); cron timers (`alphalab.scheduler.cron`); an
+exact liquidation price; exchange-rate risk as factors and every factor's share
+of a book's volatility (`alphalab.analytics.factor_risk`); a box uncertainty set
+on a book that may short; checkpoint segments that carry only what changed.
+The freeze: one name for one contract, the public API and every persisted name
+recorded as data and held by tests (`docs/api`), and a release certificate
+(`docs/audit/RELEASE_CERTIFICATION.md`). It adds no package and no package edge,
+and upgrades two snapshot schemas (ADR-0048). **v3.0.0 adds no capability**: it freezes the architecture described here and makes the
 documentation match it.
 
 ## AlphaLab is a library
@@ -5383,8 +5396,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v3.10.0
-Status: Implementation Status (v3.9) describes what is built and is authoritative.
+Version: v3.13.0
+Status: Implementation Status (v3.13) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```
