@@ -147,7 +147,9 @@ class CheckpointMark:
     sequence: int
     digest: str
     ends: Mapping[str, int]
-    entries: Mapping[str, _Entries] = field(default_factory=dict, compare=False, repr=False)
+    entries: Mapping[str, tuple[tuple[Any, Any], ...]] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
 
 def _digest(text: str) -> str:

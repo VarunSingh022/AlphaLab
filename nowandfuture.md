@@ -1099,8 +1099,9 @@ Ten durable states. Each has **one** snapshot owner, **one** schema constant and
 
 Plus `persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, which versions what
 the *store* records about a payload and nothing inside it, and the envelopes of
-an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 1`) and of the
-evidence store (`model_registry.evidence.EVIDENCE_SCHEMA = 1`), both v3.12. The
+an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 2`; v3.12, and
+2 since v3.13 writes per-order state by its changes) and of the evidence store
+(`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12). The
 values are v3.13's, and `tests/regression/test_documented_schemas_are_current.py`
 keeps them so.
 

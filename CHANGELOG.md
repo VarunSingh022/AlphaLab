@@ -14,6 +14,315 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [3.13.0] - 2026-10-04
+
+**The final pre-v4 release: American options and a volatility term structure,
+the cheapest split of an order across venues, an urgency estimated rather than
+assumed and icebergs that do not repeat themselves, a rerun that says whether it
+reproduced and where it did not, cron timers, an exact liquidation price,
+checkpoints that no longer grow with a run's orders — and the freeze: one name
+for one contract across the public API, the API and every persisted name
+recorded as data and held by tests, and a certificate of what the build was
+checked to do.**
+
+v3.10 made the canonical path correct, v3.11 gave it what a strategy needs and
+v3.12 hardened it. v3.13 closes every item the ledger
+(`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) assigned to it, and the four it had
+assigned to v4 — the shared names, the public API manifest, the persisted names
+and release certification — so that nothing required is left for later. A
+fresh audit of the whole tree found @@GATE@@ more things; each is fixed,
+implemented, removed or stated here, and none is deferred. ADR-0048 records the
+decisions. Ledger IDs are given in brackets.
+
+A run configured as in 3.12 behaves as in 3.12 — every new capability is off
+until it is asked for — and every payload and checkpoint chain 3.12.0 wrote is
+read. What breaks is names: v3.13 renames rather than aliases, so the migration
+table is long, and every row in it is checked against the public API's own diff
+(`tests/regression/test_api_changes_are_in_the_changelog.py`).
+
+## Added — options (`alphalab.options`)
+
+* **American exercise and discrete dividends on a CRR lattice** [NUM-006,
+  BDY-016]: `BinomialLattice(steps, dividends)` with `CashDividend(ex_timestamp,
+  amount)`; `binomial_value`, `binomial_price` and `binomial_greeks`;
+  `PricingModel.BINOMIAL_CRR`, whose `ModelAssumptions` state the step count and
+  that discrete dividends are modelled (escrowed: the lattice carries the spot
+  less the present value of the dividends before expiry). `MAX_STEPS` = 5,000.
+  A lattice whose up-probability leaves (0, 1) is refused with how many steps
+  it needs. It reproduces Hull's convergence table for an American put — 4.488,
+  4.263, 4.272, 4.278, 4.283 at 5, 30, 50, 100 and 500 steps — and an American
+  call on a stock paying nothing is worth exactly its European value.
+* **Implied volatility through the lattice**: `implied_volatility(...,
+  lattice=)` and `surface_from_chain(..., lattice=)`; the result records the
+  lattice it was inverted on (`ImpliedVolatility.lattice`), and a quote below
+  the lattice's zero-volatility value is refused.
+* **A volatility term structure** [FEA-005, BDY-015]:
+  `ExpiryInterpolation.TOTAL_VARIANCE_LINEAR` and
+  `implied_vol_across_expiries(surface, strike, expiry, method=)` — at a fixed
+  strike, linear in total variance; extrapolation and calendar arbitrage
+  (total variance falling with expiry) are refused, not smoothed.
+
+## Added — execution (`alphalab.execution`)
+
+* **The optimal split** [BRK-005, OFE-024]:
+  `RoutingPolicy(split_method=SplitMethod.OPTIMAL)` finds the lowest total
+  all-in cost over whole increments when every venue's cost is a fixed charge
+  plus a convex function of quantity — equal to brute force over every
+  allocation in every randomized case the tests enumerate. A cost whose
+  marginal falls is refused, and so are more than
+  `MAX_SPLIT_FIXED_CHARGE_VENUES` (10) venues with a fixed charge. The greedy
+  sweep stays the default, and a 3.12 policy keeps its identity.
+* **An estimated urgency** [BRK-006, OFE-025]: `estimate_urgency(risk_aversion=,
+  volatility=, temporary_impact=, permanent_impact=, horizon=, slices=)` returns
+  an `UrgencyEstimate` — the discrete Almgren–Chriss curvature, with its inputs
+  and formula recorded; a permanent impact too large for the slice length is
+  refused.
+* **Randomized iceberg tranches** [BRK-006, OFE-025]: `Iceberg(display_quantity,
+  randomization=TrancheRandomization(spread, seed))` draws each tranche from a
+  SHA-256 counter stream of the seed; the spread and seed are part of the
+  configuration's identity, so a rerun shows the same tranches.
+
+## Added — reproducibility (`alphalab.lifecycle`)
+
+* **A rerun harness** [REP-003, OFE-020]: `rerun_from_manifest(manifest, run, *,
+  dataset, fingerprint, engine, build, original=)` returns a `RerunReport`. The
+  inputs are checked first — another dataset, strategy, engine or build is
+  `INPUTS_DIFFER`, and nothing runs — then the rerun is `REPRODUCED` or
+  `DIVERGED`, and given the original result a divergence is located: the first
+  `RERUN_DIFFERENCE_LIMIT` (10) paths at which the two runs' records differ.
+* **A lock-file reader** [OFE-019]: `read_lock_file(text, lock_format, *,
+  exclude=)` with `LockFormat.PIP_COMPILE`, `REQUIREMENTS`, `UV_LOCK` and
+  `POETRY_LOCK`. A manifest says what the lock says: an exact closure only when
+  the lock is one, an artifact digest only where the lock names one artifact; a
+  range, a URL, a VCS or path source and one distribution at two versions are
+  refused.
+
+## Added — scheduling and crypto
+
+* **Cron timers** [DAT-006]: `scheduler.CronSchedule(expression, zone)` —
+  five fields, ranges, steps, lists and month and weekday names, read on a
+  stated IANA zone's wall clock — `cron_timer` and `CRON_SEARCH_DAYS`. Two rules
+  every implementation must choose are stated: Vixie cron's for combining the
+  two day fields, and for daylight saving that a minute that does not exist
+  does not fire and a repeated minute fires once, at its first occurrence. An
+  expression that can never fire is refused.
+* `crypto.MaintenanceBasis` — see the liquidation price below.
+
+## Added — the freeze (`docs/api`, `docs/audit`)
+
+* **The public API as data** [API-002]: `docs/api/public_api.json` records
+  every exported name of 44 packages — 2,470 — with what it is bound to: its
+  defining module and signature, a dataclass's fields, an enum's members.
+  `docs/api/generate_public_api.py` writes it, `docs/api/PUBLIC_API.md`
+  explains it, and `tests/regression/test_public_api_manifest.py` fails on any
+  export added, removed or rebound, on a manifest of another release, and on a
+  name two packages export as different objects without a recorded reason.
+  Each release's manifest is kept in `docs/api/history/`.
+* **Every API change named in the CHANGELOG** [DOC-006]: a name removed or
+  changed since the previous release's manifest must appear in this file's
+  section for the release.
+* **Persisted names pinned** [PER-004]: a plain enum is written
+  `ClassName.MEMBER`, so its class and member names are part of the format.
+  `tests/regression/test_persisted_enum_names.py` pins every enum a decoder
+  reads (14 by name, 9 by value) and the class names that tag every persisted
+  event log (9 tables); `docs/STATE_MODEL.md` states the rule. The payloads
+  3.12.0 wrote, and a checkpoint chain, are frozen in
+  `tests/fixtures/snapshots/v3.12.0`.
+* **Release certification** [FEA-006]: `docs/audit/scripts/certify_release.py`
+  writes `docs/audit/release_certification.json` and its rendering,
+  `RELEASE_CERTIFICATION.md`: eleven checks of determinism (one process, fresh
+  interpreters under two hash seeds, a six-digit ambient decimal context),
+  parity (backtest, replay and paper; live orders), reproducibility (a rerun
+  from the manifest, a stop-and-continue, every golden payload), published
+  numerical references (Hull's Black–Scholes–Merton example and American-put
+  table, normal-distribution values, a NIST NumAcc-style series) and the public
+  API. CI runs it with `--check`, which also fails when a check's evidence moves.
+
+## Changed — one name, one contract [API-001]
+
+At 3.12.0, 52 names were exported by two or more packages as different
+objects. Some were deliberate pairs; others were not — the multi-broker
+connector reused the broker boundary's event and error names for classes with
+other fields, two packages exported `validate_intent` with different rules for
+the same `Intent`, and two `calculate_volatility` functions computed one thing
+with different keywords and checks. 31 remain, each a different contract the
+name is right for in both places, with its reason in the manifest. The rest:
+
+* **The connector's names say what they are**: `BrokerConnectorEvent`,
+  `RegisteredBrokerConnected`, `RegisteredBrokerDisconnected`,
+  `RegisteredBrokerHeartbeat`, `RoutedOrderSubmitted`, `RoutedOrderCancelled`,
+  `RoutedOrderFilled`, `RoutedExecutionReceived`,
+  `BrokerConnectorValidationError`, `BrokerConnectorStateError`,
+  `BrokerConnectorAdapter`, `open_routed_orders`, `validate_routed_execution`,
+  `validate_routed_submission`; its annotations (`BrokerConnectorState`) name
+  them. The modules `brokers.account`, `.execution`, `.order` and `.position`,
+  which re-exported canonical types under historical names, are removed.
+* `strategy.LifecycleState` → `strategy.StrategyStatus` (the lifecycle
+  registry's `LifecycleState` keeps its name); persisted, so pipeline schema
+  6 → 7 rewrites it. `StrategyState.status` is annotated with it.
+* `scheduler.TradingSession` → `scheduler.ScheduledSession` (`runtime`'s
+  `TradingSession` is a session driver); `SchedulerState.active_sessions` and
+  `scheduler.active_sessions` hold and return it.
+* `ml.Split` → `ml.TrainTestSplit`; `factor_library.Delisting` →
+  `factor_library.DelistingReturn`, which `forward_returns`,
+  `ForwardReturnPanel`, `delisting_set_id`, `factor_decay` and
+  `research.signal_horizons` now name.
+* **One intent check**: `strategy.validate_intent` holds both packages' rules —
+  a strategy and an instrument, an `IntentKind`, a finite `Decimal` target, a
+  finite strength in [0, 1], a finite non-negative timestamp, `OrderTerms` —
+  and allocation calls it; `allocation.validate_intent` is removed. A NaN
+  strength is refused as `InvalidIntentError` where the strategy runtime let
+  `decimal.InvalidOperation` escape, and a non-finite target is refused where
+  the strategy emits it rather than only at allocation.
+* **One drawdown**: `research.calculate_max_drawdown` and
+  `portfolio_optimizer.calculate_max_drawdown` are both
+  `common.statistics.compounded_max_drawdown`, which refuses a NaN or infinite
+  return (`AlphaLabValidationError`) instead of returning whatever the loop
+  made of it. `portfolio_optimizer.calculate_volatility` is removed: it was the
+  research metric with another keyword, no check and another rounding order.
+* **One clock protocol**: `common.time.ClockProtocol`, exported by `scheduler`
+  and `strategy` (`StrategyContext.clock`).
+
+## Changed — the liquidation price [NUM-014]
+
+`crypto.compute_liquidation_price(entry_price, side, leverage,
+maintenance_margin_rate, *, basis, quantity, fees, funding)` solves the
+isolated-margin equation exactly: equity — the posted margin, the move, the
+funding, less the fees — equals maintenance charged on the notional `basis`
+names, `MaintenanceBasis.ENTRY_NOTIONAL` or `MARK_NOTIONAL`. Until v3.13 it
+returned the entry-notional figure for every venue as "the standard simplified
+formula", ignored fees and funding, and divided in the caller's decimal context.
+It now runs in the accounting context, returns `None` for a long that no fall
+in price can liquidate, and refuses a position already at its maintenance
+margin when it opens. A venue's tiered rates, smoothed mark, insurance fund and
+auto-deleveraging stay the venue's.
+
+## Changed — persistence and scale
+
+* **Checkpoints no longer grow with a run's orders** [PRF-011]: a segment wrote
+  the order book, the completed orders and the execution reports by order
+  whole — about a kilobyte per order the run had ever placed, in every
+  segment. It now writes the entries added or replaced since the checkpoint
+  before it, and a reader merges them by key, checking each map's size
+  (`runtime.CheckpointMark.entries`; checkpoint schema 2). Two thousand
+  records with an order each, checkpointed every 500: the fourth segment was
+  6.39 MB and is 5.01 MB, and the segments are now flat across the run. A mark
+  rebuilt from its digest and ends alone writes those maps whole, as 3.12 did;
+  a 3.12 chain is read.
+* **A qualified enum name is read only under its own class** [PER-007]: the
+  broker codec discarded the qualifier of `"ConnectionStatus.CONNECTED"`
+  unread, so `"OrderStatus.CONNECTED"` decoded as a connection status.
+* The durability tables in `docs/ARCHITECTURE.md`, `docs/STATE_MODEL.md` and
+  `nowandfuture.md` state the current schema versions, and a test holds them
+  to the constants [DOC-005].
+
+## Removed
+
+* `ScheduleType.BAR_BOUNDARY` [DAT-006]: declared and never implemented. A
+  bar's arrival is the event (`on_bar`), and a timer restating where a bar's
+  boundary falls could only disagree with the data. `Timer.cron_expression`,
+  a string nothing parsed, is `Timer.cron`, a `CronSchedule`.
+* The connector's aliases and their modules, `portfolio_optimizer.calculate_volatility`
+  and `allocation.validate_intent` — above [API-001].
+
+## Changed — performance
+
+@@GATE@@
+
+## Migrating from 3.12
+
+| If you… | Now… |
+|---|---|
+| imported `brokers.BrokerEvent`, `BrokerConnected`, `BrokerDisconnected` or `Heartbeat` | import `BrokerConnectorEvent`, `RegisteredBrokerConnected`, `RegisteredBrokerDisconnected` or `RegisteredBrokerHeartbeat` |
+| imported `brokers.OrderSubmitted`, `OrderCancelled`, `OrderFilled` or `ExecutionReceived` | import `RoutedOrderSubmitted`, `RoutedOrderCancelled`, `RoutedOrderFilled` or `RoutedExecutionReceived` |
+| caught `brokers.BrokerValidationError` or `InvalidBrokerStateError` | catch `BrokerConnectorValidationError` or `BrokerConnectorStateError` |
+| subclassed `brokers.BrokerAdapter` | subclass `BrokerConnectorAdapter` |
+| called `brokers.open_orders`, `validate_execution` or `validate_order_submission` | call `open_routed_orders`, `validate_routed_execution` or `validate_routed_submission` |
+| imported `brokers.AccountSnapshot`, `PositionSnapshot`, `ExecutionReport`, `OrderStatus` or `AssetClass`, or a `brokers.account`/`.execution`/`.order`/`.position` module | import the canonical `broker.BrokerAccount`, `BrokerPosition`, `BrokerExecution`, `BrokerOrderStatus`, or `core.enums.AssetType` |
+| read `BrokerConnectorState` fields typed with the old event names | read the same fields; they hold the renamed classes |
+| imported `strategy.LifecycleState` | import `strategy.StrategyStatus`; read `StrategyState.status` as one |
+| matched a persisted strategy status `"LifecycleState.RUNNING"` in a payload you parse yourself | expect `"StrategyStatus.RUNNING"`; a 3.12 payload read through `from_primitives` is rewritten for you |
+| imported `scheduler.TradingSession` | import `ScheduledSession`; `SchedulerState.active_sessions` and `active_sessions()` hold it |
+| imported `ml.Split` | import `TrainTestSplit` |
+| imported `factor_library.Delisting` | import `DelistingReturn` (`forward_returns`, `ForwardReturnPanel`, `delisting_set_id`, `factor_decay` and `research.signal_horizons` take it) |
+| called `allocation.validate_intent` | call `strategy.validate_intent`, and catch `InvalidIntentError` |
+| emitted an intent with a non-finite target or strength, a NaN timestamp or a kind that is not an `IntentKind` | expect the strategy runtime to refuse it and fail the strategy, where only allocation refused some of them |
+| called `portfolio_optimizer.calculate_volatility(returns, periods=)` | call `research.calculate_volatility(returns, periods_per_year)` or `analytics.annualized_volatility` |
+| passed NaN or infinite returns to `research.calculate_max_drawdown` or `portfolio_optimizer.calculate_max_drawdown` | clean them first: they are refused |
+| implemented `strategy.ClockProtocol` or `scheduler.ClockProtocol` | nothing: both are `common.time.ClockProtocol`, with the same `now()`; `StrategyContext.clock` is typed with it |
+| called `crypto.compute_liquidation_price(entry, side, leverage, rate)` | pass `basis=`, `quantity=`, `fees=` and `funding=`, and handle `None` |
+| built a `Timer(..., cron_expression=)` or used `ScheduleType.BAR_BOUNDARY` | build a cron timer with `cron_timer(timer_id, CronSchedule(expression, zone), after)`; react to bars in `on_bar` |
+| matched `ScheduleType` exhaustively | drop `BAR_BOUNDARY`; `CRON` timers now register |
+| matched `PricingModel` exhaustively, or built `ModelAssumptions`, `ImpliedVolatility` or called `implied_volatility` / `surface_from_chain` positionally | handle `BINOMIAL_CRR`; the new fields and the `lattice` keyword default to the Black–Scholes behaviour |
+| built `RoutingPolicy` or `Iceberg` positionally | nothing: `split_method` and `randomization` are new trailing fields with 3.12's behaviour as their defaults |
+| built a `runtime.CheckpointMark` yourself, from a stored digest and ends | nothing: its new `entries` default to none, and the next segment writes the per-order maps whole |
+| read a checkpoint chain with your own code | read `maps` before the run: a segment's `oms.orders`, `oms.completed_orders` and `execution.reports` hold changes only when its `whole` is false |
+| read a 3.12 snapshot or checkpoint chain | nothing: pipeline 6 → 7 and checkpoint 1 → 2 are read |
+
+## Found during this release
+
+* **PER-007** (shipped since 2.16): the broker codec read any qualified enum
+  name by its member alone. Fixed; pinned.
+* **NUM-014** (shipped since 1.38): the liquidation price assumed entry-notional
+  maintenance for every venue, ignored fees and funding, and depended on the
+  caller's decimal context. Replaced.
+* **PRF-011** (shipped in 3.12.0): checkpoint segments carried every order the
+  run had placed. Fixed; the in-memory per-order state is stated below.
+* **DOC-005** (shipped): the durability tables in three current-state documents
+  gave schema versions from as long ago as 2.x — eight of ten stale in each.
+  Corrected and held to the code by a test.
+* **DOC-007** (stale since 2.16): `portfolio/valuation.py` said the rate source
+  "has not arrived"; 2.16 delivered it. Corrected.
+* **DOC-006** and **TST-014** (gaps of method): nothing checked that a release's
+  migration table named every changed API, or that the tests the ledger cites
+  exist — 3.12 found both by hand. Both are tests now; the second caught two
+  ledger references this release's own rename had broken, the moment it ran.
+* **Introduced and caught within this release**: the scheduler's session was
+  first renamed `SessionWindow`, the calendar's name — a new collision, caught
+  by the shared-name inventory before the manifest existed to catch it; it is
+  `ScheduledSession`. The certification's first run reported a determinism
+  failure that was the check's own: it built the caller's configuration under
+  the hostile decimal context, so the engine was given other numbers. The check
+  now holds the engine's arithmetic, not the caller's.
+
+## Snapshot schemas
+
+Pipeline 6 → 7 (the strategy status's class name); checkpoint 1 → 2 (per-order
+state by its changes). Every older payload is read; the eleven payloads, the
+run store and a checkpoint chain 3.12.0 wrote are frozen in
+`tests/fixtures/snapshots/v3.12.0` and read by
+`tests/regression/test_schema_upgrades_v3_12.py` and
+`tests/regression/test_checkpoints.py`, the first held to upgrading exactly the
+status's name and nothing else.
+
+## Tests, CI and tooling
+
+@@GATE@@
+
+## Examples
+
+@@GATE@@
+
+## Still open
+
+Nothing is assigned to a later release. What remains is stated as a limitation
+or a boundary, each with its reason (ADR-0048, `ROADMAP.md`):
+
+* **Per-order memory** [PRF-011]: the order book, execution reports by order and
+  a live session's routed and settled orders hold an entry for every order a
+  run placed — exactly-once handling of a venue's late or repeated report needs
+  the order it names. Retention bounds the logs, not these; checkpoints no
+  longer pay for them.
+* **Other hosts**: certified identities are SHA-256 digests of what the engine
+  writes; a host whose `libm` rounds `exp` or `log` differently in the last bit
+  can produce another analytics float. `certify_release.py --check` on that host
+  says which.
+
+@@GATE@@ (performance classification)
+
+---
+
+
 # [3.12.0] - 2026-10-04
 
 **The third pre-v4 release: numerical methods right at the edges of their
