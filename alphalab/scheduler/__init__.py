@@ -2,7 +2,8 @@
 
 One-shot, interval and -- since v3.12 -- session timers, which fire at a market's
 trading-day opens and closes as its :class:`~alphalab.data.calendar.MarketCalendar`
-declares them (ledger SCF-003). The engine is driven by
+declares them (ledger SCF-003), and -- since v3.13 -- cron timers, which fire at
+the instants a :class:`CronSchedule` names on its zone's wall clock. The engine is driven by
 :meth:`SchedulerEngine.advance_clock` with instants the caller supplies, so a
 schedule replays identically; ``SystemClock`` is the one wall clock here and the
 engine never reads it.
@@ -15,6 +16,7 @@ from alphalab.scheduler.clock import (
     SystemClock,
     VirtualClock,
 )
+from alphalab.scheduler.cron import CRON_SEARCH_DAYS, CronSchedule
 from alphalab.scheduler.engine import SchedulerEngine
 from alphalab.scheduler.events import (
     ClockAdvanced,
@@ -35,6 +37,7 @@ from alphalab.scheduler.schedule import ScheduleType
 from alphalab.scheduler.scheduler import (
     SESSION_SCHEDULES,
     SchedulerResolver,
+    cron_timer,
     is_session_boundary,
     next_session_boundary,
     session_timer,
@@ -46,12 +49,14 @@ from alphalab.scheduler.validation import validate_timer
 from alphalab.scheduler.views import active_sessions, current_time, next_timer, scheduled_timers
 
 __all__ = [
+    "CRON_SEARCH_DAYS",
     "SESSION_SCHEDULES",
     "BacktestClock",
     "ClockAdvanced",
     "ClockProtocol",
     "ClockReset",
     "ClockState",
+    "CronSchedule",
     "InvalidClockStateError",
     "ScheduleType",
     "ScheduledSession",
@@ -71,6 +76,7 @@ __all__ = [
     "TimerTriggered",
     "VirtualClock",
     "active_sessions",
+    "cron_timer",
     "current_time",
     "is_session_boundary",
     "next_session_boundary",

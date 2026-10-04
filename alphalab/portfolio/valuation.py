@@ -50,8 +50,9 @@ Which helpers refuse, and which do not
 
 Until v2.12 the check was confined to :meth:`~PortfolioValuation.snapshot` and
 its siblings were left currency-blind, deferred to "the release that supplies
-the rate source" (ADR-0020 decision 5). That release has not arrived, and the
-deferral was closed earlier instead, on measurement. What sorts the helpers is
+the rate source" (ADR-0020 decision 5). v2.12 closed the deferral before that
+release came, on measurement; the rate source itself arrived in v2.16, as the
+:class:`~alphalab.portfolio.fx.FxRates` table above. What sorts the helpers is
 not whether they *could* produce a wrong figure but **what each one claims**:
 
 =========================================  ==========================  ========

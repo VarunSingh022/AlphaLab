@@ -1,5 +1,5 @@
 {
-  "release": "3.13.0",
+  "release": "3.12.0",
   "rule": "One name, one contract: a name two packages export is the same object in both, or it is listed under shared_names with the reason the two are deliberately different.",
   "packages": {
     "alphalab": {
@@ -64,6 +64,7 @@
       "reserved_capital": "function alphalab.allocation.capital.reserved_capital(state: 'AllocationState', *, currency: 'str') -> 'Decimal'",
       "reserved_for_order": "function alphalab.allocation.views.reserved_for_order(state: alphalab.allocation.state.AllocationState, order_id: str) -> decimal.Decimal",
       "total_notional_allocated": "function alphalab.allocation.views.total_notional_allocated(state: alphalab.allocation.state.AllocationState) -> decimal.Decimal",
+      "validate_intent": "function alphalab.allocation.validation.validate_intent(intent: alphalab.strategy.events.Intent) -> None",
       "validate_long_only": "function alphalab.allocation.validation.validate_long_only(asset_id: str, delta: decimal.Decimal, committed: decimal.Decimal) -> None",
       "validate_net_quantity": "function alphalab.allocation.validation.validate_net_quantity(quantity: decimal.Decimal, enforce_long_only: bool = False) -> None"
     },
@@ -423,16 +424,18 @@
       "validate_replace_request": "function alphalab.broker.validation.validate_replace_request(state: alphalab.broker.state.BrokerState, broker_order_id: str, new_quantity: decimal.Decimal, new_price: decimal.Decimal) -> None"
     },
     "alphalab.brokers": {
+      "AccountSnapshot": "class alphalab.broker.account.BrokerAccount(account_id: str, cash: decimal.Decimal, equity: decimal.Decimal, buying_power: decimal.Decimal, margin: decimal.Decimal, available_funds: decimal.Decimal, currency: str, broker_id: str = '', metadata: collections.abc.Mapping[str, str] = <factory>) -> None",
+      "AssetClass": "enum alphalab.core.enums.AssetType[EQUITY, FUTURE, OPTION, FOREX, CRYPTO, CASH]",
       "BrokerAccount": "class alphalab.broker.account.BrokerAccount(account_id: str, cash: decimal.Decimal, equity: decimal.Decimal, buying_power: decimal.Decimal, margin: decimal.Decimal, available_funds: decimal.Decimal, currency: str, broker_id: str = '', metadata: collections.abc.Mapping[str, str] = <factory>) -> None",
+      "BrokerAdapter": "class alphalab.brokers.adapter.BrokerAdapter()",
+      "BrokerConnected": "class alphalab.brokers.events.BrokerConnected(event_id: str, timestamp: float, broker_id: str) -> None",
       "BrokerConnection": "class alphalab.brokers.connection.BrokerConnection(broker_id: str, broker_name: str, broker_type: alphalab.brokers.connection.BrokerType, connected: bool = False, latency_ms: float = 0.0, last_heartbeat: float = 0.0) -> None",
-      "BrokerConnectorAdapter": "class alphalab.brokers.adapter.BrokerConnectorAdapter()",
       "BrokerConnectorEngine": "class alphalab.brokers.engine.BrokerConnectorEngine()",
       "BrokerConnectorError": "class alphalab.brokers.exceptions.BrokerConnectorError",
-      "BrokerConnectorEvent": "class alphalab.brokers.events.BrokerConnectorEvent(event_id: str, timestamp: float) -> None",
       "BrokerConnectorProtocol": "class alphalab.brokers.protocol.BrokerConnectorProtocol(*args, **kwargs)",
-      "BrokerConnectorState": "class alphalab.brokers.state.BrokerConnectorState(engine_id: str, connections: alphalab.common.persistent_map.PersistentMap[str, alphalab.brokers.connection.BrokerConnection] = <factory>, accounts: alphalab.common.persistent_map.PersistentMap[str, alphalab.broker.account.BrokerAccount] = <factory>, positions: alphalab.common.persistent_map.PersistentMap[str, alphalab.broker.position.BrokerPosition] = <factory>, orders: alphalab.common.persistent_map.PersistentMap[str, alphalab.broker.order.BrokerOrder] = <factory>, executions: alphalab.common.persistent_map.PersistentMap[str, alphalab.broker.execution.BrokerExecution] = <factory>, statistics: alphalab.brokers.state.BrokerStatistics = <factory>, events: alphalab.common.append_log.AppendOnlyLog[alphalab.brokers.events.BrokerConnectorEvent] = <factory>, metadata: alphalab.common.persistent_map.PersistentMap[str, str] = <factory>) -> None",
-      "BrokerConnectorStateError": "class alphalab.brokers.exceptions.BrokerConnectorStateError",
-      "BrokerConnectorValidationError": "class alphalab.brokers.exceptions.BrokerConnectorValidationError",
+      "BrokerConnectorState": "class alphalab.brokers.state.BrokerConnectorState(engine_id: str, connections: alphalab.common.persistent_map.PersistentMap[str, alphalab.brokers.connection.BrokerConnection] = <factory>, accounts: alphalab.common.persistent_map.PersistentMap[str, alphalab.broker.account.BrokerAccount] = <factory>, positions: alphalab.common.persistent_map.PersistentMap[str, alphalab.broker.position.BrokerPosition] = <factory>, orders: alphalab.common.persistent_map.PersistentMap[str, alphalab.broker.order.BrokerOrder] = <factory>, executions: alphalab.common.persistent_map.PersistentMap[str, alphalab.broker.execution.BrokerExecution] = <factory>, statistics: alphalab.brokers.state.BrokerStatistics = <factory>, events: alphalab.common.append_log.AppendOnlyLog[alphalab.brokers.events.BrokerEvent] = <factory>, metadata: alphalab.common.persistent_map.PersistentMap[str, str] = <factory>) -> None",
+      "BrokerDisconnected": "class alphalab.brokers.events.BrokerDisconnected(event_id: str, timestamp: float, broker_id: str, reason: str) -> None",
+      "BrokerEvent": "class alphalab.brokers.events.BrokerEvent(event_id: str, timestamp: float) -> None",
       "BrokerExecution": "class alphalab.broker.execution.BrokerExecution(execution_id: str, broker_order_id: str, symbol: str, fill_quantity: decimal.Decimal, fill_price: decimal.Decimal, commission: decimal.Decimal, timestamp: float, account_id: str = '', external_id: str = '') -> None",
       "BrokerOrder": "class alphalab.broker.order.BrokerOrder(broker_order_id: str, oms_order_id: str, symbol: str, side: alphalab.core.enums.Side, order_type: alphalab.common.order_terms.OrderType, quantity: decimal.Decimal, price: decimal.Decimal, filled_quantity: decimal.Decimal, average_fill_price: decimal.Decimal, status: alphalab.core.enums.OrderStatus | alphalab.broker.order.BrokerOrderStatus, created_at: float, updated_at: float, account_id: str = '', tif: alphalab.common.order_terms.TimeInForce = <TimeInForce.DAY: 'day'>, stop_price: decimal.Decimal = Decimal('0')) -> None",
       "BrokerOrderStatus": "enum alphalab.broker.order.BrokerOrderStatus[PENDING_SUBMIT, SUBMITTED, PENDING_CANCEL]",
@@ -441,28 +444,31 @@
       "BrokerRegistry": "class alphalab.brokers.registry.BrokerRegistry()",
       "BrokerStatistics": "class alphalab.brokers.state.BrokerStatistics(total_orders_submitted: int = 0, total_executions_received: int = 0, total_errors: int = 0) -> None",
       "BrokerType": "enum alphalab.brokers.connection.BrokerType[PAPER, REST, STREAMING, HYBRID]",
+      "BrokerValidationError": "class alphalab.brokers.exceptions.BrokerValidationError",
+      "ExecutionReceived": "class alphalab.brokers.events.ExecutionReceived(event_id: str, timestamp: float, execution_id: str, broker_order_id: str, fill_price: decimal.Decimal, fill_quantity: decimal.Decimal) -> None",
+      "ExecutionReport": "class alphalab.broker.execution.BrokerExecution(execution_id: str, broker_order_id: str, symbol: str, fill_quantity: decimal.Decimal, fill_price: decimal.Decimal, commission: decimal.Decimal, timestamp: float, account_id: str = '', external_id: str = '') -> None",
+      "Heartbeat": "class alphalab.brokers.events.Heartbeat(event_id: str, timestamp: float, broker_id: str, latency_ms: float) -> None",
+      "InvalidBrokerStateError": "class alphalab.brokers.exceptions.InvalidBrokerStateError",
+      "OrderCancelled": "class alphalab.brokers.events.OrderCancelled(event_id: str, timestamp: float, broker_order_id: str, account_id: str) -> None",
+      "OrderFilled": "class alphalab.brokers.events.OrderFilled(event_id: str, timestamp: float, broker_order_id: str, account_id: str, fill_quantity: decimal.Decimal) -> None",
       "OrderManager": "class alphalab.brokers.manager.OrderManager()",
       "OrderSide": "enum alphalab.core.enums.Side[BUY, SELL]",
+      "OrderStatus": "enum alphalab.broker.order.BrokerOrderStatus[PENDING_SUBMIT, SUBMITTED, PENDING_CANCEL]",
+      "OrderSubmitted": "class alphalab.brokers.events.OrderSubmitted(event_id: str, timestamp: float, broker_order_id: str, account_id: str, symbol: str) -> None",
       "OrderType": "enum alphalab.common.order_terms.OrderType[MARKET, LIMIT, STOP, STOP_LIMIT]",
-      "RegisteredBrokerConnected": "class alphalab.brokers.events.RegisteredBrokerConnected(event_id: str, timestamp: float, broker_id: str) -> None",
-      "RegisteredBrokerDisconnected": "class alphalab.brokers.events.RegisteredBrokerDisconnected(event_id: str, timestamp: float, broker_id: str, reason: str) -> None",
-      "RegisteredBrokerHeartbeat": "class alphalab.brokers.events.RegisteredBrokerHeartbeat(event_id: str, timestamp: float, broker_id: str, latency_ms: float) -> None",
-      "RoutedExecutionReceived": "class alphalab.brokers.events.RoutedExecutionReceived(event_id: str, timestamp: float, execution_id: str, broker_order_id: str, fill_price: decimal.Decimal, fill_quantity: decimal.Decimal) -> None",
-      "RoutedOrderCancelled": "class alphalab.brokers.events.RoutedOrderCancelled(event_id: str, timestamp: float, broker_order_id: str, account_id: str) -> None",
-      "RoutedOrderFilled": "class alphalab.brokers.events.RoutedOrderFilled(event_id: str, timestamp: float, broker_order_id: str, account_id: str, fill_quantity: decimal.Decimal) -> None",
-      "RoutedOrderSubmitted": "class alphalab.brokers.events.RoutedOrderSubmitted(event_id: str, timestamp: float, broker_order_id: str, account_id: str, symbol: str) -> None",
+      "PositionSnapshot": "class alphalab.broker.position.BrokerPosition(symbol: str, quantity: decimal.Decimal, average_price: decimal.Decimal, market_value: decimal.Decimal, unrealized_pnl: decimal.Decimal, realized_pnl: decimal.Decimal, account_id: str = '', asset_class: alphalab.core.enums.AssetType = <AssetType.EQUITY: 'equity'>, market_price: decimal.Decimal = Decimal('0')) -> None",
       "TimeInForce": "enum alphalab.common.order_terms.TimeInForce[DAY, GTC, IOC, FOK, GTD, OPG, CLS]",
       "active_brokers": "function alphalab.brokers.views.active_brokers(state: alphalab.brokers.state.BrokerConnectorState) -> collections.abc.Sequence[alphalab.brokers.connection.BrokerConnection]",
       "engine_statistics": "function alphalab.brokers.views.engine_statistics(state: alphalab.brokers.state.BrokerConnectorState) -> alphalab.brokers.state.BrokerStatistics",
       "get_account": "function alphalab.brokers.views.get_account(state: alphalab.brokers.state.BrokerConnectorState, account_id: str) -> alphalab.broker.account.BrokerAccount | None",
       "list_executions": "function alphalab.brokers.views.list_executions(state: alphalab.brokers.state.BrokerConnectorState, broker_order_id: str) -> collections.abc.Sequence[alphalab.broker.execution.BrokerExecution]",
       "list_positions": "function alphalab.brokers.views.list_positions(state: alphalab.brokers.state.BrokerConnectorState, account_id: str) -> collections.abc.Sequence[alphalab.broker.position.BrokerPosition]",
-      "open_routed_orders": "function alphalab.brokers.views.open_routed_orders(state: alphalab.brokers.state.BrokerConnectorState) -> collections.abc.Sequence[alphalab.broker.order.BrokerOrder]",
+      "open_orders": "function alphalab.brokers.views.open_orders(state: alphalab.brokers.state.BrokerConnectorState) -> collections.abc.Sequence[alphalab.broker.order.BrokerOrder]",
       "validate_account": "function alphalab.brokers.validation.validate_account(state: alphalab.brokers.state.BrokerConnectorState, account_id: str, broker_id: str) -> None",
       "validate_broker_registration": "function alphalab.brokers.validation.validate_broker_registration(state: alphalab.brokers.state.BrokerConnectorState, connection: alphalab.brokers.connection.BrokerConnection) -> None",
+      "validate_execution": "function alphalab.brokers.validation.validate_execution(state: alphalab.brokers.state.BrokerConnectorState, execution_id: str, broker_order_id: str) -> alphalab.broker.order.BrokerOrder",
       "validate_order_cancellation": "function alphalab.brokers.validation.validate_order_cancellation(state: alphalab.brokers.state.BrokerConnectorState, broker_order_id: str) -> alphalab.broker.order.BrokerOrder",
-      "validate_routed_execution": "function alphalab.brokers.validation.validate_routed_execution(state: alphalab.brokers.state.BrokerConnectorState, execution_id: str, broker_order_id: str) -> alphalab.broker.order.BrokerOrder",
-      "validate_routed_submission": "function alphalab.brokers.validation.validate_routed_submission(state: alphalab.brokers.state.BrokerConnectorState, order: alphalab.broker.order.BrokerOrder) -> None"
+      "validate_order_submission": "function alphalab.brokers.validation.validate_order_submission(state: alphalab.brokers.state.BrokerConnectorState, order: alphalab.broker.order.BrokerOrder) -> None"
     },
     "alphalab.cloud_research": {
       "CloudResearchError": "class alphalab.cloud_research.exceptions.CloudResearchError",
@@ -673,7 +679,6 @@
       "FundingSummary": "class alphalab.crypto.funding.FundingSummary(instrument_symbol: str, accruals: tuple[alphalab.crypto.funding.FundingAccrual, ...], total: decimal.Decimal, intervals: int) -> None",
       "InstrumentType": "enum alphalab.crypto.enums.InstrumentType[SPOT, FUTURE, PERPETUAL]",
       "LiquidityRole": "enum alphalab.crypto.venue.LiquidityRole[MAKER, TAKER]",
-      "MaintenanceBasis": "enum alphalab.crypto.perpetual.MaintenanceBasis[ENTRY_NOTIONAL, MARK_NOTIONAL]",
       "ObservationGap": "class alphalab.crypto.availability.ObservationGap(after: 'float', before: 'float', seconds: 'float', missing: 'int') -> None",
       "PriceSource": "enum alphalab.crypto.venue.PriceSource[INDEX, MARK, LAST_TRADE]",
       "VenueDispersion": "class alphalab.crypto.venue.VenueDispersion(prices: 'Mapping[str, Decimal]', lowest_venue: 'str', highest_venue: 'str', lowest: 'Decimal', highest: 'Decimal', spread: 'Decimal', relative_spread: 'Decimal') -> None",
@@ -682,7 +687,7 @@
       "annualized_funding_rate": "function alphalab.crypto.funding.annualized_funding_rate(history: alphalab.crypto.funding.FundingRateHistory) -> decimal.Decimal",
       "average_funding_rate": "function alphalab.crypto.funding.average_funding_rate(history: alphalab.crypto.funding.FundingRateHistory) -> decimal.Decimal",
       "compute_funding_payment": "function alphalab.crypto.funding.compute_funding_payment(position_quantity: decimal.Decimal, mark_price: decimal.Decimal, funding_rate: decimal.Decimal, contract_size: decimal.Decimal) -> decimal.Decimal",
-      "compute_liquidation_price": "function alphalab.crypto.perpetual.compute_liquidation_price(entry_price: decimal.Decimal, side: alphalab.portfolio.types.PositionSide, leverage: decimal.Decimal, maintenance_margin_rate: decimal.Decimal, *, basis: alphalab.crypto.perpetual.MaintenanceBasis, quantity: decimal.Decimal, fees: decimal.Decimal, funding: decimal.Decimal) -> decimal.Decimal | None",
+      "compute_liquidation_price": "function alphalab.crypto.perpetual.compute_liquidation_price(entry_price: decimal.Decimal, side: alphalab.portfolio.types.PositionSide, leverage: decimal.Decimal, maintenance_margin_rate: decimal.Decimal) -> decimal.Decimal",
       "coverage": "function alphalab.crypto.availability.coverage(timestamps: 'Sequence[float]', start: 'float', end: 'float', expected_interval_seconds: 'float') -> 'CoverageReport'",
       "cross_venue_dispersion": "function alphalab.crypto.venue.cross_venue_dispersion(prices: 'Mapping[str, Decimal]') -> 'VenueDispersion'",
       "crypto_symbol": "function alphalab.crypto.instrument.crypto_symbol(instrument: alphalab.crypto.instrument.CryptoInstrument) -> str",
@@ -1002,7 +1007,7 @@
       "FixedCommission": "class alphalab.execution.commission.FixedCommission(fee: decimal.Decimal) -> None",
       "FixedHalfSpread": "class alphalab.execution.costs.FixedHalfSpread(amount: 'Decimal') -> None",
       "FixedSlippage": "class alphalab.execution.slippage.FixedSlippage(slippage_amount: decimal.Decimal) -> None",
-      "Iceberg": "class alphalab.execution.algorithms.Iceberg(display_quantity: 'Decimal', randomization: 'TrancheRandomization | None' = None) -> None",
+      "Iceberg": "class alphalab.execution.algorithms.Iceberg(display_quantity: 'Decimal') -> None",
       "ImmediateFill": "class alphalab.execution.policy.ImmediateFill() -> None",
       "ImpactModel": "class alphalab.execution.costs.ImpactModel(*args, **kwargs)",
       "ImplementationShortfall": "class alphalab.execution.quality.ImplementationShortfall(order_id: 'str', asset_id: 'str', side: 'Side', currency: 'str', ordered_quantity: 'Decimal', filled_quantity: 'Decimal', unfilled_quantity: 'Decimal', decision_price: 'Decimal', arrival_price: 'Decimal | None', end_price: 'Decimal | None', average_fill_price: 'Decimal | None', paper_notional: 'Decimal', execution_cost: 'Decimal', delay_cost: 'Decimal | None', trading_cost: 'Decimal | None', explicit_costs: 'Decimal', opportunity_cost: 'Decimal | None', total: 'Decimal | None', total_bps: 'Decimal | None', strategy_shares: 'tuple[tuple[str, Decimal], ...]', execution_ids: 'tuple[str, ...]', venues: 'tuple[str, ...]', assumptions: 'tuple[str, ...]', unavailable: 'Mapping[str, str]') -> None",
@@ -1014,7 +1019,6 @@
       "LinearImpact": "class alphalab.execution.costs.LinearImpact(coefficient: 'Decimal') -> None",
       "LiquidityCappedFill": "class alphalab.execution.policy.LiquidityCappedFill(participation_rate: decimal.Decimal = Decimal('1')) -> None",
       "LiquidityContext": "class alphalab.execution.policy.LiquidityContext(asset_id: str, side: alphalab.core.enums.Side, requested_quantity: decimal.Decimal, price: decimal.Decimal, available_quantity: decimal.Decimal | None, timestamp: float) -> None",
-      "MAX_SPLIT_FIXED_CHARGE_VENUES": "value builtins.int",
       "MAX_URGENCY": "value decimal.Decimal",
       "MarketImpactSlippage": "class alphalab.execution.slippage.MarketImpactSlippage(impact_factor: decimal.Decimal, reference_quantity: decimal.Decimal) -> None",
       "MissingVolumePolicy": "enum alphalab.execution.algorithms.MissingVolumePolicy[REFUSE, TIME_WEIGHTED]",
@@ -1045,22 +1049,19 @@
       "RouteRequest": "class alphalab.execution.routing.RouteRequest(order_id: 'str', asset_id: 'str', side: 'Side', quantity: 'Decimal', limit_price: 'Decimal | None', currency: 'str', requirements: 'ExecutionRequirements', quantity_increment: 'Decimal', decided_at: 'float') -> None",
       "RouteStatus": "enum alphalab.execution.routing.RouteStatus[ROUTED, PARTIAL, INFEASIBLE, INSUFFICIENT_EVIDENCE]",
       "RoutingObjective": "enum alphalab.execution.routing.RoutingObjective[BEST_QUOTED_PRICE, LOWEST_ALL_IN_COST]",
-      "RoutingPolicy": "class alphalab.execution.routing.RoutingPolicy(objective: 'RoutingObjective', max_quote_age_seconds: 'float', max_latency_seconds: 'Decimal | None', allow_split: 'bool', allow_partial: 'bool', excluded_venues: 'frozenset[str]', split_method: 'SplitMethod' = <SplitMethod.GREEDY_SWEEP: 'greedy_sweep'>) -> None",
+      "RoutingPolicy": "class alphalab.execution.routing.RoutingPolicy(objective: 'RoutingObjective', max_quote_age_seconds: 'float', max_latency_seconds: 'Decimal | None', allow_split: 'bool', allow_partial: 'bool', excluded_venues: 'frozenset[str]') -> None",
       "ScheduleBasis": "enum alphalab.execution.algorithms.ScheduleBasis[TIME, VOLUME, TIME_FALLBACK]",
       "ScheduledSlice": "class alphalab.execution.algorithms.ScheduledSlice(index: 'int', start: 'float', end: 'float', weight: 'Decimal', quantity: 'Decimal', target: 'Decimal') -> None",
       "Slicing": "class alphalab.execution.algorithms.Slicing(slice_quantity: 'Decimal | None', slice_count: 'int | None') -> None",
       "SlippageMeasurement": "class alphalab.execution.quality.SlippageMeasurement(order_id: 'str', reference: 'ReferencePrice', reference_price: 'Decimal | None', average_fill_price: 'Decimal | None', filled_quantity: 'Decimal', currency: 'str', per_unit: 'Decimal | None', amount: 'Decimal | None', bps: 'Decimal | None', reason: 'str') -> None",
       "SlippageModel": "class alphalab.execution.slippage.SlippageModel(*args, **kwargs)",
-      "SplitMethod": "enum alphalab.execution.routing.SplitMethod[GREEDY_SWEEP, OPTIMAL]",
       "SpreadModel": "class alphalab.execution.costs.SpreadModel(*args, **kwargs)",
       "SquareRootImpact": "class alphalab.execution.costs.SquareRootImpact(coefficient: 'Decimal') -> None",
       "StaticFill": "class alphalab.execution.policy.StaticFill(status: alphalab.execution.fill.FillStatus = <FillStatus.FULL_FILL: 1>, quantity: decimal.Decimal | None = None) -> None",
       "TWAP": "class alphalab.execution.algorithms.TWAP(slices: 'int', urgency: 'Urgency') -> None",
       "TaxModel": "class alphalab.execution.costs.TaxModel(*args, **kwargs)",
       "TimelineMark": "class alphalab.execution.quality.TimelineMark(mark: 'LifecycleMark', at: 'float', clock: 'ClockSource') -> None",
-      "TrancheRandomization": "class alphalab.execution.algorithms.TrancheRandomization(spread: 'Decimal', seed: 'int') -> None",
       "Urgency": "class alphalab.execution.algorithms.Urgency(kappa: 'Decimal') -> None",
-      "UrgencyEstimate": "class alphalab.execution.algorithms.UrgencyEstimate(risk_aversion: 'Decimal', volatility: 'Decimal', temporary_impact: 'Decimal', permanent_impact: 'Decimal', horizon: 'Decimal', slices: 'int', kappa: 'Decimal', urgency: 'Urgency') -> None",
       "VWAP": "class alphalab.execution.algorithms.VWAP(profile: 'VolumeProfile', missing_volume: 'MissingVolumePolicy', urgency: 'Urgency') -> None",
       "VenueProfile": "class alphalab.execution.routing.VenueProfile(venue: 'str', capabilities: 'CapabilityDeclaration', costs: 'ExecutionCostModel', latency_seconds: 'Decimal | None') -> None",
       "VenueQuality": "class alphalab.execution.quality.VenueQuality(venue: 'str', currency: 'str | None', fills: 'int', filled_quantity: 'Decimal', slippage_reference: 'ReferencePrice', slippage_bps: 'Decimal | None', unmeasured_fills: 'int', rejection_rate: 'RejectionRate', acknowledgement_seconds_median: 'Decimal | None') -> None",
@@ -1070,7 +1071,6 @@
       "all_reports": "function alphalab.execution.views.all_reports(state: alphalab.execution.state.ExecutionState) -> collections.abc.Sequence[alphalab.execution.report.ExecutionReport]",
       "cancel_algorithm": "function alphalab.execution.algorithms.cancel_algorithm(state: 'AlgorithmState', now: 'float', reason: 'str') -> 'tuple[AlgorithmState, tuple[ChildOrder, ...]]'",
       "capacity_curve": "function alphalab.execution.capacity.capacity_curve(model: 'CapacityModel', universe: 'Sequence[AssetLiquidity]', capital_levels: 'Sequence[Decimal]', timestamp: 'float') -> 'tuple[tuple[Decimal, Decimal, Decimal], ...]'",
-      "estimate_urgency": "function alphalab.execution.algorithms.estimate_urgency(*, risk_aversion: 'Decimal', volatility: 'Decimal', temporary_impact: 'Decimal', permanent_impact: 'Decimal', horizon: 'Decimal', slices: 'int') -> 'UrgencyEstimate'",
       "execution_quality_report": "function alphalab.execution.quality.execution_quality_report(executions: 'Sequence[OrderExecution]', *, reporting_currency: 'str | None', converter: 'CurrencyConverter | None', conversion_at: 'float | None') -> 'ExecutionQualityReport'",
       "fill_quality": "function alphalab.execution.quality.fill_quality(execution: 'OrderExecution') -> 'FillQuality'",
       "implementation_shortfall": "function alphalab.execution.quality.implementation_shortfall(execution: 'OrderExecution') -> 'ImplementationShortfall'",
@@ -1115,7 +1115,7 @@
       "Applicability": "class alphalab.factor_library.applicability.Applicability(verdict: 'Verdict', reason: 'str') -> None",
       "DELISTING_SET_SCHEME": "value builtins.str",
       "DecayProfile": "class alphalab.factor_library.decay.DecayProfile(factor_lineage: 'str', dataset_version: 'str | None', horizons: 'Mapping[int, InformationCoefficient]') -> None",
-      "DelistingReturn": "class alphalab.factor_library.forward_returns.DelistingReturn(symbol: 'str', timestamp: 'float', terminal_return: 'float') -> None",
+      "Delisting": "class alphalab.factor_library.forward_returns.Delisting(symbol: 'str', timestamp: 'float', terminal_return: 'float') -> None",
       "ExposureReport": "class alphalab.factor_library.exposure.ExposureReport(instants: 'int', by_asset: 'Mapping[str, float]', by_group: 'Mapping[str, float]', gross_by_group: 'Mapping[str, float]', gross_exposure: 'float', net_exposure: 'float', largest_group: 'str | None', concentration: 'float') -> None",
       "FACTOR_CATALOG": "value builtins.tuple",
       "FEATURE_KEY_SCHEME": "value builtins.str",
@@ -1137,7 +1137,7 @@
       "FeaturePanel": "class alphalab.factor_library.panel.FeaturePanel(definition: 'FeatureDefinition', dataset_version: 'str | None', timezone_name: 'str', rows: 'Mapping[float, Mapping[str, float]]', symbols: 'tuple[str, ...]', transforms: 'tuple[FactorTransform, ...]' = ()) -> None",
       "FeatureScope": "enum alphalab.factor_library.definition.FeatureScope[TIME_SERIES, CROSS_SECTIONAL]",
       "FeatureSeries": "class alphalab.factor_library.series.FeatureSeries(definition: 'FeatureDefinition', symbol: 'str', timestamps: 'tuple[float, ...]', values: 'tuple[float, ...]', dataset_version: 'str | None', timezone_name: 'str', observations: 'int', warmup_periods: 'int') -> None",
-      "ForwardReturnPanel": "class alphalab.factor_library.forward_returns.ForwardReturnPanel(horizon: 'int', rows: 'Mapping[float, Mapping[str, float]]', dataset_version: 'str | None', timezone_name: 'str', symbols: 'tuple[str, ...]', unrealized_instants: 'int', lag: 'int', delisted_instants: 'int', unenterable_instants: 'int', delistings: 'tuple[DelistingReturn, ...]') -> None",
+      "ForwardReturnPanel": "class alphalab.factor_library.forward_returns.ForwardReturnPanel(horizon: 'int', rows: 'Mapping[float, Mapping[str, float]]', dataset_version: 'str | None', timezone_name: 'str', symbols: 'tuple[str, ...]', unrealized_instants: 'int', lag: 'int', delisted_instants: 'int', unenterable_instants: 'int', delistings: 'tuple[Delisting, ...]') -> None",
       "FrameRatio": "class alphalab.factor_library.knowledge.FrameRatio(frame: 'ObservationFrame', undefined: 'int') -> None",
       "FundamentalSnapshot": "class alphalab.factor_library.inputs.FundamentalSnapshot(asset_id: str, timestamp: float, price: decimal.Decimal, earnings_per_share: decimal.Decimal, book_value_per_share: decimal.Decimal, dividend_per_share: decimal.Decimal) -> None",
       "InformationCoefficient": "class alphalab.factor_library.ic.InformationCoefficient(horizon: 'int', factor_lineage: 'str', dataset_version: 'str | None', instants_measured: 'int', instants_skipped: 'int', observations: 'int', minimum_assets: 'int', mean_pearson: 'float | None', mean_rank: 'float | None', hit_rate: 'float | None', per_instant_rank: 'tuple[tuple[float, float], ...]', lag: 'int', newey_west_lag: 'int', rank_standard_error: 'float | None', rank_t_statistic: 'float | None') -> None",
@@ -1174,17 +1174,17 @@
       "compute_time_series": "function alphalab.factor_library.primitives.compute_time_series(definition: 'FeatureDefinition', values: 'Sequence[float]', timestamps: 'Sequence[float]', timezone_name: 'str') -> 'tuple[float | None, ...]'",
       "compute_value": "function alphalab.factor_library.value.compute_value(fundamentals: alphalab.factor_library.inputs.FundamentalSnapshot, feature_id: str, version: int, timestamp: float) -> alphalab.factor_library.result.FactorResult",
       "compute_volatility": "function alphalab.factor_library.volatility.compute_volatility(prices: alphalab.factor_library.inputs.PriceSeries, feature_id: str, version: int, lookback_periods: int, timestamp: float, periods_per_year: int) -> alphalab.factor_library.result.FactorResult",
-      "delisting_set_id": "function alphalab.factor_library.forward_returns.delisting_set_id(delistings: 'Sequence[DelistingReturn]') -> 'str'",
+      "delisting_set_id": "function alphalab.factor_library.forward_returns.delisting_set_id(delistings: 'Sequence[Delisting]') -> 'str'",
       "derive_feature_version": "function alphalab.factor_library.definition.derive_feature_version(definition: 'FeatureDefinition') -> 'str'",
       "derive_frame_id": "function alphalab.factor_library.knowledge.derive_frame_id(kind: 'str', set_version: 'str', selection: 'str', visibility: 'VisibilityRule', policy: 'VintagePolicy', max_age_seconds: 'float | None', clock: 'ResearchClock', subjects: 'Sequence[str]') -> 'str'",
       "derive_series_id": "function alphalab.factor_library.series.derive_series_id(feature_version: 'str', dataset_version: 'str', symbol: 'str', timezone_name: 'str') -> 'str'",
       "divide_frames": "function alphalab.factor_library.knowledge.divide_frames(numerator: 'ObservationFrame', denominator: 'ObservationFrame', *, name: 'str') -> 'FrameRatio'",
       "event_frame": "function alphalab.factor_library.knowledge.event_frame(view: 'ObservationView[InformationEvent]', event_type: 'str', measurement: 'str', clock: 'ResearchClock', subjects: 'Sequence[str]', *, max_age_seconds: 'float | None', policy: 'VintagePolicy') -> 'KnowledgeFrame'",
-      "factor_decay": "function alphalab.factor_library.decay.factor_decay(factor: 'FeaturePanel', prices: 'ObservationFrame', horizons: 'Sequence[int]', minimum_assets: 'int' = 5, *, lag: 'int', delistings: 'Sequence[DelistingReturn]') -> 'DecayProfile'",
+      "factor_decay": "function alphalab.factor_library.decay.factor_decay(factor: 'FeaturePanel', prices: 'ObservationFrame', horizons: 'Sequence[int]', minimum_assets: 'int' = 5, *, lag: 'int', delistings: 'Sequence[Delisting]') -> 'DecayProfile'",
       "factor_exposure": "function alphalab.factor_library.exposure.factor_exposure(weights: 'Mapping[float, Mapping[str, float]]', groups: 'Mapping[str, str] | None' = None) -> 'ExposureReport'",
       "factor_turnover": "function alphalab.factor_library.turnover.factor_turnover(weights: 'Mapping[float, Mapping[str, float]]', convention: 'TurnoverConvention' = <TurnoverConvention.ONE_WAY: 2>) -> 'FactorTurnover'",
       "feature_applicability": "function alphalab.factor_library.applicability.feature_applicability(definition: 'FeatureDefinition', asset_class: 'DataAssetClass') -> 'Applicability'",
-      "forward_returns": "function alphalab.factor_library.forward_returns.forward_returns(frame: 'ObservationFrame', horizon: 'int', *, lag: 'int', delistings: 'Sequence[DelistingReturn]') -> 'ForwardReturnPanel'",
+      "forward_returns": "function alphalab.factor_library.forward_returns.forward_returns(frame: 'ObservationFrame', horizon: 'int', *, lag: 'int', delistings: 'Sequence[Delisting]') -> 'ForwardReturnPanel'",
       "fundamental_frame": "function alphalab.factor_library.fundamentals.fundamental_frame(view: 'ObservationView[FundamentalObservation]', spec: 'FundamentalInput', clock: 'ResearchClock', subjects: 'Sequence[str]', *, max_age_seconds: 'float | None', policy: 'VintagePolicy') -> 'KnowledgeFrame'",
       "fundamental_snapshot_as_of": "function alphalab.factor_library.fundamentals.fundamental_snapshot_as_of(view: 'ObservationView[FundamentalObservation]', subject: 'str', as_of: 'float', price: 'Decimal', price_unit: 'str', price_observed_at: 'float', policy: 'VintagePolicy', spec: 'SnapshotSpecification') -> 'FundamentalSnapshot'",
       "get_spec": "function alphalab.factor_library.catalog.get_spec(factor_id: str) -> alphalab.factor_library.catalog.FactorSpec | None",
@@ -1387,7 +1387,6 @@
       "LifecyclePermissionError": "class alphalab.lifecycle.exceptions.LifecyclePermissionError",
       "LifecycleState": "class alphalab.lifecycle.state.LifecycleState(experiments: 'ExperimentTracker' = <factory>, models: 'ModelRegistry' = <factory>, strategies: 'StrategyVersionRegistry' = <factory>, deployments: 'DeploymentManager' = <factory>, evidence: 'PersistentMap[str, ValidationEvidence]' = <factory>, releases: 'PersistentMap[str, int]' = <factory>, approvals: 'AppendOnlyLog[ApprovalRecord]' = <factory>) -> None",
       "LifecycleTransitionError": "class alphalab.lifecycle.exceptions.LifecycleTransitionError",
-      "LockFormat": "enum alphalab.lifecycle.lockfile.LockFormat[PIP_COMPILE, REQUIREMENTS, UV_LOCK, POETRY_LOCK]",
       "MONETARY_METRICS": "value builtins.tuple",
       "MarketAvailability": "class alphalab.lifecycle.specification.MarketAvailability(instruments: 'frozenset[str]', venues: 'frozenset[str]', calendar_ids: 'frozenset[str]', quote_currencies: 'frozenset[str]') -> None",
       "MarketRequirements": "class alphalab.lifecycle.specification.MarketRequirements(instruments: 'tuple[str, ...]', venues: 'tuple[str, ...]', calendar_ids: 'tuple[str, ...]', quote_currencies: 'tuple[str, ...]') -> None",
@@ -1413,7 +1412,6 @@
       "PortabilityStatus": "enum alphalab.lifecycle.portability.PortabilityStatus[PORTABLE, NOT_PORTABLE, INSUFFICIENT_EVIDENCE]",
       "PropertyAssessment": "class alphalab.lifecycle.certification.PropertyAssessment(claim: 'CertificationProperty', status: 'CertificationStatus', methodology: 'str', evidence: 'Mapping[str, str]', findings: 'tuple[str, ...]', limitations: 'tuple[str, ...]') -> None",
       "REPRODUCIBILITY_MANIFEST_SCHEME": "value builtins.str",
-      "RERUN_DIFFERENCE_LIMIT": "value builtins.int",
       "ROUTING_SETTING_PREFIX": "value builtins.str",
       "ReconciliationTolerances": "class alphalab.lifecycle.reconciliation.ReconciliationTolerances(order_quantity: 'Tolerance', order_price: 'Tolerance', fill_quantity: 'Tolerance', fill_price: 'Tolerance', commission: 'Tolerance', position_quantity: 'Tolerance', cash: 'Tolerance') -> None",
       "ReproducibilityAssessment": "class alphalab.lifecycle.reproducibility.ReproducibilityAssessment(manifest_id: 'str', identity_verified: 'bool', gaps: 'tuple[str, ...]', rerun: 'RerunOutcome', rerun_detail: 'tuple[str, ...]', external_requirements: 'tuple[ExternalRequirement, ...]', findings: 'tuple[str, ...]') -> None",
@@ -1421,7 +1419,6 @@
       "RequirementCheck": "class alphalab.lifecycle.portability.RequirementCheck(requirement: 'PortabilityRequirement', outcome: 'RequirementOutcome', detail: 'str', blockers: 'tuple[str, ...]' = ()) -> None",
       "RequirementOutcome": "enum alphalab.lifecycle.portability.RequirementOutcome[SATISFIED, BLOCKED, NOT_VERIFIED, NOT_APPLICABLE]",
       "RerunOutcome": "enum alphalab.lifecycle.reproducibility.RerunOutcome[NOT_ATTEMPTED, REPRODUCED, DIVERGED, INPUTS_DIFFER]",
-      "RerunReport": "class alphalab.lifecycle.rerun.RerunReport(manifest_id: 'str', outcome: 'RerunOutcome', detail: 'tuple[str, ...]', assessment: 'ReproducibilityAssessment | None', rerun_manifest: 'ReproducibilityManifest | None', differences: 'tuple[str, ...]') -> None",
       "ResearchConfiguration": "class alphalab.lifecycle.fingerprint.ResearchConfiguration(settings: 'Mapping[str, str]', study_id: 'str | None' = None) -> None",
       "ResourceBudget": "class alphalab.lifecycle.certification.ResourceBudget(metric: 'ResourceMetric', maximum: 'Decimal') -> None",
       "ResourceMeasurement": "class alphalab.lifecycle.certification.ResourceMeasurement(metric: 'ResourceMetric', value: 'Decimal', basis: 'MeasurementBasis', method: 'str', environment: 'str') -> None",
@@ -1525,7 +1522,6 @@
       "pause_progression": "function alphalab.lifecycle.progression.pause_progression(progression: 'StrategyProgression', reason: 'str', timestamp: 'float', actor_id: 'str' = '') -> 'StrategyProgression'",
       "progression_conflicts": "function alphalab.lifecycle.progression.progression_conflicts(progression: 'StrategyProgression', version: 'StrategyVersion') -> 'tuple[str, ...]'",
       "promote_strategy_version": "function alphalab.lifecycle.promotion.promote_strategy_version(state: 'LifecycleState', governance: 'Governance', name: 'str', version: 'int', policy: 'ValidationPolicy', evidence_id: 'str', timestamp: 'float') -> 'LifecycleState'",
-      "read_lock_file": "function alphalab.lifecycle.lockfile.read_lock_file(text: 'str', lock_format: 'LockFormat', *, exclude: 'Iterable[str]' = ()) -> 'DependencyManifest'",
       "reconcile_accounts": "function alphalab.lifecycle.reconciliation.reconcile_accounts(pipeline: 'ExecutionPipelineState', accounts: 'Mapping[str, AccountMirror]', assignment: 'Mapping[str, str]', tolerances: 'ReconciliationTolerances', *, cash_by_currency: 'Mapping[str, Tolerance] | None' = None) -> 'StateReconciliation'",
       "reconcile_execution_state": "function alphalab.lifecycle.reconciliation.reconcile_execution_state(pipeline: 'ExecutionPipelineState', broker: 'BrokerState', mapping: 'ExternalOrderMap', symbols: 'SymbolMapping', tolerances: 'ReconciliationTolerances', *, children: 'ChildOrderBindings | None' = None) -> 'StateReconciliation'",
       "record_evidence": "function alphalab.lifecycle.promotion.record_evidence(state: 'LifecycleState', evidence: 'ValidationEvidence') -> 'LifecycleState'",
@@ -1535,7 +1531,6 @@
       "register_strategy_version": "function alphalab.lifecycle.strategy_version.register_strategy_version(registry: 'StrategyVersionRegistry', name: 'str', definition: 'StrategyDefinition', timestamp: 'float', model: 'ModelRef | None' = None, run_id: 'str | None' = None, tags: 'Mapping[str, str] | None' = None) -> 'tuple[StrategyVersionRegistry, StrategyVersion]'",
       "release_manifest": "function alphalab.lifecycle.deployment.release_manifest(strategy: 'StrategyVersion') -> 'tuple[dict[str, str], dict[str, str]]'",
       "replace_strategy_version": "function alphalab.lifecycle.strategy_version.replace_strategy_version(registry: 'StrategyVersionRegistry', updated: 'StrategyVersion') -> 'StrategyVersionRegistry'",
-      "rerun_from_manifest": "function alphalab.lifecycle.rerun.rerun_from_manifest(manifest: 'ReproducibilityManifest', run: 'Callable[[], BacktestResult]', *, dataset: 'VersionedDataset', fingerprint: 'StrategyFingerprint', engine: 'EngineIdentity', build: 'EngineBuild | None', original: 'BacktestResult | None' = None) -> 'RerunReport'",
       "research_configuration": "function alphalab.lifecycle.fingerprint.research_configuration(settings: 'Mapping[str, str]', study_id: 'str | None' = None) -> 'ResearchConfiguration'",
       "research_configuration_for_study": "function alphalab.lifecycle.fingerprint.research_configuration_for_study(study: 'StudyIdentity', settings: 'Mapping[str, str] | None' = None) -> 'ResearchConfiguration'",
       "research_configuration_with_adaptive": "function alphalab.lifecycle.fingerprint.research_configuration_with_adaptive(settings: 'Mapping[str, str]', adaptive: 'Sequence[tuple[AdaptiveConfiguration, AdaptiveState]]', study: 'StudyIdentity | None' = None) -> 'ResearchConfiguration'",
@@ -1690,7 +1685,7 @@
       "MLError": "class alphalab.ml.exceptions.MLError",
       "MLInputError": "class alphalab.ml.exceptions.MLInputError",
       "Matrix": "alias tuple[tuple[float, ...], ...]",
-      "TrainTestSplit": "alias tuple[tuple[int, ...], tuple[int, ...]]",
+      "Split": "alias tuple[tuple[int, ...], tuple[int, ...]]",
       "accuracy": "function alphalab.ml.evaluation.accuracy(y_true: tuple[int, ...], y_pred: tuple[int, ...]) -> float",
       "build_dataset_from_feature_store": "function alphalab.ml.dataset.build_dataset_from_feature_store(state: alphalab.feature_store.state.FeatureStoreState, feature_specs: tuple[tuple[str, int], ...], target_spec: tuple[str, int], asset_ids: tuple[str, ...]) -> alphalab.ml.dataset.Dataset",
       "confusion_matrix": "function alphalab.ml.evaluation.confusion_matrix(y_true: tuple[int, ...], y_pred: tuple[int, ...]) -> alphalab.ml.evaluation.ConfusionMatrix",
@@ -1801,21 +1796,17 @@
     },
     "alphalab.options": {
       "BLACK_SCHOLES_MERTON": "value alphalab.options.model.ModelAssumptions",
-      "BinomialLattice": "class alphalab.options.binomial.BinomialLattice(steps: 'int', dividends: 'tuple[CashDividend, ...]') -> None",
       "Carry": "class alphalab.options.carry.Carry(kind: 'CarryKind', yield_rate: 'float') -> None",
       "CarryKind": "enum alphalab.options.carry.CarryKind[DIVIDEND_YIELD, FOREIGN_RATE, FUTURES]",
-      "CashDividend": "class alphalab.options.binomial.CashDividend(ex_timestamp: 'float', amount: 'Decimal') -> None",
       "ExerciseStyle": "enum alphalab.options.enums.ExerciseStyle[AMERICAN, EUROPEAN]",
       "ExpirationOutcome": "enum alphalab.options.expiration.ExpirationOutcome[EXPIRED_WORTHLESS, EXERCISED, ASSIGNED, ABANDONED]",
       "ExpirationPolicy": "class alphalab.options.expiration.ExpirationPolicy(settlement: 'SettlementStyle', exercise_in_the_money: 'bool') -> None",
       "ExpirationResult": "class alphalab.options.expiration.ExpirationResult(contract_symbol: 'str', outcome: 'ExpirationOutcome', moneyness: 'Moneyness', contracts: 'Decimal', intrinsic_per_unit: 'Decimal', cash_flow: 'Decimal', underlying_units: 'Decimal') -> None",
-      "ExpiryInterpolation": "enum alphalab.options.volatility_surface.ExpiryInterpolation[TOTAL_VARIANCE_LINEAR]",
       "FUTURES_CARRY": "value alphalab.options.carry.Carry",
       "Greeks": "class alphalab.options.greeks.Greeks(delta: float, gamma: float, theta: float, vega: float, rho: float) -> None",
-      "ImpliedVolatility": "class alphalab.options.implied.ImpliedVolatility(value: 'float', market_price: 'float', repriced: 'float', vega: 'float', iterations: 'int', assumptions: 'ModelAssumptions', carry: 'Carry', lattice: 'BinomialLattice | None' = None) -> None",
+      "ImpliedVolatility": "class alphalab.options.implied.ImpliedVolatility(value: 'float', market_price: 'float', repriced: 'float', vega: 'float', iterations: 'int', assumptions: 'ModelAssumptions', carry: 'Carry') -> None",
       "ImpliedVolatilityError": "class alphalab.options.implied.ImpliedVolatilityError",
-      "MAX_STEPS": "value builtins.int",
-      "ModelAssumptions": "class alphalab.options.model.ModelAssumptions(model: 'PricingModel', year_basis_days: 'float', prices_early_exercise: 'bool', models_dividends: 'bool', models_volatility_smile: 'bool', note: 'str', models_discrete_dividends: 'bool' = False, steps: 'int | None' = None) -> None",
+      "ModelAssumptions": "class alphalab.options.model.ModelAssumptions(model: 'PricingModel', year_basis_days: 'float', prices_early_exercise: 'bool', models_dividends: 'bool', models_volatility_smile: 'bool', note: 'str') -> None",
       "Moneyness": "enum alphalab.options.expiration.Moneyness[IN_THE_MONEY, AT_THE_MONEY, OUT_OF_THE_MONEY]",
       "OptionChain": "class alphalab.options.chain.OptionChain(underlying_asset_id: str, timestamp: float, contracts: tuple[alphalab.options.contract.OptionContract, ...]) -> None",
       "OptionContract": "class alphalab.options.contract.OptionContract(underlying_asset_id: str, strike: decimal.Decimal, expiry: float, option_type: alphalab.options.enums.OptionType, style: alphalab.options.enums.ExerciseStyle, multiplier: int) -> None",
@@ -1825,15 +1816,12 @@
       "OptionStrategy": "class alphalab.options.strategy.OptionStrategy(legs: tuple[alphalab.options.strategy.OptionLeg, ...]) -> None",
       "OptionType": "enum alphalab.options.enums.OptionType[CALL, PUT]",
       "OptionsError": "class alphalab.options.exceptions.OptionsError",
-      "PricingModel": "enum alphalab.options.model.PricingModel[BLACK_SCHOLES, BINOMIAL_CRR]",
+      "PricingModel": "enum alphalab.options.model.PricingModel[BLACK_SCHOLES]",
       "SettlementStyle": "enum alphalab.options.expiration.SettlementStyle[PHYSICAL, CASH]",
       "SurfaceRefusal": "class alphalab.options.volatility_surface.SurfaceRefusal(contract_symbol: str, strike: float, expiry: float, reason: str) -> None",
       "VolPoint": "class alphalab.options.volatility_surface.VolPoint(strike: float, expiry: float, implied_vol: float) -> None",
       "VolSlice": "class alphalab.options.volatility_surface.VolSlice(underlying_asset_id: str, expiry: float, points: tuple[alphalab.options.volatility_surface.VolPoint, ...]) -> None",
       "VolatilitySurface": "class alphalab.options.volatility_surface.VolatilitySurface(underlying_asset_id: str, timestamp: float, points: tuple[alphalab.options.volatility_surface.VolPoint, ...]) -> None",
-      "binomial_greeks": "function alphalab.options.binomial.binomial_greeks(contract: 'OptionContract', spot: 'Decimal', volatility: 'float', risk_free_rate: 'float', valuation_timestamp: 'float', *, carry: 'Carry', lattice: 'BinomialLattice') -> 'Greeks'",
-      "binomial_price": "function alphalab.options.binomial.binomial_price(contract: 'OptionContract', spot: 'Decimal', volatility: 'float', risk_free_rate: 'float', valuation_timestamp: 'float', *, carry: 'Carry', lattice: 'BinomialLattice') -> 'Decimal'",
-      "binomial_value": "function alphalab.options.binomial.binomial_value(contract: 'OptionContract', spot: 'float', volatility: 'float', risk_free_rate: 'float', valuation_timestamp: 'float', *, carry: 'Carry', lattice: 'BinomialLattice') -> 'float'",
       "black_scholes_greeks": "function alphalab.options.pricing.black_scholes_greeks(contract: alphalab.options.contract.OptionContract, spot: decimal.Decimal, volatility: float, risk_free_rate: float, valuation_timestamp: float, *, carry: alphalab.options.carry.Carry) -> alphalab.options.greeks.Greeks",
       "black_scholes_price": "function alphalab.options.pricing.black_scholes_price(contract: alphalab.options.contract.OptionContract, spot: decimal.Decimal, volatility: float, risk_free_rate: float, valuation_timestamp: float, *, carry: alphalab.options.carry.Carry) -> decimal.Decimal",
       "black_scholes_value": "function alphalab.options.pricing.black_scholes_value(contract: alphalab.options.contract.OptionContract, spot: float, volatility: float, risk_free_rate: float, years: float, *, carry: alphalab.options.carry.Carry) -> float",
@@ -1844,9 +1832,8 @@
       "dividend_yield": "function alphalab.options.carry.dividend_yield(q: 'float') -> 'Carry'",
       "expiries": "function alphalab.options.chain.expiries(chain: alphalab.options.chain.OptionChain) -> tuple[float, ...]",
       "foreign_rate": "function alphalab.options.carry.foreign_rate(rate: 'float') -> 'Carry'",
-      "implied_vol_across_expiries": "function alphalab.options.volatility_surface.implied_vol_across_expiries(surface: alphalab.options.volatility_surface.VolatilitySurface, strike: float, expiry: float, *, method: alphalab.options.volatility_surface.ExpiryInterpolation) -> float",
       "implied_vol_at": "function alphalab.options.volatility_surface.implied_vol_at(surface: alphalab.options.volatility_surface.VolatilitySurface, strike: float, expiry: float) -> float | None",
-      "implied_volatility": "function alphalab.options.implied.implied_volatility(contract: 'OptionContract', market_price: 'Decimal', spot: 'Decimal', risk_free_rate: 'float', valuation_timestamp: 'float', *, carry: 'Carry', lattice: 'BinomialLattice | None' = None) -> 'ImpliedVolatility'",
+      "implied_volatility": "function alphalab.options.implied.implied_volatility(contract: 'OptionContract', market_price: 'Decimal', spot: 'Decimal', risk_free_rate: 'float', valuation_timestamp: 'float', *, carry: 'Carry') -> 'ImpliedVolatility'",
       "intrinsic_value": "function alphalab.options.expiration.intrinsic_value(contract: 'OptionContract', settlement_price: 'Decimal') -> 'Decimal'",
       "moneyness": "function alphalab.options.expiration.moneyness(contract: 'OptionContract', settlement_price: 'Decimal') -> 'Moneyness'",
       "net_greeks": "function alphalab.options.strategy.net_greeks(strategy: alphalab.options.strategy.OptionStrategy, greeks_by_symbol: collections.abc.Mapping[str, alphalab.options.greeks.Greeks]) -> alphalab.options.greeks.Greeks",
@@ -1859,7 +1846,7 @@
       "signed_quantity": "function alphalab.options.strategy.signed_quantity(leg: alphalab.options.strategy.OptionLeg) -> decimal.Decimal",
       "strikes_for_expiry": "function alphalab.options.chain.strikes_for_expiry(chain: alphalab.options.chain.OptionChain, expiry: float) -> tuple[float, ...]",
       "surface_expiries": "function alphalab.options.volatility_surface.surface_expiries(surface: alphalab.options.volatility_surface.VolatilitySurface) -> tuple[float, ...]",
-      "surface_from_chain": "function alphalab.options.volatility_surface.surface_from_chain(chain: alphalab.options.chain.OptionChain, market_prices: collections.abc.Mapping[str, decimal.Decimal], spot: decimal.Decimal, risk_free_rate: float, valuation_timestamp: float, *, carry: alphalab.options.carry.Carry, lattice: alphalab.options.binomial.BinomialLattice | None = None) -> tuple[alphalab.options.volatility_surface.VolatilitySurface, tuple[alphalab.options.volatility_surface.SurfaceRefusal, ...]]",
+      "surface_from_chain": "function alphalab.options.volatility_surface.surface_from_chain(chain: alphalab.options.chain.OptionChain, market_prices: collections.abc.Mapping[str, decimal.Decimal], spot: decimal.Decimal, risk_free_rate: float, valuation_timestamp: float, *, carry: alphalab.options.carry.Carry) -> tuple[alphalab.options.volatility_surface.VolatilitySurface, tuple[alphalab.options.volatility_surface.SurfaceRefusal, ...]]",
       "surface_slice": "function alphalab.options.volatility_surface.surface_slice(surface: alphalab.options.volatility_surface.VolatilitySurface, expiry: float) -> alphalab.options.volatility_surface.VolSlice",
       "term_structure": "function alphalab.options.volatility_surface.term_structure(surface: alphalab.options.volatility_surface.VolatilitySurface, strike: float) -> tuple[tuple[float, float], ...]",
       "time_to_expiry_years": "function alphalab.options.pricing.time_to_expiry_years(contract: alphalab.options.contract.OptionContract, valuation_timestamp: float) -> float"
@@ -2025,7 +2012,8 @@
       "allocation_report": "function alphalab.portfolio_optimizer.views.allocation_report(state: alphalab.portfolio_optimizer.state.PortfolioEngineState, port_id: str) -> alphalab.portfolio_optimizer.allocation.CapitalAllocation | None",
       "apply_weight_constraints": "function alphalab.portfolio_optimizer.constraints.apply_weight_constraints(raw_weights: collections.abc.Mapping[str, float], constraints: alphalab.portfolio_optimizer.constraints.WeightConstraints) -> dict[str, float]",
       "black_litterman": "function alphalab.portfolio_optimizer.black_litterman.black_litterman(model: 'BlackLittermanModel') -> 'BlackLittermanPosterior'",
-      "calculate_max_drawdown": "function alphalab.common.statistics.compounded_max_drawdown(returns: 'Sequence[float]') -> 'float'",
+      "calculate_max_drawdown": "function alphalab.portfolio_optimizer.metrics.calculate_max_drawdown(returns: collections.abc.Sequence[float]) -> float",
+      "calculate_volatility": "function alphalab.portfolio_optimizer.metrics.calculate_volatility(returns: collections.abc.Sequence[float], periods: int) -> float",
       "check_schedule_rebalance": "function alphalab.portfolio_optimizer.rebalance.check_schedule_rebalance(last_rebalance: float, current_time: float, trigger: alphalab.portfolio_optimizer.rebalance.RebalanceTrigger) -> bool",
       "check_threshold_rebalance": "function alphalab.portfolio_optimizer.rebalance.check_threshold_rebalance(current_weights: collections.abc.Mapping[str, float], target_weights: collections.abc.Mapping[str, float], threshold: float = 0.05) -> bool",
       "construct": "function alphalab.portfolio_optimizer.construction.construct(problem: 'ConstructionProblem') -> 'ConstructionResult'",
@@ -2218,7 +2206,7 @@
       "build_overfitting_report": "function alphalab.research.overfitting.build_overfitting_report(metric: 'str', in_sample: 'float', out_of_sample: 'float', policy: 'OverfittingPolicy', effective_parameters: 'int', sweep: 'SweepResult | None' = None, period: 'StabilityReport | None' = None, symbol: 'StabilityReport | None' = None) -> 'OverfittingReport'",
       "build_result": "function alphalab.research.study.build_result(study: 'ResearchStudy', metrics: 'Mapping[str, float]', produced_at: 'float', splits: 'SplitReport | None' = None, feature_lineage: 'Mapping[str, str] | None' = None, findings: 'Sequence[str]' = (), warnings: 'Sequence[str]' = ()) -> 'StudyResult'",
       "calculate_cagr": "function alphalab.research.metrics.calculate_cagr(returns: collections.abc.Sequence[float], periods_per_year: int) -> float",
-      "calculate_max_drawdown": "function alphalab.common.statistics.compounded_max_drawdown(returns: 'Sequence[float]') -> 'float'",
+      "calculate_max_drawdown": "function alphalab.research.metrics.calculate_max_drawdown(returns: collections.abc.Sequence[float]) -> float",
       "calculate_sharpe": "function alphalab.research.metrics.calculate_sharpe(returns: collections.abc.Sequence[float], periods_per_year: int, risk_free_rate: float) -> float",
       "calculate_volatility": "function alphalab.research.metrics.calculate_volatility(returns: collections.abc.Sequence[float], periods_per_year: int) -> float",
       "canonical_event_study_key": "function alphalab.research.event_study.canonical_event_study_key(definition: 'EventStudyDefinition') -> 'str'",
@@ -2262,7 +2250,7 @@
       "sample_degradation": "function alphalab.research.overfitting.sample_degradation(in_sample: 'float', out_of_sample: 'float') -> 'float | None'",
       "shift_parameter": "function alphalab.research.perturbation.shift_parameter(window: 'int', relative: 'float') -> 'int'",
       "signal_diagnostics": "function alphalab.research.signals.signal_diagnostics(signal: 'FeaturePanel', returns: 'ForwardReturnPanel', buckets: 'int' = 5, minimum_assets: 'int' = 5, tie_break: 'TieBreak' = <TieBreak.LOW: 1>, label: 'str' = '', instants: 'Sequence[float] | None' = None) -> 'SignalDiagnostics'",
-      "signal_horizons": "function alphalab.research.signals.signal_horizons(signal: 'FeaturePanel', prices: 'ObservationFrame', horizons: 'Sequence[int]', buckets: 'int' = 5, minimum_assets: 'int' = 5, *, lag: 'int', delistings: 'Sequence[DelistingReturn]') -> 'dict[int, SignalDiagnostics]'",
+      "signal_horizons": "function alphalab.research.signals.signal_horizons(signal: 'FeaturePanel', prices: 'ObservationFrame', horizons: 'Sequence[int]', buckets: 'int' = 5, minimum_assets: 'int' = 5, *, lag: 'int', delistings: 'Sequence[Delisting]') -> 'dict[int, SignalDiagnostics]'",
       "stress_report": "function alphalab.research.views.stress_report(state: alphalab.research.state.ResearchState) -> alphalab.research.stress.StressReport | None",
       "symbol_stability": "function alphalab.research.overfitting.symbol_stability(metric: 'str', by_symbol: 'Mapping[str, float]') -> 'StabilityReport'",
       "validate_payload": "function alphalab.research.validation.validate_payload(payload: alphalab.research.protocol.ResearchPayload) -> None",
@@ -2431,33 +2419,30 @@
     },
     "alphalab.scheduler": {
       "BacktestClock": "class alphalab.scheduler.clock.BacktestClock(_current_time: float) -> None",
-      "CRON_SEARCH_DAYS": "value builtins.int",
       "ClockAdvanced": "class alphalab.scheduler.events.ClockAdvanced(event_id: str, timestamp: float, old_time: float, new_time: float) -> None",
-      "ClockProtocol": "class alphalab.common.time.ClockProtocol(*args, **kwargs)",
+      "ClockProtocol": "class alphalab.scheduler.clock.ClockProtocol(*args, **kwargs)",
       "ClockReset": "class alphalab.scheduler.events.ClockReset(event_id: str, timestamp: float, reset_time: float) -> None",
       "ClockState": "class alphalab.scheduler.clock.ClockState(current_time: float) -> None",
-      "CronSchedule": "class alphalab.scheduler.cron.CronSchedule(expression: 'str', zone: 'str') -> None",
       "InvalidClockStateError": "class alphalab.scheduler.exceptions.InvalidClockStateError",
       "SESSION_SCHEDULES": "value builtins.frozenset",
-      "ScheduleType": "enum alphalab.scheduler.schedule.ScheduleType[ONE_SHOT, REPEATING, INTERVAL, CRON, MANUAL, SESSION_OPEN, SESSION_CLOSE]",
-      "ScheduledSession": "class alphalab.scheduler.session.ScheduledSession(session_id: str, start_time: float, end_time: float, phase: alphalab.scheduler.session.SessionPhase) -> None",
+      "ScheduleType": "enum alphalab.scheduler.schedule.ScheduleType[ONE_SHOT, REPEATING, INTERVAL, CRON, MANUAL, SESSION_OPEN, SESSION_CLOSE, BAR_BOUNDARY]",
       "SchedulerEngine": "class alphalab.scheduler.engine.SchedulerEngine()",
       "SchedulerError": "class alphalab.scheduler.exceptions.SchedulerError",
       "SchedulerEvent": "class alphalab.scheduler.events.SchedulerEvent(event_id: str, timestamp: float) -> None",
       "SchedulerResolver": "class alphalab.scheduler.scheduler.SchedulerResolver()",
-      "SchedulerState": "class alphalab.scheduler.state.SchedulerState(clock: alphalab.scheduler.clock.ClockState, timers: alphalab.common.persistent_map.PersistentMap[str, alphalab.scheduler.timer.Timer] = <factory>, active_sessions: alphalab.common.persistent_map.PersistentMap[str, alphalab.scheduler.session.ScheduledSession] = <factory>, events: alphalab.common.append_log.AppendOnlyLog[alphalab.scheduler.events.SchedulerEvent] = <factory>) -> None",
+      "SchedulerState": "class alphalab.scheduler.state.SchedulerState(clock: alphalab.scheduler.clock.ClockState, timers: alphalab.common.persistent_map.PersistentMap[str, alphalab.scheduler.timer.Timer] = <factory>, active_sessions: alphalab.common.persistent_map.PersistentMap[str, alphalab.scheduler.session.TradingSession] = <factory>, events: alphalab.common.append_log.AppendOnlyLog[alphalab.scheduler.events.SchedulerEvent] = <factory>) -> None",
       "SchedulerValidationError": "class alphalab.scheduler.exceptions.SchedulerValidationError",
       "SessionEnded": "class alphalab.scheduler.events.SessionEnded(event_id: str, timestamp: float, session_id: str) -> None",
       "SessionPhase": "enum alphalab.scheduler.session.SessionPhase[PRE_MARKET, REGULAR_SESSION, POST_MARKET, CLOSED]",
       "SessionStarted": "class alphalab.scheduler.events.SessionStarted(event_id: str, timestamp: float, session_id: str, phase: str) -> None",
       "SystemClock": "class alphalab.scheduler.clock.SystemClock()",
-      "Timer": "class alphalab.scheduler.timer.Timer(timer_id: str, target_timestamp: float, schedule_type: alphalab.scheduler.schedule.ScheduleType, interval: float | None = None, cron: alphalab.scheduler.cron.CronSchedule | None = None, metadata: collections.abc.Mapping[str, typing.Any] | None = None, calendar: alphalab.data.calendar.MarketCalendar | None = None) -> None",
+      "Timer": "class alphalab.scheduler.timer.Timer(timer_id: str, target_timestamp: float, schedule_type: alphalab.scheduler.schedule.ScheduleType, interval: float | None = None, cron_expression: str | None = None, metadata: collections.abc.Mapping[str, typing.Any] | None = None, calendar: alphalab.data.calendar.MarketCalendar | None = None) -> None",
       "TimerCancelled": "class alphalab.scheduler.events.TimerCancelled(event_id: str, timestamp: float, timer_id: str) -> None",
       "TimerScheduled": "class alphalab.scheduler.events.TimerScheduled(event_id: str, timestamp: float, timer_id: str, trigger_time: float, schedule_type: str) -> None",
       "TimerTriggered": "class alphalab.scheduler.events.TimerTriggered(event_id: str, timestamp: float, timer_id: str) -> None",
+      "TradingSession": "class alphalab.scheduler.session.TradingSession(session_id: str, start_time: float, end_time: float, phase: alphalab.scheduler.session.SessionPhase) -> None",
       "VirtualClock": "class alphalab.scheduler.clock.VirtualClock(_current_time: float) -> None",
-      "active_sessions": "function alphalab.scheduler.views.active_sessions(state: alphalab.scheduler.state.SchedulerState) -> collections.abc.Sequence[alphalab.scheduler.session.ScheduledSession]",
-      "cron_timer": "function alphalab.scheduler.scheduler.cron_timer(timer_id: str, cron: alphalab.scheduler.cron.CronSchedule, after: float, metadata: dict[str, object] | None = None) -> alphalab.scheduler.timer.Timer",
+      "active_sessions": "function alphalab.scheduler.views.active_sessions(state: alphalab.scheduler.state.SchedulerState) -> collections.abc.Sequence[alphalab.scheduler.session.TradingSession]",
       "current_time": "function alphalab.scheduler.views.current_time(state: alphalab.scheduler.state.SchedulerState) -> float",
       "is_session_boundary": "function alphalab.scheduler.scheduler.is_session_boundary(calendar: alphalab.data.calendar.MarketCalendar, instant: float, kind: alphalab.scheduler.schedule.ScheduleType) -> bool",
       "next_session_boundary": "function alphalab.scheduler.scheduler.next_session_boundary(calendar: alphalab.data.calendar.MarketCalendar, after: float, kind: alphalab.scheduler.schedule.ScheduleType) -> float | None",
@@ -2485,7 +2470,7 @@
       "AdaptiveStrategy": "class alphalab.strategy.adaptive_strategy.AdaptiveStrategy(strategy_id: 'str', configuration: 'AdaptiveConfiguration', rule: 'AdaptiveRule', mode: 'AdaptationMode', initial: 'AdaptiveState | None') -> 'None'",
       "AdaptiveTransition": "class alphalab.strategy.adaptive.AdaptiveTransition(observation_id: 'str', kind: 'TransitionKind', before: 'str', after: 'str') -> None",
       "BaseStrategy": "class alphalab.strategy.protocol.BaseStrategy()",
-      "ClockProtocol": "class alphalab.common.time.ClockProtocol(*args, **kwargs)",
+      "ClockProtocol": "class alphalab.strategy.context.ClockProtocol(*args, **kwargs)",
       "DecisionTiming": "enum alphalab.strategy.adaptive.DecisionTiming[BEFORE_UPDATE, AFTER_UPDATE]",
       "Dispatcher": "class alphalab.strategy.dispatcher.Dispatcher()",
       "DuplicateStrategyError": "class alphalab.strategy.registry.DuplicateStrategyError",
@@ -2497,6 +2482,7 @@
       "IntentKind": "enum alphalab.strategy.events.IntentKind[DELTA, TARGET_QUANTITY, TARGET_WEIGHT]",
       "InvalidIntentError": "class alphalab.strategy.exceptions.InvalidIntentError",
       "InvalidTransitionError": "class alphalab.strategy.exceptions.InvalidTransitionError",
+      "LifecycleState": "enum alphalab.strategy.state.LifecycleState[CREATED, CONFIGURED, INITIALIZED, SUBSCRIBED, RUNNING, PAUSED, STOPPING, STOPPED, FAILED, DISPOSED]",
       "LifecycleTransitioned": "class alphalab.strategy.events.LifecycleTransitioned(event_id: str, timestamp: float, strategy_id: str, old_state: str, new_state: str, reason: str = '') -> None",
       "MarketViewProtocol": "class alphalab.strategy.context.MarketViewProtocol(*args, **kwargs)",
       "NoHistory": "class alphalab.strategy.context.NoHistory() -> None",
@@ -2520,7 +2506,7 @@
       "SliceStrategyProtocol": "class alphalab.strategy.protocol.SliceStrategyProtocol(*args, **kwargs)",
       "StateValue": "alias StateValue",
       "StrategyClassRegistry": "class alphalab.strategy.registry.StrategyClassRegistry(registrations: 'PersistentMap[str, StrategyRegistration]' = <factory>) -> None",
-      "StrategyContext": "class alphalab.strategy.context.StrategyContext(portfolio: alphalab.strategy.context.PortfolioSnapshotProtocol, market: alphalab.strategy.context.MarketViewProtocol, clock: alphalab.common.time.ClockProtocol, logger: alphalab.strategy.context.ScopedLoggerProtocol, risk_view: alphalab.strategy.context.RiskViewProtocol, config: Any, orders: alphalab.strategy.context.OrderFacadeProtocol, history: alphalab.strategy.context.HistoryAccessorProtocol = <factory>, universe: alphalab.strategy.context.UniverseProtocol = <factory>) -> None",
+      "StrategyContext": "class alphalab.strategy.context.StrategyContext(portfolio: alphalab.strategy.context.PortfolioSnapshotProtocol, market: alphalab.strategy.context.MarketViewProtocol, clock: alphalab.strategy.context.ClockProtocol, logger: alphalab.strategy.context.ScopedLoggerProtocol, risk_view: alphalab.strategy.context.RiskViewProtocol, config: Any, orders: alphalab.strategy.context.OrderFacadeProtocol, history: alphalab.strategy.context.HistoryAccessorProtocol = <factory>, universe: alphalab.strategy.context.UniverseProtocol = <factory>) -> None",
       "StrategyDeclaration": "class alphalab.strategy.registry.StrategyDeclaration(*args, **kwargs)",
       "StrategyDefinition": "class alphalab.strategy.definition.StrategyDefinition(strategy_id: 'str', name: 'str', version: 'str', author: 'str', description: 'str', parameters: 'Mapping[str, ParamValue]' = <factory>, metadata: 'Mapping[str, str]' = <factory>) -> None",
       "StrategyEngine": "class alphalab.strategy.engine.StrategyEngine()",
@@ -2529,9 +2515,8 @@
       "StrategyRegistration": "class alphalab.strategy.registry.StrategyRegistration(strategy_id: 'str', factory: 'StrategyFactory', qualified_name: 'str') -> None",
       "StrategyRuntimeError": "class alphalab.strategy.exceptions.StrategyRuntimeError",
       "StrategyRuntimeEvent": "class alphalab.strategy.events.StrategyRuntimeEvent(event_id: str, timestamp: float) -> None",
-      "StrategyState": "class alphalab.strategy.state.StrategyState(strategy_id: 'str', status: 'StrategyStatus', instance: 'StrategyProtocol', config: 'Any' = None, subscriptions: 'frozenset[str]' = <factory>, last_error: 'str | None' = None, started: 'bool' = False) -> None",
+      "StrategyState": "class alphalab.strategy.state.StrategyState(strategy_id: 'str', status: 'LifecycleState', instance: 'StrategyProtocol', config: 'Any' = None, subscriptions: 'frozenset[str]' = <factory>, last_error: 'str | None' = None, started: 'bool' = False) -> None",
       "StrategyStateProtocol": "class alphalab.strategy.protocol.StrategyStateProtocol(*args, **kwargs)",
-      "StrategyStatus": "enum alphalab.strategy.state.StrategyStatus[CREATED, CONFIGURED, INITIALIZED, SUBSCRIBED, RUNNING, PAUSED, STOPPING, STOPPED, FAILED, DISPOSED]",
       "StrategyValidationError": "class alphalab.strategy.exceptions.StrategyValidationError",
       "Subscriptions": "class alphalab.strategy.subscription.Subscriptions(everything: 'bool', topics: 'frozenset[Topic]', scoped: 'frozenset[tuple[Topic, str]]') -> None",
       "TimerEvent": "class alphalab.strategy.events.TimerEvent(event_id: str, timestamp: float, timer_id: str, schedule_type: str) -> None",
@@ -2567,217 +2552,367 @@
         "class alphalab.data.feed.Bar(symbol: str, timestamp: float, open: float, high: float, low: float, close: float, volume: float) -> None",
         "class alphalab.market.bar.Bar(asset_id: 'str', timestamp: 'float', open: 'Decimal', high: 'Decimal', low: 'Decimal', close: 'Decimal', volume: 'Decimal', vwap: 'Decimal | None', trade_count: 'int | None', timeframe: 'TimeFrame') -> None"
       ],
-      "reason": "Wire and domain: data.feed.Bar is an OHLCV aggregate as a provider reported it (a provider symbol, float prices); market.bar.Bar is the domain bar the execution path consumes (an asset id, Decimal prices, an optional vwap and trade count). One is converted into the other at ingestion; they sit on opposite sides of that conversion."
+      "reason": ""
+    },
+    "BrokerAdapter": {
+      "bound_to": [
+        "class alphalab.broker.adapter.BrokerAdapter()",
+        "class alphalab.brokers.adapter.BrokerAdapter()"
+      ],
+      "reason": ""
+    },
+    "BrokerConnected": {
+      "bound_to": [
+        "class alphalab.broker.events.BrokerConnected(event_id: str, timestamp: float, broker_name: str) -> None",
+        "class alphalab.brokers.events.BrokerConnected(event_id: str, timestamp: float, broker_id: str) -> None"
+      ],
+      "reason": ""
+    },
+    "BrokerDisconnected": {
+      "bound_to": [
+        "class alphalab.broker.events.BrokerDisconnected(event_id: str, timestamp: float, broker_name: str, reason: str) -> None",
+        "class alphalab.brokers.events.BrokerDisconnected(event_id: str, timestamp: float, broker_id: str, reason: str) -> None"
+      ],
+      "reason": ""
+    },
+    "BrokerEvent": {
+      "bound_to": [
+        "class alphalab.broker.events.BrokerEvent(event_id: str, timestamp: float) -> None",
+        "class alphalab.brokers.events.BrokerEvent(event_id: str, timestamp: float) -> None"
+      ],
+      "reason": ""
+    },
+    "BrokerValidationError": {
+      "bound_to": [
+        "class alphalab.broker.exceptions.BrokerValidationError",
+        "class alphalab.brokers.exceptions.BrokerValidationError"
+      ],
+      "reason": ""
     },
     "CashFlow": {
       "bound_to": [
         "class alphalab.macro.bond.CashFlow(payment_date: 'date', amount: 'Decimal', is_principal: 'bool') -> None",
         "class alphalab.portfolio.corporate_actions.CashFlow(kind: 'CashFlowKind', amount: 'Decimal', currency: 'str', asset_id: 'str' = '', reference: 'str' = '') -> None"
       ],
-      "reason": "Two cash flows of two instruments: macro.bond.CashFlow is one payment a bond's schedule makes; portfolio.corporate_actions.CashFlow is cash a holding earned or cost without a trade (a dividend, a fee) booked to an account."
+      "reason": ""
+    },
+    "ClockProtocol": {
+      "bound_to": [
+        "class alphalab.scheduler.clock.ClockProtocol(*args, **kwargs)",
+        "class alphalab.strategy.context.ClockProtocol(*args, **kwargs)"
+      ],
+      "reason": ""
     },
     "Dataset": {
       "bound_to": [
         "class alphalab.data.dataset.Dataset(metadata: 'DatasetMetadata', schema: 'DatasetSchema', quality: 'QualityReport', records: 'tuple[CanonicalRecord, ...]' = <factory>, provenance: 'DatasetProvenance | None' = None, quality_detail: 'DataQualityReport | None' = None) -> None",
         "class alphalab.ml.dataset.Dataset(feature_names: tuple[str, ...], x: tuple[tuple[float, ...], ...], y: tuple[float, ...], asset_ids: tuple[str, ...]) -> None"
       ],
-      "reason": "A canonical price series and a design matrix: data.dataset.Dataset is one immutable, versioned dataset of market records; ml.dataset.Dataset is features and a target ready for a model. Section 13 of the shared-names test."
+      "reason": ""
+    },
+    "Delisting": {
+      "bound_to": [
+        "class alphalab.data.corporate_actions.Delisting(symbol: 'str', effective_timestamp: 'float', reason: 'str') -> None",
+        "class alphalab.factor_library.forward_returns.Delisting(symbol: 'str', timestamp: 'float', terminal_return: 'float') -> None"
+      ],
+      "reason": ""
+    },
+    "ExecutionReceived": {
+      "bound_to": [
+        "class alphalab.broker.events.ExecutionReceived(event_id: str, timestamp: float, execution_id: str, broker_order_id: str, fill_quantity: decimal.Decimal, fill_price: decimal.Decimal) -> None",
+        "class alphalab.brokers.events.ExecutionReceived(event_id: str, timestamp: float, execution_id: str, broker_order_id: str, fill_price: decimal.Decimal, fill_quantity: decimal.Decimal) -> None"
+      ],
+      "reason": ""
+    },
+    "ExecutionReport": {
+      "bound_to": [
+        "class alphalab.broker.execution.BrokerExecution(execution_id: str, broker_order_id: str, symbol: str, fill_quantity: decimal.Decimal, fill_price: decimal.Decimal, commission: decimal.Decimal, timestamp: float, account_id: str = '', external_id: str = '') -> None",
+        "class alphalab.execution.report.ExecutionReport(execution_id: str, order_id: str, asset_id: str, strategy_id: str, timestamp: float, fill_price: decimal.Decimal, fill_quantity: decimal.Decimal, commission: decimal.Decimal, slippage: decimal.Decimal, liquidity_flag: str, venue: str, currency: str, status: alphalab.execution.fill.FillStatus) -> None"
+      ],
+      "reason": ""
     },
     "ExposureUpdated": {
       "bound_to": [
         "class alphalab.portfolio_optimizer.events.ExposureUpdated(event_id: str, timestamp: float, portfolio_id: str) -> None",
         "class alphalab.risk.events.ExposureUpdated(event_id: str, timestamp: float, gross_exposure: decimal.Decimal, net_exposure: decimal.Decimal) -> None"
       ],
-      "reason": "Two engines' notifications: risk.events.ExposureUpdated carries the gross and net exposure the pre-trade gate computed and is persisted under the risk event tags; portfolio_optimizer.events.ExposureUpdated says a constructed portfolio's exposure was recomputed. Renaming the persisted one is a format change (tests/regression/test_persisted_enum_names.py)."
+      "reason": ""
+    },
+    "Heartbeat": {
+      "bound_to": [
+        "class alphalab.broker.events.Heartbeat(event_id: str, timestamp: float, broker_name: str) -> None",
+        "class alphalab.brokers.events.Heartbeat(event_id: str, timestamp: float, broker_id: str, latency_ms: float) -> None"
+      ],
+      "reason": ""
+    },
+    "InvalidBrokerStateError": {
+      "bound_to": [
+        "class alphalab.broker.exceptions.InvalidBrokerStateError",
+        "class alphalab.brokers.exceptions.InvalidBrokerStateError"
+      ],
+      "reason": ""
     },
     "InvalidTransitionError": {
       "bound_to": [
         "class alphalab.oms.exceptions.InvalidTransitionError",
         "class alphalab.strategy.exceptions.InvalidTransitionError"
       ],
-      "reason": "Each state machine's own refusal, under its own package's error base: oms.exceptions.InvalidTransitionError for an order's lifecycle, strategy.exceptions.InvalidTransitionError for a strategy instance's. Catching one deliberately does not catch the other."
+      "reason": ""
+    },
+    "LifecycleState": {
+      "bound_to": [
+        "class alphalab.lifecycle.state.LifecycleState(experiments: 'ExperimentTracker' = <factory>, models: 'ModelRegistry' = <factory>, strategies: 'StrategyVersionRegistry' = <factory>, deployments: 'DeploymentManager' = <factory>, evidence: 'PersistentMap[str, ValidationEvidence]' = <factory>, releases: 'PersistentMap[str, int]' = <factory>, approvals: 'AppendOnlyLog[ApprovalRecord]' = <factory>) -> None",
+        "enum alphalab.strategy.state.LifecycleState[CREATED, CONFIGURED, INITIALIZED, SUBSCRIBED, RUNNING, PAUSED, STOPPING, STOPPED, FAILED, DISPOSED]"
+      ],
+      "reason": ""
     },
     "MarketDataError": {
       "bound_to": [
         "class alphalab.market.exceptions.MarketDataError",
         "class alphalab.marketdata.exceptions.MarketDataError"
       ],
-      "reason": "Each package's error base: market.exceptions.MarketDataError for the market data engine, marketdata.exceptions.MarketDataError for the transports that feed it."
+      "reason": ""
     },
     "OrderAccepted": {
       "bound_to": [
         "class alphalab.broker.events.OrderAccepted(event_id: str, timestamp: float, broker_order_id: str) -> None",
         "class alphalab.oms.events.OrderAccepted(event_id: str, timestamp: float, order_id: alphalab.oms.ids.OrderId) -> None"
       ],
-      "reason": "Two sides of one order: oms.events.OrderAccepted is the OMS's lifecycle transition; broker.events.OrderAccepted is a venue's acknowledgement, which the OMS may or may not then reflect. Each is persisted under its own subsystem's event tags, so neither can be renamed without a schema step."
+      "reason": ""
     },
     "OrderBook": {
       "bound_to": [
         "class alphalab.data.feed.OrderBook(symbol: str, timestamp: float, bids: tuple[alphalab.data.feed.OrderBookLevel, ...] = <factory>, asks: tuple[alphalab.data.feed.OrderBookLevel, ...] = <factory>) -> None",
         "class alphalab.oms.book.OrderBook(_orders: alphalab.common.persistent_map.PersistentMap[alphalab.oms.ids.OrderId, alphalab.oms.order.Order] = <factory>, _by_asset: alphalab.common.persistent_map.PersistentMap[str, alphalab.common.persistent_map.PersistentSet[alphalab.oms.ids.OrderId]] = <factory>, _by_strategy: alphalab.common.persistent_map.PersistentMap[str, alphalab.common.persistent_map.PersistentSet[alphalab.oms.ids.OrderId]] = <factory>) -> None"
       ],
-      "reason": "My working orders and the market's resting size: oms.book.OrderBook indexes the OMS's own orders; data.feed.OrderBook is a provider's depth snapshot. They share no operation (tests/regression/test_shared_names_stay_distinct.py, section 1)."
+      "reason": ""
     },
     "OrderBookLevel": {
       "bound_to": [
         "class alphalab.data.feed.OrderBookLevel(price: float, size: float) -> None",
         "class alphalab.market.level.OrderBookLevel(price: decimal.Decimal, size: decimal.Decimal, orders: int) -> None"
       ],
-      "reason": "Wire and domain: data.feed.OrderBookLevel is one level of a provider's depth record (no order count); market.level.OrderBookLevel is the domain level of a market book snapshot."
+      "reason": ""
     },
     "OrderCancelled": {
       "bound_to": [
         "class alphalab.broker.events.OrderCancelled(event_id: str, timestamp: float, broker_order_id: str) -> None",
+        "class alphalab.brokers.events.OrderCancelled(event_id: str, timestamp: float, broker_order_id: str, account_id: str) -> None",
         "class alphalab.oms.events.OrderCancelled(event_id: str, timestamp: float, order_id: alphalab.oms.ids.OrderId) -> None"
       ],
-      "reason": "The OMS's lifecycle transition and a venue's cancel confirmation: two events, each persisted under its own subsystem's tags. See OrderAccepted."
+      "reason": ""
+    },
+    "OrderFilled": {
+      "bound_to": [
+        "class alphalab.brokers.events.OrderFilled(event_id: str, timestamp: float, broker_order_id: str, account_id: str, fill_quantity: decimal.Decimal) -> None",
+        "class alphalab.oms.events.OrderFilled(event_id: str, timestamp: float, order_id: alphalab.oms.ids.OrderId, fill_quantity: decimal.Decimal, fill_price: decimal.Decimal) -> None"
+      ],
+      "reason": ""
     },
     "OrderId": {
       "bound_to": [
         "class alphalab.oms.ids.OrderId(value: 'uuid.UUID') -> None",
         "newtype alphalab.core.ids.OrderId"
       ],
-      "reason": "Two representations of one identity across one boundary: core.ids.OrderId is the text a fill and a trade record carry and a payload persists; oms.ids.OrderId is the OMS's typed key, a UUID whose hash is computed once (ledger PRF-006). The runtime converts between them in alphalab.runtime.execution_adapters."
+      "reason": ""
     },
     "OrderRejected": {
       "bound_to": [
         "class alphalab.broker.events.OrderRejected(event_id: str, timestamp: float, broker_order_id: str, reason: str) -> None",
         "class alphalab.oms.events.OrderRejected(event_id: str, timestamp: float, order_id: alphalab.oms.ids.OrderId, reason: str) -> None"
       ],
-      "reason": "The OMS's refusal of an order and a venue's: two events, each persisted under its own subsystem's tags. See OrderAccepted."
+      "reason": ""
+    },
+    "OrderStatus": {
+      "bound_to": [
+        "enum alphalab.broker.order.BrokerOrderStatus[PENDING_SUBMIT, SUBMITTED, PENDING_CANCEL]",
+        "enum alphalab.core.enums.OrderStatus[NEW, PENDING, ACCEPTED, PARTIALLY_FILLED, FILLED, CANCEL_PENDING, CANCELLED, REJECTED, EXPIRED]"
+      ],
+      "reason": ""
     },
     "OrderSubmitted": {
       "bound_to": [
         "class alphalab.broker.events.OrderSubmitted(event_id: str, timestamp: float, broker_order_id: str, oms_order_id: str) -> None",
+        "class alphalab.brokers.events.OrderSubmitted(event_id: str, timestamp: float, broker_order_id: str, account_id: str, symbol: str) -> None",
         "class alphalab.oms.events.OrderSubmitted(event_id: str, timestamp: float, order_id: alphalab.oms.ids.OrderId, order: alphalab.oms.order.Order) -> None"
       ],
-      "reason": "The OMS's record that an order was submitted and the broker boundary's record that it reached a venue: two events, each persisted under its own subsystem's tags. See OrderAccepted."
+      "reason": ""
     },
     "PortfolioEngine": {
       "bound_to": [
         "class alphalab.portfolio.engine.PortfolioEngine()",
         "class alphalab.portfolio_optimizer.engine.PortfolioEngine()"
       ],
-      "reason": "Accounting and construction: portfolio.PortfolioEngine keeps the book from fills; portfolio_optimizer.PortfolioEngine assembles target weights. Only the first is reachable from the execution path. Section 2 of the shared-names test."
+      "reason": ""
     },
     "PortfolioEvent": {
       "bound_to": [
         "class alphalab.portfolio.events.PortfolioEvent(timestamp: float, account_id: str) -> None",
         "class alphalab.portfolio_optimizer.events.PortfolioEvent(event_id: str, timestamp: float) -> None"
       ],
-      "reason": "Each engine's event base: portfolio.events.PortfolioEvent is the base of what the accounting book records, and its subclasses are persisted under the portfolio event tags; portfolio_optimizer.events.PortfolioEvent is the construction engine's base, which no snapshot carries."
+      "reason": ""
     },
     "Quote": {
       "bound_to": [
         "class alphalab.data.feed.Quote(symbol: str, timestamp: float, bid: float, ask: float, bid_size: float, ask_size: float) -> None",
         "class alphalab.market.quote.Quote(asset_id: str, timestamp: float, bid: decimal.Decimal, ask: decimal.Decimal, bid_size: decimal.Decimal, ask_size: decimal.Decimal, venue: str, currency: str) -> None"
       ],
-      "reason": "Wire and domain: data.feed.Quote is a provider's top of book as reported (a provider symbol, floats); market.quote.Quote is the domain quote the execution path consumes (an asset id, Decimals, a venue and a currency). Converted at ingestion."
+      "reason": ""
     },
     "ReportGenerated": {
       "bound_to": [
         "class alphalab.analytics.events.ReportGenerated(event_id: str, timestamp: float, report_id: str, num_snapshots: int, num_trades: int) -> None",
         "class alphalab.reporting.events.ReportGenerated(event_id: str, timestamp: float, report_id: str, report_type: str) -> None"
       ],
-      "reason": "Two reports: analytics.events.ReportGenerated is a performance report compiled on the execution path and persisted under the analytics event tags; reporting.events.ReportGenerated is a document the reporting engine rendered and stored."
+      "reason": ""
     },
     "SessionCalendar": {
       "bound_to": [
         "class alphalab.alt_data.sessions.SessionCalendar(*args, **kwargs)",
         "class alphalab.futures.chain.SessionCalendar(*args, **kwargs)"
       ],
-      "reason": "Two narrow protocols, each stating only what its reader needs from a calendar: alt_data's places an instant in a trading day (is_open, next_open, session windows), futures' only asks whether a day is a trading day, for a roll rule. data.calendar.MarketCalendar satisfies both; neither is a calendar. Section 19 of the shared-names test."
+      "reason": ""
     },
     "Split": {
       "bound_to": [
+        "alias tuple[tuple[int, ...], tuple[int, ...]]",
         "class alphalab.data.feed.Split(symbol: str, timestamp: float, ratio: float) -> None",
         "class alphalab.portfolio.corporate_actions.Split(asset_id: 'str', ratio: 'Decimal') -> None"
       ],
-      "reason": "Wire and domain: data.feed.Split is a split as a corporate-action feed reports it (symbol, ratio as a float); portfolio.corporate_actions.Split is the action applied to a holding, which also expresses a reverse split and a stock dividend exactly."
+      "reason": ""
     },
     "Trade": {
       "bound_to": [
         "class alphalab.core.trade.Trade(trade_id: alphalab.core.ids.TradeId, asset_id: alphalab.core.ids.AssetId, side: alphalab.core.enums.Side, quantity: decimal.Decimal, average_price: decimal.Decimal, fill_ids: tuple[alphalab.core.ids.FillId, ...], executed_at: float, order_id: Optional[alphalab.core.ids.OrderId] = None) -> None",
         "class alphalab.data.feed.Trade(symbol: str, timestamp: float, price: float, size: float, trade_id: str = '', aggressor: alphalab.data.feed.TradeAggressor | None = None) -> None"
       ],
-      "reason": "Two different trades: core.trade.Trade is an execution AlphaLab's own order made, as the accounting records it; data.feed.Trade is a print a provider reported on the tape, anyone's."
+      "reason": ""
+    },
+    "TradingSession": {
+      "bound_to": [
+        "class alphalab.runtime.session.TradingSession()",
+        "class alphalab.scheduler.session.TradingSession(session_id: str, start_time: float, end_time: float, phase: alphalab.scheduler.session.SessionPhase) -> None"
+      ],
+      "reason": ""
     },
     "all_reports": {
       "bound_to": [
         "function alphalab.analytics.views.all_reports(state: alphalab.analytics.state.AnalyticsState) -> tuple[alphalab.analytics.report.PerformanceReport, ...]",
         "function alphalab.execution.views.all_reports(state: alphalab.execution.state.ExecutionState) -> collections.abc.Sequence[alphalab.execution.report.ExecutionReport]"
       ],
-      "reason": "Each package's view over its own state: analytics.all_reports(AnalyticsState) returns performance reports, execution.all_reports(ExecutionState) execution reports. The state argument says which."
+      "reason": ""
+    },
+    "calculate_max_drawdown": {
+      "bound_to": [
+        "function alphalab.portfolio_optimizer.metrics.calculate_max_drawdown(returns: collections.abc.Sequence[float]) -> float",
+        "function alphalab.research.metrics.calculate_max_drawdown(returns: collections.abc.Sequence[float]) -> float"
+      ],
+      "reason": ""
+    },
+    "calculate_volatility": {
+      "bound_to": [
+        "function alphalab.portfolio_optimizer.metrics.calculate_volatility(returns: collections.abc.Sequence[float], periods: int) -> float",
+        "function alphalab.research.metrics.calculate_volatility(returns: collections.abc.Sequence[float], periods_per_year: int) -> float"
+      ],
+      "reason": ""
     },
     "checkpoint": {
       "bound_to": [
         "function alphalab.runtime.checkpoint.checkpoint(state: 'RunState', previous: 'CheckpointMark | None' = None) -> 'tuple[str, CheckpointMark]'",
         "function alphalab.strategy.adaptive.checkpoint(state: 'AdaptiveState') -> 'dict[str, Any]'"
       ],
-      "reason": "Two checkpoints of two states: runtime.checkpoint(RunState, previous) writes the next incremental checkpoint of a run; strategy.checkpoint(AdaptiveState) gives a learned state's primitives. The argument says which."
+      "reason": ""
     },
     "compare_runs": {
       "bound_to": [
         "function alphalab.experiment_tracking.comparison.compare_runs(tracker: alphalab.experiment_tracking.tracker.ExperimentTracker, run_ids: tuple[str, ...], metric_name: str) -> collections.abc.Mapping[str, float | None]",
         "function alphalab.lifecycle.comparison.compare_runs(left: 'RunObservations', right: 'RunObservations', tolerances: 'Mapping[ComparisonMetric, Tolerance]') -> 'PairComparison'"
       ],
-      "reason": "Two comparisons: experiment_tracking.compare_runs reads one metric across tracked runs; lifecycle.compare_runs compares two runs' observations metric by metric under declared tolerances. Different arguments, different results."
+      "reason": ""
     },
     "compute_pnl": {
       "bound_to": [
         "function alphalab.futures.spread.compute_pnl(spread: alphalab.futures.spread.CalendarSpread, entry_prices: collections.abc.Mapping[str, decimal.Decimal], current_prices: collections.abc.Mapping[str, decimal.Decimal]) -> decimal.Decimal",
         "function alphalab.options.strategy.compute_pnl(strategy: alphalab.options.strategy.OptionStrategy, entry_prices: collections.abc.Mapping[str, decimal.Decimal], spot_price: decimal.Decimal) -> decimal.Decimal"
       ],
-      "reason": "Each instrument's own P&L: futures.compute_pnl(CalendarSpread, ...) for a calendar spread, options.compute_pnl(OptionStrategy, ...) for an options strategy at a spot price."
+      "reason": ""
     },
     "factor_exposure": {
       "bound_to": [
         "function alphalab.analytics.decomposition.factor_exposure(positions: 'Sequence[PositionRisk]', loadings: 'Mapping[str, Mapping[str, float]]') -> 'Mapping[str, float]'",
         "function alphalab.factor_library.exposure.factor_exposure(weights: 'Mapping[float, Mapping[str, float]]', groups: 'Mapping[str, str] | None' = None) -> 'ExposureReport'"
       ],
-      "reason": "A book's and a weighting's: analytics.factor_exposure weights positions' factor loadings; factor_library.factor_exposure aggregates a weighting's exposure by asset and group. Section 39 of the shared-names test."
+      "reason": ""
     },
     "list_versions": {
       "bound_to": [
         "function alphalab.feature_store.views.list_versions(state: alphalab.feature_store.state.FeatureStoreState, feature_id: str) -> collections.abc.Sequence[int]",
         "function alphalab.model_registry.registry.list_versions(registry: alphalab.model_registry.registry.ModelRegistry, name: str) -> tuple[alphalab.model_registry.registry.ModelVersion, ...]"
       ],
-      "reason": "Each registry's own versions: feature_store.list_versions(FeatureStoreState, feature_id) and model_registry.list_versions(ModelRegistry, name)."
+      "reason": ""
+    },
+    "open_orders": {
+      "bound_to": [
+        "function alphalab.broker.views.open_orders(state: alphalab.broker.state.BrokerState) -> collections.abc.Sequence[alphalab.broker.order.BrokerOrder]",
+        "function alphalab.brokers.views.open_orders(state: alphalab.brokers.state.BrokerConnectorState) -> collections.abc.Sequence[alphalab.broker.order.BrokerOrder]"
+      ],
+      "reason": ""
     },
     "register_strategy": {
       "bound_to": [
         "function alphalab.lifecycle.registration.register_strategy(state: 'LifecycleState', name: 'str', definition: 'StrategyDefinition', timestamp: 'float', model: 'ModelRef | None' = None, run_id: 'str | None' = None, tags: 'Mapping[str, str] | None' = None) -> 'tuple[LifecycleState, StrategyVersionRef]'",
         "function alphalab.strategy.runtime.register_strategy(state: alphalab.strategy.state.RuntimeState, strategy_id: str, instance: alphalab.strategy.protocol.StrategyProtocol) -> alphalab.strategy.state.RuntimeState"
       ],
-      "reason": "Two registrations: lifecycle.register_strategy records a strategy *version* in the lifecycle registry, checking what it cites; strategy.register_strategy adds a strategy *instance* to a running session."
+      "reason": ""
     },
     "restore": {
       "bound_to": [
         "function alphalab.oms.snapshot.restore(snapshot: 'OMSSnapshot') -> 'OMSState'",
         "function alphalab.strategy.adaptive.restore(payload: 'Mapping[str, Any]', configuration: 'AdaptiveConfiguration', rule: 'AdaptiveRule') -> 'AdaptiveState'"
       ],
-      "reason": "Two restorations of two states: oms.restore(OMSSnapshot) rebuilds the OMS state from its snapshot; strategy.restore(payload, configuration, rule) rebuilds an adaptive state from strategy.checkpoint's primitives, or refuses."
+      "reason": ""
     },
     "rollback": {
       "bound_to": [
         "function alphalab.deployment_manager.rollback.rollback(manager: alphalab.deployment_manager.releases.DeploymentManager, environment: str, timestamp: float, actor_id: str = '') -> alphalab.deployment_manager.releases.DeploymentManager",
         "function alphalab.model_registry.rollback.rollback(registry: alphalab.model_registry.registry.ModelRegistry, name: str, timestamp: float) -> alphalab.model_registry.registry.ModelRegistry"
       ],
-      "reason": "Two rollbacks: deployment_manager.rollback re-deploys an environment's previous release; model_registry.rollback archives a model's production version and restores the one before."
+      "reason": ""
     },
     "spread": {
       "bound_to": [
         "function alphalab.macro.yield_curve.spread(curve: alphalab.macro.yield_curve.YieldCurve, short_tenor_years: decimal.Decimal, long_tenor_years: decimal.Decimal) -> decimal.Decimal | None",
         "function alphalab.market.book.spread(snapshot: alphalab.market.snapshot.OrderBookSnapshot) -> decimal.Decimal"
       ],
-      "reason": "Two spreads: macro.spread is a yield curve's long-tenor minus short-tenor yield; market.spread is an order book's best ask minus best bid."
+      "reason": ""
     },
     "surprise": {
       "bound_to": [
         "function alphalab.alt_data.information.surprise(event: 'InformationEvent', actual: 'str', expected: 'str') -> 'Decimal'",
         "function alphalab.macro.indicator.surprise(observation: alphalab.macro.indicator.IndicatorObservation) -> decimal.Decimal | None"
       ],
-      "reason": "Two surprises: macro.surprise is an indicator's actual minus its recorded consensus; alt_data.surprise is the difference between two measurements an information event carries, which the caller names."
+      "reason": ""
+    },
+    "validate_execution": {
+      "bound_to": [
+        "function alphalab.broker.validation.validate_execution(state: alphalab.broker.state.BrokerState, execution_id: str) -> None",
+        "function alphalab.brokers.validation.validate_execution(state: alphalab.brokers.state.BrokerConnectorState, execution_id: str, broker_order_id: str) -> alphalab.broker.order.BrokerOrder"
+      ],
+      "reason": ""
+    },
+    "validate_intent": {
+      "bound_to": [
+        "function alphalab.allocation.validation.validate_intent(intent: alphalab.strategy.events.Intent) -> None",
+        "function alphalab.strategy.validation.validate_intent(intent: alphalab.strategy.events.Intent) -> None"
+      ],
+      "reason": ""
+    },
+    "validate_order_submission": {
+      "bound_to": [
+        "function alphalab.broker.validation.validate_order_submission(state: alphalab.broker.state.BrokerState, order: alphalab.broker.order.BrokerOrder) -> None",
+        "function alphalab.brokers.validation.validate_order_submission(state: alphalab.brokers.state.BrokerConnectorState, order: alphalab.broker.order.BrokerOrder) -> None"
+      ],
+      "reason": ""
     }
   }
 }

@@ -30,4 +30,4 @@ def test_the_declared_version_is_the_release_version() -> None:
     """
     from alphalab.common._version import __version__
 
-    assert __version__ == "3.12.0"
+    assert __version__ == "3.13.0"

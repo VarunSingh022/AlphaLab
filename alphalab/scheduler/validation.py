@@ -1,22 +1,21 @@
-"""Validation rules ensuring structural integrity of schedules."""
+"""Validation rules ensuring structural integrity of schedules.
+
+Until v3.10 a timer of a type nothing implemented was accepted, fired once at
+its target and was never rescheduled -- a repeating schedule that silently
+stopped repeating (ledger DAT-006); from v3.10 such types were refused here.
+v3.12 implemented ``SESSION_OPEN`` and ``SESSION_CLOSE`` over a
+:class:`~alphalab.data.calendar.MarketCalendar`, and v3.13 ``CRON`` over a
+:class:`~alphalab.scheduler.cron.CronSchedule` and removed ``BAR_BOUNDARY``, so
+every type is implemented and kept. What is still checked is that a timer
+fires where its own schedule says it can.
+"""
+
+import math
 
 from alphalab.scheduler.exceptions import SchedulerValidationError
 from alphalab.scheduler.schedule import ScheduleType
 from alphalab.scheduler.scheduler import SESSION_SCHEDULES, is_session_boundary
 from alphalab.scheduler.timer import Timer
-
-#: Declared in :class:`ScheduleType` and not implemented. Until v3.10 a timer of
-#: one of these types was accepted, fired once at its target, and was never
-#: rescheduled -- a repeating schedule that silently stopped repeating (ledger
-#: DAT-006). They are refused at registration. ``SESSION_OPEN`` and
-#: ``SESSION_CLOSE`` left this set in v3.12, when they were implemented over
-#: :class:`~alphalab.data.calendar.MarketCalendar` (ledger SCF-003).
-UNIMPLEMENTED_SCHEDULES: frozenset[ScheduleType] = frozenset(
-    {
-        ScheduleType.CRON,
-        ScheduleType.BAR_BOUNDARY,
-    }
-)
 
 
 def validate_timer(timer: Timer, current_time: float) -> None:
@@ -35,13 +34,23 @@ def validate_timer(timer: Timer, current_time: float) -> None:
     ):
         raise SchedulerValidationError("Repeating/Interval timers require a positive interval.")
 
-    if timer.schedule_type in UNIMPLEMENTED_SCHEDULES:
+    if timer.schedule_type is ScheduleType.CRON:
+        if timer.cron is None:
+            raise SchedulerValidationError(
+                "A CRON timer follows a CronSchedule and names none; see "
+                "alphalab.scheduler.cron_timer."
+            )
+        if timer.cron.next_after(math.nextafter(timer.target_timestamp, -math.inf)) != (
+            timer.target_timestamp
+        ):
+            raise SchedulerValidationError(
+                f"{timer.target_timestamp!r} is not an instant {timer.cron.expression!r} fires "
+                f"at in {timer.cron.zone}; build the timer with alphalab.scheduler.cron_timer."
+            )
+    elif timer.cron is not None:
         raise SchedulerValidationError(
-            f"{timer.schedule_type.name} timers are declared and not implemented: nothing "
-            "parses a cron expression, and a bar's boundary is a convention of its data, "
-            "so such a timer would fire once at its target and never again. Use ONE_SHOT "
-            "for one firing, INTERVAL with its period, or SESSION_OPEN / SESSION_CLOSE "
-            "over the venue's MarketCalendar."
+            f"A {timer.schedule_type.name} timer does not follow a cron schedule; only a "
+            "CRON timer names one."
         )
 
     if timer.schedule_type in SESSION_SCHEDULES:

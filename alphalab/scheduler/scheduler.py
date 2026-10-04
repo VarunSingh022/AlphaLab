@@ -13,10 +13,18 @@ holiday or weekend fires nothing. Every instant comes from the calendar, in the
 venue's own zone -- the scheduler keeps no calendar of its own (ledger DAT-006).
 
 Until v3.12 these two types were refused at registration, because nothing could
-say when a session opened. ``CRON`` and ``BAR_BOUNDARY`` still are: nothing here
-parses a cron expression, and a bar's boundary is a convention of the data it
-belongs to (:class:`~alphalab.data.time.BarStamp`), which an ``INTERVAL`` timer
-anchored at a session open expresses without a second definition.
+say when a session opened.
+
+Cron timers (v3.13, ledger DAT-006)
+-----------------------------------
+
+A ``CRON`` timer fires at every instant its
+:class:`~alphalab.scheduler.cron.CronSchedule` names, read on the schedule's own
+zone's wall clock -- see :mod:`alphalab.scheduler.cron` for the grammar and the
+daylight-saving rule. :func:`cron_timer` builds one at its first firing after a
+given instant. ``BAR_BOUNDARY`` is removed: a bar's arrival is the event, and a
+timer restating where a bar's boundary falls (:class:`~alphalab.data.time.BarStamp`)
+could only disagree with the data.
 """
 
 import math
@@ -24,6 +32,7 @@ from dataclasses import replace
 from datetime import timedelta
 
 from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS, MarketCalendar
+from alphalab.scheduler.cron import CRON_SEARCH_DAYS, CronSchedule
 from alphalab.scheduler.schedule import ScheduleType
 from alphalab.scheduler.timer import Timer
 
@@ -85,6 +94,27 @@ def session_timer(
     return Timer(timer_id, target, kind, metadata=metadata, calendar=calendar)
 
 
+def cron_timer(
+    timer_id: str,
+    cron: CronSchedule,
+    after: float,
+    metadata: dict[str, object] | None = None,
+) -> Timer:
+    """A cron timer whose first firing is the schedule's next instant after ``after``.
+
+    Raises:
+        ValueError: If the schedule names no instant within
+            :data:`~alphalab.scheduler.cron.CRON_SEARCH_DAYS` of ``after``.
+    """
+    target = cron.next_after(after)
+    if target is None:
+        raise ValueError(
+            f"{cron.expression!r} in {cron.zone} fires at no instant within "
+            f"{CRON_SEARCH_DAYS} days of {after!r}."
+        )
+    return Timer(timer_id, target, ScheduleType.CRON, metadata=metadata, cron=cron)
+
+
 class SchedulerResolver:
     """Stateless logic for resolving next trigger times for repeating schedules."""
 
@@ -95,7 +125,9 @@ class SchedulerResolver:
         Returns a newly updated Timer instance or None if expired.
 
         A session timer whose calendar declares no further trading day within
-        the search horizon expires: there is no next instant to fire at.
+        the search horizon expires, and so does a cron timer whose schedule
+        names no further instant within its own: there is no next instant to
+        fire at.
         """
         if timer.schedule_type in {ScheduleType.ONE_SHOT, ScheduleType.MANUAL}:
             return None
@@ -111,6 +143,10 @@ class SchedulerResolver:
 
         if timer.schedule_type in SESSION_SCHEDULES and timer.calendar is not None:
             following = next_session_boundary(timer.calendar, current_time, timer.schedule_type)
+            return None if following is None else replace(timer, target_timestamp=following)
+
+        if timer.schedule_type is ScheduleType.CRON and timer.cron is not None:
+            following = timer.cron.next_after(current_time)
             return None if following is None else replace(timer, target_timestamp=following)
 
         return None

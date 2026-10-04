@@ -19,10 +19,13 @@ a name added, removed or rebound -- so an API change is always a reviewed one.
 
 from __future__ import annotations
 
+import argparse
+import enum
 import importlib
 import inspect
 import json
 import pkgutil
+import re
 import sys
 import types
 import typing
@@ -33,8 +36,27 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "docs" / "api" / "public_api.json"
 
 
+#: An object's default ``repr`` carries its address, which differs every run.
+_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+>")
+
+
+def _signature(value: Any) -> str:
+    """The call signature as text, or ``""`` when Python cannot state one."""
+
+    try:
+        text = str(inspect.signature(value))
+    except (TypeError, ValueError):
+        return ""
+    return _ADDRESS.sub(">", text)
+
+
 def describe(value: Any) -> str:
-    """What a name is bound to, in words that change only when the binding does."""
+    """What a name is bound to, in words that change only when the binding does.
+
+    A function and a class carry their call signature, and an enum its member
+    names, so a changed parameter, a changed field or a renamed member is a
+    change to the manifest as surely as a removed name (v3.13).
+    """
 
     if isinstance(value, types.ModuleType):
         return f"module {value.__name__}"
@@ -42,10 +64,12 @@ def describe(value: Any) -> str:
         return f"newtype {value.__module__}.{value.__name__}"
     if isinstance(value, typing.TypeAliasType | types.GenericAlias | types.UnionType):
         return f"alias {value}"
+    if inspect.isclass(value) and issubclass(value, enum.Enum):
+        return f"enum {value.__module__}.{value.__qualname__}[{', '.join(value.__members__)}]"
     if inspect.isclass(value):
-        return f"class {value.__module__}.{value.__qualname__}"
+        return f"class {value.__module__}.{value.__qualname__}{_signature(value)}"
     if inspect.isfunction(value) or inspect.isbuiltin(value):
-        return f"function {value.__module__}.{value.__qualname__}"
+        return f"function {value.__module__}.{value.__qualname__}{_signature(value)}"
     if isinstance(value, typing.TypeVar):
         return f"typevar {value.__name__}"
     return f"value {type(value).__module__}.{type(value).__qualname__}"
@@ -112,15 +136,24 @@ def render(manifest: dict[str, Any]) -> str:
     return json.dumps(manifest, indent=2, sort_keys=False, ensure_ascii=False) + "\n"
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=MANIFEST,
+        help="where to write the manifest (default: docs/api/public_api.json)",
+    )
+    arguments = parser.parse_args(argv)
     sys.path.insert(0, str(ROOT))
-    previous = json.loads(MANIFEST.read_text(encoding="utf-8")) if MANIFEST.exists() else {}
+    target: Path = arguments.output
+    previous = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
     manifest = build(previous)
-    MANIFEST.write_text(render(manifest), encoding="utf-8")
+    target.write_text(render(manifest), encoding="utf-8")
     missing = [name for name, entry in manifest["shared_names"].items() if not entry["reason"]]
     exported_count = sum(len(names) for names in manifest["packages"].values())
     print(
-        f"{MANIFEST.relative_to(ROOT)}: {len(manifest['packages'])} packages, "
+        f"{target}: {len(manifest['packages'])} packages, "
         f"{exported_count} exports, {len(manifest['shared_names'])} shared names"
     )
     if missing:

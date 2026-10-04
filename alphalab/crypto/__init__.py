@@ -30,7 +30,11 @@ from alphalab.crypto.funding import (
     funding_instants,
 )
 from alphalab.crypto.instrument import CryptoInstrument, crypto_symbol, open_crypto_position
-from alphalab.crypto.perpetual import compute_liquidation_price, mark_to_market
+from alphalab.crypto.perpetual import (
+    MaintenanceBasis,
+    compute_liquidation_price,
+    mark_to_market,
+)
 from alphalab.crypto.symbol_normalization import to_canonical_symbol
 from alphalab.crypto.venue import (
     BASIS_POINT,
@@ -57,6 +61,7 @@ __all__ = [
     "FundingSummary",
     "InstrumentType",
     "LiquidityRole",
+    "MaintenanceBasis",
     "ObservationGap",
     "PriceSource",
     "VenueDispersion",

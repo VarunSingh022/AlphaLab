@@ -53,6 +53,7 @@ from alphalab.crypto import (
     FundingRateHistory,
     InstrumentType,
     LiquidityRole,
+    MaintenanceBasis,
     PriceSource,
     VenueSpecification,
     accrued_funding,
@@ -241,18 +242,30 @@ def main() -> None:
         print(f"  one venue alone: {str(error).split('.')[0][:60]}")
 
     # ----------------------------------------------------------------- #
-    rule("Liquidation, and what the formula does not include")
+    rule("Liquidation, on the venue's own terms")
 
     for leverage in ("5", "10", "25"):
         for side in (PositionSide.LONG, PositionSide.SHORT):
-            price = compute_liquidation_price(
-                Decimal("60000"), side, Decimal(leverage), Decimal("0.005")
-            )
-            print(f"  {side.name:<5} at {leverage:>2}x -> {price:>12}")
+            prices = [
+                compute_liquidation_price(
+                    Decimal("60000"),
+                    side,
+                    Decimal(leverage),
+                    Decimal("0.005"),
+                    basis=basis,
+                    quantity=Decimal("0.5"),
+                    fees=Decimal("18"),
+                    funding=Decimal("-4.50"),
+                )
+                for basis in (MaintenanceBasis.ENTRY_NOTIONAL, MaintenanceBasis.MARK_NOTIONAL)
+            ]
+            entry, mark = (f"{price:.2f}" if price is not None else "none" for price in prices)
+            print(f"  {side.name:<5} at {leverage:>2}x -> {entry:>10} (entry)  {mark:>10} (mark)")
     print()
-    print("  Isolated margin, ignoring fees and funding accrued since entry. A")
-    print("  simplification, not a substitute for a venue's own engine -- and the")
-    print("  mark it is compared against must be the venue's, not the last trade.")
+    print("  0.5 BTC, 18 USD of fees and 4.50 USD of funding paid. Which notional the")
+    print("  maintenance rate is charged on is the venue's to say, so it is stated:")
+    print("  the two conventions give different prices. Tiered rates, a smoothed mark,")
+    print("  insurance funds and auto-deleveraging stay the venue's own engine.")
 
     # ----------------------------------------------------------------- #
     rule("A 24/7 clock is not 24/7 data")

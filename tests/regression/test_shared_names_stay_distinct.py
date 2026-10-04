@@ -1176,7 +1176,19 @@ def test_the_three_margins_answer_three_questions_from_three_inputs() -> None:
     published = set(inspect.signature(position_margin).parameters)
 
     assert "cash_ledger" in account and "specifications" not in account
-    assert liquidation == {"entry_price", "side", "leverage", "maintenance_margin_rate"}
+    # Since v3.13 also the notional maintenance is charged on, the size, and
+    # the fees and funding against the margin -- still a position's terms and
+    # a rate, never a book or a published figure.
+    assert liquidation == {
+        "entry_price",
+        "side",
+        "leverage",
+        "maintenance_margin_rate",
+        "basis",
+        "quantity",
+        "fees",
+        "funding",
+    }
     assert "specifications" in published and "leverage" not in published
 
     # The published one carries an amount and a currency; the others carry rates.
