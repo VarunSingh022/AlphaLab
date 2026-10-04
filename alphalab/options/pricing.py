@@ -2,9 +2,11 @@
 
 Uses only the standard library (`math.erf` for the normal CDF) since AlphaLab has
 zero runtime dependencies -- no numpy or scipy. This is a European-style closed-form
-model; it does not account for early exercise premium on American contracts. Callers
-pricing American contracts should treat this as an approximation, consistent with
-`OptionContract.style` being informational rather than affecting this model.
+model; it does not account for early exercise premium on American contracts, and
+`OptionContract.style` does not affect it. An American contract, or a stock with
+known cash dividends, is priced on the lattice in :mod:`alphalab.options.binomial`
+(since v3.13, ledger NUM-006); this closed form priced as though it were European
+is an approximation that understates a deep in-the-money American put.
 
 Every function takes the underlying's :class:`~alphalab.options.carry.Carry` --
 a dividend yield, a foreign rate or a futures contract's zero carry -- as a

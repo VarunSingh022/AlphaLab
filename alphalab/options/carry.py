@@ -34,8 +34,9 @@ What a carry is not
 -------------------
 A continuous yield. A known discrete dividend -- a stock going ex-dividend by a
 fixed amount before expiry -- is not a yield, and approximating one by a yield
-misstates the price near the ex-date; this package does not model discrete
-dividends.
+misstates the price near the ex-date. The closed form does not model one; the
+lattice does, as a :class:`~alphalab.options.binomial.CashDividend` escrowed out
+of the spot (since v3.13).
 """
 
 from __future__ import annotations

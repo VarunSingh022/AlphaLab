@@ -14,11 +14,14 @@ it does not match. The precedent is
 the confidence together for the same reason: "a figure cannot travel without the
 assumptions that produced it".
 
-Nothing here changes a number. It describes the one model this package
-implements, and names what that model does and does not do. Since v3.11 the
-model takes the underlying's carry (a dividend yield, a foreign rate or a
-futures contract's zero carry; ledger NUM-005), so ``models_dividends`` is
-``True``.
+Nothing here changes a number. It describes the models this package
+implements, and names what each does and does not do. Since v3.11 the closed
+form takes the underlying's carry (a dividend yield, a foreign rate or a futures
+contract's zero carry; ledger NUM-005), so ``models_dividends`` is ``True``.
+Since v3.13 there is a second model, a Cox-Ross-Rubinstein lattice
+(:mod:`alphalab.options.binomial`, ledger NUM-006), which prices early exercise
+and cash dividends; its assumptions name its step count, because the step count
+moves the answer.
 """
 
 from __future__ import annotations
@@ -33,16 +36,21 @@ __all__ = ["BLACK_SCHOLES_MERTON", "ModelAssumptions", "PricingModel"]
 class PricingModel(Enum):
     """Which model produced a price or a Greek.
 
-    One member, because one model is implemented. It is an enum rather than a
-    string so that a second model added later is a decision with a name, and so
-    that a caller comparing two figures can compare the models by identity
-    rather than by spelling.
+    An enum rather than a string so that a caller comparing two figures can
+    compare the models by identity rather than by spelling. The second member
+    arrived in v3.13 as the decision with a name that the first one's docstring
+    said a second model would be.
     """
 
     #: Closed-form European pricing on a lognormal underlying with a constant
     #: volatility, a constant continuously-compounded rate and a stated
     #: continuous carry -- generalized Black-Scholes-Merton.
     BLACK_SCHOLES = auto()
+
+    #: A Cox-Ross-Rubinstein binomial lattice of a stated number of steps, on
+    #: the same lognormal underlying and carry, with escrowed cash dividends and
+    #: early exercise wherever the contract allows it.
+    BINOMIAL_CRR = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,20 +64,25 @@ class ModelAssumptions:
             business-day count are all in use and a vega quoted under one is
             not the vega quoted under another.
         prices_early_exercise: Whether the model values the right to exercise
-            before expiry. ``False`` here: an American contract priced by this
-            model is priced as though it were European, which understates a deep
-            in-the-money American put.
+            before expiry. ``False`` for the closed form: an American contract
+            priced by it is priced as though it were European, which understates
+            a deep in-the-money American put. ``True`` for the lattice.
         models_dividends: Whether a dividend or carry yield on the underlying is
             an input. ``True`` since v3.11: every call states a
             :class:`~alphalab.options.carry.Carry` -- a continuous dividend
-            yield, a foreign rate or a futures contract. A *discrete* dividend
-            is not modelled.
+            yield, a foreign rate or a futures contract.
         models_volatility_smile: Whether volatility varies by strike within the
             model. ``False`` here: one volatility is an input per call. A smile
             is expressed by supplying a different volatility per strike, which
             is what :class:`alphalab.options.volatility_surface.VolatilitySurface`
             holds.
         note: One sentence for a report or a refusal message.
+        models_discrete_dividends: Whether a known *cash* dividend, paid on a
+            date, is an input. ``False`` for the closed form; ``True`` for the
+            lattice, which escrows them.
+        steps: A lattice's step count, or ``None`` for a closed form. Part of
+            the assumptions because it moves the answer: the same contract on
+            200 and on 2,000 steps prices differently.
     """
 
     model: PricingModel
@@ -78,6 +91,8 @@ class ModelAssumptions:
     models_dividends: bool
     models_volatility_smile: bool
     note: str
+    models_discrete_dividends: bool = False
+    steps: int | None = None
 
     @property
     def identity(self) -> str:
@@ -93,10 +108,12 @@ class ModelAssumptions:
                 ("E", self.prices_early_exercise),
                 ("D", self.models_dividends),
                 ("S", self.models_volatility_smile),
+                ("C", self.models_discrete_dividends),
             )
             if present
         )
-        return f"{self.model.name}/{self.year_basis_days:g}d/{flags or 'none'}"
+        rendered = f"{self.model.name}/{self.year_basis_days:g}d/{flags or 'none'}"
+        return rendered if self.steps is None else f"{rendered}/n={self.steps}"
 
 
 #: What :func:`alphalab.options.pricing.black_scholes_price` and
