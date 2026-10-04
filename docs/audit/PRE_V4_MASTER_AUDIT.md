@@ -1120,6 +1120,46 @@ closed too: TST-013 (five rules no test pinned — the defect-injection run's su
 DOC-004 (current-state documents that still described what v3.11 removed, found by the release's
 documentation pass).
 
+### Release audit (v3.12.0, before release)
+
+Run against the final tree: the working tree for the fast gates, the examples and the
+distributions, and its commit (`b775830`, the removals) for the defect-injection run, which
+archives `HEAD`.
+
+| Gate | Result |
+| --- | --- |
+| `ruff check .` / `ruff format --check .` | clean / 1,205 files formatted |
+| `mypy .` (strict, cold cache) | no issues in 1,122 source files (1,158 before the removals took 36) |
+| `pytest -W error` | 8,583 passed (4,578 unit, 649 integration, 3,356 regression); 0 failed, 0 skipped, 0 warnings |
+| Examples, `-W error`, from the repository root | 65 / 65, twice |
+| Benchmarks, `-W error`, 900 s each | 53 / 53 (697 s in all, on a quiet machine after the defect-injection run) |
+| `git diff --check` | clean |
+| `python -m build`; `twine check --strict` | both distributions built; both PASSED; neither carries a removed module |
+| Clean Python 3.12 environments, wheel and sdist, `tests/installed_smoke.py 3.12.0` from outside the checkout | both pass: 605 modules, `py.typed`, example 11 end to end |
+| Determinism | 61 of 65 examples byte-identical across two runs under different hash seeds; the other four (`12`, `13`, `45`, `48`) print a random run or order id, a process id or CPU time, as in v3.11 |
+| Example output against v3.11.0 | 55 print what they printed; `01` rewritten; 9 differ, each explained in the CHANGELOG — with identities and versions masked, no price, quantity, P&L or statistic moved. Removing `plugins`, `optimizer` and the dashboards changed no example's output |
+| Public API against v3.11.0 | 2 packages and 12 names removed, 88 names added, 53 signatures changed; the removals and every change that breaks a caller are in the CHANGELOG's migration table |
+| Performance against v3.9.0 and v3.11.0 | five interleaved rounds, medians: OMS 0.87x v3.9 (0.98x v3.11), one-asset backtest 1.15x (1.03x), replay 1.10x (1.07x), pipeline 1.03x (1.00x), portfolio micro-benchmark 1.51x (1.02x); every round within PRF-006's budget. A five-round run of the tree before the removals measured 0.83x, 1.11x, 1.16x, 1.11x and 1.74x against v3.9 — the spread between the two runs is the measurement's own |
+| Defect injection | section W.4: on the release tree, 125 of 126 mutations caught; X17, the equivalent mutant, survives |
+| Stress | section V.3 |
+
+The gates found four things, each fixed before release. **Current-state documents** describing
+what this release removed: `docs/ARCHITECTURE.md` (its Plugins and Plugin Architecture sections, a
+list of registries and a layer diagram) and `docs/SYSTEM_DESIGN.md` described `plugins` as current,
+and the architecture document still called the optimizer's queue a term left super-linear —
+found by searching every current-state document for each removed name, and recorded under DOC-004.
+**The migration table**, checked against the public API comparison with 3.11.0: one row named
+`cloud_research.sweep_space`, which 3.11 did not have, for what was `submit_parameter_sweep`'s
+change (submission order by axis name, values limited to finite numbers and strings, a repeated
+value refused), and no row covered research reports built by hand, `ResearchCompleted.overall_score`
+or the reporting state's dashboard fields; each is stated now. **The ledger**: DET-002's pin named
+`test_optimizer_is_reproducible.py`, deleted with the optimizer — found by checking that every
+test the ledger names exists (200 references, none missing after DET-002 was restated as
+superseded). **Counts**: the README gave 1,158 type-checked files, the count before the removals
+took 36, and `nowandfuture.md` gave 3.11.0's test and benchmark counts under a header saying it
+was last updated at 3.11. Removing two packages also restated two invariant tests, as it must: the package count (43)
+and the optimizer's super-linear queue, now asserted gone.
+
 ## AB. v3.13.0 plan — final feature completion
 
 American option pricing (NUM-006); rerun harness (REP-003); optimal split (BRK-005); estimated

@@ -14,7 +14,7 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
-# [3.12.0] - Unreleased
+# [3.12.0] - 2026-10-04
 
 **The third pre-v4 release: numerical methods right at the edges of their
 range, durable state that is durable and restores what was captured, costs
@@ -176,6 +176,25 @@ grew faster than the work, both fixed:
   on one asset: 665 µs a record alone, 1,012 beside 1,000 others, 4,097 beside
   10,000 — now 667, 629 and 661.
 
+Measured side by side on one machine, five interleaved rounds of 3.9.0, 3.11.0
+and 3.12.0, each benchmark's own timing (medians; each ratio taken within a
+round, range in brackets):
+
+| Benchmark | 3.9.0 | 3.11.0 | 3.12.0 | 3.12 ÷ 3.9 | 3.12 ÷ 3.11 |
+|---|---|---|---|---|---|
+| OMS, 100k order lifecycles | 15.02 s | 13.25 s | 12.80 s | 0.87x (0.81–0.90) | 0.98x (0.93–1.01) |
+| Backtest, 4k records | 4.30 s | 4.85 s | 4.94 s | 1.15x (1.11–1.15) | 1.03x (0.96–1.05) |
+| Replay, 4k records | 4.80 s | 5.08 s | 5.39 s | 1.10x (1.05–1.16) | 1.07x (0.99–1.08) |
+| Execution pipeline, 4k events | 4.45 s | 4.60 s | 4.60 s | 1.03x (1.01–1.10) | 1.00x (0.97–1.10) |
+| Portfolio engine, fills per second | 16.7k | 11.3k | 11.0k | 1.51x slower (1.50–1.61) | 1.02x slower (1.00–1.06) |
+
+The budget PRF-006 states — the OMS within 1.1x of 3.9, one-asset paths within
+1.25x, the portfolio micro-benchmark within 2.0x — holds in every round.
+Against 3.11 the one-asset paths cost between nothing and 7% more; profiling
+found no single place the difference is spent, and the v3.13 audit classifies
+it. The absolute times are not comparable with 3.11's table, which was measured
+on a faster state of the machine; ratios within a round are.
+
 ## Migrating from 3.11
 
 | If you… | Now… |
@@ -253,7 +272,8 @@ the change's own validation). On the release tree all 126 ran again: 125 were
 caught, and the equivalent one survives, as it must. Every benchmark
 ceiling is judged by one method (`benchmarks/_stable_timing.py`) [TST-011], and
 `benchmarks/benchmark_construction_scaling.py` measures structured construction
-at 200, 400 and 800 assets against a growth ceiling (55 benchmarks).
+at 200, 400 and 800 assets against a growth ceiling (53 benchmarks, after the
+removals took two).
 
 ## Examples
 

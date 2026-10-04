@@ -1017,11 +1017,13 @@ numerical defects (NUM-003, NUM-004, NUM-007) and the unflushed directory
   book, execution reports by order, and a live session's routed and settled
   orders grow with the orders a run places — retention bounds the logs, not
   these, and a checkpoint segment carries the whole order book.
-- **Performance** (PRF-006, v3.11 — bounded, not eliminated): against v3.9 on
-  one machine (five interleaved rounds), the portfolio-engine micro-benchmark
-  runs at 1.69× v3.9's time (1.51–1.72; exact per-currency totals and
-  instrument economics on every fill); a one-asset backtest 1.05×, the pipeline
-  1.01× and the OMS 0.83×.
+- **Performance** (PRF-006 — bounded, not eliminated): against v3.9 on one
+  machine (five interleaved rounds, measured for v3.12.0), the portfolio-engine
+  micro-benchmark runs at 1.51× v3.9's time (1.50–1.61; exact per-currency
+  totals and instrument economics on every fill); a one-asset backtest 1.15×,
+  replay 1.10×, the pipeline 1.03× and the OMS 0.87×. Against v3.11 the
+  one-asset paths cost up to 7% more, with no single place it is spent
+  (classified by the v3.13 audit).
 
 ---
 

@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.11.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.12.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -1335,18 +1335,18 @@ retry-on-older-protocol fallback exists.
 ruff check .                              # lint
 ruff format --check .                     # format
 mypy .                                    # strict, 1,122 source files (what CI runs)
-pytest -q -W error                        # 8,215 tests, 0 skipped, 0 warnings (what CI runs)
+pytest -q -W error                        # 8,583 tests, 0 skipped, 0 warnings (what CI runs)
 git diff --check
 python -m build && twine check dist/*
 for f in examples/[0-9]*.py; do python -W error "$f"; done    # 65
-for f in benchmarks/benchmark_*.py; do python "$f"; done      # 54
+for f in benchmarks/benchmark_*.py; do python "$f"; done      # 53
 ```
 
 `make check` runs the first four. Since v3.10 CI also installs the wheel and
 the sdist, each into a fresh environment, and runs `tests/installed_smoke.py`
 against them from outside the checkout; the benchmarks run weekly.
 
-**8,215 tests** — 4,415 unit, 516 integration, 3,284 regression. The
+**8,583 tests** — 4,578 unit, 649 integration, 3,356 regression. The
 regression suite is nearly as large as the unit suite, deliberately: most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.

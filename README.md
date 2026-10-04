@@ -47,7 +47,7 @@ The framework is designed for researchers, quantitative developers, students, an
 | Tests | **8,583 Passing, 0 skipped, 0 warnings** |
 | Static Typing | **Strict MyPy** (1,122 source files, repository-wide) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **55 / 55 Passing** |
+| Benchmarks | **53 / 53 Passing** |
 | Examples | **65 / 65 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
@@ -90,7 +90,9 @@ session timers. It found two costs that grew faster than the work, both fixed:
 a classification limit summed its bucket for every order, and every event asked
 every strategy whether it subscribed. Construction on a factor-model covariance
 is solved in O(n k²) per step: 10,000 assets in 1.6 s, where the dense solver
-took 135 s at 800.
+took 135 s at 800. Side by side with v3.9.0 on one machine, the OMS benchmark
+takes 0.87x its time, a one-asset backtest 1.15x, replay 1.10x and the pipeline
+1.03x, within the budget v3.11 set; against v3.11.0, 0.98x to 1.07x.
 
 **Multi-account, prints, sequence models.** One book reconciles against every
 account it is spread across; trade prints are read from declared columns with
@@ -1386,7 +1388,7 @@ AlphaLab is continuously validated through automated tooling.
 - ✅ **8,583 passing tests** (4,578 unit, 649 integration, 3,356 regression) — **0 skipped, 0 warnings**
 - ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1,122 source files)
 - ✅ Ruff linting and formatting
-- ✅ 55 / 55 benchmarks, 65 / 65 examples
+- ✅ 53 / 53 benchmarks, 65 / 65 examples
 - ✅ A defect-injection harness (`docs/audit/scripts/mutation_v3_12.py`): 126
   mutations, each against the whole suite; on the release tree every one is
   caught but one equivalent mutant, after the five rules its first run found
