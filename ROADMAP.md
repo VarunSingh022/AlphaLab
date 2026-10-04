@@ -90,8 +90,8 @@ and the capabilities deferred to it — calendars inside simulation, strategy
 capital ceilings, classification limits, external information on the
 execution path, retention and incremental checkpoints, an evidence store,
 multi-account reconciliation, declared trade prints and trainable sequence
-models (ADR-0047). The package removals SCF-003 calls for await the
-maintainer's decision.
+models (ADR-0047). `plugins`, `optimizer` and the reporting dashboards leave
+the library (SCF-003).
 
 **v3.11.0** is the second of four **pre-v4 releases**: the capabilities a
 strategy needs before its API is frozen — instrument economics, order terms,
@@ -253,10 +253,11 @@ The first capability release on the frozen architecture, confined to
   identifiers and aggressor sides; cleaning judges quotes as validation does.
 - **Models** (SCF-004): backpropagation through time for the LSTM, and
   attention's backward pass.
-- **Research** (RES-001, SCF-003 in part): the v1 engine restated as
-  measurements under a stated policy; one parameter-search authority;
-  distributed cancellation fixed; session timers over a calendar; exact
-  report numbers (ANA-006).
+- **Research and consolidation** (RES-001, SCF-003, OFE-013): the v1 engine
+  restated as measurements under a stated policy; one parameter-search
+  authority, with `optimizer` removed; `plugins` and the reporting dashboards
+  removed; distributed cancellation fixed; session timers over a calendar;
+  exact report numbers (ANA-006).
 - **Scale** (PRF-005, PRF-010, TST-011): factor-structured construction to
   10,000 assets; an event reaches strategies through an index; every benchmark
   ceiling judged by one method; a stress program at 10,000 assets, 1,000
@@ -1043,7 +1044,7 @@ the disposition the pre-v4 audit gave it.
 | Per-strategy capital ceilings on the execution path | OFE-003 | v3.12 — delivered |
 | Execution-path delivery of external information | OFE-009 | v3.12 — delivered |
 | A streaming observation set; split-adjusted and currency-converted fundamentals | OFE-011 | v3.12 — delivered |
-| The optimizer's super-linear `pending_trials`, removed with the research consolidation | OFE-013 | v3.12 — pending the maintainer's decision on removing the optimizer (SCF-003) |
+| The optimizer's super-linear `pending_trials`, removed with the research consolidation | OFE-013 | v3.12 — delivered: the optimizer was removed (SCF-003) |
 | A durable home for progressions, fingerprints, manifests and reports | OFE-016 | v3.12 — delivered |
 | Health evaluated over a window | OFE-017 | v3.12 — delivered |
 | Book-to-mirror reconciliation across several brokers' accounts | OFE-023 | v3.12 — delivered |

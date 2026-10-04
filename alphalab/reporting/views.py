@@ -1,8 +1,5 @@
 """Pure queries exposing transparent Reporting Engine access."""
 
-from collections.abc import Sequence
-
-from alphalab.reporting.dashboard import Dashboard
 from alphalab.reporting.report import Report
 from alphalab.reporting.state import ReportingState, ReportingStatistics
 
@@ -17,11 +14,6 @@ def latest_report(state: ReportingState) -> Report | None:
 def report_count(state: ReportingState) -> int:
     """Returns the total number of synthesized reports stored in state."""
     return len(state.reports)
-
-
-def dashboard_summary(state: ReportingState) -> Sequence[Dashboard]:
-    """Returns a list of all defined dashboard layouts."""
-    return tuple(state.dashboards.values())
 
 
 def export_statistics(state: ReportingState) -> ReportingStatistics:

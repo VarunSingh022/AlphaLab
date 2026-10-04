@@ -21,13 +21,6 @@ class ReportGenerated(ReportingEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class DashboardGenerated(ReportingEvent):
-    """Emitted when a dashboard layout is successfully synthesized."""
-
-    dashboard_id: str
-
-
-@dataclass(frozen=True, slots=True)
 class ExportCompleted(ReportingEvent):
     """Emitted when a report is successfully exported to an external format."""
 

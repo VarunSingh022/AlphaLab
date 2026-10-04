@@ -79,7 +79,8 @@ States using `AppendOnlyLog`: `RiskState`, `MarketState`, `ExecutionState`,
 `ExecutionPipelineState` fill / trade / trade-record / snapshot accumulators
 (v2.1); `StrategyStudioState`, `Project` and `WorkbenchState` (v2.16); and
 `scheduler`, `feature_store`, `distributed`, `plugins`, `reporting`, `optimizer`,
-`data`, `cluster_scheduler` and `portfolio_optimizer` (v2.17).
+`data`, `cluster_scheduler` and `portfolio_optimizer` (v2.17; `plugins` and
+`optimizer` were removed in v3.12).
 
 `strategy` and `analytics` histories grow per lifecycle transition or per compiled
 report rather than per market event, and are left as tuples deliberately.

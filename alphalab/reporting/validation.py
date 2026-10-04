@@ -1,6 +1,5 @@
-"""Strict validation rules for report and dashboard synthesis."""
+"""Strict validation rules for report synthesis."""
 
-from alphalab.reporting.dashboard import Dashboard
 from alphalab.reporting.exceptions import ReportingValidationError
 from alphalab.reporting.report import Report
 from alphalab.reporting.state import ReportingState
@@ -24,12 +23,3 @@ def validate_report(state: ReportingState, report: Report) -> None:
         if section.name in seen_sections:
             raise ReportingValidationError(f"Duplicate section name detected: {section.name}")
         seen_sections.add(section.name)
-
-
-def validate_dashboard(state: ReportingState, dashboard: Dashboard) -> None:
-    """Ensures structural integrity and uniqueness of a synthesized dashboard."""
-    if not dashboard.dashboard_id.strip():
-        raise ReportingValidationError("Dashboard ID cannot be empty.")
-
-    if dashboard.dashboard_id in state.dashboards:
-        raise ReportingValidationError(f"Duplicate Dashboard ID detected: {dashboard.dashboard_id}")

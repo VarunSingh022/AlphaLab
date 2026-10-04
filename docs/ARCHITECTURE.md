@@ -529,7 +529,7 @@ research candidate         (research_assistant.generate_candidates)
    → experiment run        (experiment_tracking: parameters, metric history)
    → model version         (model_registry: staged, cites the run)
    → strategy version      (lifecycle.StrategyVersion: immutable, numbered)
-   → validation evidence   (from analytics.PerformanceReport / research.ResearchScore)
+   → validation evidence   (from analytics.PerformanceReport / research.research_metrics)
    → promotion             (lifecycle.promote_strategy_version — gated)
    → deployment            (deployment_manager: checksummed release + env ledger)
    → rollback              (lifecycle.rollback_environment)
@@ -584,7 +584,7 @@ deployment that happened.
 
 | Property | Behaviour |
 | --- | --- |
-| Where the numbers come from | `analytics.PerformanceReport` (via `BacktestResult`) or `research.ResearchScore`. Extracted, never recomputed |
+| Where the numbers come from | `analytics.PerformanceReport` (via `BacktestResult`) or `research.research_metrics` (since v3.12; until then the 0–100 `ResearchScore`). Extracted, never recomputed |
 | Identity | SHA-256 digest of method + subject + dataset + seed + sorted metrics, the same construction `compute_checksum` uses for a release manifest |
 | Tampering | `verify_evidence_id` fails, and `evaluate_policy` checks it before reading any threshold |
 | A metric the policy asks for and the evidence lacks | A failure. An absent number is not a passing one |
@@ -975,11 +975,12 @@ portfolio was supplied* stays distinguishable from *the book is empty*.
 ## Standalone engine libraries
 
 An independent, deterministic, individually tested library that is reached by
-**neither** wired path: `portfolio_optimizer`, `optimizer`, `reporting`,
+**neither** wired path: `portfolio_optimizer`, `reporting`,
 `feature_store`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
 `cloud_research`, `cluster_scheduler`, `distributed`,
-`research_assistant`, `brokers`, `plugins`, `scheduler`, `scenario`.
+`research_assistant`, `brokers`, `scheduler`, `scenario`. (`plugins` and
+`optimizer` were on it until v3.12 — see ADR-0047.)
 (`production`, `integrations` and `kernel` were on this list until v2.17, which
 removed them — see ADR-0034; `live` and `feed` until v3.10 — see ADR-0045;
 `workbench` until v3.11 — see ADR-0046.)
@@ -1309,7 +1310,8 @@ removed in v3.11).
 
 **v2.17 converts the rest.** `scheduler`, `feature_store`, `distributed`,
 `plugins`, `reporting`, `optimizer`, `data`, `cluster_scheduler` and
-`portfolio_optimizer` now take the canonical containers; `integrations` and
+`portfolio_optimizer` now take the canonical containers (`plugins` and
+`optimizer` were removed in v3.12, ADR-0047); `integrations` and
 `production`, which were on the same list, were removed instead. Measured over a
 2,500 → 20,000 doubling sweep, `distributed` went from 38.4s to 0.18s and from
 4.1x to 2.1x per doubling, and every converted package now grows at ~2.0–2.1x.
@@ -1330,10 +1332,12 @@ whole collection in one call, so one copy in and one immutable value out is
 O(collection) per *call* rather than per element — writing each element through
 `PersistentMap.set` instead measured ~30% of the 100,000-timer benchmark.
 
-One term is deliberately left super-linear: `OptimizerState.pending_trials`,
-whose fix needs a start offset on `AppendOnlyLog` and was measured at **+3.9%**
-on `benchmark_execution_pipeline`. That is the trade ADR-0028 decision 7 refused
-at +1.78%. See ADR-0034.
+One term was deliberately left super-linear: `OptimizerState.pending_trials`,
+whose fix needed a start offset on `AppendOnlyLog` and was measured at **+3.9%**
+on `benchmark_execution_pipeline` -- the trade ADR-0028 decision 7 refused at
++1.78% (ADR-0034). v3.12 removed the `optimizer` package, a second parameter
+search beside `research.parameter_sweep`, and the term went with it (ledger
+OFE-013, ADR-0047).
 
 Measured on the development machine, full history retained in every case:
 
@@ -1742,7 +1746,7 @@ screens (ADR-0046).
                          ▼
 +------------------------------------------------------+
 |                Infrastructure Layer                  |
-|  Common • Persistence • Plugins • Scheduler          |
+|  Common • Persistence • Scheduler                    |
 +------------------------------------------------------+
                          │
                          ▼
@@ -1904,7 +1908,9 @@ already happened.
 - Capacity estimation, regime analysis, stress tests, diagnostics
 - `walk_forward_analysis` — Sharpe consistency across equal chunks of an
   existing return series
-- `compute_overall_score` — the aggregate grade `ResearchEngine` produces
+- `research_metrics` — the measurements `ResearchEngine` records, every bound
+  stated by a `ResearchPolicy`; since v3.12, replacing the aggregate 0–100
+  grade (`compute_overall_score`) and a hard-coded 252 periods a year (RES-001)
 
 **Study methodology (v3.2).** Runs *before* there is a return series to score,
 from a canonical `Dataset` through `alphalab.factor_library`.
@@ -1945,7 +1951,7 @@ would be comparable.
 ### Outputs
 
 `StudyResult` for the study layer, whose identity is derived from the study and
-the numbers it produced; `ResearchState` and `ResearchScore` for the run
+the numbers it produced; `ResearchState` and its `metrics` for the run
 evaluation layer.
 
 ---
@@ -2153,15 +2159,14 @@ Coordinates deterministic execution of scheduled tasks.
 
 ---
 
-## Plugins
+## Plugins — removed in v3.12
 
-```
-alphalab/plugins
-```
-
-Provides AlphaLab's extension mechanism.
-
-Third-party modules integrate through plugins rather than modifying core packages.
+`alphalab/plugins` described itself as AlphaLab's extension mechanism. Its
+loader's `execute()` was a placeholder and the state it kept was read by
+nothing, so it extended nothing. Loading third-party code is the host
+application's, and AlphaLab is extended the way a library is: by passing an
+object that satisfies one of its protocols (see "Plugin Architecture" below).
+**Removed in v3.12** with `alphalab/optimizer` (ledger SCF-003, ADR-0047).
 
 ---
 
@@ -3540,7 +3545,7 @@ execution/  portfolio/  analytics/  market/  instrument/
 backtesting/  replay/
 
 # Shared infrastructure
-common/  persistence/  plugins/  scheduler/
+common/  persistence/  scheduler/
 
 # The lifecycle path — composed by alphalab.lifecycle
 lifecycle/  experiment_tracking/  model_registry/  deployment_manager/
@@ -3550,7 +3555,7 @@ research/  factor_library/  alt_data/
 data/  marketdata/  broker/
 
 # Standalone engines
-portfolio_optimizer/  optimizer/  reporting/
+portfolio_optimizer/  reporting/
 feature_store/
 ml/  deep_learning/  reinforcement_learning/
 options/  futures/  crypto/  macro/
@@ -3696,7 +3701,6 @@ Examples include
 - datasets
 - brokers
 - strategies
-- plugins
 - portfolios
 
 Registries never mutate existing collections.
@@ -3776,8 +3780,6 @@ Each package owns one domain.
 common/
 
 persistence/
-
-plugins/
 
 scheduler/
 ```
@@ -4231,18 +4233,21 @@ Changing providers does not affect research code.
 
 # Plugin Architecture
 
-AlphaLab includes a plugin system for extending functionality.
+AlphaLab has no plugin system: the `plugins` package was removed in v3.12
+(ADR-0047), because its loader executed nothing and discovering or loading
+third-party code is the host application's. It is extended through protocols,
+by passing an object that satisfies one:
 
-Plugins may provide
+- a strategy (`strategy.protocol.StrategyProtocol` and its slice and
+  observation forms)
+- a broker connector (`brokers.protocol.BrokerConnectorProtocol`)
+- a data extractor (`data.protocol.DataExtractorProtocol`)
+- a cost, slippage, latency, commission or fill model (`execution.costs`,
+  `execution.slippage`, `execution.latency`, `execution.commission`,
+  `execution.policy`)
+- a session calendar (`alt_data.sessions.SessionCalendar`)
 
-- New brokers
-- New market data providers
-- New optimization algorithms
-- New reports
-- New analytics
-- New execution engines
-
-Plugins integrate through stable interfaces rather than modifying AlphaLab core.
+Each integrates through a stated interface rather than by modifying core.
 
 ---
 
@@ -4367,8 +4372,11 @@ Future reports may include
 - ESG Reports
 - Attribution Reports
 - Regulatory Reports
-- Performance Dashboards
 - Risk Summaries
+
+A dashboard is presentation, and the host application's: the layouts this
+package held were removed in v3.12 (ADR-0047). A report's exports are what one
+is built from.
 
 All reports consume immutable result objects.
 

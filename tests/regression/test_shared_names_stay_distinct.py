@@ -10,6 +10,7 @@ Nothing here is a fix. Every entry is a decision to keep two things apart.
 """
 
 import dataclasses
+import importlib
 import inspect
 from collections.abc import Sequence
 from decimal import Decimal
@@ -112,27 +113,26 @@ def test_only_the_accounting_engine_is_reachable_from_the_execution_path() -> No
 
 
 # --------------------------------------------------------------------------- #
-# 3. `optimizer` and `portfolio_optimizer` -- two searches, two subjects
+# 3. `optimizer` and `portfolio_optimizer` -- one left (v3.12)
 # --------------------------------------------------------------------------- #
 
 
-def test_the_two_optimizer_packages_do_not_overlap() -> None:
-    """``optimizer`` searches *parameters*; ``portfolio_optimizer`` sets *weights*.
+def test_parameter_search_has_one_home_and_construction_another() -> None:
+    """Until v3.12 ``optimizer`` searched *parameters* beside ``portfolio_optimizer``'s *weights*.
 
-    The similar names invite a merge. The subjects are unrelated:
-    ``optimizer`` runs trials over a search space and scores each with an
-    objective (Sharpe, Calmar, drawdown); ``portfolio_optimizer`` solves for
-    asset weights under constraints. Neither imports the other, and neither has
-    a function the other could use.
+    The similar names invited a merge, and the two never overlapped. v3.12 went
+    further (ledger SCF-003): parameter search has one authority,
+    ``research.parameter_sweep`` over a ``research.ParameterSpace``, and the
+    ``optimizer`` package -- a second search beside it -- is gone. Weights stay
+    ``portfolio_optimizer``'s.
     """
 
-    import alphalab.optimizer as parameter_search
     import alphalab.portfolio_optimizer as portfolio_construction
+    import alphalab.research as research
 
-    shared = set(parameter_search.__all__) & set(portfolio_construction.__all__)
-    assert shared == set(), f"the two optimizer packages export {shared} in common"
-
-    assert {"generate_grid_search", "Parameter", "TrialResult"} <= set(parameter_search.__all__)
+    with pytest.raises(ImportError):
+        importlib.import_module("alphalab.optimizer")
+    assert {"ParameterSpace", "parameter_sweep"} <= set(research.__all__)
     assert {"optimize_minimum_variance", "WeightConstraints"} <= set(portfolio_construction.__all__)
 
 

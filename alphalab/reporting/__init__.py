@@ -1,16 +1,14 @@
-"""AlphaLab Reporting Layer."""
+"""AlphaLab Reporting Layer.
+
+Reports and their exports. The dashboard layouts this package held until v3.12
+-- cards, tables and charts arranged for a screen -- were presentation, which is
+the host application's (ledger SCF-003, ADR-0047); a report's exports are the
+data a presentation is built from.
+"""
 
 from alphalab.reporting.adapter import ReportingAdapter
-from alphalab.reporting.dashboard import (
-    Dashboard,
-    DashboardCard,
-    DashboardChart,
-    DashboardSection,
-    DashboardTable,
-)
 from alphalab.reporting.engine import ReportingEngine
 from alphalab.reporting.events import (
-    DashboardGenerated,
     ExportCompleted,
     ExportFailed,
     ReportGenerated,
@@ -22,9 +20,8 @@ from alphalab.reporting.protocol import ExportProtocol
 from alphalab.reporting.report import Report, ReportType
 from alphalab.reporting.sections import ReportSection, ReportSectionType
 from alphalab.reporting.state import ReportingState, ReportingStatistics
-from alphalab.reporting.validation import validate_dashboard, validate_report
+from alphalab.reporting.validation import validate_report
 from alphalab.reporting.views import (
-    dashboard_summary,
     export_statistics,
     get_export,
     latest_report,
@@ -32,12 +29,6 @@ from alphalab.reporting.views import (
 )
 
 __all__ = [
-    "Dashboard",
-    "DashboardCard",
-    "DashboardChart",
-    "DashboardGenerated",
-    "DashboardSection",
-    "DashboardTable",
     "ExportCompleted",
     "ExportError",
     "ExportFailed",
@@ -54,7 +45,6 @@ __all__ = [
     "ReportingState",
     "ReportingStatistics",
     "ReportingValidationError",
-    "dashboard_summary",
     "export_csv",
     "export_json",
     "export_markdown",
@@ -62,6 +52,5 @@ __all__ = [
     "get_export",
     "latest_report",
     "report_count",
-    "validate_dashboard",
     "validate_report",
 ]

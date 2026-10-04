@@ -343,7 +343,8 @@ window; multi-account reconciliation; declared trade prints; LSTM and
 attention backpropagation; the v1 research engine restated as measurements;
 factor-structured construction to 10,000 assets; and a stress program at
 10,000 assets, 1,000 strategies and 100 venues, whose two findings are fixed.
-The package removals SCF-003 calls for await the maintainer's decision. See
+`alphalab.plugins`, `alphalab.optimizer` and the reporting dashboards leave the
+library (SCF-003). See
 `ADR/0047` and the CHANGELOG's migration table.
 
 **v3.11.0 — the second pre-v4 release.** The capabilities a strategy needs

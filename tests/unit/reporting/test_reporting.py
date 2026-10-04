@@ -6,10 +6,6 @@ from decimal import Decimal
 import pytest
 
 from alphalab.reporting import (
-    Dashboard,
-    DashboardCard,
-    DashboardSection,
-    DashboardTable,
     ExportError,
     Report,
     ReportingAdapter,
@@ -19,7 +15,6 @@ from alphalab.reporting import (
     ReportSection,
     ReportSectionType,
     ReportType,
-    dashboard_summary,
     export_csv,
     export_json,
     export_markdown,
@@ -115,25 +110,6 @@ def test_validate_duplicate_sections(sample_metrics_section: ReportSection) -> N
     state = ReportingEngine.initialize("E1")
     with pytest.raises(ReportingValidationError, match="Duplicate section name"):
         ReportingEngine.register_report(state, bad_report)
-
-
-def test_register_dashboard_success(base_state: ReportingState) -> None:
-    card = DashboardCard("Uptime", "99.9%")
-    table = DashboardTable("Top Assets", ("Symbol", "Vol"), "data.assets")
-    section = DashboardSection("Overview", cards=(card,), tables=(table,))
-    db = Dashboard("D1", "Main Dashboard", 1000.0, (section,))
-
-    s1 = ReportingEngine.register_dashboard(base_state, db)
-
-    assert len(dashboard_summary(s1)) == 1
-    assert dashboard_summary(s1)[0] == db
-    assert any(type(e).__name__ == "DashboardGenerated" for e in s1.events)
-
-
-def test_register_dashboard_validation(base_state: ReportingState) -> None:
-    db = Dashboard("", "Main", 1000.0, ())
-    with pytest.raises(ReportingValidationError, match="empty"):
-        ReportingEngine.register_dashboard(base_state, db)
 
 
 # --- EXPORT TESTS ---

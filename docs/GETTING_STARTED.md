@@ -218,7 +218,7 @@ portfolio/      cash, positions, P&L, FX
 market/         canonical market model and normalization
 instrument/     canonical instrument identity
 lifecycle/      research candidate → deployment → rollback
-research/       research workflows and scores
+research/       research workflows, measurements and the parameter search
 portfolio_optimizer/  portfolio construction
 data/  marketdata/    wire records, the HTTP and WebSocket transports
 broker/  brokers/     one venue, and many

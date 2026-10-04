@@ -44,10 +44,10 @@ The framework is designed for researchers, quantitative developers, students, an
 | Python | 3.12+ |
 | Version | 3.12.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **8,638 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (1,158 source files, repository-wide) |
+| Tests | **8,583 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (1,122 source files, repository-wide) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **54 / 54 Passing** |
+| Benchmarks | **55 / 55 Passing** |
 | Examples | **65 / 65 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
@@ -59,10 +59,11 @@ The framework is designed for researchers, quantitative developers, students, an
 The third of four releases the **pre-v4 audit** plans before the v4.0 freeze.
 v3.10 made the canonical path correct and v3.11 gave it what a strategy needs;
 v3.12 hardens it and builds what the audit deferred here. Every item the ledger
-assigns to v3.12 is closed, each pinned by the tests its entry names, except
-the package removals SCF-003 calls for, which await the maintainer's decision.
-Five defects found while building, stressing and auditing it are fixed — four
-had shipped. ADR-0047.
+assigns to v3.12 is closed, each pinned by the tests its entry names, and the
+five defects building, stressing and auditing it found are fixed — four had
+shipped. Two packages leave the library: `plugins`, whose `execute()` was a
+placeholder, and `optimizer`, a second parameter search beside the research
+authority's; the reporting dashboards go with them. ADR-0047.
 
 **Right at the edges of the range.** R² of a constant series is undefined, not
 zero; the normal CDF keeps its precision deep in the lower tail, so far
@@ -1128,7 +1129,7 @@ Everything below is importable, deterministic, and independently tested, but is
 | Area | Packages |
 |---|---|
 | Reporting | `reporting` |
-| Portfolio construction | `portfolio_optimizer`, `optimizer` |
+| Portfolio construction | `portfolio_optimizer` |
 | Feature registry | `feature_store` |
 | Learning | `ml`, `deep_learning`, `reinforcement_learning` |
 | Asset classes | `options`, `futures`, `crypto`, `macro` |
@@ -1136,7 +1137,7 @@ Everything below is importable, deterministic, and independently tested, but is
 | Scale-out | `cloud_research`, `cluster_scheduler`, `distributed` |
 | Workflow | `research_assistant` |
 | Provider surfaces | `brokers` |
-| Infrastructure | `plugins`, `scheduler` |
+| Infrastructure | `scheduler` — deterministic timers, session boundaries from a `MarketCalendar` |
 
 Several packages that are often described as standalone are **not**, and the
 import graph is the authority:
@@ -1351,7 +1352,7 @@ alphalab/
 │   brokers/       The many-venue connector framework (BrokerConnectorProtocol)
 │
 └── Standalone engines
-    reporting/  optimizer/
+    reporting/
     portfolio_optimizer/  Construction: v1 closed forms, and v3.8 constrained
                    construction and Black–Litterman over the analytics risk
                    model (ADR-0043)
@@ -1359,11 +1360,12 @@ alphalab/
     ml/  deep_learning/  reinforcement_learning/
     options/  futures/  crypto/  macro/
     cloud_research/  cluster_scheduler/  distributed/
-    research_assistant/  plugins/  scheduler/
+    research_assistant/  scheduler/
     scenario/       Price, volatility, FX and liquidity shocks (ADR-0038)
 ```
 
-All 45 top-level packages are accounted for above.
+All 43 top-level packages are accounted for above. (v3.11 removed `studio`,
+`workbench` and `enterprise`; v3.12 removed `plugins` and `optimizer`.)
 
 Additional directories:
 
@@ -1381,8 +1383,8 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **8,638 passing tests** (4,628 unit, 649 integration, 3,361 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1,158 source files)
+- ✅ **8,583 passing tests** (4,578 unit, 649 integration, 3,356 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1,122 source files)
 - ✅ Ruff linting and formatting
 - ✅ 55 / 55 benchmarks, 65 / 65 examples
 - ✅ A defect-injection harness (`docs/audit/scripts/mutation_v3_12.py`): 123
@@ -1421,8 +1423,9 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   `data.feed.OrderBook` is a venue depth snapshot. They share no operation.
 - **Two `PortfolioEngine`s** — `portfolio` does accounting, `portfolio_optimizer`
   does construction. Only the accounting one is reachable from the execution path.
-- **`optimizer` vs `portfolio_optimizer`** — two searches over two different
-  subjects.
+- **Parameter search and portfolio construction** — `research.parameter_sweep`
+  searches parameters, `portfolio_optimizer` sets weights. Until v3.12 a second
+  package, `optimizer`, searched parameters too; it was removed (SCF-003).
 - **`broker` vs `brokers`** — one venue versus many venues and many accounts.
   The connector package routes the canonical types under its historical names;
   the identities are asserted.
@@ -1558,9 +1561,8 @@ re-classified every one; each below is a ledger item with a release
   (OFE-003); execution-path delivery of external information (OFE-009);
   streaming observation sets, split-adjusted and converted fundamentals
   (OFE-011); a durable evidence store (OFE-016); health over a window
-  (OFE-017); book-to-mirror reconciliation across brokers (OFE-023). *Pending
-  the maintainer's decision*: the optimizer's super-linear pending trials,
-  removed with the optimizer (OFE-013, with SCF-003's removals).
+  (OFE-017); book-to-mirror reconciliation across brokers (OFE-023); the
+  optimizer's super-linear pending trials, gone with the optimizer (OFE-013).
 - **v3.13** — a lock-file reader (OFE-019); a rerun harness (OFE-020); an
   optimal split, estimated urgency and randomized iceberg tranches (OFE-024,
   OFE-025).

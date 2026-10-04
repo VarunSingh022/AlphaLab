@@ -26,13 +26,15 @@ trade prints and trainable sequence models.**
 
 v3.10 made the canonical path correct and v3.11 gave it what a strategy needs.
 v3.12 hardens it. Every item the ledger (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`)
-assigns to v3.12 is closed here, each pinned by the tests its entry names —
-except the package removals SCF-003 calls for (and OFE-013 with them), which
-await the maintainer's decision (see *Still open*). Building, stressing and
-auditing the rest found five defects, all fixed here: four had shipped
-(PER-006, DAT-009, ANA-006 and PRF-010) and one was introduced and caught
-within this release (PRF-009). ADR-0047 records the decisions. Ledger IDs are
-given in brackets.
+assigns to v3.12 is closed here, each pinned by the tests its entry names, and
+two packages leave the library: `plugins`, whose `execute()` was a
+placeholder, and `optimizer`, a second parameter search beside the research
+authority's — with the reporting dashboards. Building, stressing and auditing
+it found five defects, all fixed here: four had shipped (PER-006, DAT-009,
+ANA-006 and PRF-010) and one was introduced and caught within this release
+(PRF-009); and two gaps of method, both closed — five rules no test pinned
+(TST-013) and current-state documents that still described removed packages
+(DOC-004). ADR-0047 records the decisions. Ledger IDs are given in brackets.
 
 A run configured as in 3.11 behaves as in 3.11: ceilings, classification
 limits, calendars and retention are all off until declared, and every payload
@@ -131,7 +133,7 @@ everything 0–100. `ResearchPayload` now states `periods_per_year` and
 than zero. Every report is restated as measurements; `ResearchScore`,
 `compute_overall_score`, `overall_score` and `BiasDetected` are gone.
 
-## Changed — one authority per capability [SCF-003, partial]
+## Changed — one authority per capability [SCF-003]
 
 `research.parameter_sweep(..., higher_is_better=)` is the one search count;
 `research_assistant` and `cloud_research` enumerate through
@@ -140,6 +142,25 @@ and `cloud_research.collect_sweep` reads a finished cluster sweep. A
 distributed cancellation is a `JobCancelled` event in
 `DistributedState.cancelled_jobs`, and an assigned job not yet running can be
 cancelled. Reports write a `Decimal` as its exact text [ANA-006].
+
+## Removed [SCF-003, OFE-013]
+
+* `alphalab.plugins` — a plugin registry and loader whose `execute()` raised
+  `NotImplementedError`: state about plugins that nothing read. Loading and
+  running extensions is the host application's.
+* `alphalab.optimizer` — a second parameter search, beside
+  `research.parameter_sweep` and `research.walk_forward_optimize`; its
+  `OptimizerState.pending_trials` grew super-linearly with the trials run
+  (OFE-013), which the removal resolves rather than patches.
+* The reporting package's dashboards — `Dashboard`, `DashboardCard`,
+  `DashboardChart`, `DashboardSection`, `DashboardTable`, `DashboardGenerated`,
+  `ReportingEngine.register_dashboard`, `dashboard_summary`,
+  `validate_dashboard`, `ReportingState.dashboards` and
+  `ReportingStatistics.total_dashboards_generated`: layouts for a screen, which
+  is presentation. Reports and their exports stay.
+* With them: `tests/unit/optimizer`, `tests/unit/plugins`,
+  `tests/regression/test_optimizer_is_reproducible.py`, and the benchmarks
+  `benchmark_optimizer` and `benchmark_plugins`.
 
 ## Changed — performance [PRF-009, PRF-010]
 
@@ -174,6 +195,9 @@ grew faster than the work, both fixed:
 | parsed a report's JSON numbers as floats | read exact text for a `Decimal`; an unknown value is refused |
 | matched `MismatchCategory` exhaustively | handle `ACCOUNT_ASSIGNMENT_MISMATCH` |
 | relied on `CleaningPolicy`'s DROP keeping an invalid quote | it is dropped and recorded now (DAT-009) |
+| imported `alphalab.optimizer` | search with `research.parameter_sweep` over a `research.ParameterSpace`, or select walk-forward with `research.walk_forward_optimize` |
+| imported `alphalab.plugins` | load and run extensions in your application |
+| built a `reporting.Dashboard`, or called `register_dashboard` / `dashboard_summary` | build the dashboard in your application from a report's exports (`export_json`, `export_csv`, `export_markdown`) |
 | read a 3.11 snapshot | nothing: pipeline 5→6, run 3→4, allocation 2→3 and instrument 2→3 are upgraded on read |
 
 ## Found during this release
@@ -191,6 +215,12 @@ grew faster than the work, both fixed:
   run. Fixed.
 * **PRF-010** (shipped since 3.11): every event asked every strategy whether it
   subscribed. Found by the stress run. Fixed.
+* **DOC-004** (shipped in 3.11.0): current-state documents still described what
+  3.11 had removed — `docs/EXAMPLES.md` had sections for the Strategy Studio
+  and the Workbench, and `nowandfuture.md` counted 48 packages (45 at 3.11.0;
+  43 now). Found by this release's documentation pass, which also caught its
+  own omission: the research package's description still named the
+  `ResearchScore` RES-001 removed. All corrected.
 * **TST-013**: five of this release's rules had no test that pinned them —
   valuing a run in a currency other than its own, a reduction that leaves its
   bucket still over a classification limit, an evidence value refused before
@@ -207,8 +237,9 @@ and read by `tests/regression/test_schema_upgrades_v3_11.py`.
 
 ## Tests, CI and tooling
 
-8,638 tests pass under `-W error` — 4,628 unit, 649 integration and 3,361
-regression, none skipped (3.11.0: 8,215). The defect-injection harness is in
+8,583 tests pass under `-W error` — 4,578 unit, 649 integration and 3,356
+regression, none skipped (3.11.0: 8,215; the removed packages took 55 with
+them). The defect-injection harness is in
 the repository now (`docs/audit/scripts/mutation_v3_12.py`), with the stress
 program beside it (`docs/audit/scripts/stress_v3_12.py`). It ran 123
 mutations — the 79 of 3.11 and 44 of 3.12's own behaviour — each against the
@@ -226,25 +257,23 @@ All sixty-five examples run as a release gate; 61 print byte-identical output
 under two hash seeds, and the other four differ only in a random run or order
 id, a process id or CPU time, as in 3.11.
 
-Compared with 3.11.0's output, 56 print what they printed. `01_research.py` is
-rewritten for the restated research engine (RES-001). Eight differ, each for a
+Compared with 3.11.0's output, 55 print what they printed. `01_research.py` is
+rewritten for the restated research engine (RES-001). Nine differ, each for a
 reason above: `12`, `45` and `48` only in a random id or CPU time, as between
 any two runs; `13` stores larger snapshots (the new schema fields); `15` only
-in the path of the checkout it ran from; `36` refuses its 1e-20 quote for its
-vega rather than as unreachable (NUM-004); `47` and `55` have new
+in the path of the checkout it ran from and the engine version it records;
+`46` only in the engine version it prints; `36` refuses its 1e-20 quote for
+its vega rather than as unreachable (NUM-004); `47` and `55` have new
 configuration, result and manifest identities — a run's configuration now
-records its calendars, retention and classification limits. With identities
-masked, no price, quantity, P&L or statistic moved; thetas print the same to
-four decimals.
+records its calendars, retention and classification limits, and a manifest
+the engine's version. With identities masked, no price, quantity, P&L or
+statistic moved; thetas print the same to four decimals. Removing `plugins`,
+`optimizer` and the dashboards changed no example's output: none used them.
 
 ## Still open
 
-* **SCF-003's removals and OFE-013.** Removing `alphalab.plugins`,
-  `alphalab.optimizer` and the reporting dashboards was not performed: the
-  permission policy of the session that built this release refused the
-  deletion as irreversible, and the maintainer decides. They are present and
-  unchanged.
-* v3.13.0: the final pre-v4 audit. Nothing in this release is v4 work.
+v3.13.0: the final pre-v4 audit and every finding it produces. Nothing in this
+release is v4 work.
 
 ---
 

@@ -2,8 +2,7 @@
 
 ## Status
 
-**Accepted. Implemented in the v3.12.0 working tree; one decision (6, the
-removals SCF-003 calls for) awaits the maintainer.**
+**Accepted and implemented in v3.12.0.**
 
 The third of the four releases the pre-v4 audit plans before the v4.0 freeze
 (`docs/audit/PRE_V4_MASTER_AUDIT.md`; the plan of record is
@@ -17,7 +16,9 @@ simulation, per-strategy capital ceilings, classification limits, external
 information on the execution path, a durable evidence store, multi-account
 reconciliation, declared trade prints and trainable sequence models.
 
-It adds **no package** and removes none yet (decision 6). It adds **eight
+It adds **no package** and **removes two**, `alphalab.plugins` and
+`alphalab.optimizer`, with the reporting package's dashboard layouts (decision
+6). It adds **eight
 package edges**, each one way and none a cycle: `runtime → data` and
 `scheduler → data` (a `MarketCalendar`), `runtime → alt_data` and
 `backtesting → alt_data` (observations on the path), `cloud_research →
@@ -173,13 +174,16 @@ session timers (decision 6).
 * **The v1 research engine is restated** [RES-001]: no 252, no 0-100 scores.
   `ResearchPolicy` states every bound (no defaults); the reports are
   measurements; `periods_per_year` and `risk_free_rate` are required.
-* **Pending: the removals.** SCF-003 also calls for removing `alphalab.plugins`
-  (its `execute()` is a placeholder), `alphalab.optimizer` (a second parameter
-  search) and the reporting dashboards, with OFE-013 resolved by the
-  optimizer's removal. Deleting those packages was not performed: the
-  session's permission policy refused the deletion as irreversible, and the
-  maintainer decides whether they go in v3.12 or are kept with another
-  disposition. Until then they are present and unchanged.
+* **Removed: `plugins`, `optimizer` and the reporting dashboards.** A plugin
+  loader whose `execute()` was a placeholder held state nothing read; a second
+  parameter search beside `research.parameter_sweep` was a second answer to
+  one question, and its `pending_trials` grew super-linearly (OFE-013), which
+  the removal resolves rather than patches; dashboard layouts — cards, tables
+  and charts arranged for a screen — are presentation, the host's. A report's
+  exports stay: they are the data a presentation is built from. The removal
+  first ran into the permission policy of the session that built the release,
+  which refused deleting packages as irreversible; the maintainer authorized it,
+  and it was made with `git rm`, so the history keeps every line.
 
 ## 7. Scale is measured, and the construction solver is structured
 
@@ -228,6 +232,9 @@ session timers (decision 6).
 
 # Consequences
 
+* `alphalab.plugins` and `alphalab.optimizer` are gone, and importing either
+  fails; a parameter search is `research.parameter_sweep` over a
+  `research.ParameterSpace`, and a plugin is the host's to load.
 * A run configured as in v3.11 behaves as in v3.11: ceilings, limits,
   calendars and retention are all off until declared.
 * Breaking changes are in the CHANGELOG's migration table: the restated

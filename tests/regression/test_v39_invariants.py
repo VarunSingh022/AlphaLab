@@ -279,11 +279,13 @@ def test_v39_added_no_package_edge() -> None:
 
 def test_v39_added_no_package() -> None:
     """v3.9 added none; v3.10 removed ``feed`` and ``live`` (ledger SCF-002); v3.11
-    removed ``enterprise``, ``studio`` and ``workbench`` (BND-002, SCF-001, BND-003)."""
+    removed ``enterprise``, ``studio`` and ``workbench`` (BND-002, SCF-001, BND-003);
+    v3.12 removed ``plugins`` and ``optimizer`` (SCF-003)."""
 
     packages = sorted(p.name for p in PACKAGE.iterdir() if (p / "__init__.py").exists())
-    assert {"feed", "live", "enterprise", "studio", "workbench"}.isdisjoint(packages)
-    assert len(packages) == 45
+    removed = {"feed", "live", "enterprise", "studio", "workbench", "plugins", "optimizer"}
+    assert removed.isdisjoint(packages)
+    assert len(packages) == 43
 
 
 # --------------------------------------------------------------------------- #

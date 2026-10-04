@@ -74,9 +74,9 @@ are read from declared columns; LSTMs and attention train; the v1 research
 engine reports measurements under a stated policy. A stress program runs
 10,000 assets, 1,000 strategies and 100 venues; it found a classification
 limit summing its bucket for every order and every event asking every strategy
-whether it subscribed, and both are fixed. The package removals SCF-003 calls
-for — `plugins`, `optimizer`, the reporting dashboards — await the
-maintainer's decision. ADR-0047.
+whether it subscribed, and both are fixed. `plugins` (whose `execute()` was a
+placeholder), `optimizer` (a second parameter search beside the research
+authority's) and the reporting dashboards leave the library. ADR-0047.
 
 ## v3.11.0 — the pre-v4 capability release
 
@@ -748,7 +748,9 @@ Verified at v3.0: none of the four drivers holds a field.
 
 # 4. Package ownership
 
-All 48 packages, and which path reaches each. (v3.10 removed `feed` and `live`.)
+All 43 packages, and which path reaches each, with the `api` module above them
+all. (v3.10 removed `feed` and `live`; v3.11 `studio`, `workbench` and
+`enterprise`; v3.12 `plugins` and `optimizer`.)
 
 ## The execution spine
 
@@ -782,7 +784,7 @@ All 48 packages, and which path reaches each. (v3.10 removed `feed` and `live`.)
 | `experiment_tracking` | Experiment runs, parameters, metric history |
 | `model_registry` | Model versions, stages, promotion, `ArtifactRef`, the content-addressed artifact store |
 | `deployment_manager` | Release packages and the append-only environment ledger |
-| `research` | Research workflows and `ResearchScore`, which validation evidence extracts from. Since v3.2 the study methodology; since v3.7 event studies and regime detection, reading `alt_data` and never `data` |
+| `research` | Research workflows and the v1 run evaluation — restated in v3.12 as measurements under a stated `ResearchPolicy` (`research_metrics`), which validation evidence extracts from, and the one parameter search (`parameter_sweep`). Since v3.2 the study methodology; since v3.7 event studies and regime detection, reading `alt_data` and never `data` |
 | `factor_library` | The computation engine (v3.2): features, factors, cross-sectional research, signal diagnostics, validation. Since v3.7 knowledge frames over point-in-time information and point-in-time fundamental snapshots. Since v3.8 factor loadings read from its panels into the risk model's type. Reached through `research`; imports neither `research`, `lifecycle` nor `api` |
 | `alt_data` | Point-in-time external information (v3.7): `ExternalObservation`, `InformationEvent`, `FundamentalObservation`, `ObservationSource`, versioned `ObservationSet`s and their views, session placement, point-in-time fundamentals; the v1 typed categories and `DataProvenance` stay. Reached through `research` and `factor_library`. Its only outward edge is `common`; a calendar reaches it through `SessionCalendar`, a structural protocol |
 
@@ -794,10 +796,10 @@ All 48 packages, and which path reaches each. (v3.10 removed `feed` and `live`.)
 
 ## Standalone engines — reached by neither path
 
-`portfolio_optimizer`, `optimizer`, `reporting`, `feature_store`,
+`portfolio_optimizer`, `reporting`, `feature_store`,
 `ml`, `deep_learning`, `reinforcement_learning`,
 `options`, `futures`, `crypto`, `macro`, `cloud_research`, `cluster_scheduler`,
-`distributed`, `research_assistant`, `brokers`, `plugins`,
+`distributed`, `research_assistant`, `brokers`,
 `scheduler`, `scenario`. (`scenario`, added in v3.3, imports only `common` and
 was missing from this list until v3.10; `live` and `feed` were removed in v3.10,
 and `workbench`, `studio` and `enterprise` in v3.11 — ADR-0046.)
@@ -1745,7 +1747,7 @@ future "unification" must break first.
 | --- | --- |
 | `oms.book.OrderBook` / `data.feed.OrderBook` | *My* working orders vs *the market's* resting size. They share no operation. Merging is a category error |
 | `portfolio.PortfolioEngine` / `portfolio_optimizer.PortfolioEngine` | Accounting vs construction. Only the first is reachable from the execution path |
-| `optimizer` / `portfolio_optimizer` | Two searches, two subjects |
+| `research.parameter_sweep` / `portfolio_optimizer` | Parameter search and weights: one home each since v3.12 removed `optimizer` |
 | `broker` / `brokers` | One venue vs many venues and many accounts. Converged in v2.3; the connector routes canonical types under historical names |
 | `data.feed.Bar` / `market.bar.Bar` | Wire vs domain, opposite sides of one conversion |
 | Three things called a venue | Listing exchange, market-data attribution, execution venue. None derives from another |
@@ -1834,9 +1836,9 @@ and release, and `ROADMAP.md` has the table. In short:
   delivery of external information (OFE-009); streaming observation sets and
   adjusted fundamentals (OFE-011); durable evidence for progressions,
   fingerprints, manifests and reports (OFE-016); health over a window
-  (OFE-017); cross-broker book-to-mirror reconciliation (OFE-023). *Pending the
-  maintainer's decision*: the optimizer's `pending_trials`, to be removed with
-  the optimizer rather than patched (OFE-013, with SCF-003's removals).
+  (OFE-017); cross-broker book-to-mirror reconciliation (OFE-023); the
+  optimizer's `pending_trials`, removed with the optimizer rather than patched
+  (OFE-013, SCF-003).
 - **Planned for v3.13**: a lock-file reader (OFE-019); a rerun harness
   (OFE-020); an optimal split, estimated urgency and randomized icebergs
   (OFE-024, OFE-025).

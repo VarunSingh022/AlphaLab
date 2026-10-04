@@ -10,7 +10,7 @@ The intended audience includes
 
 - contributors
 - maintainers
-- plugin developers
+- developers extending it through its protocols
 - enterprise adopters
 
 ---
@@ -471,9 +471,10 @@ New functionality should extend
 
 - protocols
 - adapters
-- plugins
 
-rather than modifying existing engines.
+rather than modifying existing engines. (There is no plugin system: the
+`plugins` package, whose loader executed nothing, was removed in v3.12 --
+ADR-0047. Loading third-party code is the host application's.)
 
 The architecture favors extension over modification.
 

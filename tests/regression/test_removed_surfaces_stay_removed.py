@@ -54,6 +54,10 @@ REMOVED_PACKAGES = (
     "alphalab.enterprise",
     "alphalab.workbench",
     "alphalab.studio",
+    # v3.12 (ADR-0047, ledger SCF-003): a plugin loader whose execute() was a
+    # placeholder, and a second parameter search beside research.parameter_sweep.
+    "alphalab.plugins",
+    "alphalab.optimizer",
 )
 
 #: Modules removed from packages that survive.
@@ -86,10 +90,22 @@ REMOVED_MODULES = (
     "alphalab.broker.venue",
     "alphalab.marketdata.timeframe",
     "alphalab.experiment_tracking.studio_bridge",
+    # v3.12 (ADR-0047, ledger SCF-003): dashboard layouts, which are presentation.
+    "alphalab.reporting.dashboard",
 )
 
 #: ``package -> the names that must no longer be reachable through it``.
 REMOVED_NAMES = {
+    "alphalab.reporting": (
+        "Dashboard",
+        "DashboardCard",
+        "DashboardChart",
+        "DashboardGenerated",
+        "DashboardSection",
+        "DashboardTable",
+        "dashboard_summary",
+        "validate_dashboard",
+    ),
     "alphalab.common": ("CommonEvent",),
     "alphalab.common.events": ("CommonEvent",),
     "alphalab.persistence": (

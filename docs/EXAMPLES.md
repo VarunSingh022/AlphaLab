@@ -144,49 +144,24 @@ ADR-0034.
 
 ---
 
-# Strategy Studio
+# Targets, lots and complete instants (`08`, `09`)
 
-Examples demonstrate complete research workflows.
+Two examples kept the names of packages that left the library in v3.11 —
+`alphalab.studio` and `alphalab.workbench`, which held project management and
+UI state (ADR-0046) — so that links to them still resolve. Both were rewritten
+against the canonical path:
 
-Typical pipeline
+- `08_strategy_studio.py` — a rebalancer that states target **weights**
+  (ledger FEA-001): each strategy's own position kept by allocation, lot sizes
+  declared on the instrument, and rounding toward zero so a target is
+  approached and never overshot.
+- `09_workbench.py` — cross-sectional decisions on **complete instants**:
+  slices deliver every record of an instant once (EXE-004), subscriptions decide
+  what a strategy is dispatched (EXE-007), and a ranking never mixes two
+  instants.
 
-```
-
-Acquire Data
-
-↓
-
-Normalize Dataset
-
-↓
-
-Research
-
-↓
-
-Portfolio Optimization
-
-↓
-
-Replay
-
-↓
-
-Reporting
-
-```
-
----
-
-# Workbench
-
-Workbench examples illustrate
-
-- Projects
-- Sessions
-- Pipelines
-- Reports
-- Dashboards
+Projects, sessions, pipelines and dashboards are the host application's; the
+reporting package's dashboard layouts went the same way in v3.12 (ADR-0047).
 
 ---
 
