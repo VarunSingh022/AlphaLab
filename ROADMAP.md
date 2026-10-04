@@ -837,16 +837,20 @@ future "simplification" would have to break first —
   30E/360 and ACT/ACT ISDA day-count variants are each absent because each needs
   a model or an end-of-month rule whose correct form depends on the instrument's
   own terms. The module, the example and this line all say *foundation*.
-- **No volatility-surface fit, and no interpolation across expiries.** A
-  `VolatilitySurface` interpolates along strikes at a matching expiry and refuses
-  an expiry nobody quoted. Variance accumulates with time, so the quantity that
-  interpolates sensibly between two maturities is total variance rather than
-  volatility, and an SVI or SABR fit is a model with parameters somebody has to
-  choose. `term_structure` reports the expiries that actually quote a strike.
-- **No American option pricing.** `black_scholes_price` is a European closed
-  form and `ModelAssumptions.prices_early_exercise` is `False`, carried on every
-  implied volatility so a figure cannot travel without it. `ExerciseStyle` is
-  required on a contract and is read by `resolve_expiration`, not by the pricer.
+- **No volatility-surface fit; between expiries, only by name — since v3.13.**
+  A `VolatilitySurface` interpolates along strikes at a matching expiry. Between
+  two quoted expiries it interpolates only when asked to by name
+  (`ExpiryInterpolation.TOTAL_VARIANCE_LINEAR`, FEA-005): variance accumulates
+  with time, so total variance is the quantity that interpolates, and an expiry
+  outside the quoted range or total variance that falls with expiry is refused
+  rather than extrapolated or smoothed. An SVI or SABR fit stays out: a model
+  with parameters somebody has to choose and defend (BDY-015).
+- ~~**No American option pricing.**~~ **Implemented in v3.13** (NUM-006,
+  BDY-016): a Cox–Ross–Rubinstein lattice prices early exercise and discrete
+  cash dividends, its step count part of the model's stated assumptions, and an
+  implied volatility can be inverted through the lattice an American quote was
+  priced on. The Black–Scholes–Merton closed form stays European, and says so in
+  `ModelAssumptions.prices_early_exercise`.
 - **No inferred roll rule.** Volume, open interest and days-to-expiry each give
   a defensible answer and they disagree. A `RollPolicy` has no default, and a
   trigger refuses the input it needs rather than approximating it from another —
@@ -874,7 +878,9 @@ future "simplification" would have to break first —
 - **No dependency resolver and no environment snapshot.** A dependency closure
   is declared, with its completeness stated. Listing "whatever is installed
   here" and calling it exact is the false reproducibility claim the manifest
-  exists to prevent.
+  exists to prevent. v3.13's `read_lock_file` reads a lock file's text into that
+  declaration and resolves nothing: it opens no file, reads no environment, and
+  states a closure exact only when the lock is one (OFE-019, BDY-020).
 - **No adaptation for portability.** A strategy that needs a capability an
   environment lacks is not portable there; nothing converts an order type,
   drops a short or retunes a parameter to make it fit.
@@ -926,7 +932,11 @@ future "simplification" would have to break first —
   (v3.9).
 - **No default urgency, quote age or tolerance, and no best-execution claim.**
   Each is a choice with no neutral value; whether an order may be routed away
-  from a venue at all is not something AlphaLab knows (v3.9).
+  from a venue at all is not something AlphaLab knows (v3.9). v3.13 keeps it:
+  `estimate_urgency` derives an urgency from risk aversion, volatility and
+  impact the caller states, none of them defaulted; iceberg randomization is
+  off unless asked for; and the optimal split claims the lowest cost under the
+  caller's quotes and cost models, not best execution (BDY-026).
 
 ---
 
