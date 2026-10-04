@@ -4,22 +4,21 @@ from dataclasses import replace
 from decimal import Decimal
 
 from alphalab.broker.execution import BrokerExecution
-from alphalab.broker.order import BrokerOrder
+from alphalab.broker.order import BrokerOrder, BrokerOrderStatus
 from alphalab.broker.position import BrokerPosition
 from alphalab.brokers.events import (
-    BrokerEvent,
-    ExecutionReceived,
-    OrderCancelled,
-    OrderFilled,
-    OrderSubmitted,
+    BrokerConnectorEvent,
+    RoutedExecutionReceived,
+    RoutedOrderCancelled,
+    RoutedOrderFilled,
+    RoutedOrderSubmitted,
 )
-from alphalab.brokers.exceptions import BrokerValidationError
-from alphalab.brokers.order import OrderStatus
+from alphalab.brokers.exceptions import BrokerConnectorValidationError
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.brokers.validation import (
-    validate_execution,
     validate_order_cancellation,
-    validate_order_submission,
+    validate_routed_execution,
+    validate_routed_submission,
 )
 from alphalab.common.ids import new_id
 from alphalab.core.enums import OrderStatus as CoreOrderStatus
@@ -38,12 +37,12 @@ class OrderManager:
         state: BrokerConnectorState, order: BrokerOrder, timestamp: float
     ) -> BrokerConnectorState:
         """Validates and registers an outbound order."""
-        validate_order_submission(state, order)
+        validate_routed_submission(state, order)
 
         # Keep connector-local SUBMITTED as a local staging state
-        submitted_order = replace(order, status=OrderStatus.SUBMITTED, updated_at=timestamp)
+        submitted_order = replace(order, status=BrokerOrderStatus.SUBMITTED, updated_at=timestamp)
 
-        evt = OrderSubmitted(
+        evt = RoutedOrderSubmitted(
             OrderManager._create_id(),
             timestamp,
             order.broker_order_id,
@@ -72,7 +71,7 @@ class OrderManager:
 
         cancelled_order = replace(order, status=CoreOrderStatus.CANCELLED, updated_at=timestamp)
 
-        evt = OrderCancelled(
+        evt = RoutedOrderCancelled(
             OrderManager._create_id(), timestamp, broker_order_id, order.account_id
         )
 
@@ -87,15 +86,15 @@ class OrderManager:
         state: BrokerConnectorState, execution: BrokerExecution, timestamp: float
     ) -> BrokerConnectorState:
         """Deterministically settles a fill report against orders, accounts, and positions."""
-        order = validate_execution(state, execution.execution_id, execution.broker_order_id)
+        order = validate_routed_execution(state, execution.execution_id, execution.broker_order_id)
 
         if execution.fill_quantity <= Decimal("0"):
-            raise BrokerValidationError("Execution fill quantity must be positive.")
+            raise BrokerConnectorValidationError("Execution fill quantity must be positive.")
 
         # 1. Update Order
         new_filled_qty = order.filled_quantity + execution.fill_quantity
         if new_filled_qty > order.quantity:
-            raise BrokerValidationError("Execution causes order to overfill.")
+            raise BrokerConnectorValidationError("Execution causes order to overfill.")
 
         total_cost = (order.filled_quantity * order.average_fill_price) + (
             execution.fill_quantity * execution.fill_price
@@ -165,7 +164,7 @@ class OrderManager:
         )
 
         # 4. Assemble State
-        exec_evt = ExecutionReceived(
+        exec_evt = RoutedExecutionReceived(
             OrderManager._create_id(),
             timestamp,
             execution.execution_id,
@@ -174,9 +173,9 @@ class OrderManager:
             execution.fill_quantity,
         )
 
-        events: list[BrokerEvent] = [exec_evt]
+        events: list[BrokerConnectorEvent] = [exec_evt]
         if new_status == CoreOrderStatus.FILLED:
-            fill_evt = OrderFilled(
+            fill_evt = RoutedOrderFilled(
                 OrderManager._create_id(),
                 timestamp,
                 order.broker_order_id,

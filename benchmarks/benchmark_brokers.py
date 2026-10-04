@@ -4,12 +4,12 @@ import time
 from decimal import Decimal
 
 from alphalab.brokers import (
-    AccountSnapshot,
-    BrokerAdapter,
+    BrokerAccount,
     BrokerConnection,
+    BrokerConnectorAdapter,
     BrokerConnectorEngine,
+    BrokerExecution,
     BrokerType,
-    ExecutionReport,
 )
 
 
@@ -32,7 +32,7 @@ def run_benchmark() -> None:
     # 1. Setup Infrastructure
     state = BrokerConnectorEngine.initialize("BENCH-ENG-01")
     conn = BrokerConnection("B-1", "BenchBroker", BrokerType.PAPER)
-    acc = AccountSnapshot(
+    acc = BrokerAccount(
         account_id="BENCH-ACC",
         cash=Decimal("10000000.00"),
         equity=Decimal("10000000.00"),
@@ -51,9 +51,11 @@ def run_benchmark() -> None:
     print(f"Starting Broker Framework Benchmark: Submitting and Settling {N} Orders...")
 
     # Pre-generate objects
-    orders = tuple(BrokerAdapter.dict_to_order(create_mock_payload(f"O-{i}")) for i in range(N))
+    orders = tuple(
+        BrokerConnectorAdapter.dict_to_order(create_mock_payload(f"O-{i}")) for i in range(N)
+    )
     executions = tuple(
-        ExecutionReport(
+        BrokerExecution(
             execution_id=f"E-{i}",
             broker_order_id=f"O-{i}",
             symbol="AAPL",

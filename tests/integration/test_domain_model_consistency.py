@@ -102,10 +102,11 @@ def test_brokers_registry_order_also_uses_canonical_side_and_type() -> None:
     v2.3 goes one step further: `brokers` no longer defines its own order *type*
     either. The assertion below is that the class itself is the canonical one --
     two dataclasses with identical fields would still be different types, so this
-    checks identity, not shape.
+    checks identity, not shape. (v3.13 removed the `brokers.order` module that
+    re-exported it; the package's own export is what remains.)
     """
     from alphalab.broker.order import BrokerOrder as CanonicalBrokerOrder
-    from alphalab.brokers.order import BrokerOrder as RegistryBrokerOrder
+    from alphalab.brokers import BrokerOrder as RegistryBrokerOrder
 
     assert RegistryBrokerOrder is CanonicalBrokerOrder
 

@@ -15,7 +15,7 @@ import pytest
 from alphalab.data.feed import Bar as WireBar
 from alphalab.factor_library import (
     MAXIMUM_EXPOSURE_CONDITION,
-    Delisting,
+    DelistingReturn,
     FactorComputationError,
     FactorInputError,
     FeatureDefinition,
@@ -247,7 +247,7 @@ def test_the_lag_is_required() -> None:
 
 def test_a_delisted_symbol_realizes_its_terminal_return() -> None:
     frame = _frame({"LIVE": [10.0, 11.0, 12.0, 13.0], "DEAD": [10.0, 8.0, 4.0]})
-    bankrupt = Delisting("DEAD", START + 2.5 * DAY, -1.0)
+    bankrupt = DelistingReturn("DEAD", START + 2.5 * DAY, -1.0)
     without = forward_returns(frame, 2, lag=0, delistings=())
     with_event = forward_returns(frame, 2, lag=0, delistings=(bankrupt,))
 
@@ -264,7 +264,7 @@ def test_a_delisted_symbol_realizes_its_terminal_return() -> None:
 
 def test_an_acquisition_at_a_premium_realizes_the_premium() -> None:
     frame = _frame({"TGT": [50.0, 52.0, 60.0]})
-    deal = Delisting.at_value("TGT", START + 3 * DAY, last_value=60.0, terminal_value=66.0)
+    deal = DelistingReturn.at_value("TGT", START + 3 * DAY, last_value=60.0, terminal_value=66.0)
     assert deal.terminal_return == pytest.approx(0.1)
     panel = forward_returns(frame, 5, lag=0, delistings=(deal,))
     assert panel.cross_section(START)["TGT"] == pytest.approx(66.0 / 50.0 - 1.0)
@@ -273,7 +273,7 @@ def test_an_acquisition_at_a_premium_realizes_the_premium() -> None:
 
 def test_an_entry_after_the_delisting_is_unenterable_not_unrealized() -> None:
     frame = _frame({"DEAD": [10.0, 9.0, 8.0]})
-    event = Delisting("DEAD", START + 3 * DAY, -0.5)
+    event = DelistingReturn("DEAD", START + 3 * DAY, -0.5)
     panel = forward_returns(frame, 1, lag=2, delistings=(event,))
     # factor at START enters at obs 2 (8.0) and exits at the terminal value 4.0
     assert panel.cross_section(START)["DEAD"] == pytest.approx(-0.5)
@@ -283,22 +283,28 @@ def test_an_entry_after_the_delisting_is_unenterable_not_unrealized() -> None:
 
 
 def test_the_delisting_set_has_an_order_free_identity() -> None:
-    one = Delisting("A", 1.0, -1.0)
-    two = Delisting("B", 2.0, 0.25)
+    one = DelistingReturn("A", 1.0, -1.0)
+    two = DelistingReturn("B", 2.0, 0.25)
     assert delisting_set_id([one, two]) == delisting_set_id([two, one])
     assert delisting_set_id([one]) != delisting_set_id([one, two])
-    assert delisting_set_id([Delisting("A", 1.0, -0.0)]) == delisting_set_id(
-        [Delisting("A", 1.0, 0.0)]
+    assert delisting_set_id([DelistingReturn("A", 1.0, -0.0)]) == delisting_set_id(
+        [DelistingReturn("A", 1.0, 0.0)]
     )
 
 
 @pytest.mark.parametrize(
     ("events", "message"),
     [
-        ((Delisting("GHOST", START + 9 * DAY, -1.0),), "does not hold"),
-        ((Delisting("A", START + DAY, -1.0),), "contradicts"),
-        ((Delisting("A", START + 9 * DAY, -1.0), Delisting("A", START + 9 * DAY, 0.0)), "twice"),
-        (("A",), "Delisting values"),
+        ((DelistingReturn("GHOST", START + 9 * DAY, -1.0),), "does not hold"),
+        ((DelistingReturn("A", START + DAY, -1.0),), "contradicts"),
+        (
+            (
+                DelistingReturn("A", START + 9 * DAY, -1.0),
+                DelistingReturn("A", START + 9 * DAY, 0.0),
+            ),
+            "twice",
+        ),
+        (("A",), "DelistingReturn values"),
     ],
 )
 def test_an_inconsistent_delisting_set_is_refused(events: tuple[object, ...], message: str) -> None:
@@ -321,14 +327,14 @@ def test_a_malformed_delisting_is_refused(
     symbol: str, stamp: float, value: float, message: str
 ) -> None:
     with pytest.raises(FactorInputError, match=message):
-        Delisting(symbol, stamp, value)
+        DelistingReturn(symbol, stamp, value)
 
 
 def test_a_value_delisting_refuses_a_non_positive_base_or_negative_payout() -> None:
     with pytest.raises(FactorInputError, match="non-positive base"):
-        Delisting.at_value("A", 1.0, 0.0, 1.0)
+        DelistingReturn.at_value("A", 1.0, 0.0, 1.0)
     with pytest.raises(FactorInputError, match="less than nothing"):
-        Delisting.at_value("A", 1.0, 1.0, -0.5)
+        DelistingReturn.at_value("A", 1.0, 1.0, -0.5)
 
 
 def test_a_non_positive_entry_is_still_refused() -> None:

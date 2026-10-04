@@ -51,7 +51,7 @@ from alphalab.data import (
 )
 from alphalab.data.time import BarStamp
 from alphalab.factor_library import (
-    Delisting,
+    DelistingReturn,
     FeatureDefinition,
     FeatureField,
     FeatureKind,
@@ -339,7 +339,7 @@ def test_a_delisting_set_must_be_the_one_the_study_names(
     """v3.11 (DAT-002): terminal returns are a versioned input, named in the identity."""
 
     last = observe(dataset, FeatureField.CLOSE).timestamps[-1]
-    event = Delisting(SYMBOLS[0], last + 86_400.0, -1.0)
+    event = DelistingReturn(SYMBOLS[0], last + 86_400.0, -1.0)
 
     with pytest.raises(ResearchValidationError, match="names the delisting set None"):
         run_study(study, dataset, delistings=(event,))

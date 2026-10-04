@@ -62,7 +62,7 @@ from alphalab.brokers import (
     engine_statistics,
     get_account,
     list_executions,
-    open_orders,
+    open_routed_orders,
 )
 from alphalab.core.enums import OrderStatus, OrderType, Side, TimeInForce
 
@@ -198,7 +198,7 @@ def main() -> None:
     print(f"Errors             : {statistics.total_errors}")
 
     print()
-    print(f"Open Orders        : {len(open_orders(state))}")
+    print(f"Open Orders        : {len(open_routed_orders(state))}")
     print(f"Connector Events   : {len(state.events)}")
 
 

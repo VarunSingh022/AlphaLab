@@ -7,9 +7,9 @@ class BrokerConnectorError(AlphaLabError):
     """Base exception for all Broker Connector errors."""
 
 
-class BrokerValidationError(BrokerConnectorError):
+class BrokerConnectorValidationError(BrokerConnectorError):
     """Raised when broker configurations, orders, or executions fail validation."""
 
 
-class InvalidBrokerStateError(BrokerConnectorError):
+class BrokerConnectorStateError(BrokerConnectorError):
     """Raised when an invalid lifecycle transition is attempted."""

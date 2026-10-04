@@ -79,7 +79,7 @@ from alphalab.factor_library.exceptions import (
 from alphalab.factor_library.exposure import ExposureReport, factor_exposure
 from alphalab.factor_library.forward_returns import (
     DELISTING_SET_SCHEME,
-    Delisting,
+    DelistingReturn,
     ForwardReturnPanel,
     delisting_set_id,
     forward_returns,
@@ -163,7 +163,7 @@ __all__ = [
     "RATIO_KINDS",
     "Applicability",
     "DecayProfile",
-    "Delisting",
+    "DelistingReturn",
     "ExposureReport",
     "FactorCategory",
     "FactorComputationError",

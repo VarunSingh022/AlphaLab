@@ -162,7 +162,7 @@ from alphalab.data.validation import (
 from alphalab.factor_library.compute import compute_panel
 from alphalab.factor_library.definition import FeatureField
 from alphalab.factor_library.forward_returns import (
-    Delisting,
+    DelistingReturn,
     delisting_set_id,
     forward_returns,
 )
@@ -613,7 +613,7 @@ def run_study(
     minimum_assets: int = 5,
     produced_at: float = 0.0,
     *,
-    delistings: Sequence[Delisting],
+    delistings: Sequence[DelistingReturn],
 ) -> StudyResult:
     """Run a study end to end and record its result with full lineage.
 

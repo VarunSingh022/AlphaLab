@@ -5,17 +5,17 @@ from decimal import Decimal
 import pytest
 
 from alphalab.brokers import (
-    AccountSnapshot,
-    BrokerAdapter,
+    BrokerAccount,
     BrokerConnection,
+    BrokerConnectorAdapter,
     BrokerConnectorEngine,
     BrokerConnectorState,
+    BrokerConnectorStateError,
+    BrokerConnectorValidationError,
+    BrokerExecution,
+    BrokerOrderStatus,
     BrokerType,
-    BrokerValidationError,
-    ExecutionReport,
-    InvalidBrokerStateError,
     OrderSide,
-    OrderStatus,
     OrderType,
     TimeInForce,
     active_brokers,
@@ -23,7 +23,7 @@ from alphalab.brokers import (
     get_account,
     list_executions,
     list_positions,
-    open_orders,
+    open_routed_orders,
 )
 from alphalab.core.enums import OrderStatus as CoreOrderStatus
 
@@ -43,8 +43,8 @@ def generic_connection() -> BrokerConnection:
 
 
 @pytest.fixture
-def generic_account() -> AccountSnapshot:
-    return AccountSnapshot(
+def generic_account() -> BrokerAccount:
+    return BrokerAccount(
         account_id="ACC-01",
         cash=Decimal("100000.00"),
         equity=Decimal("100000.00"),
@@ -80,13 +80,13 @@ def test_register_duplicate_broker(
     base_state: BrokerConnectorState, generic_connection: BrokerConnection
 ) -> None:
     s1 = BrokerConnectorEngine.register_broker(base_state, generic_connection, 1000.0)
-    with pytest.raises(InvalidBrokerStateError, match="already registered"):
+    with pytest.raises(BrokerConnectorStateError, match="already registered"):
         BrokerConnectorEngine.register_broker(s1, generic_connection, 1001.0)
 
 
 def test_register_invalid_broker(base_state: BrokerConnectorState) -> None:
     bad_conn = BrokerConnection("", "Name", BrokerType.REST)
-    with pytest.raises(BrokerValidationError, match="cannot be empty"):
+    with pytest.raises(BrokerConnectorValidationError, match="cannot be empty"):
         BrokerConnectorEngine.register_broker(base_state, bad_conn, 1000.0)
 
 
@@ -97,11 +97,11 @@ def test_connect_broker(
     s2 = BrokerConnectorEngine.connect_broker(s1, "IBKR-1", 1001.0)
 
     assert s2.connections["IBKR-1"].connected is True
-    assert any(type(e).__name__ == "BrokerConnected" for e in s2.events)
+    assert any(type(e).__name__ == "RegisteredBrokerConnected" for e in s2.events)
 
 
 def test_connect_unknown_broker(base_state: BrokerConnectorState) -> None:
-    with pytest.raises(InvalidBrokerStateError, match="not found"):
+    with pytest.raises(BrokerConnectorStateError, match="not found"):
         BrokerConnectorEngine.connect_broker(base_state, "MISSING", 1000.0)
 
 
@@ -113,13 +113,13 @@ def test_disconnect_broker(
     s3 = BrokerConnectorEngine.disconnect_broker(s2, "IBKR-1", "Done", 1002.0)
 
     assert s3.connections["IBKR-1"].connected is False
-    assert any(type(e).__name__ == "BrokerDisconnected" for e in s3.events)
+    assert any(type(e).__name__ == "RegisteredBrokerDisconnected" for e in s3.events)
 
 
 def test_add_account_success(
     base_state: BrokerConnectorState,
     generic_connection: BrokerConnection,
-    generic_account: AccountSnapshot,
+    generic_account: BrokerAccount,
 ) -> None:
     s1 = BrokerConnectorEngine.register_broker(base_state, generic_connection, 1000.0)
     s2 = BrokerConnectorEngine.add_account(s1, generic_account)
@@ -128,21 +128,21 @@ def test_add_account_success(
 
 
 def test_add_account_unknown_broker(
-    base_state: BrokerConnectorState, generic_account: AccountSnapshot
+    base_state: BrokerConnectorState, generic_account: BrokerAccount
 ) -> None:
-    with pytest.raises(BrokerValidationError, match="does not exist"):
+    with pytest.raises(BrokerConnectorValidationError, match="does not exist"):
         BrokerConnectorEngine.add_account(base_state, generic_account)
 
 
 def test_add_duplicate_account(
     base_state: BrokerConnectorState,
     generic_connection: BrokerConnection,
-    generic_account: AccountSnapshot,
+    generic_account: BrokerAccount,
 ) -> None:
     s1 = BrokerConnectorEngine.register_broker(base_state, generic_connection, 1000.0)
     s2 = BrokerConnectorEngine.add_account(s1, generic_account)
 
-    with pytest.raises(InvalidBrokerStateError, match="already registered"):
+    with pytest.raises(BrokerConnectorStateError, match="already registered"):
         BrokerConnectorEngine.add_account(s2, generic_account)
 
 
@@ -153,7 +153,7 @@ def test_add_duplicate_account(
 def running_state(
     base_state: BrokerConnectorState,
     generic_connection: BrokerConnection,
-    generic_account: AccountSnapshot,
+    generic_account: BrokerAccount,
 ) -> BrokerConnectorState:
     s1 = BrokerConnectorEngine.register_broker(base_state, generic_connection, 1000.0)
     s2 = BrokerConnectorEngine.connect_broker(s1, "IBKR-1", 1001.0)
@@ -178,59 +178,59 @@ def create_order(
 
 
 def test_submit_order_success(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
-    assert len(open_orders(s1)) == 1
-    assert s1.orders["O-1"].status == OrderStatus.SUBMITTED
+    assert len(open_routed_orders(s1)) == 1
+    assert s1.orders["O-1"].status == BrokerOrderStatus.SUBMITTED
     assert engine_statistics(s1).total_orders_submitted == 1
 
 
 def test_submit_duplicate_order(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
-    with pytest.raises(InvalidBrokerStateError, match="already tracked"):
+    with pytest.raises(BrokerConnectorStateError, match="already tracked"):
         BrokerConnectorEngine.submit_order(s1, order, 1006.0)
 
 
 def test_submit_order_invalid_quantity(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1", qty="-10"))
-    with pytest.raises(BrokerValidationError, match="positive"):
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1", qty="-10"))
+    with pytest.raises(BrokerConnectorValidationError, match="positive"):
         BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
 
 def test_submit_order_invalid_account(running_state: BrokerConnectorState) -> None:
     payload = create_order("O-1")
     payload["account_id"] = "ACC-MISSING"
-    order = BrokerAdapter.dict_to_order(payload)
+    order = BrokerConnectorAdapter.dict_to_order(payload)
 
-    with pytest.raises(BrokerValidationError, match="does not exist"):
+    with pytest.raises(BrokerConnectorValidationError, match="does not exist"):
         BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
 
 def test_cancel_order_success(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
     s2 = BrokerConnectorEngine.cancel_order(s1, "O-1", 1006.0)
-    assert len(open_orders(s2)) == 0
+    assert len(open_routed_orders(s2)) == 0
     assert s2.orders["O-1"].status == CoreOrderStatus.CANCELLED
-    assert any(type(e).__name__ == "OrderCancelled" for e in s2.events)
+    assert any(type(e).__name__ == "RoutedOrderCancelled" for e in s2.events)
 
 
 def test_cancel_invalid_order(running_state: BrokerConnectorState) -> None:
-    with pytest.raises(BrokerValidationError, match="not found"):
+    with pytest.raises(BrokerConnectorValidationError, match="not found"):
         BrokerConnectorEngine.cancel_order(running_state, "O-MISSING", 1006.0)
 
 
 def test_cancel_terminal_order(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
     s2 = BrokerConnectorEngine.cancel_order(s1, "O-1", 1006.0)
 
     # Already cancelled
-    with pytest.raises(InvalidBrokerStateError, match="terminal state"):
+    with pytest.raises(BrokerConnectorStateError, match="terminal state"):
         BrokerConnectorEngine.cancel_order(s2, "O-1", 1007.0)
 
 
@@ -238,10 +238,10 @@ def test_cancel_terminal_order(running_state: BrokerConnectorState) -> None:
 
 
 def test_process_partial_execution(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
-    exec_rpt = ExecutionReport(
+    exec_rpt = BrokerExecution(
         "E-1", "O-1", "AAPL", Decimal("40"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
@@ -261,49 +261,49 @@ def test_process_partial_execution(running_state: BrokerConnectorState) -> None:
 
 
 def test_process_full_execution(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
-    exec_rpt = ExecutionReport(
+    exec_rpt = BrokerExecution(
         "E-1", "O-1", "AAPL", Decimal("100"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
 
     o2 = s2.orders["O-1"]
     assert o2.status == CoreOrderStatus.FILLED
-    assert len(open_orders(s2)) == 0
-    assert any(type(e).__name__ == "OrderFilled" for e in s2.events)
+    assert len(open_routed_orders(s2)) == 0
+    assert any(type(e).__name__ == "RoutedOrderFilled" for e in s2.events)
 
 
 def test_process_overfill_execution(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
-    exec_rpt = ExecutionReport(
+    exec_rpt = BrokerExecution(
         "E-1", "O-1", "AAPL", Decimal("150"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
-    with pytest.raises(BrokerValidationError, match="overfill"):
+    with pytest.raises(BrokerConnectorValidationError, match="overfill"):
         BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
 
 
 def test_process_duplicate_execution(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
-    exec_rpt = ExecutionReport(
+    exec_rpt = BrokerExecution(
         "E-1", "O-1", "AAPL", Decimal("40"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
 
-    with pytest.raises(InvalidBrokerStateError, match="Duplicate execution ID"):
+    with pytest.raises(BrokerConnectorStateError, match="Duplicate execution ID"):
         BrokerConnectorEngine.process_execution(s2, exec_rpt, 1007.0)
 
 
 def test_sell_execution_pnl(running_state: BrokerConnectorState) -> None:
     # 1. Buy 100 @ 150
-    o_buy = BrokerAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
+    o_buy = BrokerConnectorAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
     s1 = BrokerConnectorEngine.submit_order(running_state, o_buy, 1005.0)
-    e1 = ExecutionReport(
+    e1 = BrokerExecution(
         "E-1", "O-1", "AAPL", Decimal("100"), Decimal("150.0"), Decimal("0.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, e1, 1006.0)
@@ -311,10 +311,10 @@ def test_sell_execution_pnl(running_state: BrokerConnectorState) -> None:
     # 2. Sell 50 @ 160
     payload = create_order("O-2", qty="50", price="160.0")
     payload["side"] = "SELL"
-    o_sell = BrokerAdapter.dict_to_order(payload)
+    o_sell = BrokerConnectorAdapter.dict_to_order(payload)
 
     s3 = BrokerConnectorEngine.submit_order(s2, o_sell, 1007.0)
-    e2 = ExecutionReport(
+    e2 = BrokerExecution(
         "E-2", "O-2", "AAPL", Decimal("50"), Decimal("160.0"), Decimal("0.0"), 1008.0, "ACC-01"
     )
     s4 = BrokerConnectorEngine.process_execution(s3, e2, 1008.0)
@@ -334,19 +334,19 @@ def test_sell_execution_pnl(running_state: BrokerConnectorState) -> None:
 
 
 def test_immutability(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
     assert running_state is not s1
-    assert len(open_orders(running_state)) == 0
-    assert len(open_orders(s1)) == 1
+    assert len(open_routed_orders(running_state)) == 0
+    assert len(open_routed_orders(s1)) == 1
 
 
 def test_list_executions(running_state: BrokerConnectorState) -> None:
-    order = BrokerAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
+    order = BrokerConnectorAdapter.dict_to_order(create_order("O-1", qty="100", price="150.0"))
     s1 = BrokerConnectorEngine.submit_order(running_state, order, 1005.0)
 
-    exec_rpt = ExecutionReport(
+    exec_rpt = BrokerExecution(
         "E-1", "O-1", "AAPL", Decimal("40"), Decimal("150.0"), Decimal("1.0"), 1006.0, "ACC-01"
     )
     s2 = BrokerConnectorEngine.process_execution(s1, exec_rpt, 1006.0)
@@ -369,7 +369,7 @@ def test_adapter_types() -> None:
         "stop_price": Decimal("145.0"),
         "timestamp": 1000.0,
     }
-    order = BrokerAdapter.dict_to_order(payload)
+    order = BrokerConnectorAdapter.dict_to_order(payload)
     assert order.side == OrderSide.SELL
     assert order.order_type == OrderType.STOP_LIMIT
     assert order.tif == TimeInForce.FOK

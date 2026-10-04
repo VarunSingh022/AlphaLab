@@ -32,7 +32,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from alphalab.factor_library.exceptions import FactorInputError
-from alphalab.factor_library.forward_returns import Delisting, forward_returns
+from alphalab.factor_library.forward_returns import DelistingReturn, forward_returns
 from alphalab.factor_library.ic import InformationCoefficient, information_coefficient
 from alphalab.factor_library.observations import ObservationFrame
 from alphalab.factor_library.panel import FeaturePanel
@@ -95,7 +95,7 @@ def factor_decay(
     minimum_assets: int = 5,
     *,
     lag: int,
-    delistings: Sequence[Delisting],
+    delistings: Sequence[DelistingReturn],
 ) -> DecayProfile:
     """Measure one factor's IC at each of several forward horizons.
 

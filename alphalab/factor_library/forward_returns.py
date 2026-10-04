@@ -50,7 +50,7 @@ acquired for cash, delisted for cause, bankrupt -- dropping those instants was
 a survivorship bias (ledger DAT-002): the terminal, often catastrophic, return
 was exactly the outcome a factor should be measured against, and it vanished.
 
-A :class:`Delisting` declares the terminal event: when the symbol stopped
+A :class:`DelistingReturn` declares the terminal event: when the symbol stopped
 trading and what a holder received, as a return on its last observed value.
 A forward window that spans the delisting realizes that terminal value, and is
 counted in :attr:`ForwardReturnPanel.delisted_instants`; an instant whose entry
@@ -72,7 +72,7 @@ from alphalab.factor_library.observations import ObservationFrame
 
 __all__ = [
     "DELISTING_SET_SCHEME",
-    "Delisting",
+    "DelistingReturn",
     "ForwardReturnPanel",
     "delisting_set_id",
     "forward_returns",
@@ -83,7 +83,7 @@ DELISTING_SET_SCHEME = "alphalab.delisting_set.v1"
 
 
 @dataclass(frozen=True, slots=True)
-class Delisting:
+class DelistingReturn:
     """A symbol's terminal event: it stopped trading, and what a holder received.
 
     Attributes:
@@ -105,14 +105,18 @@ class Delisting:
         if not isinstance(self.symbol, str) or not self.symbol.strip():
             raise FactorInputError(f"A delisting must name its symbol, got {self.symbol!r}.")
         if isinstance(self.timestamp, bool) or not isinstance(self.timestamp, int | float):
-            raise FactorInputError(f"Delisting.timestamp must be a number, got {self.timestamp!r}.")
+            raise FactorInputError(
+                f"DelistingReturn.timestamp must be a number, got {self.timestamp!r}."
+            )
         if not math.isfinite(self.timestamp):
-            raise FactorInputError(f"Delisting.timestamp must be finite, got {self.timestamp!r}.")
+            raise FactorInputError(
+                f"DelistingReturn.timestamp must be finite, got {self.timestamp!r}."
+            )
         if isinstance(self.terminal_return, bool) or not isinstance(
             self.terminal_return, int | float
         ):
             raise FactorInputError(
-                f"Delisting.terminal_return must be a number, got {self.terminal_return!r}."
+                f"DelistingReturn.terminal_return must be a number, got {self.terminal_return!r}."
             )
         if not math.isfinite(self.terminal_return) or self.terminal_return < -1.0:
             raise FactorInputError(
@@ -125,7 +129,7 @@ class Delisting:
     @classmethod
     def at_value(
         cls, symbol: str, timestamp: float, last_value: float, terminal_value: float
-    ) -> Delisting:
+    ) -> DelistingReturn:
         """A delisting stated as the value a holder received rather than a return.
 
         Raises:
@@ -146,7 +150,7 @@ class Delisting:
         return cls(symbol, timestamp, terminal_value / last_value - 1.0)
 
 
-def delisting_set_id(delistings: Sequence[Delisting]) -> str:
+def delisting_set_id(delistings: Sequence[DelistingReturn]) -> str:
     """A digest naming a delisting set, for a study's ``inputs["delistings"]``.
 
     Order-free: the events are rendered sorted by symbol. Each float is
@@ -197,7 +201,7 @@ class ForwardReturnPanel:
     lag: int
     delisted_instants: int
     unenterable_instants: int
-    delistings: tuple[Delisting, ...]
+    delistings: tuple[DelistingReturn, ...]
 
     @property
     def timestamps(self) -> tuple[float, ...]:
@@ -215,12 +219,12 @@ class ForwardReturnPanel:
 
 
 def _terminal_events(
-    frame: ObservationFrame, delistings: Sequence[Delisting]
-) -> dict[str, Delisting]:
-    events: dict[str, Delisting] = {}
+    frame: ObservationFrame, delistings: Sequence[DelistingReturn]
+) -> dict[str, DelistingReturn]:
+    events: dict[str, DelistingReturn] = {}
     for event in delistings:
-        if not isinstance(event, Delisting):
-            raise FactorInputError(f"delistings must hold Delisting values, got {event!r}.")
+        if not isinstance(event, DelistingReturn):
+            raise FactorInputError(f"delistings must hold DelistingReturn values, got {event!r}.")
         if event.symbol in events:
             raise FactorInputError(
                 f"{event.symbol} is declared delisted twice. A security stops trading once; "
@@ -247,7 +251,7 @@ def forward_returns(
     horizon: int,
     *,
     lag: int,
-    delistings: Sequence[Delisting],
+    delistings: Sequence[DelistingReturn],
 ) -> ForwardReturnPanel:
     """Compute realized forward returns over ``horizon`` observations, ``lag`` after.
 

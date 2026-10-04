@@ -16,7 +16,7 @@ from alphalab.scheduler.events import (
 )
 from alphalab.scheduler.exceptions import InvalidClockStateError
 from alphalab.scheduler.scheduler import SchedulerResolver
-from alphalab.scheduler.session import TradingSession
+from alphalab.scheduler.session import SessionWindow
 from alphalab.scheduler.state import SchedulerState
 from alphalab.scheduler.timer import Timer
 from alphalab.scheduler.validation import validate_timer
@@ -149,7 +149,7 @@ class SchedulerEngine:
 
     @staticmethod
     def start_session(
-        state: SchedulerState, session: TradingSession, timestamp: float
+        state: SchedulerState, session: SessionWindow, timestamp: float
     ) -> SchedulerState:
         """Registers a new trading session as active."""
         if session.session_id in state.active_sessions:

@@ -54,7 +54,7 @@ from dataclasses import dataclass
 from alphalab.common.exceptions import AlphaLabValidationError
 from alphalab.common.statistics import TieBreak, bucket_index, mean, median, rank_correlation
 from alphalab.factor_library.forward_returns import (
-    Delisting,
+    DelistingReturn,
     ForwardReturnPanel,
     forward_returns,
 )
@@ -293,7 +293,7 @@ def signal_horizons(
     minimum_assets: int = 5,
     *,
     lag: int,
-    delistings: Sequence[Delisting],
+    delistings: Sequence[DelistingReturn],
 ) -> dict[int, SignalDiagnostics]:
     """Run the full diagnostic at each of several forward horizons.
 

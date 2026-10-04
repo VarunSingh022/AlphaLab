@@ -12,7 +12,7 @@ rate, exactly as the canonical analytics record the periodicity and the rate a
 import math
 from collections.abc import Sequence
 
-from alphalab.common.statistics import sample_variance
+from alphalab.common.statistics import compounded_max_drawdown, sample_variance
 from alphalab.research.exceptions import ResearchValidationError
 
 
@@ -44,6 +44,12 @@ def calculate_cagr(returns: Sequence[float], periods_per_year: int) -> float:
     return growth - 1.0
 
 
+#: The largest fall of the compounded path from its running peak -- one
+#: implementation, in :mod:`alphalab.common.statistics`, shared with
+#: ``alphalab.portfolio_optimizer`` since v3.13 (ledger API-001).
+calculate_max_drawdown = compounded_max_drawdown
+
+
 def calculate_volatility(returns: Sequence[float], periods_per_year: int) -> float:
     """Annualized standard deviation, over the one shared unbiased estimator."""
 
@@ -70,17 +76,3 @@ def calculate_sharpe(
         return 0.0
     mean_return = (sum(returns) / len(returns)) * periods
     return (mean_return - risk_free_rate) / vol
-
-
-def calculate_max_drawdown(returns: Sequence[float]) -> float:
-    max_dd = 0.0
-    peak = 1.0
-    current = 1.0
-    for r in returns:
-        current *= 1.0 + r
-        if current > peak:
-            peak = current
-        dd = (peak - current) / peak
-        if dd > max_dd:
-            max_dd = dd
-    return max_dd

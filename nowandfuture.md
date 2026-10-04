@@ -1287,8 +1287,10 @@ for the order.
 
 **Broker.** Two boundaries: `BrokerProtocol` for one venue,
 `BrokerConnectorProtocol` for many venues and many accounts. The connector routes
-the canonical types under its historical names — `brokers.ExecutionReport` **is**
-`broker.BrokerExecution`, asserted by test. Reconciliation is total: `APPLIED`,
+the canonical types under their canonical names — `brokers.BrokerExecution` **is**
+`broker.BrokerExecution`, asserted by test; its historical aliases
+(`brokers.ExecutionReport`, `brokers.OrderStatus`, ...) were removed in v3.13,
+because each kept one name meaning two things (ledger API-001). Reconciliation is total: `APPLIED`,
 `DUPLICATE`, `UNKNOWN_ORDER`, `TERMINAL_ORDER`, `OVERFILL`, `INVALID` — nothing
 is silently dropped. Two pre-trade gates: never on a disconnected connection,
 never twice for one OMS order, with the client order id **derived** from the OMS

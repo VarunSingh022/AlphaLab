@@ -24,7 +24,7 @@ from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.scheduler.clock import ClockState
 from alphalab.scheduler.events import SchedulerEvent
-from alphalab.scheduler.session import TradingSession
+from alphalab.scheduler.session import SessionWindow
 from alphalab.scheduler.timer import Timer
 
 
@@ -34,5 +34,5 @@ class SchedulerState:
 
     clock: ClockState
     timers: PersistentMap[str, Timer] = field(default_factory=PersistentMap)
-    active_sessions: PersistentMap[str, TradingSession] = field(default_factory=PersistentMap)
+    active_sessions: PersistentMap[str, SessionWindow] = field(default_factory=PersistentMap)
     events: AppendOnlyLog[SchedulerEvent] = field(default_factory=AppendOnlyLog)

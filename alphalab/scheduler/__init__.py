@@ -39,7 +39,7 @@ from alphalab.scheduler.scheduler import (
     next_session_boundary,
     session_timer,
 )
-from alphalab.scheduler.session import SessionPhase, TradingSession
+from alphalab.scheduler.session import SessionPhase, SessionWindow
 from alphalab.scheduler.state import SchedulerState
 from alphalab.scheduler.timer import Timer
 from alphalab.scheduler.validation import validate_timer
@@ -63,12 +63,12 @@ __all__ = [
     "SessionEnded",
     "SessionPhase",
     "SessionStarted",
+    "SessionWindow",
     "SystemClock",
     "Timer",
     "TimerCancelled",
     "TimerScheduled",
     "TimerTriggered",
-    "TradingSession",
     "VirtualClock",
     "active_sessions",
     "current_time",

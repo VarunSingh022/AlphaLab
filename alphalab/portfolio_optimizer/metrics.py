@@ -4,7 +4,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from alphalab.common.statistics import sample_variance
+from alphalab.common.statistics import compounded_max_drawdown, sample_variance
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,18 +22,10 @@ class PortfolioMetrics:
     diversification_ratio: float
 
 
-def calculate_max_drawdown(returns: Sequence[float]) -> float:
-    max_dd = 0.0
-    peak = 1.0
-    current = 1.0
-    for r in returns:
-        current *= 1.0 + r
-        if current > peak:
-            peak = current
-        dd = (peak - current) / peak
-        if dd > max_dd:
-            max_dd = dd
-    return max_dd
+#: The largest fall of the compounded path from its running peak -- one
+#: implementation, in :mod:`alphalab.common.statistics`, shared with
+#: ``alphalab.research`` since v3.13 (ledger API-001).
+calculate_max_drawdown = compounded_max_drawdown
 
 
 def calculate_volatility(returns: Sequence[float], periods: int) -> float:

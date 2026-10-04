@@ -9,8 +9,8 @@ from alphalab.scheduler import (
     SchedulerValidationError,
     ScheduleType,
     SessionPhase,
+    SessionWindow,
     Timer,
-    TradingSession,
     VirtualClock,
     active_sessions,
     current_time,
@@ -101,7 +101,7 @@ def test_invalid_clock_operations() -> None:
 
 def test_session_management() -> None:
     state = SchedulerEngine.initialize(1000.0)
-    session = TradingSession("SESS-1", 1000.0, 5000.0, SessionPhase.REGULAR_SESSION)
+    session = SessionWindow("SESS-1", 1000.0, 5000.0, SessionPhase.REGULAR_SESSION)
 
     state = SchedulerEngine.start_session(state, session, 1000.0)
     assert len(active_sessions(state)) == 1
@@ -115,7 +115,7 @@ def test_clock_reset() -> None:
     state = SchedulerEngine.schedule_timer(
         state, Timer("T1", 1500.0, ScheduleType.ONE_SHOT), 1000.0
     )
-    session = TradingSession("S1", 1000.0, 5000.0, SessionPhase.REGULAR_SESSION)
+    session = SessionWindow("S1", 1000.0, 5000.0, SessionPhase.REGULAR_SESSION)
     state = SchedulerEngine.start_session(state, session, 1000.0)
 
     # Force reset

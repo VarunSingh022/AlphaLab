@@ -142,11 +142,14 @@ def test_parameter_search_has_one_home_and_construction_another() -> None:
 
 
 def test_the_connector_package_routes_the_canonical_types() -> None:
-    """v2.3 collapsed the duplicate models; the historical names are aliases.
+    """v2.3 collapsed the duplicate models; v3.13 removed the historical names.
 
     ``ARCHITECTURE.md`` listed "broker / brokers overlap" as an open gap
-    deferred to v2.3. v2.3 closed it and the entry was never removed, which the
-    v2.16 audit corrected. These identities are what "closed" means.
+    deferred to v2.3. v2.3 closed it and kept the connector's historical names
+    as aliases; v3.13 removed them (ledger API-001), because an alias kept one
+    name meaning two things -- ``brokers.ExecutionReport`` was a broker
+    execution, ``execution.ExecutionReport`` a fill report. The connector
+    exports the canonical types under their canonical names.
     """
 
     import alphalab.brokers as connectors
@@ -155,11 +158,14 @@ def test_the_connector_package_routes_the_canonical_types() -> None:
     from alphalab.broker.order import BrokerOrderStatus
     from alphalab.broker.position import BrokerPosition
 
-    assert connectors.AccountSnapshot is BrokerAccount
-    assert connectors.ExecutionReport is BrokerExecution
-    assert connectors.PositionSnapshot is BrokerPosition
-    assert connectors.OrderStatus is BrokerOrderStatus
-    assert connectors.AssetClass is AssetType
+    assert connectors.BrokerAccount is BrokerAccount
+    assert connectors.BrokerExecution is BrokerExecution
+    assert connectors.BrokerPosition is BrokerPosition
+    assert connectors.BrokerOrderStatus is BrokerOrderStatus
+    for historical in ("AccountSnapshot", "ExecutionReport", "PositionSnapshot", "OrderStatus"):
+        assert not hasattr(connectors, historical)
+    assert not hasattr(connectors, "AssetClass"), "the asset vocabulary is core's AssetType"
+    assert AssetType.__module__ == "alphalab.core.enums"
 
 
 def test_exactly_one_public_broker_protocol_exists() -> None:
@@ -2104,7 +2110,7 @@ def test_the_capability_summary_is_a_projection_of_the_capability_declaration() 
 def test_the_five_execution_report_shaped_things_are_five_things() -> None:
     """``execution.ExecutionReport`` is a fill the *portfolio* consumes.
     ``broker.BrokerExecution`` (``brokers.ExecutionReport`` under its historical
-    name) is a fill *as the venue reported it*, keyed by the venue's id.
+    name until v3.13) is a fill *as the venue reported it*, keyed by the venue's id.
     ``broker.lifecycle.VenueEvent`` (v3.9) is *any* normalized venue report -- an
     acknowledgement, a rejection, an amendment, a disconnect -- and carries a
     ``BrokerExecution`` only when it is a fill. ``execution.events.ExecutionEvent``
@@ -2123,7 +2129,9 @@ def test_the_five_execution_report_shaped_things_are_five_things() -> None:
     from alphalab.execution.events import ExecutionEvent
     from alphalab.execution.report import ExecutionReport
 
-    assert brokers.ExecutionReport is BrokerExecution
+    # Since v3.13 the connector exports it under its canonical name only.
+    assert brokers.BrokerExecution is BrokerExecution
+    assert not hasattr(brokers, "ExecutionReport")
     book_fill: type = ExecutionReport
     assert book_fill is not BrokerExecution
     assert {"execution_id", "venue", "currency", "strategy_id"} <= {

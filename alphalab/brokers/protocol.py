@@ -43,7 +43,7 @@ from typing import Protocol
 from alphalab.broker.account import BrokerAccount
 from alphalab.broker.order import BrokerOrder
 from alphalab.broker.position import BrokerPosition
-from alphalab.brokers.events import BrokerEvent
+from alphalab.brokers.events import BrokerConnectorEvent
 from alphalab.brokers.state import BrokerConnectorState
 
 __all__ = ["BrokerConnectorProtocol"]
@@ -54,23 +54,23 @@ class BrokerConnectorProtocol(Protocol):
 
     def connect(
         self, state: BrokerConnectorState, timestamp: float
-    ) -> tuple[BrokerConnectorState, tuple[BrokerEvent, ...]]: ...
+    ) -> tuple[BrokerConnectorState, tuple[BrokerConnectorEvent, ...]]: ...
 
     def disconnect(
         self, state: BrokerConnectorState, reason: str, timestamp: float
-    ) -> tuple[BrokerConnectorState, tuple[BrokerEvent, ...]]: ...
+    ) -> tuple[BrokerConnectorState, tuple[BrokerConnectorEvent, ...]]: ...
 
     def submit_order(
         self, state: BrokerConnectorState, order: BrokerOrder, timestamp: float
-    ) -> tuple[BrokerConnectorState, tuple[BrokerEvent, ...]]: ...
+    ) -> tuple[BrokerConnectorState, tuple[BrokerConnectorEvent, ...]]: ...
 
     def cancel_order(
         self, state: BrokerConnectorState, broker_order_id: str, timestamp: float
-    ) -> tuple[BrokerConnectorState, tuple[BrokerEvent, ...]]: ...
+    ) -> tuple[BrokerConnectorState, tuple[BrokerConnectorEvent, ...]]: ...
 
     def replace_order(
         self, state: BrokerConnectorState, order: BrokerOrder, timestamp: float
-    ) -> tuple[BrokerConnectorState, tuple[BrokerEvent, ...]]: ...
+    ) -> tuple[BrokerConnectorState, tuple[BrokerConnectorEvent, ...]]: ...
 
     def query_account(self, state: BrokerConnectorState, account_id: str) -> BrokerAccount: ...
 
@@ -80,4 +80,4 @@ class BrokerConnectorProtocol(Protocol):
 
     def heartbeat(
         self, state: BrokerConnectorState, latency_ms: float, timestamp: float
-    ) -> tuple[BrokerConnectorState, tuple[BrokerEvent, ...]]: ...
+    ) -> tuple[BrokerConnectorState, tuple[BrokerConnectorEvent, ...]]: ...

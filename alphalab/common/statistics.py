@@ -80,6 +80,7 @@ __all__ = [
     "StandardizedMoments",
     "TieBreak",
     "bucket_index",
+    "compounded_max_drawdown",
     "linear_regression",
     "mean",
     "median",
@@ -201,6 +202,32 @@ def _average(values: Sequence[float]) -> float:
     if math.isfinite(result):
         return result
     return sum(value / count for value in values)
+
+
+def compounded_max_drawdown(returns: Sequence[float]) -> float:
+    """The largest fall of the compounded path of ``returns`` from its running peak.
+
+    As a fraction of that peak, from a path that starts at 1: ``0.0`` for an
+    empty path or one that never falls. Until v3.13 the research metrics and the
+    portfolio optimizer's metrics each held a copy of this loop under one public
+    name (ledger API-001); both now export this one.
+
+    Raises:
+        AlphaLabValidationError: If a return is ``nan`` or infinite.
+    """
+
+    _require_finite(returns, "A drawdown")
+    deepest = 0.0
+    peak = 1.0
+    current = 1.0
+    for value in returns:
+        current *= 1.0 + value
+        if current > peak:
+            peak = current
+        fall = (peak - current) / peak
+        if fall > deepest:
+            deepest = fall
+    return deepest
 
 
 def mean(values: Sequence[float]) -> float:

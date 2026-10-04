@@ -14,7 +14,7 @@ class SessionPhase(Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class TradingSession:
+class SessionWindow:
     """Immutable representation of an active or scheduled trading session window."""
 
     session_id: str

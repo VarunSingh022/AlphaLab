@@ -92,10 +92,39 @@ REMOVED_MODULES = (
     "alphalab.experiment_tracking.studio_bridge",
     # v3.12 (ADR-0047, ledger SCF-003): dashboard layouts, which are presentation.
     "alphalab.reporting.dashboard",
+    # v3.13 (ledger API-001): modules that held only the connector's historical
+    # aliases of the canonical broker types.
+    "alphalab.brokers.account",
+    "alphalab.brokers.execution",
+    "alphalab.brokers.order",
+    "alphalab.brokers.position",
 )
 
 #: ``package -> the names that must no longer be reachable through it``.
 REMOVED_NAMES = {
+    # v3.13 (ledger API-001): the connector's aliases of canonical types, and
+    # its own vocabulary where it reused the boundary's names for other classes.
+    "alphalab.brokers": (
+        "AccountSnapshot",
+        "AssetClass",
+        "BrokerAdapter",
+        "BrokerConnected",
+        "BrokerDisconnected",
+        "BrokerEvent",
+        "BrokerValidationError",
+        "ExecutionReceived",
+        "ExecutionReport",
+        "Heartbeat",
+        "InvalidBrokerStateError",
+        "OrderCancelled",
+        "OrderFilled",
+        "OrderStatus",
+        "OrderSubmitted",
+        "PositionSnapshot",
+        "open_orders",
+        "validate_execution",
+        "validate_order_submission",
+    ),
     "alphalab.reporting": (
         "Dashboard",
         "DashboardCard",

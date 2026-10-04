@@ -102,12 +102,19 @@ Each subsystem owns its own event types.
 | `reporting` / `scheduler` | `ReportGenerated`, `SessionStarted` (`studio` and `workbench`, which also published events, left the library in v3.11 — ADR-0046) |
 
 Several event names appear in more than one package — `OrderSubmitted` in
-`oms`, `broker` and `brokers`, `ReportGenerated` in `analytics` and `reporting`
-(and, until v3.10 removed `alphalab.live`, `TickReceived` in `market` and `live`). They are
+`oms` and `broker`, `ReportGenerated` in `analytics` and `reporting` (and, until
+v3.10 removed `alphalab.live`, `TickReceived` in `market` and `live`). They are
 different classes with different payloads, and that is deliberate: an OMS order
 event is about *my* order, a broker one about the venue's handle. Routing
 therefore matches the **module and the name together**, never the bare name;
-matching on the name alone was a real defect, fixed in v2.16 (ADR-0032).
+matching on the name alone was a real defect, fixed in v2.16 (ADR-0032). Each
+such pair is listed, with its reason, in `docs/api/public_api.json` and pinned
+by `tests/regression/test_public_api_manifest.py` (v3.13). The multi-broker
+connector's events, which until v3.13 reused the boundary's names for classes
+with an account on them, are named for what they are: `RoutedOrderSubmitted`,
+`RoutedOrderFilled`, `RoutedOrderCancelled`, `RoutedExecutionReceived`, and
+`RegisteredBrokerConnected`, `RegisteredBrokerDisconnected`,
+`RegisteredBrokerHeartbeat` (ledger API-001).
 
 **What a venue reports is not an engine event** (v3.9, ADR-0044).
 `core.lifecycle.ExecutionEventKind` names twelve normalized things a venue can
