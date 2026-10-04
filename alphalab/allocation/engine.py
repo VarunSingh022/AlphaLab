@@ -27,11 +27,7 @@ from alphalab.allocation.exceptions import (
 from alphalab.allocation.netting import NettingEngine
 from alphalab.allocation.sizing import QUANTITY_QUANTUM, SizingModel
 from alphalab.allocation.state import AllocationState
-from alphalab.allocation.validation import (
-    validate_intent,
-    validate_long_only,
-    validate_net_quantity,
-)
+from alphalab.allocation.validation import validate_long_only, validate_net_quantity
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context
 from alphalab.common.evolve import evolve
@@ -43,6 +39,8 @@ from alphalab.core.contribution import StrategyContribution, split_by_contributi
 from alphalab.core.enums import Side
 from alphalab.core.order_request import OrderRequest
 from alphalab.strategy.events import Intent, IntentKind
+from alphalab.strategy.exceptions import InvalidIntentError
+from alphalab.strategy.validation import validate_intent
 
 
 class AllocationEngine:
@@ -163,7 +161,7 @@ class AllocationEngine:
         for intent in intents:
             try:
                 validate_intent(intent)
-            except AllocationValidationError as refusal:
+            except InvalidIntentError as refusal:
                 events = events.append(
                     AllocationRejected(AllocationEngine._create_id(), timestamp, str(refusal))
                 )

@@ -10,6 +10,7 @@ alike. ``AdaptiveStrategy`` hands that state to the run snapshot through
 ``alphalab.common``.
 """
 
+from alphalab.common.time import ClockProtocol
 from alphalab.strategy.adaptive import (
     ADAPTIVE_CONFIGURATION_SCHEME,
     ADAPTIVE_OBSERVATION_SCHEME,
@@ -43,7 +44,6 @@ from alphalab.strategy.adaptive_rules import (
 )
 from alphalab.strategy.adaptive_strategy import ADAPTIVE_STRATEGY_STATE_VERSION, AdaptiveStrategy
 from alphalab.strategy.context import (
-    ClockProtocol,
     HistoryAccessorProtocol,
     MarketViewProtocol,
     NoHistory,

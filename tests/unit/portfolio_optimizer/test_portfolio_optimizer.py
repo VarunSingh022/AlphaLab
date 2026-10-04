@@ -16,7 +16,6 @@ from alphalab.portfolio_optimizer import (
     allocation_report,
     apply_weight_constraints,
     calculate_max_drawdown,
-    calculate_volatility,
     check_schedule_rebalance,
     check_threshold_rebalance,
     expected_costs,
@@ -47,12 +46,6 @@ def test_calculate_max_drawdown() -> None:
     returns = [0.1, -0.2, 0.1]
     assert calculate_max_drawdown(returns) == pytest.approx(0.20)
     assert calculate_max_drawdown([0.1, 0.1]) == 0.0
-
-
-def test_calculate_volatility() -> None:
-    returns = [0.01, -0.01, 0.01, -0.01]
-    vol = calculate_volatility(returns, periods=252)
-    assert vol > 0.10
 
 
 def test_matrix_inversion_2x2() -> None:

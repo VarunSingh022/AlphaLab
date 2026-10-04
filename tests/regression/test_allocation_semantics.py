@@ -36,7 +36,6 @@ from alphalab.allocation import (
     FixedQuantitySizing,
     TargetWeightSizing,
     VolatilityTargetSizing,
-    validate_intent,
 )
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.allocation.events import AllocationRejected
@@ -53,7 +52,7 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionRouting,
     UnpricedReason,
 )
-from alphalab.strategy import Intent, IntentKind
+from alphalab.strategy import Intent, IntentKind, InvalidIntentError, validate_intent
 from tests.integration.harness import (
     ScriptedStrategy,
     context_factory,
@@ -283,13 +282,13 @@ def test_emitting_the_same_intent_twice_asks_twice() -> None:
 def test_allocation_refuses_an_intent_of_another_kind() -> None:
     impostor = replace(Intent("S1", "AAPL", Decimal("1")), kind="target")  # type: ignore[arg-type]
 
-    with pytest.raises(AllocationValidationError, match="must be an IntentKind"):
+    with pytest.raises(InvalidIntentError, match="must be an IntentKind"):
         validate_intent(impostor)
 
 
 @pytest.mark.parametrize("target", [Decimal("Infinity"), Decimal("NaN")])
 def test_a_non_finite_target_is_refused(target: Decimal) -> None:
-    with pytest.raises(AllocationValidationError, match="finite"):
+    with pytest.raises(InvalidIntentError, match="finite"):
         validate_intent(Intent("S1", "AAPL", target))
 
 

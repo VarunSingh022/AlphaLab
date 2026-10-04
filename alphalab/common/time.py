@@ -23,8 +23,20 @@ first. (Ledger DAT-008: a limitation kept, and stated.)
 
 import math
 from datetime import UTC, datetime
+from typing import Protocol
 
 from alphalab.common.exceptions import AlphaLabValidationError
+
+
+class ClockProtocol(Protocol):
+    """Anything that says what the time is now, as an instant in Unix seconds.
+
+    One protocol, which the scheduler's clocks implement and a strategy's
+    context reads. Until v3.13 the scheduler and the strategy runtime each
+    defined their own under this name, structurally identical (ledger API-001).
+    """
+
+    def now(self) -> float: ...
 
 
 def instant_resolution(instant: float) -> float:

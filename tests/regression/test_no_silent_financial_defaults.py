@@ -251,20 +251,24 @@ def test_no_financial_keyword_is_given_a_literal_inside_the_package() -> None:
 
 
 def test_annualization_is_named_where_it_is_not_tracked_for_removal() -> None:
-    """The factor library and the optimizer's volatility say what a year is."""
+    """The factor library and the research volatility say what a year is.
+
+    The optimizer's copy of the research volatility, which this test also held
+    to a required ``periods``, was removed in v3.13 (ledger API-001).
+    """
 
     import inspect
 
     from alphalab.factor_library.definition import KIND_REQUIREMENTS, FeatureKind
     from alphalab.factor_library.volatility import compute_volatility
-    from alphalab.portfolio_optimizer.metrics import calculate_volatility
+    from alphalab.research.metrics import calculate_volatility
 
     assert (
         inspect.signature(compute_volatility).parameters["periods_per_year"].default
         is inspect.Parameter.empty
     )
     assert (
-        inspect.signature(calculate_volatility).parameters["periods"].default
+        inspect.signature(calculate_volatility).parameters["periods_per_year"].default
         is inspect.Parameter.empty
     )
     assert KIND_REQUIREMENTS[FeatureKind.REALIZED_VOLATILITY].required_parameters == (

@@ -69,14 +69,29 @@ def test_a_validation_refusal_is_recorded_and_the_batch_goes_on() -> None:
     )
 
     assert requests == [("buy", Decimal("5"))]
-    assert reasons == ["Intent strength must be between 0.0 and 1.0."]
+    assert reasons == ["Intent strength must be between 0.0 and 1.0, got 2."]
 
 
-def test_a_defect_raised_during_validation_is_not_recorded_as_a_refusal() -> None:
-    broken = Intent("A", "AAPL", "10", timestamp=1.0)  # type: ignore[arg-type]
+def test_a_target_that_is_not_a_decimal_is_refused_and_recorded() -> None:
+    """Since v3.13 the one intent check states the rule (ledger API-001)."""
 
-    with pytest.raises(AttributeError):
-        _allocate(broken)
+    reasons, requests = _allocate(Intent("A", "AAPL", "10", timestamp=1.0))  # type: ignore[arg-type]
+
+    assert requests == []
+    assert reasons == ["Intent target must be a finite Decimal, got '10'."]
+
+
+def test_a_defect_raised_during_validation_is_not_recorded_as_a_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from alphalab.allocation import engine
+
+    def defective(intent: Intent) -> None:
+        raise ZeroDivisionError("a defect, not a refusal")
+
+    monkeypatch.setattr(engine, "validate_intent", defective)
+    with pytest.raises(ZeroDivisionError):
+        _allocate(Intent("A", "AAPL", Decimal("10"), timestamp=1.0))
 
 
 def test_a_large_batch_of_distinct_intents_is_taken_whole() -> None:

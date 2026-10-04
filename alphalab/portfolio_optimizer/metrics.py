@@ -1,10 +1,17 @@
-"""Immutable metrics tracking and deterministic mathematical evaluators."""
+"""Immutable metrics tracking and deterministic mathematical evaluators.
 
-import math
-from collections.abc import Sequence
+Until v3.13 this module also exported its own ``calculate_volatility``: the
+research metric of the same name, with another keyword (``periods``), no check
+that a year holds a positive number of periods, and another rounding order.
+One name had two implementations of one contract (ledger API-001); the
+duplicate is removed, and annualized volatility is
+:func:`alphalab.research.calculate_volatility` or
+:func:`alphalab.analytics.annualized_volatility`.
+"""
+
 from dataclasses import dataclass
 
-from alphalab.common.statistics import compounded_max_drawdown, sample_variance
+from alphalab.common.statistics import compounded_max_drawdown
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,20 +33,3 @@ class PortfolioMetrics:
 #: implementation, in :mod:`alphalab.common.statistics`, shared with
 #: ``alphalab.research`` since v3.13 (ledger API-001).
 calculate_max_drawdown = compounded_max_drawdown
-
-
-def calculate_volatility(returns: Sequence[float], periods: int) -> float:
-    """Annualized volatility, over the one shared unbiased estimator.
-
-    ``periods`` is how many returns make a year. Required since v3.10: it
-    defaulted to 252, a daily series' count, whatever the series was
-    (ledger API-003).
-
-    ``sqrt(var * periods)`` rather than ``sqrt(var) * sqrt(periods)``: the two
-    are equal in exact arithmetic and not always in floating point, and this
-    module has always used the first. Changing it would move published numbers
-    for no reason.
-    """
-    if len(returns) < 2:
-        return 0.0
-    return math.sqrt(sample_variance(returns) * periods)

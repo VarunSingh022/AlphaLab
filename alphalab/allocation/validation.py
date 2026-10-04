@@ -1,25 +1,14 @@
-"""Validation rules ensuring structural integrity of allocations."""
+"""Validation rules ensuring structural integrity of allocations.
+
+Whether an intent is structurally one is not allocation's rule: it is
+:func:`alphalab.strategy.validate_intent`, the one check the strategy runtime
+also runs. Until v3.13 this module kept a second, disagreeing copy under the
+same name (ledger API-001).
+"""
 
 from decimal import Decimal
 
 from alphalab.allocation.exceptions import AllocationValidationError
-from alphalab.strategy.events import Intent, IntentKind
-
-
-def validate_intent(intent: Intent) -> None:
-    """Ensures intent structural integrity before processing."""
-    if not intent.strategy_id:
-        raise AllocationValidationError("Intent must have a valid strategy_id.")
-    if not intent.instrument:
-        raise AllocationValidationError("Intent must have a valid instrument.")
-    if not intent.target.is_finite():
-        raise AllocationValidationError(f"Intent target must be finite, got {intent.target}.")
-    if not intent.strength.is_finite() or not Decimal("0") <= intent.strength <= Decimal("1"):
-        raise AllocationValidationError("Intent strength must be between 0.0 and 1.0.")
-    if intent.timestamp < 0.0:
-        raise AllocationValidationError("Intent timestamp cannot be negative.")
-    if not isinstance(intent.kind, IntentKind):
-        raise AllocationValidationError(f"Intent kind must be an IntentKind, got {intent.kind!r}.")
 
 
 def validate_net_quantity(quantity: Decimal, enforce_long_only: bool = False) -> None:

@@ -39,6 +39,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Protocol
 
+from alphalab.common.time import ClockProtocol
+
 
 class PortfolioSnapshotProtocol(Protocol):
     """Read-only view of portfolio state.
@@ -148,12 +150,6 @@ class MarketViewProtocol(Protocol):
     def price(self, asset_id: str) -> Decimal | None:
         """The mark for ``asset_id``, or ``None`` when it has never been priced."""
         ...
-
-
-class ClockProtocol(Protocol):
-    """Virtual or monotonic clock source."""
-
-    def now(self) -> float: ...
 
 
 class ScopedLoggerProtocol(Protocol):

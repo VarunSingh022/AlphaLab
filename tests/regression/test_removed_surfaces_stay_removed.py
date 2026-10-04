@@ -133,6 +133,11 @@ REMOVED_NAMES = {
     "alphalab.scheduler": ("TradingSession",),
     "alphalab.ml": ("Split",),
     "alphalab.factor_library": ("Delisting",),
+    # v3.13 (ledger API-001): the optimizer's copy of the research volatility,
+    # under the same name with another keyword and no validation.
+    "alphalab.portfolio_optimizer": ("calculate_volatility",),
+    # v3.13 (ledger API-001): allocation's own, disagreeing intent check.
+    "alphalab.allocation": ("validate_intent",),
     "alphalab.reporting": (
         "Dashboard",
         "DashboardCard",
@@ -216,6 +221,28 @@ REMOVED_NAMES = {
 
 #: What had to survive beside each removal, because it shared the package.
 SURVIVING_NEIGHBOURS = {
+    # v3.13 (ledger API-001): what each rename and removal left in its place.
+    "alphalab.strategy": ("StrategyStatus", "validate_intent"),
+    "alphalab.scheduler": ("ScheduledSession",),
+    "alphalab.ml": ("TrainTestSplit",),
+    "alphalab.factor_library": ("DelistingReturn",),
+    "alphalab.research": ("calculate_volatility", "calculate_max_drawdown"),
+    "alphalab.brokers": (
+        "BrokerConnectorAdapter",
+        "BrokerConnectorEvent",
+        "BrokerConnectorStateError",
+        "BrokerConnectorValidationError",
+        "RegisteredBrokerConnected",
+        "RegisteredBrokerDisconnected",
+        "RegisteredBrokerHeartbeat",
+        "RoutedExecutionReceived",
+        "RoutedOrderCancelled",
+        "RoutedOrderFilled",
+        "RoutedOrderSubmitted",
+        "open_routed_orders",
+        "validate_routed_execution",
+        "validate_routed_submission",
+    ),
     # The persistence codec spine: every snapshot module in the repository
     # imports it, and it is the reason the store's notice was PEP 562 rather
     # than an import-time warning.
