@@ -54,6 +54,13 @@ jobs:
             echo "::endgroup::"
           done
 
+      # One statement of what this build was checked to do -- determinism,
+      # parity, reproducibility, numerical references, the public API -- held
+      # to the committed certificate (ledger FEA-006). A change in what the
+      # engine computes fails here until it is re-certified and reviewed.
+      - name: Release certification
+        run: python -W error docs/audit/scripts/certify_release.py --check
+
       - name: Build package
         run: python -m build
 

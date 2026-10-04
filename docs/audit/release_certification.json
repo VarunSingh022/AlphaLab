@@ -1,0 +1,141 @@
+{
+  "release": "3.12.0",
+  "build": {
+    "engine": "alphalab 3.12.0",
+    "source_digest": "40fbd24d6baac407ea9b5fba8e3da06fec238bf885ee1450ce7a7ce1713f3b32",
+    "tz_database": "2025b"
+  },
+  "environment": {
+    "python": "3.12.3",
+    "implementation": "CPython",
+    "platform": "Linux-6.18.44-fc-v64-x86_64-with-glibc2.39"
+  },
+  "passed": true,
+  "checks": [
+    {
+      "id": "DET-1",
+      "claim": "A seeded run executed twice in one process produces the byte-identical record.",
+      "passed": true,
+      "evidence": {
+        "result_id": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd",
+        "record_bytes": 55309,
+        "orders": 4,
+        "fills": 4
+      }
+    },
+    {
+      "id": "DET-2",
+      "claim": "The same run in fresh interpreters under different hash seeds, and under an ambient decimal context of six digits rounding down, is the same run.",
+      "passed": true,
+      "evidence": {
+        "in_process": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd",
+        "ambient_context_prec_6_floor": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd",
+        "fresh_interpreter_PYTHONHASHSEED_0": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd",
+        "fresh_interpreter_PYTHONHASHSEED_4242": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd"
+      }
+    },
+    {
+      "id": "PAR-1",
+      "claim": "A backtest, a replay and a paper session of one dataset produce the same orders, fills, trades, cash, positions and equity curve.",
+      "passed": true,
+      "evidence": {
+        "fills_agree": true,
+        "trades_agree": true,
+        "orders_agree": true,
+        "cash_agree": true,
+        "positions_agree": true,
+        "equity_curve_agree": true,
+        "fills_digest": "025931026087a52304de81db7f86a469c9cef0385741ae546b8ed7eace8eea2d",
+        "ending_cash_usd": "1000353.10"
+      }
+    },
+    {
+      "id": "PAR-2",
+      "claim": "A live session submits exactly the orders the paper session submits, and differs only at the venue: nothing fills until a venue reports it.",
+      "passed": true,
+      "evidence": {
+        "orders_submitted": 4,
+        "live_fills": 0,
+        "paper_fills": 4
+      }
+    },
+    {
+      "id": "REP-1",
+      "claim": "A run re-executed from its reproducibility manifest is REPRODUCED.",
+      "passed": true,
+      "evidence": {
+        "outcome": "REPRODUCED",
+        "result_id": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd"
+      },
+      "detail": "the rerun produced result 9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd again."
+    },
+    {
+      "id": "REP-2",
+      "claim": "A run stopped after 4 of 8 records, written to JSON, read back and continued finishes byte-identical to the run that never stopped.",
+      "passed": true,
+      "evidence": {
+        "stopped_payload_bytes": 29487,
+        "final_record_digest": "d24631106168b07b82313bfedda8ba67f7fb2813be05e37b1abdb9e394d2cd83"
+      }
+    },
+    {
+      "id": "REP-3",
+      "claim": "Every payload v3.9.0, v3.11.0 and v3.12.0 wrote is read by this build, or refused for the reason its upgrade documents.",
+      "passed": true,
+      "evidence": {
+        "read_v3.9.0": 9,
+        "read_v3.11.0": 11,
+        "read_v3.12.0": 11,
+        "refused_as_documented": 1,
+        "upgrade_warnings": 6
+      }
+    },
+    {
+      "id": "NUM-1",
+      "claim": "Black-Scholes-Merton reproduces Hull's example -- S=42, K=40, r=10%, sigma=20%, T=0.5: call 4.76, put 0.81 to the cent -- put-call parity holds to 1e-12, and the volatility implied by the quoted 4.76 reprices it.",
+      "passed": true,
+      "evidence": {
+        "call": "4.759422",
+        "put": "0.808599",
+        "parity_residual_below_1e-12": true,
+        "implied_volatility_of_4.76": "0.200066"
+      }
+    },
+    {
+      "id": "NUM-2",
+      "claim": "An American put on the CRR lattice reproduces Hull's convergence table -- S=K=50, r=10%, sigma=40%, T=5 months: 4.488, 4.263, 4.272, 4.278, 4.283 at 5, 30, 50, 100 and 500 steps -- and early exercise of a call on a stock paying nothing is worth exactly nothing.",
+      "passed": true,
+      "evidence": {
+        "steps_5": "4.488459",
+        "steps_30": "4.263427",
+        "steps_50": "4.272021",
+        "steps_100": "4.278059",
+        "steps_500": "4.283021",
+        "call_early_exercise_premium": 0.0
+      }
+    },
+    {
+      "id": "NUM-3",
+      "claim": "The normal distribution function matches tabulated values to 1e-15, and the sample statistics recover the exact mean 1000000.2 and deviation 0.1 of a NIST NumAcc-style series whose offset defeats a one-pass sum of squares.",
+      "passed": true,
+      "evidence": {
+        "normal_cdf(-1.0)": "0.158655253931457",
+        "normal_cdf(1.96)": "0.975002104851780",
+        "normal_cdf(3.0)": "0.998650101968370",
+        "numacc_mean": "1000000.200000000",
+        "numacc_standard_deviation": "0.100000000035"
+      }
+    },
+    {
+      "id": "API-1",
+      "claim": "The build's public API is the one docs/api/public_api.json records for this release.",
+      "passed": true,
+      "evidence": {
+        "manifest_digest": "99c1051f2f05bc1bbc3fed1da1d978bc4d39f92b3583d374520ce5045335794c",
+        "packages": 44,
+        "exports": 2466,
+        "shared_names": 31
+      }
+    }
+  ]
+}
