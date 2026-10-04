@@ -130,6 +130,7 @@ __all__ = [
     "MissingVolumePolicy",
     "Participation",
     "ScheduleBasis",
+    "ScheduleCost",
     "ScheduledSlice",
     "Slicing",
     "TrancheRandomization",
@@ -143,6 +144,7 @@ __all__ = [
     "record_child_execution",
     "record_child_outcome",
     "release_children",
+    "schedule_cost",
     "start_algorithm",
 ]
 
@@ -304,6 +306,43 @@ class UrgencyEstimate:
     kappa: Decimal
     urgency: Urgency
 
+    def cost(self, quantity: Decimal, *, fixed_cost: Decimal) -> ScheduleCost:
+        """What the model expects its own optimal schedule for ``quantity`` to cost.
+
+        The schedule trades ``X (F(k / N) - F((k - 1) / N))`` in interval ``k``,
+        ``F`` being :meth:`Urgency.fraction` -- the trajectory this estimate
+        found optimal -- and is costed by :func:`schedule_cost` with this
+        estimate's own inputs. Its ``expected + risk_aversion * variance`` is
+        the least any schedule of these intervals attains.
+
+        Args:
+            quantity: ``X``, the units to trade, positive.
+            fixed_cost: ``epsilon``, the cost per unit traded whatever the rate
+                -- half the spread and the fees. Required: zero is a statement.
+        """
+
+        if not isinstance(quantity, Decimal) or not quantity.is_finite() or quantity <= _ZERO:
+            raise ExecutionValidationError(
+                f"quantity must be a finite Decimal > 0, got {quantity!r}."
+            )
+        steps = Decimal(self.slices)
+        done = [
+            self.urgency.fraction(_CONTEXT.divide(Decimal(k), steps))
+            for k in range(self.slices + 1)
+        ]
+        trades = [
+            _CONTEXT.multiply(quantity, _CONTEXT.subtract(after, before))
+            for before, after in pairwise(done)
+        ]
+        return schedule_cost(
+            trades,
+            volatility=self.volatility,
+            temporary_impact=self.temporary_impact,
+            permanent_impact=self.permanent_impact,
+            fixed_cost=fixed_cost,
+            horizon=self.horizon,
+        )
+
 
 def _acosh(value: Decimal) -> Decimal:
     root = _CONTEXT.sqrt(_CONTEXT.subtract(_CONTEXT.multiply(value, value), _ONE))
@@ -388,6 +427,150 @@ def estimate_urgency(
         slices=slices,
         kappa=kappa,
         urgency=Urgency(curvature),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleCost:
+    """What a schedule is expected to cost under the Almgren-Chriss model, and how surely.
+
+    The model :func:`estimate_urgency` optimizes (Almgren and Chriss, 2000,
+    section 2): a schedule trades ``n_k`` units in each of ``N`` equal intervals
+    of length ``tau``, holding ``x_k`` after the ``k``-th. The price moves by
+    ``sigma`` per square root of a time unit; each unit traded moves it for good
+    by ``gamma``; trading at rate ``n_k / tau`` concedes ``eta`` per unit of that
+    rate within the interval, and every unit costs ``epsilon`` whatever the
+    rate. Against the price at arrival, the shortfall's expectation and
+    variance are::
+
+        E = gamma X^2 / 2 + epsilon sum |n_k| + (eta_tilde / tau) sum n_k^2
+        V = sigma^2 tau sum_{k=1}^{N} x_k^2,        eta_tilde = eta - gamma tau / 2
+
+    Computed in the module's fixed 34-digit context, so a cost is the same in
+    every process. It is the model's figure, from the caller's parameters: what
+    it says a schedule should cost if the model holds, to be read beside what
+    the execution did (:func:`~alphalab.execution.quality.shortfall_against_model`).
+
+    Attributes:
+        quantity: ``X``, the units the schedule trades in all.
+        trades: ``n_1 .. n_N``.
+        interval: ``tau = T / N``.
+        permanent: ``gamma X^2 / 2``, the permanent impact's share.
+        fixed: ``epsilon sum |n_k|``.
+        temporary: ``(eta_tilde / tau) sum n_k^2``, the temporary impact's share.
+        expected: ``E``, the sum of the three.
+        variance: ``V``.
+        standard_deviation: ``sqrt(V)``.
+        volatility: ``sigma``, as given.
+        temporary_impact: ``eta``, as given.
+        permanent_impact: ``gamma``, as given.
+        fixed_cost: ``epsilon``, as given.
+        horizon: ``T``, as given.
+    """
+
+    quantity: Decimal
+    trades: tuple[Decimal, ...]
+    interval: Decimal
+    permanent: Decimal
+    fixed: Decimal
+    temporary: Decimal
+    expected: Decimal
+    variance: Decimal
+    standard_deviation: Decimal
+    volatility: Decimal
+    temporary_impact: Decimal
+    permanent_impact: Decimal
+    fixed_cost: Decimal
+    horizon: Decimal
+
+
+def schedule_cost(
+    trades: Sequence[Decimal],
+    *,
+    volatility: Decimal,
+    temporary_impact: Decimal,
+    permanent_impact: Decimal,
+    fixed_cost: Decimal,
+    horizon: Decimal,
+) -> ScheduleCost:
+    """The Almgren-Chriss expectation and variance of a schedule's shortfall.
+
+    See :class:`ScheduleCost` for the model. ``trades`` are the units traded in
+    each of ``len(trades)`` equal intervals spanning ``horizon``, in the order
+    they trade; the order's side is the caller's, and every trade is in it.
+
+    Raises:
+        ExecutionValidationError: If ``trades`` is empty, a trade is negative or
+            not a finite ``Decimal``, nothing is traded, an input is negative,
+            the temporary impact or horizon is not positive, or the permanent
+            impact is so large for the interval that ``eta_tilde`` is not
+            positive -- the model's temporary cost would then be negative.
+    """
+
+    for name, amount in (
+        ("volatility", volatility),
+        ("permanent_impact", permanent_impact),
+        ("fixed_cost", fixed_cost),
+    ):
+        if not isinstance(amount, Decimal) or not amount.is_finite() or amount < _ZERO:
+            raise ExecutionValidationError(f"{name} must be a finite Decimal >= 0, got {amount!r}.")
+    for name, amount in (("temporary_impact", temporary_impact), ("horizon", horizon)):
+        if not isinstance(amount, Decimal) or not amount.is_finite() or amount <= _ZERO:
+            raise ExecutionValidationError(f"{name} must be a finite Decimal > 0, got {amount!r}.")
+    held = tuple(trades)
+    if not held:
+        raise ExecutionValidationError("A schedule of no interval trades nothing to cost.")
+    for trade in held:
+        if not isinstance(trade, Decimal) or not trade.is_finite() or trade < _ZERO:
+            raise ExecutionValidationError(
+                f"Every trade must be a finite Decimal >= 0 -- a schedule works one side -- "
+                f"got {trade!r}."
+            )
+    quantity = _sum(held)
+    if quantity <= _ZERO:
+        raise ExecutionValidationError("The schedule trades nothing; it has no cost to model.")
+    interval = _CONTEXT.divide(horizon, Decimal(len(held)))
+    eta_tilde = _CONTEXT.subtract(
+        temporary_impact,
+        _CONTEXT.divide(_CONTEXT.multiply(permanent_impact, interval), Decimal(2)),
+    )
+    if eta_tilde <= _ZERO:
+        raise ExecutionValidationError(
+            f"The permanent impact {permanent_impact} over an interval of {interval} outweighs "
+            f"the temporary impact {temporary_impact}: eta - gamma tau / 2 is {eta_tilde}, and "
+            "the model's temporary cost would be negative. Use more intervals or check the "
+            "impact estimates."
+        )
+    permanent = _CONTEXT.divide(
+        _CONTEXT.multiply(permanent_impact, _CONTEXT.multiply(quantity, quantity)), Decimal(2)
+    )
+    fixed = _CONTEXT.multiply(fixed_cost, quantity)
+    squares = _sum(_CONTEXT.multiply(trade, trade) for trade in held)
+    temporary = _CONTEXT.divide(_CONTEXT.multiply(eta_tilde, squares), interval)
+    remaining = quantity
+    holdings: list[Decimal] = []
+    for trade in held:
+        remaining = _CONTEXT.subtract(remaining, trade)
+        holdings.append(remaining)
+    variance = _CONTEXT.multiply(
+        _CONTEXT.multiply(_CONTEXT.multiply(volatility, volatility), interval),
+        _sum(_CONTEXT.multiply(held_after, held_after) for held_after in holdings),
+    )
+    return ScheduleCost(
+        quantity=quantity,
+        trades=held,
+        interval=interval,
+        permanent=permanent,
+        fixed=fixed,
+        temporary=temporary,
+        expected=_sum((permanent, fixed, temporary)),
+        variance=variance,
+        standard_deviation=_CONTEXT.sqrt(variance),
+        volatility=volatility,
+        temporary_impact=temporary_impact,
+        permanent_impact=permanent_impact,
+        fixed_cost=fixed_cost,
+        horizon=horizon,
     )
 
 

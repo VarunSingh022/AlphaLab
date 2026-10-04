@@ -610,12 +610,16 @@ def test_a_box_set_on_a_long_only_book_is_mean_variance_on_shifted_returns() -> 
     assert weights_of(robust) == pytest.approx(weights_of(reference), abs=1e-15)
 
 
-def test_a_box_set_is_refused_where_shorts_are_allowed() -> None:
-    with pytest.raises(ConstructionInputError, match="long-only"):
-        run(
-            RobustMeanVariance(MU, 3.0, BoxUncertainty({"A": 0.0, "B": 0.0, "C": 0.0})),
-            ConstraintSet(FULL, WeightBounds.unbounded()),
-        )
+def test_a_box_set_where_shorts_are_allowed_is_solved_as_an_l1_penalty() -> None:
+    """Refused until v3.13; ``test_robust_box_with_shorts.py`` checks it by brute force."""
+
+    nominal = run(MeanVariance(MU, 3.0), ConstraintSet(FULL, WeightBounds.unbounded()))
+    robust = run(
+        RobustMeanVariance(MU, 3.0, BoxUncertainty({"A": 0.0, "B": 0.0, "C": 0.0})),
+        ConstraintSet(FULL, WeightBounds.unbounded()),
+    )
+
+    assert weights_of(robust) == pytest.approx(weights_of(nominal), abs=1e-12)
 
 
 def test_an_uncertainty_set_must_match_the_universe_and_units() -> None:

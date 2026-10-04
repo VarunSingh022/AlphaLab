@@ -53,9 +53,13 @@ class PortfolioManager:
         else:
             raise OptimizationError(f"Unsupported optimization method: {method}")
 
-        # Apply constraints if configured
-        constraints = state.constraints.get(port_id, WeightConstraints())
-        final_w = apply_weight_constraints(raw_w, constraints)
+        # Apply the constraints configured for this portfolio, and only those.
+        # Until v3.13 an unconfigured portfolio was clipped by the defaults of
+        # WeightConstraints() -- long only, no weight above one -- so a
+        # minimum-variance or maximum-Sharpe portfolio that shorted or levered
+        # came back as another portfolio, recorded under the method's name.
+        configured = state.constraints.get(port_id)
+        final_w = raw_w if configured is None else apply_weight_constraints(raw_w, configured)
 
         evt = WeightsCalculated(PortfolioManager._create_id(), ts, port_id, method)
         return replace(

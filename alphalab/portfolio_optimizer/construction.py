@@ -967,9 +967,13 @@ class BoxUncertainty:
 
     For a **long-only** portfolio the worst case is exactly ``mu_hat - half_width``
     element by element, so the robust problem is mean-variance on the shifted
-    returns -- an identity, not an approximation, and the reason a box set is
-    refused for a portfolio that may short (its robust counterpart is then an
-    ``L1`` penalty on the weights, which is not offered).
+    returns -- an identity, not an approximation. For a portfolio that **may
+    short**, the worst case is ``mu_hat' w - half_width' |w|``: an ``L1``
+    penalty on the weights, solved exactly as :class:`LinearCosts` are -- one
+    orthant at a time, certified by the true subgradient condition -- with the
+    held weights at zero (v3.13; until then a box set was refused for a
+    portfolio that may short). An asset whose return is too uncertain to be
+    worth holding either way is held at exactly zero, and the result says so.
 
     Attributes:
         half_widths: Asset -> ``>= 0``, for exactly the universe.
@@ -1679,6 +1683,9 @@ def _qp_with_costs(
     linear: Sequence[float],
     costs: LinearCosts,
     iterations: int,
+    *,
+    penalty: str = "Linear costs",
+    side: str = "no trade in {asset} (not worth its cost)",
 ) -> _Outcome:
     """Minimize ``1/2 x'Gx + a'x + sum_i c_i |x_i - w0_i|`` exactly, one orthant at a time.
 
@@ -1712,7 +1719,7 @@ def _qp_with_costs(
         # problem.
         return base
     signs = {index: 1.0 if base.weights[index] >= current[index] else -1.0 for index in charged}
-    labels = {index: f"no trade in {universe[index]} (not worth its cost)" for index in charged}
+    labels = {index: side.format(asset=universe[index]) for index in charged}
     used = base.iterations
     solved: set[tuple[float, ...]] = set()
     lowest = math.inf
@@ -1759,7 +1766,7 @@ def _qp_with_costs(
             return replace(
                 outcome,
                 detail=(
-                    f"{outcome.detail} Linear costs: the orthant optimum meets the true "
+                    f"{outcome.detail} {penalty}: the orthant optimum meets the true "
                     f"subgradient condition, after {len(solved) - 1} side switch(es)."
                 ),
             )
@@ -1779,7 +1786,7 @@ def _qp_with_costs(
                 (),
                 (),
                 outcome.stationarity,
-                "Linear costs: every side switch the optimality certificate asks for leads "
+                f"{penalty}: every side switch the optimality certificate asks for leads "
                 "to an orthant already solved -- a degenerate vertex -- so optimality "
                 "could not be certified.",
             )
@@ -1960,6 +1967,16 @@ def _returns_vector(problem: ConstructionProblem, returns: ExpectedReturns) -> l
     return [returns.values[asset] for asset in problem.universe]
 
 
+def _is_long_only(problem: ConstructionProblem) -> bool:
+    """Whether every weight is bounded below by zero or more."""
+
+    for asset in problem.universe:
+        lower, _ = problem.constraints.bounds.for_asset(asset)
+        if lower is None or lower < 0.0:
+            return False
+    return True
+
+
 def _long_only(problem: ConstructionProblem, what: str) -> None:
     for asset in problem.universe:
         lower, _ = problem.constraints.bounds.for_asset(asset)
@@ -2003,11 +2020,12 @@ def _robust(
     uncertainty = objective.uncertainty
 
     if isinstance(uncertainty, BoxUncertainty):
-        _long_only(problem, "A box uncertainty set's robust counterpart")
         if set(uncertainty.half_widths) != set(problem.universe):
             raise ConstructionInputError(
                 "A box uncertainty set must give a half width for exactly the universe."
             )
+        if not _is_long_only(problem):
+            return _robust_box_with_shorts(problem, compiled, objective, returns, uncertainty)
         shifted = [
             -(value - uncertainty.half_widths[asset])
             for asset, value in zip(problem.universe, returns, strict=True)
@@ -2089,6 +2107,53 @@ def _robust(
     if problem.constraints.max_volatility is None:
         return solve_robust(objective.risk_aversion, 0)
     return _cap(problem, compiled, solve_robust, objective.risk_aversion)
+
+
+def _robust_box_with_shorts(
+    problem: ConstructionProblem,
+    compiled: _Compiled,
+    objective: RobustMeanVariance,
+    returns: Sequence[float],
+    uncertainty: BoxUncertainty,
+) -> _Outcome:
+    """The box's robust counterpart for a portfolio that may short (v3.13).
+
+    ``min over mu in the box of mu' w`` is ``mu_hat' w - half_width' |w|``, so
+    the robust problem minimizes ``(lambda / 2) w' C w - mu_hat' w +
+    half_width' |w|`` -- the costed problem of :class:`LinearCosts` with the
+    held weights at zero, solved and certified by the same method.
+    """
+
+    universe = problem.universe
+    linear = [-value for value in returns]
+    widths = [uncertainty.half_widths[asset] for asset in universe]
+    penalty = LinearCosts(current=dict.fromkeys(universe, 0.0), rates=dict(uncertainty.half_widths))
+
+    def solve_box(aversion: float, iterations: int) -> _Outcome:
+        outcome = _qp_with_costs(
+            problem,
+            compiled,
+            aversion,
+            linear,
+            penalty,
+            iterations,
+            penalty="Box uncertainty (an L1 penalty on the weights)",
+            side="no position in {asset} (its return too uncertain to hold either way)",
+        )
+        if outcome.weights is None:
+            return outcome
+        held = outcome.weights
+        worst = math.fsum(
+            [
+                *(value * weight for value, weight in zip(returns, held, strict=True)),
+                *(-width * abs(weight) for width, weight in zip(widths, held, strict=True)),
+            ]
+        )
+        return _with_worst_case(outcome, worst)
+
+    if problem.constraints.max_volatility is None:
+        return solve_box(objective.risk_aversion, 0)
+    return _cap(problem, compiled, solve_box, objective.risk_aversion)
 
 
 def _with_worst_case(outcome: _Outcome, worst: float) -> _Outcome:

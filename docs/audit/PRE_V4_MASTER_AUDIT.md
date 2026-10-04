@@ -1166,6 +1166,40 @@ American option pricing (NUM-006); rerun harness (REP-003); optimal split (BRK-0
 urgency and randomized icebergs (BRK-006); lock-file reader (OFE-019); total-variance
 interpolation (FEA-005); then the fresh pre-v4 audit (Phase 26) and every finding it produces.
 
+### Outcome
+
+Every item assigned to v3.13.0 is closed, and so are the four the ledger had assigned to v4.0.0
+itself — the shared names (API-001), the public API manifest (API-002), the persisted-name
+contract (PER-004) and release certification (FEA-006) — so that nothing required is left for a
+later release. Every boundary and limitation the ledger holds was re-read against the code and
+kept with its reason (`v313_outcome` on each), and the ledger assigns nothing beyond v3.13.0:
+213 entries, each implemented or kept. ADR-0048 records the decisions.
+
+The fresh audit found nineteen things, each recorded in the ledger:
+
+* **Defects**: the broker codec read a qualified enum name by its member alone (PER-007, since
+  2.16); the liquidation price assumed one venue's maintenance convention and ignored fees and
+  funding (NUM-014, since 1.38); importing the research path loaded the market-data transports
+  (BND-005, since 2.5); the v1 portfolio manager clipped a portfolio nobody had constrained
+  (OPT-001, since v1), and its `RiskConstraints` carried three limits nothing read (RSK-007).
+* **Scale**: checkpoint segments carried every order a run had placed (PRF-011, shipped in
+  3.12.0), now carrying only what changed; the per-order state itself is kept as a stated
+  limitation. The one-asset paths' cost against 3.11 is classified as the price of the
+  capabilities on the one canonical path (PRF-012).
+* **Documentation and method**: three durability tables were stale (DOC-005); a docstring said
+  a delivered rate source "has not arrived" (DOC-007); nothing checked a release's migration
+  table against its API (DOC-006) or the ledger's cited tests against the suite (TST-014).
+* **The inventory itself** (TST-015): the pre-v4 audit had inventoried ROADMAP's boundaries and
+  optional list, not the "Known limitations" and "DEFERRED" lists of ADR-0042, ADR-0043 and
+  ADR-0044. Of their 52 items, 23 had no ledger entry: two deferred capabilities, now
+  implemented — exchange-rate return factors with a factor risk decomposition (FEA-007) and
+  implementation shortfall against an impact model (FEA-008) — and 21 limitations, of which one
+  is lifted (a box uncertainty set on a book that may short, FEA-009), one hid the defect above
+  (RSK-007, whose classification found OPT-001), and the rest are kept with their reasons
+  (LIM-001, LIM-002, LIM-003). A test now holds every ADR's limitations and deferrals to closed
+  ledger entries.
+* **Boundaries**: the WebSocket client's two stated omissions are recorded as kept (BND-006).
+
 ## AC. v4.0.0 freeze requirements
 
 * Every ledger entry is `done`, `REMOVE`d, `EXTERNAL`, `KEEP_BOUNDARY` or `KEEP_LIMITATION`

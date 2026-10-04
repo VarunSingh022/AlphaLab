@@ -101,6 +101,7 @@ from alphalab.common.currency import ConversionRecord, CurrencyConverter
 from alphalab.core.contribution import split_by_contribution
 from alphalab.core.enums import OrderStatus, Side
 from alphalab.core.order_request import OrderRequest
+from alphalab.execution.algorithms import ScheduleCost
 from alphalab.execution.exceptions import ExecutionValidationError
 from alphalab.execution.report import ExecutionReport
 
@@ -118,6 +119,7 @@ __all__ = [
     "OrderTimeline",
     "ReferencePrice",
     "RejectionRate",
+    "ShortfallAgainstModel",
     "SlippageMeasurement",
     "TimelineMark",
     "VenueQuality",
@@ -127,6 +129,7 @@ __all__ = [
     "measure_latency",
     "measure_slippage",
     "rejection_rate",
+    "shortfall_against_model",
     "venue_quality",
 ]
 
@@ -607,6 +610,83 @@ def _reference_value(execution: OrderExecution, reference: ReferencePrice) -> De
     if reference is ReferencePrice.ARRIVAL:
         return execution.benchmarks.arrival_price
     return execution.benchmarks.interval_vwap
+
+
+@dataclass(frozen=True, slots=True)
+class ShortfallAgainstModel:
+    """A measured shortfall read beside what an impact model expected of it (v3.13).
+
+    The Almgren-Chriss shortfall (:class:`~alphalab.execution.algorithms.ScheduleCost`)
+    is measured from the price at arrival, so the measured figure set beside it
+    is the shortfall from arrival: the trading cost and the explicit costs. Not
+    the delay before arrival, which the model does not see, and not an
+    opportunity cost, which a completed schedule has none of.
+
+    Attributes:
+        order_id: The order.
+        currency: What every amount here is in -- the shortfall's; the model's
+            parameters are taken to be in it, which only the caller can know.
+        quantity: What filled, and what the model's schedule traded.
+        realized: ``trading_cost + explicit_costs``.
+        expected: The model's expected shortfall.
+        standard_deviation: The model's standard deviation of it.
+        difference: ``realized - expected``; positive cost more than expected.
+        standard_deviations: ``difference / standard_deviation``, or ``None``
+            when the model has no variance (a volatility of zero).
+    """
+
+    order_id: str
+    currency: str
+    quantity: Decimal
+    realized: Decimal
+    expected: Decimal
+    standard_deviation: Decimal
+    difference: Decimal
+    standard_deviations: Decimal | None
+
+
+def shortfall_against_model(
+    shortfall: ImplementationShortfall, model: ScheduleCost
+) -> ShortfallAgainstModel:
+    """Read an order's measured shortfall beside the model's expectation for its schedule.
+
+    Raises:
+        ExecutionValidationError: If part of the order did not fill (the model
+            costs a completed schedule), the filled quantity is not the
+            quantity the model's schedule trades, or the shortfall has no
+            trading cost because no arrival price was supplied.
+    """
+
+    if shortfall.unfilled_quantity != 0:
+        raise ExecutionValidationError(
+            f"Order {shortfall.order_id} left {shortfall.unfilled_quantity} unfilled; the model "
+            "costs a completed schedule, and an unfinished one is not it."
+        )
+    if shortfall.filled_quantity != model.quantity:
+        raise ExecutionValidationError(
+            f"Order {shortfall.order_id} filled {shortfall.filled_quantity} and the model's "
+            f"schedule trades {model.quantity}: a cost is compared with the cost of the same "
+            "quantity."
+        )
+    if shortfall.trading_cost is None:
+        raise ExecutionValidationError(
+            f"Order {shortfall.order_id} has no trading cost -- no arrival price was supplied -- "
+            "and the model's shortfall is measured from arrival."
+        )
+    realized = _add(shortfall.trading_cost, shortfall.explicit_costs)
+    difference = _sub(realized, model.expected)
+    return ShortfallAgainstModel(
+        order_id=shortfall.order_id,
+        currency=shortfall.currency,
+        quantity=shortfall.filled_quantity,
+        realized=realized,
+        expected=model.expected,
+        standard_deviation=model.standard_deviation,
+        difference=difference,
+        standard_deviations=(
+            None if model.standard_deviation == 0 else _div(difference, model.standard_deviation)
+        ),
+    )
 
 
 def measure_slippage(execution: OrderExecution, reference: ReferencePrice) -> SlippageMeasurement:

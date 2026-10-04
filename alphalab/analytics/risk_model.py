@@ -97,6 +97,7 @@ from alphalab.common.statistics import sample_covariance
 __all__ = [
     "CLASSIFICATION_SCHEME",
     "COVARIANCE_SCHEME",
+    "EXCHANGE_RATE_FACTOR_PREFIX",
     "FACTOR_LOADINGS_SCHEME",
     "Classification",
     "CorrelationMatrix",
@@ -104,10 +105,13 @@ __all__ = [
     "Definiteness",
     "DefinitenessKind",
     "FactorLoadings",
+    "FactorRisk",
     "FactorStructure",
     "RiskContributions",
+    "currency_loadings",
     "euler_decomposition",
     "factor_cholesky_pivots",
+    "factor_risk",
     "herfindahl_index",
     "portfolio_factor_exposures",
 ]
@@ -116,6 +120,10 @@ __all__ = [
 COVARIANCE_SCHEME: Final = "alphalab.covariance.v1"
 FACTOR_LOADINGS_SCHEME: Final = "alphalab.factor_loadings.v1"
 CLASSIFICATION_SCHEME: Final = "alphalab.classification.v1"
+
+#: How :func:`currency_loadings` names an exchange rate's factor: ``FX:EUR`` is
+#: the return of one euro measured in the reporting currency.
+EXCHANGE_RATE_FACTOR_PREFIX: Final = "FX:"
 
 #: Machine epsilon for IEEE-754 binary64, the precision every figure here is in.
 _EPSILON: Final = sys.float_info.epsilon
@@ -1876,4 +1884,204 @@ def euler_decomposition(
             }
         ),
         covariance_id=covariance.covariance_id,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Factor risk, and exchange rates as factors (v3.13)
+# --------------------------------------------------------------------------- #
+
+
+def currency_loadings(
+    denominations: Mapping[str, str],
+    reporting_currency: str,
+    *,
+    as_of: float | None,
+) -> FactorLoadings:
+    """Each asset's exposure to the exchange rate its value moves with, as loadings.
+
+    An asset denominated in currency ``c`` and measured in the reporting
+    currency ``R`` returns ``(1 + r_local)(1 + f_c) - 1`` in ``R``, ``f_c`` being
+    the return of one unit of ``c`` in ``R``. To first order that is ``r_local +
+    f_c``: the asset loads ``1`` on the factor ``FX:c``
+    (:data:`EXCHANGE_RATE_FACTOR_PREFIX`) and ``0`` on every other, and an asset
+    in ``R`` itself loads ``0`` on all of them. The cross term ``r_local f_c`` is
+    second order and is left to the specific variance -- as is ``r_local`` itself
+    unless other factors carry it.
+
+    A factor covariance over these factors is the caller's: the covariance of
+    the exchange rates' returns, measured over the same periods as the assets'
+    -- AlphaLab supplies no rate (ADR-0020). :meth:`CovarianceMatrix.factor_model`
+    then builds the asset covariance, and :func:`factor_risk` says how much of a
+    book's volatility the exchange rates carry. To model them beside other
+    factors, join these rows with the other model's into one
+    :meth:`FactorLoadings.of`.
+
+    Args:
+        denominations: Asset -> the ISO 4217 code its value is in.
+        reporting_currency: ``R``, the code every return is measured in.
+        as_of: The instant the denominations describe, or ``None``.
+
+    Raises:
+        AnalyticsValidationError: If an asset or code is blank, a code is not
+            three upper-case letters, or no asset is denominated outside the
+            reporting currency -- there is then no exchange rate to model.
+    """
+
+    def code(value: object, what: str) -> str:
+        text = _require_text(value, what)
+        if len(text) != 3 or not text.isascii() or not text.isalpha() or not text.isupper():
+            raise AnalyticsValidationError(
+                f"{what} {text!r} is not an ISO 4217 code: three upper-case letters."
+            )
+        return text
+
+    reporting = code(reporting_currency, "The reporting currency")
+    held = {
+        _require_text(asset, "asset"): code(currency, f"The currency of {asset!r}")
+        for asset, currency in denominations.items()
+    }
+    foreign = sorted({currency for currency in held.values() if currency != reporting})
+    if not foreign:
+        raise AnalyticsValidationError(
+            f"Every asset is denominated in {reporting}, the reporting currency: there is no "
+            "exchange rate to model."
+        )
+    factors = [f"{EXCHANGE_RATE_FACTOR_PREFIX}{currency}" for currency in foreign]
+    return FactorLoadings.of(
+        {
+            asset: {
+                factor: 1.0 if factor == f"{EXCHANGE_RATE_FACTOR_PREFIX}{currency}" else 0.0
+                for factor in factors
+            }
+            for asset, currency in held.items()
+        },
+        source=f"exchange-rate exposure by denomination, reported in {reporting}",
+        lineage={
+            factor: f"the return of one {factor[len(EXCHANGE_RATE_FACTOR_PREFIX) :]} in {reporting}"
+            for factor in factors
+        },
+        as_of=as_of,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class FactorRisk:
+    """A book's volatility, divided among its covariance's factors and specific risk.
+
+    Under a factor model ``C = B F B' + D`` the variance of weights ``w`` is
+    ``b' F b + sum_i w_i^2 D_i`` with ``b = B' w``, the book's factor exposures.
+    Volatility is homogeneous of degree one in the weights, so by Euler's
+    theorem it is the sum of ``b_k (F b)_k / sigma`` over the factors and
+    ``w_i^2 D_i / sigma`` over the assets -- each factor's contribution, and
+    each asset's specific contribution. A contribution is negative where a
+    factor hedges the rest of the book, and kept negative.
+
+    Attributes:
+        covariance_id: The factor-structured covariance read.
+        currency: What every return was measured in.
+        period: What each variance is per.
+        volatility: ``sqrt(w' C w)``, per period.
+        exposures: Factor -> ``b_k``.
+        factors: Factor -> its contribution to :attr:`volatility`.
+        specific: Asset -> its specific contribution, for every weighted asset.
+        factor_total: The factors' contributions, summed exactly-rounded.
+        specific_total: The specific contributions, summed likewise.
+        residual: ``factor_total + specific_total - volatility``: what floating
+            point left unreconciled.
+    """
+
+    covariance_id: str
+    currency: str
+    period: str
+    volatility: float
+    exposures: Mapping[str, float]
+    factors: Mapping[str, float]
+    specific: Mapping[str, float]
+    factor_total: float
+    specific_total: float
+    residual: float
+
+    def share(self, prefix: str) -> float:
+        """The summed contribution of every factor whose name begins with ``prefix``.
+
+        ``share(EXCHANGE_RATE_FACTOR_PREFIX)`` is the volatility the exchange
+        rates carry, when the loadings came from :func:`currency_loadings`.
+        """
+
+        return math.fsum(
+            value for factor, value in self.factors.items() if factor.startswith(prefix)
+        )
+
+
+def factor_risk(weights: Mapping[str, float], covariance: CovarianceMatrix) -> FactorRisk:
+    """Divide a book's volatility among the factors of a factor-model covariance.
+
+    ``weights`` are fractions of the capital the covariance's returns are
+    measured against, for assets the covariance covers; an asset left out holds
+    nothing.
+
+    Raises:
+        AnalyticsValidationError: If the covariance was not built by
+            :meth:`CovarianceMatrix.factor_model` (it then has no factor to
+            divide risk among), ``weights`` is empty or holds a non-finite weight
+            or an asset the covariance does not cover, or the book's volatility
+            is zero -- every contribution would then be zero over zero.
+    """
+
+    structure = covariance.factors
+    if structure is None:
+        raise AnalyticsValidationError(
+            f"Covariance {covariance.covariance_id[:12]} was not built from a factor model, so "
+            "it has no factor to divide risk among. Build it with CovarianceMatrix.factor_model."
+        )
+    if not weights:
+        raise AnalyticsValidationError(
+            "A risk decomposition of no weights is undefined, which is a refusal rather than zero."
+        )
+    loadings = structure.loadings
+    held = {
+        asset: _require_finite(weights[asset], f"weight of {asset!r}") for asset in sorted(weights)
+    }
+    loadings.require_covers(held, "A factor risk decomposition")
+    factors = loadings.factors
+    rows = {asset: loadings.values[loadings._position(asset)] for asset in held}
+    exposures = [
+        math.fsum(held[asset] * rows[asset][k] for asset in held) for k in range(len(factors))
+    ]
+    f = structure.factor_covariance.values
+    pushed = [
+        math.fsum(f[k][h] * exposures[h] for h in range(len(factors))) for k in range(len(factors))
+    ]
+    specific_variance = {
+        asset: held[asset] * held[asset] * structure.specific[loadings._position(asset)]
+        for asset in held
+    }
+    variance = math.fsum(
+        [
+            *(exposures[k] * pushed[k] for k in range(len(factors))),
+            *specific_variance.values(),
+        ]
+    )
+    if not variance > 0.0:
+        raise AnalyticsValidationError(
+            "The book's volatility is zero, so there is no risk to divide. Every contribution "
+            "would be zero over zero rather than an even split."
+        )
+    volatility = math.sqrt(variance)
+    by_factor = {factor: exposures[k] * pushed[k] / volatility for k, factor in enumerate(factors)}
+    by_asset = {asset: value / volatility for asset, value in specific_variance.items()}
+    factor_total = math.fsum(by_factor.values())
+    specific_total = math.fsum(by_asset.values())
+    return FactorRisk(
+        covariance_id=covariance.covariance_id,
+        currency=covariance.currency,
+        period=covariance.period,
+        volatility=volatility,
+        exposures=MappingProxyType(dict(zip(factors, exposures, strict=True))),
+        factors=MappingProxyType(by_factor),
+        specific=MappingProxyType(by_asset),
+        factor_total=factor_total,
+        specific_total=specific_total,
+        residual=math.fsum([factor_total, specific_total, -volatility]),
     )

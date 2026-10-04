@@ -57,10 +57,12 @@ The covariance must describe returns **measured in that reporting currency** --
 a euro stock's dollar return includes the euro's move -- and a covariance in
 another currency is refused rather than mixed. So the ``CURRENCY`` dimension is
 the risk carried by holdings *denominated in* each currency, measured in the
-reporting currency. It is not the risk of exchange-rate moves alone, which
-would need exchange-rate return series as factors; and a currency bucket's
-:attr:`BucketRisk.native_exposure` is reported in that currency, apart from its
-translated value.
+reporting currency. It is not the risk of exchange-rate moves alone: that is
+measured by putting the exchange rates' returns in as factors
+(:func:`~alphalab.analytics.risk_model.currency_loadings`, v3.13) and dividing
+the volatility among them (:func:`~alphalab.analytics.risk_model.factor_risk`).
+A currency bucket's :attr:`BucketRisk.native_exposure` is reported in that
+currency, apart from its translated value.
 
 Tolerance, stated
 -----------------

@@ -8,13 +8,13 @@ from alphalab.portfolio_optimizer.metrics import PortfolioMetrics
 def validate_risk_constraints(metrics: PortfolioMetrics, constraints: RiskConstraints) -> None:
     """Throws an error if the computed metrics breach risk limits.
 
-    Checks the three limits :class:`PortfolioMetrics` measures -- drawdown,
-    volatility and turnover. ``max_tracking_error``, ``max_leverage`` and
-    ``max_concentration`` have no measurement in ``PortfolioMetrics`` and are
-    **not** checked here; stated plainly since v3.8, whose audit found the
-    docstring implied otherwise. Leverage and concentration are enforced
-    *inside* a v3.8 construction by ``ConstraintSet.max_gross_exposure`` and
-    ``ConstraintSet.max_abs_weight``.
+    Checks every limit :class:`RiskConstraints` states -- drawdown, volatility
+    and turnover -- against what :class:`PortfolioMetrics` measures. Until
+    v3.13 the constraints also carried a tracking error, a leverage and a
+    concentration limit that nothing here could check; they are removed rather
+    than left looking like limits (see :class:`RiskConstraints`). Leverage and
+    concentration are enforced *inside* a v3.8 construction by
+    ``ConstraintSet.max_gross_exposure`` and ``ConstraintSet.max_abs_weight``.
     """
     if metrics.max_drawdown > constraints.max_drawdown_limit:
         raise ConstraintViolationError(

@@ -28,6 +28,7 @@ from alphalab.execution.algorithms import (
     MissingVolumePolicy,
     Participation,
     ScheduleBasis,
+    ScheduleCost,
     ScheduledSlice,
     Slicing,
     TrancheRandomization,
@@ -41,6 +42,7 @@ from alphalab.execution.algorithms import (
     record_child_execution,
     record_child_outcome,
     release_children,
+    schedule_cost,
     start_algorithm,
 )
 from alphalab.execution.capacity import (
@@ -117,6 +119,7 @@ from alphalab.execution.quality import (
     OrderTimeline,
     ReferencePrice,
     RejectionRate,
+    ShortfallAgainstModel,
     SlippageMeasurement,
     TimelineMark,
     VenueQuality,
@@ -126,6 +129,7 @@ from alphalab.execution.quality import (
     measure_latency,
     measure_slippage,
     rejection_rate,
+    shortfall_against_model,
     venue_quality,
 )
 from alphalab.execution.report import ExecutionReport
@@ -254,7 +258,9 @@ __all__ = [
     "RoutingObjective",
     "RoutingPolicy",
     "ScheduleBasis",
+    "ScheduleCost",
     "ScheduledSlice",
+    "ShortfallAgainstModel",
     "Slicing",
     "SlippageMeasurement",
     "SlippageModel",
@@ -291,7 +297,9 @@ __all__ = [
     "report",
     "reports_for_asset",
     "reports_for_order",
+    "schedule_cost",
     "select_route",
+    "shortfall_against_model",
     "start_algorithm",
     "validate_execution_parameters",
     "venue_quality",

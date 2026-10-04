@@ -30,8 +30,9 @@ v3.12 hardened it. v3.13 closes every item the ledger
 (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) assigned to it, and the four it had
 assigned to v4 — the shared names, the public API manifest, the persisted names
 and release certification — so that nothing required is left for later. A
-fresh audit of the whole tree found @@GATE@@ more things; each is fixed,
-implemented, removed or stated here, and none is deferred. ADR-0048 records the
+fresh audit of the whole tree found nineteen more things, among them two
+capabilities three ADRs had deferred and the ledger had never recorded; each is
+fixed, implemented, replaced or stated here, and none is deferred. ADR-0048 records the
 decisions. Ledger IDs are given in brackets.
 
 A run configured as in 3.12 behaves as in 3.12 — every new capability is off
@@ -81,6 +82,32 @@ table is long, and every row in it is checked against the public API's own diff
   randomization=TrancheRandomization(spread, seed))` draws each tranche from a
   SHA-256 counter stream of the seed; the spread and seed are part of the
   configuration's identity, so a rerun shows the same tranches.
+* **The shortfall a model expects** [FEA-008]: `schedule_cost(trades, *,
+  volatility, temporary_impact, permanent_impact, fixed_cost, horizon)` returns a
+  `ScheduleCost` — the Almgren–Chriss expectation and variance of a schedule's
+  shortfall from arrival, `E = γX²/2 + εΣ|n| + (η̃/τ)Σn²` and `V = σ²τΣx²`;
+  `UrgencyEstimate.cost(quantity, fixed_cost=)` costs the estimate's own
+  schedule, matching the paper's closed forms; and `shortfall_against_model`
+  reads a measured shortfall from arrival (trading and explicit costs) beside
+  it, in standard deviations (`ShortfallAgainstModel`). ADR-0044 deferred this;
+  the ledger had not recorded it.
+
+## Added — risk (`alphalab.analytics`, `alphalab.portfolio_optimizer`)
+
+* **Exchange-rate risk** [FEA-007]: `currency_loadings(denominations,
+  reporting_currency, as_of=)` loads each asset on `FX:<code>` by its
+  denomination (`EXCHANGE_RATE_FACTOR_PREFIX`), and `factor_risk(weights,
+  covariance)` divides a factor-model covariance's volatility among its factors
+  and each asset's specific risk (`FactorRisk`, whose `share("FX:")` is the
+  exchange rates' part). The risk budget's `CURRENCY` dimension stays what it
+  was — the risk of holdings denominated in a currency. ADR-0043 deferred this;
+  the ledger had not recorded it.
+* **A box uncertainty set on a book that may short** [FEA-009]:
+  `RobustMeanVariance` with a `BoxUncertainty` was refused unless every weight
+  was bounded below by zero. Its counterpart, `μ̂'w − δ'|w|`, is now solved by
+  the `LinearCosts` orthant method with the held weights at zero; an asset too
+  uncertain to hold either way is held at exactly zero and named among the
+  binding constraints. A long-only book is solved as before.
 
 ## Added — reproducibility (`alphalab.lifecycle`)
 
@@ -105,7 +132,8 @@ table is long, and every row in it is checked against the public API's own diff
   every implementation must choose are stated: Vixie cron's for combining the
   two day fields, and for daylight saving that a minute that does not exist
   does not fire and a repeated minute fires once, at its first occurrence. An
-  expression that can never fire is refused.
+  expression that can never fire is refused, and so is a shorthand such as
+  `@daily`, with the five fields it stands for.
 * `crypto.MaintenanceBasis` — see the liquidation price below.
 
 ## Added — the freeze (`docs/api`, `docs/audit`)
@@ -216,6 +244,24 @@ auto-deleveraging stay the venue's.
   `nowandfuture.md` state the current schema versions, and a test holds them
   to the constants [DOC-005].
 
+## Changed — the v1 portfolio optimizer [RSK-007, OPT-001]
+
+* **`RiskConstraints` states only what is checked**: it carried six limits, each
+  defaulting to `1.0`, and `validate_risk_constraints` checked three — nothing
+  read `max_tracking_error`, `max_leverage` or `max_concentration`, and nothing
+  wrote or read `PortfolioEngineState.risk_limits`. It is now
+  `RiskConstraints(max_drawdown_limit, max_volatility_limit, max_turnover)`,
+  each required and refused unless a finite number at least zero; the three
+  unchecked limits and the dead state map are removed. Leverage and
+  concentration are limits inside a construction
+  (`ConstraintSet.max_gross_exposure`, `max_abs_weight`).
+* **No constraint nobody configured**: `PortfolioEngine.optimize` clipped a
+  portfolio with no configured constraints by the defaults of
+  `WeightConstraints()` — long only, no weight above one — so the
+  minimum-variance portfolio of two correlated assets, `(1.333, −0.333)`, was
+  recorded under `MINIMUM_VARIANCE` as `(1.0, 0.0)`. It now applies the
+  constraints configured for the portfolio, and only those.
+
 ## Removed
 
 * `ScheduleType.BAR_BOUNDARY` [DAT-006]: declared and never implemented. A
@@ -225,9 +271,28 @@ auto-deleveraging stay the venue's.
 * The connector's aliases and their modules, `portfolio_optimizer.calculate_volatility`
   and `allocation.validate_intent` — above [API-001].
 
-## Changed — performance
+## Changed — performance [PRF-011, PRF-012]
 
-@@GATE@@
+Measured side by side on one machine, five interleaved rounds of 3.9.0, 3.11.0,
+3.12.0 and the 3.13 tree, each benchmark's own timing (medians; each ratio
+taken within a round, range in brackets). The changes made after the
+measurement — construction's box path, the risk model's and the execution
+analytics' new functions, the v1 optimizer — are on none of these four paths.
+
+| Benchmark | 3.9.0 | 3.11.0 | 3.12.0 | 3.13.0 | 3.13 ÷ 3.9 | 3.13 ÷ 3.11 | 3.13 ÷ 3.12 |
+|---|---|---|---|---|---|---|---|
+| OMS, 100k order lifecycles | 13.23 s | 10.80 s | 10.37 s | 10.67 s | 0.81x (0.72–0.83) | 0.99x (0.95–1.03) | 1.03x (0.98–1.05) |
+| Backtest, 4k records | 3.49 s | 3.73 s | 4.03 s | 4.05 s | 1.14x (1.12–1.24) | 1.06x (1.02–1.15) | 0.98x (0.94–1.06) |
+| Replay, 4k records | 3.89 s | 3.98 s | 4.32 s | 4.42 s | 1.15x (1.05–1.19) | 1.11x (1.04–1.14) | 1.00x (0.97–1.08) |
+| Execution pipeline, 4k events | 3.46 s | 3.59 s | 3.71 s | 3.72 s | 1.07x (1.04–1.17) | 1.03x (1.00–1.13) | 1.02x (0.94–1.08) |
+| Portfolio engine, fills per second | 20.4k | 12.7k | 12.7k | 12.7k | 1.61x slower (1.58–1.67) | 1.01x slower (0.96–1.06) | 1.01x slower (0.98–1.03) |
+
+v3.13 adds nothing measurable to 3.12: every median against it lies between
+0.98x and 1.03x, and every range spans 1.0. The budget PRF-006 states — the OMS
+within 1.1x of 3.9, the one-asset paths within 1.25x, the portfolio
+micro-benchmark within 2.0x — holds in every round; the backtest's worst round,
+1.24x, is the closest it comes. Checkpoint segments are flat across a run
+(PRF-011, above).
 
 ## Migrating from 3.12
 
@@ -258,6 +323,10 @@ auto-deleveraging stay the venue's.
 | built a `runtime.CheckpointMark` yourself, from a stored digest and ends | nothing: its new `entries` default to none, and the next segment writes the per-order maps whole |
 | read a checkpoint chain with your own code | read `maps` before the run: a segment's `oms.orders`, `oms.completed_orders` and `execution.reports` hold changes only when its `whole` is false |
 | read a 3.12 snapshot or checkpoint chain | nothing: pipeline 6 → 7 and checkpoint 1 → 2 are read |
+| built `portfolio_optimizer.RiskConstraints()` from its defaults, or set `max_tracking_error`, `max_leverage` or `max_concentration` | state `max_drawdown_limit`, `max_volatility_limit` and `max_turnover`; constrain leverage and concentration inside a construction (`ConstraintSet.max_gross_exposure`, `max_abs_weight`) |
+| read `PortfolioEngineState.risk_limits` | nothing: nothing ever wrote it, and it is removed |
+| relied on `PortfolioEngine.optimize` clipping a portfolio with no configured constraints | configure them: `apply_constraints(state, portfolio_id, WeightConstraints(), ts)` clips as before |
+| caught the refusal of a `BoxUncertainty` on a book that may short | nothing: it is solved |
 
 ## Found during this release
 
@@ -273,6 +342,22 @@ auto-deleveraging stay the venue's.
   Corrected and held to the code by a test.
 * **DOC-007** (stale since 2.16): `portfolio/valuation.py` said the rate source
   "has not arrived"; 2.16 delivered it. Corrected.
+* **BND-005** (shipped since 2.5): importing the research path loaded the
+  market-data transports — `socket`, `ssl`, `http.client` — because one module
+  imported a wire record through the transports' package. Nothing connected;
+  the import moved, and a fresh-interpreter test pins it.
+* **TST-015** (a gap of method, since the pre-v4 audit): the audit inventoried
+  ROADMAP's boundaries and optional list, not the "Known limitations" and
+  "DEFERRED" lists ADR-0042, ADR-0043 and ADR-0044 carry. Of their 52 items, 23
+  had no ledger entry: two deferred capabilities, now implemented (FEA-007,
+  FEA-008), and 21 limitations — one now lifted (FEA-009), one hiding a defect
+  (RSK-007, whose classification found OPT-001), the rest kept with their
+  reasons (LIM-001, LIM-002, LIM-003). A test now holds every ADR's limitations
+  and deferrals to closed ledger entries.
+* **PRF-012** (shipped in 3.12.0): classified — below.
+* **BND-006**: the WebSocket client's two stated omissions, `permessage-deflate`
+  and the server side, are recorded as kept; a frame that sets a reserved bit is
+  refused, which is what makes the first safe.
 * **DOC-006** and **TST-014** (gaps of method): nothing checked that a release's
   migration table named every changed API, or that the tests the ledger cites
   exist — 3.12 found both by hand. Both are tests now; the second caught two
@@ -318,7 +403,23 @@ or a boundary, each with its reason (ADR-0048, `ROADMAP.md`):
   can produce another analytics float. `certify_release.py --check` on that host
   says which.
 
-@@GATE@@ (performance classification)
+* **The one-asset paths against 3.11** [PRF-012, an explicit limitation]: a
+  backtest 1.06x, a replay 1.11x, the pipeline 1.03x. Profiling a 2,000-record
+  backtest (median of three) found 2.6% more calls and no function accounting
+  for more than about 0.6% of the run: the difference is the per-record checks
+  of the capabilities v3.12 put on the one canonical path — the subscription
+  index, retention, the session-close, classification and strategy-ceiling
+  checks — and the state that carries their fields, which a run pays whether or
+  not it configures them. Removing them would take a second path per
+  configuration, which the architecture refuses. (The largest single entry,
+  `OrderId.__hash__`, is the garbage collector's pause charged to the next
+  function entered; the same code in 3.11 charged it to
+  `PortfolioEngine.__post_init__`.)
+* **The limitations the release ADRs state** [LIM-001, LIM-002, LIM-003]: each
+  re-read against the code and kept with its reason — among them that maximum
+  diversification takes no turnover limit or volatility cap, that risk parity's
+  budgets are exact and long-only, and that a VWAP assumes volume uniform within
+  a profile interval it covers in part.
 
 ---
 

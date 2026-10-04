@@ -83,6 +83,17 @@ against named references. `alphalab.core`, `broker`, `execution`, `runtime` and
 `lifecycle` deepen; no package and no package edge is added, and no snapshot
 schema changes. ADR-0044.
 
+**v3.13.0** is the last of four **pre-v4 releases**, and leaves nothing for
+later. It closes every item the ledger assigned to it and the four it had
+assigned to v4.0.0 — American options and a volatility term structure, the
+optimal split, an estimated urgency and randomized icebergs, a rerun harness, a
+lock-file reader, cron timers, an exact liquidation price, checkpoint segments
+that no longer grow with a run's orders — and does the freeze's own work: one
+name for one contract across the public API, the API and every persisted name
+recorded as data and held by tests, and a certificate of what the build was
+checked to do (ADR-0048). Every boundary and limitation was re-read against the
+code and kept with its reason; nothing is assigned to a later release.
+
 **v3.12.0** is the third of four **pre-v4 releases**: numerical methods right
 at the edges of their range, durable state that restores what was captured,
 costs that follow the work at 10,000 assets, 1,000 strategies and 100 venues,
@@ -225,6 +236,32 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.13.0 — the final pre-v4 release
+
+- **Options** (NUM-006, BDY-016, FEA-005, BDY-015): American exercise and
+  discrete dividends on a Cox–Ross–Rubinstein lattice, reproducing Hull's
+  table; implied volatility through the lattice; interpolation across expiries,
+  linear in total variance, by name.
+- **Execution** (BRK-005, OFE-024, BRK-006, OFE-025): the optimal split of an
+  order across venues; an Almgren–Chriss urgency estimated from stated inputs;
+  iceberg tranches drawn from a seed.
+- **Reproducibility** (REP-003, OFE-020, OFE-019): a run re-executed from its
+  manifest, its divergence located; a lock file read into a dependency
+  manifest.
+- **Scheduling and crypto** (DAT-006, NUM-014): cron timers on a stated zone's
+  wall clock, `BAR_BOUNDARY` removed; the liquidation price solved for a stated
+  maintenance basis, with fees and funding.
+- **Persistence** (PRF-011, PER-007, DOC-005): checkpoint segments that carry
+  only the orders that changed; a qualified enum name read only under its own
+  class; durability tables held to the code.
+- **The freeze** (API-001, API-002, PER-004, FEA-006, DOC-006, TST-014): 52
+  shared public names reduced to 31, each with its reason; the public API
+  recorded per release and every change to it required in the CHANGELOG; the
+  persisted names pinned; a release certificate run in CI; the ledger's cited
+  tests checked to exist.
+- **Boundaries** (BND-005): the research path no longer loads the market-data
+  transports.
 
 ## v3.12.0 — the pre-v4 hardening release
 
@@ -1016,24 +1053,32 @@ compared different units, the daily loss limit that was never enforced, the net
 exposure limit nothing read, and `ingest_rows` identifying rows by the source
 its caller named — are fixed in v3.10 (KD-001–004).
 
-What remains known is in the pre-v4 ledger, each with an ID and a release.
+What was known is in the pre-v4 ledger, each with an ID and a release.
 v3.12 fixed the research engine's daily assumption and 0–100 scores (RES-001),
 the single-currency `BacktestResult.valuation` (API-004), the calendar-less
 DAY order (EXE-010), the single-sample benchmark ceilings (TST-011), the three
 numerical defects (NUM-003, NUM-004, NUM-007) and the unflushed directory
-(PER-003). What is still known:
+(PER-003). v3.13 fixed the liquidation price (NUM-014), the broker codec's
+unread qualifier (PER-007) and the research path's network imports (BND-005),
+and classified the two items v3.12 left open. The ledger holds no open defect;
+what remains is stated as a limitation, with its reason:
 
-- **Memory** (stated by PRF-004; classified by the v3.13 audit): the OMS order
-  book, execution reports by order, and a live session's routed and settled
-  orders grow with the orders a run places — retention bounds the logs, not
-  these, and a checkpoint segment carries the whole order book.
-- **Performance** (PRF-006 — bounded, not eliminated): against v3.9 on one
-  machine (five interleaved rounds, measured for v3.12.0), the portfolio-engine
-  micro-benchmark runs at 1.51× v3.9's time (1.50–1.61; exact per-currency
-  totals and instrument economics on every fill); a one-asset backtest 1.15×,
-  replay 1.10×, the pipeline 1.03× and the OMS 0.87×. Against v3.11 the
-  one-asset paths cost up to 7% more, with no single place it is spent
-  (classified by the v3.13 audit).
+- **Memory** (PRF-011, an explicit limitation): the OMS order book, execution
+  reports by order, and a live session's routed and settled orders hold an
+  entry for every order a run places — exactly-once handling of a venue's late
+  or repeated report needs the order it names. Retention bounds the logs, not
+  these. Since v3.13 a checkpoint segment carries only the orders that changed,
+  so checkpoints no longer pay for them.
+- **Performance** (PRF-006, bounded; PRF-012, an explicit limitation): against
+  v3.9 on one machine (five interleaved rounds, measured for v3.13.0), the
+  portfolio-engine micro-benchmark runs at 1.61× v3.9's time (1.58–1.67; exact
+  per-currency totals and instrument economics on every fill), a one-asset
+  backtest 1.14×, replay 1.15×, the pipeline 1.07× and the OMS 0.81× — inside
+  PRF-006's budget in every round. Against v3.11 the one-asset paths cost
+  between nothing and 11% more: no single place spends it, but the per-record
+  checks of the capabilities v3.12 put on the one canonical path and the state
+  they carry, which a run pays whether or not it configures them. v3.13 adds
+  nothing to v3.12.
 
 ---
 
@@ -1060,9 +1105,12 @@ the disposition the pre-v4 audit gave it.
 | A durable home for progressions, fingerprints, manifests and reports | OFE-016 | v3.12 — delivered |
 | Health evaluated over a window | OFE-017 | v3.12 — delivered |
 | Book-to-mirror reconciliation across several brokers' accounts | OFE-023 | v3.12 — delivered |
-| A lock-file reader | OFE-019 | v3.13 |
-| A rerun harness | OFE-020 | v3.13 |
-| An optimal split; estimated urgency and randomized iceberg tranches | OFE-024, OFE-025 | v3.13 |
+| A lock-file reader | OFE-019 | v3.13 — delivered |
+| A rerun harness | OFE-020 | v3.13 — delivered |
+| An optimal split; estimated urgency and randomized iceberg tranches | OFE-024, OFE-025 | v3.13 — delivered |
+
+As of v3.13.0 every planned item is delivered; the ledger assigns nothing to a
+later release.
 
 **Kept as deliberate boundaries**: statistical regime models, which need an
 estimation step with an identity (OFE-010); a half-life fitted to a decay
@@ -1070,7 +1118,8 @@ profile and derived alignment for a comparison, each of which would report a
 fit or a pairing as a measurement (OFE-007, OFE-018); per-strategy sub-ledgers
 in `PortfolioEngine`, whose question the contribution ledger already answers
 (OFE-015); process supervision, hot reload and hook timeouts, which are the
-host's (OFE-026).
+host's (OFE-026) — strategy-API versioning, the part of that item a library can
+own, is held since v3.13 by the public API manifest.
 
 **External**: a vendor adapter package (OFE-008) — a venue's request shapes
 belong to the application that connects to it.
@@ -1138,6 +1187,13 @@ something to work; a fill during a pending cancel keeps the cancel pending in
 the mirror; `validate_cancel_request` refuses `EXPIRED` and `replace_order`
 validates an amendment; and `broker.reconcile` refuses duplicated remote records
 and a remote account in another currency.
+
+**v3.10.0–v3.13.0**, the pre-v4 releases, made the breaking changes the pre-v4
+audit required, each listed in its CHANGELOG entry's migration table. v3.13.0's
+are renames and removals that give one name one contract (API-001), taken
+without aliases so that v4 freezes one spelling; since v3.13 a test diffs each
+release's public API with the previous release's and requires every removed or
+rebound name in that release's CHANGELOG section (DOC-006).
 
 After v3.0.0, the bar for a change rises: the invariants listed in
 `nowandfuture.md` are frozen, and a change to any of them is a major release with
