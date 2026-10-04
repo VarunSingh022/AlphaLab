@@ -235,7 +235,7 @@ class _Flattener(_Trader):
 
 
 def test_stopping_delivers_shutdown_then_stop_and_rests_the_flattening_order() -> None:
-    from alphalab.strategy.state import LifecycleState
+    from alphalab.strategy.state import StrategyStatus
 
     flattener = _Flattener("A")
     state = _step(_pipeline(_runtime(("A", flattener, FEEDBACK))), 2.0).state
@@ -245,7 +245,7 @@ def test_stopping_delivers_shutdown_then_stop_and_rests_the_flattening_order() -
     stopped, intents, orders = ExecutionPipeline.stop_strategies(state, context_factory, 5.0)
 
     assert flattener.hooks == ["shutdown", "stop"]
-    assert stopped.strategy.strategies["A"].status is LifecycleState.STOPPED
+    assert stopped.strategy.strategies["A"].status is StrategyStatus.STOPPED
     assert [intent.target for intent in intents] == [Decimal("-10")]
     (order,) = orders
     assert (order.quantity, order.side.value, order.created_at) == (Decimal("10"), "sell", 5.0)
@@ -261,7 +261,7 @@ def test_stopping_delivers_shutdown_then_stop_and_rests_the_flattening_order() -
 
 
 def test_a_shutdown_hook_that_raises_fails_the_strategy_and_places_nothing() -> None:
-    from alphalab.strategy.state import LifecycleState
+    from alphalab.strategy.state import StrategyStatus
 
     class Broken(_Flattener):
         def on_shutdown(self, context: StrategyContext) -> Iterable[Intent]:
@@ -271,7 +271,7 @@ def test_a_shutdown_hook_that_raises_fails_the_strategy_and_places_nothing() -> 
     stopped, intents, orders = ExecutionPipeline.stop_strategies(state, context_factory, 5.0)
 
     failed = stopped.strategy.strategies["A"]
-    assert failed.status is LifecycleState.FAILED
+    assert failed.status is StrategyStatus.FAILED
     assert "cannot flatten" in (failed.last_error or "")
     assert intents == () and orders == ()
 
@@ -290,7 +290,7 @@ def test_a_run_stops_its_strategies_only_when_told_to() -> None:
     from alphalab.persistence import deserialize, serialize
     from alphalab.runtime.run import ExecutionMode, RunConfig, RunEngine
     from alphalab.runtime.snapshot import capture, from_primitives
-    from alphalab.strategy.state import LifecycleState
+    from alphalab.strategy.state import StrategyStatus
 
     flattener = _Flattener("A")
     config = RunConfig(
@@ -305,15 +305,15 @@ def test_a_run_stops_its_strategies_only_when_told_to() -> None:
     record = MarketRecord("DS", 2.0, sized_quote(ASSET, 2.0, Decimal("100"), Decimal("1000")))
     run, _ = RunEngine.advance(run, record, context_factory)
     finalized = RunEngine.finalize(run)
-    assert finalized.pipeline.strategy.strategies["A"].status is LifecycleState.RUNNING
+    assert finalized.pipeline.strategy.strategies["A"].status is StrategyStatus.RUNNING
     assert flattener.hooks == []
 
     stopped = RunEngine.stop(run, context_factory)
     assert flattener.hooks == ["shutdown", "stop"]
     assert [order.quantity for order in stopped.working_orders] == [Decimal("10")]
     payload = deserialize(serialize(capture(stopped.pipeline)))
-    assert payload["strategy"][0]["status"] == "LifecycleState.STOPPED"
-    assert from_primitives(payload).strategy[0].status is LifecycleState.STOPPED
+    assert payload["strategy"][0]["status"] == "StrategyStatus.STOPPED"
+    assert from_primitives(payload).strategy[0].status is StrategyStatus.STOPPED
 
 
 # --------------------------------------------------------------------------- #

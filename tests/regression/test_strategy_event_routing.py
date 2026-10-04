@@ -58,7 +58,7 @@ from alphalab.strategy.context import (
 from alphalab.strategy.dispatcher import Dispatcher
 from alphalab.strategy.events import FillEvent, Intent, OrderEvent, TimerEvent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.strategy.state import LifecycleState, StrategyState
+from alphalab.strategy.state import StrategyState, StrategyStatus
 
 ASSET = "ASSET-1"
 
@@ -121,7 +121,7 @@ class Recorder(BaseStrategy):
 
 
 def _running(recorder: Recorder) -> StrategyState:
-    return StrategyState(strategy_id="S1", instance=recorder, status=LifecycleState.RUNNING)
+    return StrategyState(strategy_id="S1", instance=recorder, status=StrategyStatus.RUNNING)
 
 
 def _tick() -> Tick:
@@ -217,7 +217,7 @@ def test_a_foreign_event_sharing_a_canonical_name_is_not_routed() -> None:
     after, intents, lifecycle = Dispatcher.dispatch_event(state, foreign, _context(), 1.0)
 
     assert recorder.calls == [], "a foreign class must not reach a market hook"
-    assert after.status is LifecycleState.RUNNING, "and must not fail the strategy"
+    assert after.status is StrategyStatus.RUNNING, "and must not fail the strategy"
     assert intents == ()
     assert lifecycle == ()
 
@@ -240,7 +240,7 @@ def test_the_marketdata_events_that_collide_by_name_are_not_routed_either() -> N
         WireTradeReceived("e2", 1.0, "PROVIDER", ASSET),
     ):
         after, _, _ = Dispatcher.dispatch_event(state, foreign, _context(), 1.0)
-        assert after.status is LifecycleState.RUNNING
+        assert after.status is StrategyStatus.RUNNING
 
     assert recorder.calls == []
 

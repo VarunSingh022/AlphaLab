@@ -121,8 +121,8 @@ from alphalab.strategy.events import (
     TimerEvent,
 )
 from alphalab.strategy.protocol import defines_on_observation, defines_on_slice
-from alphalab.strategy.state import LifecycleState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
+from alphalab.strategy.state import StrategyStatus
 from alphalab.strategy.subscription import Topic, market_topic
 
 ContextFactory = Callable[[str], StrategyContext]
@@ -2036,7 +2036,7 @@ def wants_observation(strategies: StrategyRuntimeState, subject: str) -> bool:
 
     held = strategies.strategies
     return any(
-        held[strategy_id].status is LifecycleState.RUNNING
+        held[strategy_id].status is StrategyStatus.RUNNING
         and defines_on_observation(held[strategy_id].instance)
         for strategy_id in strategies.reach.reaching(Topic.OBSERVATIONS, subject)
     )
@@ -2052,7 +2052,7 @@ def wants_slices(strategies: StrategyRuntimeState) -> bool:
 
     held = strategies.strategies
     return any(
-        held[strategy_id].status is LifecycleState.RUNNING
+        held[strategy_id].status is StrategyStatus.RUNNING
         and defines_on_slice(held[strategy_id].instance)
         for strategy_id in strategies.reach.reaching(Topic.SLICES)
     )
@@ -2082,7 +2082,7 @@ def _wants_feedback(strategies: StrategyRuntimeState) -> bool:
     held = strategies.strategies
     reach = strategies.reach
     return any(
-        held[strategy_id].status is LifecycleState.RUNNING
+        held[strategy_id].status is StrategyStatus.RUNNING
         for topic in (Topic.FILLS, Topic.ORDERS)
         for strategy_id in reach.reaching(topic)
     )

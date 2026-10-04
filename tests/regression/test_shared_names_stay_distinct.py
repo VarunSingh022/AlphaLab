@@ -1293,7 +1293,7 @@ def test_the_two_currency_breakdowns_measure_different_things() -> None:
 
 def test_the_three_lifecycle_state_machines_ask_three_questions() -> None:
     """``ModelStage`` asks whether a *registered artifact* may be promoted.
-    ``strategy.state.LifecycleState`` asks whether an *instance in a session* is
+    ``strategy.state.StrategyStatus`` asks whether an *instance in a session* is
     running. ``StrategyLifecycleStage`` asks how far a *strategy* has travelled
     from research to live money.
 
@@ -1310,7 +1310,7 @@ def test_the_three_lifecycle_state_machines_ask_three_questions() -> None:
         StrategyLifecycleStage,
     )
     from alphalab.model_registry.registry import ModelStage
-    from alphalab.strategy.state import LifecycleState as InstanceState
+    from alphalab.strategy.state import StrategyStatus as InstanceState
 
     progression = {stage.name for stage in StrategyLifecycleStage}
     promotable = {stage.name for stage in ModelStage}
@@ -1751,7 +1751,7 @@ def test_the_three_new_states_are_not_the_runtime_state() -> None:
     assert "status" in runtime and "status" not in learned
     assert "lineage" in learned and "lineage" not in detector
     assert "candidate" in detector
-    assert PIPELINE_SNAPSHOT_SCHEMA == 6  # moved by v3.10 to v3.12, not by adaptive state
+    assert PIPELINE_SNAPSHOT_SCHEMA == 7  # moved by v3.10 to v3.13, not by adaptive state
 
 
 # --------------------------------------------------------------------------- #

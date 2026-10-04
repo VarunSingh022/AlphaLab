@@ -218,8 +218,8 @@ from alphalab.strategy.events import (
     TimerEvent,
 )
 from alphalab.strategy.protocol import StrategyProtocol, StrategyStateProtocol
-from alphalab.strategy.state import LifecycleState, StrategyState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
+from alphalab.strategy.state import StrategyState, StrategyStatus
 from alphalab.strategy.subscription import SUBSCRIBE_ALL
 
 __all__ = [
@@ -286,9 +286,14 @@ __all__ = [
 #: policy (``config.retention``) with, for each log it trimmed, how many entries
 #: were dropped before those recorded (``dropped``, ledger PRF-004), and each
 #: trade print's aggressor side, when its source reported one (``aggressor`` on
-#: every tick, ledger FEA-004). Every earlier version is read through
-#: :data:`PIPELINE_SCHEMA_HISTORY`.
-PIPELINE_SNAPSHOT_SCHEMA: Final = 6
+#: every tick, ledger FEA-004).
+#:
+#: Version 7 (v3.13) writes each strategy's status under the enum's v3.13 name,
+#: ``StrategyStatus.RUNNING`` where version 6 wrote ``LifecycleState.RUNNING``
+#: (ledger API-001): a plain enum member is persisted with its class name, so
+#: the name is part of the format (ledger PER-004). Every earlier version is
+#: read through :data:`PIPELINE_SCHEMA_HISTORY`.
+PIPELINE_SNAPSHOT_SCHEMA: Final = 7
 
 _SUBSYSTEM: Final = "pipeline"
 
@@ -651,6 +656,31 @@ def _v5_ticks(value: Any) -> Any:
     return value
 
 
+#: How a version-6 strategy status begins: the enum's name before v3.13.
+_V6_STATUS_PREFIX: Final = "LifecycleState."
+
+
+def _v6_to_v7(payload: dict[str, Any]) -> dict[str, Any]:
+    """Write each strategy's status under the enum's v3.13 name.
+
+    A plain enum member is persisted as ``ClassName.MEMBER``, so renaming the
+    strategy runtime's ``LifecycleState`` to
+    :class:`~alphalab.strategy.state.StrategyStatus` (ledger API-001) changed
+    how a status is written and nothing about what it means:
+    ``LifecycleState.RUNNING`` was always ``StrategyStatus.RUNNING``. A status
+    written any other way is left as it is, for the decoder to refuse by name.
+    """
+
+    strategies: list[Any] = []
+    for record in payload["strategy"]:
+        status = record.get("status") if isinstance(record, dict) else None
+        if isinstance(status, str) and status.startswith(_V6_STATUS_PREFIX):
+            member = status.removeprefix(_V6_STATUS_PREFIX)
+            record = {**record, "status": f"{StrategyStatus.__name__}.{member}"}
+        strategies.append(record)
+    return {**payload, "strategy": strategies}
+
+
 #: How every pipeline payload a release has written is read by this one.
 #:
 #: A version-1 payload is still missing nothing: it records every field its
@@ -693,6 +723,11 @@ PIPELINE_SCHEMA_HISTORY: Final = SchemaHistory(
             "whether the budget enforces per-strategy ceilings, classification limits, the "
             "retention policy with what each trimmed log dropped, and each print's aggressor",
             upgrade=_v5_to_v6,
+        ),
+        SchemaStep(
+            6,
+            "version 7 writes each strategy's status under the enum's v3.13 name, StrategyStatus",
+            upgrade=_v6_to_v7,
         ),
     ),
 )
@@ -878,7 +913,7 @@ class StrategyRecord:
     """
 
     strategy_id: str
-    status: LifecycleState
+    status: StrategyStatus
     config: Any
     subscriptions: tuple[str, ...]
     last_error: str | None
@@ -2208,7 +2243,7 @@ def _strategy_record(value: Any, where: str, version: int) -> StrategyRecord:
 
     return StrategyRecord(
         strategy_id=as_str(require(payload, "strategy_id"), f"{where}.strategy_id"),
-        status=as_named_enum(LifecycleState, require(payload, "status"), f"{where}.status"),
+        status=as_named_enum(StrategyStatus, require(payload, "status"), f"{where}.status"),
         config=require(payload, "config"),
         subscriptions=tuple(
             as_str(item, f"{where}.subscriptions[{index}]")

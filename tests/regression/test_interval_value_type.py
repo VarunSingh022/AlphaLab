@@ -210,7 +210,7 @@ def test_a_version_4_payload_is_upgraded_to_interval_codes() -> None:
     # meant "not reported".
     assert bars["BAR-A_30m"].timeframe == TimeFrame.M1
     assert bars["BAR-A_30m"].vwap == Decimal("0")
-    assert decoded.schema_version == 6  # read through every upgrade to the current version
+    assert decoded.schema_version == 7  # read through every upgrade to the current version
 
 
 def test_a_version_4_spelling_in_a_version_5_payload_is_refused() -> None:

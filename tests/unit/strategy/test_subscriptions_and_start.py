@@ -29,7 +29,7 @@ from alphalab.strategy.events import (
 )
 from alphalab.strategy.exceptions import StrategyValidationError
 from alphalab.strategy.protocol import BaseStrategy, SliceStrategyProtocol, StrategyProtocol
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 from alphalab.strategy.subscription import (
     SUBSCRIBE_ALL,
     Subscriptions,
@@ -94,7 +94,7 @@ def _runtime(*entries: tuple[str, StrategyProtocol, frozenset[str]]) -> RuntimeS
     return RuntimeState(
         strategies={
             strategy_id: StrategyState(
-                strategy_id, LifecycleState.RUNNING, instance, subscriptions=subscriptions
+                strategy_id, StrategyStatus.RUNNING, instance, subscriptions=subscriptions
             )
             for strategy_id, instance, subscriptions in entries
         }
@@ -145,7 +145,7 @@ def test_a_declaration_outside_the_grammar_is_refused(declared: set[Any], messag
 
 
 def test_a_strategy_that_declared_nothing_receives_everything() -> None:
-    state = StrategyState("S", LifecycleState.RUNNING, BaseStrategy())
+    state = StrategyState("S", StrategyStatus.RUNNING, BaseStrategy())
 
     assert state.subscriptions == frozenset({SUBSCRIBE_ALL})
     assert state.routing.everything
@@ -153,7 +153,7 @@ def test_a_strategy_that_declared_nothing_receives_everything() -> None:
 
 def test_an_invalid_declaration_is_refused_when_the_state_is_built() -> None:
     with pytest.raises(StrategyValidationError, match="names no topic"):
-        StrategyState("S", LifecycleState.RUNNING, BaseStrategy(), subscriptions=frozenset({"x"}))
+        StrategyState("S", StrategyStatus.RUNNING, BaseStrategy(), subscriptions=frozenset({"x"}))
 
 
 def test_topics_are_exact_about_the_canonical_vocabulary() -> None:
@@ -225,7 +225,7 @@ def test_the_slice_hook_is_optional() -> None:
     )
 
     assert intents == ()
-    assert after.strategies["TEN"].status is LifecycleState.RUNNING
+    assert after.strategies["TEN"].status is StrategyStatus.RUNNING
 
 
 # --------------------------------------------------------------------------- #
@@ -274,7 +274,7 @@ def test_a_raising_on_start_fails_the_strategy_before_the_event_reaches_it() -> 
     state, intents = StrategyEngine.process_event(state, _quote_event(A), context_factory, 1.0)
 
     failed = state.strategies["S"]
-    assert failed.status is LifecycleState.FAILED
+    assert failed.status is StrategyStatus.FAILED
     assert "on_start" in (failed.last_error or "") and "no warmup data" in (failed.last_error or "")
     assert broken.calls == [] and intents == ()
     assert [

@@ -80,10 +80,10 @@ def test_the_pipeline_schema_does_not_move() -> None:
     """
 
     # v2.14 did not move it; v3.10 did, to 4, v3.11 to 5 (a bar's interval code,
-    # DAT-005) and v3.12 to 6 (venue calendars, EXE-010), each reading every
-    # earlier version.
-    assert PIPELINE_SNAPSHOT_SCHEMA == 6
-    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4, 5, 6)
+    # DAT-005), v3.12 to 6 (venue calendars, EXE-010) and v3.13 to 7 (the
+    # strategy status enum's name, API-001), each reading every earlier version.
+    assert PIPELINE_SNAPSHOT_SCHEMA == 7
+    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4, 5, 6, 7)
 
 
 @pytest.mark.parametrize(

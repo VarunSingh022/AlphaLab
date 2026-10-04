@@ -125,6 +125,14 @@ REMOVED_NAMES = {
         "validate_execution",
         "validate_order_submission",
     ),
+    # v3.13 (ledger API-001): names one package used for another package's
+    # concept, renamed without an alias -- the strategy runtime's status, the
+    # scheduler's dated session, a cross-validation index split and a delisting
+    # return.
+    "alphalab.strategy": ("LifecycleState",),
+    "alphalab.scheduler": ("TradingSession",),
+    "alphalab.ml": ("Split",),
+    "alphalab.factor_library": ("Delisting",),
     "alphalab.reporting": (
         "Dashboard",
         "DashboardCard",

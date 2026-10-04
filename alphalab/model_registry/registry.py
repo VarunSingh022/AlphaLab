@@ -64,7 +64,7 @@ class ModelStage(Enum):
     artifact*. :mod:`alphalab.lifecycle` stages strategy versions with the same
     enum rather than defining a parallel one; the name is historical, from when
     trained models were the only thing staged. It is deliberately unrelated to
-    :class:`alphalab.strategy.state.LifecycleState`, which tracks a strategy
+    :class:`alphalab.strategy.state.StrategyStatus`, which tracks a strategy
     *instance running inside a session* -- a different axis entirely.
     """
 

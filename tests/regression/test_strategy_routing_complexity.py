@@ -23,7 +23,7 @@ from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 from tests.integration.harness import context_factory
 from tests.regression._timing import CLOCK, timings
 
@@ -63,7 +63,7 @@ def _strategies(idle: int) -> dict[str, StrategyState]:
         strategy_id = f"S{index:05d}"
         strategies[strategy_id] = StrategyState(
             strategy_id,
-            LifecycleState.RUNNING,
+            StrategyStatus.RUNNING,
             _Quiet(),
             subscriptions=frozenset({f"bars:{traded}"}),
             started=True,

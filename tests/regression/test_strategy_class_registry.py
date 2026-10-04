@@ -49,7 +49,7 @@ from alphalab.strategy.registry import (
     instances_for,
     runtime_for,
 )
-from alphalab.strategy.state import LifecycleState
+from alphalab.strategy.state import StrategyStatus
 
 
 class MomentumStrategy(BaseStrategy):
@@ -266,7 +266,7 @@ def test_the_constructed_strategy_actually_runs() -> None:
     from alphalab.strategy.state import StrategyState
 
     strategy = _registry().construct("momentum-1", {"size": 4.0})
-    state = StrategyState("momentum-1", LifecycleState.RUNNING, strategy)
+    state = StrategyState("momentum-1", StrategyStatus.RUNNING, strategy)
     context = StrategyContext(
         portfolio=NoPortfolio(),
         market=NoMarket(),
@@ -403,7 +403,7 @@ def test_a_runtime_is_built_from_declarations_without_a_hand_written_loop() -> N
     state = runtime_for(registry, declarations)
 
     assert set(state.strategies) == {"momentum-1", "mean-reversion-1"}
-    assert all(s.status is LifecycleState.CREATED for s in state.strategies.values())
+    assert all(s.status is StrategyStatus.CREATED for s in state.strategies.values())
 
     instance = state.strategies["momentum-1"].instance
     assert isinstance(instance, MomentumStrategy)

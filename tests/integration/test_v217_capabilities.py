@@ -506,8 +506,9 @@ def test_no_capability_moved_another_ones_boundary() -> None:
 
     # --- Multi-currency moved exactly one pipeline schema, and only its own
     # (to 3; v3.10 moved it again, to 4, for minor units and analytics basis,
-    # v3.11 to 5, for a bar's interval code, and v3.12 to 6, for venue calendars).
-    assert PIPELINE_SNAPSHOT_SCHEMA == 6
+    # v3.11 to 5, for a bar's interval code, v3.12 to 6, for venue calendars, and
+    # v3.13 to 7, for the strategy status enum's name).
+    assert PIPELINE_SNAPSHOT_SCHEMA == 7
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
     from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA

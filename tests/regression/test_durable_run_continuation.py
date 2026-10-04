@@ -59,7 +59,7 @@ from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
 from alphalab.runtime.run_snapshot import restore as restore_run
 from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import RuntimeObjects
-from alphalab.strategy.state import LifecycleState
+from alphalab.strategy.state import StrategyStatus
 from tests.integration.harness import (
     ScriptedStrategy,
     context_factory,
@@ -337,8 +337,9 @@ def test_session_capture_declares_the_version() -> None:
     # Each envelope carries its own version: the run moved to 2 and the nested
     # pipeline to 4 in v3.10, independently -- ADR-0023 decision 1's split -- and
     # in v3.11 the run to 3 and the pipeline to 5, each for its own reasons; in
-    # v3.12 the run to 4 (the observation cursor) and the pipeline to 6.
-    assert payload["pipeline"]["schema_version"] == 6
+    # v3.12 the run to 4 (the observation cursor) and the pipeline to 6; in
+    # v3.13 the pipeline alone, to 7 (the strategy status enum's name).
+    assert payload["pipeline"]["schema_version"] == 7
 
 
 def test_a_missing_session_version_is_refused_with_no_legacy_path() -> None:
@@ -381,9 +382,9 @@ def test_a_nested_pipeline_failure_arrives_through_the_pipeline_decoder() -> Non
     """Not normalized into a generic session error."""
 
     payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
-    payload["pipeline"]["schema_version"] = 7
+    payload["pipeline"]["schema_version"] = 8
 
-    with pytest.raises(StateDecodeError, match="pipeline snapshot declares schema version 7"):
+    with pytest.raises(StateDecodeError, match="pipeline snapshot declares schema version 8"):
         run_from_primitives(payload)
 
 
@@ -776,7 +777,7 @@ def test_a_failed_strategy_stays_failed_across_a_restore() -> None:
     restored = restore_run(run_from_primitives(deserialize(payload)), _objects(config, strategy))
     decoded = restored.pipeline.strategy.strategies[STRATEGY_ID]
 
-    assert decoded.status is LifecycleState.FAILED
+    assert decoded.status is StrategyStatus.FAILED
     assert decoded.last_error == "boom"
     assert decoded.instance is strategy
 

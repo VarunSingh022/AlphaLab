@@ -16,8 +16,16 @@ def _everything() -> frozenset[str]:
     return frozenset({SUBSCRIBE_ALL})
 
 
-class LifecycleState(Enum):
-    """Explicit pure state machine stages for a strategy instance."""
+class StrategyStatus(Enum):
+    """Where one strategy instance is in its session: a pure state machine's stages.
+
+    Named ``LifecycleState`` until v3.13, the name
+    :class:`alphalab.lifecycle.state.LifecycleState` -- the lifecycle registry's
+    whole state, a different contract -- also had (ledger API-001). A member is
+    persisted as ``StrategyStatus.RUNNING``: a plain enum is written with its
+    class name, so the rename is a format change, and pipeline schema 7 rewrites
+    what earlier versions wrote (:data:`alphalab.runtime.snapshot.PIPELINE_SCHEMA_HISTORY`).
+    """
 
     CREATED = auto()
     CONFIGURED = auto()
@@ -56,7 +64,7 @@ class StrategyState:
     """
 
     strategy_id: str
-    status: LifecycleState
+    status: StrategyStatus
     instance: StrategyProtocol
     config: Any = None
     subscriptions: frozenset[str] = field(default_factory=_everything)

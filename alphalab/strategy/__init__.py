@@ -102,7 +102,7 @@ from alphalab.strategy.registry import (
     runtime_for,
 )
 from alphalab.strategy.runtime import create_runtime, register_strategy
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 from alphalab.strategy.subscription import SUBSCRIBE_ALL, Subscriptions, Topic
 from alphalab.strategy.supervisor import RuntimeSupervisor
 from alphalab.strategy.validation import validate_intent
@@ -140,7 +140,6 @@ __all__ = [
     "IntentKind",
     "InvalidIntentError",
     "InvalidTransitionError",
-    "LifecycleState",
     "LifecycleTransitioned",
     "MarketViewProtocol",
     "NoHistory",
@@ -174,6 +173,7 @@ __all__ = [
     "StrategyRuntimeEvent",
     "StrategyState",
     "StrategyStateProtocol",
+    "StrategyStatus",
     "StrategyValidationError",
     "Subscriptions",
     "TimerEvent",

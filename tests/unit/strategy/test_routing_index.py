@@ -28,13 +28,13 @@ from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 from alphalab.strategy.subscription import RoutingIndex, Subscriptions, Topic
 from tests.integration.harness import context_factory
 
 ASSETS = [str(uuid.UUID(int=0xA0 + index)) for index in range(5)]
 SUBJECTS = ["ACME", "GLOBEX"]
-STATUSES = [LifecycleState.RUNNING] * 4 + [LifecycleState.PAUSED, LifecycleState.FAILED]
+STATUSES = [StrategyStatus.RUNNING] * 4 + [StrategyStatus.PAUSED, StrategyStatus.FAILED]
 
 
 def _bar_event(asset_id: str, at: float = 1.0) -> BarClosed:
@@ -117,7 +117,7 @@ def test_dispatch_calls_the_strategies_it_called_before_in_the_same_order(seed: 
         expected = [
             strategy_id
             for strategy_id in _asked(state, Topic.BARS, asset_id)
-            if state.strategies[strategy_id].status is LifecycleState.RUNNING
+            if state.strategies[strategy_id].status is StrategyStatus.RUNNING
         ]
         assert calls == expected
 
@@ -127,7 +127,7 @@ def test_a_change_the_runtime_makes_keeps_the_index_and_another_rebuilds_it() ->
     strategies = {
         name: StrategyState(
             name,
-            LifecycleState.RUNNING,
+            StrategyStatus.RUNNING,
             _Recorder(name, calls),
             subscriptions=frozenset({f"bars:{ASSETS[0]}"}),
         )
@@ -158,7 +158,7 @@ def test_a_change_the_runtime_makes_keeps_the_index_and_another_rebuilds_it() ->
 
 def test_an_evolution_that_changes_subscriptions_builds_its_own_index() -> None:
     first = StrategyState(
-        "first", LifecycleState.RUNNING, _Recorder("first", []), subscriptions=frozenset({"bars"})
+        "first", StrategyStatus.RUNNING, _Recorder("first", []), subscriptions=frozenset({"bars"})
     )
     state = RuntimeState(strategies={"first": first})
     index = state.reach

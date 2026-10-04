@@ -1086,19 +1086,23 @@ Ten durable states. Each has **one** snapshot owner, **one** schema constant and
 
 | State | Snapshot module | Constant | Value |
 | --- | --- | --- | --- |
-| `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA` | 1 |
-| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 4 |
+| `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA` | 2 |
+| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA` | 2 |
-| `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 1 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 4 |
-| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 2 |
-| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 1 |
-| `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 1 |
-| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 1 |
+| `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 7 |
+| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 4 |
+| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 3 |
+| `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
+| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
 
 Plus `persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, which versions what
-the *store* records about a payload and nothing inside it.
+the *store* records about a payload and nothing inside it, and the envelopes of
+an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 1`) and of the
+evidence store (`model_registry.evidence.EVIDENCE_SCHEMA = 1`), both v3.12. The
+values are v3.13's, and `tests/regression/test_documented_schemas_are_current.py`
+keeps them so.
 
 The contract is `restore(capture(s)) == s` — semantic equality, not container
 lineage.
@@ -1753,7 +1757,7 @@ future "unification" must break first.
 | `broker` / `brokers` | One venue vs many venues and many accounts. Converged in v2.3; the connector routes canonical types under historical names |
 | `data.feed.Bar` / `market.bar.Bar` | Wire vs domain, opposite sides of one conversion |
 | Three things called a venue | Listing exchange, market-data attribution, execution venue. None derives from another |
-| `strategy.LifecycleState` / `lifecycle.LifecycleState` | A strategy *instance's* stage vs the lifecycle registry |
+| `strategy.StrategyStatus` / `lifecycle.LifecycleState` | A strategy *instance's* stage vs the lifecycle registry. They shared the name `LifecycleState` until v3.13 (API-001) |
 | `strategy.RuntimeState` | Holds strategy instances. Not a runtime-package state |
 | Two matrix inversions | Different input classes; neither is a shared numerical layer |
 | `AppendOnlyLog` batch operations keeping local copies | One copy in and one value out is O(collection) per *call*, not per element; writing each element through `PersistentMap.set` measured ~30% worse |

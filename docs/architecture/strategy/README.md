@@ -43,7 +43,7 @@ design documents is not misled.
   the dispatched event's timestamp, taken from the **event** and never a wall
   clock, and the bound is enforced at construction.
 - **`Resumed` is a transition, not a resting state** (`STRATEGY_LIFECYCLE.md`
-  §4.1). `alphalab.strategy.state.LifecycleState` has the ten members the design
+  §4.1). `alphalab.strategy.state.StrategyStatus` has the ten members the design
   chose, and no `RESUMED`.
 - **The lifecycle is a pure state machine**, `(State, Event) → State`, evaluated
   by `RuntimeSupervisor` and never a mutable field flipped in place.

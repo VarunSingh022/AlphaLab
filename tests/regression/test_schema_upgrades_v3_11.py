@@ -147,7 +147,7 @@ def test_a_v3_11_backtest_run_is_upgraded_restored_and_continues() -> None:
     assert continued.processed == 7
     recaptured = deserialize(serialize(capture(continued)))
     assert recaptured["schema_version"] == RUN_SNAPSHOT_SCHEMA == 4
-    assert recaptured["pipeline"]["schema_version"] == 6
+    assert recaptured["pipeline"]["schema_version"] == 7
     assert recaptured["pipeline"]["allocation"]["schema_version"] == 3
     assert recaptured["pipeline"]["dropped"] == {} and recaptured["dropped"] == {}
 
@@ -190,7 +190,7 @@ def test_a_v3_11_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
 
     assert snapshot.schema_version == 2
     assert snapshot.run.schema_version == 4
-    assert snapshot.run.pipeline.schema_version == 6
+    assert snapshot.run.pipeline.schema_version == 7
     assert snapshot.broker.schema_version == 2
 
 

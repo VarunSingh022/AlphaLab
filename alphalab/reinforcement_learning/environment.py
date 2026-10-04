@@ -64,7 +64,7 @@ from alphalab.runtime.execution_pipeline import (
 from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,7 +245,7 @@ def create_environment(config: TradingEnvConfig, timestamp: float) -> TradingEnv
         strategies={
             config.strategy_id: StrategyState(
                 strategy_id=config.strategy_id,
-                status=LifecycleState.RUNNING,
+                status=StrategyStatus.RUNNING,
                 instance=RLAgentStrategy(),
             )
         }

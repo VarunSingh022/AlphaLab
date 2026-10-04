@@ -554,7 +554,7 @@ compare equal, which is the whole point of them being separate types.
 `ModelStage` (`NONE` → `STAGING` → `PRODUCTION` → `ARCHIVED`) is AlphaLab's one
 stage vocabulary for a registered, promotable artifact, and stages both model
 versions and strategy versions. It is unrelated to
-`strategy.LifecycleState` (`CREATED` … `DISPOSED`), which tracks a strategy
+`strategy.StrategyStatus` (`CREATED` … `DISPOSED`), which tracks a strategy
 *instance running inside a session*: a deployed strategy version is started and
 stopped many times without its stage changing.
 
@@ -640,16 +640,25 @@ owning module, its own schema constant and its own typed decoder:
 
 | State | Snapshot owner | Schema | Since |
 | --- | --- | --- | --- |
-| `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA = 1` | v2.2, versioned v2.9 |
-| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA = 4` | v2.5 |
+| `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA = 2` | v2.2, versioned v2.9 |
+| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA = 5` | v2.5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA = 2` | v2.5 |
-| `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA = 1` | v2.9 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 4` | v2.9 |
-| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 2` | v2.14 |
-| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 1` | v2.15 |
-| `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 1` | v2.16 |
-| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA = 1` | v2.16 |
+| `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA = 3` | v2.9 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 7` | v2.9 |
+| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 4` | v2.14 |
+| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 3` | v2.15 |
+| `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 2` | v2.16 |
+| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA = 2` | v2.16 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA = 1` | v2.17 |
+
+Three envelopes carry a payload and version only what they add: the run-state
+store's (`persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, v2.14), an
+incremental checkpoint's (`runtime.checkpoint.CHECKPOINT_SCHEMA = 1`, v3.12) and
+the evidence store's (`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12).
+`tests/regression/test_documented_schemas_are_current.py` reads this table, and
+the two like it in `STATE_MODEL.md` and `nowandfuture.md`, against the
+constants: until v3.13 nothing did, and all three had drifted by several
+releases (ledger DOC-005).
 
 The blocker this table used to record for the pipeline and the run — that they
 hold `StrategyProtocol` instances, an `ExecutionSimulator` and a `SizingModel` —
@@ -3143,14 +3152,14 @@ Examples
 
 Each state is immutable.
 
-**Two pairs of names are reused on purpose.** `RuntimeState` in
-`alphalab.strategy.state` holds registered strategy instances and their lifecycle
-status; it is not a runtime-package state, and the orphan `RuntimeState` that
-once was one is removed. `LifecycleState` in `alphalab.lifecycle.state` is the
-whole lifecycle registry, while `LifecycleState` in `alphalab.strategy.state` is
-an enum naming the stages of a strategy *instance running inside a session*. A
-deployed strategy version is started and stopped many times without its stage
-changing.
+**One name is reused on purpose.** `RuntimeState` in `alphalab.strategy.state`
+holds registered strategy instances and their status; it is not a
+runtime-package state, and the orphan `RuntimeState` that once was one is
+removed. Until v3.13 a second pair shared `LifecycleState`: the lifecycle
+registry's whole state, and the strategy runtime's enum naming the stages of an
+*instance running inside a session*. The enum is `StrategyStatus` now (ledger
+API-001); a deployed strategy version is started and stopped many times without
+its stage changing, and the two names say so.
 
 ---
 

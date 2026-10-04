@@ -148,13 +148,14 @@ Each package owns exactly one primary state object.
 | `replay` | `ReplayState` |
 | `data` | `UniversalDataState` — datasets keyed by version, the catalogue, quality reports, schemas, metadata, `lineage` (derived version → parent) and the event log. A version is never overwritten: cleaning and resampling add a new entry and record the parent (ADR-0036). |
 
-**Two names are reused deliberately.** `RuntimeState` in
+**One name is reused deliberately.** `RuntimeState` in
 `alphalab.strategy.state` holds strategy instances and is not a runtime-package
-state; the orphan `RuntimeState` that once was one was removed in v2.17.
-`LifecycleState` in `alphalab.lifecycle.state` is the whole lifecycle registry,
-while `LifecycleState` in `alphalab.strategy.state` is an enum naming the stages
-of a strategy *instance running inside a session* — a deployed strategy version is
-started and stopped many times without its stage changing.
+state; the orphan `RuntimeState` that once was one was removed in v2.17. Until
+v3.13 `LifecycleState` was a second: the whole lifecycle registry in
+`alphalab.lifecycle.state`, and an enum naming the stages of a strategy
+*instance running inside a session* in `alphalab.strategy.state`. The enum is
+`StrategyStatus` now (ledger API-001) — a deployed strategy version is started
+and stopped many times without its stage changing.
 
 `alphalab.runtime.ExecutionPipelineState` is a composite: it holds one snapshot of
 each subsystem state on the integrated execution path (market, strategy,
@@ -180,20 +181,26 @@ asserts that no second portfolio model exists anywhere in the package. See
 # Durability: snapshots and schemas
 
 A state is durable when it has **one** snapshot owner, **one** schema constant,
-and a typed decoder that refuses what it does not understand. Ten do:
+and a typed decoder that refuses what it does not understand. Ten do (v3.13):
 
 | State | Snapshot module | Schema constant | Value |
 | --- | --- | --- | --- |
-| `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA` | 1 |
-| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 3 |
+| `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA` | 2 |
+| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA` | 2 |
-| `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 1 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 3 |
-| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 1 |
-| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 1 |
-| `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 1 |
-| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 1 |
+| `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 7 |
+| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 4 |
+| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 3 |
+| `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
+| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
+
+Three envelopes version only what they add around a payload:
+`RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
+incremental checkpoint, 1) and `EVIDENCE_SCHEMA` (the evidence store, 1).
+`tests/regression/test_documented_schemas_are_current.py` holds this table to
+the constants.
 
 Each module exposes the same three functions — `capture(state)` →
 serializable projection, `from_primitives(payload)` → typed snapshot,
@@ -206,13 +213,23 @@ serializable projection, `from_primitives(payload)` → typed snapshot,
   `DEFAULT_SCHEMA_VERSION`, because that constant also versions `BaseEvent`:
   bumping it would version every event in the system as a side effect of one
   subsystem's change. Four regression tests pin the de-aliasing.
-- **One readable version per subsystem, and no migration framework.**
-  `require_schema_version` refuses any other version and names the build that
-  wrote the payload. The field exists so the first schema change is a decision
-  rather than a silent misread. The two exceptions are bounded and documented:
-  `PIPELINE_SNAPSHOT_SCHEMA` reads 1, 2 and 3 because the missing fields genuinely
-  *mean* the values it supplies, and `OMS_SNAPSHOT_SCHEMA` reads one exact legacy
-  unversioned key set.
+- **Every version a release wrote is read, or refused with its reason.** Since
+  v3.10 each subsystem declares a `SchemaHistory` (`alphalab.persistence.upgrade`)
+  with one `SchemaStep` per version it ever wrote: a pure upgrade to the next
+  version, or the reason no honest upgrade exists. An upgrade supplies a value
+  only when it is what the older payload already meant, and a version no
+  release wrote is refused, naming the versions this build reads. The payloads
+  v3.9.0, v3.11.0 and v3.12.0 wrote are frozen under `tests/fixtures/snapshots/`
+  and read by every build.
+- **A plain enum's class name is part of the format.** A `StrEnum` member is
+  written as its value (`"market"`); a plain `Enum` member as
+  `ClassName.MEMBER` (`"StrategyStatus.RUNNING"`), and the decoder reads only
+  that form. Renaming such a class, or a member, is therefore a schema change
+  and needs an upgrade step: v3.13 renamed the strategy runtime's
+  `LifecycleState` to `StrategyStatus` and moved the pipeline from 6 to 7 to
+  rewrite it (ledger PER-004). `tests/regression/test_persisted_enum_names.py`
+  lists every persisted enum's class and member names, so a rename without a
+  step fails there before it fails a reader.
 - **Envelopes nest rather than merge.** The live envelope carries a run snapshot
   and a broker snapshot, each versioned by its own constant, so adding venue
   durability moved no schema a backtest writes (ADR-0023, ADR-0030).

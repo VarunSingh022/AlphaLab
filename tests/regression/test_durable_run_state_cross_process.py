@@ -663,7 +663,7 @@ def test_the_crossing_moved_no_schema(crossing: dict[str, Any]) -> None:
     continued = deserialize(crossing["continued"])
 
     assert continued["schema_version"] == 4, "RUN_SNAPSHOT_SCHEMA (v3.12)"
-    assert continued["pipeline"]["schema_version"] == 6, "PIPELINE_SNAPSHOT_SCHEMA (v3.12)"
+    assert continued["pipeline"]["schema_version"] == 7, "PIPELINE_SNAPSHOT_SCHEMA (v3.13)"
     assert continued["pipeline"]["oms"]["schema_version"] == 2  # v3.11: order terms
     assert continued["pipeline"]["portfolio"]["schema_version"] == 5  # v3.11: economics
     assert continued["pipeline"]["allocation"]["schema_version"] == 3  # v3.12: ceilings

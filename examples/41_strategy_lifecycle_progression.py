@@ -29,7 +29,7 @@ AlphaLab already had two state machines with "lifecycle" in their name and
 neither answers this question. `ModelStage` asks whether a *registered artifact*
 may be promoted -- and research, backtest and validation are all `NONE` to it,
 paper and live are both `PRODUCTION`, and there is no member for paused at all.
-`strategy.state.LifecycleState` asks whether an *instance inside a session* is
+`strategy.state.StrategyStatus` asks whether an *instance inside a session* is
 running, which a deployed version does and stops doing many times without
 anything else changing.
 

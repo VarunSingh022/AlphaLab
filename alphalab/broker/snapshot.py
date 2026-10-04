@@ -307,7 +307,7 @@ def _mapping(payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
 
 
 def _enum[T: Enum](cls: type[T], value: Any, field_name: str) -> T:
-    """Decode an enum, in the three shapes this codec writes.
+    """Decode an enum, in the three shapes this codec reads.
 
     ``alphalab.persistence.serialize`` writes a ``StrEnum`` by *value*
     (``"market"``), because ``json`` encodes it natively, and a plain ``Enum`` by
@@ -315,21 +315,30 @@ def _enum[T: Enum](cls: type[T], value: Any, field_name: str) -> T:
     payload, so both are read -- and a bare member name is read too, because that
     is what a hand-written payload looks like.
 
+    A qualified name must be qualified by *this* enum's class name: the class
+    name is part of the format (ledger PER-004). Until v3.13 the qualifier was
+    discarded unread, so ``"OrderStatus.CONNECTED"`` decoded as a connection
+    status and a renamed class went unnoticed.
+
     Unknown values are refused, never defaulted: a connection status nobody can
     decode is the one thing a restored live run must not guess at.
     """
 
     raw = str(value)
-    for candidate in (raw, raw.rpartition(".")[2]):
-        member = cls.__members__.get(candidate)
-        if member is not None:
-            return member
+    member = cls.__members__.get(raw)
+    if member is not None:
+        return member
     try:
         return cls(raw)
     except ValueError:
         pass
+    owner, dot, name = raw.rpartition(".")
+    if dot and owner == cls.__name__ and name in cls.__members__:
+        return cls.__members__[name]
+    qualified = f"; a qualified name must read {cls.__name__}.<member>" if dot else ""
     raise BrokerSnapshotDecodeError(
-        f"{field_name} is not a {cls.__name__}: {value!r}. Known: {sorted(cls.__members__)}"
+        f"{field_name} is not a {cls.__name__}: {value!r}. Known: "
+        f"{sorted(cls.__members__)}{qualified}"
     )
 
 

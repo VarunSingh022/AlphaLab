@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.dispatcher import Dispatcher
 from alphalab.strategy.events import Intent, StrategyInboundEvent, StrategyRuntimeEvent
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 from alphalab.strategy.subscription import topic_of
 
 
@@ -57,14 +57,14 @@ class StrategyEngine:
 
         for strategy_id in state.reach.reaching(kind, asset_id):
             strategy_state = held[strategy_id]
-            if strategy_state.status is not LifecycleState.RUNNING:
+            if strategy_state.status is not StrategyStatus.RUNNING:
                 continue
 
             context = context_factory(strategy_id)
             current, started_events = Dispatcher.start(strategy_state, context, timestamp)
             new_events.extend(started_events)
             intents: tuple[Intent, ...] = ()
-            if current.status is LifecycleState.RUNNING:
+            if current.status is StrategyStatus.RUNNING:
                 current, intents, trans_evts = Dispatcher.dispatch_event(
                     current, event, context, timestamp
                 )
@@ -113,7 +113,7 @@ class StrategyEngine:
         for strategy_id, event in deliveries:
             held = strategies if strategies is not None else state.strategies
             strategy_state = held.get(strategy_id)
-            if strategy_state is None or strategy_state.status is not LifecycleState.RUNNING:
+            if strategy_state is None or strategy_state.status is not StrategyStatus.RUNNING:
                 continue
             topic = topic_of(event)
             if topic is None or not strategy_state.routing.accepts(*topic):
@@ -122,7 +122,7 @@ class StrategyEngine:
             current, started_events = Dispatcher.start(strategy_state, context, timestamp)
             new_events.extend(started_events)
             intents: tuple[Intent, ...] = ()
-            if current.status is LifecycleState.RUNNING:
+            if current.status is StrategyStatus.RUNNING:
                 current, intents, trans_evts = Dispatcher.dispatch_event(
                     current, event, context, timestamp
                 )
@@ -168,8 +168,8 @@ class StrategyEngine:
         for strategy_id in chosen:
             strategy_state = strategies.get(strategy_id)
             if strategy_state is None or strategy_state.status not in {
-                LifecycleState.RUNNING,
-                LifecycleState.PAUSED,
+                StrategyStatus.RUNNING,
+                StrategyStatus.PAUSED,
             }:
                 continue
             context = context_factory(strategy_id)

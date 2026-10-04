@@ -73,7 +73,7 @@ from alphalab.strategy.events import (
     TimerEvent,
 )
 from alphalab.strategy.exceptions import InvalidIntentError
-from alphalab.strategy.state import LifecycleState, StrategyState
+from alphalab.strategy.state import StrategyState, StrategyStatus
 from alphalab.strategy.supervisor import RuntimeSupervisor
 from alphalab.strategy.validation import validate_intent
 
@@ -124,7 +124,7 @@ class Dispatcher:
         unchanged.
         """
 
-        if strategy_state.status is not LifecycleState.RUNNING or strategy_state.started:
+        if strategy_state.status is not StrategyStatus.RUNNING or strategy_state.started:
             return strategy_state, ()
         try:
             strategy_state.instance.on_start(context)
@@ -147,7 +147,7 @@ class Dispatcher:
         that is not running or paused is returned unchanged.
         """
 
-        if strategy_state.status not in {LifecycleState.RUNNING, LifecycleState.PAUSED}:
+        if strategy_state.status not in {StrategyStatus.RUNNING, StrategyStatus.PAUSED}:
             return strategy_state, (), ()
         instance = strategy_state.instance
         try:
@@ -189,7 +189,7 @@ class Dispatcher:
         static type is a claim about callers that type-check and this is the one
         place a wrong claim would be charged to the *strategy*.
         """
-        if strategy_state.status != LifecycleState.RUNNING:
+        if strategy_state.status != StrategyStatus.RUNNING:
             return strategy_state, (), ()
 
         instance = strategy_state.instance

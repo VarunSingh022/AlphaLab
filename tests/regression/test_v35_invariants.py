@@ -87,7 +87,7 @@ def test_there_is_one_strategy_progression_vocabulary() -> None:
 
     from alphalab.lifecycle.progression import StrategyLifecycleStage
     from alphalab.model_registry.registry import ModelStage
-    from alphalab.strategy.state import LifecycleState as InstanceState
+    from alphalab.strategy.state import StrategyStatus as InstanceState
 
     offenders = [
         name

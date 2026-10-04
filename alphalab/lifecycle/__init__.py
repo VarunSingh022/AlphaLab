@@ -102,7 +102,7 @@ than a parallel system, and none of them a runtime:
     LIVE -> PAUSED -> ARCHIVED`` -- with declared transitions and a history.
     Distinct from :class:`~alphalab.model_registry.registry.ModelStage`, which
     asks whether an artifact is promotable, and from
-    :class:`alphalab.strategy.state.LifecycleState`, which asks whether an
+    :class:`alphalab.strategy.state.StrategyStatus`, which asks whether an
     instance in a session is running.
 
 :mod:`~alphalab.lifecycle.specification`

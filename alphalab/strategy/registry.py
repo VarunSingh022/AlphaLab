@@ -383,7 +383,7 @@ def runtime_for(
     only removes the hand-written loop from every caller.
 
     Every strategy is therefore left in
-    :attr:`~alphalab.strategy.state.LifecycleState.CREATED`, exactly as
+    :attr:`~alphalab.strategy.state.StrategyStatus.CREATED`, exactly as
     ``register_strategy`` leaves one, and a caller drives it to ``RUNNING``
     through :class:`~alphalab.strategy.supervisor.RuntimeSupervisor`.
     Transitioning here would put a second lifecycle authority in a registry --
