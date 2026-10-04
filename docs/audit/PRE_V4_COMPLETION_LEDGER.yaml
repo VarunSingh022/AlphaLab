@@ -4273,8 +4273,8 @@ findings:
   - id: "DOC-004"
     category: "documentation"
     subsystem: "docs"
-    module: "docs/EXAMPLES.md; nowandfuture.md; docs/ARCHITECTURE.md"
-    finding: "Current-state documents still described what v3.11 had removed: docs/EXAMPLES.md had sections for the Strategy Studio and the Workbench, and nowandfuture.md counted 48 packages (45 at v3.11.0). The v3.12 documentation pass also caught its own omission: the research package's description in nowandfuture.md and docs/ARCHITECTURE.md still named the ResearchScore and compute_overall_score that RES-001 removed."
+    module: "docs/EXAMPLES.md; nowandfuture.md; docs/ARCHITECTURE.md; docs/SYSTEM_DESIGN.md"
+    finding: "Current-state documents still described what v3.11 had removed: docs/EXAMPLES.md had sections for the Strategy Studio and the Workbench, and nowandfuture.md counted 48 packages (45 at v3.11.0). The v3.12 documentation pass also caught its own omission: the research package's description in nowandfuture.md and docs/ARCHITECTURE.md still named the ResearchScore and compute_overall_score that RES-001 removed. After the v3.12 removals the same search found docs/ARCHITECTURE.md (its Plugins and Plugin Architecture sections, a list of registries and a layer diagram) and docs/SYSTEM_DESIGN.md (its audience and extension model) describing plugins as current, and the architecture document stating the optimizer's queue as a term still left super-linear."
     evidence: "v3.12 documentation pass: every removed package and every removed v3.12 name searched for across the current-state documents."
     severity: "low"
     current_state: "Shipped in v3.11.0 (DOC-003 corrected README, ROADMAP and the architecture documents and missed these)."
@@ -4291,4 +4291,4 @@ findings:
     v4_required: true
     v4_disposition: "FIX"
     verified: "repository-wide search for each removed package and name; none left outside historical records"
-    v312_outcome: "docs/EXAMPLES.md describes examples 08 and 09 as they are; nowandfuture.md counts 43 packages and names what each release removed; the research package is described by its measurements in nowandfuture.md and docs/ARCHITECTURE.md."
+    v312_outcome: "docs/EXAMPLES.md describes examples 08 and 09 as they are; nowandfuture.md counts 43 packages and names what each release removed; the research package is described by its measurements in nowandfuture.md and docs/ARCHITECTURE.md; the architecture and system-design documents describe extension through protocols and record plugins, and the optimizer's queue, as removed."

@@ -184,12 +184,15 @@ grew faster than the work, both fixed:
 | built a `ResearchPayload` | state `periods_per_year` and `risk_free_rate`; pass `sweep=` the search's `SweepResult` if there was one |
 | called `calculate_cagr` / `calculate_volatility` / `calculate_sharpe`, `walk_forward_analysis`, `monte_carlo_simulation`, `apply_stress_tests`, `generate_diagnostics` | pass the periods, rate, windows, ruin drawdown, shocks and bounds they now require |
 | read `ResearchScore`, `compute_overall_score`, `overall_score`, `BiasDetected`, or a report's scores | read `research_metrics_of(state)` and the reports' measurements |
+| read `ResearchCompleted.overall_score` | read its `metric_count` and `finding_count` |
+| built a `BiasReport`, `BootstrapReport`, `CapacityReport`, `MonteCarloReport`, `RegimeReport`, `RobustnessReport`, `StressReport` or `WalkForwardReport` yourself | build it from its measurement fields, or let the research functions build it |
 | read `lifecycle.evidence_from_research(...)` keys | read the measurements it records (`sharpe`, `max_drawdown`, …); it needs completed research |
 | read `LinearFit.r_squared` as a float | handle `None` (a constant response) |
 | compared option thetas with 3.11's | expect 365/365.25 of them; deep out-of-the-money values are no longer zero |
 | trained `ml.train_linear_regression` on a collinear or ill-conditioned design | remove the redundant feature, or raise `maximum_condition` knowingly |
 | read cancelled jobs from `DistributedState.failed_jobs` | read `cancelled_jobs` (a `JobCancelled` event is recorded) |
-| enumerated `cloud_research.sweep_space` in insertion order | expect axes sorted by name |
+| relied on `cloud_research.submit_parameter_sweep` submitting jobs in its grid's key order | expect axes sorted by name, each in its given order (`cloud_research.sweep_space` shows the space) |
+| swept a value that is not a finite `bool`, `int`, `float` or `str`, or one value twice, in `cloud_research.submit_parameter_sweep` or a `research_assistant` space | pass anything else through `base_kwargs` or the evaluator; give each value once — a repeated candidate would overstate the trial count |
 | treated `StrategyCandidate.parameters` values as floats | convert: they are `ParamValue` (`research.ParameterSpace` axes) |
 | built `ResearchWorkflowResult` yourself | pass its `sweep` |
 | parsed a report's JSON numbers as floats | read exact text for a `Decimal`; an unknown value is refused |
@@ -197,7 +200,7 @@ grew faster than the work, both fixed:
 | relied on `CleaningPolicy`'s DROP keeping an invalid quote | it is dropped and recorded now (DAT-009) |
 | imported `alphalab.optimizer` | search with `research.parameter_sweep` over a `research.ParameterSpace`, or select walk-forward with `research.walk_forward_optimize` |
 | imported `alphalab.plugins` | load and run extensions in your application |
-| built a `reporting.Dashboard`, or called `register_dashboard` / `dashboard_summary` | build the dashboard in your application from a report's exports (`export_json`, `export_csv`, `export_markdown`) |
+| built a `reporting.Dashboard`, called `register_dashboard` / `dashboard_summary`, or read `ReportingState.dashboards` / `ReportingStatistics.total_dashboards_generated` | build the dashboard in your application from a report's exports (`export_json`, `export_csv`, `export_markdown`); pass `ReportingStatistics` its three counts by name |
 | read a 3.11 snapshot | nothing: pipeline 5→6, run 3→4, allocation 2→3 and instrument 2→3 are upgraded on read |
 
 ## Found during this release
