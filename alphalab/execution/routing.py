@@ -67,12 +67,23 @@ Liquidity selection
 -------------------
 
 A single-venue route takes the best-ranked venue that can fill the whole order.
-A split route (``allow_split``) sweeps the ranking, taking each venue's
-executable quantity until the order is filled, and re-prices each leg at the
-quantity it actually takes. The sweep is greedy by each venue's all-in price at
-its full displayed size: optimal when costs are linear in quantity, and not
-claimed optimal under per-trade fees or non-linear impact, where splitting can
-cost more than the ranking suggests -- the legs' own prices show what it costs.
+A split route (``allow_split``) divides it by the policy's :class:`SplitMethod`:
+
+* ``GREEDY_SWEEP`` sweeps the ranking, taking each venue's executable quantity
+  until the order is filled, and re-prices each leg at the quantity it actually
+  takes. It ranks by each venue's all-in price at its full displayed size, so it
+  is optimal when costs are linear in quantity and not under a per-trade fee or
+  a non-linear impact, where it can cost more than the ranking suggests.
+* ``OPTIMAL`` (v3.13, ledger BRK-005) finds the split with the lowest total
+  all-in cost over whole increments, each venue's cost from its own model at
+  the quantity it would take. It is exact when every venue's cost is a fixed
+  charge plus a convex function of quantity -- true of every cost model in
+  :mod:`alphalab.execution.costs`, to within the rounding of each cash cost to
+  its minor unit: the venues that carry a fixed charge are enumerated in and
+  out (at most :data:`MAX_SPLIT_FIXED_CHARGE_VENUES` of them), and the quantity
+  is spread across each choice by equalizing marginal costs. A venue whose
+  marginal cost is seen to fall is refused, because equalization does not find
+  the optimum of a cost that is not convex.
 If the eligible liquidity cannot fill the order, the route is ``PARTIAL`` when
 the policy allows it and not otherwise; if nothing can be selected, the decision
 is ``INFEASIBLE`` when every venue was positively ruled out and
@@ -84,13 +95,14 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_FLOOR, ROUND_HALF_EVEN, Context, Decimal
 from enum import StrEnum, unique
 from typing import Final
 
 from alphalab.common.arithmetic import canonical_text
+from alphalab.common.currency_units import ISO_4217_MINOR_UNITS
 from alphalab.core.capabilities import (
     CapabilityDeclaration,
     CompatibilityReport,
@@ -102,6 +114,7 @@ from alphalab.execution.costs import CostContext, ExecutionCostModel, ExecutionC
 from alphalab.execution.exceptions import ExecutionValidationError
 
 __all__ = [
+    "MAX_SPLIT_FIXED_CHARGE_VENUES",
     "ROUTE_DECISION_SCHEME",
     "ROUTING_POLICY_SCHEME",
     "CandidateStatus",
@@ -112,6 +125,7 @@ __all__ = [
     "RouteStatus",
     "RoutingObjective",
     "RoutingPolicy",
+    "SplitMethod",
     "VenueProfile",
     "VenueQuote",
     "select_route",
@@ -128,6 +142,7 @@ ROUTE_DECISION_SCHEME: Final = "alphalab.route_decision.v2"
 _CONTEXT: Final = Context(prec=34, rounding=ROUND_HALF_EVEN)
 
 _ZERO = Decimal("0")
+_ONE = Decimal("1")
 _TWO = Decimal("2")
 
 #: The tie-break order, stated once, rendered into every policy's identity.
@@ -240,6 +255,24 @@ class RoutingObjective(StrEnum):
     LOWEST_ALL_IN_COST = "lowest_all_in_cost"
 
 
+#: The most venues with a fixed charge an optimal split enumerates in and out:
+#: ``2 ** 10`` choices, each spread by marginal-cost equalization. Beyond it the
+#: split is refused rather than approximated.
+MAX_SPLIT_FIXED_CHARGE_VENUES: Final = 10
+
+
+@unique
+class SplitMethod(StrEnum):
+    """How a split route divides an order across venues."""
+
+    #: v3.9's sweep: take each venue's executable quantity in ranked order.
+    GREEDY_SWEEP = "greedy_sweep"
+
+    #: The lowest total all-in cost over whole increments; see the module
+    #: docstring for what makes it exact.
+    OPTIMAL = "optimal"
+
+
 @dataclass(frozen=True, slots=True)
 class RoutingPolicy:
     """Everything that decides a route and is not evidence about a venue.
@@ -255,6 +288,10 @@ class RoutingPolicy:
         allow_partial: Whether a route may cover less than the order when the
             eligible liquidity is short.
         excluded_venues: Venues never to be selected.
+        split_method: How a split divides the order. ``GREEDY_SWEEP``, the only
+            method before v3.13, unless ``OPTIMAL`` is named -- which needs a
+            split allowed and the all-in objective, since it minimises all-in
+            cost.
     """
 
     objective: RoutingObjective
@@ -263,6 +300,7 @@ class RoutingPolicy:
     allow_split: bool
     allow_partial: bool
     excluded_venues: frozenset[str]
+    split_method: SplitMethod = SplitMethod.GREEDY_SWEEP
 
     def __post_init__(self) -> None:
         if not self.max_quote_age_seconds >= 0:
@@ -274,6 +312,21 @@ class RoutingPolicy:
             raise ExecutionValidationError(
                 f"A latency cap of {self.max_latency_seconds} is negative."
             )
+        if not isinstance(self.split_method, SplitMethod):
+            raise ExecutionValidationError(
+                f"split_method must be a SplitMethod, got {self.split_method!r}."
+            )
+        if self.split_method is SplitMethod.OPTIMAL:
+            if not self.allow_split:
+                raise ExecutionValidationError(
+                    "An OPTIMAL split method with allow_split=False says two things; a route "
+                    "that may not split has no split to optimise."
+                )
+            if self.objective is not RoutingObjective.LOWEST_ALL_IN_COST:
+                raise ExecutionValidationError(
+                    "An OPTIMAL split minimises all-in cost; the policy's objective ranks by "
+                    f"{self.objective}, and the two would disagree about what is best."
+                )
         object.__setattr__(self, "excluded_venues", frozenset(self.excluded_venues))
 
     @property
@@ -296,6 +349,13 @@ class RoutingPolicy:
                 f"allow_partial={self.allow_partial}",
                 f"excluded={','.join(sorted(repr(v) for v in self.excluded_venues))}",
                 f"tie_break={','.join(_TIE_BREAK)}",
+                # Rendered only when named, so a policy from before v3.13 keeps
+                # the identity it had.
+                *(
+                    [f"split_method={self.split_method}"]
+                    if self.split_method is not SplitMethod.GREEDY_SWEEP
+                    else []
+                ),
             ]
         )
 
@@ -896,6 +956,16 @@ def _choose(
             "split nor a partial route.",
         )
 
+    if policy.split_method is SplitMethod.OPTIMAL:
+        allocation = _optimal_allocation(request, ranked, quotes, profiles)
+        if allocation is not None:
+            chosen = [c for c in ranked if allocation.get(c.venue, _ZERO) > _ZERO]
+            return (
+                RouteStatus.ROUTED,
+                tuple(leg(c, allocation[c.venue]) for c in chosen),
+                f"Split across {len(chosen)} venue(s) at the lowest total all-in cost.",
+            )
+
     legs: list[RouteLeg] = []
     left = request.quantity
     for candidate in ranked:
@@ -923,3 +993,198 @@ def _choose(
         f"The eligible venues show {request.quantity - left} of {request.quantity}, and the "
         "policy does not allow a partial route.",
     )
+
+
+# --------------------------------------------------------------------------- #
+# The optimal split
+# --------------------------------------------------------------------------- #
+
+
+class _VenueCosts:
+    """One venue's directed total cost at whole increments, computed once each.
+
+    ``cost(k)`` is what taking ``k`` increments costs a buyer, or what it fails
+    to bring in for a seller -- the sign makes lower better on both sides.
+    """
+
+    __slots__ = ("_memo", "_price", "_tolerance", "candidate", "cap", "lower")
+
+    def __init__(
+        self,
+        candidate: RouteCandidate,
+        cap: int,
+        price: Callable[[int], Decimal],
+        tolerance: Decimal,
+    ) -> None:
+        self.candidate = candidate
+        self.cap = cap
+        self.lower = 0
+        self._memo: dict[int, Decimal] = {0: _ZERO}
+        self._price = price
+        self._tolerance = tolerance
+
+    def cost(self, units: int) -> Decimal:
+        known = self._memo.get(units)
+        if known is None:
+            known = self._price(units)
+            self._memo[units] = known
+        return known
+
+    def marginal(self, units: int) -> Decimal:
+        """The cost of the ``units``-th increment; checked against the one before it.
+
+        From the third increment on: the drop from the first increment's cost to
+        the second's is the venue's fixed charge, which is allowed.
+        """
+
+        step = _CONTEXT.subtract(self.cost(units), self.cost(units - 1))
+        if units >= max(3, self.lower + 2):
+            before = _CONTEXT.subtract(self.cost(units - 1), self.cost(units - 2))
+            if step < _CONTEXT.subtract(before, self._tolerance):
+                raise ExecutionValidationError(
+                    f"At {self.candidate.venue} the marginal cost falls from {before} to {step} "
+                    f"at increment {units}: the venue's cost is not convex in quantity, and an "
+                    "optimal split found by equalizing marginal costs would not be optimal. "
+                    "Use the GREEDY_SWEEP split method for this cost model."
+                )
+        return step
+
+    def taken_at_most(self, threshold: Decimal) -> int:
+        """Increments above ``lower`` whose marginal cost is at most ``threshold``."""
+
+        low, high = self.lower, self.cap
+        while low < high:
+            middle = (low + high + 1) // 2
+            if self.marginal(middle) <= threshold:
+                low = middle
+            else:
+                high = middle - 1
+        return low - self.lower
+
+
+def _tolerance(currency: str) -> Decimal:
+    """How far a marginal cost may dip and still be read as rounding, not a fall.
+
+    Each cash cost is rounded to the currency's minor unit, and a marginal cost
+    is a second difference of three totals with three cash costs each.
+    """
+
+    units = ISO_4217_MINOR_UNITS.get(currency)
+    if units is None:
+        return Decimal("1e-12")
+    return _CONTEXT.multiply(Decimal(6), Decimal(1).scaleb(-units))
+
+
+def _spread(members: list[_VenueCosts], units: int, rank: Mapping[str, int]) -> dict[str, int]:
+    """``units`` increments over ``members`` above their lower bounds, cheapest first.
+
+    Equalizes marginal costs: the threshold is the ``units``-th smallest
+    marginal over every member, found by bisecting on its value; everything
+    strictly cheaper is taken, and the increments at the threshold itself go to
+    members in ranked order.
+    """
+
+    taken = {member.candidate.venue: member.lower for member in members}
+    if units == 0:
+        return taken
+    open_members = [m for m in members if m.cap > m.lower]
+    low = min(m.marginal(m.lower + 1) for m in open_members)
+    high = max(m.marginal(m.cap) for m in open_members)
+    low = _CONTEXT.subtract(low, _ONE)
+
+    def count(threshold: Decimal) -> int:
+        return sum(m.taken_at_most(threshold) for m in open_members)
+
+    for _ in range(400):
+        if _CONTEXT.subtract(high, low) <= Decimal("1e-28"):
+            break
+        middle = _CONTEXT.divide(_CONTEXT.add(low, high), _TWO)
+        if middle in (low, high):
+            break
+        if count(middle) >= units:
+            high = middle
+        else:
+            low = middle
+    for member in open_members:
+        taken[member.candidate.venue] += member.taken_at_most(low)
+    left = units - sum(m.taken_at_most(low) for m in open_members)
+    for member in sorted(open_members, key=lambda m: rank[m.candidate.venue]):
+        if left <= 0:
+            break
+        extra = member.taken_at_most(high) - member.taken_at_most(low)
+        give = min(extra, left)
+        taken[member.candidate.venue] += give
+        left -= give
+    assert left == 0, "the threshold bracket holds every increment it was bisected for"
+    return taken
+
+
+def _optimal_allocation(
+    request: RouteRequest,
+    ranked: list[RouteCandidate],
+    quotes: Mapping[str, VenueQuote],
+    profiles: Mapping[str, VenueProfile],
+) -> dict[str, Decimal] | None:
+    """The lowest-total-cost split of the order, or ``None`` when liquidity is short."""
+
+    increment = request.quantity_increment
+    wanted = int(_CONTEXT.divide(request.quantity, increment))
+    tolerance = _tolerance(request.currency)
+    rank = {candidate.venue: position for position, candidate in enumerate(ranked)}
+
+    def pricer(candidate: RouteCandidate) -> Callable[[int], Decimal]:
+        quote, profile = quotes[candidate.venue], profiles[candidate.venue]
+
+        def price(units: int) -> Decimal:
+            quantity = _CONTEXT.multiply(Decimal(units), increment)
+            fill_price, costs, _ = _price_leg(profile, quote, request, quantity)
+            paid = _CONTEXT.multiply(fill_price, quantity)
+            if request.side is Side.BUY:
+                return _CONTEXT.add(paid, costs.cash_charged)
+            return _CONTEXT.subtract(costs.cash_charged, paid)
+
+        return price
+
+    venues = [
+        _VenueCosts(c, int(_CONTEXT.divide(c.executable_quantity, increment)), pricer(c), tolerance)
+        for c in ranked
+    ]
+    venues = [v for v in venues if v.cap > 0]
+    if sum(v.cap for v in venues) < wanted:
+        return None
+
+    fixed = [
+        v for v in venues if v.cap >= 2 and v.marginal(1) > _CONTEXT.add(v.marginal(2), tolerance)
+    ]
+    free = [v for v in venues if v not in fixed]
+    if len(fixed) > MAX_SPLIT_FIXED_CHARGE_VENUES:
+        raise ExecutionValidationError(
+            f"{len(fixed)} eligible venues carry a fixed charge; an optimal split enumerates "
+            f"them in and out, and does so for at most {MAX_SPLIT_FIXED_CHARGE_VENUES}. Narrow "
+            "the candidates or use the GREEDY_SWEEP split method."
+        )
+
+    best: tuple[Decimal, int, tuple[int, ...], dict[str, int]] | None = None
+    for mask in range(1 << len(fixed)):
+        chosen = [v for index, v in enumerate(fixed) if mask >> index & 1]
+        members = free + chosen
+        if sum(v.cap for v in members) < wanted or len(chosen) > wanted:
+            continue
+        for venue in free:
+            venue.lower = 0
+        for venue in chosen:
+            venue.lower = 1
+        taken = _spread(members, wanted - len(chosen), rank)
+        total = _ZERO
+        for venue in members:
+            total = _CONTEXT.add(total, venue.cost(taken[venue.candidate.venue]))
+        used = tuple(sorted(rank[name] for name, units in taken.items() if units > 0))
+        key = (total, len(used), used, taken)
+        if best is None or key[:3] < best[:3]:
+            best = key
+    assert best is not None, "every venue in, all at capacity, covers the order"
+    return {
+        name: _CONTEXT.multiply(Decimal(units), increment)
+        for name, units in best[3].items()
+        if units > 0
+    }

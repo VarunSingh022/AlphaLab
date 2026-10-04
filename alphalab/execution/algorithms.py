@@ -30,7 +30,8 @@ inputs it reads, how it sizes and times each child, and what it does at the end
 :class:`Iceberg`    One visible tranche working at a time; the rest of the parent
                     stays hidden in AlphaLab. Iceberg-*like*: a generic
                     behaviour, not an emulation of any venue's native reserve
-                    order type.
+                    order type. Tranche sizes may be randomized, from a stated
+                    seed (:class:`TrancheRandomization`).
 =================== ==========================================================
 
 The trajectory and the arithmetic
@@ -45,10 +46,11 @@ parent due by the end of a slice is ``F(x)``::
     F(x) = 1 - sinh(kappa * (1 - x)) / sinh(kappa)   urgency kappa > 0
 
 This is the shape of the Almgren-Chriss (2000) optimal liquidation trajectory,
-with its ``kappa * T`` collapsed into one dimensionless number the caller states.
-AlphaLab does not estimate ``kappa`` from risk aversion, volatility and impact,
-and does not claim the schedule is optimal for any particular cost model: it
-states the shape, which front-loads more as ``kappa`` grows and is a straight
+with its ``kappa * T`` collapsed into one dimensionless number the caller states
+-- or, since v3.13, has :func:`estimate_urgency` compute from a stated risk
+aversion, volatility and impact (ledger BRK-006). The schedule is the optimum of
+that model's mean-variance objective under those inputs, and of nothing else:
+it states the shape, which front-loads more as ``kappa`` grows and is a straight
 line at zero. ``sinh`` is evaluated in :class:`~decimal.Decimal` at 34
 significant digits, so the schedule is identical on every platform -- a float
 transcendental is not.
@@ -130,10 +132,13 @@ __all__ = [
     "ScheduleBasis",
     "ScheduledSlice",
     "Slicing",
+    "TrancheRandomization",
     "Urgency",
+    "UrgencyEstimate",
     "VolumeProfile",
     "algorithm_configuration_id",
     "cancel_algorithm",
+    "estimate_urgency",
     "plan_schedule",
     "record_child_execution",
     "record_child_outcome",
@@ -264,6 +269,126 @@ class Urgency:
             return clock
         left = _sinh(_CONTEXT.multiply(self.kappa, _CONTEXT.subtract(_ONE, clock)))
         return _CONTEXT.subtract(_ONE, _CONTEXT.divide(left, _sinh(self.kappa)))
+
+
+@dataclass(frozen=True, slots=True)
+class UrgencyEstimate:
+    """An urgency computed from the Almgren-Chriss model, with what it was computed from.
+
+    Every input is in one consistent set of units, stated by the caller: prices
+    in the instrument's currency, quantities in units, time in whatever unit
+    ``horizon`` is in.
+
+    Attributes:
+        risk_aversion: ``lambda``, per unit of currency: what one unit of
+            variance of the proceeds costs the trader. Zero is risk-neutral and
+            gives a straight schedule.
+        volatility: ``sigma``, the price's standard deviation per square root
+            of one time unit.
+        temporary_impact: ``eta``, the price concession per unit of trading
+            rate (units per time unit).
+        permanent_impact: ``gamma``, the lasting price move per unit traded.
+        horizon: ``T``, the schedule's length in time units.
+        slices: ``N``, the number of equal intervals the schedule trades in --
+            a TWAP's slices.
+        kappa: The model's ``kappa`` per time unit.
+        urgency: ``kappa * T`` as the :class:`Urgency` a schedule takes.
+    """
+
+    risk_aversion: Decimal
+    volatility: Decimal
+    temporary_impact: Decimal
+    permanent_impact: Decimal
+    horizon: Decimal
+    slices: int
+    kappa: Decimal
+    urgency: Urgency
+
+
+def _acosh(value: Decimal) -> Decimal:
+    root = _CONTEXT.sqrt(_CONTEXT.subtract(_CONTEXT.multiply(value, value), _ONE))
+    return _CONTEXT.ln(_CONTEXT.add(value, root))
+
+
+def estimate_urgency(
+    *,
+    risk_aversion: Decimal,
+    volatility: Decimal,
+    temporary_impact: Decimal,
+    permanent_impact: Decimal,
+    horizon: Decimal,
+    slices: int,
+) -> UrgencyEstimate:
+    """The Almgren-Chriss urgency for a schedule of ``slices`` equal intervals.
+
+    The discrete form of the model (Almgren and Chriss, 2000, section 3), whose
+    optimal holdings are ``X sinh(kappa (T - t)) / sinh(kappa T)`` -- exactly
+    the trajectory :class:`Urgency` shapes with ``kappa * T``::
+
+        tau          = T / N
+        eta_tilde    = eta - gamma tau / 2
+        kappa_tilde2 = lambda sigma^2 / eta_tilde
+        cosh(kappa tau) = 1 + kappa_tilde2 tau^2 / 2
+
+    Computed in the module's fixed 34-digit context, so the estimate is the
+    same in every process. A risk-neutral trader (``lambda = 0``) gets a
+    straight schedule.
+
+    Raises:
+        ExecutionValidationError: If an input is negative, the temporary impact
+            or horizon is not positive, ``slices`` is not a positive int, the
+            permanent impact is so large for the interval that ``eta_tilde`` is
+            not positive (the model then has no optimum), or the urgency exceeds
+            :data:`MAX_URGENCY`.
+    """
+
+    for name, amount in (
+        ("risk_aversion", risk_aversion),
+        ("volatility", volatility),
+        ("permanent_impact", permanent_impact),
+    ):
+        if not isinstance(amount, Decimal) or not amount.is_finite() or amount < _ZERO:
+            raise ExecutionValidationError(f"{name} must be a finite Decimal >= 0, got {amount!r}.")
+    for name, amount in (("temporary_impact", temporary_impact), ("horizon", horizon)):
+        if not isinstance(amount, Decimal) or not amount.is_finite() or amount <= _ZERO:
+            raise ExecutionValidationError(f"{name} must be a finite Decimal > 0, got {amount!r}.")
+    if isinstance(slices, bool) or not isinstance(slices, int) or slices < 1:
+        raise ExecutionValidationError(f"slices must be a positive int, got {slices!r}.")
+
+    tau = _CONTEXT.divide(horizon, Decimal(slices))
+    eta_tilde = _CONTEXT.subtract(
+        temporary_impact, _CONTEXT.divide(_CONTEXT.multiply(permanent_impact, tau), Decimal(2))
+    )
+    if eta_tilde <= _ZERO:
+        raise ExecutionValidationError(
+            f"The permanent impact {permanent_impact} over an interval of {tau} outweighs the "
+            f"temporary impact {temporary_impact}: eta - gamma tau / 2 is {eta_tilde}, and the "
+            "model has no optimal schedule. Use more slices or check the impact estimates."
+        )
+    kappa_tilde2 = _CONTEXT.divide(
+        _CONTEXT.multiply(risk_aversion, _CONTEXT.multiply(volatility, volatility)), eta_tilde
+    )
+    argument = _CONTEXT.add(
+        _ONE,
+        _CONTEXT.divide(_CONTEXT.multiply(kappa_tilde2, _CONTEXT.multiply(tau, tau)), Decimal(2)),
+    )
+    kappa = _CONTEXT.divide(_acosh(argument), tau) if argument > _ONE else _ZERO
+    curvature = _CONTEXT.multiply(kappa, horizon)
+    if curvature > MAX_URGENCY:
+        raise ExecutionValidationError(
+            f"The estimated urgency kappa T = {curvature} exceeds {MAX_URGENCY}: the model "
+            "says to send nearly everything at once, which is not a schedule."
+        )
+    return UrgencyEstimate(
+        risk_aversion=risk_aversion,
+        volatility=volatility,
+        temporary_impact=temporary_impact,
+        permanent_impact=permanent_impact,
+        horizon=horizon,
+        slices=slices,
+        kappa=kappa,
+        urgency=Urgency(curvature),
+    )
 
 
 def _apportion(total: int, weights: Sequence[Decimal]) -> list[int]:
@@ -501,6 +626,56 @@ class Slicing:
 
 
 @dataclass(frozen=True, slots=True)
+class TrancheRandomization:
+    """Tranche sizes drawn around the displayed quantity, from a stated seed.
+
+    A fixed tranche size is a pattern a counterparty can read. With this, each
+    tranche is the displayed quantity plus a whole number of increments drawn
+    uniformly from ``[-spread, +spread]``, never more than what is left. The
+    draws come from SHA-256 over the seed, the run's
+    :attr:`~AlgorithmState.algorithm_id` and the tranche's index -- not
+    :mod:`random`, whose streams Python does not promise to keep (ledger
+    DET-003) -- so a run reproduces from its seed, and two parents worked with
+    one seed draw differently. Both values enter the configuration's identity.
+
+    Attributes:
+        spread: How far a tranche may move either side, a whole number of the
+            run's increments, below the displayed quantity.
+        seed: A non-negative int.
+    """
+
+    spread: Decimal
+    seed: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.spread, Decimal) or not self.spread.is_finite():
+            raise ExecutionValidationError(f"spread must be a finite Decimal, got {self.spread!r}.")
+        if self.spread <= _ZERO:
+            raise ExecutionValidationError(
+                f"A spread of {self.spread} randomizes nothing; leave randomization unset."
+            )
+        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
+            raise ExecutionValidationError(f"seed must be a non-negative int, got {self.seed!r}.")
+
+
+def _drawn_offset(
+    randomization: TrancheRandomization, algorithm_id: str, index: int, increment: Decimal
+) -> Decimal:
+    """``k`` increments, ``k`` uniform in ``[-spread, spread]``, by rejection sampling."""
+
+    reach = int(_CONTEXT.divide(randomization.spread, increment))
+    outcomes = 2 * reach + 1
+    ceiling = (1 << 64) - ((1 << 64) % outcomes)
+    attempt = 0
+    while True:
+        seed_text = f"{randomization.seed}|{algorithm_id}|{index}|{attempt}"
+        draw = int.from_bytes(hashlib.sha256(seed_text.encode("utf-8")).digest()[:8], "big")
+        if draw < ceiling:
+            return _CONTEXT.multiply(Decimal(draw % outcomes - reach), increment)
+        attempt += 1
+
+
+@dataclass(frozen=True, slots=True)
 class Iceberg:
     """One visible tranche at a time; the remainder stays hidden inside AlphaLab.
 
@@ -512,12 +687,24 @@ class Iceberg:
     """
 
     display_quantity: Decimal
+    randomization: TrancheRandomization | None = None
 
     def __post_init__(self) -> None:
         if self.display_quantity <= _ZERO:
             raise ExecutionValidationError(
                 f"A displayed tranche of {self.display_quantity} shows nothing."
             )
+        randomization = self.randomization
+        if randomization is not None:
+            if not isinstance(randomization, TrancheRandomization):
+                raise ExecutionValidationError(
+                    f"randomization must be a TrancheRandomization, got {randomization!r}."
+                )
+            if randomization.spread >= self.display_quantity:
+                raise ExecutionValidationError(
+                    f"A spread of {randomization.spread} around a tranche of "
+                    f"{self.display_quantity} could draw a tranche of nothing."
+                )
 
     @property
     def configuration_id(self) -> str:
@@ -562,7 +749,12 @@ def _render_algorithm(algorithm: ExecutionAlgorithm) -> list[str]:
             f"slice_quantity={_value(algorithm.slice_quantity)}",
             f"slice_count={algorithm.slice_count}",
         ]
-    return ["algorithm=iceberg", f"display={_value(algorithm.display_quantity)}"]
+    rendered = ["algorithm=iceberg", f"display={_value(algorithm.display_quantity)}"]
+    if algorithm.randomization is not None:
+        rendered.append(
+            f"randomization={_value(algorithm.randomization.spread)}|{algorithm.randomization.seed}"
+        )
+    return rendered
 
 
 def algorithm_configuration_id(algorithm: ExecutionAlgorithm) -> str:
@@ -1047,6 +1239,10 @@ def start_algorithm(
         _require_multiple(algorithm.slice_quantity, terms.quantity_increment, "A slice")
     if isinstance(algorithm, Iceberg):
         _require_multiple(algorithm.display_quantity, terms.quantity_increment, "A tranche")
+        if algorithm.randomization is not None:
+            _require_multiple(
+                algorithm.randomization.spread, terms.quantity_increment, "A tranche spread"
+            )
     if isinstance(algorithm, Participation):
         for bound, name in (
             (algorithm.min_child_quantity, "The minimum child"),
@@ -1210,7 +1406,18 @@ def release_children(
         if state.working > _ZERO or now >= state.terms.end:
             quantity = _ZERO
         elif isinstance(algorithm, Iceberg):
-            quantity = min(algorithm.display_quantity, state.unreleased)
+            tranche = algorithm.display_quantity
+            if algorithm.randomization is not None:
+                tranche = _add(
+                    tranche,
+                    _drawn_offset(
+                        algorithm.randomization,
+                        state.algorithm_id,
+                        len(state.children),
+                        state.terms.quantity_increment,
+                    ),
+                )
+            quantity = min(tranche, state.unreleased)
         elif algorithm.slice_quantity is not None:
             quantity = min(algorithm.slice_quantity, state.unreleased)
         else:

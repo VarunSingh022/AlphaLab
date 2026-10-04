@@ -261,7 +261,7 @@ def test_a_step_count_outside_its_range_is_refused(steps: int) -> None:
 
 def test_a_step_count_must_be_an_int() -> None:
     with pytest.raises(OptionInputError, match="int"):
-        BinomialLattice(True, ())  # type: ignore[arg-type]
+        BinomialLattice(True, ())
 
 
 def test_a_dividend_must_be_a_positive_finite_amount_on_a_finite_instant() -> None:
