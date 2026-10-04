@@ -48,13 +48,13 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from alphalab.data.feed import Bar as WireBar
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.exceptions import InstrumentResolutionError, MarketValidationError
 from alphalab.market.normalization import NormalizationPolicy, normalize_wire_bar
 from alphalab.market.record import MarketRecord, records_from_inputs
 from alphalab.market.source import OrderingGuarantee, validate_ordering
-from alphalab.marketdata.feed import Bar as WireBar
 
 __all__ = ["BarHistoryProvider", "ProviderHistorySource", "normalize_wire_bars"]
 
