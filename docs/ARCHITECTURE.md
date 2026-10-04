@@ -161,8 +161,10 @@ its model expects and seeded iceberg tranches (`alphalab.execution.algorithms`);
 a rerun from a manifest and a lock-file reader (`alphalab.lifecycle.rerun`,
 `alphalab.lifecycle.lockfile`); cron timers (`alphalab.scheduler.cron`); an
 exact liquidation price; exchange-rate risk as factors and every factor's share
-of a book's volatility (`alphalab.analytics.factor_risk`); a box uncertainty set
-on a book that may short; checkpoint segments that carry only what changed.
+of a book's volatility (`alphalab.analytics.factor_risk`); a factor model
+stated by its structure (`alphalab.analytics.FactorStructure`), which
+construction takes without writing `n²` values out; a box uncertainty set on a
+book that may short; checkpoint segments that carry only what changed.
 The freeze: one name for one contract, the public API and every persisted name
 recorded as data and held by tests (`docs/api`), and a release certificate
 (`docs/audit/RELEASE_CERTIFICATION.md`). It adds no package and no package edge,

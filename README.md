@@ -62,7 +62,7 @@ the one that leaves nothing required for later. Every item the ledger assigned
 to v3.13 is closed, and so are the four it had assigned to v4.0 itself — the
 shared names, the public API manifest, the persisted names and release
 certification. Every boundary and limitation the ledger holds was re-read
-against the code and kept with its reason, and a fresh audit found nineteen
+against the code and kept with its reason, and a fresh audit found twenty-one
 more things, each fixed, implemented, replaced or stated. ADR-0048.
 
 **Options that can be exercised early.** An American option is priced on a
@@ -87,10 +87,14 @@ into the dependencies a fingerprint records, resolving nothing.
 
 **Risk, timers, margin, persistence.** Exchange rates enter a factor model as
 factors, and every factor's share of a book's volatility is measured; a box
-uncertainty set takes a book that may short. Cron timers read a stated zone's
-wall clock across daylight saving. The liquidation price is solved for a stated
-maintenance basis, with fees and funding. Checkpoint segments carry only the
-orders that changed.
+uncertainty set takes a book that may short. A factor model is a covariance in
+its own right, stated by its structure: construction over 10,000 assets no
+longer writes 100 million values out first (0.12 s and 6 MB to state the
+model, 2.15 s to construct over it; 4,000 assets written out took 34 s and
+1.3 GB before the first step). Cron timers read a
+stated zone's wall clock across daylight saving. The liquidation price is
+solved for a stated maintenance basis, with fees and funding. Checkpoint
+segments carry only the orders that changed.
 
 **The freeze.** 52 public names bound to two different objects at 3.12.0 are
 31, each kept for a recorded reason; the rest were renamed without aliases,

@@ -88,6 +88,7 @@ from bisect import bisect_left
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from operator import itemgetter
 from types import MappingProxyType
 from typing import Final
 
@@ -99,6 +100,7 @@ __all__ = [
     "COVARIANCE_SCHEME",
     "EXCHANGE_RATE_FACTOR_PREFIX",
     "FACTOR_LOADINGS_SCHEME",
+    "FACTOR_STRUCTURE_SCHEME",
     "Classification",
     "CorrelationMatrix",
     "CovarianceMatrix",
@@ -119,6 +121,7 @@ __all__ = [
 #: Scheme tags, and the first line of each canonical key.
 COVARIANCE_SCHEME: Final = "alphalab.covariance.v1"
 FACTOR_LOADINGS_SCHEME: Final = "alphalab.factor_loadings.v1"
+FACTOR_STRUCTURE_SCHEME: Final = "alphalab.factor_structure.v1"
 CLASSIFICATION_SCHEME: Final = "alphalab.classification.v1"
 
 #: How :func:`currency_loadings` names an exchange rate's factor: ``FX:EUR`` is
@@ -248,6 +251,41 @@ def _euler(weights: Sequence[float], rows: Sequence[Sequence[float]]) -> _EulerT
     if volatility == 0.0:
         return _EulerTerms(variance, volatility, exposures, ())
     contributions = tuple(weights[index] * exposures[index] / volatility for index in range(count))
+    return _EulerTerms(variance, volatility, exposures, contributions)
+
+
+def _structured_euler(
+    weights: Sequence[float], positions: Sequence[int], structure: FactorStructure
+) -> _EulerTerms:
+    """:func:`_euler` through a factor structure, in ``O(n k^2)`` (v3.13, ledger PRF-013).
+
+    ``(C w)_i = b_i' F (B' w) + d_i w_i`` for the weighted assets, at
+    ``positions`` in the structure, and ``w' C w = (B' w)' F (B' w) +
+    sum_i d_i w_i^2`` -- each an exactly-rounded sum.
+    """
+
+    b = structure.loadings.values
+    f = structure.factor_covariance.values
+    d = structure.specific
+    k = len(structure.loadings.factors)
+    held = list(zip(weights, positions, strict=True))
+    factor_exposures = [math.fsum(w * b[p][h] for w, p in held) for h in range(k)]
+    pushed = [math.fsum(f[g][h] * factor_exposures[h] for h in range(k)) for g in range(k)]
+    exposures = tuple(
+        math.fsum([*(b[p][g] * pushed[g] for g in range(k)), d[p] * w]) for w, p in held
+    )
+    variance = math.fsum(
+        [
+            *(factor_exposures[g] * pushed[g] for g in range(k)),
+            *(d[p] * w * w for w, p in held),
+        ]
+    )
+    volatility = math.sqrt(max(0.0, variance))
+    if volatility == 0.0:
+        return _EulerTerms(variance, volatility, exposures, ())
+    contributions = tuple(
+        w * exposure / volatility for w, exposure in zip(weights, exposures, strict=True)
+    )
     return _EulerTerms(variance, volatility, exposures, contributions)
 
 
@@ -542,14 +580,24 @@ def _canonical_order(
                 f"{len(names)} assets; it must be square."
             )
     order = sorted(range(len(names)), key=lambda index: names[index])
-    canonical = tuple(
-        tuple(
-            _require_finite(rows[row][column], f"{what}[{names[row]!r}][{names[column]!r}]")
-            for column in order
+    in_order = all(position == index for index, position in enumerate(order))
+    canonical: list[tuple[float, ...]] = []
+    for position in order:
+        source = rows[position]
+        if set(map(type, source)) <= {float} and all(map(math.isfinite, source)):
+            # Every cell already a finite float -- what the check below returns
+            # cell by cell -- read in bulk (v3.13, ledger PRF-013).
+            canonical.append(
+                tuple(source) if in_order else tuple(source[column] for column in order)
+            )
+            continue
+        canonical.append(
+            tuple(
+                _require_finite(source[column], f"{what}[{names[position]!r}][{names[column]!r}]")
+                for column in order
+            )
         )
-        for row in order
-    )
-    return tuple(names[index] for index in order), canonical
+    return tuple(names[index] for index in order), tuple(canonical)
 
 
 @dataclass(frozen=True, slots=True)
@@ -616,7 +664,13 @@ class CovarianceMatrix:
                 "A CovarianceMatrix built directly must list its assets in sorted order; use "
                 "CovarianceMatrix.of or from_rows, which put them there."
             )
-        for row in range(len(names)):
+        # Symmetric with a non-negative diagonal, checked in bulk; only a matrix
+        # that is not is walked cell by cell, for the first cell that is wrong.
+        valid = all(
+            rows[row][row] >= 0.0 and tuple(map(itemgetter(row), rows)) == rows[row]
+            for row in range(len(names))
+        )
+        for row in range(0 if valid else len(names)):
             if rows[row][row] < 0.0:
                 raise AnalyticsValidationError(
                     f"{names[row]!r} has variance {rows[row][row]!r}. A variance cannot be "
@@ -941,45 +995,19 @@ class CovarianceMatrix:
         matrix records it as its parent, and the loadings and the specific
         variances in its derivation.
 
+        Writing ``n^2`` values out is ``O(n^2)`` in time and memory -- 34 s and
+        1.4 GB at 4,000 assets. Over a large universe, state the covariance by
+        its structure instead (:meth:`FactorStructure.of`, ``O(n k^2)``), which
+        construction, :func:`euler_decomposition` and :func:`factor_risk` take
+        directly (v3.13, ledger PRF-013); this is its :meth:`FactorStructure.matrix`.
+
         Raises:
             AnalyticsValidationError: If the factor covariance is not over
                 exactly the loadings' factors, a specific variance is missing,
                 extra, negative or not finite.
         """
 
-        if factor_covariance.assets != loadings.factors:
-            raise AnalyticsValidationError(
-                f"The factor covariance is over {list(factor_covariance.assets)} and the loadings "
-                f"name the factors {list(loadings.factors)}; a factor model needs the same."
-            )
-        held = set(specific_variances)
-        wanted = set(loadings.assets)
-        if held != wanted:
-            raise AnalyticsValidationError(
-                "Specific variances must cover exactly the loadings' assets: missing "
-                f"{sorted(wanted - held)}, outside {sorted(held - wanted)}. A missing specific "
-                "variance is not zero."
-            )
-        specific: list[float] = []
-        for asset in loadings.assets:
-            value = _require_finite(specific_variances[asset], f"specific variance of {asset!r}")
-            if value < 0.0:
-                raise AnalyticsValidationError(
-                    f"The specific variance of {asset!r} is {value!r}; a variance is not negative."
-                )
-            specific.append(value)
-        structure = FactorStructure(loadings, factor_covariance, tuple(specific))
-        return cls(
-            tuple(loadings.assets),
-            structure.rows(),
-            factor_covariance.currency,
-            factor_covariance.period,
-            f"factor model over {loadings.source}",
-            None,
-            parent_id=factor_covariance.covariance_id,
-            derivation=structure.derivation,
-            factors=structure,
-        )
+        return FactorStructure.of(loadings, factor_covariance, specific_variances).matrix()
 
     # -- identity ----------------------------------------------------------- #
 
@@ -1472,19 +1500,39 @@ class FactorLoadings:
 
 @dataclass(frozen=True, slots=True)
 class FactorStructure:
-    """The factor model a covariance was implied by, kept to solve with (ledger PRF-005).
+    """A covariance stated by its factor model, ``B F B' + D`` (ledger PRF-005, PRF-013).
 
     :meth:`CovarianceMatrix.factor_model` writes ``B F B' + D`` out as a dense
-    matrix, because every consumer of a covariance reads one -- and the dense
+    matrix, because most consumers of a covariance read one -- and the dense
     matrix forgets what made it cheap: ``k`` factors and a diagonal. This is that
-    structure, attached to the matrix it implies (:attr:`CovarianceMatrix.factors`),
-    so a computation that can use it -- portfolio construction over a large
-    universe -- solves its linear systems in ``O(n k^2)`` rather than ``O(n^3)``.
+    structure. Attached to the matrix it implies (:attr:`CovarianceMatrix.factors`)
+    it lets a computation that can use it -- portfolio construction over a large
+    universe -- solve its linear systems in ``O(n k^2)`` rather than ``O(n^3)``
+    (v3.12).
+
+    Since v3.13 it is also a covariance in its own right (ledger PRF-013).
+    Writing ``n^2`` values out costs ``O(n^2)`` in time and memory -- 34 s and
+    1.4 GB at 4,000 assets -- so a large universe never reached the
+    ``O(n k^2)`` solver through the public path. Built by :meth:`of`, a
+    structure costs ``O(n k^2)`` and holds nothing ``O(n^2)``;
+    :class:`~alphalab.portfolio_optimizer.construction.ConstructionProblem`,
+    :func:`euler_decomposition` and :func:`factor_risk` take it directly; and
+    the dense values are written out only when something asks for them --
+    :attr:`implied`, :meth:`rows` or :meth:`matrix`, each of which writes them
+    out again, because a frozen value is not changed once built: keep what one
+    returns.
+
+    A structure and the matrix it implies are two statements of one covariance,
+    and each has its own identity: :attr:`covariance_id` here is derived from the
+    factor covariance, the loadings and the specific variances, and the
+    matrix's renders its ``n^2`` values besides.
 
     Attributes:
-        loadings: ``B``: each asset's loading on each factor.
+        loadings: ``B``: each asset's loading on each factor. Its assets, sorted,
+            are the structure's.
         factor_covariance: ``F``: the covariance of the factor returns, over
-            exactly the loadings' factors.
+            exactly the loadings' factors. Its currency and period are the
+            structure's.
         specific: ``D``: one specific variance per asset, in the loadings'
             asset order. Finite and not negative.
 
@@ -1497,13 +1545,15 @@ class FactorStructure:
     loadings: FactorLoadings
     factor_covariance: CovarianceMatrix
     specific: tuple[float, ...]
-    #: Derived once, here, from the three above -- the matrix they imply, each
-    #: factor's loadings across the assets, the natural-order Cholesky pivots
-    #: and the evidence they give. None of it is compared or printed.
-    implied: tuple[tuple[float, ...], ...] = field(init=False, repr=False, compare=False)
+    #: Derived once, here, from the three above in ``O(n k^2)`` -- each factor's
+    #: loadings across the assets, each asset's variance, the natural-order
+    #: Cholesky pivots, the evidence they give and the identity. None of it is
+    #: compared or printed.
     columns: tuple[tuple[float, ...], ...] = field(init=False, repr=False, compare=False)
+    _variances: tuple[float, ...] = field(init=False, repr=False, compare=False)
     _pivots: tuple[float, ...] | None = field(init=False, repr=False, compare=False)
     _evidence: Definiteness | None = field(init=False, repr=False, compare=False)
+    _identity: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.factor_covariance.assets != self.loadings.factors:
@@ -1529,20 +1579,147 @@ class FactorStructure:
                 f"The specific variances of {negative[:5]} are negative; a variance is not."
             )
         object.__setattr__(self, "specific", values)
-        object.__setattr__(self, "implied", self._implied())
+        b = self.loadings.values
+        f = self.factor_covariance.values
+        k = len(self.loadings.factors)
+        object.__setattr__(
+            self, "columns", tuple(tuple(row[factor] for row in b) for factor in range(k))
+        )
+        # Each diagonal cell exactly as the dense rows compute it, so that
+        # variance() and matrix().variance() are the same float.
         object.__setattr__(
             self,
-            "columns",
+            "_variances",
             tuple(
-                tuple(row[factor] for row in self.loadings.values)
-                for factor in range(len(self.loadings.factors))
+                math.fsum(
+                    math.fsum(b[i][g] * f[g][h] for g in range(k)) * b[i][h] for h in range(k)
+                )
+                + values[i]
+                for i in range(len(b))
             ),
         )
-        pivots = factor_cholesky_pivots(
-            self.loadings.values, self.factor_covariance.values, self.specific
-        )
+        pivots = factor_cholesky_pivots(b, f, values)
         object.__setattr__(self, "_pivots", pivots)
         object.__setattr__(self, "_evidence", self._definiteness(pivots))
+        object.__setattr__(self, "_identity", self._derive_identity())
+
+    @classmethod
+    def of(
+        cls,
+        loadings: FactorLoadings,
+        factor_covariance: CovarianceMatrix,
+        specific_variances: Mapping[str, float],
+    ) -> FactorStructure:
+        """A factor model given its specific variances by asset (v3.13, ledger PRF-013).
+
+        The structure :meth:`CovarianceMatrix.factor_model` writes out, not
+        written out: ``O(n k^2)``, where the dense matrix is ``O(n^2)``.
+
+        Raises:
+            AnalyticsValidationError: If the factor covariance is not over
+                exactly the loadings' factors, a specific variance is missing,
+                extra, negative or not finite.
+        """
+
+        if factor_covariance.assets != loadings.factors:
+            raise AnalyticsValidationError(
+                f"The factor covariance is over {list(factor_covariance.assets)} and the loadings "
+                f"name the factors {list(loadings.factors)}; a factor model needs the same."
+            )
+        held = set(specific_variances)
+        wanted = set(loadings.assets)
+        if held != wanted:
+            raise AnalyticsValidationError(
+                "Specific variances must cover exactly the loadings' assets: missing "
+                f"{sorted(wanted - held)}, outside {sorted(held - wanted)}. A missing specific "
+                "variance is not zero."
+            )
+        specific: list[float] = []
+        for asset in loadings.assets:
+            value = _require_finite(specific_variances[asset], f"specific variance of {asset!r}")
+            if value < 0.0:
+                raise AnalyticsValidationError(
+                    f"The specific variance of {asset!r} is {value!r}; a variance is not negative."
+                )
+            specific.append(value)
+        return cls(loadings, factor_covariance, tuple(specific))
+
+    # -- the covariance it states ------------------------------------------- #
+
+    @property
+    def assets(self) -> tuple[str, ...]:
+        """The assets, sorted: the loadings'."""
+
+        return self.loadings.assets
+
+    @property
+    def currency(self) -> str:
+        """The currency every return is measured in: the factor covariance's."""
+
+        return self.factor_covariance.currency
+
+    @property
+    def period(self) -> str:
+        """The return period each figure is per: the factor covariance's."""
+
+        return self.factor_covariance.period
+
+    @property
+    def source(self) -> str:
+        """Where the covariance came from, as the matrix it implies records it."""
+
+        return f"factor model over {self.loadings.source}"
+
+    @property
+    def covariance_id(self) -> str:
+        """The derived identity of this statement of the covariance, in any process.
+
+        Not :meth:`matrix`'s :attr:`CovarianceMatrix.covariance_id`, which renders
+        the ``n^2`` values besides: the two are different statements of one
+        covariance.
+        """
+
+        return self._identity
+
+    def _derive_identity(self) -> str:
+        return _digest(
+            [
+                FACTOR_STRUCTURE_SCHEME,
+                f"factor_covariance={self.factor_covariance.covariance_id}",
+                f"loadings={self.loadings.loadings_id}",
+                "specific",
+                *(
+                    f"{asset}={_render(value)}"
+                    for asset, value in zip(self.loadings.assets, self.specific, strict=True)
+                ),
+            ]
+        )
+
+    def index(self, asset: str) -> int:
+        """The position of ``asset`` in :attr:`assets`.
+
+        Raises:
+            AnalyticsValidationError: If the structure does not cover it.
+        """
+
+        assets = self.loadings.assets
+        position = bisect_left(assets, asset)
+        if position == len(assets) or assets[position] != asset:
+            raise AnalyticsValidationError(
+                f"{asset!r} is not covered by factor structure {self.covariance_id[:12]}, which "
+                f"covers {len(assets)} assets. A missing covariance is not zero."
+            )
+        return position
+
+    def variance(self, asset: str) -> float:
+        """One covered asset's variance, ``b_i' F b_i + d_i``: the dense diagonal, to the bit."""
+
+        return self._variances[self.index(asset)]
+
+    def volatility(self, asset: str) -> float:
+        """One covered asset's standard deviation, per :attr:`period`."""
+
+        return math.sqrt(self.variance(asset))
 
     @property
     def derivation(self) -> str:
@@ -1562,12 +1739,41 @@ class FactorStructure:
             f"{rendered}"
         )
 
+    # -- written out, when asked for ---------------------------------------- #
+
+    @property
+    def implied(self) -> tuple[tuple[float, ...], ...]:
+        """``B F B' + D`` written out: ``O(n^2)`` on every read, so keep the result."""
+
+        return self._write_out()
+
     def rows(self) -> tuple[tuple[float, ...], ...]:
         """``B F B' + D`` written out: the matrix :meth:`CovarianceMatrix.factor_model` builds."""
 
-        return self.implied
+        return self._write_out()
 
-    def _implied(self) -> tuple[tuple[float, ...], ...]:
+    def matrix(self) -> CovarianceMatrix:
+        """The dense :class:`CovarianceMatrix` this structure implies, ``O(n^2)`` on every call.
+
+        Exactly what :meth:`CovarianceMatrix.factor_model` returns for the same
+        model -- the same values, provenance and identity -- carrying this
+        structure.
+        """
+
+        factor_covariance = self.factor_covariance
+        return CovarianceMatrix(
+            tuple(self.loadings.assets),
+            self._write_out(),
+            factor_covariance.currency,
+            factor_covariance.period,
+            self.source,
+            None,
+            parent_id=factor_covariance.covariance_id,
+            derivation=self.derivation,
+            factors=self,
+        )
+
+    def _write_out(self) -> tuple[tuple[float, ...], ...]:
         """Each cell computed once, by exactly-rounded sums, and written to both halves."""
 
         b = self.loadings.values
@@ -1648,22 +1854,13 @@ class FactorStructure:
     def _definiteness(self, pivots: tuple[float, ...] | None) -> Definiteness | None:
         if pivots is None:
             return None
-        b = self.loadings.values
-        f = self.factor_covariance.values
-        k = len(self.loadings.factors)
-        diagonal = [
-            math.fsum(math.fsum(b[i][g] * f[g][h] for g in range(k)) * b[i][h] for h in range(k))
-            + self.specific[i]
-            for i in range(len(b))
-        ]
-        largest = max(diagonal)
-        floor = len(b) * _EPSILON * largest
+        count = len(self._variances)
+        largest = max(self._variances)
+        floor = count * _EPSILON * largest
         smallest = min(pivots)
         if smallest <= floor:
             return None
-        return Definiteness(
-            DefinitenessKind.POSITIVE_DEFINITE, len(b), smallest, largest, floor, ()
-        )
+        return Definiteness(DefinitenessKind.POSITIVE_DEFINITE, count, smallest, largest, floor, ())
 
 
 def portfolio_factor_exposures(
@@ -1819,7 +2016,9 @@ class RiskContributions:
             :attr:`volatility` up to floating-point rounding. Negative for a
             position that hedges the rest, and kept negative.
         relative: ``total_i / volatility`` -- the share of risk. Sums to one.
-        covariance_id: The covariance the figures were computed under.
+        covariance_id: The covariance the figures were computed under: a
+            matrix's :attr:`CovarianceMatrix.covariance_id`, or a structure's
+            :attr:`FactorStructure.covariance_id`.
     """
 
     weights: Mapping[str, float]
@@ -1838,12 +2037,18 @@ class RiskContributions:
 
 
 def euler_decomposition(
-    weights: Mapping[str, float], covariance: CovarianceMatrix
+    weights: Mapping[str, float], covariance: CovarianceMatrix | FactorStructure
 ) -> RiskContributions:
     """Decompose the volatility of ``weights`` under ``covariance``.
 
     Assets with a weight must be covered by the covariance; a covariance over a
     larger universe is fine and the rest of it is not read.
+
+    A covariance stated by its :class:`FactorStructure` is decomposed through
+    its factors, in ``O(n k^2)`` and without writing it out -- ``(C w)_i`` is
+    ``b_i' F (B' w) + d_i w_i`` -- by exactly-rounded sums (v3.13, ledger
+    PRF-013). The figures are those of the matrix it implies to rounding, not to
+    the bit: the dense sums are v3.3's, kept so that no published number moved.
 
     Raises:
         AnalyticsValidationError: If ``weights`` is empty, holds a non-finite
@@ -1859,8 +2064,11 @@ def euler_decomposition(
     names = sorted(weights)
     values = [_require_finite(weights[name], f"weight of {name!r}") for name in names]
     positions = [covariance.index(name) for name in names]
-    rows = [[covariance.values[row][column] for column in positions] for row in positions]
-    terms = _euler(values, rows)
+    if isinstance(covariance, FactorStructure):
+        terms = _structured_euler(values, positions, covariance)
+    else:
+        rows = [[covariance.values[row][column] for column in positions] for row in positions]
+        terms = _euler(values, rows)
     if not terms.contributions:
         raise AnalyticsValidationError(
             "Portfolio volatility is zero, so there is no risk to decompose. Every "
@@ -1978,7 +2186,8 @@ class FactorRisk:
     factor hedges the rest of the book, and kept negative.
 
     Attributes:
-        covariance_id: The factor-structured covariance read.
+        covariance_id: The factor-structured covariance read: a structure's
+            :attr:`FactorStructure.covariance_id`, or the matrix's that carried it.
         currency: What every return was measured in.
         period: What each variance is per.
         volatility: ``sqrt(w' C w)``, per period.
@@ -2014,22 +2223,26 @@ class FactorRisk:
         )
 
 
-def factor_risk(weights: Mapping[str, float], covariance: CovarianceMatrix) -> FactorRisk:
+def factor_risk(
+    weights: Mapping[str, float], covariance: CovarianceMatrix | FactorStructure
+) -> FactorRisk:
     """Divide a book's volatility among the factors of a factor-model covariance.
 
     ``weights`` are fractions of the capital the covariance's returns are
     measured against, for assets the covariance covers; an asset left out holds
-    nothing.
+    nothing. ``covariance`` is a :class:`FactorStructure`, or a matrix
+    :meth:`CovarianceMatrix.factor_model` built, which carries one; either way
+    the cost is ``O(n k^2)``.
 
     Raises:
-        AnalyticsValidationError: If the covariance was not built by
-            :meth:`CovarianceMatrix.factor_model` (it then has no factor to
-            divide risk among), ``weights`` is empty or holds a non-finite weight
-            or an asset the covariance does not cover, or the book's volatility
-            is zero -- every contribution would then be zero over zero.
+        AnalyticsValidationError: If the covariance is a matrix not built from a
+            factor model (it then has no factor to divide risk among),
+            ``weights`` is empty or holds a non-finite weight or an asset the
+            covariance does not cover, or the book's volatility is zero -- every
+            contribution would then be zero over zero.
     """
 
-    structure = covariance.factors
+    structure = covariance if isinstance(covariance, FactorStructure) else covariance.factors
     if structure is None:
         raise AnalyticsValidationError(
             f"Covariance {covariance.covariance_id[:12]} was not built from a factor model, so "

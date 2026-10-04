@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.12.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.13.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,16 +42,42 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.9.0** |
+| Version | **3.13.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.9.0 are additive to it; v3.10.0 and v3.11.0 are the first two of four pre-v4 releases.** |
+| Status | **Architecture frozen at v3.0.0; v3.1.0 through v3.9.0 are additive to it; v3.10.0 through v3.13.0 are the four pre-v4 releases, and v3.13.0 the last: nothing required is assigned to a later release (ADR-0048).** |
 
 ---
 
-# 2. What v3.12.0 hardens, what v3.11.0 adds, what v3.10.0 corrects, what v3.9.0 – v3.1.0 add, and what v3.0.0 means
+# 2. What v3.13.0 completes, what v3.12.0 hardens, what v3.11.0 adds, what v3.10.0 corrects, what v3.9.0 – v3.1.0 add, and what v3.0.0 means
+
+## v3.13.0 — the final pre-v4 release
+
+The last of the four pre-v4 releases, and the one that leaves nothing required
+for later. It closes every item the ledger assigned to it and the four it had
+assigned to v4.0 itself, re-reads every boundary and limitation against the
+code, and adds what its own audit found. An American option is priced on a
+Cox–Ross–Rubinstein lattice whose step count is part of the model, with
+discrete dividends, and a surface is read between expiries in total variance
+when asked to by name. An order can be split across venues at the least total
+cost where each venue's cost is a fixed charge plus a convex function; an
+Almgren–Chriss urgency is estimated, the shortfall its model expects is
+computed with its variance, and a measured shortfall read beside it; iceberg
+tranches vary from a seed and reproduce. A run is re-executed from its manifest,
+refusing other inputs first, and a divergence located; a lock file is read into
+the dependencies a fingerprint records. Cron timers read a stated zone's wall
+clock; the liquidation price is solved for a stated maintenance basis;
+exchange rates enter a factor model as factors and every factor's share of a
+book's volatility is measured; a box uncertainty set takes a book that may
+short; a factor model's covariance can be stated by its structure and
+constructed over at 10,000 assets without writing n² values out (PRF-013);
+checkpoint segments carry only the orders that changed. And the freeze: 52
+shared public names at 3.12.0 are 31, each kept for a recorded reason; the
+public API and every persisted enum name are data that tests hold; every
+limitation an ADR states is held to a closed ledger entry; and a certificate
+records what the build was checked to do. ADR-0048.
 
 ## v3.12.0 — the pre-v4 hardening release
 
@@ -1341,19 +1367,20 @@ retry-on-older-protocol fallback exists.
 ```bash
 ruff check .                              # lint
 ruff format --check .                     # format
-mypy .                                    # strict, 1,122 source files (what CI runs)
-pytest -q -W error                        # 8,583 tests, 0 skipped, 0 warnings (what CI runs)
+mypy .                                    # strict, @@GATE@@ source files (what CI runs)
+pytest -q -W error                        # @@GATE@@ tests, 0 skipped, 0 warnings (what CI runs)
 git diff --check
 python -m build && twine check dist/*
-for f in examples/[0-9]*.py; do python -W error "$f"; done    # 65
-for f in benchmarks/benchmark_*.py; do python "$f"; done      # 53
+for f in examples/[0-9]*.py; do python -W error "$f"; done    # 69
+for f in benchmarks/benchmark_*.py; do python "$f"; done      # @@GATE@@
+python -W error docs/audit/scripts/certify_release.py --check # the release certificate
 ```
 
 `make check` runs the first four. Since v3.10 CI also installs the wheel and
 the sdist, each into a fresh environment, and runs `tests/installed_smoke.py`
 against them from outside the checkout; the benchmarks run weekly.
 
-**8,583 tests** — 4,578 unit, 649 integration, 3,356 regression. The
+**@@GATE@@ tests** — @@GATE@@ unit, @@GATE@@ integration, @@GATE@@ regression. The
 regression suite is nearly as large as the unit suite, deliberately: most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
@@ -1403,6 +1430,9 @@ every module in the tree.
 | `test_fill_timing.py`, `test_execution_assumptions.py`, `test_strategy_failures_are_reported.py` | v3.10: next-event fills, recorded execution assumptions, reported strategy failures |
 | `test_bar_stamp_convention.py` | v3.10: a bar stamped at the end of its interval, and a source's convention required |
 | `test_release_gates_are_wired.py`, `test_mutation_pins.py` | v3.10: CI, hooks and pyproject agree; every mutation the audit's harness let through is pinned |
+| `test_public_api_manifest.py`, `test_api_changes_are_in_the_changelog.py` | v3.13: every export of every package recorded with its binding, regenerated with each release; a removed or rebound name is refused until the release's CHANGELOG section names it |
+| `test_persisted_enum_names.py`, `test_release_certification.py` | v3.13: a persisted enum's class and member names are part of the format; the release certificate's checks pass and its evidence has not moved |
+| `test_every_adr_deferral_is_classified.py`, `test_ledger_references_exist.py`, `test_version_markers_agree.py` | v3.13: every limitation and deferral an ADR states maps to a closed ledger entry; every test the ledger cites exists; every document that states the version states the package's |
 
 ## Performance
 
@@ -1471,7 +1501,19 @@ schedule that is identical on every platform. Writing the guards found a
 declaration identity rendered on every check and `list.count` duplicate
 detection in the draft; both are gone.
 
-One term is deliberately left super-linear — see section 17.
+**The v3.13 scales are measured** by `docs/audit/scripts/stress_v3_13.py`,
+which also re-runs v3.12's 10,000-asset, 1,000-strategy and 100-venue
+scenarios. A factor model stated by its structure is built, decomposed and
+constructed over in O(n k²): 10,000 assets take 0.12 s and 6 MB to state and
+2.15 s to construct over (PRF-013) — where writing the same model out as a
+dense matrix is O(n²), 34 s and 1.3 GB at 4,000 assets. The optimal split
+searches every set of fixed-charge venues, so its ceiling of ten such venues
+costs seconds (17–25 s of CPU for an order across ten fixed-charge and ten free
+venues); an American price on 5,000 steps, the lattice's ceiling, under three
+seconds; a run's per-order state about 2.7 kB an order (PRF-011, kept).
+
+The one term v3.10 left super-linear — the optimizer's pending trials — left
+with the optimizer in v3.12 (OFE-013).
 
 ---
 
@@ -1719,6 +1761,26 @@ an ADR.
     (`BarHistoryProvider.request_history`); no vendor client and no exchange
     symbol spelling.
 
+71. **One name, one contract** (v3.13, ADR-0048). A public name bound to two
+    different objects is renamed — never aliased — merged, or kept with its
+    reason in `docs/api/public_api.json`, which records every export and is
+    regenerated with each release; a removed or rebound name is refused until
+    the release's CHANGELOG section names it.
+72. **A persisted enum's class and member names are part of the format.** A
+    rename is a schema step with an upgrade, never a refactoring (PER-004).
+73. **A price states its model, and a method states where it is exact.** A
+    lattice price names its step count; a surface is read between expiries only
+    by name and never extrapolated; the optimal split refuses a cost it cannot
+    call optimal; a model's parameters — impact, risk aversion, a seed — are the
+    caller's, with no default.
+74. **What is not done is classified.** Every limitation and deferral an ADR
+    states maps to a closed ledger entry, every test the ledger cites exists,
+    and the release certificate's evidence does not move unless the certificate
+    is regenerated.
+
+The decisions ADR-0046 and ADR-0047 record for v3.11 and v3.12 are frozen with
+these; each is pinned by the regression test its ledger entry cites.
+
 ## The failure mode to watch for
 
 The most expensive defects in AlphaLab's history were not unknown problems. They
@@ -1831,9 +1893,10 @@ integration does not.**
 Until v3.10 this section listed what could be built with no commitment. The
 pre-v4 audit re-classified every item; the ledger
 (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) holds each with its disposition
-and release, and `ROADMAP.md` has the table. In short:
+and release, and `ROADMAP.md` has the table. **Nothing is planned any more:
+every item was delivered by v3.13 or is kept, with its reason.** In short:
 
-- **Planned for v3.11**: richer construction (OFE-002); multi-exposure
+- **Delivered in v3.11**: richer construction (OFE-002); multi-exposure
   neutralization (OFE-004); a deflated Sharpe ratio and corrections beyond
   Bonferroni (OFE-005); an overlap-corrected IC t-statistic (OFE-006);
   pipeline-driven `on_fill` / `on_order` / `on_timer` (OFE-014); a venue
@@ -1846,9 +1909,11 @@ and release, and `ROADMAP.md` has the table. In short:
   (OFE-017); cross-broker book-to-mirror reconciliation (OFE-023); the
   optimizer's `pending_trials`, removed with the optimizer rather than patched
   (OFE-013, SCF-003).
-- **Planned for v3.13**: a lock-file reader (OFE-019); a rerun harness
+- **Delivered in v3.13**: a lock-file reader (OFE-019); a rerun harness
   (OFE-020); an optimal split, estimated urgency and randomized icebergs
-  (OFE-024, OFE-025).
+  (OFE-024, OFE-025); and, from the ledger's v4.0 column, the shared names,
+  the public API manifest, the persisted-name contract and release
+  certification (API-001, API-002, PER-004, FEA-006).
 - **Kept as boundaries**: statistical regime models (OFE-010); a fitted
   half-life and derived alignment (OFE-007, OFE-018); per-strategy sub-ledgers
   (OFE-015); hook timeouts, plugin analysis, hot reload and a threading model
@@ -1880,11 +1945,11 @@ and release, and `ROADMAP.md` has the table. In short:
 | **v3.8.0** | **Advanced portfolio and risk: the risk model as values with identities; constrained construction — minimum variance, mean-variance, maximum diversification, risk parity, robust — by one certified solver that names conflicts, and Black–Litterman; risk budgets along five dimensions; multi-strategy books across currencies; cross-strategy risk; and capital allocation across strategies, markets, brokers, accounts and currencies — no package added, three edges measured, no snapshot schema touched (ADR-0043)** |
 | **v3.9.0** | **The universal execution contract: capabilities declared at venue, market and account level and checked three-valued; one order-transition table for the OMS and the venue, every venue report given one outcome, idempotent cancels and amendments; TWAP, VWAP, participation, slicing and iceberg-like algorithms whose children stay their parent's; explained routing from supplied evidence; execution analytics; snapshot reconciliation — no package or edge added, no snapshot schema touched (ADR-0044)** |
 | **v3.10.0** | **The first pre-v4 release: risk on the projected book, never refusing a reduction; money exact at each currency's minor unit; analytics per instant with stated annualization; next-event fills and recorded execution assumptions; a canonical path linear in the universe; bars stamped at their close; upgradeable snapshots (portfolio 4, pipeline 4, run 2); vendor code, `feed`, `live` and silent defaults removed (ADR-0045)** |
-
 | **v3.11.0** | **The second pre-v4 release: instrument economics, corporate actions and negative prices; order terms and resting orders; target positions against each strategy's own position; enforced subscriptions, slices and feedback; leak-proof research, walk-forward optimization and multiple-testing corrections; construction with costs and lots; `studio`, `workbench`, `enterprise` and venue credentials moved to the application; snapshots pipeline 5, run 3, portfolio 5 (ADR-0046)** |
 | **v3.12.0** | **The third pre-v4 release: numerics right at the edges of their range; durable writes and exact restores; calendars inside simulation; strategy capital ceilings; classification limits along any dimension; external information on the execution path; retention and incremental checkpoints; an evidence store; multi-account reconciliation; declared trade prints; LSTM and attention backpropagation; factor-structured construction; a stress program at 10,000 assets, 1,000 strategies and 100 venues; snapshots pipeline 6, run 4, allocation 3, instrument 3 (ADR-0047)** |
+| **v3.13.0** | **The final pre-v4 release: American options and a volatility term structure; the optimal split; an estimated urgency, the shortfall its model expects and seeded iceberg tranches; a rerun from a manifest and a lock-file reader; cron timers; an exact liquidation price; exchange-rate risk as factors; a factor model constructed over by its structure; checkpoint segments that carry only what changed; one name for one contract, the public API and persisted names as data, every ADR limitation held to the ledger, and a release certificate; snapshots pipeline 7, checkpoint 2 (ADR-0048)** |
 
-47 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+48 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---
@@ -1951,7 +2016,9 @@ stop and read the reason in that test's docstring — it was written for you.
 **Before any release**, run the full checklist in
 `docs/ENGINEERING_GUIDELINES.md`. The current-state claim lives in four
 documents and has drifted before; the version is declared once, in
-`alphalab/common/_version.py`.
+`alphalab/common/_version.py`, and every document that restates it is held to
+it by a test. Regenerate the API manifest (`docs/api/generate_public_api.py`)
+and, last, the release certificate (`docs/audit/scripts/certify_release.py`).
 
 ---
 
@@ -1963,8 +2030,10 @@ Genuinely unresolved, recorded so they are not rediscovered:
   against the protocols as written and against local servers that verify the hard
   parts. Whether a commercial venue's quirks break them cannot be known from here.
 - **UNKNOWN: whether the linear scaling holds at a workload far beyond what is
-  benchmarked.** Measured to 20,000 transitions in the standalone packages and
-  8,000 records on the canonical path; beyond that is extrapolation.
+  measured.** The stress programs (v3.12, re-run in v3.13) measure the canonical
+  path at 10,000 assets, 1,000 strategies and 100 venues, checkpoint chains of
+  20,000 records and construction at 10,000 assets; beyond that is
+  extrapolation.
 - **UNKNOWN: whether the single-threaded model is sufficient** for a deployment
   running many strategies at high event rates. The design anticipated sharding;
   nothing was built, and nothing has needed it.
@@ -1989,10 +2058,11 @@ Genuinely unresolved, recorded so they are not rediscovered:
   the stabilized method from the start, and passed 30 of 30 comparisons with
   every core busy; v3.9's `test_v39_complexity.py` imports the same method and
   passed 5 of 5 runs with eight CPU-bound processes competing.
-- **UNKNOWN: how far the pure-Python construction solver scales.** It is exact
-  and cubic in the universe; the benchmark measures twenty-five and fifty
-  assets. Hundreds of assets are expected to work and to be slow; nothing larger
-  has been measured.
+- **MEASURED since v3.12: how far the pure-Python construction solver
+  scales.** The dense solver is cubic — 135 s at 800 assets. A factor model is
+  solved in O(n k²) per step (v3.12), and since v3.13 stated by its
+  structure and never written out (PRF-013): 10,000 assets through the public
+  path, measured in the stress program.
 - **UNKNOWN: how real venues order amendments, positions and balances relative
   to fills.** The execution contract orders status events by the lifecycle and
   fills by addition, and leaves absolute reports to the adapter's delivery
@@ -2006,6 +2076,9 @@ Genuinely unresolved, recorded so they are not rediscovered:
 
 ---
 
-*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0, v3.4.0, v3.5.0, v3.6.0, v3.7.0, v3.8.0 and v3.9.0. If you are reading this long after, check the version in
-`pyproject.toml` first: where this document and the code disagree, the code is
-right, and this document has a bug worth fixing.*
+*Written at v3.0.0 and updated at each release since, through v3.13.0. At
+v3.13.0 its identity table was found still reading 3.9.0 (DOC-008), and
+`tests/regression/test_version_markers_agree.py` now holds it to the code. If you
+are reading this long after, check the version in `alphalab/common/_version.py`
+first: where this document and the code disagree, the code is right, and this
+document has a bug worth fixing.*

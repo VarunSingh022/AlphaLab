@@ -1173,9 +1173,9 @@ itself — the shared names (API-001), the public API manifest (API-002), the pe
 contract (PER-004) and release certification (FEA-006) — so that nothing required is left for a
 later release. Every boundary and limitation the ledger holds was re-read against the code and
 kept with its reason (`v313_outcome` on each), and the ledger assigns nothing beyond v3.13.0:
-213 entries, each implemented or kept. ADR-0048 records the decisions.
+215 entries, each implemented or kept. ADR-0048 records the decisions.
 
-The fresh audit found nineteen things, each recorded in the ledger:
+The fresh audit found twenty-one things, each recorded in the ledger:
 
 * **Defects**: the broker codec read a qualified enum name by its member alone (PER-007, since
   2.16); the liquidation price assumed one venue's maintenance convention and ignored fees and
@@ -1185,10 +1185,15 @@ The fresh audit found nineteen things, each recorded in the ledger:
 * **Scale**: checkpoint segments carried every order a run had placed (PRF-011, shipped in
   3.12.0), now carrying only what changed; the per-order state itself is kept as a stated
   limitation. The one-asset paths' cost against 3.11 is classified as the price of the
-  capabilities on the one canonical path (PRF-012).
+  capabilities on the one canonical path (PRF-012). The 10,000-asset construction v3.12
+  published was the solver's alone: through the public API a factor model had first to be
+  written out as a dense matrix, O(n²) — 34 s and 1.4 GB at 4,000 assets — so the structure is
+  now a covariance construction takes and never writes out (PRF-013).
 * **Documentation and method**: three durability tables were stale (DOC-005); a docstring said
-  a delivered rate source "has not arrived" (DOC-007); nothing checked a release's migration
-  table against its API (DOC-006) or the ledger's cited tests against the suite (TST-014).
+  a delivered rate source "has not arrived" (DOC-007); `nowandfuture.md`'s identity table still
+  read 3.9.0, and no version marker but the CHANGELOG's was tested (DOC-008); nothing checked a
+  release's migration table against its API (DOC-006) or the ledger's cited tests against the
+  suite (TST-014).
 * **The inventory itself** (TST-015): the pre-v4 audit had inventoried ROADMAP's boundaries and
   optional list, not the "Known limitations" and "DEFERRED" lists of ADR-0042, ADR-0043 and
   ADR-0044. Of their 52 items, 23 had no ledger entry: two deferred capabilities, now

@@ -20,7 +20,9 @@ these, each checking an outcome as well as printing what it cost:
                  beside ten free ones -- for orders of 1,000 and 20,000 units,
                  against the greedy sweep (BRK-005).
 ``factor``       A factor-model covariance built, decomposed and constructed
-                 over at 1,000, 2,000 and 4,000 assets (FEA-007; PRF-013).
+                 over: written out as a dense matrix at 1,000, 2,000 and 4,000
+                 assets, and stated by its structure at 1,000, 4,000 and
+                 10,000 (FEA-007; PRF-013).
 ``box``          A long-short box-robust construction over 200 assets (FEA-009).
 ``cron``         The longest search a cron schedule makes: the next 29 February
                  from 1 March 2097, eight years on (DAT-006).
@@ -254,13 +256,49 @@ def scenario_split() -> None:
         assert totals[SplitMethod.OPTIMAL] <= totals[SplitMethod.GREEDY_SWEEP]
 
 
+def _factor_inputs(count: int) -> tuple[Any, Any, dict[str, float], Any]:
+    from alphalab.analytics.risk_model import CovarianceMatrix, FactorLoadings
+    from alphalab.portfolio_optimizer.construction import ExpectedReturns
+
+    rng = random.Random(7)
+    assets = [f"A{i:05d}" for i in range(count)]
+    factors = [f"F{j}" for j in range(5)]
+    loadings = FactorLoadings.of(
+        {a: {f: rng.gauss(0.0, 1.0) for f in factors} for a in assets},
+        source="stress",
+        lineage=dict.fromkeys(factors, "stress"),
+        as_of=None,
+    )
+    factor_covariance = CovarianceMatrix.from_rows(
+        factors,
+        [[0.04 if i == j else 0.0 for j in range(5)] for i in range(5)],
+        currency="USD",
+        period="1M",
+        source="stress",
+        observations=None,
+    )
+    specific = {a: 0.01 + 0.02 * rng.random() for a in assets}
+    mu = ExpectedReturns({a: rng.gauss(0.05, 0.10) for a in assets}, "USD", "1M", "stress")
+    return loadings, factor_covariance, specific, mu
+
+
+def _traced_peak(work: Callable[[], Any]) -> int:
+    """Bytes ``tracemalloc`` traces at the peak of ``work``, run apart from its timing."""
+
+    gc.collect()
+    tracemalloc.start()
+    work()
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return peak
+
+
 def scenario_factor() -> None:
-    from alphalab.analytics.risk_model import CovarianceMatrix, FactorLoadings, factor_risk
+    from alphalab.analytics.risk_model import CovarianceMatrix, FactorStructure, factor_risk
     from alphalab.portfolio_optimizer.construction import (
         ConstraintSet,
         ConstructionProblem,
         ConstructionStatus,
-        ExpectedReturns,
         ExposureRange,
         MeanVariance,
         SolverSettings,
@@ -268,47 +306,49 @@ def scenario_factor() -> None:
         construct,
     )
 
-    print("== factor: a factor-model covariance built, decomposed and constructed over (k = 5)")
-    for count in (1_000, 2_000, 4_000):
-        rng = random.Random(7)
-        assets = [f"A{i:05d}" for i in range(count)]
-        factors = [f"F{j}" for j in range(5)]
-        loadings = FactorLoadings.of(
-            {a: {f: rng.gauss(0.0, 1.0) for f in factors} for a in assets},
-            source="stress",
-            lineage=dict.fromkeys(factors, "stress"),
-            as_of=None,
-        )
-        factor_covariance = CovarianceMatrix.from_rows(
-            factors,
-            [[0.04 if i == j else 0.0 for j in range(5)] for i in range(5)],
-            currency="USD",
-            period="1M",
-            source="stress",
-            observations=None,
-        )
-        specific = {a: 0.01 + 0.02 * rng.random() for a in assets}
-        mu = ExpectedReturns({a: rng.gauss(0.05, 0.10) for a in assets}, "USD", "1M", "stress")
-        equal = dict.fromkeys(assets, 1.0 / count)
-        tracemalloc.start()
-        model, build = _timed(
-            partial(CovarianceMatrix.factor_model, loadings, factor_covariance, specific)
-        )
-        _, peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        risk, decompose = _timed(partial(factor_risk, equal, model))
-        assert abs(risk.residual) <= 1e-12 * risk.volatility
+    def solve(covariance: Any, mu: Any) -> Any:
         problem = ConstructionProblem(
-            model,
+            covariance,
             MeanVariance(mu, 1.0),
             ConstraintSet(ExposureRange.exactly(1.0), WeightBounds(0.0, 0.05)),
             SolverSettings(1e-9, 1e-9, 100_000),
         )
-        result, solve = _timed(partial(construct, problem))
+        result = construct(problem)
         assert result.status is ConstructionStatus.OPTIMAL
+        return result
+
+    print("== factor: a factor-model covariance (k = 5) built, decomposed and constructed over")
+    print("   written out as a dense matrix -- what the public path required until v3.13:")
+    for count in (1_000, 2_000, 4_000):
+        loadings, factor_covariance, specific, mu = _factor_inputs(count)
+        build = partial(CovarianceMatrix.factor_model, loadings, factor_covariance, specific)
+        model, seconds = _timed(build)
+        # Timed untraced -- tracing slows every allocation -- then built again
+        # under tracemalloc for the memory the build needs at its peak.
+        peak = _traced_peak(build)
+        equal = dict.fromkeys(model.assets, 1.0 / count)
+        risk, decompose = _timed(partial(factor_risk, equal, model))
+        assert abs(risk.residual) <= 1e-12 * risk.volatility
+        _, solved = _timed(partial(solve, model, mu))
         print(
-            f"  {count:>5} assets: covariance {build:6.2f}s CPU, {peak / 1e6:,.0f} MB traced; "
-            f"factor_risk {decompose:.3f}s; construct {solve:.2f}s"
+            f"  {count:>6} assets: matrix {seconds:6.2f}s CPU, {peak / 1e6:,.0f} MB traced; "
+            f"factor_risk {decompose:.3f}s; construct {solved:.2f}s"
+        )
+        del model
+    print("   stated by its structure (PRF-013), never written out:")
+    for count in (1_000, 4_000, 10_000):
+        loadings, factor_covariance, specific, mu = _factor_inputs(count)
+        state = partial(FactorStructure.of, loadings, factor_covariance, specific)
+        structure, seconds = _timed(state)
+        peak = _traced_peak(state)
+        equal = dict.fromkeys(structure.assets, 1.0 / count)
+        risk, decompose = _timed(partial(factor_risk, equal, structure))
+        assert abs(risk.residual) <= 1e-12 * risk.volatility
+        result, solved = _timed(partial(solve, structure, mu))
+        held = sum(1 for weight in result.weights.values() if weight > 0.0)
+        print(
+            f"  {count:>6} assets: structure {seconds:5.2f}s CPU, {peak / 1e6:,.1f} MB traced; "
+            f"factor_risk {decompose:.3f}s; construct {solved:.2f}s, {held} held"
         )
 
 

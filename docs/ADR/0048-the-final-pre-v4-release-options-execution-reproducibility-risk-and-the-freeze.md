@@ -29,8 +29,9 @@ model's volatility is divided among its factors; exchange rates enter as
 factors; every known limitation is classified); **ADR-0044** (every item of its
 DEFERRED row is delivered, and its known limitations are classified);
 **ADR-0045** decision 8 (a persisted class name is part of the format, and is
-pinned); and **ADR-0047** decision 5 (a checkpoint segment carries the
-per-order state that changed, not all of it). Depends on ADR-0045, ADR-0046 and
+pinned); and **ADR-0047** decisions 5 (a checkpoint segment carries the
+per-order state that changed, not all of it) and 7 (a factor model is stated by
+its structure, which construction takes without writing it out). Depends on ADR-0045, ADR-0046 and
 ADR-0047 throughout.
 
 ---
@@ -45,16 +46,20 @@ OFE-025), the rerun harness (REP-003, OFE-020) and the lock-file reader
 FEA-006. Its remaining boundary entries were `not_started` because nothing had
 re-read them since the audit.
 
-The fresh audit of the whole tree found nineteen more, each recorded in the
+The fresh audit of the whole tree found twenty-one more, each recorded in the
 ledger. Five are defects that shipped: the broker codec read a qualified enum
 name by its member alone (PER-007, since 2.16); the liquidation price assumed
 one venue's maintenance convention (NUM-014, since 1.38); importing the
 research path loaded the market-data transports (BND-005, since 2.5); and the
 v1 portfolio optimizer carried risk limits nothing read (RSK-007) and clipped a
-portfolio nobody had constrained (OPT-001), both since v1. Two are costs:
-checkpoint segments that grew with a run's orders (PRF-011, shipped in 3.12.0)
-and the one-asset paths' cost against 3.11 (PRF-012). Four are documentation
-and method (DOC-005, DOC-006, DOC-007, TST-014). And one is the inventory
+portfolio nobody had constrained (OPT-001), both since v1. Three are costs:
+checkpoint segments that grew with a run's orders (PRF-011, shipped in 3.12.0);
+the one-asset paths' cost against 3.11 (PRF-012); and the public path to the
+factor-structured solver, which had to write a factor model out as a dense
+matrix first — O(n²), 34 s and 1.4 GB at 4,000 assets — so that the
+10,000-asset solve v3.12 published was reachable only through an internal
+function (PRF-013). Five are documentation and method (DOC-005, DOC-006,
+DOC-007, DOC-008, TST-014). And one is the inventory
 itself (TST-015): the pre-v4 audit had read ROADMAP's boundaries and optional
 list, not the "Known limitations" and "DEFERRED" lists of ADR-0042, ADR-0043
 and ADR-0044. Of their 52 items, 23 had no ledger entry — two deferred
@@ -197,11 +202,26 @@ volatility cap does not survive; risk parity's exact, long-only budgets, which
 define its one solution; an Euler-contribution cap that is not convex; a VWAP's
 profile resolution; and the conventions the ADRs state.
 
+## 16. A factor model is a covariance, stated by its structure
+
+`FactorStructure.of(loadings, factor_covariance, specific_variances)` builds a
+factor model's covariance in O(n k²) and holds nothing O(n²).
+`ConstructionProblem` takes it as its covariance, and `euler_decomposition` and
+`factor_risk` decompose through its factors. The dense values are written out
+only for a method that reads them — risk parity, a universe below the
+structured method's minimum, a structure that cannot establish definiteness by
+itself, a program the structured method does not certify — once per
+construction, and the result is still the problem's as stated. A structure has
+its own identity, derived from the factor covariance, the loadings and the
+specific variances; `matrix()` writes it out as exactly the matrix
+`CovarianceMatrix.factor_model` builds, identity included. A problem over a
+matrix keeps the identity and the result 3.12 gave it.
+
 ---
 
 # Consequences
 
-* The ledger's 213 entries are each implemented or kept with a reason; none is
+* The ledger's 215 entries are each implemented or kept with a reason; none is
   assigned to a later release.
 * A run configured as in 3.12 behaves as in 3.12, except where 3.12 was wrong,
   each listed in the CHANGELOG — among them the liquidation price, the broker
@@ -215,6 +235,8 @@ profile resolution; and the conventions the ADRs state.
   nothing measurable to 3.12.
 * Per-order state grows with the orders a run places (PRF-011); checkpoints no
   longer pay for it.
+* Construction over a factor model reaches 10,000 assets through the public API
+  (PRF-013); writing one out as a dense matrix costs what it did in 3.12.
 
 # Rejected alternatives
 
@@ -235,3 +257,9 @@ profile resolution; and the conventions the ADRs state.
   path can drift from the first; the cost is stated and bounded instead.
 * **Approximating a non-convex cost, a parametric surface, or an exchange
   rate's covariance.** Each would report a model's guess as a measurement.
+* **A dense matrix written out lazily, inside the frozen value.** Every v3.8
+  value is changed only while it is constructed, and a hidden cache is a change;
+  a structure that is itself the covariance needs none.
+* **An identity for `factor_model`'s matrix derived from its structure.** It
+  would have made the dense build cheaper by changing every identity 3.12
+  released for a factor-model covariance and the problems built on one.

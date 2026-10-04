@@ -251,19 +251,21 @@ The first capability release on the frozen architecture, confined to
   stated inputs, and the expected shortfall and variance of a schedule under the
   same model, a measured shortfall read beside them; iceberg tranches drawn from
   a seed.
-- **Risk and construction** (FEA-007, FEA-009, RSK-007, OPT-001): exchange-rate
-  loadings and every factor's share of a book's volatility; a box uncertainty
-  set on a book that may short; the v1 optimizer's risk constraints state only
-  what is checked, and its manager applies only the constraints configured.
+- **Risk and construction** (FEA-007, FEA-009, PRF-013, RSK-007, OPT-001):
+  exchange-rate loadings and every factor's share of a book's volatility; a box
+  uncertainty set on a book that may short; a factor model stated by its
+  structure, which construction takes at 10,000 assets without writing it out;
+  the v1 optimizer's risk constraints state only what is checked, and its
+  manager applies only the constraints configured.
 - **Reproducibility** (REP-003, OFE-020, OFE-019): a run re-executed from its
   manifest, its divergence located; a lock file read into a dependency
   manifest.
 - **Scheduling and crypto** (DAT-006, NUM-014): cron timers on a stated zone's
   wall clock, `BAR_BOUNDARY` removed; the liquidation price solved for a stated
   maintenance basis, with fees and funding.
-- **Persistence** (PRF-011, PER-007, DOC-005): checkpoint segments that carry
-  only the orders that changed; a qualified enum name read only under its own
-  class; durability tables held to the code.
+- **Persistence** (PRF-011, PER-007, DOC-005, DOC-008): checkpoint segments that
+  carry only the orders that changed; a qualified enum name read only under its
+  own class; durability tables and every version marker held to the code.
 - **The freeze** (API-001, API-002, PER-004, FEA-006, DOC-006, TST-014,
   TST-015): 52 shared public names reduced to 31, each with its reason; the
   public API recorded per release and every change to it required in the

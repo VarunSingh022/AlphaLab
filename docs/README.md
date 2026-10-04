@@ -340,8 +340,9 @@ venues; an Almgren–Chriss urgency estimated from stated inputs, the shortfall
 the same model expects, and seeded iceberg tranches; a rerun from a manifest
 that says where it diverged, and a lock-file reader; cron timers on a stated
 zone's wall clock; an exact liquidation price; exchange-rate risk as factors;
-a box uncertainty set on a book that may short; checkpoint segments that carry
-only the orders that changed. The freeze: one name for one contract across the
+a factor model stated by its structure, constructed over at 10,000 assets
+without writing it out; a box uncertainty set on a book that may short;
+checkpoint segments that carry only the orders that changed. The freeze: one name for one contract across the
 public API, the API and every persisted name recorded as data and held by tests,
 every limitation and deferral an ADR states held to the ledger, and a release
 certificate run in CI. See `ADR/0048` and the CHANGELOG's migration table.

@@ -53,6 +53,16 @@ its positive definiteness is established from the structure. Any program that
 method does not certify goes to the dense method, which decides it and proves
 infeasibility; the problem's identity records which method applies.
 
+Since v3.13 (ledger PRF-013) the covariance can be the structure itself: a
+:class:`~alphalab.analytics.risk_model.FactorStructure` built by
+:meth:`~alphalab.analytics.risk_model.FactorStructure.of` in ``O(n k^2)``.
+Writing ``n^2`` values out had bounded the public path -- 34 s and 1.4 GB at
+4,000 assets before the solver was reached -- and a problem over a structure
+never writes them out unless a method needs the dense values: risk parity, a
+universe under :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS`, a structure that
+cannot establish definiteness by itself, or a program the structured method
+does not certify. Its diagnostics are computed through the factors.
+
 What construction does not solve, by design: **cardinality** (at most ``k``
 names) and **joint lot selection** are integer programs, and no integer
 solver is part of this library -- rounding is per asset, toward zero, and
@@ -120,6 +130,7 @@ from alphalab.analytics.risk_model import (
     Classification,
     CovarianceMatrix,
     FactorLoadings,
+    FactorStructure,
     RiskContributions,
     euler_decomposition,
     portfolio_factor_exposures,
@@ -1048,22 +1059,24 @@ type ConstructionObjective = (
 class ConstructionProblem:
     """Everything a construction is decided by.
 
-    Which method solves it follows from the covariance: one that carries its
-    :class:`~alphalab.analytics.risk_model.FactorStructure`, over at least
-    :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS` assets, is solved by the
-    factor-structured method (v3.12, ledger PRF-005), and its
+    Which method solves it follows from the covariance: a
+    :class:`~alphalab.analytics.risk_model.FactorStructure`, or a matrix that
+    carries one, over at least :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS` assets,
+    is solved by the factor-structured method (v3.12, ledger PRF-005), and its
     :attr:`problem_id` says so.
 
     Attributes:
-        covariance: The risk model. Its assets are the universe, in canonical
-            order; its currency and period are the units of every weight and
-            risk figure.
+        covariance: The risk model: a matrix, or since v3.13 a covariance
+            stated by its factor structure, which is never written out unless a
+            method needs the dense values (ledger PRF-013). Its assets are the
+            universe, in canonical order; its currency and period are the units
+            of every weight and risk figure.
         objective: What is optimized.
         constraints: What must hold.
         settings: The numerical contract.
     """
 
-    covariance: CovarianceMatrix
+    covariance: CovarianceMatrix | FactorStructure
     objective: ConstructionObjective
     constraints: ConstraintSet
     settings: SolverSettings
@@ -1396,16 +1409,34 @@ class _Constraints:
     absolute_sums: tuple[AbsoluteSumLimit, ...]
 
 
+def _structure(problem: ConstructionProblem) -> FactorStructure | None:
+    """The factor structure: the covariance itself, the one its matrix carries, or none."""
+
+    covariance = problem.covariance
+    return covariance if isinstance(covariance, FactorStructure) else covariance.factors
+
+
+def _matrix(problem: ConstructionProblem) -> CovarianceMatrix:
+    """The dense covariance: the problem's matrix, or the one its structure implies.
+
+    A structure writes its matrix out -- ``O(n^2)`` -- the first time a method
+    needs the dense values, and keeps it (ledger PRF-013).
+    """
+
+    covariance = problem.covariance
+    return covariance.matrix() if isinstance(covariance, FactorStructure) else covariance
+
+
 def _factor_structured(problem: ConstructionProblem) -> bool:
     """Whether the factor-structured method solves ``problem``'s programs (ledger PRF-005).
 
-    When the covariance carries its factor structure, the structure establishes
-    positive definiteness by itself, the universe has at least
+    When the covariance is or carries a factor structure, the structure
+    establishes positive definiteness by itself, the universe has at least
     :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS` assets, and the objective is solved
     by quadratic programs -- risk parity is not.
     """
 
-    factors = problem.covariance.factors
+    factors = _structure(problem)
     return (
         factors is not None
         and not isinstance(problem.objective, RiskParity)
@@ -1415,7 +1446,7 @@ def _factor_structured(problem: ConstructionProblem) -> bool:
 
 
 def _curvature(problem: ConstructionProblem, scale: float) -> FactorCurvature:
-    factors = problem.covariance.factors
+    factors = _structure(problem)
     assert factors is not None  # only asked for when _factor_structured holds
     return FactorCurvature.of_structure(factors, scale)
 
@@ -1453,7 +1484,7 @@ def _solve(
             return structured
         dense = solve_quadratic_program(
             QuadraticProgram(
-                _hessian(problem.covariance.values, scale), tuple(linear), constraints, absolute
+                _hessian(_matrix(problem).values, scale), tuple(linear), constraints, absolute
             ),
             feasibility_tolerance=settings.feasibility_tolerance,
             convergence_tolerance=settings.convergence_tolerance,
@@ -1470,7 +1501,7 @@ def _solve(
         )
     return solve_quadratic_program(
         QuadraticProgram(
-            hessian if hessian is not None else _hessian(problem.covariance.values, scale),
+            hessian if hessian is not None else _hessian(_matrix(problem).values, scale),
             tuple(linear),
             constraints,
             absolute,
@@ -1488,7 +1519,7 @@ def _portfolio_volatility(problem: ConstructionProblem, weights: Sequence[float]
         product = _curvature(problem, 1.0).times(weights)
         variance = math.fsum(w * p for w, p in zip(weights, product, strict=True))
         return math.sqrt(max(0.0, variance))
-    return _volatility(weights, problem.covariance.values)
+    return _volatility(weights, _matrix(problem).values)
 
 
 # --------------------------------------------------------------------------- #
@@ -1818,7 +1849,7 @@ def _costed_objective(
         product = _curvature(problem, scale).times(x)
         quadratic = [0.5 * x[i] * product[i] for i in range(size)]
     else:
-        rows = problem.covariance.values
+        rows = _matrix(problem).values
         quadratic = [
             0.5 * x[i] * (scale * rows[i][j]) * x[j] for i in range(size) for j in range(size)
         ]
@@ -2016,7 +2047,7 @@ def _robust(
 ) -> _Outcome:
     returns = _returns_vector(problem, objective.expected_returns)
     settings = problem.settings
-    rows = problem.covariance.values
+    rows = _matrix(problem).values
     uncertainty = objective.uncertainty
 
     if isinstance(uncertainty, BoxUncertainty):
@@ -2281,7 +2312,7 @@ def _risk_parity(
         budgets = [float(objective.budgets[asset]) for asset in universe]
     settings = problem.settings
     iterate = solve_risk_budgets(
-        problem.covariance.values,
+        _matrix(problem).values,
         budgets,
         convergence_tolerance=settings.convergence_tolerance,
         max_sweeps=settings.max_iterations,
@@ -2306,7 +2337,7 @@ def _risk_parity(
     cap = constraints.max_volatility
     if (
         cap is not None
-        and _volatility(weights, problem.covariance.values) > cap + settings.feasibility_tolerance
+        and _volatility(weights, _matrix(problem).values) > cap + settings.feasibility_tolerance
     ):
         unmet.append(f"volatility <= {cap!r}")
     if unmet:
@@ -2349,11 +2380,18 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
             constraint the objective cannot express.
     """
 
+    # A structure under a method that reads the dense values -- risk parity, a
+    # universe too small for the structured method, a structure that cannot
+    # establish definiteness by itself -- is written out once, here, and the
+    # problem solved over the matrix it implies. Its result is the problem's
+    # as stated: its identity, and diagnostics through the factors (PRF-013).
+    stated = problem
+    if isinstance(problem.covariance, FactorStructure) and not _factor_structured(problem):
+        problem = replace(problem, covariance=problem.covariance.matrix())
     covariance = problem.covariance
+    factors = _structure(problem)
     structured = (
-        covariance.factors.definiteness()
-        if covariance.factors is not None and _factor_structured(problem)
-        else None
+        factors.definiteness() if factors is not None and _factor_structured(problem) else None
     )
     if structured is not None:
         # Established from the factor structure in O(n k^2): every specific
@@ -2361,7 +2399,7 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
         evidence = structured
     else:
         try:
-            evidence = covariance.require_positive_definite(
+            evidence = _matrix(problem).require_positive_definite(
                 f"{type(problem.objective).__name__} construction"
             )
         except AnalyticsValidationError as error:
@@ -2385,7 +2423,7 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
             0.0,
             "A constraint reaches no asset in the universe and cannot hold at zero.",
         )
-        return _result(problem, method, outcome, compiled, evidence.pivot_ratio, expected)
+        return _result(stated, method, outcome, compiled, evidence.pivot_ratio, expected)
 
     if isinstance(objective, MinimumVariance):
         outcome = _qp(problem, compiled, 1.0, [0.0] * len(covariance.assets), 0)
@@ -2411,4 +2449,4 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
         outcome = _maximum_diversification(problem, compiled)
     else:
         outcome = _risk_parity(problem, compiled, objective)
-    return _result(problem, method, outcome, compiled, evidence.pivot_ratio, expected)
+    return _result(stated, method, outcome, compiled, evidence.pivot_ratio, expected)

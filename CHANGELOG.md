@@ -30,7 +30,7 @@ v3.12 hardened it. v3.13 closes every item the ledger
 (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) assigned to it, and the four it had
 assigned to v4 — the shared names, the public API manifest, the persisted names
 and release certification — so that nothing required is left for later. A
-fresh audit of the whole tree found nineteen more things, among them two
+fresh audit of the whole tree found twenty-one more things, among them two
 capabilities three ADRs had deferred and the ledger had never recorded; each is
 fixed, implemented, replaced or stated here, and none is deferred. ADR-0048 records the
 decisions. Ledger IDs are given in brackets.
@@ -108,6 +108,21 @@ table is long, and every row in it is checked against the public API's own diff
   the `LinearCosts` orthant method with the held weights at zero; an asset too
   uncertain to hold either way is held at exactly zero and named among the
   binding constraints. A long-only book is solved as before.
+* **A factor model is a covariance, stated by its structure** [PRF-013]:
+  `FactorStructure.of(loadings, factor_covariance, specific_variances)` builds
+  it in O(n k²) and holds nothing O(n²). `ConstructionProblem` takes it as its
+  covariance, and `euler_decomposition` and `factor_risk` take it too,
+  decomposing through its factors. The dense values are written out only for a
+  method that reads them — risk parity, a universe under
+  `FACTOR_STRUCTURED_MINIMUM_ASSETS`, a structure that cannot establish
+  definiteness by itself, a program the structured method does not certify —
+  once per construction, and the result is still the problem's as stated. A
+  structure has its own identity (`FactorStructure.covariance_id`, under
+  `FACTOR_STRUCTURE_SCHEME`), and `matrix()` writes it out as exactly the
+  matrix `CovarianceMatrix.factor_model` builds, identity included. At 10,000
+  assets it takes 0.12 s and 6 MB to state and 2.15 s to construct over
+  (budget, long-only, a 5% cap); written out, 4,000 assets took 34 s and 1.3 GB
+  before the first step.
 
 ## Added — reproducibility (`alphalab.lifecycle`)
 
@@ -294,6 +309,14 @@ micro-benchmark within 2.0x — holds in every round; the backtest's worst round
 1.24x, is the closest it comes. Checkpoint segments are flat across a run
 (PRF-011, above).
 
+Building a `CovarianceMatrix` now checks finiteness and symmetry in bulk, row by
+row, and walks a matrix cell by cell only to name the first cell that is wrong.
+Writing a factor model out — which computes `B F B'` once to build and once to
+check, now that a `FactorStructure` no longer holds its dense rows — costs what
+it did in 3.12: 1.45 s against 1.40 s at 1,000 assets and 5.96 s against 6.19 s
+at 2,000 (best of two, one machine). `FactorStructure.implied` and `rows()`
+write the matrix out on each read.
+
 ## Migrating from 3.12
 
 | If you… | Now… |
@@ -327,6 +350,8 @@ micro-benchmark within 2.0x — holds in every round; the backtest's worst round
 | read `PortfolioEngineState.risk_limits` | nothing: nothing ever wrote it, and it is removed |
 | relied on `PortfolioEngine.optimize` clipping a portfolio with no configured constraints | configure them: `apply_constraints(state, portfolio_id, WeightConstraints(), ts)` clips as before |
 | caught the refusal of a `BoxUncertainty` on a book that may short | nothing: it is solved |
+| passed a `CovarianceMatrix` to `ConstructionProblem`, `euler_decomposition` or `factor_risk` | nothing: each also takes a `FactorStructure`, which a large universe should state its factor model as |
+| read `FactorStructure.implied` or `rows()` more than once | keep what one read returns: each read writes `B F B' + D` out again |
 
 ## Found during this release
 
@@ -355,6 +380,16 @@ micro-benchmark within 2.0x — holds in every round; the backtest's worst round
   reasons (LIM-001, LIM-002, LIM-003). A test now holds every ADR's limitations
   and deferrals to closed ledger entries.
 * **PRF-012** (shipped in 3.12.0): classified — below.
+* **PRF-013** (shipped in 3.12.0): v3.12 published construction at 10,000
+  assets in 1.6 s — the solver's time, measured through its internal entry
+  point. Through the public API a factor model had first to be written out as
+  a dense `CovarianceMatrix`, O(n²) in time and memory, and construction's
+  diagnostics decomposed risk over it, O(n²) again. Replaced: the structure is
+  the covariance (above).
+* **DOC-008** (stale since 3.10): `nowandfuture.md`'s identity table gave the
+  version as 3.9.0 at 3.12.0; its release history did not render its last two
+  rows; it listed delivered items as planned. Corrected, and every document
+  that states the version is now held to the package's by a test.
 * **BND-006**: the WebSocket client's two stated omissions, `permessage-deflate`
   and the server side, are recorded as kept; a frame that sets a reserved bit is
   refused, which is what makes the first safe.
