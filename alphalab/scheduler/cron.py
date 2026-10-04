@@ -19,9 +19,11 @@ Five fields, separated by white space::
 Each field is ``*``, a value, a range ``a-b``, either of those with a step
 (``*/15``, ``8-18/2``), or a comma-separated list of them. Months and days of
 the week may also be named by their first three letters (``JAN``, ``MON``), in
-any case. Nothing else is accepted: no ``@daily`` shorthands, no seconds or
-years field, no ``L``, ``W``, ``#`` or ``?`` -- an expression using one is
-refused rather than read as something its author did not write.
+any case. Nothing else is accepted: no seconds or years field, no ``L``,
+``W``, ``#`` or ``?`` -- an expression using one is refused rather than read as
+something its author did not write. Nor is a shorthand such as ``@daily``: it is
+refused with the five fields it stands for, so that one schedule has one
+spelling and two equal schedules compare equal.
 
 Two rules every cron implementation must choose, stated
 --------------------------------------------------------
@@ -80,6 +82,18 @@ _WEEKDAYS: Final = {
 #: The longest each month can be: a day of month above it never occurs in it.
 _LONGEST_MONTH: Final = {1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31,
                          11: 30, 12: 31}  # fmt: skip
+
+#: The shorthands Vixie cron reads, and the five fields each stands for. They
+#: are refused rather than read; the refusal names the fields to write instead.
+_SHORTHANDS: Final = {
+    "@yearly": "0 0 1 1 *",
+    "@annually": "0 0 1 1 *",
+    "@monthly": "0 0 1 * *",
+    "@weekly": "0 0 * * 0",
+    "@daily": "0 0 * * *",
+    "@midnight": "0 0 * * *",
+    "@hourly": "0 * * * *",
+}
 
 _ITEM: Final = re.compile(r"^(?P<range>\*|[A-Za-z0-9]+(?:-[A-Za-z0-9]+)?)(?:/(?P<step>\d+))?$")
 
@@ -192,10 +206,22 @@ class CronSchedule:
             raise SchedulerValidationError(
                 f"{self.zone!r} is not an IANA time zone this host knows: {error}"
             ) from error
+        shorthand = self.expression.strip().lower()
+        if shorthand.startswith("@"):
+            meant = _SHORTHANDS.get(shorthand)
+            raise SchedulerValidationError(
+                f"{self.expression!r} is a shorthand, and shorthands are not read: "
+                + (
+                    f"write the five fields it stands for, {meant!r}."
+                    if meant is not None
+                    else "it names no instant five fields can."
+                )
+            )
         parts = self.expression.split()
         if len(parts) != len(_FIELDS):
+            counted = f"{len(parts)} field" + ("" if len(parts) == 1 else "s")
             raise SchedulerValidationError(
-                f"{self.expression!r} has {len(parts)} fields; a cron expression has five: "
+                f"{self.expression!r} has {counted}; a cron expression has five: "
                 "minute hour day-of-month month day-of-week."
             )
         parsed = [

@@ -1253,6 +1253,10 @@ The recommended way to learn the framework is through the curated examples.
 | 63 | `63_execution_algorithms.py` | TWAP and VWAP with a stated urgency, an incomplete profile refused or planned on time, top-up releases, participation of observed volume, slicing and an iceberg-like tranche |
 | 64 | `64_smart_routing.py` | A route chosen from supplied venue evidence with every venue explained; all-in cost against quoted price; a re-priced split; stale, look-ahead and foreign quotes; INFEASIBLE against INSUFFICIENT_EVIDENCE |
 | 65 | `65_execution_analytics.py` | Strategy → order → VWAP → capability check → normalized venue reports → reconciliation → implementation shortfall, slippage, latency, rejections and venue quality, in two currencies |
+| 66 | `66_american_options.py` | An American put on a lattice converging to Hull's table; early exercise on a call made worth something by a dividend; lattice Greeks; implied volatility through the lattice; a volatility term structure linear in total variance |
+| 67 | `67_optimal_split_and_urgency.py` | The greedy sweep against the optimal split across three venues; a falling marginal cost refused; an urgency estimated from stated inputs; iceberg tranches varied from a seed and reproduced |
+| 68 | `68_rerun_from_a_manifest.py` | A lock file read into a dependency manifest; a backtest re-executed from its manifest — REPRODUCED, DIVERGED and located, INPUTS_DIFFER with nothing run |
+| 69 | `69_cron_timers.py` | Cron expressions on a stated zone's wall clock across both daylight-saving transitions; refusals when written; a cron timer fired and rescheduled on the engine |
 
 Run any example:
 
@@ -1269,10 +1273,11 @@ path, `25`–`30` (v3.3) institutional backtesting, `31`–`40` (v3.4) global
 markets, `41`–`45` (v3.5) strategy execution, `46`–`49` (v3.6) strategy
 evaluation, `50`–`55` (v3.7) point-in-time research and adaptive strategies,
 `56`–`60` (v3.8) portfolio construction, risk budgets, multi-strategy books,
-cross-strategy risk and capital allocation, and `61`–`65` (v3.9) the execution
+cross-strategy risk and capital allocation, `61`–`65` (v3.9) the execution
 contract — capabilities, the normalized lifecycle, algorithms, routing and
-execution analytics.
-None are part of the automated test suite, though all sixty-five run as a
+execution analytics — and `66`–`69` (v3.13) American options, the optimal
+split, reruns from a manifest and cron timers.
+None are part of the automated test suite, though all sixty-nine run as a
 release gate; `17`–`24` all ingest the same committed panel in
 `examples/data/research_panel.csv` so their numbers are comparable with each
 other.
@@ -1373,7 +1378,7 @@ Additional directories:
 
 ```text
 docs/          Documentation and ADRs
-examples/      65 runnable examples
+examples/      69 runnable examples
 benchmarks/    59 performance benchmarks
 tests/         7387 tests — unit, integration, regression
 configs/       Reference configuration files

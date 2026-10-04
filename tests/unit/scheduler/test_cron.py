@@ -8,6 +8,7 @@ on a calendar, in the schedule's zone. The daylight-saving cases use New York's
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -147,6 +148,24 @@ def test_inside_the_second_pass_the_first_occurrence_has_already_happened() -> N
 def test_what_is_not_in_the_grammar_or_never_fires_is_refused(expression: str, reason: str) -> None:
     with pytest.raises(SchedulerValidationError, match=reason):
         CronSchedule(expression, "UTC")
+
+
+@pytest.mark.parametrize(
+    ("expression", "meant"),
+    [("@daily", "'0 0 * * *'"), ("@HOURLY", "'0 * * * *'"), ("@weekly", "'0 0 * * 0'")],
+)
+def test_a_shorthand_is_refused_with_the_fields_it_stands_for(expression: str, meant: str) -> None:
+    with pytest.raises(SchedulerValidationError, match=f"shorthand.*{re.escape(meant)}"):
+        CronSchedule(expression, "UTC")
+    with pytest.raises(SchedulerValidationError, match="names no instant"):
+        CronSchedule("@reboot", "UTC")
+
+
+def test_a_wrong_field_count_is_counted_in_words_that_agree() -> None:
+    with pytest.raises(SchedulerValidationError, match=r"has 1 field;"):
+        CronSchedule("0", "UTC")
+    with pytest.raises(SchedulerValidationError, match=r"has 6 fields;"):
+        CronSchedule("0 0 9 * * *", "UTC")
 
 
 def test_the_zone_is_required_to_be_a_real_one() -> None:
