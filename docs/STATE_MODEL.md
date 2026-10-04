@@ -198,7 +198,7 @@ and a typed decoder that refuses what it does not understand. Ten do (v3.13):
 
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
-incremental checkpoint, 1) and `EVIDENCE_SCHEMA` (the evidence store, 1).
+incremental checkpoint, 2) and `EVIDENCE_SCHEMA` (the evidence store, 1).
 `tests/regression/test_documented_schemas_are_current.py` holds this table to
 the constants.
 

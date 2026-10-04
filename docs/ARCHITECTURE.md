@@ -653,8 +653,9 @@ owning module, its own schema constant and its own typed decoder:
 
 Three envelopes carry a payload and version only what they add: the run-state
 store's (`persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, v2.14), an
-incremental checkpoint's (`runtime.checkpoint.CHECKPOINT_SCHEMA = 1`, v3.12) and
-the evidence store's (`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12).
+incremental checkpoint's (`runtime.checkpoint.CHECKPOINT_SCHEMA = 2`, v3.12; 2
+since v3.13, when a segment began writing the per-order state by its changes)
+and the evidence store's (`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12).
 `tests/regression/test_documented_schemas_are_current.py` reads this table, and
 the two like it in `STATE_MODEL.md` and `nowandfuture.md`, against the
 constants: until v3.13 nothing did, and all three had drifted by several

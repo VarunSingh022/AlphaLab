@@ -2350,7 +2350,7 @@
     "alphalab.runtime": {
       "AlphaLabRuntimeError": "class alphalab.runtime.exceptions.AlphaLabRuntimeError",
       "CHECKPOINT_SCHEMA": "value builtins.int",
-      "CheckpointMark": "class alphalab.runtime.checkpoint.CheckpointMark(sequence: 'int', digest: 'str', ends: 'Mapping[str, int]') -> None",
+      "CheckpointMark": "class alphalab.runtime.checkpoint.CheckpointMark(sequence: 'int', digest: 'str', ends: 'Mapping[str, int]', entries: 'Mapping[str, _Entries]' = <factory>) -> None",
       "ChildOrderBindings": "class alphalab.runtime.broker_routing.ChildOrderBindings(to_parent: 'PersistentMap[str, str]' = <factory>, by_parent: 'PersistentMap[str, tuple[str, ...]]' = <factory>) -> None",
       "ChildRoutingResult": "class alphalab.runtime.broker_routing.ChildRoutingResult(broker_state: 'BrokerState', children: 'ChildOrderBindings', order: 'BrokerOrder | None', decision: 'RoutingDecision', events: 'tuple[BrokerEvent, ...]' = ()) -> None",
       "ExecutionAssumptions": "class alphalab.runtime.assumptions.ExecutionAssumptions(routing: 'ExecutionRouting', fill_timing: 'FillTiming', fill_policy: 'str', costs: 'str', latency: 'str', frictionless: 'bool', unlimited_liquidity: 'bool') -> None",

@@ -14,9 +14,23 @@ run snapshot's own capture, so the format has one authority -- and, for each
 log, where those entries start and end in the log's whole history and how many
 of its entries the run has dropped (:mod:`alphalab.runtime.retention`).
 Everything that is not a log is written whole in every segment -- positions,
-cash, working orders, the order book, latest quotes: what the run *is*, rather
-than what it did. A segment therefore costs the size of that state plus what the
-run appended, whatever the run's length.
+cash, working orders, latest quotes: what the run *is*, rather than what it did
+-- except the state that grows with every order the run places.
+
+Per-order state (v3.13, ledger PRF-011)
+---------------------------------------
+The order book, the completed orders and the execution reports by order hold an
+entry for every order the run ever placed, and until v3.13 every segment wrote
+them whole: about a kilobyte per order, per segment, so a long session's
+segments grew with its order count. Each of them is keyed, only ever grows, and
+keeps every entry where it was first placed, so a segment now writes only the
+entries added or replaced since the checkpoint before it, and a reader puts each
+at its key. The :class:`CheckpointMark` holds, by reference, the entries the
+next segment compares against; a mark rebuilt from its digest and ends alone has
+none, and the segment after it writes those maps whole -- as it does whenever an
+entry is found removed or moved, which the run never does. A segment therefore
+costs the size of the run's current state plus what it appended and changed,
+whatever the run's length.
 
 Each payload names its predecessor's digest -- SHA-256 of its exact text, which
 is what :class:`~alphalab.persistence.run_store.RunStateStore` records beside
@@ -39,13 +53,15 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.constants import DEFAULT_ENCODING
 from alphalab.common.evolve import evolve
+from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.common.serialization import to_serializable
+from alphalab.oms.book import OrderBook
 from alphalab.persistence.decode import as_int, as_mapping, as_sequence, as_str, require
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.serializer import deserialize, serialize
@@ -64,9 +80,14 @@ __all__ = [
     "restore_checkpoints",
 ]
 
-#: Version of the checkpoint envelope: the chain fields and the log ranges
-#: around a run snapshot, which carries its own version.
-CHECKPOINT_SCHEMA: Final = 1
+#: Version of the checkpoint envelope: the chain fields, the log ranges and the
+#: per-order maps around a run snapshot, which carries its own version. Version
+#: 2 (v3.13) writes the per-order maps by their changes (ledger PRF-011); a
+#: version-1 checkpoint wrote them whole, and is read as such.
+CHECKPOINT_SCHEMA: Final = 2
+
+#: Every checkpoint version a release wrote, each read by this one.
+_READABLE: Final = frozenset({1, CHECKPOINT_SCHEMA})
 
 #: Every log a checkpoint cuts, and where its entries sit in a run snapshot's
 #: primitives -- one entry per log entry (pinned by
@@ -95,6 +116,17 @@ _LOGS: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
 #: The run's own logs, as opposed to the pipeline's.
 _RUN_LOGS: Final = frozenset({"steps", "skipped"})
 
+#: The per-order state a segment writes by its changes, and where it sits in a
+#: run snapshot's primitives. Pinned by ``tests/regression/test_checkpoints.py``.
+_MAPS: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
+    ("oms.orders", ("pipeline", "oms", "orders")),
+    ("oms.completed_orders", ("pipeline", "oms", "completed_orders")),
+    ("execution.reports", ("pipeline", "execution", "reports")),
+)
+
+#: A map's entries as ``(key, value)`` pairs, in the map's own order.
+_Entries = tuple[tuple[Any, Any], ...]
+
 
 @dataclass(frozen=True, slots=True)
 class CheckpointMark:
@@ -105,11 +137,17 @@ class CheckpointMark:
         digest: SHA-256 of the checkpoint's payload, which the next one names.
         ends: Each log's length over the run's whole history -- dropped entries
             included -- when the checkpoint was taken.
+        entries: Each per-order map's entries when the checkpoint was taken,
+            held by reference and written nowhere: what the next segment
+            compares against to write only what changed (v3.13). A mark built
+            from ``sequence``, ``digest`` and ``ends`` alone -- after a restart,
+            say -- has none, and the next segment writes those maps whole.
     """
 
     sequence: int
     digest: str
     ends: Mapping[str, int]
+    entries: Mapping[str, _Entries] = field(default_factory=dict, compare=False, repr=False)
 
 
 def _digest(text: str) -> str:
@@ -139,6 +177,56 @@ def _cut(state: RunState, starts: Mapping[str, int]) -> RunState:
         steps=AppendOnlyLog(steps[starts["steps"] - steps.dropped :]),
         skipped=AppendOnlyLog(skipped[starts["skipped"] - skipped.dropped :]),
     )
+
+
+def _entries_of(state: RunState) -> dict[str, _Entries]:
+    """Each per-order map's entries, in its own order, by reference."""
+
+    oms = state.pipeline.oms
+    return {
+        "oms.orders": tuple((order.order_id, order) for order in oms.orders.orders()),
+        "oms.completed_orders": tuple((order_id, order_id) for order_id in oms.completed_orders),
+        "execution.reports": tuple(state.pipeline.execution.reports.items()),
+    }
+
+
+def _changed(previous: _Entries | None, current: _Entries) -> list[tuple[Any, Any]] | None:
+    """The entries added or replaced since ``previous``, or ``None`` to write the map whole.
+
+    Whole when nothing was recorded to compare against, or when an entry the
+    previous checkpoint held is gone or has moved: a reader merging by key would
+    then put it in the wrong place, and the map is written as it is instead.
+    """
+
+    if previous is None or len(current) < len(previous):
+        return None
+    changed: list[tuple[Any, Any]] = []
+    for (key, value), (held_key, held_value) in zip(current, previous, strict=False):
+        if key is not held_key and key != held_key:
+            return None
+        if value is not held_value:
+            changed.append((key, value))
+    changed.extend(current[len(previous) :])
+    return changed
+
+
+def _with_entries(state: RunState, chosen: Mapping[str, list[tuple[Any, Any]]]) -> RunState:
+    """``state`` with each per-order map in ``chosen`` holding only the given entries."""
+
+    pipeline = state.pipeline
+    oms, execution = pipeline.oms, pipeline.execution
+    if "oms.orders" in chosen:
+        book = OrderBook()
+        for _, order in chosen["oms.orders"]:
+            book = book.add(order)
+        oms = evolve(oms, orders=book)
+    if "oms.completed_orders" in chosen:
+        oms = evolve(
+            oms, completed_orders=PersistentSet(key for key, _ in chosen["oms.completed_orders"])
+        )
+    if "execution.reports" in chosen:
+        execution = evolve(execution, reports=PersistentMap(chosen["execution.reports"]))
+    return evolve(state, pipeline=evolve(pipeline, oms=oms, execution=execution))
 
 
 def _place(run: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
@@ -172,6 +260,8 @@ def checkpoint(
 
     logs = _logs_of(state)
     ends = {name: log.dropped + len(log) for name, log in logs.items()}
+    entries = _entries_of(state)
+    maps = {name: {"size": len(entries[name]), "whole": True} for name, _ in _MAPS}
     if previous is None:
         starts = {name: log.dropped for name, log in logs.items()}
         run = to_serializable(capture_run(state))
@@ -187,7 +277,13 @@ def checkpoint(
                     "from a mark no later than the state it is taken of."
                 )
             starts[name] = max(covered, log.dropped)
-        run = to_serializable(capture_run(_cut(state, starts)))
+        chosen: dict[str, list[tuple[Any, Any]]] = {}
+        for name, _ in _MAPS:
+            changed = _changed(previous.entries.get(name), entries[name])
+            if changed is not None:
+                chosen[name] = changed
+                maps[name]["whole"] = False
+        run = to_serializable(capture_run(_with_entries(_cut(state, starts), chosen)))
         # The cut logs dropped nothing; the counts are the run's.
         run["pipeline"]["dropped"] = {
             name: logs[name].dropped for name, _, _ in _RETAINED if logs[name].dropped
@@ -206,10 +302,11 @@ def checkpoint(
                 name: {"start": starts[name], "end": ends[name], "dropped": logs[name].dropped}
                 for name, _ in _LOGS
             },
+            "maps": maps,
             "run": run,
         }
     )
-    return payload, CheckpointMark(sequence, _digest(payload), ends)
+    return payload, CheckpointMark(sequence, _digest(payload), ends, entries)
 
 
 def _ranges(value: Any, where: str) -> dict[str, tuple[int, int, int]]:
@@ -237,6 +334,41 @@ def _ranges(value: Any, where: str) -> dict[str, tuple[int, int, int]]:
     return ranges
 
 
+def _map_header(value: Any, where: str) -> dict[str, tuple[int, bool]]:
+    payload = as_mapping(value, where)
+    names = {name for name, _ in _MAPS}
+    if set(payload) != names:
+        raise StateDecodeError(
+            f"{where} must name exactly the per-order maps a checkpoint writes: "
+            f"{sorted(names)}, not {sorted(payload)}."
+        )
+    header: dict[str, tuple[int, bool]] = {}
+    for name, _ in _MAPS:
+        entry = as_mapping(payload[name], f"{where}.{name}")
+        size = as_int(require(entry, "size"), f"{where}.{name}.size")
+        whole = require(entry, "whole")
+        if size < 0 or not isinstance(whole, bool):
+            raise StateDecodeError(f"{where}.{name} is not a size and a whole flag: {entry!r}.")
+        header[name] = (size, whole)
+    return header
+
+
+def _keyed(name: str, run: Mapping[str, Any], path: tuple[str, ...], where: str) -> list[Any]:
+    """A per-order map's entries in a payload, each as ``(key text, entry)``."""
+
+    node: Any = run
+    for key in path:
+        node = require(as_mapping(node, where), key)
+    if name == "execution.reports":
+        return [
+            (as_str(key, f"{where} key"), value) for key, value in as_mapping(node, where).items()
+        ]
+    entries = as_sequence(node, f"{where}.{'.'.join(path)}")
+    if name == "oms.orders":
+        return [(serialize(require(as_mapping(item, where), "order_id")), item) for item in entries]
+    return [(serialize(item), item) for item in entries]
+
+
 def read_checkpoints(payloads: Sequence[str]) -> RunSnapshot:
     """The run snapshot a chain of checkpoints records, verified link by link.
 
@@ -253,16 +385,17 @@ def read_checkpoints(payloads: Sequence[str]) -> RunSnapshot:
         raise StateDecodeError("No checkpoint was given; a chain starts with its base.")
     kept: dict[str, list[Any]] = {}
     covered: dict[str, tuple[int, int]] = {}
+    merged: dict[str, dict[str, Any]] = {}
     previous: str | None = None
     run: dict[str, Any] = {}
     for sequence, text in enumerate(payloads):
         where = f"checkpoint {sequence}"
         payload = as_mapping(deserialize(text), where)
         version = require(payload, "schema_version")
-        if version != CHECKPOINT_SCHEMA:
+        if isinstance(version, bool) or version not in _READABLE:
             raise StateDecodeError(
                 f"{where} declares checkpoint schema {version!r}; this build reads "
-                f"{CHECKPOINT_SCHEMA}."
+                f"{sorted(_READABLE)}."
             )
         kind = as_str(require(payload, "kind"), f"{where}.kind")
         expected = "base" if sequence == 0 else "segment"
@@ -308,9 +441,33 @@ def read_checkpoints(payloads: Sequence[str]) -> RunSnapshot:
                     )
                 kept[name] = kept[name][dropped - first :] + entries
             covered[name] = (dropped, end)
+        # Version 1 wrote every per-order map whole; version 2 says which it did.
+        header = (
+            {name: (None, True) for name, _ in _MAPS}
+            if version == 1
+            else _map_header(require(payload, "maps"), f"{where}.maps")
+        )
+        for name, path in _MAPS:
+            size, whole = header[name]
+            entries = _keyed(name, run, path, f"{where}.run")
+            if whole:
+                merged[name] = dict(entries)
+            elif sequence == 0:
+                raise StateDecodeError(f"{where} is a base, so it writes {name} whole.")
+            else:
+                # An entry already held stays where it is; a new one goes last.
+                merged[name].update(entries)
+            if size is not None and len(merged[name]) != size:
+                raise StateDecodeError(
+                    f"{where}.maps.{name} says the run held {size} entries, and the chain "
+                    f"holds {len(merged[name])}: a change was lost or invented."
+                )
         previous = _digest(text)
     for name, path in _LOGS:
         _place(run, path, kept[name])
+    for name, path in _MAPS:
+        held = merged[name]
+        _place(run, path, dict(held) if name == "execution.reports" else list(held.values()))
     pipeline_dropped = {name: covered[name][0] for name, _, _ in _RETAINED if covered[name][0]}
     run_dropped = {name: covered[name][0] for name in sorted(_RUN_LOGS) if covered[name][0]}
     if (

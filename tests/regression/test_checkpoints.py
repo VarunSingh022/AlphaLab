@@ -8,6 +8,8 @@ altered a link must be refused at the link.
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -28,6 +30,7 @@ from alphalab.runtime.retention import RetentionPolicy
 from alphalab.runtime.run import RunState
 from alphalab.runtime.run_snapshot import RunObjects
 from alphalab.runtime.run_snapshot import capture as capture_run
+from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
 from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import _RETAINED, RuntimeObjects
 from tests.integration.harness import context_factory
@@ -134,13 +137,13 @@ def _log_bytes(payload: str) -> int:
 
 
 def test_a_segment_costs_the_same_late_in_a_run_as_early() -> None:
-    """What a segment adds for the run's history does not grow with the run.
+    """A segment does not grow with the run -- its history or its orders.
 
-    The rest of a segment is the state written whole: positions, cash, latest
-    quotes -- and the order book and execution reports by order, which keep
-    every order the run placed (see :mod:`alphalab.runtime.retention`). This
-    workload places an order every second record, so that part grows; the log
-    entries, which a full capture writes over and over, do not.
+    This workload places an order every second record. Until v3.13 a segment
+    wrote the order book and the execution reports by order whole, so that part
+    grew with every order the run had placed; since v3.13 (ledger PRF-011) it
+    writes what changed, and only the run's current state -- positions, cash,
+    latest quotes, working orders -- is written whole.
     """
 
     states = _run(None)
@@ -153,7 +156,81 @@ def test_a_segment_costs_the_same_late_in_a_run_as_early() -> None:
     full_late = len(serialize(to_serializable(capture_run(states[RECORDS - 1]))))
     assert full_late > 3 * full_early
     assert _log_bytes(late) < 1.3 * _log_bytes(early)
+    assert len(late) < 1.3 * len(early)
     assert len(late) < full_late / 3
+
+
+def _order_ids(state: RunState) -> set[str]:
+    return {str(order.order_id.value) for order in state.pipeline.oms.orders.orders()}
+
+
+def test_a_segment_writes_the_orders_that_changed_and_no_others() -> None:
+    states = _run(None)
+    _, mark = checkpoint(states[RECORDS - 11])
+    segment, _ = checkpoint(states[RECORDS - 1], mark)
+    payload = deserialize(segment)
+
+    assert {header["whole"] for header in payload["maps"].values()} == {False}
+    written = {order["order_id"]["value"] for order in payload["run"]["pipeline"]["oms"]["orders"]}
+    placed_since = _order_ids(states[RECORDS - 1]) - _order_ids(states[RECORDS - 11])
+    assert placed_since and placed_since <= written
+    assert len(written) < len(_order_ids(states[RECORDS - 1])) / 4
+    held = payload["maps"]["oms.orders"]["size"]
+    assert held == len(_order_ids(states[RECORDS - 1]))
+
+
+def test_a_mark_rebuilt_from_its_digest_and_ends_writes_the_maps_whole() -> None:
+    """After a restart a caller holds the mark's data, not the objects it compared."""
+
+    states = _run(POLICY)
+    base, mark = checkpoint(states[40])
+    rebuilt = CheckpointMark(mark.sequence, mark.digest, mark.ends)
+    segment, _ = checkpoint(states[60], rebuilt)
+
+    assert {header["whole"] for header in deserialize(segment)["maps"].values()} == {True}
+    assert to_serializable(read_checkpoints([base, segment])) == to_serializable(
+        capture_run(states[60])
+    )
+
+
+V3_12_CHAIN = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "snapshots" / "v3.12.0" / "checkpoints"
+)
+
+
+def test_a_chain_v3_12_wrote_reads_back_as_its_full_capture() -> None:
+    """Checkpoint schema 1 wrote every per-order map whole, and is read as such."""
+
+    chain = [(V3_12_CHAIN / f"chain_{index}.json").read_text().rstrip("\n") for index in range(3)]
+    assert {deserialize(payload)["schema_version"] for payload in chain} == {1}
+    full = deserialize((V3_12_CHAIN / "full_47.json").read_text())
+
+    from_chain = read_checkpoints(chain)
+    assert to_serializable(from_chain) == to_serializable(run_from_primitives(full))
+    assert from_chain.pipeline.schema_version == 7, "upgraded through pipeline 6 -> 7"
+
+
+@pytest.mark.parametrize(
+    ("index", "edit", "match"),
+    [
+        (1, lambda header: header["oms.orders"].update(size=0), "a change was lost"),
+        (0, lambda header: header["oms.orders"].update(whole=False), "writes oms.orders whole"),
+        (1, lambda header: header.pop("execution.reports"), "per-order maps"),
+    ],
+)
+def test_a_tampered_map_header_is_refused(index: int, edit: Any, match: str) -> None:
+    states = _run(None)
+    payloads, _ = _chain(states[:30], 10)
+    tampered = deserialize(payloads[index])
+    edit(tampered["maps"])
+    payloads[index] = serialize(tampered)
+    for later in range(index + 1, len(payloads)):
+        relinked = deserialize(payloads[later])
+        relinked["previous"] = hashlib.sha256(payloads[later - 1].encode("utf-8")).hexdigest()
+        payloads[later] = serialize(relinked)
+
+    with pytest.raises(StateDecodeError, match=match):
+        read_checkpoints(payloads)
 
 
 def test_a_restored_chain_continues_where_the_run_stopped() -> None:
