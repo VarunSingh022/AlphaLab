@@ -751,6 +751,12 @@ mutation whose file changed after the first run (the execution pipeline and the 
 for PRF-010), the three routing-index mutations (X45–X47), and the six survivors: **21 of 22
 caught**; X17 survives, as it must.
 
+**Release tree** (commit `b775830`, after `plugins`, `optimizer` and the reporting dashboards were
+removed): every pattern still applies exactly once (`--check`), and every test an earlier run
+credited with a catch still exists. Baseline passed — 8,495 passed, 88 deselected (266.5 s). All
+126 mutations ran: **125 of 126 caught**; X17 survives, as it must. The whole run took 13,086
+mutation-seconds on three copies; the longest single mutation, 260 s.
+
 | Mutation | Result | Caught by | Seconds |
 | --- | --- | --- | ---: |
 | M01 risk order-size > to >= | caught | `tests/regression/test_mutation_pins.py::test_an_order_of_exactly_the_permitted_quantity_is_approved` | 32.4 |

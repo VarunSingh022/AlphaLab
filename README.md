@@ -1387,9 +1387,10 @@ AlphaLab is continuously validated through automated tooling.
 - ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1,122 source files)
 - ✅ Ruff linting and formatting
 - ✅ 55 / 55 benchmarks, 65 / 65 examples
-- ✅ A defect-injection harness (`docs/audit/scripts/mutation_v3_12.py`): 123
-  mutations, each against the whole suite; every one caught but one equivalent
-  mutant, once the five rules it found unpinned were pinned
+- ✅ A defect-injection harness (`docs/audit/scripts/mutation_v3_12.py`): 126
+  mutations, each against the whole suite; on the release tree every one is
+  caught but one equivalent mutant, after the five rules its first run found
+  unpinned were pinned
 - ✅ A stress program (`docs/audit/scripts/stress_v3_12.py`): 10,000 assets,
   1,000 strategies, 100 venues, 10,000-asset construction, 20,000-record
   checkpoint chains

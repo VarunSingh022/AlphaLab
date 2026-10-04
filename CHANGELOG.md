@@ -244,12 +244,13 @@ and read by `tests/regression/test_schema_upgrades_v3_11.py`.
 regression, none skipped (3.11.0: 8,215; the removed packages took 55 with
 them). The defect-injection harness is in
 the repository now (`docs/audit/scripts/mutation_v3_12.py`), with the stress
-program beside it (`docs/audit/scripts/stress_v3_12.py`). It ran 123
-mutations — the 79 of 3.11 and 44 of 3.12's own behaviour — each against the
-whole suite with the clock-reading tests deselected: 117 were caught. Five of
-the six that survived were rules no test pinned, now pinned (TST-013) and
-caught on re-run; the sixth is equivalent (the clause it removes is implied by
-the change's own validation). Every benchmark
+program beside it (`docs/audit/scripts/stress_v3_12.py`). Its table holds 126
+mutations — the 79 of 3.11 and 47 of 3.12's own behaviour — each run against
+the whole suite with the clock-reading tests deselected. The first run, of
+123, caught 117: five of the six that survived were rules no test pinned, now
+pinned (TST-013); the sixth is equivalent (the clause it removes is implied by
+the change's own validation). On the release tree all 126 ran again: 125 were
+caught, and the equivalent one survives, as it must. Every benchmark
 ceiling is judged by one method (`benchmarks/_stable_timing.py`) [TST-011], and
 `benchmarks/benchmark_construction_scaling.py` measures structured construction
 at 200, 400 and 800 assets against a growth ceiling (55 benchmarks).
