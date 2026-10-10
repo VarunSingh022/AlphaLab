@@ -203,7 +203,6 @@ CANONICAL_FIELDS: dict[str, dict[str, type]] = {
         "portfolios": PersistentMap,
         "weights": PersistentMap,
         "constraints": PersistentMap,
-        "risk_limits": PersistentMap,
         "metrics": PersistentMap,
         "exposures": PersistentMap,
         "allocations": PersistentMap,
