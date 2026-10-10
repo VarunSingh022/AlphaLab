@@ -100,13 +100,16 @@ If all commands complete successfully, your environment is correctly configured.
 ```
 AlphaLab/
 
-alphalab/     framework source (50 packages)
-benchmarks/   59 performance benchmarks
+alphalab/     framework source, one package per subsystem
+benchmarks/   performance benchmarks, each judging its own ceiling
 configs/      reference configuration files
-docs/         technical documentation and 44 ADRs
-examples/     65 runnable examples
-tests/        7387 tests — unit, integration, regression
+docs/         technical documentation and the ADRs
+examples/     runnable examples, one subsystem each
+tests/        unit, integration and regression tests
 ```
+
+The counts are in `README.md`'s status table, which the release checklist
+updates; this overview gave counts from 2.x until v3.13.
 
 ### alphalab/
 
