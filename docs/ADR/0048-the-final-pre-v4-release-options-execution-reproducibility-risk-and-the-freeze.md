@@ -196,11 +196,16 @@ portfolio and no others.
 
 `tests/regression/test_every_adr_deferral_is_classified.py` reads every "Known
 limitations" bullet and every deferred item an ADR states and requires each to
-map to a closed ledger entry. The limitations kept are kept for stated reasons:
-a maximum-diversification change of variables that a turnover limit or a
-volatility cap does not survive; risk parity's exact, long-only budgets, which
-define its one solution; an Euler-contribution cap that is not convex; a VWAP's
-profile resolution; and the conventions the ADRs state.
+map to a closed ledger entry, and `test_nothing_is_left_for_later.py` requires
+every ledger entry to be implemented or kept, none to be assigned beyond the
+release, and no current-state document to call anything deferred — the claim
+this release makes, held where it is written; the version every current-state
+document states is held to the package's (`test_version_markers_agree.py`).
+The limitations kept are kept for stated reasons: a maximum-diversification
+change of variables that a turnover limit or a volatility cap does not survive;
+risk parity's exact, long-only budgets, which define its one solution; an
+Euler-contribution cap that is not convex; a VWAP's profile resolution; and the
+conventions the ADRs state.
 
 ## 16. A factor model is a covariance, stated by its structure
 
