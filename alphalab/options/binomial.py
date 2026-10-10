@@ -66,7 +66,7 @@ from alphalab.options.enums import ExerciseStyle, OptionType
 from alphalab.options.exceptions import OptionInputError, OptionPricingError
 from alphalab.options.greeks import Greeks
 from alphalab.options.model import ModelAssumptions, PricingModel
-from alphalab.options.pricing import time_to_expiry_years
+from alphalab.options.pricing import _require_market_inputs, time_to_expiry_years
 
 __all__ = [
     "MAX_STEPS",
@@ -360,7 +360,8 @@ def binomial_value(
     dividends are dated.
 
     Raises:
-        OptionInputError: If the spot or volatility is not positive, the carry
+        OptionInputError: If the spot, the volatility or the rate is not a
+            finite number, the spot or volatility is not positive, the carry
             is not a :class:`~alphalab.options.carry.Carry` or names an
             underlying that pays no cash dividend while dividends are stated,
             the dividends are worth the whole spot, or the contract has
@@ -370,6 +371,7 @@ def binomial_value(
     """
 
     _require_lattice(lattice)
+    _require_market_inputs(spot, risk_free_rate, volatility)
     if not spot > 0.0:
         raise OptionInputError(f"spot must be positive, got {spot}.")
     years = time_to_expiry_years(contract, valuation_timestamp)
@@ -401,6 +403,7 @@ def binomial_price(
         OptionPricingError: As :func:`binomial_value`.
     """
 
+    _require_market_inputs(spot, risk_free_rate, volatility)
     if spot <= Decimal("0"):
         raise OptionInputError(f"spot must be positive, got {spot}.")
     value = binomial_value(
@@ -447,6 +450,7 @@ def binomial_greeks(
         raise OptionInputError(
             f"Greeks read a lattice's first two layers; a {lattice.steps}-step lattice has one."
         )
+    _require_market_inputs(spot, risk_free_rate, volatility)
     if spot <= Decimal("0"):
         raise OptionInputError(f"spot must be positive, got {spot}.")
     if volatility <= VOLATILITY_BUMP:

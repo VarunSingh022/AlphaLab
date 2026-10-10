@@ -48,8 +48,10 @@ Reference
 
 | Document | Description |
 |-----------|-------------|
-| `GETTING_STARTED.md` | Installation, project setup, and first steps with AlphaLab |
+| `GETTING_STARTED.md` | Installation, the repository, and building, checking and reproducing a first strategy |
 | `EXAMPLES.md` | End-to-end examples covering research, backtesting, portfolio optimization, and production workflows |
+| `api/PUBLIC_API.md` | The public API, its manifest, and the stability policy from v4.0 |
+| `INTEGRATION.md` | Depending on AlphaLab from an application: how to install a release, the tested Python, and what an application may rely on |
 
 ---
 
@@ -78,7 +80,8 @@ Reference
 
 | Document | Description |
 |-----------|-------------|
-| `../ROADMAP.md` | What is delivered, what is a deliberate boundary, what is external, what is optional |
+| `../ROADMAP.md` | What is delivered, what is a deliberate boundary, what is external, what is a stated limitation, and the future work accepted for later |
+| `audit/` | The pre-v4 audit and completion ledger, the v4.0 release audit, the historical inventory and the release certificate |
 | `../CHANGELOG.md` | Version history and release notes. Each entry is scoped to its own release |
 | `../nowandfuture.md` | The long-form project reference: ownership, invariants, and what must not change casually |
 | `VISION.md` | Long-term goals and project philosophy |
@@ -92,11 +95,8 @@ AlphaLab has **two** wired-together paths, and as of v2.16 they meet. Everything
 else is a standalone, individually tested engine (ADR-0009).
 
 ```
-                    AlphaLab Workbench
-                            │
-                            ▼
-                    Strategy Studio
-                            │
+            the host application (UI, accounts, vendor adapters, credentials)
+                            │  uses AlphaLab's public API
     ┌───────────────┬───────┴───────┬───────────────┐
     ▼               ▼               ▼               ▼
  Universal      Research        Portfolio      Model & Strategy
@@ -107,11 +107,12 @@ else is a standalone, individually tested engine (ADR-0009).
                  Execution path (RunEngine)
                             │
                             ▼
-                     Broker boundary
-                            │
-                            ▼
-                       Live Markets
+                     Broker boundary  ──  the host's venue adapter
 ```
+
+Presentation, orchestration, identity and vendor connectivity are the host
+application's: the Strategy Studio, the Workbench and Enterprise left the
+library in v3.11 (ADR-0046).
 
 The paths that exist, precisely:
 
@@ -224,18 +225,6 @@ rather than redefining them.
 
 ---
 
-## Strategy Studio
-
-Coordinate research projects, pipelines, experiments, datasets, reports, and backtests through a single orchestration layer.
-
----
-
-## AlphaLab Workbench
-
-User-facing workspace for managing projects, monitoring strategies, visualizing results, and interacting with the Strategy Studio.
-
----
-
 ## Engine libraries (v1.34.0 – v2.0.0)
 
 Additional standalone, individually tested engines added after v1.0.0:
@@ -324,273 +313,28 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v3.13.0
+v4.0.0
 ```
 
-*(This block read `v2.5.0` from v2.5 through v2.16 — twelve releases that shipped
-without updating it — and the v2.17 audit corrected it. The release checklist now
-has to touch `README.md`, `docs/ARCHITECTURE.md`'s Implementation Status and this
-block together, because all three have drifted independently before.)*
+*(This block read `v2.5.0` from v2.5 through v2.16 -- twelve releases that shipped
+without updating it -- and the v2.17 audit corrected it. Since v3.13
+`tests/regression/test_version_markers_agree.py` holds it to the package.)*
 
-**v3.13.0 — the final pre-v4 release.** Nothing required is left for later:
-every item the ledger assigned to v3.13 and the four it had assigned to v4.0 are
-closed. American options on a Cox–Ross–Rubinstein lattice and a volatility term
-structure linear in total variance; the optimal split of an order across
-venues; an Almgren–Chriss urgency estimated from stated inputs, the shortfall
-the same model expects, and seeded iceberg tranches; a rerun from a manifest
-that says where it diverged, and a lock-file reader; cron timers on a stated
-zone's wall clock; an exact liquidation price; exchange-rate risk as factors;
-a factor model stated by its structure, constructed over at 10,000 assets
-without writing it out; a box uncertainty set on a book that may short;
-checkpoint segments that carry only the orders that changed. The freeze: one name for one contract across the
-public API, the API and every persisted name recorded as data and held by tests,
-every limitation and deferral an ADR states held to the ledger, and a release
-certificate run in CI. See `ADR/0048` and the CHANGELOG's migration table.
+**v4.0.0 -- the freeze of the universal engine contract.** The v2.0.0 to v3.13.0
+history read and every deferral, non-goal, limitation and open question in it
+classified with evidence (`audit/V4_HISTORICAL_INVENTORY.md`); the canonical path
+re-audited, four defects fixed -- a restore that accepted a differently
+configured live object, ingestion that dropped rows a refusing policy should
+have refused, option pricing that returned `NaN`, fractional fills in a
+whole-unit run -- each with a test that fails without the fix; a strategy built,
+checked and reproduced through the public API (`GETTING_STARTED.md`,
+`../examples/70_build_a_strategy.py`); and the public API held stable from here,
+`alphalab.api` and the snapshot modules now within it (`api/PUBLIC_API.md`).
+ADR-0049; the audit is `audit/V4_RELEASE_AUDIT.md`.
 
-**v3.12.0 — the third pre-v4 release.** Hardening, and the capabilities the
-audit deferred here: R² undefined for a constant series, the normal CDF from
-`erfc`, least squares by Householder QR, theta on the pricing year; directories
-flushed after a rename and an allocation budget's currency restored; venue
-calendars inside simulation; per-strategy capital ceilings; classification
-limits along any dimension; observations delivered on the execution path;
-retention and incremental checkpoints; a durable evidence store; a health
-window; multi-account reconciliation; declared trade prints; LSTM and
-attention backpropagation; the v1 research engine restated as measurements;
-factor-structured construction to 10,000 assets; and a stress program at
-10,000 assets, 1,000 strategies and 100 venues, whose two findings are fixed.
-`alphalab.plugins`, `alphalab.optimizer` and the reporting dashboards leave the
-library (SCF-003). See
-`ADR/0047` and the CHANGELOG's migration table.
-
-**v3.11.0 — the second pre-v4 release.** The capabilities a strategy needs
-before its API is frozen: instrument economics (multipliers, futures variation
-margin, option premium, perpetuals, lots, negative prices), corporate actions
-and cash flows; order terms and resting orders; target quantities and weights
-against each strategy's own position; enforced subscriptions, slices and fill
-and order feedback; forward returns after a declared lag, delisting returns,
-walk-forward optimization and multiple-testing corrections; Ledoit-Wolf, EWMA
-and factor-model covariances, construction that pays for trading, and lot
-rounding. `alphalab.studio`, `alphalab.workbench`, `alphalab.enterprise` and the
-venue credentials moved to the host application. See `ADR/0046` and the
-CHANGELOG's migration table.
-
-**v3.10.0 — the first pre-v4 release.** A correctness release rather than a
-capability one, planned by the pre-v4 audit (`audit/PRE_V4_MASTER_AUDIT.md`; the
-plan of record is `audit/PRE_V4_COMPLETION_LEDGER.yaml`). Risk is judged on one
-projection of the post-trade book and never refuses a reduction; money is exact
-at each currency's minor unit, with prices and quantities kept exact; analytics
-take returns per instant and state their annualization; a simulated order can
-fill at its asset's next event, and every run records its execution
-assumptions and its strategy failures; the canonical path is linear in the
-universe; a bar is stamped at the end of its interval; snapshots upgrade from
-older schemas through explicit steps. `alphalab.feed`, `alphalab.live`, the
-vendor market-data clients and the last `"USD"` configuration defaults are
-removed. See `ADR/0045` and the CHANGELOG's migration table.
-
-**v3.9.0 — the universal execution contract.** The ninth capability release
-on the frozen architecture; no package and no package edge is added. What a
-broker can do is declared where it is true — per venue connection, per market,
-per account — as `CapabilityDeclaration` in `alphalab.core`, three-valued, and
-`check_compatibility` reports an order `COMPATIBLE` only when every requirement
-is supported; the v3.5 `BrokerCapabilities` is projected from the same
-declaration. `alphalab.core.lifecycle` states the twelve normalized execution
-events and the one table of legal order transitions that the OMS and the venue
-boundary both read; `alphalab.broker` applies every venue report through it
-with exactly one outcome, gives cancels and amendments identities so a retry is
-never a second request, and reconciles the mirror against a dated venue
-snapshot. `alphalab.execution` gains TWAP, VWAP, participation, slicing and
-iceberg-like algorithms whose children stay their parent's, route selection
-from supplied quotes, declarations, cost models and latencies with every venue
-explained, and execution quality — implementation shortfall split between the
-strategies that asked for the order, slippage against named references, fill
-quality, latency, rejection rate and venue quality, in one currency or through
-recorded FX. `alphalab.runtime` sends children for their parent, and
-`alphalab.lifecycle` reconciles them and writes execution identities into a
-fingerprint. No durable state is added and no snapshot schema is touched. See
-`ADR/0044`.
-
-**v3.8.0 — advanced portfolio and risk.** The eighth capability release on
-the frozen architecture, and no package is added. The risk model becomes values
-with identities in `alphalab.analytics`: a `CovarianceMatrix` that names its
-currency, period, source and observations and measures its own definiteness,
-factor loadings and classifications that refuse holes, and one implementation of
-the covariance, the Euler decomposition and the factor exposure, which v3.3's
-decomposition now calls without moving a published number. `construct` in
-`alphalab.portfolio_optimizer` solves minimum variance, mean-variance, maximum
-diversification, risk parity and robust mean-variance *over* stated constraints
-— bounds, concentration, gross, sector/country/currency groups, factor
-neutrality, turnover, notional caps, a volatility cap — with one dual active-set
-solver that certifies an optimum and names the constraints that conflict when
-there is none, and `black_litterman` turns a supplied prior and stated views into
-a posterior. `evaluate_risk_budget` decomposes a book's volatility along asset,
-strategy, sector, country and currency, each adding up to the same total, and
-judges it against limits; `alphalab.portfolio.multi_strategy` keeps several
-strategies' books apart inside one portfolio and values it across currencies at
-recorded rates; `alphalab.analytics.cross_strategy` correlates, overlaps and
-compares strategies on a stated basis; and `alphalab.allocation.capital`
-allocates capital across strategies, markets, brokers, accounts and currencies
-in each account's own currency, reconciled exactly and refused rather than
-silently scaled. Three package edges are added, none a cycle; no durable state
-is added and no snapshot schema is touched. See `ADR/0043`.
-
-**v3.7.0 — advanced quant research.** The seventh capability release on the
-frozen architecture, and no package is added. Everything rests on one statement
-AlphaLab could not make before: when a piece of information became knowable.
-`PointInTimeStamp` carries the observed, available, effective and ingested
-instants with an availability basis — declared, derived by a named rule, or
-unknown, which research never reads. `alphalab.alt_data` becomes the
-point-in-time foundation for external information, a leaf over `common`:
-canonical `InformationEvent`s, `ExternalObservation`s of any category with a
-source identity and the bytes they came from, point-in-time
-`FundamentalObservation`s that keep fiscal period, publication, availability and
-restatement apart, and versioned sets with checked vintages. Knowledge frames
-give the v3.2 feature engine the latest knowable figure per subject and a checked
-join to the prices; `event_study` anchors where news could first be traded;
-regime detection applies declared rules with a reconstructable state; and the
-adaptive engine in `alphalab.strategy` keeps learned state immutable, replays it
-exactly, checkpoints it, and hands it to the run snapshot, so a run's digest and
-a strategy's fingerprint commit to what it learned. No boundary moves, no
-durable state is added and no snapshot schema is touched. See `ADR/0042`.
-
-**v3.6.0 — strategy evaluation and research-marketplace infrastructure.** The
-sixth capability release on the frozen architecture. One package is deepened —
-`alphalab.lifecycle` — and none is added. `StrategyFingerprint` gives a strategy
-version an immutable identity derived from its code, its declared dependencies
-(with their completeness stated), its parameters, its research configuration
-and its engine version, and from nothing environmental. `ReproducibilityManifest`
-names everything one result was produced from, reading each identity from the
-authority that owns it, and `assess_reproducibility` keeps identity, metadata
-completeness, a rerun and external dependencies as four answers. `certify_strategy`
-states eight machine-verifiable properties, each `PASS`, `FAIL`, `NOT_ASSESSED`
-or `INSUFFICIENT_EVIDENCE`, from observed evidence only, with no overall score.
-`evaluate_portability` checks one fingerprint against declared environment
-capabilities and names every blocker. AlphaLab provides these contracts; an
-external research marketplace consumes them, and none of its logic is here. No
-boundary moves, no durable state is added and no snapshot schema is touched. See
-`ADR/0041`.
-
-**v3.5.0 — strategy execution and production intelligence.** The fifth
-capability release on the frozen architecture, and the bridge between research
-and real trading. One package is deepened — `alphalab.lifecycle` — and none is
-added. `StrategyLifecycleStage` names the eight stages from research to archived
-as a **third** axis, distinct from the registry's `ModelStage` (which cannot tell
-research from validation, or paper from live, and has no member for paused) and
-from `strategy.state.LifecycleState` (which is about an instance in a session).
-`DeploymentSpecification` records what a strategy version needs in order to run
-as it was researched — dataset assumptions by derived identity, the `RiskLimits`
-the pre-trade gate enforces, capital, and typed broker, market and runtime
-requirements — and identifies itself by the same content digest validation
-evidence uses. `evaluate_health` judges **supplied** observations against those
-budgets across seven categories, and is total over them: a report with nothing
-wrong and something unevaluated is `UNKNOWN`, never `HEALTHY`. `compare_runs`
-and `compare_expected_paper_live` compare a backtest, a paper run and a live
-account with alignment declared and every tolerance stated.
-`reconcile_execution_state` compares AlphaLab's own execution state against a
-normalized broker state across fourteen mismatch classes, declaring neither side
-authoritative and mutating nothing. No boundary moves, no ownership changes and
-no snapshot schema is touched. See `ADR/0040`.
-
-**v3.4.0 — global markets and multi-asset research.** The fourth capability
-release on the frozen architecture, and the one that makes AlphaLab say what an
-instrument's numbers *mean* outside the market whose conventions had been
-written into the defaults. `alphalab.conventions` is a new **leaf** package —
-importing `alphalab.common` and nothing else in `alphalab`, which is what lets
-`options`, `futures`, `crypto`, `portfolio`, `data` and `api` all use it —
-holding a `MarketConvention` with no default on any field: venue, calendar id,
-quote and settlement currency, multiplier, tick schedule, lot specification and
-settlement rule. `alphalab.futures` gains the contract chain, the roll policy and
-the roll schedule that make a continuous series reproducible from four stated
-things. `alphalab.options` gains the implied-volatility inversion, which refuses
-in five named cases rather than returning a fabricated placeholder, and expiry
-resolution that moves cash and underlying units as two separate signed
-quantities. `alphalab.portfolio` gains cross rates through a named currency, a
-covered-parity forward with every rate input required, currency attribution with
-no residual, and contract-aware exposure with the multiplier applied exactly
-once. `alphalab.crypto` gains per-venue metadata and the distinction between a
-24/7 clock and 24/7 data. `alphalab.macro` gains a fixed-income **foundation**
-— and calls it one. Six silently-defaulted market conventions became required.
-No boundary moves and no ownership changes. See `ADR/0039`.
-
-**v3.3.0 — institutional backtesting and portfolio intelligence.** The third
-capability release on the frozen architecture, and the one that answers the
-questions an institution asks before allocating to a strategy.
-`alphalab.execution` gains an itemized six-role cost contract — spread,
-slippage, impact, commission, fee, tax — that keeps costs moving the fill price
-apart from costs debited to cash, plus a capacity model reading the same impact
-assumption a fill is priced with. `alphalab.analytics` gains attribution across
-nine dimensions, each reporting whether its metadata was available rather than
-inventing a bucket, and a risk decomposition whose VaR method is named and whose
-contributions sum to portfolio volatility exactly. `alphalab.scenario` is a new
-standalone package holding one shock contract usable by every portfolio class;
-its historical scenarios — 2008, 2020, 2022 — ship as **contracts requiring
-supplied data**, because AlphaLab ships no market data and invents no historical
-move. `alphalab.common.statistics` gains `sample_covariance`. No boundary moves
-and no ownership changes. See `ADR/0038`.
-
-**v3.2.0 — strategy research and validation.** The second capability release on
-the frozen architecture. v3.1 gave AlphaLab a dataset it could trust; v3.2 gives
-it the methodology that turns one into a research result nobody has to take on
-trust. `alphalab.factor_library` gains a typed feature framework with a derived
-identity and dataset lineage, plus cross-sectional ranking, three named
-neutralizations, the information coefficient, decay, turnover and exposure.
-`alphalab.research` gains walk-forward validation, time-series cross-validation
-with purging and embargo defined by label windows, seeded robustness
-perturbations, transparent overfitting diagnostics, and a reproducible
-`ResearchStudy` / `StudyResult` contract whose identities are derived rather
-than minted. `alphalab.common.statistics` becomes the one statistics authority,
-and five private copies of the unbiased sample variance were consolidated onto
-it with every published number unchanged. `evidence_id_for` is untouched. No
-boundary moves and no ownership changes; `factor_library` gains an importer and
-is therefore no longer a standalone engine. See `ADR/0037`.
-
-**v3.1.0 — universal data ingestion.** The first release after the v3.0
-architecture freeze, and a capability release confined to one package.
-`alphalab.data` gains the ingestion, validation, cleaning, provenance and
-identity machinery it was named for and did not have: CSV as a first-class
-input, schema detection that refuses to guess, structured validation findings,
-cleaning under a policy with no defaults, market calendars, multi-asset
-semantics, the raw/adjusted price basis, and a **derived, immutable dataset
-version** that reaches `BacktestResult.dataset_id` and `ValidationEvidence`
-unchanged — with the evidence digest untouched. No boundary moves and no
-ownership changes. See `ADR/0036`.
-
-**v3.0.0 — the stable release.** The architecture is frozen and the documentation
-is made to match it. No capability is added, no boundary moves, no schema changes
-and no public name is removed: v2.17 took the removals a release early so that
-v3.0 could be additive. What "frozen" commits to is written down in
-`../nowandfuture.md`, and `../ROADMAP.md` now classifies everything that remains
-as a deliberate boundary, an external dependency, or optional evolution.
-
-v2.17.0 — "The Final Engineering Release" — exists so that v3.0 had nothing to do
-but freeze. **Settlement-level multi-currency**: a run settles fills in more than
-one currency, accruing P&L and commission in the currency each was earned in, and
-reports one figure in one currency with the rates that produced it. **An FX rate
-feed** (`alphalab.portfolio.fx_feed`): the boundary rates arrive across, with
-ordering, deduplication and conflict rules — AlphaLab ships no FX data. **A
-strategy-class registry** (`alphalab.strategy.registry`): what turns the identity
-a deployment names into the code a run executes. Alongside them, seven deprecated
-surfaces removed with no aliases, all four of ADR-0032's category C items
-implemented, and a suite reporting zero skips and zero warnings. See `ADR/0034`
-and `ADR/0035`.
-
-Earlier milestones: v2.16.0 closed three joins — the live driver, governance and
-FX valuation — and classified twenty-one structural findings (ADR-0032,
-ADR-0033); v2.15.0 built the five capabilities that had a contract and nothing
-behind it (ADR-0031); v2.14.0 unified the runtime under `RunEngine` (ADR-0030);
-v2.13.0 gave a captured run somewhere durable to go (ADR-0029); v2.12.0 made the
-instrument registry the currency authority (ADR-0028); v2.11.0 added instrument
-classification with sector provenance (ADR-0027); v2.10.0 finished the strategy
-boundary (ADR-0025, ADR-0026); v2.9.0 added deterministic identifier continuation
-(ADR-0022, ADR-0023); v2.8.0 settled currency roles and run outcomes (ADR-0019 to
-ADR-0021); v2.7.0 established instrument identity and dataset provenance
-(ADR-0016 to ADR-0018); v2.6.0 gave allocation authority and attribution truth
-(ADR-0015); v2.5.0 made states round-trip and connected the live data path
-(ADR-0014); v2.4.0 composed the model and strategy lifecycle (ADR-0013); v2.3.0
-unified the market-data and broker models (ADR-0011, ADR-0012); v2.2.0 unified
-backtesting and replay (ADR-0010); v2.1.0 added mark-to-market and removed the
-O(N²) engine histories; v2.0.0 consolidated the v1.34.0–v1.46.0 engine series and
-unified the canonical execution domain models. Several releases contain breaking
-public API changes — see `../CHANGELOG.md`.
+The release-by-release history -- what each of v1.0 to v3.13 established, and
+every breaking change with its migration -- is in `../CHANGELOG.md`; the four
+major milestones are summarized in the root `README.md`.
 
 ---
 
@@ -626,7 +370,7 @@ See `CONTRIBUTING.md` for the full contribution workflow.
 - Root `README.md` – Project overview
 - `LICENSE` – Licensing information
 - `CHANGELOG.md` – Release history
-- `ROADMAP.md` – Planned features
+- `ROADMAP.md` – Boundaries, limitations and future work
 - `ADR/` – Architectural Decision Records
 
 ---

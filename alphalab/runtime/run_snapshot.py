@@ -86,6 +86,7 @@ from alphalab.persistence.decode import (
 )
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
+from alphalab.runtime.assumptions import describe
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState, RunStep, SkippedRecord
 
 # The market-record, fill and report decoders belong to the pipeline snapshot,
@@ -136,9 +137,12 @@ __all__ = [
 #: point-in-time records the run has delivered and the last one's
 #: ``(known_at, delivery_id)`` (ledger OFE-009): the cursor that keeps a
 #: restored run from delivering one twice -- and how many steps and skipped
-#: records a retention policy dropped (``dropped``, ledger PRF-004). Earlier
-#: versions are upgraded by :data:`RUN_SCHEMA_HISTORY`.
-RUN_SNAPSHOT_SCHEMA: Final = 4
+#: records a retention policy dropped (``dropped``, ledger PRF-004). Version 5
+#: (v4.0) records how the fill policy was configured beside its type
+#: (``fill_policy_description``), so that :func:`restore` refuses a fill policy
+#: of the right class and other parameters (ledger PER-008). Earlier versions
+#: are upgraded by :data:`RUN_SCHEMA_HISTORY`.
+RUN_SNAPSHOT_SCHEMA: Final = 5
 
 _SUBSYSTEM: Final = "run"
 
@@ -192,6 +196,11 @@ class RunSnapshot:
     #: name -- ``"steps"``, ``"skipped"`` -- when a retention policy trimmed
     #: them. Only non-zero counts are written (ledger PRF-004).
     dropped: Mapping[str, int] = field(default_factory=dict)
+    #: How the fill policy was configured, by
+    #: :func:`~alphalab.runtime.assumptions.describe` (ledger PER-008); ``None``
+    #: only in a payload upgraded from version 4 or earlier, which recorded the
+    #: policy's type alone.
+    fill_policy_description: str | None = None
     schema_version: int = RUN_SNAPSHOT_SCHEMA
 
 
@@ -236,6 +245,7 @@ def capture(state: RunState) -> RunSnapshot:
         periods_per_year=state.config.periods_per_year,
         halt_on_strategy_failure=state.config.halt_on_strategy_failure,
         fill_policy_type=type(state.config.fill_policy).__name__,
+        fill_policy_description=describe(state.config.fill_policy),
         processed=state.processed,
         current_timestamp=state.current_timestamp,
         last_record_timestamp=state.last_record_timestamp,
@@ -274,14 +284,19 @@ def restore(snapshot: RunSnapshot, objects: RunObjects) -> RunState:
         plus :meth:`~alphalab.runtime.run.RunEngine.advance`.
 
     Raises:
-        StateDecodeError: If a required live object is missing or of the wrong
-            type.
+        StateDecodeError: If a required live object is missing, of the wrong
+            type, or configured otherwise than the snapshot recorded.
         RuntimeValidationError: If the restored configuration fails a validation
             ``initialize`` enforces.
     """
 
     pipeline = restore_pipeline(snapshot.pipeline, objects.pipeline)
-    fill_policy = _require_object(objects.fill_policy, snapshot.fill_policy_type, "fill policy")
+    fill_policy = _require_object(
+        objects.fill_policy,
+        snapshot.fill_policy_type,
+        "fill policy",
+        snapshot.fill_policy_description,
+    )
 
     config = RunConfig(
         pipeline=pipeline.config,
@@ -419,6 +434,17 @@ def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
     return {**payload, "observations_delivered": 0, "last_observation": None, "dropped": {}}
 
 
+def _v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record that a version-4 run does not say how its fill policy was configured.
+
+    Version 4 wrote the fill policy's type alone (ledger PER-008); ``None`` is
+    "not recorded", and :func:`restore` checks such a policy by its type, as the
+    release that wrote the payload did.
+    """
+
+    return {**payload, "fill_policy_description": None}
+
+
 def _dropped(value: Any) -> dict[str, int]:
     payload = as_mapping(value, "dropped")
     counts: dict[str, int] = {}
@@ -456,6 +482,12 @@ RUN_SCHEMA_HISTORY = SchemaHistory(
             "version 4 records the point-in-time records the run delivered and the steps it "
             "dropped; no earlier run delivered any or dropped one",
             upgrade=_v3_to_v4,
+        ),
+        SchemaStep(
+            4,
+            "version 5 records how the fill policy was configured; a version-4 run recorded "
+            "its type alone, and is checked by type alone",
+            upgrade=_v4_to_v5,
         ),
     ),
 )
@@ -511,6 +543,9 @@ def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
             require(payload, "halt_on_strategy_failure"), "halt_on_strategy_failure"
         ),
         fill_policy_type=as_str(require(payload, "fill_policy_type"), "fill_policy_type"),
+        fill_policy_description=as_optional_str(
+            require(payload, "fill_policy_description"), "fill_policy_description"
+        ),
         processed=as_int(require(payload, "processed"), "processed"),
         current_timestamp=as_float(require(payload, "current_timestamp"), "current_timestamp"),
         last_record_timestamp=_optional_float(

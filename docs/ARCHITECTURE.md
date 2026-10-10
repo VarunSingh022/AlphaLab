@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v3.13)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v4.0)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v3.13)
+# Implementation Status (v4.0)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -168,7 +168,19 @@ book that may short; checkpoint segments that carry only what changed.
 The freeze: one name for one contract, the public API and every persisted name
 recorded as data and held by tests (`docs/api`), and a release certificate
 (`docs/audit/RELEASE_CERTIFICATION.md`). It adds no package and no package edge,
-and upgrades two snapshot schemas (ADR-0048). **v3.0.0 adds no capability**: it freezes the architecture described here and makes the
+and upgrades two snapshot schemas (ADR-0048). **v4.0.0 is the freeze of the
+universal engine contract**, and adds no package, no package edge and no
+boundary: a restore refuses a live object configured otherwise than the
+captured run's, each object recorded with its configuration (pipeline schema 8,
+run schema 5); ingestion governs a row it cannot read by the cleaning policy
+and records each drop in the provenance; option pricing refuses a non-finite
+input; a whole-unit run fills in whole units; `alphalab.strategy` gains
+`start_strategy` and `context_factory`; and the public API -- `alphalab.api`
+and the snapshot modules now included -- is held stable from here
+(`docs/api/PUBLIC_API.md`). Every deferral the v2.0.0 to v3.13.0 history
+states is classified in `docs/audit/V4_HISTORICAL_INVENTORY.md`, and one --
+replay resumability -- is accepted future work (ROADMAP, FUT-001) (ADR-0049).
+**v3.0.0 adds no capability**: it freezes the architecture described here and makes the
 documentation match it.
 
 ## AlphaLab is a library
@@ -659,8 +671,8 @@ owning module, its own schema constant and its own typed decoder:
 | `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA = 5` | v2.5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA = 2` | v2.5 |
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA = 3` | v2.9 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 7` | v2.9 |
-| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 4` | v2.14 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 8` | v2.9 |
+| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 5` | v2.14 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 3` | v2.15 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 2` | v2.16 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA = 2` | v2.16 |
@@ -1462,7 +1474,8 @@ Measured on the development machine, full history retained:
 | Workbench session scaling (2x workload) | ~3.2x | ~2.1x |
 | `benchmark_strategy_studio` (10k backtests) | 0.76s | 0.12s |
 
-`tests/regression/test_workbench_delegation.py` pins all four.
+`tests/regression/test_workbench_delegation.py` pinned all four, and left with the
+packages in v3.11.
 
 ## Closed in v2.2
 
@@ -2215,61 +2228,57 @@ for a step and `alphalab.runtime.run.RunEngine` for a run (ADR-0030).
 
 AlphaLab enforces strict dependency boundaries.
 
-Dependencies always flow downward.
+Dependencies always flow toward `alphalab.common`, which imports nothing else in
+the package:
 
 ```
-Workbench
+the host application (presentation, orchestration, accounts, vendor adapters)
+      │  imports the public API -- nothing in AlphaLab imports it
+      ▼
+lifecycle and research (alphalab.lifecycle, research, factor_library)
       │
       ▼
-Strategy Studio
+the execution path (runtime, backtesting) over the domain engines
+(allocation, risk, oms, execution, portfolio, analytics, market, instrument)
       │
       ▼
-Domain Engines
-      │
-      ▼
-Infrastructure
-      │
-      ▼
-Adapters (alphalab.broker, alphalab.brokers, alphalab.marketdata transports)
+leaves and foundation (core, conventions, alt_data, persistence, common)
 ```
 
-Dependencies in the opposite direction are prohibited.
+Dependencies in the opposite direction are prohibited, and the package graph has
+no cycle (`tests/regression/test_import_graph_stays_acyclic.py`).
 
 ---
 
 # Allowed Dependencies
 
-The Workbench and Strategy Studio rules that led this section were removed with
-the packages in v3.11: nothing in the library sits above the domain engines.
+Nothing in the library sits above the domain engines: the Workbench and
+Strategy Studio rules that led this section left with those packages in v3.11.
+What each package imports is measured, not intended. The table below is the
+import graph for the packages whose edges decide where new code can live, and
+`tests/regression/test_documented_dependencies_are_measured.py` reads it
+against the AST import graph (v4.0; until then this section said `data` imported
+"Market Data, Feed, Persistence" and `research` "Universal Data, Analytics,
+Replay", none of which was true).
 
-## Universal Data
+| Package | Imports (other `alphalab` packages) |
+| --- | --- |
+| `common` | none |
+| `conventions` | `common` |
+| `alt_data` | `common` |
+| `strategy` | `common` |
+| `replay` | `common` |
+| `data` | `common`, `options` |
+| `analytics` | `common`, `core` |
+| `portfolio` | `common`, `conventions`, `core`, `persistence` |
+| `market` | `common`, `data`, `instrument`, `marketdata` |
+| `research` | `alt_data`, `common`, `factor_library` |
+| `factor_library` | `alt_data`, `analytics`, `common`, `data`, `market` |
+| `portfolio_optimizer` | `analytics`, `common`, `conventions` |
 
-May depend on:
-
-- Market Data
-- Feed
-- Persistence
-
-Must not depend on:
-
-- Research
-- Portfolio
-- Workbench
-
----
-
-## Research
-
-May depend on:
-
-- Universal Data
-- Analytics
-- Replay
-
-Must not depend on:
-
-- Workbench
-- Lifecycle
+Must not depend on: a leaf (`common`, `conventions`, `alt_data`, `strategy`)
+on anything but `common`; research on the execution path or the lifecycle;
+anything on `lifecycle`, which composes the rest and is imported by nothing.
 
 ---
 
@@ -2312,41 +2321,19 @@ concern and AlphaLab has no opinion about it; the venue boundary is
 
 Circular imports are prohibited.
 
-For example:
+For example, `research` imports `factor_library`, so
 
 ```
-Workbench
-
-↓
-
-Studio
-
-↓
-
-Research
-
-↓
-
-Workbench
+research  →  factor_library  →  research
 ```
 
-is invalid.
+is invalid: `factor_library` returns immutable results (features, factor
+studies) that `research` reads, and never imports it back.
 
-Instead:
-
-```
-Workbench
-
-↓
-
-Studio
-
-↓
-
-Research
-```
-
-Communication must always return through immutable results rather than reverse imports.
+Communication must always return through immutable results rather than reverse
+imports. `tests/regression/test_import_graph_stays_acyclic.py` measures the
+package graph; one module-level cycle (`oms.state` and `oms.snapshot`) is broken
+by a function-local import and documented there.
 
 ---
 
@@ -2419,12 +2406,6 @@ The intended lifecycle of a quantitative strategy within AlphaLab is illustrated
                            │
                            ▼
                   Performance Report
-                           │
-                           ▼
-                   Strategy Studio
-                           │
-                           ▼
-                  AlphaLab Workbench
                            │
                            ▼
               Model & Strategy Lifecycle
@@ -2762,8 +2743,7 @@ The following responsibilities are intentionally separated.
 | Portfolio Optimizer | Construct portfolios |
 | Replay | Validate strategies |
 | Reporting | Summarize results |
-| Strategy Studio | Orchestrate workflows |
-| Workbench | Present information |
+| The host application | Orchestrate workflows and present information -- not in the library since v3.11 |
 | Execution path | Turn one market event into orders, fills and accounting |
 | Lifecycle | Decide which strategy version an environment should run |
 | Adapters | Connect external systems |
@@ -2957,7 +2937,6 @@ Examples include
 | Portfolio | PositionOpened, PositionClosed, CashConverted |
 | Lifecycle | StrategyPromoted, DeploymentRecorded |
 | Broker | BrokerConnected, ExecutionReceived |
-| Workbench | ProjectOpened, SessionCreated |
 
 This separation prevents coupling between unrelated domains.
 
@@ -3096,14 +3075,17 @@ Examples
 ```
 BrokerConnected
 
-AuthenticationSucceeded
-
 OrderSubmitted
 
-OrderFilled
+OrderAccepted
 
-PortfolioSynchronized
+ExecutionReceived
+
+Heartbeat
 ```
+
+(`alphalab.broker.events`; authentication is the host adapter's, and AlphaLab
+defines no event for it.)
 
 ---
 
@@ -3128,16 +3110,10 @@ Portfolio
 
 ↓
 
-Replay
-
-↓
-
-Studio
-
-↓
-
-Workbench
+Analytics
 ```
+
+Above analytics, what consumes AlphaLab's events is the host application.
 
 Lower layers never consume higher-layer events.
 
@@ -3165,8 +3141,6 @@ Examples
 | Runtime — run | RunState |
 | Broker | BrokerState |
 | Lifecycle | LifecycleState (`alphalab.lifecycle.state`) |
-| Studio | StrategyStudioState |
-| Workbench | WorkbenchState |
 
 Each state is immutable.
 
@@ -3522,7 +3496,7 @@ The event and state architecture provides the following guarantees.
 - Replay compatibility
 - Production reliability
 
-These guarantees form the foundation of every subsystem within AlphaLab and ensure that future capabilities—such as distributed research, machine learning pipelines, cloud execution, and enterprise deployments—can be integrated while preserving deterministic behavior and architectural consistency.
+These guarantees form the foundation of every subsystem within AlphaLab, and they are why its standalone engines -- distributed research, machine learning, cloud research -- keep deterministic behavior and architectural consistency without being chained into one runtime (ADR-0009).
 
 # Package Structure
 
@@ -4116,15 +4090,7 @@ New functionality should be introduced by extending existing interfaces rather t
 # Architectural Layers
 
 ```
-User Code
-
-↓
-
-Workbench
-
-↓
-
-Strategy Studio
+User Code (the host application)
 
 ↓
 
@@ -4304,11 +4270,10 @@ Reporting
 ↓
 
 Analytics
-
-↓
-
-Workbench Extensions
 ```
+
+Presentation is the host application's, and is not an extension point of the
+library.
 
 Every extension point exposes stable contracts.
 
@@ -4316,14 +4281,17 @@ Every extension point exposes stable contracts.
 
 # Custom Market Data Providers
 
-A new provider should implement the Market Data protocol.
+A new provider implements the protocol for what it supplies:
+`alphalab.market.provider.BarHistoryProvider` for history a run is driven from,
+or `alphalab.data.protocol.DataExtractorProtocol` for rows the universal data
+engine ingests.
 
 ```
 MyProvider
 
 ↓
 
-MarketDataProviderProtocol
+BarHistoryProvider / DataExtractorProtocol
 
 ↓
 
@@ -4423,83 +4391,26 @@ Existing research workflows remain unchanged.
 
 ---
 
-# Future Machine Learning
+# Machine Learning, Cloud Research and the Research Assistant
 
-Machine learning modules will integrate using the same architecture.
+*(Until v4.0 these were three "Future" sections, written at v1.0.0, that routed
+each capability through the Strategy Studio and the Workbench. All three
+shipped as standalone packages in v1.41.0 to v2.0.0, and the Studio and the
+Workbench left the library in v3.11.)*
 
-```
-Canonical Dataset
-
-↓
-
-Feature Store
-
-↓
-
-Model
-
-↓
-
-Predictions
-
-↓
-
-Research Engine
-```
-
-The ML implementation remains isolated behind stable interfaces.
-
----
-
-# Future Cloud Execution
-
-Cloud execution will also extend existing abstractions.
-
-```
-Strategy Studio
-
-↓
-
-Cloud Scheduler
-
-↓
-
-Distributed Workers
-
-↓
-
-Results
-
-↓
-
-Workbench
-```
-
-Cloud execution becomes another execution backend rather than a separate platform.
-
----
-
-# Future AI Assistant
-
-The AI Research Assistant will consume existing APIs.
-
-```
-Workbench
-
-↓
-
-AI Assistant
-
-↓
-
-Strategy Studio
-
-↓
-
-Research Engine
-```
-
-The assistant orchestrates workflows without bypassing architectural boundaries.
+- **Machine learning** -- `alphalab.feature_store`, `alphalab.ml`,
+  `alphalab.deep_learning` and `alphalab.reinforcement_learning` -- consume
+  canonical datasets and features and return immutable models and predictions.
+  The reinforcement-learning environment drives the real execution pipeline;
+  the rest is standalone (ADR-0009).
+- **Cloud research** -- `alphalab.cloud_research` over `alphalab.distributed`
+  and `alphalab.cluster_scheduler` -- runs research tasks in a process pool and
+  records their outcomes in submission order. Supervising workers on real
+  infrastructure is the host's.
+- **The research assistant** -- `alphalab.research_assistant` -- is a
+  deterministic, offline grid search that lifts a chosen candidate into a
+  `StrategyDefinition` for the lifecycle. It calls no language model and opens
+  no connection.
 
 ---
 
@@ -4546,9 +4457,9 @@ This philosophy allows AlphaLab to evolve from a quantitative research platform 
 > cluster scheduler, experiment tracking, model registry, research assistant,
 > deployment manager, and Enterprise — has since shipped (v1.34.0–v2.0.0) as
 > standalone packages. The per-module "Future Version" tags below are left as
-> written for the record; treat them as delivered. What remains genuinely
-> unbuilt is the *integration* of these engines into one runtime (see
-> **Implementation Status** and `ROADMAP.md`).
+> written for the record; treat them as delivered. They were never integrated
+> into one runtime, and will not be: that is a deliberate boundary (ADR-0009,
+> ROADMAP's "No single runtime spanning all engines"), not unbuilt work.
 
 AlphaLab has been designed with long-term extensibility in mind.
 
@@ -4565,13 +4476,7 @@ Rather than creating separate frameworks for machine learning, derivatives, clou
 The long-term vision of AlphaLab follows a layered evolution.
 
 ```
-                Applications
-                      │
-                      ▼
-               AlphaLab Workbench
-                      │
-                      ▼
-               Strategy Studio
+                Applications (the host: UI, accounts, vendor adapters)
                       │
      ┌────────────────┼─────────────────┐
      ▼                ▼                 ▼
@@ -4584,7 +4489,9 @@ The long-term vision of AlphaLab follows a layered evolution.
                External Providers
 ```
 
-Future releases expand individual layers without modifying their responsibilities.
+Releases since v1.0 have expanded individual layers without modifying their
+responsibilities, and v4.0 freezes the public API those layers expose
+(`docs/api/PUBLIC_API.md`).
 
 ---
 
@@ -4739,7 +4646,7 @@ Macro Engine
 Research
 ```
 
-No changes are required to Strategy Studio.
+No change is required anywhere else in the library.
 
 ---
 
@@ -5400,8 +5307,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v3.13.0
-Status: Implementation Status (v3.13) describes what is built and is authoritative.
+Version: v4.0.0
+Status: Implementation Status (v4.0) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```

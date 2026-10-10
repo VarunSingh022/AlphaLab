@@ -20,12 +20,15 @@ Before contributing, we recommend reading:
 
 Understanding the overall architecture before making changes will help keep the framework consistent and maintainable.
 
-**As of v3.0.0 the architecture is frozen.** That does not close the project to
-contributions; it sets the bar for a particular kind of change. A contribution
-that moves an ownership boundary, a schema contract, or one of the invariants
-listed in `nowandfuture.md` needs an ADR and a major release. A vendor adapter, a
-new standalone engine, a strategy, a benchmark, a test or a documentation fix
-follows the ordinary workflow below.
+**As of v3.0.0 the architecture is frozen, and from v4.0.0 the public API is
+too.** That does not close the project to contributions; it sets the bar for a
+particular kind of change. A contribution that moves an ownership boundary or one
+of the invariants listed in `nowandfuture.md`, or changes a schema contract or
+the public API incompatibly, needs an ADR and a major release
+(`docs/api/PUBLIC_API.md`). A new standalone engine, a strategy, an example, a
+benchmark, a test or a documentation fix follows the ordinary workflow below. A
+vendor adapter belongs to the application that connects to the venue, not to
+this library (ADR-0046): AlphaLab defines the contract it implements.
 
 If you believe you have found a duplicate type, a redundant package or a layering
 violation, read `tests/regression/test_shared_names_stay_distinct.py` and
@@ -216,11 +219,11 @@ Good examples:
 ```
 Add Feature Store engine
 
-Implement Polygon market data provider
+Refuse a non-finite volatility in option pricing
 
 Improve portfolio optimizer normalization
 
-Refactor Strategy Studio validation
+Refactor strategy registry validation
 ```
 
 Avoid messages such as:

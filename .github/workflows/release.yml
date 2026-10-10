@@ -1,5 +1,10 @@
 name: Release Validation
 
+# Runs only once a release is published, on its tag -- too late to stop a bad
+# one. The same checks, and the CI gates, run before publication in
+# .github/workflows/preflight.yml; this repeats the release-specific ones on
+# what was actually tagged.
+
 on:
   release:
     types: [published]
@@ -27,8 +32,28 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
 
+      # The tag must be v<MAJOR>.<MINOR>.<PATCH> and name the package's version;
+      # only once it has been checked is the leading v dropped to get the version.
+      - name: The tag names the package's version
+        id: tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          python docs/audit/scripts/release_preflight.py version --tag "${TAG}"
+          echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
+
       - name: Build package
         run: python -m build
 
       - name: Verify distributions
-        run: python -m twine check dist/*
+        run: python -m twine check --strict dist/*
+
+      - name: Check, hash, install and smoke-test each artifact
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          python docs/audit/scripts/release_preflight.py distributions dist \
+            --version "${VERSION}" --record "dist/VERIFICATION-${VERSION}.txt"
+          cat "dist/VERIFICATION-${VERSION}.txt" >> "${GITHUB_STEP_SUMMARY}"

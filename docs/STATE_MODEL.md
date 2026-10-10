@@ -182,7 +182,7 @@ asserts that no second portfolio model exists anywhere in the package. See
 # Durability: snapshots and schemas
 
 A state is durable when it has **one** snapshot owner, **one** schema constant,
-and a typed decoder that refuses what it does not understand. Ten do (v3.13):
+and a typed decoder that refuses what it does not understand. Ten do (v4.0):
 
 | State | Snapshot module | Schema constant | Value |
 | --- | --- | --- | --- |
@@ -190,8 +190,8 @@ and a typed decoder that refuses what it does not understand. Ten do (v3.13):
 | `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA` | 2 |
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 7 |
-| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 4 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 8 |
+| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 5 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 3 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
@@ -220,8 +220,12 @@ serializable projection, `from_primitives(payload)` → typed snapshot,
   version, or the reason no honest upgrade exists. An upgrade supplies a value
   only when it is what the older payload already meant, and a version no
   release wrote is refused, naming the versions this build reads. The payloads
-  v3.9.0, v3.11.0 and v3.12.0 wrote are frozen under `tests/fixtures/snapshots/`
-  and read by every build.
+  v3.9.0, v3.11.0, v3.12.0 and v3.13.0 wrote are frozen under
+  `tests/fixtures/snapshots/` and read by every build, and the release
+  certificate's REP-3 reads every release frozen there; v4.0 moved the pipeline
+  from 7 to 8 and the run from 4 to 5, and reads a payload v3.13 wrote as one
+  that did not record how its live objects were configured (ledger PER-008,
+  `tests/regression/test_schema_upgrades_v3_13.py`).
 - **A plain enum's class name is part of the format.** A `StrEnum` member is
   written as its value (`"market"`); a plain `Enum` member as
   `ClassName.MEMBER` (`"StrategyStatus.RUNNING"`), and the decoder reads only
@@ -237,7 +241,17 @@ serializable projection, `from_primitives(payload)` → typed snapshot,
 - **Live objects are referenced, not reconstructed.** A strategy instance, a
   simulator, a sizing model, a fill policy and an instrument registry are recorded
   *by type*; `restore` requires the caller to supply them back and raises on a
-  missing or mistyped one, never substituting.
+  missing or mistyped one, never substituting. Since v4.0 the sizing model, the
+  simulator and the fill policy are also recorded by **configuration** --
+  `alphalab.runtime.assumptions.describe`, their parameters recursively, a
+  mapping or a set by its sorted contents, and no memory address -- and
+  `restore` refuses one configured differently, naming
+  both; the description is part of a manifest's `configuration_id` (ADR-0049,
+  ledger PER-008, PER-009). A payload v3.13 or earlier wrote checks by type alone, as it
+  always did. The instrument registry is compared by nothing (ADR-0027), and a
+  strategy's durable state is what it declares through `StrategyStateProtocol`;
+  the value its `configure` received is persisted as JSON reads it, so a
+  `Decimal` there reads back as a string (ledger LIM-004).
 - **Derived indexes are rebuilt, not stored.** The order book's asset and strategy
   indexes and the instrument registry's provider index are reconstructed by
   replaying the records. One fact, one home.

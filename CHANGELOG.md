@@ -14,6 +14,366 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [4.0.0] - 2026-10-11
+
+**The universal engine contract, frozen: the history from v2.0.0 to v3.13.0
+read and classified, the canonical path re-audited by somebody who had not
+written it and four defects fixed, a strategy built and reproduced end to end
+through the public API, and the public API held stable from here.**
+
+v4.0 adds no package and moves no boundary. It is a major release because it is
+the point from which the public API stops changing incompatibly until 5.0
+(`docs/api/PUBLIC_API.md`, "Stability from v4.0"), not because it breaks
+callers: against v3.13.0's manifest it adds four names and removes or rebinds
+none, and it brings `alphalab.api` and the snapshot modules -- which the
+manifest had left out -- under the freeze. Where v3.13 was wrong it now refuses, and each such change is in the
+migration table below. ADR-0049 records the decisions; the audit is
+`docs/audit/V4_RELEASE_AUDIT.md`. Ledger IDs are given in brackets.
+
+## Fixed
+
+* **A restore accepted a live object configured otherwise than the captured
+  run's** [PER-008, high]. A snapshot recorded the sizing model, the simulator
+  and the fill policy by type name alone, and `restore` checked only the type:
+  an `ExecutionSimulator` charging $5.00 a share was accepted in place of the
+  one charging $0.01 the run was captured with, the continued run booked its
+  remaining fills at the new rate, and the result's `execution_assumptions`
+  then described the whole run by the new rate. A reproducibility manifest's
+  `configuration_id` was likewise the same for two runs differing only in a cost
+  parameter. Each object is now recorded with
+  `alphalab.runtime.assumptions.describe` -- its parameters, no memory address
+  -- and `restore` refuses one whose description differs, naming both. ADR-0029
+  had listed "no live-object parameter persistence" as a non-goal in v2.13; the
+  v4.0 archaeology found it.
+* **Ingestion dropped rows a refusing policy should have refused** [DAT-010,
+  high]. A row that could not become a record -- an empty required value, a
+  `NaN`, `inf` or non-numeric price, an unreadable timestamp, a malformed row,
+  an undeclared trade code -- was dropped whatever the cleaning policy said, and
+  `MissingValuePolicy` was read by nothing. Under `REFUSE_EVERYTHING` a daily
+  bar with an empty close disappeared, and the drop reached only the quality
+  report, not the provenance. Now a missing value is governed by
+  `missing_values` and anything else by `invalid_records`: `REFUSE` raises
+  `DataQualityError` naming the policy, the count and the first row's line and
+  reason; otherwise the row is dropped, reported as before, and recorded as a
+  `TransformationRecord` (`drop_row_missing_value`, `drop_unreadable_row`) in
+  the dataset's provenance and so in its version.
+* **Option pricing returned `NaN` for an input that is not a number** [NUM-015,
+  medium]. `black_scholes_price` and `black_scholes_greeks` compared
+  `volatility <= 0` and nothing else, so a `NaN` or infinite volatility or rate
+  came back as `Decimal('NaN')` and `NaN` Greeks; a `NaN` spot raised
+  `decimal.InvalidOperation`. Every pricing entry point -- the closed form, the
+  lattice and implied volatility -- now refuses a non-finite spot, rate,
+  volatility or market price with `OptionInputError` naming it. The finite
+  values were checked against Hull (S = K = 100, r = 5%, q = 2%, sigma = 20%,
+  T = 1: call 9.2270, put 6.3301) and every Greek against central differences;
+  none moved.
+* **A whole-unit run filled in fractions** [EXE-011, medium]. With
+  `enforce_integer_quantities`, `LiquidityCappedFill` still took its exact share
+  of the size an event showed -- 2.5 shares of a 10-share order against 5 shown
+  at 50% -- so an equity book held half a share and a target strategy could not
+  reach its target in whole units. In a whole-unit run a partial fill is now
+  floored to whole units and a cap below one unit is no fill; the policy is
+  unchanged, and a run not in whole units still takes its fractional share.
+  Found by a differential test against an independently kept ledger, which now
+  runs in the suite.
+* **A live object's description could not see a container** [PER-009, medium].
+  `alphalab.runtime.assumptions.describe` -- what a snapshot records for each
+  live object, what a restore compares and what a `configuration_id` carries --
+  wrote a mapping or a set by its type name alone. `VolatilityTargetSizing` with
+  other per-asset volatilities, or a `ProportionalTax` on purchases instead of
+  sales, described exactly as the original, so for those objects the restore
+  check above accepted the other configuration. A mapping is now written by its
+  entries and a set by its members, each sorted by their own descriptions --
+  alike whatever order they were built in, and alike under every hash seed.
+  Found in the final certification review.
+* **The sdist could not run the tests it ships** [PKG-001, low]. It carried
+  `tests/` without `CHANGELOG.md`, `ROADMAP.md`, `nowandfuture.md`, the CI
+  workflows, `.gitattributes` or `.pre-commit-config.yaml`, which those tests
+  read: unpacked, fifteen failed and one could not be collected. The include
+  list now carries them, and a test reads the suite for the top-level paths it
+  uses and requires each to be included. The wheel was unaffected.
+
+## Added
+
+* **`alphalab.strategy.start_strategy`** [DOC-009]: register a strategy and
+  take it to `RUNNING` -- `configure`, `initialize`, `subscribe`, `start`,
+  through the supervisor -- keeping every other strategy, refusing an identity
+  already registered, and drawing nothing from the caller's identifier stream,
+  so a run set up inside its seeded scope is the same run as one set up outside
+  it.
+* **`alphalab.strategy.context_factory(clock, logger)`**, **`FixedClock`** and
+  **`DiscardingLogger`** [DOC-009]: the context factory every example wrote by
+  hand, from the two things only the caller can supply.
+* **`examples/70_build_a_strategy.py`** [DOC-009]: the v4.0 acceptance exercise
+  -- synthetic data ingested under `REFUSE_EVERYTHING`, a moving-average
+  crossover, every fill, the cash and the realized P&L checked against
+  arithmetic done by hand, a run with no signal, five refusals, a rerun with the
+  same digests, and a run stopped, serialized, restored and continued to the
+  same `result_id` byte for byte.
+* **`docs/audit/V4_HISTORICAL_INVENTORY.md`** and
+  `docs/audit/scripts/historical_inventory_v4.py` [TST-017]: every item the
+  v2-era ADRs' non-goal sections, the CHANGELOG's gap, limitation, deferral and
+  still-open sections and `nowandfuture.md`'s open questions state -- 257 items in
+  39 sections -- classified with evidence, as `HIS-001` to `HIS-039` in the
+  ledger.
+* **`docs/audit/V4_RELEASE_AUDIT.md`**, **`docs/audit/scripts/mutation_v4_0.py`**
+  (v3.13's 184 mutations and 17 of v4.0's; `--worktree` tests an uncommitted
+  candidate) and **`docs/audit/scripts/stress_v4_0.py`** (v3.13's scenarios, and
+  restore, ingestion and strategy start-up at scale).
+* **ADR-0049**, the freeze.
+* **`.github/workflows/preflight.yml`, Release Preflight** [TST-018]: every
+  release gate against one exact candidate commit, **before** a release is
+  published -- the release identity, CI's gates (`ci.yml`, now callable for a
+  given commit), the benchmarks (`benchmarks.yml`, likewise), a CodeQL analysis
+  gated on error-level and high-severity findings, and a fresh build checked by
+  `docs/audit/scripts/release_preflight.py` (exact file names, archive contents,
+  `SHA256SUMS-<version>`, each artifact installed alone and smoke-tested), whose
+  artifacts it keeps; a verdict fails unless all of them passed. On demand it
+  validates the ref chosen under "Use workflow from", which a typed `candidate`
+  must repeat -- a run left on `main` validates nothing; on a push to the
+  candidate branch (and no other) it validates the pushed commit, refusing a
+  branch deletion, for which GitHub reports the default branch's commit; and on
+  a pull request labelled `release-preflight` it validates the head commit, not
+  the merge.
+  Read-only; it tags, releases and pushes nothing. `release.yml`, which runs only
+  after publication, could stop nothing. `docs/ENGINEERING_GUIDELINES.md` gives
+  the procedure.
+
+## Changed
+
+* **Snapshot schemas** [PER-008]: pipeline 7 -> 8 (`ConfigRecord` gains
+  `sizing_model_description` and `simulator_description`) and run 4 -> 5
+  (`RunSnapshot.fill_policy_description`). Every payload v3.13.0 and earlier
+  wrote is upgraded on read to `None` -- "not recorded" -- and its objects are
+  checked by type alone, as the release that wrote it did. The checkpoint, live
+  and broker envelopes did not move. The payloads v3.13.0 itself wrote -- every
+  subsystem, a run store and a checkpoint chain -- are frozen in
+  `tests/fixtures/snapshots/v3.13.0` (written by
+  `docs/audit/scripts/generate_v3_13_0_snapshot_fixtures.py` against the
+  `v3.13.0` tag) and read by `tests/regression/test_schema_upgrades_v3_13.py`;
+  the certificate's REP-3 now reads every release frozen there rather than a
+  list of three.
+* **A reproducibility manifest's recorded configuration** includes the fill
+  policy's description, and the pipeline's record includes the sizing model's
+  and the simulator's, so `configuration_id` -- and every `result_id` --
+  changes for every run.
+* **The public API manifest records `alphalab.api` and the snapshot modules**
+  [API-007]. It walked packages only, so the module a host application imports
+  and the `capture` / `from_primitives` / `restore` of each durable state -- the
+  surfaces the guides and examples use -- were outside the contract it froze:
+  134 names a rename could have changed with every guard passing. They are now
+  recorded (`generate_public_api.DOCUMENTED_MODULES`, held to
+  `docs/STATE_MODEL.md`'s durability table), with the reasons for the four
+  names they share with a package as different objects -- `capture`,
+  `from_primitives`, `validate_dataset`, `PortfolioSnapshot`. No name changed
+  for it: of the 134, 132 are as v3.13.0 defined them, and `RunSnapshot`
+  (`fill_policy_description`) and `PipelineSnapshot` moved with PER-008's schema
+  step. 44 packages and 11 documented modules, 2,617 exports, 35 shared names.
+* **The ledger guards** [TST-017] distinguish accepted future work from open
+  work: an entry may be left for later only as `accepted as future work`,
+  stating its limitation, impact, reason, interim behaviour, horizon,
+  dependencies and completion criteria, and listed in ROADMAP's Future work.
+* **`README.md`** is rewritten as an introduction around the four major
+  milestones; the per-release detail it carried is in this file.
+* **`ROADMAP.md`** distinguishes delivered work, boundaries, external
+  dependencies, known limitations and future work, and drops two stale claims:
+  that a vendor adapter is a contribution to the library, and an "optional
+  evolution" class v3.10 abolished.
+* **`tests/installed_smoke.py`** runs example 70 from each clean install, beside
+  example 11, loading each as a module; and checks what an application relies
+  on: `pip check`, no runtime requirement, every public name with the binding
+  the manifest records, and the examples with every socket operation refused.
+* **`twine check --strict`** in CI and in `release.yml`, which also checks that
+  the published tag is exactly `v<MAJOR>.<MINOR>.<PATCH>` naming the package's
+  version (`release_preflight.py version --tag`; a tag of any other shape is
+  refused, not stripped) and installs what it built [TST-018]. The preflight's
+  push and labelled-pull-request runs require the release itself, 4.0.0, not
+  merely references that agree with one another.
+* **Release-facing versions** [DOC-010]: `SECURITY.md`'s supported-versions
+  table marks 4.x, not 3.x, and no longer mentions `pip install alphalab`;
+  seven benchmarks' banners say which release added them instead of printing
+  "AlphaLab v3.7" on a 4.0 run.
+* **`docs/INTEGRATION.md`**: how an application depends on AlphaLab 4.0 --
+  the release wheel by a pinned direct reference (AlphaLab is not on PyPI, and a
+  bare name against a public index could install somebody else's package), the
+  tested interpreter, and what the release's tests establish an application may
+  rely on.
+* **`start_strategy` names a bare string of subscriptions** [DOC-009]:
+  `subscriptions="bars"` is an `Iterable[str]` of four one-letter topics, and was
+  refused as "Subscription 'b' names no topic"; it is refused now for what it
+  is.
+* **`examples/47_reproducible_research_artifacts.py`** [PER-008]: its "hidden
+  change" was a simulator cost, which v4.0 records, so a rerun under it is now
+  `INPUTS_DIFFER` (shown as such); the hidden change that `DIVERGED` is now a
+  strategy trading parameters its declaration does not state.
+* **`examples/68_rerun_from_a_manifest.py`** [PER-008]: a rerun under another
+  cost is now `INPUTS_DIFFER` -- the record names the simulator's configuration
+  -- where 3.13 reported it `DIVERGED` from the fills; the example's `DIVERGED`
+  case is now a strategy trading parameters its declaration does not state,
+  located by the first paths at which the two records part.
+* **The engineering documents** state the v4.0 rules: `docs/STATE_MODEL.md`
+  (live objects recorded by configuration), `docs/ENGINEERING_GUIDELINES.md`
+  (the release checklist's inventory, stress, mutation and clean-install gates,
+  and the API freeze), `CONTRIBUTING.md`, `docs/VISION.md`, `SECURITY.md` and
+  `docs/ARCHITECTURE.md`, whose dependency table is now measured against the
+  import graph by `tests/regression/test_documented_dependencies_are_measured.py`.
+
+## Migrating from 3.13
+
+| What | Before | Now | What to do |
+| --- | --- | --- | --- |
+| Restoring a run with a sizing model, simulator or fill policy configured differently | Accepted; the run continued under the new configuration | `StateDecodeError` naming both configurations | Supply the objects the run was captured with -- a fresh instance configured alike is accepted. A payload written by 3.13.0 or earlier is still checked by type alone |
+| Ingesting under a `REFUSE` cleaning policy with a row that cannot be read | The row dropped, reported only in `quality_detail` | `DataQualityError` naming the policy and the row | Fix the source, or choose `MissingValuePolicy.DROP_ROW` / `InvalidRecordPolicy.DROP` to drop and record such rows |
+| A dataset that had unreadable rows, under a dropping policy | Version derived without the drop | The drop is a `TransformationRecord`, so the dataset version differs | Re-derive pinned dataset versions for such datasets; a dataset with no unreadable row keeps its version |
+| `black_scholes_price` / `_greeks`, `binomial_*`, `implied_volatility` with a `NaN` or infinite input | A `NaN` price or `NaN` Greeks (or `decimal.InvalidOperation` for a spot) | `OptionInputError` naming the input | Validate market inputs before pricing |
+| A partial fill in a run with `enforce_integer_quantities` | Fractional (`available x participation_rate`) | Floored to whole units; below one unit, no fill | None; a run not in whole units is unchanged |
+| `digest_run(...).configuration_id` and `result_id` | Live objects by type | Live objects by type and configuration | Re-record identities pinned against 3.13.0 runs |
+| `describe()` of an object holding a mapping or a set, and the `execution_assumptions` that use it | The container's type name (`builtins.mappingproxy`) | Its contents, sorted | None; a result's assumptions now state, for instance, the tax's sides |
+| `start_strategy(..., subscriptions="bars")` | -- (new in 4.0) | `StrategyValidationError` naming the string | Pass a collection: `{"bars"}` |
+
+No public name was removed, renamed or re-signed
+(`tests/regression/test_api_changes_are_in_the_changelog.py`). Of the names the
+manifest records from v4.0 for the first time, `RunSnapshot` gained an optional
+`fill_policy_description` before `schema_version`, and its and
+`PipelineSnapshot`'s `schema_version` defaults moved (5, 8); both are built by
+`capture` and `from_primitives`, and a caller that built one by position should
+pass `schema_version` by keyword.
+
+## Found during this release
+
+The v4.0 QA, done as an independent audit of the v3.13.0 tree:
+
+* **The historical inventory had a hole** [TST-017]. The pre-v4 ledger
+  inventoried ROADMAP (v3.10) and three release ADRs' limitation lists (v3.13),
+  and nothing read the v2-era ADRs' non-goal sections or the CHANGELOG's
+  deferral sections. Of the 257 items there, two hid live gaps -- PER-008 and
+  the non-resumable replay, now FUT-001 -- and one limitation, the cross-host
+  `libm` caveat, was stated only in the CHANGELOG (LIM-005). A strategy's
+  configuration persisted as JSON reads it was another (LIM-004); the scale
+  questions in `nowandfuture.md` are LIM-006.
+* **The four defects above**: PER-008 by reading ADR-0029's non-goals against
+  the code and then a restore probe; DAT-010 and NUM-015 by the strategy-building
+  exercise's refusal cases; EXE-011 by a 1,000-run differential test of the
+  canonical path's accounting against an independent ledger, which also
+  confirmed cash, positions, equity and the conservation of money exactly on
+  every run.
+* **No document said how to write a strategy** [DOC-009]; two examples replaced
+  the runtime's whole strategy mapping with the one entry they had started.
+* **The frozen API left out the surfaces the guides teach** [API-007]: found
+  by checking example 70's imports against the manifest.
+* **A guard that a freeze falsifies**: `test_the_comparison_finds_what_it_should`
+  required the API diff against the previous release to be non-empty, which a
+  release that removes and rebinds nothing cannot satisfy. It now injects a
+  removal, a changed signature and an enum change into a copy of the manifest
+  and requires each to be found, and a module move not to be.
+* **v4.0 moved two schemas without freezing v3.13.0's payloads**, as every
+  earlier schema-moving release had frozen its predecessor's; done (above).
+* **The historical inventory counted 258 items where every document said 257**:
+  a bullet v4.0 itself had added to `nowandfuture.md`'s open questions was read
+  as one of them. It is prose beside the list now, and a test holds the
+  inventory's rows, its status counts and every document's count to one number.
+* **No release gate could run before publication** [TST-018]: `release.yml` ran
+  on `release: published`, with a non-strict `twine check` alone, and CI ran only
+  for `main` and pull requests into it; nothing checked the artifacts' names,
+  hashes or version before a release existed. Release Preflight (above).
+* **Stale release-facing versions** [DOC-010], found by reading every version
+  string in the repository: the security policy's supported line, a `pip
+  install alphalab` that would install somebody else's package, and benchmark
+  banners. A test now derives the version from the package and holds release
+  links, pins, artifact names, "current" claims, README headers and footers,
+  the security table and printed banners to it.
+* **Only CPython 3.12 is tested** [LIM-007]: `requires-python` admits 3.13 and
+  later, which neither CI nor the release verification has run. Stated, with
+  v4.1 as its target and the criteria in ROADMAP.
+* **Stale current-state text**: the README's version badge read 3.11.0 and its
+  test badge 8,215 through two releases, read by no test -- the badge is now a
+  version marker; `nowandfuture.md`'s "known caveat" that rows ingested with an
+  empty payload share one dataset version, fixed in v3.10 (KD-004); ROADMAP's
+  invitation to contribute vendor adapters to the library;
+  `docs/ARCHITECTURE.md`'s "Allowed Dependencies", which named `feed` (removed
+  in v3.10) and three packages `research` never imported; and
+  `docs/architecture/strategy/README.md`, which still said `on_start`,
+  `on_stop`, `on_fill`, `on_order` and `on_timer` were never delivered, two
+  releases after v3.11 delivered them (EXE-005). `SECURITY.md` named
+  `alphalab.enterprise`, which left in v3.11.
+* **A gitignored leftover can import a removed package.** In a checkout that
+  ran v3.12 or earlier, `alphalab/enterprise/` (and six other removed packages)
+  may survive as directories holding only `__pycache__`, and Python imports them
+  as namespace packages: `test_the_engine_holds_no_identity_system` then fails.
+  CI's fresh checkout cannot have them; a local tree is cleaned by removing the
+  directories that hold no `.py` file.
+
+## Release gates
+
+Run locally on the uncommitted candidate, in a clean mirror of the working tree
+and a fresh environment holding the `[dev]` extras, as `ci.yml` and
+`benchmarks.yml` run them (CPython 3.12.4, macOS 26.6.2 arm64). **Hosted CI has
+not run on this candidate**; it runs when the branch is pushed.
+
+* `ruff check .` and `ruff format --check .`: clean (1,263 files).
+  `mypy .`, strict, repository-wide: no issues in 1,170 source files.
+* `pytest -W error`: **9,325 passed** -- 4,858 unit, 658 integration and 3,809
+  regression -- none skipped, no warnings (3.13.0: 9,041).
+* Every workflow linted by actionlint 1.7.12 with shellcheck 0.11.0: clean.
+  Release Preflight's commit guard and verdict executed locally with the
+  variables GitHub sets; it has **not yet run on GitHub**.
+* Every example under `-W error`, with `PYTHONHASHSEED` 0 and 4242: **70 of 70**
+  under each; 66 byte-identical across the seeds, and `12`, `13`, `45` and `48`
+  printing a random run or order id, a process id or CPU time, as in 3.13.
+  Against the 3.13.0 tag's output, 60 of its 69 are byte-identical; the others
+  are those four, `15` (its dropped rows are now transformations, so its dataset
+  version moves), `46` (the engine version), `55` (identities), and `47` and `68`,
+  rewritten for PER-008.
+* Every benchmark under `-W error` with a 900 s limit: **53 of 53**, 279.8 s in
+  all. The one-asset paths against 3.9.0 and 3.13.0, five interleaved rounds:
+  inside PRF-006's budget in every round, and every median within 0.99x-1.00x of
+  3.13.0 (`V4_RELEASE_AUDIT.md`, section 10).
+* `docs/audit/scripts/stress_v4_0.py`: every scenario passed (`V4_RELEASE_AUDIT.md`,
+  section 10).
+* `docs/audit/scripts/mutation_v4_0.py --worktree`, 199 mutations on four
+  copies of the candidate (6,483 s): **197 caught** in the full run; X17, the
+  equivalent mutant v3.12 recorded, survives as it must; and **Z13 survived** --
+  deleting the inventory's report of an item no row (or two rows) classifies
+  left every test passing, because every real item is classified once. A test
+  now feeds the inventory such items (TST-017), and Z13, re-run against it, is
+  caught: **198 of 199**. Three catches surfaced first as an import-time error
+  in `test_ambient_decimal_context.py`; with that module set aside each fails an
+  ordinary test (M02, W36, X45), so every catch is a failing test. After the
+  final certification pass changed five files, the thirteen mutations on them
+  -- with Z16 and Z17, new for PER-009 -- were run again against the final
+  candidate: **13 of 13 caught**, so of all **201**, **200 are caught** and X17
+  is the one equivalent.
+* `historical_inventory_v4.py --check`: current. `mutation_v4_0.py --check`:
+  201 mutations, each applying exactly once.
+* `certify_release.py --check`: 11 of 11, matching the committed certificate
+  (source `4cd92508fec0...479d`); it refuses a candidate with one comment added
+  to engine source and a certificate with one byte of evidence altered.
+* `python -m build`, `twine check --strict`, and each distribution installed
+  alone into a fresh environment and checked from outside any checkout: the
+  results and the SHA-256 sums are in `dist/VERIFICATION-4.0.0.txt` and
+  `dist/SHA256SUMS-4.0.0` beside the artifacts, not here -- this file ships in
+  the sdist whose hash they record.
+* `git diff --check`: clean. The 75 existing tags are unchanged and identical to
+  the remote's.
+
+## Still open
+
+Nothing is open. What remains is stated, each with its ledger entry
+(`ROADMAP.md`):
+
+* **Future work** [FUT-001]: a resumable replay, targeted at v4.1, with its
+  interim behaviour -- a replay restarts deterministically, and a backtest of the
+  same dataset produces the same fills and resumes byte for byte -- and its
+  acceptance criteria.
+* **Known limitations**: per-order memory (PRF-011), the one-asset path's cost
+  (PRF-012), the measured operating envelope (LIM-006), a strategy configuration
+  persisted as JSON (LIM-004), certified identities per host class (LIM-005),
+  CPython 3.12 the only interpreter tested (LIM-007, target v4.1),
+  time-zone database and float-second instants (DAT-007, DAT-008), persisted
+  enum names (PER-004), and the release ADRs' limitations (LIM-001 to LIM-003).
+
+---
+
 # [3.13.0] - 2026-10-10
 
 **The final pre-v4 release: American options and a volatility term structure,

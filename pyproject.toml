@@ -59,6 +59,10 @@ path = "alphalab/common/_version.py"
 packages = ["alphalab"]
 
 [tool.hatch.build.targets.sdist]
+# The sdist carries the test suite, so it carries what the tests read: the
+# documents whose claims they hold to the code, the CI workflows they check are
+# wired, and the repository's own configuration (v4.0; until then fifteen of the
+# sdist's tests failed and one could not be collected).
 include = [
   "/alphalab",
   "/benchmarks",
@@ -66,8 +70,18 @@ include = [
   "/docs",
   "/examples",
   "/tests",
+  "/.github/workflows",
+  "/.gitattributes",
+  "/.pre-commit-config.yaml",
+  "/CHANGELOG.md",
+  "/CODE_OF_CONDUCT.md",
+  "/CONTRIBUTING.md",
   "/LICENSE",
+  "/Makefile",
   "/README.md",
+  "/ROADMAP.md",
+  "/SECURITY.md",
+  "/nowandfuture.md",
   "/pyproject.toml",
 ]
 

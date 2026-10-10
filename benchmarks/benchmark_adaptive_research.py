@@ -211,7 +211,10 @@ def benchmark_assessment() -> None:
 
 def run_benchmark() -> None:
     print("=" * 94)
-    print("AlphaLab v3.7 -- adaptive strategies: replay, steps, records, checkpoints, assessment")
+    print(
+        "AlphaLab -- adaptive strategies: replay, steps, records, checkpoints, assessment"
+        " (added in v3.7)"
+    )
     print("=" * 94)
     benchmark_replays()
     benchmark_steps()

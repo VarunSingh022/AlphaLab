@@ -150,7 +150,7 @@ def benchmark_end_to_end() -> None:
 
 def run_benchmark() -> None:
     print("=" * 62)
-    print("AlphaLab v2.3 Market Data Benchmark")
+    print("AlphaLab market data benchmark (added in v2.3)")
     print("=" * 62)
     benchmark_normalization()
     benchmark_ingestion()

@@ -302,7 +302,8 @@ def test_a_chain_v3_12_wrote_reads_back_as_its_full_capture() -> None:
 
     from_chain = read_checkpoints(chain)
     assert to_serializable(from_chain) == to_serializable(run_from_primitives(full))
-    assert from_chain.pipeline.schema_version == 7, "upgraded through pipeline 6 -> 7"
+    assert from_chain.pipeline.schema_version == 8, "upgraded through pipeline 6 -> 7 -> 8"
+    assert from_chain.pipeline.config.sizing_model_description is None, "v3.12 recorded the type"
 
 
 @pytest.mark.parametrize(

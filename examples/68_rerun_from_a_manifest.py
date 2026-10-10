@@ -20,6 +20,8 @@ Topics
   records -- pip-compile's closure, a hand-written file's pins, and what is
   refused rather than approximated
 • A run re-executed from its manifest: REPRODUCED
+• Another cost: INPUTS_DIFFER -- since v4.0 the record keeps how the simulator
+  was configured, not only its type
 • The same declared inputs trading differently: DIVERGED, and where the two
   records part
 • Another dataset, or another lock: INPUTS_DIFFER, and nothing run
@@ -78,6 +80,7 @@ from alphalab.lifecycle import (
     running_build,
     running_engine,
 )
+from alphalab.strategy import StrategyDefinition
 
 #: The digests are placeholders: this lock is illustrative, not of a real
 #: environment. Everything else is what ``pip-compile --generate-hashes`` writes.
@@ -201,11 +204,13 @@ def main() -> None:
     runs: list[str] = []
 
     def rerun(
-        label: str, simulator: ExecutionSimulator | None = None
+        label: str,
+        simulator: ExecutionSimulator | None = None,
+        definition: StrategyDefinition = DEFINITION,
     ) -> Callable[[], BacktestResult]:
         def run() -> BacktestResult:
             runs.append(label)
-            return run_backtest(dataset, simulator=simulator)
+            return run_backtest(dataset, simulator=simulator, definition=definition)
 
         return run
 
@@ -225,12 +230,35 @@ def main() -> None:
     say(report.detail[0], indent="    ")
 
     # ----------------------------------------------------------------- #
-    rule("Rerun with a cost the record keeps only by type")
+    rule("Rerun with another cost")
 
     slipped = ExecutionSimulator(slippage_model=FixedSlippage(Decimal("0.05")))
     report = rerun_from_manifest(
         manifest,
         rerun("slipped", slipped),
+        dataset=dataset,
+        fingerprint=fingerprint,
+        engine=engine,
+        build=build,
+        original=original,
+    )
+    print(f"  {report.outcome.name}")
+    for line in report.detail:
+        say(line, indent="    ")
+    print()
+    print("  The configuration is the rerun's own, so the rerun ran; its record then")
+    print("  names a simulator charging 0.05 a share for slippage where the original's")
+    print("  charged nothing. Until v4.0 the record kept the simulator by type alone,")
+    print("  and this reported DIVERGED from the fills; now the inputs are seen to")
+    print("  differ, which is what happened (ledger PER-008).")
+
+    # ----------------------------------------------------------------- #
+    rule("Rerun of the same declared inputs, trading differently")
+
+    trims_more = replace(DEFINITION, parameters={"entry": 1000.0, "exit": -600.0})
+    report = rerun_from_manifest(
+        manifest,
+        rerun("trims more", definition=trims_more),
         dataset=dataset,
         fingerprint=fingerprint,
         engine=engine,
@@ -244,11 +272,10 @@ def main() -> None:
         say(line, indent="    ")
     print(f"    ... and {len(report.differences) - 2} more")
     print()
-    print("  The configuration matched: the record keeps the simulator by type, not")
-    print("  by what it charges. The rerun shows the rest -- the entry's executed")
-    print("  notional up 50.00, 0.05 on each of 1,000 shares, the exit's down 20.00,")
-    print("  0.05 on each of 400 -- and then the attribution, the drawdowns and the")
-    print("  ending capital that follow from them.")
+    print("  Everything the manifest identifies matched -- the dataset, the declared")
+    print("  strategy, the engine, the configuration -- and the run sold 600 where the")
+    print("  original sold 400: a strategy run with parameters its declaration does not")
+    print("  state. Only the record can tell, and it says where the two runs part.")
 
     # ----------------------------------------------------------------- #
     rule("Rerun with other inputs")

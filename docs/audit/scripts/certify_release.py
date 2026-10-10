@@ -28,7 +28,8 @@ Four claims a consumer of a release needs and cannot cheaply check alone:
   session submits the same orders and differs only at the venue.
 * **Reproducibility.** A run re-executed from its manifest is ``REPRODUCED``; a
   run stopped, written to JSON, read back and continued finishes byte-identical
-  to one that never stopped; every payload v3.9.0, v3.11.0 and v3.12.0 wrote is
+  to one that never stopped; every payload a release froze under
+  ``tests/fixtures/snapshots`` -- v3.9.0, v3.11.0, v3.12.0 and v3.13.0 -- is
   read, or refused for the reason its upgrade documents.
 * **Numerical references.** Published values -- J. C. Hull's Black-Scholes-Merton
   example and his convergence table for an American put on a binomial tree --
@@ -595,11 +596,25 @@ _DECODERS = {
 _REFUSED = {"v3.9.0/portfolio_fractional_yen.json": "JPY amounts that are not whole"}
 
 
+def _frozen_releases() -> list[str]:
+    """Every release whose payloads are frozen under the fixtures, oldest first.
+
+    Read from the directory rather than listed here, so a release that freezes
+    its predecessor's payloads is certified by adding them (since v4.0).
+    """
+
+    return sorted(
+        (folder.name for folder in FIXTURES.iterdir() if folder.is_dir()),
+        key=lambda name: tuple(int(part) for part in name.removeprefix("v").split(".")),
+    )
+
+
 def golden_payloads() -> Check:
     read: dict[str, int] = {}
     warned = refused = 0
     failures: list[str] = []
-    for release in ("v3.9.0", "v3.11.0", "v3.12.0"):
+    releases = _frozen_releases()
+    for release in releases:
         count = 0
         for path in sorted((FIXTURES / release).glob("*.json")):
             name = f"{release}/{path.name}"
@@ -631,8 +646,8 @@ def golden_payloads() -> Check:
         read[release] = count
     return Check(
         "REP-3",
-        "Every payload v3.9.0, v3.11.0 and v3.12.0 wrote is read by this build, or refused for "
-        "the reason its upgrade documents.",
+        f"Every payload {', '.join(releases[:-1])} and {releases[-1]} wrote is read by this "
+        "build, or refused for the reason its upgrade documents.",
         not failures,
         {
             **{f"read_{release}": count for release, count in read.items()},
@@ -750,13 +765,15 @@ def public_api() -> Check:
     recorded = manifest_path.read_text(encoding="utf-8")
     built = generator.render(generator.build(json.loads(recorded)))
     manifest = json.loads(recorded)
+    modules = set(generator.DOCUMENTED_MODULES) & set(manifest["packages"])
     return Check(
         "API-1",
         "The build's public API is the one docs/api/public_api.json records for this release.",
         built == recorded and manifest["release"] == running_engine().version,
         {
             "manifest_digest": sha256(recorded),
-            "packages": len(manifest["packages"]),
+            "packages": len(manifest["packages"]) - len(modules),
+            "documented_modules": len(modules),
             "exports": sum(len(names) for names in manifest["packages"].values()),
             "shared_names": len(manifest["shared_names"]),
         },
@@ -823,6 +840,51 @@ def moved_evidence(committed: Mapping[str, Any], fresh: Mapping[str, Any]) -> li
     pairs = zip(fresh["checks"], committed["checks"], strict=False)
     moved += [f"check {new['id']}" for new, old in pairs if new != old]
     return moved
+
+
+def moved_values(committed: Mapping[str, Any], fresh: Mapping[str, Any]) -> list[str]:
+    """Each piece of evidence that moved, as ``check.key: old -> new`` (v4.0).
+
+    A ``--check`` that fails on a hosted runner is read from its log; naming the
+    check alone left the value that moved to be reproduced on another machine.
+    """
+
+    lines: list[str] = []
+    for new, old in zip(fresh["checks"], committed["checks"], strict=False):
+        if new == old:
+            continue
+        if new["passed"] != old["passed"]:
+            lines.append(f"{new['id']}.passed: {old['passed']!r} -> {new['passed']!r}")
+        before, after = old.get("evidence", {}), new.get("evidence", {})
+        for key in sorted(set(before) | set(after)):
+            if before.get(key) != after.get(key):
+                lines.append(f"{new['id']}.{key}: {before.get(key)!r} -> {after.get(key)!r}")
+    return lines
+
+
+def host_difference(committed: Mapping[str, Any], fresh: Mapping[str, Any]) -> str | None:
+    """Where the committed certificate was made, beside where this check runs, when they differ.
+
+    Hosts are recorded and not compared (ADR-0048 decision 11), and the evidence
+    of v3.13 and v4.0 was identical on Linux x86-64 and macOS arm64. Should it
+    ever move between hosts, the cause to rule out first is the host's maths
+    library (ledger LIM-005), before anything is re-certified.
+    """
+
+    def host(certificate: Mapping[str, Any]) -> str:
+        environment = certificate["environment"]
+        return (
+            f"{environment['platform']} (Python {environment['python']}, "
+            f"tz database {certificate['build']['tz_database']})"
+        )
+
+    if host(committed) == host(fresh):
+        return None
+    return (
+        f"the committed certificate was made on {host(committed)}; this check ran on "
+        f"{host(fresh)}. Evidence that moves only between hosts is LIM-005's question: "
+        "find the computation that differs before re-certifying."
+    )
 
 
 def certified_source(certificate: Mapping[str, Any]) -> str:
@@ -915,6 +977,11 @@ def main(argv: list[str] | None = None) -> int:
                 "Re-certify with `python docs/audit/scripts/certify_release.py` and review "
                 "the diff."
             )
+            for line in moved_values(committed, certificate):
+                print(f"  {line}")
+            note = host_difference(committed, certificate)
+            if note is not None:
+                print(note)
             return 1
         print(f"certified: {len(certificate['checks'])} checks passed, matching the committed one")
         return 1 if failed else 0

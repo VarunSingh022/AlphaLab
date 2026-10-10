@@ -5,9 +5,11 @@ Usage, from the repository root::
     python docs/api/generate_public_api.py
 
 The manifest is the public API as data (ledger API-002). For every package
-with an ``__all__`` it records each exported name, what kind of thing it is and
-where it is defined; and for every name two packages export *as different
-objects* it records which objects, and why the pair is deliberate. The reasons
+with an ``__all__`` -- and, since v4.0, each module the documentation names as a
+public surface (``DOCUMENTED_MODULES``, ledger API-007) -- it records each
+exported name, what kind of thing it is and where it is defined; and for every
+name two of them export *as different objects* it records which objects, and
+why the pair is deliberate. The reasons
 are written by hand: this script keeps every reason already in the manifest and
 leaves a new shared name's reason empty, which
 ``tests/regression/test_public_api_manifest.py`` refuses until one is written.
@@ -34,6 +36,28 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "docs" / "api" / "public_api.json"
+
+#: Modules that are not packages and are public by documentation (v4.0, ledger
+#: API-007): ``alphalab.api``, the top-level module a host application imports
+#: (``docs/ARCHITECTURE.md``), and the snapshot module of each durable state,
+#: whose ``capture`` / ``from_primitives`` / ``restore`` are how a run is stopped
+#: and continued (``docs/STATE_MODEL.md``'s durability table, which
+#: ``tests/regression/test_public_api_manifest.py`` holds this list to). Until
+#: v4.0 the manifest walked packages only, so these -- the surfaces the guides
+#: and examples import from -- were outside the contract it froze.
+DOCUMENTED_MODULES: tuple[str, ...] = (
+    "alphalab.allocation.snapshot",
+    "alphalab.api",
+    "alphalab.broker.snapshot",
+    "alphalab.instrument.snapshot",
+    "alphalab.lifecycle.snapshot",
+    "alphalab.oms.snapshot",
+    "alphalab.portfolio.fx_feed",
+    "alphalab.portfolio.snapshot",
+    "alphalab.runtime.live_snapshot",
+    "alphalab.runtime.run_snapshot",
+    "alphalab.runtime.snapshot",
+)
 
 
 #: An object's default ``repr`` carries its address, which differs every run.
@@ -76,7 +100,7 @@ def describe(value: Any) -> str:
 
 
 def exported() -> dict[str, dict[str, Any]]:
-    """Every package's ``__all__``, each name with the object it is bound to."""
+    """Every package's ``__all__`` and every documented module's, each name with its object."""
 
     import alphalab
 
@@ -84,10 +108,11 @@ def exported() -> dict[str, dict[str, Any]]:
     names = ["alphalab"] + [
         info.name for info in pkgutil.walk_packages(alphalab.__path__, "alphalab.") if info.ispkg
     ]
-    for name in sorted(names):
+    for name in sorted([*names, *DOCUMENTED_MODULES]):
         module = importlib.import_module(name)
         public = getattr(module, "__all__", None)
         if public is None:
+            assert name not in DOCUMENTED_MODULES, f"{name} is documented and has no __all__"
             continue
         packages[name] = {export: getattr(module, export) for export in public}
     return packages
@@ -152,9 +177,10 @@ def main(argv: list[str] | None = None) -> int:
     target.write_text(render(manifest), encoding="utf-8")
     missing = [name for name, entry in manifest["shared_names"].items() if not entry["reason"]]
     exported_count = sum(len(names) for names in manifest["packages"].values())
+    modules = sum(name in DOCUMENTED_MODULES for name in manifest["packages"])
     print(
-        f"{target}: {len(manifest['packages'])} packages, "
-        f"{exported_count} exports, {len(manifest['shared_names'])} shared names"
+        f"{target}: {len(manifest['packages']) - modules} packages and {modules} documented "
+        f"modules, {exported_count} exports, {len(manifest['shared_names'])} shared names"
     )
     if missing:
         print(f"shared names without a reason: {missing}")

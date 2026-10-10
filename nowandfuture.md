@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.13.0.**
+**A long-term project reference, written at v3.0.0 and updated at v4.0.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,16 +42,41 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.13.0** |
+| Version | **4.0.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Architecture frozen at v3.0.0; v3.1.0 through v3.9.0 are additive to it; v3.10.0 through v3.13.0 are the four pre-v4 releases, and v3.13.0 the last: nothing required is assigned to a later release (ADR-0048).** |
+| Status | **v4.0.0 freezes the universal engine contract (ADR-0049): the architecture frozen at v3.0.0, v3.1.0 through v3.9.0 additive to it, v3.10.0 through v3.13.0 the four pre-v4 releases, and v4.0 the release that read the whole history, re-audited the canonical path and holds the public API stable until 5.0. One item is accepted future work, with acceptance criteria (FUT-001, `ROADMAP.md`).** |
 
 ---
 
-# 2. What v3.13.0 completes, what v3.12.0 hardens, what v3.11.0 adds, what v3.10.0 corrects, what v3.9.0 – v3.1.0 add, and what v3.0.0 means
+# 2. What v4.0.0 freezes, what v3.13.0 completes, what v3.12.0 hardens, what v3.11.0 adds, what v3.10.0 corrects, what v3.9.0 – v3.1.0 add, and what v3.0.0 means
+
+## v4.0.0 — the freeze
+
+The release the four pre-v4 releases prepared for. It adds no package and moves
+no boundary (ADR-0049).
+
+- **The history, read.** Every deferral, non-goal, limitation and open question
+  the v2-era ADRs, the CHANGELOG and this document state -- 257 items the pre-v4
+  inventory had not read -- is classified with evidence
+  (`docs/audit/V4_HISTORICAL_INVENTORY.md`, ledger `HIS-001` to `HIS-039`), and a
+  test holds every such section to the classification (TST-017).
+- **The engine, re-audited.** A restore refuses a sizing model, simulator or
+  fill policy configured otherwise than the captured run's, each recorded with
+  its configuration (PER-008; pipeline schema 8, run schema 5); ingestion
+  governs a row it cannot read by the cleaning policy and records each drop in
+  the provenance (DAT-010); option pricing refuses a non-finite input (NUM-015);
+  a whole-unit run fills in whole units (EXE-011). A 1,000-run differential test
+  against an independently kept ledger found the accounting exact.
+- **A strategy, built as an outsider would** (DOC-009): `GETTING_STARTED.md`,
+  `examples/70_build_a_strategy.py`, and `start_strategy` / `context_factory`.
+- **The public API held** from v4.0 until 5.0 (`docs/api/PUBLIC_API.md`), and
+  with it the surfaces the guides teach -- `alphalab.api` and each durable
+  state's snapshot module, which the manifest had left out (API-007).
+- **Future work**, tracked rather than deferred in prose: a resumable replay
+  (FUT-001).
 
 ## v3.13.0 — the final pre-v4 release
 
@@ -1117,8 +1142,8 @@ Ten durable states. Each has **one** snapshot owner, **one** schema constant and
 | `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA` | 2 |
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 7 |
-| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 4 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 8 |
+| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 5 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 3 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
@@ -1129,7 +1154,8 @@ the *store* records about a payload and nothing inside it, and the envelopes of
 an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 2`; v3.12, and
 2 since v3.13 writes per-order state by its changes) and of the evidence store
 (`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12). The
-values are v3.13's, and `tests/regression/test_documented_schemas_are_current.py`
+values are v4.0's -- pipeline 8 and run 5 since v4.0 record how each live object
+was configured (PER-008) -- and `tests/regression/test_documented_schemas_are_current.py`
 keeps them so.
 
 The contract is `restore(capture(s)) == s` — semantic equality, not container
@@ -1368,12 +1394,12 @@ retry-on-older-protocol fallback exists.
 ```bash
 ruff check .                              # lint
 ruff format --check .                     # format
-mypy .                                    # strict, 1,152 source files (what CI runs)
-pytest -q -W error                        # 9,041 tests, 0 skipped, 0 warnings (what CI runs)
+mypy .                                    # strict, 1,170 source files (what CI runs)
+pytest -q -W error                        # 9,325 tests, 0 skipped, 0 warnings (what CI runs)
 git diff --check
-python -m build && twine check dist/*
-for f in examples/[0-9]*.py; do python -W error "$f"; done    # 69
-for f in benchmarks/benchmark_*.py; do python "$f"; done      # 53
+python -m build && twine check --strict dist/*
+for f in examples/[0-9]*.py; do python -W error "$f"; done    # 70
+for f in benchmarks/benchmark_*.py; do python -W error "$f"; done  # 53
 python -W error docs/audit/scripts/certify_release.py --check # the release certificate
 ```
 
@@ -1381,14 +1407,15 @@ python -W error docs/audit/scripts/certify_release.py --check # the release cert
 the sdist, each into a fresh environment, and runs `tests/installed_smoke.py`
 against them from outside the checkout; the benchmarks run weekly.
 
-**9,041 tests** — 4,806 unit, 649 integration, 3,586 regression. The
+**9,325 tests** at v4.0.0 — 4,858 unit, 658 integration, 3,809 regression. The
 regression suite is nearly as large as the unit suite, deliberately: most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
-`test_the_suite_reports_nothing_deferred.py` reads the **collected items** rather
-than the summary line, refuses any `skipif` it does not list — it lists none
+`test_the_suite_reports_nothing_deferred.py` reads every test module's source
+for a skip or an expected failure rather than the summary line, refuses any
+`skipif` it does not list — it lists none
 since v3.10, so the suite skips nothing whoever runs it, root included — and
 spawns a **fresh interpreter** with `-W error::DeprecationWarning` to import
 every module in the tree.
@@ -1433,7 +1460,10 @@ every module in the tree.
 | `test_release_gates_are_wired.py`, `test_mutation_pins.py` | v3.10: CI, hooks and pyproject agree; every mutation the audit's harness let through is pinned |
 | `test_public_api_manifest.py`, `test_api_changes_are_in_the_changelog.py` | v3.13: every export of every package recorded with its binding, regenerated with each release; a removed or rebound name is refused until the release's CHANGELOG section names it |
 | `test_persisted_enum_names.py`, `test_release_certification.py` | v3.13: a persisted enum's class and member names are part of the format; the release certificate's checks pass, its evidence has not moved and the engine source it names is the build's; every Python file is checked out with LF |
-| `test_every_adr_deferral_is_classified.py`, `test_ledger_references_exist.py`, `test_version_markers_agree.py`, `test_nothing_is_left_for_later.py` | v3.13: every limitation and deferral an ADR states maps to a closed ledger entry; every test the ledger cites exists; every document that states the version states the package's; every ledger entry is implemented or kept, none assigned beyond the release, and no current-state document calls anything deferred |
+| `test_every_adr_deferral_is_classified.py`, `test_ledger_references_exist.py`, `test_version_markers_agree.py`, `test_nothing_is_left_for_later.py` | v3.13: every limitation and deferral an ADR states maps to a closed ledger entry; every test the ledger cites exists; every document that states the version states the package's; every ledger entry is implemented or kept, none assigned beyond the release, and no current-state document calls anything deferred. v4.0: every item the v2-era ADRs' non-goal sections and the CHANGELOG's deferral sections state is classified exactly once; accepted future work states its fields and is on ROADMAP |
+| `test_restore_requires_the_captured_configuration.py` | v4.0: a restore refuses a live object configured otherwise, and a manifest's configuration identity distinguishes them (PER-008) |
+| `test_accounting_matches_an_independent_ledger.py` | v4.0: sixty generated runs -- shorts, flips, partial fills, both fill timings -- booked to the cent as a ledger kept from the fills alone books them, money conserved exactly, and a whole-unit run filling in whole units (EXE-011) |
+| `test_strategy_building_end_to_end.py`, `test_readme_shows_runnable_code.py`, `test_documented_dependencies_are_measured.py` | v4.0: example 70 built, checked by hand, refused and reproduced; the README shows only code the example runs; ARCHITECTURE's dependency table is the import graph |
 
 ## Performance
 
@@ -1923,6 +1953,10 @@ every item was delivered by v3.13 or is kept, with its reason.** In short:
 - **External**: a vendor adapter package (OFE-008).
 - **Done**: the two duplicate `AssetClass` enums were removed with `live` and
   `marketdata`'s provider engine in v3.10 (OFE-012).
+- **v4.0**: the history this list did not cover -- the v2-era ADRs' non-goals and
+  the CHANGELOG's deferral sections -- is classified in
+  `docs/audit/V4_HISTORICAL_INVENTORY.md`, and one item from it is accepted
+  future work: a resumable replay (FUT-001, `ROADMAP.md`).
 
 ---
 
@@ -1949,9 +1983,10 @@ every item was delivered by v3.13 or is kept, with its reason.** In short:
 | **v3.10.0** | **The first pre-v4 release: risk on the projected book, never refusing a reduction; money exact at each currency's minor unit; analytics per instant with stated annualization; next-event fills and recorded execution assumptions; a canonical path linear in the universe; bars stamped at their close; upgradeable snapshots (portfolio 4, pipeline 4, run 2); vendor code, `feed`, `live` and silent defaults removed (ADR-0045)** |
 | **v3.11.0** | **The second pre-v4 release: instrument economics, corporate actions and negative prices; order terms and resting orders; target positions against each strategy's own position; enforced subscriptions, slices and feedback; leak-proof research, walk-forward optimization and multiple-testing corrections; construction with costs and lots; `studio`, `workbench`, `enterprise` and venue credentials moved to the application; snapshots pipeline 5, run 3, portfolio 5 (ADR-0046)** |
 | **v3.12.0** | **The third pre-v4 release: numerics right at the edges of their range; durable writes and exact restores; calendars inside simulation; strategy capital ceilings; classification limits along any dimension; external information on the execution path; retention and incremental checkpoints; an evidence store; multi-account reconciliation; declared trade prints; LSTM and attention backpropagation; factor-structured construction; a stress program at 10,000 assets, 1,000 strategies and 100 venues; snapshots pipeline 6, run 4, allocation 3, instrument 3 (ADR-0047)** |
+| **v4.0.0** | **The freeze of the universal engine contract: the v2.0–v3.13 history read and classified; a restore that refuses a differently configured live object, ingestion that refuses or records an unreadable row, option pricing that refuses a non-finite input, whole-unit fills; a strategy built end to end through the public API; the public API stable until 5.0; snapshots pipeline 8, run 5 (ADR-0049)** |
 | **v3.13.0** | **The final pre-v4 release: American options and a volatility term structure; the optimal split; an estimated urgency, the shortfall its model expects and seeded iceberg tranches; a rerun from a manifest and a lock-file reader; cron timers; an exact liquidation price; exchange-rate risk as factors; a factor model constructed over by its structure; checkpoint segments that carry only what changed; one name for one contract, the public API and persisted names as data, every ADR limitation held to the ledger, and a release certificate; snapshots pipeline 7, checkpoint 2 (ADR-0048)** |
 
-48 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+49 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---
@@ -2070,15 +2105,18 @@ Genuinely unresolved, recorded so they are not rediscovered:
   fills by addition, and leaves absolute reports to the adapter's delivery
   order, with a snapshot reconciliation as the check (v3.9). Whether an
   adapter can always deliver them in venue order depends on the venue.
-- **KNOWN CAVEAT: `ingest_rows` identifies what its caller's source says.** Rows
-  recorded with an empty payload share one dataset version whatever they
-  contain. A reproducibility manifest refuses such a dataset and a
-  certification does not count it as verified data (v3.6); the ingestion
-  contract is unchanged.
+- **FIXED in v3.10 (KD-004): `ingest_rows` identified what its caller's source
+  said**, so rows recorded with an empty payload shared one dataset version
+  whatever they contained. Since v3.10 rows are identified by their own content
+  beside the declared source (`rows_content_hash`). This item still read as a
+  current caveat until v4.0 found it (HIS-038).
+**v4.0: the open questions above are ledger entries** (HIS-038). The real-venue
+unknowns are external (ROADMAP); the scale questions are a stated limitation
+with a measured envelope (LIM-006, `docs/audit/V4_RELEASE_AUDIT.md`).
 
 ---
 
-*Written at v3.0.0 and updated at each release since, through v3.13.0. At
+*Written at v3.0.0 and updated at each release since, through v4.0.0. At
 v3.13.0 its identity table was found still reading 3.9.0 (DOC-008), and
 `tests/regression/test_version_markers_agree.py` now holds it to the code. If you
 are reading this long after, check the version in `alphalab/common/_version.py`

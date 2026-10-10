@@ -93,7 +93,14 @@ FIRST = 1_700_000_000.0
 
 
 def _peak_mb() -> float:
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
+    """The process's peak resident set size, in megabytes.
+
+    ``ru_maxrss`` is in kilobytes on Linux and in bytes on macOS; until v4.0 this
+    divided by 1024 on both, so a run on macOS printed kilobytes as megabytes.
+    """
+
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / (1024.0 * 1024.0) if sys.platform == "darwin" else peak / 1024.0
 
 
 def _timed(work: Callable[[], Any]) -> tuple[Any, float]:

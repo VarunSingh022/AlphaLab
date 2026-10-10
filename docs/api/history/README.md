@@ -8,7 +8,8 @@ two of them can be compared entry by entry.
 | File | Release | How it was made |
 | --- | --- | --- |
 | `3.12.0.json` | v3.12.0 (commit `d389078`) | `git archive v3.12.0`, then the v3.13 generator run inside that tree with `--output` pointing here. v3.12.0 recorded no reasons for its 52 shared names; that was ledger API-001. |
-| `3.13.0.json` | v3.13.0 | `docs/api/public_api.json` as released: 44 packages, 2,479 exports, 31 shared names, each with its reason. The next release's CHANGELOG is checked against it. |
+| `3.13.0.json` | v3.13.0 | `docs/api/public_api.json` as released: 44 packages, 2,479 exports, 31 shared names, each with its reason. v4.0.0's CHANGELOG is checked against it. |
+| `4.0.0.json` | v4.0.0 | `docs/api/public_api.json` as released: 44 packages and 11 documented modules (`alphalab.api` and the snapshot modules, recorded from v4.0, ledger API-007), 2,617 exports, 35 shared names. Against 3.13.0: four names added to `alphalab.strategy` (`start_strategy`, `context_factory`, `FixedClock`, `DiscardingLogger`), the documented modules' existing names recorded, none removed or rebound. The next release's CHANGELOG is checked against it. |
 
 `tests/regression/test_api_changes_are_in_the_changelog.py` compares the current
 manifest with the newest file here older than the current release, and requires

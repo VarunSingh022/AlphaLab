@@ -268,17 +268,18 @@ def test_no_capability_moved_another_ones_boundary() -> None:
     # The live driver added no field to the run and moved no run schema; the
     # run schema moved to 2 in v3.10 for the analytics basis, to 3 in v3.11 for
     # the terms of the orders each step records, and to 4 in v3.12 for the
-    # observation cursor. (ADR-0046 gave the run a ninth field in v3.11, the
-    # slice cursor; v3.12 a tenth and an eleventh, the observation cursor.)
+    # observation cursor, and to 5 in v4.0 for the described fill policy
+    # (PER-008). (ADR-0046 gave the run a ninth field in v3.11, the slice cursor;
+    # v3.12 a tenth and an eleventh, the observation cursor.)
     assert len(fields(RunState)) == 11
-    assert RUN_SNAPSHOT_SCHEMA == 4
+    assert RUN_SNAPSHOT_SCHEMA == 5
 
     # FX added no field to run configuration and moved no pipeline schema (v3.10
     # moved it to 4, for minor units and the analytics basis; v3.11 to 5, for a
     # bar's interval code; v3.12 to 6, for venue calendars; v3.13 to 7, for the
-    # strategy status enum's name).
+    # strategy status enum's name; v4.0 to 8, for the described live objects).
     assert "fx_rates" not in {f.name for f in fields(ExecutionPipelineConfig)}
-    assert PIPELINE_SNAPSHOT_SCHEMA == 7
+    assert PIPELINE_SNAPSHOT_SCHEMA == 8
 
     # Governance moved exactly one schema, and only its own.
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION

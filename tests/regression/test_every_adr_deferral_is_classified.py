@@ -12,12 +12,26 @@ closed -- implemented, or kept with its reason.
 
 A later ADR that states a limitation or defers something fails this test until
 the ledger says what happens to it.
+
+v4.0 found the reading incomplete (TST-017): the v2-era ADRs state their
+deferrals under "Explicit non-goals", "Not in scope" and "Consequences of
+deferring", and the CHANGELOG under "Known gaps", "Known Limitations", "Not in
+scope", "Deferred, unchanged", "Recorded" and "Still open" -- 257 items no entry
+classified, among them the gap behind PER-008 and the replay resumability that
+is now FUT-001. ``docs/audit/scripts/historical_inventory_v4.py`` classifies
+each, and the last two tests below hold every one of them to exactly one
+classification and the generated ledger entries and inventory to the script.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import re
+import sys
 from pathlib import Path
+from types import ModuleType
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 ADR = ROOT / "docs" / "ADR"
@@ -105,6 +119,12 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ("0044", "estimating urgency from risk aversion, volatility and impact"): "BRK-006",
     ("0044", "randomized iceberg tranches"): "BRK-006",
     ("0044", "implementation shortfall with an intraday market-impact model"): "FEA-008",
+    # ADR-0049, v4.0: the freeze.
+    ("0049", "A strategy's configuration is persisted as JSON reads it"): "LIM-004",
+    ("0049", "Certified identities are per host class"): "LIM-005",
+    ("0049", "The operating envelope is measured, not unbounded"): "LIM-006",
+    ("0049", "Only CPython 3.12 is tested"): "LIM-007",
+    ("0049", "a resumable replay"): "FUT-001",
 }
 
 
@@ -157,6 +177,112 @@ def test_every_classifying_entry_exists_and_is_closed() -> None:
         assert finding in entries, f"{item} names {finding}, which the ledger does not have"
         status = re.search(r'\n    implementation_status: "([^"]*)"', entries[finding])
         assert status is not None, finding
-        assert status.group(1).startswith(("implemented", "kept")), (
+        # Accepted future work is closed too, with the fields the ledger guard
+        # requires of it (v4.0, test_nothing_is_left_for_later.py).
+        assert status.group(1).startswith(("implemented", "kept", "accepted as future work")), (
             f"{item}: {finding} is {status.group(1)!r}"
         )
+
+
+def _inventory() -> ModuleType:
+    path = ROOT / "docs" / "audit" / "scripts" / "historical_inventory_v4.py"
+    spec = importlib.util.spec_from_file_location("historical_inventory_v4", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_every_historical_item_is_classified_once() -> None:
+    """Every item a v2-era ADR or the CHANGELOG states matches exactly one row (TST-017)."""
+
+    inventory = _inventory()
+    stated = inventory.stated_items()
+    assert sum(len(items) for items in stated.values()) == HISTORICAL_ITEMS, (
+        "the reading found another number of items than the history states"
+    )
+    assert "No replay resumability." in " ".join(stated["HIS-019"]), "a guard on the guard"
+    assert not inventory.problems(), "\n".join(inventory.problems())
+
+    entries = _entries()
+    for section in inventory.SECTIONS:
+        assert section.ledger_id in entries, f"{section.ledger_id} is not in the ledger"
+    for rows in inventory.CLASSIFICATION.values():
+        for _, status, evidence, _ in rows:
+            for finding in re.findall(r"\b[A-Z]{3}-\d{3}\b", evidence):
+                assert finding in entries, f"{finding} is cited and not in the ledger"
+            if status == "FUTURE":
+                assert re.search(r"\bFUT-\d{3}\b", evidence), "future work names its entry"
+
+
+def test_an_item_classified_by_no_row_or_by_two_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A guard on the guard: the inventory reports what it cannot classify exactly once.
+
+    Every item the history states is classified once, so the real reading never
+    exercises the report; v4.0's mutation run found that deleting it left every
+    test passing (mutation Z13). Here the reading is given an item no row
+    classifies, and then a section in which two rows classify the same item.
+    """
+
+    inventory = _inventory()
+    stated = inventory.stated_items()
+    unclassified = "an item the history states and nobody classified"
+    monkeypatch.setattr(
+        inventory,
+        "stated_items",
+        lambda: {**stated, "HIS-019": [*stated["HIS-019"], unclassified]},
+    )
+    assert f"HIS-019: 0 rows match {unclassified!r}" in inventory.problems()
+
+    monkeypatch.setattr(inventory, "stated_items", lambda: stated)
+    rows = inventory.CLASSIFICATION["HIS-020"]
+    monkeypatch.setattr(
+        inventory, "CLASSIFICATION", {**inventory.CLASSIFICATION, "HIS-020": (*rows, rows[0])}
+    )
+    assert any(problem.startswith("HIS-020: 2 rows match") for problem in inventory.problems())
+
+
+#: The items the v2.0.0 to v3.13.0 history states in the sections the inventory reads.
+HISTORICAL_ITEMS = 257
+
+#: Where a document states that count, and the phrase it states it in.
+STATED_COUNTS = (
+    ("docs/audit/V4_HISTORICAL_INVENTORY.md", r"\*\*(\d+) items in 39 sections:\*\*"),
+    ("docs/audit/V4_RELEASE_AUDIT.md", r"\*\*39 sections, (\d+) items\*\*"),
+    ("docs/ADR/0049-*.md", r"(\d+) items in 39"),
+    ("CHANGELOG.md", r"-- (\d+) items in\s+39 sections"),
+    ("ROADMAP.md", r"(\d+) items in 39 sections"),
+    ("nowandfuture.md", r"-- (\d+) items the pre-v4"),
+    ("docs/audit/PRE_V4_MASTER_AUDIT.md", r"open questions, (\d+) items classified"),
+)
+
+
+def test_every_count_of_the_inventory_agrees() -> None:
+    """The inventory's rows, its status counts and every document's count are one number.
+
+    v4.0's first inventory counted 258 rows -- a bullet v4.0 itself had added to
+    ``nowandfuture.md``'s open questions -- while every document said 257. The
+    bullet is prose beside the list now, and this test holds the numbers together.
+    """
+
+    inventory = _inventory()
+    rows = sum(len(items) for items in inventory.matches().values())
+    document = (ROOT / "docs" / "audit" / "V4_HISTORICAL_INVENTORY.md").read_text(encoding="utf-8")
+    names = "|".join(re.escape(status) for status in inventory.STATUSES)
+    statuses = sum(int(count) for count in re.findall(rf"\b(?:{names}) (\d+)\b", document))
+    tabulated = len(re.findall(rf"^\| .+ \| (?:{names}) \| .+ \| .+ \|$", document, re.M))
+    assert rows == statuses == tabulated == HISTORICAL_ITEMS, (rows, statuses, tabulated)
+    for path, phrase in STATED_COUNTS:
+        (source,) = ROOT.glob(path)
+        found = re.findall(phrase, source.read_text(encoding="utf-8"))
+        assert found, f"{path} no longer states the count as the test reads it"
+        assert {int(count) for count in found} == {HISTORICAL_ITEMS}, f"{path} says {found}"
+
+
+def test_the_inventory_and_its_ledger_entries_are_current() -> None:
+    """The HIS entries and V4_HISTORICAL_INVENTORY.md are the script's output, not hand edits."""
+
+    assert _inventory().main(["--check"]) == 0

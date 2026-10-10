@@ -26,6 +26,8 @@ SERIES = ".".join(VERSION.split(".")[:2])
 MARKERS: tuple[tuple[str, str], ...] = (
     ("README.md", r"^\| Version \| (\d+\.\d+\.\d+) \|$"),
     ("README.md", r"^\*\*Current Release:\*\* \*\*v(\d+\.\d+\.\d+) "),
+    # The badge read 3.11.0 through two releases, and nothing read it (v4.0).
+    ("README.md", r"badge/Version-(\d+\.\d+\.\d+)-blue"),
     ("docs/README.md", r"^# Version\n\n```\nv(\d+\.\d+\.\d+)\n```$"),
     ("docs/ARCHITECTURE.md", r"^Version: v(\d+\.\d+\.\d+)$"),
     (

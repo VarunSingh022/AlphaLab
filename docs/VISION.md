@@ -30,8 +30,8 @@ Every component should follow these principles.
 
 # Current State
 
-As of **v3.0.0** the architecture is frozen; **v3.1.0** through **v3.9.0** are
-additive to it.
+As of **v3.0.0** the architecture is frozen; **v3.1.0** through **v3.13.0** were
+additive to it, and **v4.0.0** freezes the public API on top of it (ADR-0049).
 AlphaLab provides:
 
 - **One execution path with one owner per tier.**
@@ -142,12 +142,15 @@ The project values thoughtful design, constructive collaboration, and high engin
 Version 1.0.0 established AlphaLab's architectural foundation; v1.34.0–v2.0.0
 populated it with standalone quantitative engines; the v2 line integrated the
 execution and lifecycle paths and made their state durable; v3.0.0 froze the
-result; and v3.1.0 showed what the freeze permits, adding the universal
-data-ingestion path inside one package without moving a boundary.
+result; v3.1.0 to v3.13.0 showed what the freeze permits, adding capability
+inside the packages without moving a boundary; and v4.0.0 classified the
+history, re-audited the engine and froze the public API.
 
 A frozen architecture is not a finished project. What it changes is the bar: a
 contribution that moves an ownership boundary, a schema contract or a documented
-invariant now needs an ADR and a major release, while a vendor adapter, a new
-standalone engine, a strategy or a benchmark follows the ordinary workflow. The
+invariant, or the public API incompatibly, now needs an ADR and a major
+release, while a new standalone engine, a strategy or a benchmark follows the
+ordinary workflow; a vendor adapter belongs to the application that connects to
+the venue. The
 principles that decide those calls — determinism, immutability, modularity,
 production readiness, and refusing rather than guessing — are unchanged.

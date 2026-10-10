@@ -15,6 +15,8 @@ how a quality gate becomes decorative.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from alphalab.data import (
@@ -560,7 +562,7 @@ def _rows_in(*, bad: int) -> list[dict[str, str]]:
     return rows
 
 
-def _ingest(rows: list[dict[str, str]]):  # type: ignore[no-untyped-def]
+def _ingest(rows: list[dict[str, str]], policy: CleaningPolicy = PERMISSIVE):  # type: ignore[no-untyped-def]
     from alphalab.api import ingest_rows
     from alphalab.data import (
         DataAssetClass,
@@ -579,7 +581,7 @@ def _ingest(rows: list[dict[str, str]]):  # type: ignore[no-untyped-def]
             frequency=TimeFrequency.SECOND,
             bar_stamp=BarStamp.INTERVAL_END,
             asset_class=DataAssetClass.EQUITY,
-            cleaning_policy=PERMISSIVE,
+            cleaning_policy=policy,
             price_basis=PriceBasis.RAW,
             symbol="AAPL",
         ),
@@ -693,3 +695,83 @@ def test_there_is_one_parsing_implementation_behind_both_doors() -> None:
     assert "coerce_row" in source, "the v1 door delegates to the canonical coercion"
     assert "RawTable.from_rows" in source, "and to the canonical table construction"
     assert "float(" not in source, "and keeps no numeric coercion of its own"
+
+
+# --------------------------------------------------------------------------- #
+# A row that never became a record is governed by the policy too (DAT-010)
+# --------------------------------------------------------------------------- #
+#
+# Until v4.0 the rows above were dropped whatever the cleaning policy said:
+# ``MissingValuePolicy`` was read by nothing at all -- it entered the dataset
+# version's text and changed no behaviour -- and ``REFUSE_EVERYTHING``, "the
+# position that nothing may be altered", dropped a bar with an empty close and
+# produced a series with a missing day. ADR-0036 decision 1 says every rejection
+# rides into the dataset's provenance; only the quality report carried them.
+
+
+def _with_missing_close() -> list[dict[str, str]]:
+    rows = _rows_in(bad=0)
+    rows[2]["close"] = ""
+    return rows
+
+
+def _with_non_finite_close() -> list[dict[str, str]]:
+    rows = _rows_in(bad=0)
+    rows[3]["close"] = "nan"
+    return rows
+
+
+def test_refusing_everything_refuses_a_row_missing_a_required_value() -> None:
+    with pytest.raises(DataQualityError, match=r"MissingValuePolicy\.REFUSE") as refused:
+        _ingest(_with_missing_close(), STRICT)
+
+    assert "line" in str(refused.value), "and says where"
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "not-a-number"])
+def test_refusing_everything_refuses_a_row_that_is_not_a_record(value: str) -> None:
+    rows = _rows_in(bad=0)
+    rows[1]["close"] = value
+
+    with pytest.raises(DataQualityError, match=r"InvalidRecordPolicy\.REFUSE"):
+        _ingest(rows, STRICT)
+
+
+def test_the_missing_value_policy_is_read() -> None:
+    """The two policies differ in behaviour, not only in the version's text."""
+
+    drop_missing_only = CleaningPolicy(
+        duplicates=DuplicatePolicy.REFUSE,
+        ordering=OrderingPolicy.REFUSE,
+        invalid_records=InvalidRecordPolicy.REFUSE,
+        missing_values=MissingValuePolicy.DROP_ROW,
+    )
+
+    result = _ingest(_with_missing_close(), drop_missing_only)
+    assert result.quality.valid_rows == 4
+
+    with pytest.raises(DataQualityError, match=r"MissingValuePolicy\.REFUSE"):
+        _ingest(
+            _with_missing_close(),
+            replace(drop_missing_only, missing_values=MissingValuePolicy.REFUSE),
+        )
+    with pytest.raises(DataQualityError, match=r"InvalidRecordPolicy\.REFUSE"):
+        _ingest(_with_non_finite_close(), drop_missing_only)
+
+
+def test_a_dropped_row_is_recorded_in_the_provenance_and_the_version() -> None:
+    result = _ingest(_rows_in(bad=3))
+
+    provenance = result.dataset.require_provenance()
+    assert [(t.operation, t.rows_affected) for t in provenance.transformations][:2] == [
+        ("drop_row_missing_value", 1),
+        ("drop_unreadable_row", 2),
+    ]
+    assert result.quality.rejected_count == 3, "still reported row by row"
+
+    # The same rows, read under a policy that refuses, produce no dataset; and the
+    # same five rows with none unreadable produce another version: the drop is
+    # part of what the version identifies.
+    clean = _ingest(_rows_in(bad=0))
+    assert clean.dataset.require_provenance().transformations == ()
+    assert clean.dataset.dataset_version != result.dataset.dataset_version

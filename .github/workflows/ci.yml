@@ -7,6 +7,15 @@ on:
   pull_request:
     branches:
       - main
+  # Release preflight (.github/workflows/preflight.yml) runs these same gates
+  # against one exact candidate commit before a release is published.
+  workflow_call:
+    inputs:
+      ref:
+        description: "The commit to check out and check; empty means the triggering event's own"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -19,6 +28,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -66,8 +77,9 @@ jobs:
       - name: Build package
         run: python -m build
 
+      # --strict: a warning in the metadata a release would publish is an error.
       - name: Validate distributions
-        run: python -m twine check dist/*
+        run: python -m twine check --strict dist/*
 
       # The suite runs against the source tree; this runs against what would be
       # published. Each distribution goes into a fresh environment holding it

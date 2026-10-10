@@ -80,10 +80,11 @@ def test_the_pipeline_schema_does_not_move() -> None:
     """
 
     # v2.14 did not move it; v3.10 did, to 4, v3.11 to 5 (a bar's interval code,
-    # DAT-005), v3.12 to 6 (venue calendars, EXE-010) and v3.13 to 7 (the
-    # strategy status enum's name, API-001), each reading every earlier version.
-    assert PIPELINE_SNAPSHOT_SCHEMA == 7
-    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4, 5, 6, 7)
+    # DAT-005), v3.12 to 6 (venue calendars, EXE-010), v3.13 to 7 (the strategy
+    # status enum's name, API-001) and v4.0 to 8 (how the sizing model and the
+    # simulator were configured, PER-008), each reading every earlier version.
+    assert PIPELINE_SNAPSHOT_SCHEMA == 8
+    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4, 5, 6, 7, 8)
 
 
 @pytest.mark.parametrize(
@@ -118,17 +119,19 @@ def test_the_lifecycle_constant_moved_on_its_own_terms() -> None:
     """And not as a side effect of anything the run envelope did."""
 
     assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
-    # v3.10: the analytics basis; v3.11: step orders' terms; v3.12: observations.
-    assert RUN_SNAPSHOT_SCHEMA == 4
+    # v3.10: the analytics basis; v3.11: step orders' terms; v3.12: observations;
+    # v4.0: how the fill policy was configured (PER-008).
+    assert RUN_SNAPSHOT_SCHEMA == 5
     assert DEFAULT_SCHEMA_VERSION == 1
 
 
 def test_the_run_envelope_is_the_only_new_constant() -> None:
-    # v3.10: the analytics basis; v3.11: step orders' terms; v3.12: observations.
-    assert RUN_SNAPSHOT_SCHEMA == 4
+    # v3.10: the analytics basis; v3.11: step orders' terms; v3.12: observations;
+    # v4.0: how the fill policy was configured (PER-008).
+    assert RUN_SNAPSHOT_SCHEMA == 5
 
     source = inspect.getsource(importlib.import_module("alphalab.runtime.run_snapshot"))
-    assert "RUN_SNAPSHOT_SCHEMA: Final = 4" in source
+    assert "RUN_SNAPSHOT_SCHEMA: Final = 5" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -472,7 +475,15 @@ def test_the_run_snapshot_covers_every_run_config_field() -> None:
 def test_the_run_snapshot_invents_nothing() -> None:
     # ``dropped``: the steps' and skipped records' own dropped counts (PRF-004),
     # which the state carries on the logs and the snapshot beside their entries.
-    derived = {"fill_policy_type", "schema_version", "pipeline", "dropped"}
+    # ``fill_policy_description``: the configured fill policy, described rather
+    # than carried, beside its type (PER-008).
+    derived = {
+        "fill_policy_type",
+        "fill_policy_description",
+        "schema_version",
+        "pipeline",
+        "dropped",
+    }
     state = {f.name for f in dataclasses.fields(RunState)}
     config = {f.name for f in dataclasses.fields(RunConfig)}
     unexpected = {f.name for f in dataclasses.fields(RunSnapshot)} - state - config - derived

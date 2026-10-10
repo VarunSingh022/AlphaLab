@@ -846,7 +846,7 @@ def test_sector_exposure_survives_a_round_trip_without_moving_the_schema() -> No
     payload = deserialize(serialize(capture_pipeline(state)))
     restored = restore_pipeline(pipeline_from_primitives(payload), objects)
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 7
+    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 8
     assert payload["risk"]["exposure"]["sector_exposure"] == {
         "Technology": "1000.00",
         "Financials": "-400.00",

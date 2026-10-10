@@ -19,8 +19,10 @@ Examples are intended to be read sequentially by new users and used as reference
 > (v2.17) drives an FX feed into a run that settles two currencies and reports
 > in one. `05_broker_connection.py` was rewritten in v2.17 against the canonical
 > broker boundary, having used `alphalab.integrations` until that package was
-> removed. None are part of the automated test suite, though all sixty-nine
-> run as a release gate.
+> removed. `70_build_a_strategy.py` (v4.0) builds a strategy from data to a
+> reproduced result and is checked line by line by an end-to-end test. None of
+> the others are part of the automated test suite, though all seventy run as a
+> release gate.
 > For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
 > under `tests/integration/` and `tests/regression/`.
@@ -49,6 +51,7 @@ The `examples/` directory contains:
 | `14_multi_currency_settlement.py` | FX feed → two settlement currencies → one reported figure |
 | `15_data_ingestion.py` | A **deliberately broken CSV** through detection, validation, an explicit cleaning policy and a quality report, out as a versioned canonical dataset |
 | `16_research_from_dataset.py` | Research access by dataset version, point-in-time selection, and a backtest that names the exact bytes it read |
+| `70_build_a_strategy.py` | **Build your first strategy**: data → strategy → run → fills checked by hand → a stopped run continued to the same result → refusals |
 
 ---
 
@@ -253,7 +256,7 @@ environment to decide an identity.
 | # | Shows |
 |---|---|
 | 46 | A strategy fingerprint over five defining inputs — code, dependencies (with a declared completeness), parameters, research configuration, engine — each changing the identity on its own; presentation that does not; a path naming a machine refused; and the same fingerprint from a second interpreter with another hash seed |
-| 47 | A reproducibility manifest naming everything a result was made from; a rerun that reproduces it, one of other inputs, and one whose simulator cost changed without the record noticing; an unseeded run refused; and a study with its absent seed stated |
+| 47 | A reproducibility manifest naming everything a result was made from; a rerun that reproduces it, one of other inputs -- another seed, or since v4.0 another simulator cost, which the record now names -- and one whose strategy traded parameters its declaration does not state, which diverges; an unseeded run refused; and a study with its absent seed stated |
 | 48 | Eight certification properties from no evidence (all `NOT_ASSESSED`) to complete evidence (all earned), then `FAIL` and `INSUFFICIENT_EVIDENCE` each for a reason — with CPU and memory measured on the running machine and labelled so |
 | 49 | One fingerprint across research, paper and two brokers declared as capabilities: every requirement satisfied, blocked, unverified or not applicable; a retuned deployment caught; and the same code filling the same way in two environments |
 
@@ -354,7 +357,7 @@ and none fetches anything or reads a clock.
 |---|---|
 | 66 | An American put on a Cox-Ross-Rubinstein lattice converging step by step to Hull's table, with its early-exercise premium over the European value; a call on which early exercise is worth nothing until a cash dividend falls just before expiry; Greeks from the lattice, and a lattice refused as too coarse to carry the rate; implied volatility inverted through the lattice an American quote was priced on, against the European formula that misreads the premium as volatility; volatility between two quoted expiries, linear in total variance, with an extrapolation and a calendar arbitrage refused |
 | 67 | One order split across three venues by the greedy sweep and by the optimal split — a per-trade fee paid on a remainder, a venue filled past its marginal cost — and a cost whose marginal falls refused as one no split can be called optimal for; an Almgren–Chriss urgency estimated from risk aversion, volatility and impact; iceberg tranches drawn around the displayed size from a seed, varied, bounded and the same again on a rerun |
-| 68 | A pip-compile lock read into the dependency manifest a fingerprint records, a hand-written file read as direct pins only, and a range refused; a backtest re-executed from its manifest and REPRODUCED; a cost the record keeps only by type DIVERGED, located by the first paths at which the two records part; another dataset and another lock reported as INPUTS_DIFFER with nothing run; an altered manifest refused |
+| 68 | A pip-compile lock read into the dependency manifest a fingerprint records, a hand-written file read as direct pins only, and a range refused; a backtest re-executed from its manifest and REPRODUCED; another cost INPUTS_DIFFER, since v4.0 records how the simulator was configured and not only its type; a strategy trading parameters its declaration does not state DIVERGED, located by the first paths at which the two records part; another dataset and another lock reported as INPUTS_DIFFER with nothing run; an altered manifest refused |
 | 69 | A cron expression read on a stated zone's wall clock, and the same expression in another zone; the two day fields combined by Vixie cron's rule; a spring-forward gap skipped and a fall-back repeat fired once, the UTC instants beside them; expressions that never fire, step from a single value, use a shorthand or name an unknown zone, refused when written; a cron timer fired and rescheduled on the engine, fired once when the clock jumps past four of its instants, and timers that do not follow their schedule refused |
 
 `66` assumes `36`. `67` assumes `63` and `64`. `68` assumes `47`, and `69`
@@ -362,12 +365,30 @@ assumes `32`.
 
 ---
 
+# Building a strategy (v4.0)
+
+`70_build_a_strategy.py` is the acceptance exercise of v4.0, kept as an example:
+an outside developer's path through the public API from data to a reproduced
+result. It assumes nothing; read it first if you are here to write a strategy.
+
+| # | Shows |
+|---|---|
+| 70 | Two labelled synthetic series — a trend and a flat line — ingested under `REFUSE_EVERYTHING`; a moving-average crossover written against `StrategyProtocol` with its durable state declared through `StrategyStateProtocol`; the strategy started with `start_strategy` and given its context by `context_factory`; a backtest whose every fill, commission, cash balance and realized P&L is compared with arithmetic done by hand; the flat series producing no trade; the run stopped halfway, captured, restored and finished to the same `result_id` as a run never stopped; and five refusals — a fast window not shorter than the slow, a close that is not a number, a missing close, a negative close, and a continuation under another commission |
+
+`docs/GETTING_STARTED.md` walks through it in five steps;
+`tests/integration/test_strategy_building_end_to_end.py` holds it to its output.
+
+---
+
 # Additional engines
 
-The feature store, machine learning, cloud research and other engines added
-in v1.34.0–v2.0.0 do not yet have dedicated example scripts.
-Their usage is covered by the unit tests under `tests/unit/<package>/` and by
-the benchmarks under `benchmarks/`.
+Most of the engines added in v1.34.0–v2.0.0 -- machine learning, deep and
+reinforcement learning, cloud research, cluster scheduling -- have no example
+script of their own; the feature store, the experiment tracker and the model
+registry appear where the lifecycle and research paths use them (`12`, `17`,
+`41`, `42`). Their usage is covered by the unit tests under
+`tests/unit/<package>/` and by the benchmarks under `benchmarks/`; ROADMAP lists
+no example for them as future work.
 
 The **factor library** did not have one either until v3.2, which gave it
 examples `17` and `18`.
@@ -407,6 +428,10 @@ v3.13 added `66`–`69`. The **options** package, which had `36`, has two; the
 **execution** package gains one for the optimal split, urgency estimation and
 randomized tranches; **lifecycle** gains one for the rerun harness and the
 lock-file reader; and the **scheduler**, which had none, has its first.
+
+v4.0 added `70`, the first example written as a walk-through rather than a
+demonstration of one capability; `README.md` and `docs/GETTING_STARTED.md` show
+excerpts of it, and a test holds every excerpt to the file.
 
 ---
 

@@ -406,7 +406,10 @@ def benchmark_capital() -> None:
 
 def run_benchmark() -> None:
     print("=" * 94)
-    print("AlphaLab v3.8 -- portfolio construction, risk budgets, multi-strategy books, capital")
+    print(
+        "AlphaLab -- portfolio construction, risk budgets, multi-strategy books, capital"
+        " (added in v3.8)"
+    )
     print("=" * 94)
     benchmark_construction()
     benchmark_risk_budgets()

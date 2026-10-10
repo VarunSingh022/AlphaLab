@@ -85,7 +85,12 @@ from alphalab.options.enums import OptionType
 from alphalab.options.exceptions import OptionInputError, OptionPricingError
 from alphalab.options.greeks import Greeks
 from alphalab.options.model import BLACK_SCHOLES_MERTON, ModelAssumptions
-from alphalab.options.pricing import black_scholes_greeks, black_scholes_value, time_to_expiry_years
+from alphalab.options.pricing import (
+    _require_market_inputs,
+    black_scholes_greeks,
+    black_scholes_value,
+    time_to_expiry_years,
+)
 
 __all__ = [
     "MAX_ITERATIONS",
@@ -221,8 +226,9 @@ def implied_volatility(
         lattice: The lattice to invert on, or ``None`` for the closed form.
 
     Raises:
-        OptionInputError: If the contract has expired, the spot is not
-            positive, or the carry is not a :class:`~alphalab.options.carry.Carry`
+        OptionInputError: If the spot, the price or the rate is not a finite
+            number, the contract has expired, the spot is not positive, or the
+            carry is not a :class:`~alphalab.options.carry.Carry`
             (or, on a lattice, names an underlying that pays no cash dividend
             while dividends are stated).
         ImpliedVolatilityError: If the price is at or outside the no-arbitrage
@@ -231,6 +237,7 @@ def implied_volatility(
             the lattice cannot represent a volatility low enough to reach it.
     """
 
+    _require_market_inputs(spot, risk_free_rate, market_price=market_price)
     if lattice is not None:
         return _implied_on_lattice(
             contract, market_price, spot, risk_free_rate, valuation_timestamp, carry, lattice

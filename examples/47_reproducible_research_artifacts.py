@@ -162,11 +162,29 @@ def main() -> None:
         ENGINE,
         build=running_build(),
     )
-    diverged = assess_reproducibility(manifest, slipped)
-    print(f"  a simulator's hidden cost  : {diverged.rerun.name}")
-    print("    (The record keeps the simulator by type, so the configuration matched;")
-    print("     the result did not. Only a rerun could have caught that.)")
+    costlier = assess_reproducibility(manifest, slipped)
+    print(f"  another simulator's cost   : {costlier.rerun.name}")
+    print("    (Since v4.0 the record keeps how the simulator is configured, not only")
+    print("     its type, so a cost is an input like any other.)")
     print(f"    same configuration id    : {slipped.configuration_id == manifest.configuration_id}")
+
+    undeclared = manifest_for_run(
+        run_backtest(
+            dataset, definition=replace(DEFINITION, parameters={"entry": 1000.0, "exit": -600.0})
+        ),
+        dataset,
+        fingerprint,
+        ENGINE,
+        build=running_build(),
+    )
+    diverged = assess_reproducibility(manifest, undeclared)
+    print(f"  a hidden change            : {diverged.rerun.name}")
+    print("    (The strategy traded parameters its declaration does not state: every")
+    print("     input the manifest names matched, and the result did not. Only a")
+    print("     rerun could have caught that.)")
+    print(
+        f"    same configuration id    : {undeclared.configuration_id == manifest.configuration_id}"
+    )
 
     # ----------------------------------------------------------------- #
     # 4. Metadata completeness
@@ -246,6 +264,7 @@ def main() -> None:
         ("the manifest's identity recomputes", verify_manifest(manifest)),
         ("the same inputs reproduce the result", reproduced.rerun.name == "REPRODUCED"),
         ("another seed is another input, not a failure", differ.rerun.name == "INPUTS_DIFFER"),
+        ("another cost is another input", costlier.rerun.name == "INPUTS_DIFFER"),
         ("a hidden change diverges", diverged.rerun.name == "DIVERGED"),
         ("a complete manifest has no gaps", manifest_gaps(manifest) == ()),
         ("an approximate one says so", len(manifest_gaps(loose_manifest)) == 2),

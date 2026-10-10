@@ -190,16 +190,31 @@ class TestADeclaredTableOfPrints:
         assert {record.aggressor for record in _prints(unflagged)} == {None}
 
     def test_a_code_the_declaration_does_not_name_rejects_its_row(self) -> None:
+        """Rejected, and then governed by the cleaning policy like any defect (DAT-010).
+
+        Until v4.0 the row was dropped under ``REFUSE_EVERYTHING`` too -- this test
+        asserted it -- because rows that never became records were dropped whatever
+        the policy said. Refusing everything now refuses this; dropping it is a
+        stated choice, reported and recorded in the dataset's provenance.
+        """
+
         rows: list[Mapping[str, object]] = [
             *_rows(),
             {"ts": "1700000003", "px": "100", "qty": "1", "id": "T5", "side": "X"},
         ]
 
-        result = _ingest(rows)
+        with pytest.raises(DataQualityError, match=r"InvalidRecordPolicy\.REFUSE"):
+            _ingest(rows)
+
+        result = _ingest(rows, cleaning_policy=KEEP)
 
         assert len(result.dataset.records) == 4
         (rejection,) = result.quality.rejected_rows
         assert [finding.kind for finding in rejection.findings] == [FindingKind.UNKNOWN_CODE]
+        provenance = result.dataset.require_provenance()
+        assert [(t.operation, t.rows_affected) for t in provenance.transformations] == [
+            ("drop_unreadable_row", 1)
+        ]
 
 
 class TestTwoPrintsAtOneInstant:
