@@ -517,12 +517,19 @@ Before creating a release, verify
 - `mypy .` passes — repository-wide, exactly as CI runs it, not `mypy alphalab`
 - `pytest -q -W error` passes, reporting **0 skipped and 0 warnings** — what CI
   runs, so a `ResourceWarning` fails it
-- All 65 examples run with `-W error`
-- All 53 benchmarks run
+- Every example in `examples/` runs with `-W error`
+- Every benchmark in `benchmarks/` runs
 - `python -m build` and `twine check dist/*` pass, and each distribution,
   installed into a clean environment, passes `tests/installed_smoke.py`
 - `git diff --check` is clean
 - `CHANGELOG.md` leads with an entry for the release (a test reads it)
+- The public API manifest is regenerated (`python docs/api/generate_public_api.py`)
+  and the release's copy kept as `docs/api/history/<version>.json`; every name
+  removed or rebound since the previous release is named in the release's
+  CHANGELOG section (a test reads both)
+- The release certificate is regenerated **last**
+  (`python -W error docs/audit/scripts/certify_release.py`), and `--check`
+  passes on the tree that is tagged (CI runs it)
 
 **The version is declared once** (since v3.10): `alphalab/common/_version.py`,
 read by the build (`[tool.hatch.version]`) and by the package. Before v3.10 it
@@ -532,10 +539,13 @@ appeared in three places and drifted twice — v2.14.0 shipped with
 `tests/regression/test_one_version_source.py` holds the rest, including that
 the CHANGELOG leads with this version.
 
-**Four documents carry a current-state claim and drift independently.** Touch
+**Five documents carry a current-state claim and drift independently.** Touch
 them together as well: `README.md`'s badges and status table,
 `docs/ARCHITECTURE.md`'s *Implementation Status* section, `docs/README.md`'s
-*Version* block, and `ROADMAP.md`'s classification.
+*Version* block, `ROADMAP.md`'s classification, and `nowandfuture.md`'s identity
+table. `tests/regression/test_version_markers_agree.py` holds the version each
+of them states to the package's (since v3.13, when `nowandfuture.md` was found
+still reading 3.9.0); the prose is still yours to re-read.
 
 **After v3.0.0 the architecture is frozen.** A change that moves an ownership
 boundary, a schema contract, or a documented invariant in `nowandfuture.md` needs

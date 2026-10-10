@@ -291,8 +291,9 @@ auto-deleveraging stay the venue's.
 Measured side by side on one machine, five interleaved rounds of 3.9.0, 3.11.0,
 3.12.0 and the 3.13 tree, each benchmark's own timing (medians; each ratio
 taken within a round, range in brackets). The changes made after the
-measurement — construction's box path, the risk model's and the execution
-analytics' new functions, the v1 optimizer — are on none of these four paths.
+measurement — construction's box path and its factor structures, the risk
+model's and the execution analytics' new functions, a covariance's bulk checks,
+the v1 optimizer — are on none of these four paths.
 
 | Benchmark | 3.9.0 | 3.11.0 | 3.12.0 | 3.13.0 | 3.13 ÷ 3.9 | 3.13 ÷ 3.11 | 3.13 ÷ 3.12 |
 |---|---|---|---|---|---|---|---|

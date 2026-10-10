@@ -2,13 +2,13 @@
   "release": "3.13.0",
   "build": {
     "engine": "alphalab 3.13.0",
-    "source_digest": "a036e17bd74e5b7f17404e6c6d4798ccbaea318b7631066f7042b8847731f240",
+    "source_digest": "046a18dcb3cd5922fa14f5dc5bbe6719fa3f9dd17523ef9aa84f7695f3708093",
     "tz_database": "2025b"
   },
   "environment": {
     "python": "3.12.3",
     "implementation": "CPython",
-    "platform": "Linux-6.18.44-fc-v64-x86_64-with-glibc2.39"
+    "platform": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39"
   },
   "passed": true,
   "checks": [
@@ -131,9 +131,9 @@
       "claim": "The build's public API is the one docs/api/public_api.json records for this release.",
       "passed": true,
       "evidence": {
-        "manifest_digest": "d46db4ed525d953f19b2156ab2a07175e0c0f3aeecd0f880885e94d6191a6497",
+        "manifest_digest": "0c9687870c4cca09e25d57f79535deea6a9fa3a466ef27bcf829fad485dce0bc",
         "packages": 44,
-        "exports": 2470,
+        "exports": 2479,
         "shared_names": 31
       }
     }
