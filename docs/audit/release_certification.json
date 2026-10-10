@@ -1,8 +1,8 @@
 {
-  "release": "3.13.0",
+  "release": "4.0.0",
   "build": {
-    "engine": "alphalab 3.13.0",
-    "source_digest": "d663c9958d5b4a54232d2f4b5568cb12098144b60503fedded25c42c6543188d",
+    "engine": "alphalab 4.0.0",
+    "source_digest": "4cd92508fec0ff498a61a9dfd6e5741116722d75fc1d137a53c526dd315b479d",
     "tz_database": "2024a"
   },
   "environment": {
@@ -17,8 +17,8 @@
       "claim": "A seeded run executed twice in one process produces the byte-identical record.",
       "passed": true,
       "evidence": {
-        "result_id": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd",
-        "record_bytes": 55309,
+        "result_id": "79631d7998d32779aa94358e3220a500dd21d65750515b3fefcec25f832363a9",
+        "record_bytes": 55660,
         "orders": 4,
         "fills": 4
       }
@@ -28,10 +28,10 @@
       "claim": "The same run in fresh interpreters under different hash seeds, and under an ambient decimal context of six digits rounding down, is the same run.",
       "passed": true,
       "evidence": {
-        "in_process": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd",
-        "ambient_context_prec_6_floor": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd",
-        "fresh_interpreter_PYTHONHASHSEED_0": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd",
-        "fresh_interpreter_PYTHONHASHSEED_4242": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd"
+        "in_process": "79631d7998d32779aa94358e3220a500dd21d65750515b3fefcec25f832363a9",
+        "ambient_context_prec_6_floor": "79631d7998d32779aa94358e3220a500dd21d65750515b3fefcec25f832363a9",
+        "fresh_interpreter_PYTHONHASHSEED_0": "79631d7998d32779aa94358e3220a500dd21d65750515b3fefcec25f832363a9",
+        "fresh_interpreter_PYTHONHASHSEED_4242": "79631d7998d32779aa94358e3220a500dd21d65750515b3fefcec25f832363a9"
       }
     },
     {
@@ -65,27 +65,28 @@
       "passed": true,
       "evidence": {
         "outcome": "REPRODUCED",
-        "result_id": "9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd"
+        "result_id": "79631d7998d32779aa94358e3220a500dd21d65750515b3fefcec25f832363a9"
       },
-      "detail": "the rerun produced result 9df2254a3136a81501610b896c4b265a75cfb0a8cf425cb8042a44516f6f76dd again."
+      "detail": "the rerun produced result 79631d7998d32779aa94358e3220a500dd21d65750515b3fefcec25f832363a9 again."
     },
     {
       "id": "REP-2",
       "claim": "A run stopped after 4 of 8 records, written to JSON, read back and continued finishes byte-identical to the run that never stopped.",
       "passed": true,
       "evidence": {
-        "stopped_payload_bytes": 29487,
-        "final_record_digest": "d24631106168b07b82313bfedda8ba67f7fb2813be05e37b1abdb9e394d2cd83"
+        "stopped_payload_bytes": 29838,
+        "final_record_digest": "161033fcecd05675bd0cca8fdb1f4e581078d23968be9d94a039d7a8ef839378"
       }
     },
     {
       "id": "REP-3",
-      "claim": "Every payload v3.9.0, v3.11.0 and v3.12.0 wrote is read by this build, or refused for the reason its upgrade documents.",
+      "claim": "Every payload v3.9.0, v3.11.0, v3.12.0 and v3.13.0 wrote is read by this build, or refused for the reason its upgrade documents.",
       "passed": true,
       "evidence": {
         "read_v3.9.0": 9,
         "read_v3.11.0": 11,
         "read_v3.12.0": 11,
+        "read_v3.13.0": 11,
         "refused_as_documented": 1,
         "upgrade_warnings": 6
       }
@@ -131,10 +132,11 @@
       "claim": "The build's public API is the one docs/api/public_api.json records for this release.",
       "passed": true,
       "evidence": {
-        "manifest_digest": "0c9687870c4cca09e25d57f79535deea6a9fa3a466ef27bcf829fad485dce0bc",
+        "manifest_digest": "6bcf75ebc5c0e8a3965dfad52bab2f440342b419e5abaf336655400826bc2fb8",
         "packages": 44,
-        "exports": 2479,
-        "shared_names": 31
+        "documented_modules": 11,
+        "exports": 2617,
+        "shared_names": 35
       }
     }
   ]

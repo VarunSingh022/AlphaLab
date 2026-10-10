@@ -11,6 +11,15 @@ on:
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
+  # Release preflight (.github/workflows/preflight.yml) runs every benchmark
+  # against one exact candidate commit before a release is published.
+  workflow_call:
+    inputs:
+      ref:
+        description: "The commit to check out and run; empty means the triggering event's own"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -24,6 +33,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v7

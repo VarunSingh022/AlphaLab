@@ -197,17 +197,18 @@ def test_the_state_under_test_exercises_every_durable_field() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_constant_is_seven() -> None:
-    """Moved six times: v2.10 for the strategy-state field (ADR-0025 decision
+def test_the_schema_constant_is_eight() -> None:
+    """Moved seven times: v2.10 for the strategy-state field (ADR-0025 decision
     8), v2.17 for the two configuration fields settlement-level multi-currency
     added (ADR-0035), v3.10 for the account's minor units and each report's
     analytics basis, v3.11 for a bar's interval code (DAT-005), v3.12 for the
-    calendar declared for each listing venue (EXE-010), and v3.13 for the
-    strategy status enum's name (API-001). Every earlier version is upgraded by
+    calendar declared for each listing venue (EXE-010), v3.13 for the strategy
+    status enum's name (API-001), and v4.0 for how the sizing model and the
+    simulator were configured (PER-008). Every earlier version is upgraded by
     ``PIPELINE_SCHEMA_HISTORY`` rather than refused.
     """
 
-    assert PIPELINE_SNAPSHOT_SCHEMA == 7
+    assert PIPELINE_SNAPSHOT_SCHEMA == 8
 
 
 def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
@@ -218,7 +219,7 @@ def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
     source = inspect.getsource(pipeline_snapshot)
 
     assert not hasattr(pipeline_snapshot, "DEFAULT_SCHEMA_VERSION")
-    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 7" in source
+    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 8" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -226,7 +227,7 @@ def test_capture_declares_the_version() -> None:
     state, _, _ = _state()
 
     assert capture(state).schema_version == PIPELINE_SNAPSHOT_SCHEMA
-    assert _payload(state)["schema_version"] == 7
+    assert _payload(state)["schema_version"] == 8
 
 
 def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
@@ -240,7 +241,7 @@ def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
         from_primitives(payload)
 
 
-@pytest.mark.parametrize("version", [8, 99, 0, -1])
+@pytest.mark.parametrize("version", [9, 99, 0, -1])
 def test_an_unreadable_version_is_refused_naming_it(version: int) -> None:
     state, _, _ = _state()
     payload = _payload(state)
@@ -263,7 +264,7 @@ def test_a_malformed_version_is_refused(version: object) -> None:
 def test_the_refusal_names_the_pipeline_subsystem() -> None:
     state, _, _ = _state()
     payload = _payload(state)
-    payload["schema_version"] = 8
+    payload["schema_version"] = 9
 
     with pytest.raises(StateDecodeError) as excinfo:
         from_primitives(payload)

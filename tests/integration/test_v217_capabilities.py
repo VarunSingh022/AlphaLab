@@ -506,17 +506,18 @@ def test_no_capability_moved_another_ones_boundary() -> None:
 
     # --- Multi-currency moved exactly one pipeline schema, and only its own
     # (to 3; v3.10 moved it again, to 4, for minor units and analytics basis,
-    # v3.11 to 5, for a bar's interval code, v3.12 to 6, for venue calendars, and
-    # v3.13 to 7, for the strategy status enum's name).
-    assert PIPELINE_SNAPSHOT_SCHEMA == 7
+    # v3.11 to 5, for a bar's interval code, v3.12 to 6, for venue calendars,
+    # v3.13 to 7, for the strategy status enum's name, and v4.0 to 8, for the
+    # described live objects).
+    assert PIPELINE_SNAPSHOT_SCHEMA == 8
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
     from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 
     # RUN_SNAPSHOT_SCHEMA moved to 2 in v3.10 (the analytics basis), to 3 in
-    # v3.11 with OMS_SNAPSHOT_SCHEMA to 2 (order terms) and to 4 in v3.12 (the
-    # observation cursor) -- not here.
-    assert (OMS_SNAPSHOT_SCHEMA, RUN_SNAPSHOT_SCHEMA, DEFAULT_SCHEMA_VERSION) == (2, 4, 1)
+    # v3.11 with OMS_SNAPSHOT_SCHEMA to 2 (order terms), to 4 in v3.12 (the
+    # observation cursor) and to 5 in v4.0 (the described fill policy) -- not here.
+    assert (OMS_SNAPSHOT_SCHEMA, RUN_SNAPSHOT_SCHEMA, DEFAULT_SCHEMA_VERSION) == (2, 5, 1)
 
     # --- And the feed took no dependency on the execution path.
     from alphalab.portfolio import fx_feed

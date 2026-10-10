@@ -1,9 +1,21 @@
 # AlphaLab's public API
 
-AlphaLab's public API is every name a package lists in its `__all__`. A module's
-other names, and every name beginning with an underscore, are the package's own:
-they may change in any release. Since v3.13 the public API is also recorded as
-data, and the build is held to it.
+AlphaLab's public API is every name a package lists in its `__all__`, and --
+since v4.0 -- every name listed in the `__all__` of the modules the
+documentation names as public surfaces: `alphalab.api`, the top-level module a
+host application imports, and the snapshot module of each durable state, whose
+`capture`, `from_primitives` and `restore` are how a run is stopped and
+continued (`docs/STATE_MODEL.md`). Any other module's names, and every name
+beginning with an underscore, are the package's own: they may change in any
+release. Since v3.13 the public API is also recorded as data, and the build is
+held to it.
+
+Until v4.0 the manifest walked packages only, so `alphalab.api` and the snapshot
+modules -- the surfaces the guides and examples import from -- were outside the
+contract it froze, and a rename there would have passed every guard (ledger
+API-007). `generate_public_api.py`'s `DOCUMENTED_MODULES` lists them, and
+`test_public_api_manifest.py` holds the list to `docs/STATE_MODEL.md`'s
+durability table.
 
 | File | What it is |
 | --- | --- |
@@ -11,8 +23,48 @@ data, and the build is held to it.
 | [`generate_public_api.py`](generate_public_api.py) | Writes the manifest from the package. Keeps the reasons already written; leaves a new shared name's reason empty |
 | `tests/regression/test_public_api_manifest.py` | Fails on any export added, removed or rebound, on a shared name without a reason, and on a manifest for another release |
 
-At v3.13.0 the manifest records 44 packages, 2,479 exports and 31 shared names
+At v4.0.0 the manifest records 44 packages and 11 documented modules, 2,617 exports and 35 shared names
 (`test_public_api_manifest.py` holds this sentence to the manifest).
+
+## Stability from v4.0
+
+v4.0.0 freezes this surface. From it on:
+
+* **A minor release (4.x) adds and corrects; it does not break.** It may add a
+  name, add a keyword-only parameter with no effect unless given, or refuse an
+  input that was never valid -- a `NaN` volatility, say -- where the old answer
+  was not a number anyway. It does not remove or rename an exported name,
+  change a signature a caller depends on, or change what a valid input
+  computes. Each change is listed in the release's CHANGELOG section, and
+  `tests/regression/test_api_changes_are_in_the_changelog.py` requires every
+  removed or rebound name to be named there.
+* **A breaking change waits for 5.0**, with an ADR, a migration row in the
+  CHANGELOG, and -- where a persisted format is involved -- a schema step that
+  reads every older payload.
+* **No aliases.** A name renamed in a major release is renamed outright, as
+  v3.13 did, so a release never freezes two spellings of one contract.
+* **What is not the public API** -- a module's names outside its package's
+  `__all__` (the documented modules above excepted), every name with a leading
+  underscore, the order of fields in a
+  printed `repr`, and the exact text of an error message -- may change in any
+  release. A persisted format is versioned by its schema constant, not by
+  this manifest (`docs/STATE_MODEL.md`).
+
+v4.0 itself, against v3.13.0's manifest (`history/3.13.0.json`), adds four
+names to `alphalab.strategy` and removes or rebinds none: `start_strategy`,
+which registers a strategy and takes it to `RUNNING` through the supervisor;
+`context_factory`, which builds the context a run takes from a clock and a
+logger; and `FixedClock` and `DiscardingLogger`, the two plain choices for
+those (ledger DOC-009). It also brings the eleven documented modules into the
+manifest: 134 names, every one of which v3.13.0 exported too. Compared with
+v3.13.0's own modules, none was removed and two changed, both by PER-008's
+schema step: `RunSnapshot` gained `fill_policy_description: str | None = None`
+before `schema_version`, whose default moved from 4 to 5, and
+`PipelineSnapshot`'s `schema_version` default moved from 7 to 8 -- snapshots a
+caller obtains from `capture` or `from_primitives`, not builds. With them come
+four names exported as different objects there and in a package, each now with
+its reason: `capture`, `from_primitives`, `validate_dataset` and
+`PortfolioSnapshot` (and `restore`, already listed, now in eleven places).
 
 ## Changing the public API
 

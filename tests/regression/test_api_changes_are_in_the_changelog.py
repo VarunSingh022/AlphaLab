@@ -16,6 +16,7 @@ required either: they break nobody.
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from pathlib import Path
@@ -68,9 +69,19 @@ def _section(release: str) -> str:
     return text[start : end if end != -1 else len(text)]
 
 
-def _changes() -> list[str]:
-    before = _previous()["packages"]
-    after = json.loads(CURRENT.read_text(encoding="utf-8"))["packages"]
+def _current() -> dict[str, Any]:
+    packages = json.loads(CURRENT.read_text(encoding="utf-8"))["packages"]
+    assert isinstance(packages, dict)
+    return packages
+
+
+def _changes(
+    before: dict[str, Any] | None = None, after: dict[str, Any] | None = None
+) -> list[str]:
+    """Names removed or rebound from ``before`` to ``after``: by default, since the last release."""
+
+    before = _previous()["packages"] if before is None else before
+    after = _current() if after is None else after
     changed: list[str] = []
     for package in sorted(set(before) | set(after)):
         old, new = before.get(package, {}), after.get(package, {})
@@ -84,9 +95,36 @@ def _changes() -> list[str]:
 
 
 def test_the_comparison_finds_what_it_should() -> None:
-    """A guard on the guard: the diff against the previous release is not empty."""
+    """A guard on the guard: a removed name and a rebound one are each found, a move is not.
 
-    assert _changes(), "no change since the previous release -- or the comparison is broken"
+    Until v4.0 this asserted that the diff against the previous release was not
+    empty, which held because v3.10 to v3.13 each removed or restated something.
+    v4.0 removes and rebinds nothing -- that is what the freeze means -- so the
+    comparison is shown a release that does: this manifest with one name taken
+    away, one function given another parameter and one enum a member fewer, and
+    one name defined in another module under the same signature, which a caller
+    does not see.
+    """
+
+    current = _current()
+    altered = copy.deepcopy(current)
+    strategy = altered["alphalab.strategy"]
+    del strategy["start_strategy"]
+    strategy["context_factory"] = strategy["context_factory"].replace(
+        "(clock: ", "(name: str, clock: ", 1
+    )
+    strategy["StrategyStatus"] = strategy["StrategyStatus"].replace(", DISPOSED]", "]")
+    strategy["FixedClock"] = strategy["FixedClock"].replace(
+        "alphalab.strategy.context.FixedClock", "alphalab.strategy.clocks.FixedClock"
+    )
+    assert altered != current
+
+    assert sorted(_changes(current, altered)) == [
+        "alphalab.strategy.StrategyStatus",
+        "alphalab.strategy.context_factory",
+        "alphalab.strategy.start_strategy",
+    ]
+    assert _changes(current, current) == []
 
 
 def test_every_removed_or_changed_name_is_in_the_changelog() -> None:

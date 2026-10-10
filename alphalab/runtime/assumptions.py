@@ -15,6 +15,7 @@ can carry the assumptions as research settings (:meth:`ExecutionAssumptions.sett
 from __future__ import annotations
 
 from collections.abc import Mapping
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, fields, is_dataclass
 from decimal import Decimal
 from enum import Enum
@@ -33,9 +34,18 @@ def describe(value: Any) -> str:
     """A deterministic description of a configuration object.
 
     A dataclass is written as its name and fields, recursively; a ``Decimal``
-    as its exact text, an enum member by name, a primitive by ``repr``, and
-    anything else by its qualified type name -- never by the default object
-    ``repr``, which carries a memory address and so differs in every process.
+    as its exact text, an enum member by name, a primitive by ``repr``, a
+    mapping or a set by its contents, and anything else by its qualified type
+    name -- never by the default object ``repr``, which carries a memory address
+    and so differs in every process.
+
+    A mapping's entries and a set's members are written sorted by their own
+    descriptions: two equal containers describe alike whatever order they were
+    built in, and a set of strings, whose iteration order changes with the
+    interpreter's hash seed, describes alike in every process. Until v4.0 a
+    container was written by its type name alone, so a sizing model's per-asset
+    volatilities or the sides a tax falls on did not reach the description that
+    a restore compares and a run's identity records (ledger PER-009).
     """
 
     if is_dataclass(value) and not isinstance(value, type):
@@ -49,6 +59,11 @@ def describe(value: Any) -> str:
         return repr(value)
     if isinstance(value, tuple | list):
         return "(" + ", ".join(describe(item) for item in value) + ")"
+    if isinstance(value, Mapping):
+        entries = sorted(f"{describe(key)}: {describe(item)}" for key, item in value.items())
+        return "{" + ", ".join(entries) + "}"
+    if isinstance(value, AbstractSet):
+        return "{" + ", ".join(sorted(describe(item) for item in value)) + "}"
     # A plain configuration class -- the commission and slippage models are
     # slotted classes, not dataclasses -- is written by its stored parameters,
     # so ``PercentageCommission(rate=0.001)`` and ``(rate=0.002)`` differ.

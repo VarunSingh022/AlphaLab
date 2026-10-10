@@ -113,7 +113,49 @@ def black_scholes_value(
     return strike_f * discount * _norm_cdf(-d2) - carried * _norm_cdf(-d1)
 
 
-def _validate_pricing_inputs(spot: Decimal, volatility: float, carry: Carry) -> None:
+def _finite(value: object) -> bool:
+    """Whether ``value`` is a finite number: a ``Decimal`` or a non-boolean ``int``/``float``."""
+
+    if isinstance(value, Decimal):
+        return value.is_finite()
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return math.isfinite(value)
+
+
+def _require_market_inputs(
+    spot: Decimal | float,
+    risk_free_rate: float,
+    volatility: float | None = None,
+    market_price: Decimal | None = None,
+) -> None:
+    """Refuse a non-finite market input before any arithmetic reads it (v4.0).
+
+    Until v4.0 a ``NaN`` or infinite volatility or rate reached the closed form
+    and came back as a ``Decimal('NaN')`` price and ``NaN`` Greeks, with no
+    error -- a comparison with ``NaN`` is false, so ``volatility <= 0`` let it
+    through -- and a ``NaN`` spot raised ``decimal.InvalidOperation`` rather than
+    saying which input was wrong. A model value computed from a number that is
+    not one is not a value.
+
+    Raises:
+        OptionInputError: Naming the first input that is not a finite number.
+    """
+
+    for name, value in (
+        ("spot", spot),
+        ("risk_free_rate", risk_free_rate),
+        ("volatility", volatility),
+        ("market_price", market_price),
+    ):
+        if value is not None and not _finite(value):
+            raise OptionInputError(f"{name} must be a finite number, got {value!r}.")
+
+
+def _validate_pricing_inputs(
+    spot: Decimal, volatility: float, carry: Carry, risk_free_rate: float
+) -> None:
+    _require_market_inputs(spot, risk_free_rate, volatility)
     if spot <= Decimal("0"):
         raise OptionInputError(f"spot must be positive, got {spot}.")
     if volatility <= 0.0:
@@ -143,11 +185,12 @@ def black_scholes_price(
             dividend-free stock is ``dividend_yield(0.0)``, said out loud.
 
     Raises:
-        OptionInputError: If spot or volatility are not positive, the carry is
-            not a :class:`~alphalab.options.carry.Carry`, or the contract has
-            already expired as of valuation_timestamp.
+        OptionInputError: If spot, volatility or the rate is not a finite
+            number, spot or volatility is not positive, the carry is not a
+            :class:`~alphalab.options.carry.Carry`, or the contract has already
+            expired as of valuation_timestamp.
     """
-    _validate_pricing_inputs(spot, volatility, carry)
+    _validate_pricing_inputs(spot, volatility, carry, risk_free_rate)
     years = time_to_expiry_years(contract, valuation_timestamp)
     price = black_scholes_value(
         contract, float(spot), volatility, risk_free_rate, years, carry=carry
@@ -175,11 +218,12 @@ def black_scholes_greeks(
     times the value.
 
     Raises:
-        OptionInputError: If spot or volatility are not positive, the carry is
-            not a :class:`~alphalab.options.carry.Carry`, or the contract has
-            already expired as of valuation_timestamp.
+        OptionInputError: If spot, volatility or the rate is not a finite
+            number, spot or volatility is not positive, the carry is not a
+            :class:`~alphalab.options.carry.Carry`, or the contract has already
+            expired as of valuation_timestamp.
     """
-    _validate_pricing_inputs(spot, volatility, carry)
+    _validate_pricing_inputs(spot, volatility, carry, risk_free_rate)
     years = time_to_expiry_years(contract, valuation_timestamp)
 
     spot_f, strike_f = float(spot), float(contract.strike)

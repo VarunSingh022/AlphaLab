@@ -413,9 +413,10 @@ def test_the_run_snapshot_schema_did_not_move() -> None:
 
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 
-    # Moved to 2 by v3.10's analytics basis, to 3 by v3.11's order terms and to 4
-    # by v3.12's observation cursor, not by the live driver.
-    assert RUN_SNAPSHOT_SCHEMA == 4
+    # Moved to 2 by v3.10's analytics basis, to 3 by v3.11's order terms, to 4
+    # by v3.12's observation cursor and to 5 by v4.0's described fill policy
+    # (PER-008), not by the live driver.
+    assert RUN_SNAPSHOT_SCHEMA == 5
 
 
 # ---------------------------------------------------------------------------

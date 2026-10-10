@@ -14,6 +14,13 @@ ledger entry (`test_status`, `v310_outcome`, `v311_outcome`). v3.10 found fiftee
 at the end of section Y; v3.11 found seventeen more, listed at the end of section Z — fifteen
 fixed in it, two (EXE-010, TST-011) scheduled for v3.12.0. The *Status* column of the master table reads the
 ledger.
+**Status at v4.0.0:** v3.12 and v3.13 closed every remaining assignment. v4.0 re-read the
+history this audit had not -- the v2-era ADRs' non-goals, the CHANGELOG's gap and limitation
+sections and `nowandfuture.md`'s open questions, 257 items classified in
+[`V4_HISTORICAL_INVENTORY.md`](V4_HISTORICAL_INVENTORY.md) -- and audited the canonical path
+again from outside; what it found and fixed, and the release-candidate evidence, are in
+[`V4_RELEASE_AUDIT.md`](V4_RELEASE_AUDIT.md). The ledger now holds 272 entries, one of them
+accepted future work (FUT-001).
 
 Method. Documentation was read as a statement of intent and then checked against the code, the
 import graph and runtime behaviour. Where a finding says **verified**, a probe was run against the

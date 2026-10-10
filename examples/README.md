@@ -1,6 +1,6 @@
 # AlphaLab Examples
 
-Sixty-nine runnable scripts, each demonstrating one part of AlphaLab against
+Seventy runnable scripts, each demonstrating one part of AlphaLab against
 its real public API. Every one of them runs:
 
 ```bash
@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all sixty-nine are executed as a
+paths far more thoroughly under `tests/` — but all seventy are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -64,7 +64,7 @@ API.
 | 44 | `44_expected_paper_live_comparison.py` | A backtest, a paper run and a venue's own records compared: declared alignment, stated tolerances, money per currency, a venue's unmeasured slippage staying **missing** instead of becoming zero, and three pairs so a divergence can be located |
 | 45 | `45_broker_reconciliation.py` | AlphaLab's execution state against a normalized broker state: a lost fill, an order the venue never held, one nobody routed, a resized position, venue symbols joined through a supplied mapping, and a currency the account cannot speak about — unreconciled, not agreed |
 | 46 | `46_strategy_fingerprints.py` | **The v3.6 fingerprint**: five defining inputs each changing the identity on its own, mapping order and name spelling that do not, a dependency record whose completeness is declared rather than assumed, and the same identity from a second interpreter with a different hash seed |
-| 47 | `47_reproducible_research_artifacts.py` | What exact inputs produced this result: a manifest whose every identity is read from its owner, a rerun that reproduces, one of other inputs, one that diverges because a live object changed, an unseeded run refused, and a research study with its absent seed stated |
+| 47 | `47_reproducible_research_artifacts.py` | What exact inputs produced this result: a manifest whose every identity is read from its owner, a rerun that reproduces, one of other inputs (another seed, or another simulator cost, recorded since v4.0), one that diverges because the strategy traded parameters its declaration does not state, an unseeded run refused, and a research study with its absent seed stated |
 | 48 | `48_strategy_certification.py` | Eight machine-verifiable properties with four statuses and no score: evidence observed rather than asserted, leverage and drawdown read as the pre-trade gate reads them, resource figures that say how and where they were measured, and what each assessment does not establish |
 | 49 | `49_strategy_portability.py` | One fingerprint across research, paper and two brokers declared as capabilities: eight requirements each satisfied, blocked, unverified or not applicable, a blocker named rather than worked around, and a deployment that quietly retunes the strategy caught |
 | 50 | `50_event_driven_research.py` | **The v3.7 event model**: one canonical record for any release, four instants kept apart (occurred, knowable, in effect, ingested), where a release falls in the trading day, a feed that never recorded its delivery ingested and never visible, and an event study anchored at the first session the news could be traded — excluded events named, no p-value |
@@ -85,8 +85,9 @@ API.
 | 65 | `65_execution_analytics.py` | **The whole contract end to end**: two strategies netted into one parent, worked by a VWAP, each child capability-checked and sent, every venue report normalized and settled on the parent; the mirror reconciled against the venue and the book against the mirror; implementation shortfall with its components split between the strategies, slippage against three named references, fill quality, latency across two clocks, rejection rate and venue quality; two currencies converted only at a stated rate; every identity reproduced by a rerun |
 | 66 | `66_american_options.py` | **American options on a lattice**: a put converging step by step to Hull's table and its early-exercise premium; a call on which early exercise is worth nothing until a cash dividend; Greeks from the lattice and a lattice too coarse to carry the rate refused; implied volatility through the lattice an American quote was priced on; volatility between expiries linear in total variance, with a calendar arbitrage refused |
 | 67 | `67_optimal_split_and_urgency.py` | The greedy sweep against the optimal split of one order across three venues — a fee paid on a remainder, a venue filled past its marginal cost — and a falling marginal cost refused; an Almgren–Chriss urgency estimated from stated inputs; iceberg tranches varied from a seed and reproduced on a rerun |
-| 68 | `68_rerun_from_a_manifest.py` | A lock file read into the dependency manifest a fingerprint records; a backtest re-executed from its manifest: REPRODUCED, DIVERGED with the first paths where the records part, and INPUTS_DIFFER with nothing run |
+| 68 | `68_rerun_from_a_manifest.py` | A lock file read into the dependency manifest a fingerprint records; a backtest re-executed from its manifest: REPRODUCED; another cost INPUTS_DIFFER, the simulator's configuration now recorded; a strategy trading parameters its declaration does not state DIVERGED, with the first paths where the records part; another dataset or lock INPUTS_DIFFER with nothing run |
 | 69 | `69_cron_timers.py` | Cron expressions on a stated zone's wall clock: the day-field rule, a spring-forward gap and a fall-back repeat with their UTC instants, refusals when written, and a cron timer fired and rescheduled on the engine |
+| 70 | `70_build_a_strategy.py` | **Build your first strategy** (v4.0): labelled synthetic closes ingested under a refusing policy, a moving-average crossover written against the strategy protocol and started with `start_strategy`, every fill and the cash checked against arithmetic done by hand, a flat series that never trades, a run stopped halfway and continued to a byte-identical result, and five refusals |
 
 ## Reading order
 
@@ -145,6 +146,11 @@ is the one that shows the pieces are one contract.
 `66`–`69` are v3.13's and stand alone: **66** after `36`, **67** after `63` and
 `64`, **68** after `47`, and **69** after `32`. Each shows a capability v3.13
 implemented rather than leave for a later major version.
+
+`70` is v4.0's and is the one to read **first** if you are here to write a
+strategy: it builds one from data to a reproduced result through the public API
+alone, with every number checked by hand, and `docs/GETTING_STARTED.md` walks
+through it step by step.
 
 `05_broker_connection.py` was rewritten in v2.17 against the canonical broker
 boundary, having used `alphalab.integrations` until that package was removed

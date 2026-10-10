@@ -301,6 +301,10 @@ def _recorded_configuration(snapshot: RunSnapshot) -> dict[str, Any]:
         "risk_free_rate": snapshot.risk_free_rate,
         "compile_analytics": snapshot.compile_analytics,
         "fill_policy_type": snapshot.fill_policy_type,
+        # How the fill policy was configured, as the pipeline's record carries
+        # the sizing model's and the simulator's (ledger PER-008): two runs that
+        # differ only in a cost or fill parameter are two configurations.
+        "fill_policy_description": snapshot.fill_policy_description,
         "strategies": [
             {
                 "strategy_id": record.strategy_id,

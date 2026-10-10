@@ -197,6 +197,7 @@ from alphalab.risk.limits import (
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.models import RiskSeverity, RiskViolation
 from alphalab.risk.state import RiskState
+from alphalab.runtime.assumptions import describe
 from alphalab.runtime.calendars import VenueCalendars, venue_calendars_from_primitives
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineConfig,
@@ -291,9 +292,16 @@ __all__ = [
 #: Version 7 (v3.13) writes each strategy's status under the enum's v3.13 name,
 #: ``StrategyStatus.RUNNING`` where version 6 wrote ``LifecycleState.RUNNING``
 #: (ledger API-001): a plain enum member is persisted with its class name, so
-#: the name is part of the format (ledger PER-004). Every earlier version is
-#: read through :data:`PIPELINE_SCHEMA_HISTORY`.
-PIPELINE_SNAPSHOT_SCHEMA: Final = 7
+#: the name is part of the format (ledger PER-004).
+#:
+#: Version 8 (v4.0) records each live object's parameters beside its type --
+#: ``sizing_model_description`` and ``simulator_description``, written by
+#: :func:`~alphalab.runtime.assumptions.describe` -- so that :func:`restore`
+#: refuses a sizing model or simulator configured differently from the one the
+#: run was captured with, where version 7 accepted any object of the right class
+#: (ledger PER-008). Every earlier version is read through
+#: :data:`PIPELINE_SCHEMA_HISTORY`.
+PIPELINE_SNAPSHOT_SCHEMA: Final = 8
 
 _SUBSYSTEM: Final = "pipeline"
 
@@ -681,6 +689,23 @@ def _v6_to_v7(payload: dict[str, Any]) -> dict[str, Any]:
     return {**payload, "strategy": strategies}
 
 
+def _v7_to_v8(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record that a version-7 payload does not say how its live objects were configured.
+
+    Version 7 wrote the sizing model's and the simulator's types and nothing
+    else (ledger PER-008). ``None`` is not a configuration invented for them: it
+    is "not recorded", and :func:`restore` checks such an object by its type
+    alone, exactly as the release that wrote the payload did.
+    """
+
+    config = {
+        **payload["config"],
+        "sizing_model_description": None,
+        "simulator_description": None,
+    }
+    return {**payload, "config": config}
+
+
 #: How every pipeline payload a release has written is read by this one.
 #:
 #: A version-1 payload is still missing nothing: it records every field its
@@ -728,6 +753,12 @@ PIPELINE_SCHEMA_HISTORY: Final = SchemaHistory(
             6,
             "version 7 writes each strategy's status under the enum's v3.13 name, StrategyStatus",
             upgrade=_v6_to_v7,
+        ),
+        SchemaStep(
+            7,
+            "version 8 records how the sizing model and the simulator were configured; a "
+            "version-7 payload recorded their types alone, and is checked by type alone",
+            upgrade=_v7_to_v8,
         ),
     ),
 )
@@ -856,6 +887,16 @@ class ConfigRecord:
     :func:`alphalab.lifecycle.snapshot.restore` does for a trained model.
     ``instruments_type`` is ``None`` when the run configured no registry, which
     is fully supported -- and a run that had one must be given one back.
+
+    ``sizing_model_description`` and ``simulator_description`` record *how it
+    was configured*: :func:`~alphalab.runtime.assumptions.describe` of the
+    object, its parameters written out with no memory address in them. Since
+    v4.0 :func:`restore` refuses an object of the right type whose description
+    differs, because a commission model with another rate is another run
+    (ledger PER-008). ``None`` only in a payload upgraded from version 7 or
+    earlier, which recorded the type alone, and whose objects are therefore
+    checked by type alone. The instrument registry is not described: it is
+    configuration that ADR-0027 decision 5 says ``restore`` must not compare.
     """
 
     account: Account
@@ -875,6 +916,8 @@ class ConfigRecord:
     fill_timing: FillTiming
     calendars: VenueCalendars
     retention: RetentionPolicy
+    sizing_model_description: str | None
+    simulator_description: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1053,6 +1096,8 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
         fill_timing=config.fill_timing,
         calendars=config.calendars,
         retention=config.retention,
+        sizing_model_description=describe(config.sizing_model),
+        simulator_description=describe(config.simulator),
     )
 
 
@@ -1267,13 +1312,22 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
 # ---------------------------------------------------------------------------
 
 
-def _require_object(supplied: object | None, recorded: str, what: str) -> Any:
+def _require_object(
+    supplied: object | None, recorded: str, what: str, description: str | None = None
+) -> Any:
     """Take a live object back from the caller, or refuse.
 
-    Two checks and no third behaviour, following
-    :func:`alphalab.lifecycle.snapshot.restore`'s ``_require_model``: the object
-    must be supplied, and it must be what the snapshot recorded. ``None`` is
-    never substituted, and the recorded name is never used to import anything.
+    Following :func:`alphalab.lifecycle.snapshot.restore`'s ``_require_model``:
+    the object must be supplied, and it must be what the snapshot recorded.
+    ``None`` is never substituted, and the recorded name is never used to import
+    anything.
+
+    When the snapshot also recorded the object's ``description`` (version 8 on,
+    ledger PER-008), the supplied object must be configured the same way: an
+    ``ExecutionSimulator`` charging another commission rate is the right type
+    and the wrong run, and continuing with it would book the rest of the run at
+    costs the captured part never paid while the result described the whole run
+    by the new ones.
     """
 
     if supplied is None:
@@ -1287,6 +1341,14 @@ def _require_object(supplied: object | None, recorded: str, what: str) -> Any:
         raise StateDecodeError(
             f"The {what} supplied is a {actual}, but the snapshot recorded a {recorded}."
         )
+    if description is not None:
+        configured = describe(supplied)
+        if configured != description:
+            raise StateDecodeError(
+                f"The {what} supplied is configured as {configured}, but the snapshot "
+                f"recorded {description}. A restored run continues with the objects it "
+                "was captured with; supply one configured as recorded."
+            )
     return supplied
 
 
@@ -1312,9 +1374,14 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
         allocation_constraints=record.allocation_constraints,
         risk_limits=record.risk_limits,
         sizing_model=_require_object(
-            objects.sizing_model, record.sizing_model_type, "sizing model"
+            objects.sizing_model,
+            record.sizing_model_type,
+            "sizing model",
+            record.sizing_model_description,
         ),
-        simulator=_require_object(objects.simulator, record.simulator_type, "simulator"),
+        simulator=_require_object(
+            objects.simulator, record.simulator_type, "simulator", record.simulator_description
+        ),
         venue=record.venue,
         currency=record.currency,
         also_settles=frozenset(record.also_settles),
@@ -2150,6 +2217,14 @@ def _config(value: Any) -> ConfigRecord:
         # Keeps everything in a payload upgraded from version 5 or earlier: no
         # earlier run trimmed a history. See PIPELINE_SCHEMA_HISTORY.
         retention=_retention(require(payload, "retention"), f"{where}.retention"),
+        # None in a payload upgraded from version 7 or earlier, which recorded
+        # each live object's type alone. See PIPELINE_SCHEMA_HISTORY.
+        sizing_model_description=as_optional_str(
+            require(payload, "sizing_model_description"), f"{where}.sizing_model_description"
+        ),
+        simulator_description=as_optional_str(
+            require(payload, "simulator_description"), f"{where}.simulator_description"
+        ),
     )
 
 

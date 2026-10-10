@@ -10,7 +10,7 @@ By the end of this guide you will have
 - Verified your environment
 - Explored the project structure
 - Understood the architecture
-- Run your first example
+- Built, run, checked and reproduced your first strategy
 - Learned where to go next
 
 ---
@@ -81,17 +81,10 @@ mypy .
 pytest
 ```
 
-Expected output
-
-```
-All checks passed.
-
-Success: no issues found.
-
-All tests passed.
-```
-
-If all commands complete successfully, your environment is correctly configured.
+Each should succeed: Ruff reports `All checks passed!`, mypy
+`Success: no issues found`, and pytest a summary line with every test passed and
+none skipped. CI runs the suite with `python -m pytest -W error`, which turns any
+warning into a failure; so can you.
 
 ---
 
@@ -177,35 +170,93 @@ research candidate → evidence → model version → strategy version
 
 ---
 
-# First Example
+# Build your first strategy
 
-Navigate to the examples directory.
+The complete, runnable version of this walk-through is
+[`examples/70_build_a_strategy.py`](../examples/70_build_a_strategy.py); run it
+with `python examples/70_build_a_strategy.py`. Every name used below is part of
+the public API (`docs/api/PUBLIC_API.md`).
 
+## 1. Data with an identity
+
+A dataset is ingested, validated and given a version derived from its content.
+Rows already in memory go through `alphalab.api.ingest_rows`, files through
+`ingest_csv`; both take an `IngestionRequest` that states every decision the
+ingestion may not make on its own -- the frequency, which end of its interval a
+bar is stamped at, the asset class, the price basis, and a `CleaningPolicy`.
+Start from `REFUSE_EVERYTHING`: a duplicate, an out-of-order row, an impossible
+bar, a missing or non-numeric price each stop the ingestion and say why. A
+policy that drops such rows records each drop in the dataset's provenance.
+
+Then declare what the symbols *are*: an `InstrumentRecord` (symbol, asset type,
+listing exchange, currency) registered in an `InstrumentRegistry`, and a
+`NormalizationPolicy` naming the registry, the venue, the currency and the bar
+interval. The execution path trades a derived `asset_id`, never a provider's
+symbol.
+
+## 2. A strategy is a class with a hook
+
+Subclass `alphalab.strategy.BaseStrategy` and implement the hook for what you
+subscribe to -- `on_bar`, `on_quote`, `on_tick` -- returning `Intent`s. A
+target-position intent (`IntentKind.TARGET_QUANTITY`) states the position you
+want; allocation turns the difference from what is held into an order, so
+stating the same target again asks for nothing. Check your parameters in the
+constructor, and read prices from the event, which is the instant you are
+deciding at.
+
+If the strategy keeps memory -- a window of closes, a counter -- declare it with
+the three `StrategyStateProtocol` members (`strategy_state_version`,
+`capture_state`, `restore_state`) so a run snapshot carries it.
+
+## 3. Start it, and state the run
+
+```python
+runtime = start_strategy(
+    create_runtime(),
+    "MY-STRATEGY",
+    my_strategy,
+    config={},
+    subscriptions={"bars"},
+    at=first_instant - 1.0,
+)
+contexts = context_factory(FixedClock(first_instant), DiscardingLogger())
 ```
-examples/
+
+`start_strategy` registers the strategy and takes it to `RUNNING` through the
+supervisor. A `RunConfig` then states everything the run assumes, with nothing
+defaulted that could change a number: the account and its currency, starting
+cash, a `CapitalBudget`, `AllocationConstraints` (shorting, whole units),
+`RiskLimits`, an `ExecutionSimulator` with its commission and slippage models,
+the `FillTiming` -- `SAME_EVENT` fills at the price that decided the order,
+`NEXT_EVENT` at the next one -- and a seed.
+
+## 4. Run it and read what it did
+
+```python
+result = backtest(run_config, dataset, runtime, contexts, normalization)
 ```
 
-Choose one of the introductory examples.
+`result.fills` are the executions (side, quantity, price, commission);
+`result.orders` the orders; `result.valuation` the cash, equity and realized and
+unrealized P&L; `result.state.portfolio.positions` what is held;
+`result.report` the performance report; `result.strategy_failures` any hook that
+raised; `result.execution_assumptions` the timing, costs and fill policy the run
+assumed, so a result says how optimistic it is.
 
-Example workflow
+Check the numbers you can check by hand. Example 70 recomputes every fill, the
+cash, the realized P&L and the commission in plain arithmetic and asserts the
+engine agrees, runs flat prices to show no order is placed, and feeds it invalid
+parameters and data to show each is refused.
 
-```
-Load Dataset
+## 5. Reproduce it
 
-↓
-
-Run Research
-
-↓
-
-Optimize Portfolio
-
-↓
-
-Generate Report
-```
-
-Each example demonstrates one complete workflow.
+`alphalab.lifecycle.digest_run(result)` names a run by digests: the same data,
+configuration and seed give the same `result_id`. A run can be stopped, captured
+(`alphalab.runtime.run_snapshot.capture`), serialized, restored with freshly
+built objects (`restore`) and continued under `BacktestEngine.resume`; the
+continued run has the same `result_id` as one that never stopped. A restore
+refuses a sizing model, simulator or fill policy configured otherwise than the
+one the run was captured with.
 
 ---
 
@@ -371,6 +422,10 @@ Examples include
 - Broker capabilities, the normalized execution lifecycle, execution
   algorithms, smart routing and execution analytics end to end
   (examples 61–65)
+- American options, the optimal split and urgency, a rerun from a manifest,
+  and cron timers (examples 66–69)
+- Building, checking and reproducing a strategy through the public API
+  (example 70)
 
 ---
 
@@ -425,6 +480,7 @@ Please include enough information to reproduce the problem.
 
 After completing this guide, consider exploring
 
+- Your first strategy, end to end — `examples/70_build_a_strategy.py`
 - The execution path — `examples/11_unified_backtest.py`, then
   `alphalab.runtime.ExecutionPipeline` and `alphalab.runtime.run.RunEngine`
 - The lifecycle path — `examples/12_model_lifecycle.py`, then
@@ -442,7 +498,7 @@ invariants are frozen, and what must not be changed casually.
 
 Congratulations!
 
-You have successfully set up AlphaLab and are ready to begin building quantitative research workflows.
+You have set up AlphaLab and built a strategy on it.
 
 The advanced capabilities — machine learning, distributed research and cloud
 execution — ship as standalone packages; their

@@ -623,7 +623,8 @@ def benchmark_analytics() -> None:
 def run_benchmark() -> None:
     print("=" * 94)
     print(
-        "AlphaLab v3.9 -- capabilities, lifecycle, algorithms, routing, reconciliation, analytics"
+        "AlphaLab -- capabilities, lifecycle, algorithms, routing, reconciliation, analytics"
+        " (added in v3.9)"
     )
     print("=" * 94)
     benchmark_capabilities()

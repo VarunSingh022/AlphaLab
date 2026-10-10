@@ -519,19 +519,83 @@ Before creating a release, verify
   runs, so a `ResourceWarning` fails it
 - Every example in `examples/` runs with `-W error`
 - Every benchmark in `benchmarks/` runs
-- `python -m build` and `twine check dist/*` pass, and each distribution,
-  installed into a clean environment, passes `tests/installed_smoke.py`
+- `python -m build` and `twine check --strict dist/*` pass, and each
+  distribution, installed into a clean environment **outside the checkout**,
+  passes `tests/installed_smoke.py <version>` (which also runs examples `11`
+  and `70` from the installed package)
 - `git diff --check` is clean
+- The release's distributions are built from the final tree into `dist/`, each
+  installed alone into a fresh environment and checked there (`pip check`, the
+  version, the import location, `tests/installed_smoke.py`), and their SHA-256
+  sums kept beside them; the hashes live there and in the release notes, never
+  in a file the sdist itself carries
 - `CHANGELOG.md` leads with an entry for the release (a test reads it)
 - The public API manifest is regenerated (`python docs/api/generate_public_api.py`)
   and the release's copy kept as `docs/api/history/<version>.json`; every name
   removed or rebound since the previous release is named in the release's
   CHANGELOG section (a test reads both)
+- The ledger's guards hold: `python docs/audit/scripts/historical_inventory_v4.py
+  --check` reports the inventory and its `HIS-xxx` ledger entries current, and an
+  entry left open is **accepted future work** listed in ROADMAP's *Future work*
+  (since v4.0, ADR-0049)
+- The release's stress and mutation programs run when the engine changed:
+  `docs/audit/scripts/stress_v4_0.py` (minutes), and
+  `docs/audit/scripts/mutation_v4_0.py <scratch> --worktree` against the
+  working tree, each surviving mutation explained or caught by a new test
 - The release certificate is regenerated **last**
   (`python -W error docs/audit/scripts/certify_release.py`), and `--check`
   passes on the tree that is tagged (CI runs it). Since v3.13 `--check` also
   fails when the certificate names other engine source than the build's, so
   a commit that changes `alphalab/` carries its re-certification
+- **Release Preflight has passed on the exact commit to be tagged** (below), and
+  the release attaches the artifacts that run built, with its `SHA256SUMS-<version>`
+
+## Release Preflight (since v4.0)
+
+`release.yml` runs only once a release is published -- too late to stop a bad
+one. `.github/workflows/preflight.yml` runs every release gate against one exact
+candidate commit **before** publication, and publishes nothing:
+
+| Job | What it checks |
+| --- | --- |
+| Candidate and release identity | which commit; `release_preflight.py version --expected`: the package's version **is** the release -- `RELEASE_VERSION` (4.0.0) on a push or a labelled pull request, `expected_version` on a manual run -- and the CHANGELOG, the certificate and the API manifest are that release's. References that agree on another version do not pass |
+| CI gates | `ci.yml`, called with that commit as `ref` -- every checkout in it takes the given SHA, never the event's (under a pull request, the merge) -- ruff, `mypy .`, `pytest -W error`, every example, `certify_release.py --check`, the build, `twine check --strict`, both artifacts installed and smoke-tested |
+| Benchmarks | `benchmarks.yml`, called for that commit |
+| CodeQL gate | an analysis of that commit, not uploaded; fails on an error-level or high-severity finding |
+| Distributions | a fresh build; `twine check --strict`; `release_preflight.py distributions`: the two expected file names and no others, the archives' metadata and contents, `SHA256SUMS-<version>`, each artifact installed alone and run through `tests/installed_smoke.py` from outside the checkout; uploaded as the run's artifact for 30 days |
+| Verdict | fails unless every job above succeeded |
+
+**Three ways to run it, each on one exact commit.**
+
+1. *A push to the candidate branch* (`work/v4.0.0-qa-hardening` for v4.0.0;
+   the trigger names that branch alone, never `main`). It needs nothing on
+   `main` and validates the commit pushed: the run's commit must be the pushed
+   tip, the ref that branch, and a branch **deletion** is refused -- GitHub
+   reports the default branch's commit for a deletion, which would otherwise
+   validate `main`. Retarget or remove the trigger after the release.
+2. *A pull request* from the candidate branch into `main` labelled
+   `release-preflight` (create the label once under Issues -> Labels). The run
+   validates the pull request's **head** commit, not the merge commit, and runs
+   again on every push while the label is on -- beside the push route's run of
+   the same commit, so label the pull request only if you want that second run.
+3. *Once `preflight.yml` is on `main`* -- Actions -> Release Preflight -> Run
+   workflow; choose the candidate under **Use workflow from**, type the same
+   name into `candidate` and the version into `expected_version`. A run left on
+   `main` with another name typed fails at once and validates nothing. GitHub
+   offers "Run workflow" only for a workflow on the default branch; after one
+   run it can also be dispatched from the CLI:
+   `gh workflow run preflight.yml --ref <branch> -f candidate=<branch> -f expected_version=<version>`.
+
+`release.yml`, after publication, checks the published tag with
+`release_preflight.py version --tag "${TAG}"`: the tag must be exactly
+`v<MAJOR>.<MINOR>.<PATCH>` and name the package's version, and only then is the
+version taken from it. A new release updates the push branch and
+`RELEASE_VERSION` in `preflight.yml` together; a test holds them to each other
+and to the package.
+
+Locally, the same script checks a local build:
+`python docs/audit/scripts/release_preflight.py distributions <dist> --version
+<version> --record <dist>/VERIFICATION-<version>.txt`.
 
 **The version is declared once** (since v3.10): `alphalab/common/_version.py`,
 read by the build (`[tool.hatch.version]`) and by the package. Before v3.10 it
@@ -549,9 +613,13 @@ table. `tests/regression/test_version_markers_agree.py` holds the version each
 of them states to the package's (since v3.13, when `nowandfuture.md` was found
 still reading 3.9.0); the prose is still yours to re-read.
 
-**After v3.0.0 the architecture is frozen.** A change that moves an ownership
-boundary, a schema contract, or a documented invariant in `nowandfuture.md` needs
-an ADR and a major release. Everything else follows the ordinary workflow.
+**After v3.0.0 the architecture is frozen; from v4.0.0 the public API is too.**
+A change that moves an ownership boundary or a documented invariant in
+`nowandfuture.md`, removes or rebinds a public name, or refuses a payload an
+earlier release wrote needs an ADR and a major release
+(`docs/api/PUBLIC_API.md`, *Stability from v4.0*). A schema step that reads
+every older payload, a new name, and a refusal of an input that was never valid
+are a minor release's to make. Everything else follows the ordinary workflow.
 
 ---
 

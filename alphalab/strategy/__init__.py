@@ -44,6 +44,8 @@ from alphalab.strategy.adaptive_rules import (
 )
 from alphalab.strategy.adaptive_strategy import ADAPTIVE_STRATEGY_STATE_VERSION, AdaptiveStrategy
 from alphalab.strategy.context import (
+    DiscardingLogger,
+    FixedClock,
     HistoryAccessorProtocol,
     MarketViewProtocol,
     NoHistory,
@@ -58,6 +60,7 @@ from alphalab.strategy.context import (
     ScopedLoggerProtocol,
     StrategyContext,
     UniverseProtocol,
+    context_factory,
 )
 from alphalab.strategy.definition import StrategyDefinition, numeric_parameters
 from alphalab.strategy.dispatcher import Dispatcher
@@ -101,7 +104,7 @@ from alphalab.strategy.registry import (
     instances_for,
     runtime_for,
 )
-from alphalab.strategy.runtime import create_runtime, register_strategy
+from alphalab.strategy.runtime import create_runtime, register_strategy, start_strategy
 from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 from alphalab.strategy.subscription import SUBSCRIBE_ALL, Subscriptions, Topic
 from alphalab.strategy.supervisor import RuntimeSupervisor
@@ -130,10 +133,12 @@ __all__ = [
     "BaseStrategy",
     "ClockProtocol",
     "DecisionTiming",
+    "DiscardingLogger",
     "Dispatcher",
     "DuplicateStrategyError",
     "ExponentialMeanRule",
     "FillEvent",
+    "FixedClock",
     "HistoryAccessorProtocol",
     "HookExecutionError",
     "Intent",
@@ -187,6 +192,7 @@ __all__ = [
     "apply_update",
     "canonical_configuration_key",
     "checkpoint",
+    "context_factory",
     "create_runtime",
     "defines_on_observation",
     "defines_on_slice",
@@ -200,5 +206,6 @@ __all__ = [
     "replay_updates",
     "restore",
     "runtime_for",
+    "start_strategy",
     "validate_intent",
 ]

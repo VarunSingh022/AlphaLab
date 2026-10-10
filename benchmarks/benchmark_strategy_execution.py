@@ -514,7 +514,7 @@ def benchmark_reconciliation() -> None:
 
 def run_benchmark() -> None:
     print("=" * 78)
-    print("AlphaLab v3.5 -- strategy execution and production intelligence")
+    print("AlphaLab -- strategy execution and production intelligence (added in v3.5)")
     print("=" * 78)
     benchmark_progression()
     benchmark_specifications()

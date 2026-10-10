@@ -521,7 +521,8 @@ def benchmark_portability() -> None:
 def run_benchmark() -> None:
     print("=" * 84)
     print(
-        "AlphaLab v3.6 -- strategy evaluation: fingerprints, manifests, certification, portability"
+        "AlphaLab -- strategy evaluation: fingerprints, manifests, certification, portability"
+        " (added in v3.6)"
     )
     print("=" * 84)
     benchmark_fingerprints()

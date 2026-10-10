@@ -536,7 +536,10 @@ def benchmark_regimes() -> None:
 
 def run_benchmark() -> None:
     print("=" * 94)
-    print("AlphaLab v3.7 -- point-in-time research: ingestion, sets, frames, events, regimes")
+    print(
+        "AlphaLab -- point-in-time research: ingestion, sets, frames, events, regimes"
+        " (added in v3.7)"
+    )
     print("=" * 94)
     benchmark_ingestion()
     benchmark_sets()

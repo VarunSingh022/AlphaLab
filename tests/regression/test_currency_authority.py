@@ -687,7 +687,7 @@ def test_every_environment_refuses_the_same_instrument_the_same_way() -> None:
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
     from alphalab.runtime.session import TradingSession
 
-    assert RUN_SNAPSHOT_SCHEMA == 4, "moved by v3.10 to v3.12, not by this seam"
+    assert RUN_SNAPSHOT_SCHEMA == 5, "moved by v3.10 to v4.0, not by this seam"
 
     seen: dict[str, tuple[str, ...]] = {}
     for mode in (ExecutionMode.BACKTEST, ExecutionMode.REPLAY, ExecutionMode.PAPER):

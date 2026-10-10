@@ -1763,7 +1763,7 @@ def test_the_three_new_states_are_not_the_runtime_state() -> None:
     assert "status" in runtime and "status" not in learned
     assert "lineage" in learned and "lineage" not in detector
     assert "candidate" in detector
-    assert PIPELINE_SNAPSHOT_SCHEMA == 7  # moved by v3.10 to v3.13, not by adaptive state
+    assert PIPELINE_SNAPSHOT_SCHEMA == 8  # moved by v3.10 to v4.0, not by adaptive state
 
 
 # --------------------------------------------------------------------------- #

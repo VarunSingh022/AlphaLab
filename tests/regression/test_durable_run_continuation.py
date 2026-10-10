@@ -304,12 +304,13 @@ def test_an_unseeded_run_round_trips_without_claiming_identifier_continuity() ->
 # ---------------------------------------------------------------------------
 
 
-def test_the_run_schema_moved_in_v3_10_v3_11_and_v3_12() -> None:
+def test_the_run_schema_moved_in_v3_10_v3_11_v3_12_and_v4_0() -> None:
     """Version 2 in v3.10 (the analytics basis), 3 in v3.11 (each step's orders
-    carry their terms), 4 in v3.12 (the observation cursor); every earlier
-    version is upgraded, not refused."""
+    carry their terms), 4 in v3.12 (the observation cursor), 5 in v4.0 (how the
+    fill policy was configured, PER-008); every earlier version is upgraded, not
+    refused."""
 
-    assert RUN_SNAPSHOT_SCHEMA == 4
+    assert RUN_SNAPSHOT_SCHEMA == 5
 
 
 @pytest.mark.parametrize(
@@ -324,7 +325,7 @@ def test_the_constant_is_not_an_alias_of_the_shared_default(module: str, name: s
     source = inspect.getsource(loaded)
 
     assert not hasattr(loaded, "DEFAULT_SCHEMA_VERSION")
-    assert f"{name}: Final = 4" in source
+    assert f"{name}: Final = 5" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -333,13 +334,15 @@ def test_session_capture_declares_the_version() -> None:
     payload = deserialize(serialize(capture_run(state)))
 
     assert capture_run(state).schema_version == RUN_SNAPSHOT_SCHEMA
-    assert payload["schema_version"] == 4
+    assert payload["schema_version"] == 5
     # Each envelope carries its own version: the run moved to 2 and the nested
     # pipeline to 4 in v3.10, independently -- ADR-0023 decision 1's split -- and
     # in v3.11 the run to 3 and the pipeline to 5, each for its own reasons; in
     # v3.12 the run to 4 (the observation cursor) and the pipeline to 6; in
-    # v3.13 the pipeline alone, to 7 (the strategy status enum's name).
-    assert payload["pipeline"]["schema_version"] == 7
+    # v3.13 the pipeline alone, to 7 (the strategy status enum's name); in v4.0
+    # the run to 5 and the pipeline to 8, each recording how its own live
+    # objects were configured (PER-008).
+    assert payload["pipeline"]["schema_version"] == 8
 
 
 def test_a_missing_session_version_is_refused_with_no_legacy_path() -> None:
@@ -350,7 +353,7 @@ def test_a_missing_session_version_is_refused_with_no_legacy_path() -> None:
         run_from_primitives(payload)
 
 
-@pytest.mark.parametrize("version", [5, 99, 0, -1])
+@pytest.mark.parametrize("version", [6, 99, 0, -1])
 def test_an_unreadable_session_version_is_refused(version: int) -> None:
     payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
     payload["schema_version"] = version
@@ -370,7 +373,7 @@ def test_a_malformed_session_version_is_refused(version: object) -> None:
 
 def test_the_refusal_names_the_run_subsystem() -> None:
     payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
-    payload["schema_version"] = 5
+    payload["schema_version"] = 6
 
     with pytest.raises(StateDecodeError) as excinfo:
         run_from_primitives(payload)
@@ -382,9 +385,9 @@ def test_a_nested_pipeline_failure_arrives_through_the_pipeline_decoder() -> Non
     """Not normalized into a generic session error."""
 
     payload = dict(deserialize(serialize(capture_run(_uninterrupted()))))
-    payload["pipeline"]["schema_version"] = 8
+    payload["pipeline"]["schema_version"] = 9
 
-    with pytest.raises(StateDecodeError, match="pipeline snapshot declares schema version 8"):
+    with pytest.raises(StateDecodeError, match="pipeline snapshot declares schema version 9"):
         run_from_primitives(payload)
 
 

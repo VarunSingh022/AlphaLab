@@ -30,12 +30,26 @@ CURRENT_STATE = (
     "nowandfuture.md",
 )
 
-#: How a closed entry's status begins: delivered, or kept with its reason.
+#: How a closed entry's status begins: delivered, kept with its reason, or --
+#: since v4.0 (TST-017) -- accepted as future work with its acceptance criteria,
+#: which ``test_accepted_future_work_is_stated_and_on_the_roadmap`` holds.
 CLOSED = (
     "implemented (",
     "kept as a boundary",
     "kept as a stated limitation",
     "kept as an external boundary",
+    "accepted as future work (",
+)
+
+#: What an accepted future-work entry must state, each by its label.
+FUTURE_FIELDS = (
+    "Limitation:",
+    "Impact:",
+    "Reason for deferral:",
+    "Interim safe behaviour:",
+    "Target horizon:",
+    "Dependencies:",
+    "Completion criteria:",
 )
 
 
@@ -62,6 +76,31 @@ def test_the_ledger_is_read_whole() -> None:
     text = LEDGER.read_text(encoding="utf-8")
     assert len(entries) == text.count('\n  - id: "') >= 215
     assert len({identifier for identifier, _, _ in entries}) == len(entries)
+
+
+def test_accepted_future_work_is_stated_and_on_the_roadmap() -> None:
+    """An entry may be left for later only as accepted, stated, tracked work (v4.0, TST-017).
+
+    Each ``accepted as future work`` entry states its limitation, impact, reason,
+    interim safe behaviour, horizon, dependencies and completion criteria, and
+    ROADMAP's Future work section lists it by ID. Nothing else may stay open.
+    """
+
+    text = LEDGER.read_text(encoding="utf-8")
+    roadmap = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
+    assert "\n# Future work" in roadmap, "ROADMAP has no Future work section"
+    future = roadmap.split("\n# Future work", 1)[1].split("\n# ", 1)[0]
+    accepted = [(i, s) for i, s, _ in _entries() if s.startswith("accepted as future work (")]
+    assert accepted, "a guard on the guard: v4.0 accepts FUT-001"
+    for identifier, _ in accepted:
+        entry = text.split(f'\n  - id: "{identifier}"', 1)[1].split('\n  - id: "', 1)[0]
+        change = re.search(r'\n    required_change: "([^"]*)"', entry)
+        assert change is not None, identifier
+        missing = [label for label in FUTURE_FIELDS if label not in change.group(1)]
+        assert not missing, f"{identifier} does not state {missing}"
+        assert identifier in future, f"{identifier} is not on ROADMAP's Future work"
+    listed = set(re.findall(r"\bFUT-\d{3}\b", future))
+    assert listed == {identifier for identifier, _ in accepted}, "ROADMAP lists other future work"
 
 
 def test_every_ledger_entry_is_implemented_or_kept_with_its_reason() -> None:

@@ -34,9 +34,10 @@ unchanged. The time semantic that actually needed settling is the look-ahead
 bound, and that lives on the history accessor as ``as_of``.
 """
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Any, Protocol
 
 from alphalab.common.time import ClockProtocol
@@ -638,3 +639,70 @@ class StrategyContext:
     orders: OrderFacadeProtocol
     history: HistoryAccessorProtocol = field(default_factory=NoHistory)
     universe: UniverseProtocol = field(default_factory=NoUniverse)
+
+
+@dataclass(frozen=True, slots=True)
+class FixedClock:
+    """A clock that always answers the instant it was given (v4.0).
+
+    For a context built outside the execution pipeline, and for the strategies
+    a backtest drives: the pipeline does not overlay ``clock`` (ADR-0031
+    decision 10), and a strategy on the execution path reads the time from the
+    event it is handed -- ``event.bar.timestamp`` -- which is the instant it is
+    deciding at. A clock that moved with the wall would make a backtest depend
+    on when it ran.
+    """
+
+    instant: float
+
+    def now(self) -> float:
+        return self.instant
+
+
+class DiscardingLogger:
+    """A strategy logger that keeps nothing it is told, by choice (v4.0).
+
+    ``logger`` has no null value in :class:`StrategyContext` because what a
+    strategy says is the caller's to route; this is the caller choosing to drop
+    it, by name.
+    """
+
+    __slots__ = ()
+
+    def info(self, msg: str) -> None:
+        return None
+
+    def error(self, msg: str) -> None:
+        return None
+
+
+def context_factory(
+    clock: ClockProtocol, logger: ScopedLoggerProtocol
+) -> Callable[[str], StrategyContext]:
+    """A context factory for a run, from the two things only the caller can supply (v4.0).
+
+    Each context carries ``clock`` and ``logger`` as given, the null objects for
+    the views the execution pipeline overlays on every dispatch --
+    ``portfolio``, ``market``, ``risk_view``, ``orders``, ``history`` and
+    ``universe`` -- and, as its ``config``, a read-only mapping naming the
+    strategy it was built for: ``{"strategy_id": strategy_id}``. A strategy
+    whose parameters are its constructor's needs nothing more; a caller whose
+    strategies read ``context.config`` writes its own factory.
+
+    The result is what :func:`alphalab.api.backtest`,
+    :meth:`~alphalab.backtesting.BacktestEngine.run` and every driver take as
+    ``context_factory``.
+    """
+
+    def build(strategy_id: str) -> StrategyContext:
+        return StrategyContext(
+            portfolio=NoPortfolio(),
+            market=NoMarket(),
+            clock=clock,
+            logger=logger,
+            risk_view=NoRiskView(),
+            config=MappingProxyType({"strategy_id": strategy_id}),
+            orders=NoOrders(),
+        )
+
+    return build

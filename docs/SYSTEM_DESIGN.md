@@ -489,9 +489,10 @@ v2.15 made the transports real, and v2.16 joined the two paths.
 
 **As of v3.0.0 the architecture is frozen.** Wiring the remaining standalone
 engines into an integrated path is not pending work — it is a deliberate
-boundary (ADR-0009). What a future release may still add is listed in
-`../ROADMAP.md` under *Optional future evolution*, and nothing depends on any of
-it.
+boundary (ADR-0009). v3.10 retired the *optional future evolution* class that
+was listed here: what a future release will add is in `../ROADMAP.md` under
+*Future work*, each item with its acceptance criteria (ADR-0049), and nothing in
+the engine depends on any of it.
 
 ---
 

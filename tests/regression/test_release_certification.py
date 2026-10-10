@@ -120,6 +120,35 @@ def test_check_refuses_a_certificate_of_other_source_or_evidence(
     assert ("engine source" in said) == (edit is _other_source)
 
 
+def test_a_check_failing_on_another_host_names_the_value_and_both_hosts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A hosted runner's ``--check`` is read from its log: it must say what moved, and where.
+
+    The case this anticipates is LIM-005's: a certificate made on one host class
+    and checked on another, where a float's last bit differs. The host is still
+    not compared -- the same evidence on another host passes (above) -- but when
+    evidence moves, the log names each moved value and both hosts (v4.0).
+    """
+
+    certifier = _certifier()
+    build = _committed()
+    committed = copy.deepcopy(build)
+    _another_host(committed)
+    committed["checks"][0]["evidence"]["result_id"] = "f" * 64
+    written = tmp_path / "release_certification.json"
+    written.write_text(json.dumps(committed), encoding="utf-8")
+    monkeypatch.setattr(certifier, "REPORT_JSON", written)
+    monkeypatch.setattr(certifier, "certify", lambda: copy.deepcopy(build))
+
+    assert certifier.main(["--check"]) == 1
+    said = capsys.readouterr().out
+    moved = build["checks"][0]
+    assert f"{moved['id']}.result_id: {'f' * 64!r} -> {moved['evidence']['result_id']!r}" in said
+    assert "made on elsewhere (Python 3.99.0, tz database 1970a)" in said
+    assert build["environment"]["platform"] in said and "LIM-005" in said
+
+
 def test_every_checkout_reads_the_engine_source_byte_for_byte() -> None:
     """The source digest is over bytes, so a checkout must not rewrite them (REP-004).
 

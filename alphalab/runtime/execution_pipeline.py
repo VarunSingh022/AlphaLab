@@ -2285,7 +2285,7 @@ def _simulate_fill(
     """
 
     base = state.market_prices[order.asset_id] if price is None else price
-    decision = _decide_fill(policy, order, event, base)
+    decision = _decide_fill(policy, order, event, base, _whole_units(state))
     if _kills(order, decision):
         return _end_unfilled(state, order, event.timestamp), (), (), ()
     current, reports = _execute_order(state, order, decision, event, price=base)
@@ -2549,7 +2549,7 @@ def _work_resting(
     that found no liquidity this event rests.
     """
 
-    decision = _decide_fill(policy, order, event, price)
+    decision = _decide_fill(policy, order, event, price, _whole_units(state))
     if _kills(order, decision):
         return _end_unfilled(state, order, event.timestamp), (), (), ()
     if decision.status is FillStatus.NO_FILL:
@@ -3141,12 +3141,28 @@ def _release_if_terminal(
     )
 
 
-def _decide_fill(
-    policy: FillPolicy, order: OMSOrder, event: MarketEvent, price: Decimal
-) -> FillDecision:
-    """Ask the policy what the venue does with this order at this event."""
+def _whole_units(state: ExecutionPipelineState) -> bool:
+    """Whether this run trades whole units: its allocation sizes every order in them."""
 
-    return policy.decide(
+    return state.config.allocation_constraints.enforce_integer_quantities
+
+
+def _decide_fill(
+    policy: FillPolicy, order: OMSOrder, event: MarketEvent, price: Decimal, whole_units: bool
+) -> FillDecision:
+    """Ask the policy what the venue does with this order at this event.
+
+    In a run that trades whole units (``enforce_integer_quantities``), a partial
+    fill is floored to whole units, and one that floors to nothing is no fill
+    (v4.0, ledger EXE-011). A fill policy sizes a partial fill from the
+    liquidity an event showed -- ``LiquidityCappedFill`` takes a share of it --
+    and until v4.0 that share reached the book as it was: a 2.5-share fill of a
+    whole-share order, a book holding half a share of an equity, and a target
+    strategy that then could not reach its target in whole units. The order's
+    remainder stays whole and works on as before.
+    """
+
+    decision = policy.decide(
         LiquidityContext(
             asset_id=order.asset_id,
             side=order.side,
@@ -3156,6 +3172,14 @@ def _decide_fill(
             timestamp=event.timestamp,
         )
     )
+    if not whole_units or decision.status is not FillStatus.PARTIAL_FILL:
+        return decision
+    if decision.quantity is None:
+        return decision
+    whole = decision.quantity.to_integral_value(rounding=decimal.ROUND_DOWN)
+    if whole <= Decimal("0"):
+        return FillDecision(FillStatus.NO_FILL, None)
+    return FillDecision(FillStatus.PARTIAL_FILL, whole)
 
 
 def _available_quote(event: MarketEvent) -> tuple[Decimal | None, Decimal | None]:

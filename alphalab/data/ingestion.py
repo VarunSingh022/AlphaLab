@@ -36,11 +36,17 @@ from typing import Any
 from alphalab.common.version import __version__
 from alphalab.data.assets import InstrumentSpec, asset_class_of
 from alphalab.data.calendar import MarketCalendar
-from alphalab.data.cleaning import CleaningPolicy, TransformationRecord, clean_records
+from alphalab.data.cleaning import (
+    CleaningPolicy,
+    InvalidRecordPolicy,
+    MissingValuePolicy,
+    TransformationRecord,
+    clean_records,
+)
 from alphalab.data.corporate_actions import AdjustmentRecord, PriceBasis, apply_adjustments
 from alphalab.data.csv_source import RawTable
 from alphalab.data.dataset import Dataset
-from alphalab.data.exceptions import DataValidationError
+from alphalab.data.exceptions import DataQualityError, DataValidationError
 from alphalab.data.feed import Bar, CanonicalRecord, Dividend, Split
 from alphalab.data.loader import create_dataset
 from alphalab.data.metadata import DatasetMetadata
@@ -207,6 +213,70 @@ def rows_content_hash(table: RawTable, source_hash: str) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
+def _govern_rejections(
+    request: IngestionRequest, rejections: Sequence[RowRejection]
+) -> list[TransformationRecord]:
+    """Apply the cleaning policy to the rows that could not become records (DAT-010).
+
+    Raises:
+        DataQualityError: If the policy refuses a rejected row's defect, naming
+            the first such row and the policy.
+    """
+
+    missing = [
+        rejection
+        for rejection in rejections
+        if any(finding.kind is FindingKind.MISSING_VALUE for finding in rejection.findings)
+    ]
+    unreadable = [
+        rejection
+        for rejection in rejections
+        if any(finding.kind is not FindingKind.MISSING_VALUE for finding in rejection.findings)
+    ]
+    policy = request.cleaning_policy
+    if missing and policy.missing_values is MissingValuePolicy.REFUSE:
+        raise DataQualityError(
+            f"{request.name}: {len(missing)} rows lack a value their record requires, and "
+            "MissingValuePolicy.REFUSE does not permit dropping them. The first, at line "
+            f"{missing[0].line_number}: {_first_reason(missing)}. Choose DROP_ROW to drop and "
+            "record them; no policy fills a missing value."
+        )
+    if unreadable and policy.invalid_records is InvalidRecordPolicy.REFUSE:
+        raise DataQualityError(
+            f"{request.name}: {len(unreadable)} rows could not be read as records, and "
+            "InvalidRecordPolicy.REFUSE does not permit dropping them. The first, at line "
+            f"{unreadable[0].line_number}: {_first_reason(unreadable)}. Choose DROP to drop "
+            "and record them."
+        )
+
+    dropped: list[TransformationRecord] = []
+    if missing:
+        dropped.append(
+            TransformationRecord(
+                operation="drop_row_missing_value",
+                rows_affected=len(missing),
+                reason=(
+                    "a value the record requires was empty; the row was dropped under "
+                    f"MissingValuePolicy.{policy.missing_values.name}, and nothing was filled"
+                ),
+            )
+        )
+    only_unreadable = [rejection for rejection in unreadable if rejection not in missing]
+    if only_unreadable:
+        dropped.append(
+            TransformationRecord(
+                operation="drop_unreadable_row",
+                rows_affected=len(only_unreadable),
+                reason=(
+                    "the row could not be read as a record -- a value that is not a finite "
+                    "number, an unreadable timestamp, a malformed row or an undeclared code -- "
+                    f"and was dropped under InvalidRecordPolicy.{policy.invalid_records.name}"
+                ),
+            )
+        )
+    return dropped
+
+
 def ingest_table(
     table: RawTable, request: IngestionRequest, *, content_hash: str | None = None
 ) -> IngestionResult:
@@ -216,11 +286,24 @@ def ingest_table(
     derived from: the source's own hash, the default, for a table read from the
     source's bytes; :func:`rows_content_hash` for rows that arrived in memory.
 
+    A row that cannot become a record at all -- a required value missing, a
+    number that is not one, a timestamp that cannot be read -- is governed by
+    the cleaning policy like any other defect (v4.0, ledger DAT-010): a missing
+    value by ``missing_values`` and anything else by ``invalid_records``. Under
+    ``REFUSE`` it stops the ingestion; otherwise the row is dropped, reported as
+    a :class:`~alphalab.data.validation.RowRejection`, and recorded as a
+    :class:`~alphalab.data.cleaning.TransformationRecord` in the dataset's
+    provenance, so the dataset version says the source was altered. Before v4.0
+    such a row was dropped whatever the policy said, and only the quality report
+    noted it. ``InvalidRecordPolicy.KEEP`` keeps a record that fails a set-level
+    check; a row that never became a record cannot be kept, and is dropped and
+    recorded as under ``DROP``.
+
     Raises:
         DataValidationError: If the schema cannot be resolved, or if no row
             survived coercion.
         DataQualityError: If the cleaning policy refuses a defect that is
-            present.
+            present -- including a row that could not be read.
     """
 
     detection = (
@@ -278,6 +361,8 @@ def ingest_table(
         else:
             records.append(record)
 
+    dropped_rows = _govern_rejections(request, rejections)
+
     if not records:
         raise DataValidationError(
             f"{request.name}: no row in {request.source.location} could be read as a "
@@ -299,7 +384,7 @@ def ingest_table(
 
     outcome = clean_records(records, request.cleaning_policy, findings)
     cleaned = list(outcome.records)
-    transformations = [*stamped, *outcome.transformations]
+    transformations = [*dropped_rows, *stamped, *outcome.transformations]
 
     adjustments: tuple[AdjustmentRecord, ...] = ()
     basis = request.price_basis

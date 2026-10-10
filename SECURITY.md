@@ -10,11 +10,13 @@ Security is an important part of building reliable quantitative research and tra
 
 | Version | Supported |
 |----------|-----------|
-| 3.x | ✅ Yes |
-| 2.x | ❌ No |
-| < 2.0.0 | ❌ No |
+| 4.x | ✅ Yes |
+| 3.x | ❌ No |
+| < 3.0.0 | ❌ No |
 
-Only the latest stable release receives security updates.
+Only the latest stable release receives security updates. Until v4.0.0 this
+table still marked 3.x as the supported line; a test now holds it to the
+package's major version.
 
 ---
 
@@ -84,7 +86,8 @@ request signing. There is no third-party code in an installed AlphaLab.
 
 The `[dev]` extra installs a toolchain (`build`, `hatchling`, `mypy`,
 `pre-commit`, `pytest`, `pytest-cov`, `ruff`, `twine`) used to develop and
-release AlphaLab. It is not installed by `pip install alphalab`, and security
+release AlphaLab. It is not installed with the library itself -- an install
+without the `[dev]` extra, as `docs/INTEGRATION.md` describes -- and security
 issues originating in those tools should be reported to their upstream
 maintainers.
 
@@ -102,8 +105,9 @@ Users are encouraged to:
 - Review configuration before deploying to production.
 - Avoid storing credentials directly in source code. AlphaLab accepts venue
   credentials as `VenueCredentials` passed in at the call site and stores none of
-  them; `alphalab.enterprise` models principals and holds secret *references*,
-  never secret values.
+  them. Principals, roles and secret storage are the host application's
+  (`alphalab.enterprise`, which held secret *references*, moved out with it in
+  v3.11, ADR-0046).
 
 ---
 

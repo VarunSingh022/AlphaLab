@@ -146,8 +146,8 @@ def test_a_v3_11_backtest_run_is_upgraded_restored_and_continues() -> None:
     )
     assert continued.processed == 7
     recaptured = deserialize(serialize(capture(continued)))
-    assert recaptured["schema_version"] == RUN_SNAPSHOT_SCHEMA == 4
-    assert recaptured["pipeline"]["schema_version"] == 7
+    assert recaptured["schema_version"] == RUN_SNAPSHOT_SCHEMA == 5
+    assert recaptured["pipeline"]["schema_version"] == 8
     assert recaptured["pipeline"]["allocation"]["schema_version"] == 3
     assert recaptured["pipeline"]["dropped"] == {} and recaptured["dropped"] == {}
 
@@ -189,8 +189,11 @@ def test_a_v3_11_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
     snapshot = from_primitives(_load("live.json"))
 
     assert snapshot.schema_version == 2
-    assert snapshot.run.schema_version == 4
-    assert snapshot.run.pipeline.schema_version == 7
+    assert snapshot.run.schema_version == 5
+    assert snapshot.run.pipeline.schema_version == 8
+    # Recorded by type alone before v4.0, and upgraded to say so (PER-008).
+    assert snapshot.run.fill_policy_description is None
+    assert snapshot.run.pipeline.config.simulator_description is None
     assert snapshot.broker.schema_version == 2
 
 

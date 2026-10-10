@@ -11,6 +11,10 @@ docs/api/generate_public_api.py``) and is reviewed as a diff of it.
 It also holds the rule ledger API-001 settled: **one name, one contract**. A
 name two packages export is the same object in both, or the manifest lists it
 under ``shared_names`` with the reason the two are deliberately different.
+
+Since v4.0 the manifest also records the modules the documentation names as
+public surfaces -- ``alphalab.api`` and each durable state's snapshot module --
+which a walk of the packages had left outside it (ledger API-007).
 """
 
 from __future__ import annotations
@@ -110,13 +114,41 @@ def test_the_readme_states_the_manifest_it_describes() -> None:
 
     text = (ROOT / "docs" / "api" / "PUBLIC_API.md").read_text(encoding="utf-8")
     stated = re.search(
-        r"At v(?P<release>[\d.]+) the manifest records (?P<packages>\d+) packages, "
-        r"(?P<exports>[\d,]+) exports and (?P<shared>\d+) shared names",
+        r"At v(?P<release>[\d.]+) the manifest records (?P<packages>\d+) packages and "
+        r"(?P<modules>\d+) documented modules, (?P<exports>[\d,]+) exports and "
+        r"(?P<shared>\d+) shared names",
         text,
     )
     assert stated is not None, "the counting sentence moved; this test reads it"
     assert stated["release"] == RECORDED["release"] == alphalab.__version__
-    assert int(stated["packages"]) == len(RECORDED["packages"])
+    modules = set(_generator().DOCUMENTED_MODULES)
+    assert int(stated["modules"]) == len(modules & set(RECORDED["packages"]))
+    assert int(stated["packages"]) == len(set(RECORDED["packages"]) - modules)
     exports = sum(len(names) for names in RECORDED["packages"].values())
     assert int(stated["exports"].replace(",", "")) == exports
     assert int(stated["shared"]) == len(RECORDED["shared_names"])
+
+
+def test_the_documented_modules_are_the_ones_the_documents_name() -> None:
+    """``alphalab.api`` and every snapshot module STATE_MODEL tabulates are in the manifest.
+
+    Until v4.0 the generator walked packages only, so the module
+    ``docs/ARCHITECTURE.md`` calls the surface a host application imports, and
+    the ``capture`` / ``from_primitives`` / ``restore`` of each durable state that
+    ``docs/STATE_MODEL.md`` documents -- how a run is stopped and continued --
+    were outside the contract the manifest froze: a rename there passed every
+    guard (ledger API-007). The generator's list is held to the documents, so a
+    snapshot module the durability table gains is frozen with it.
+    """
+
+    text = (ROOT / "docs" / "STATE_MODEL.md").read_text(encoding="utf-8")
+    section = text.split("# Durability: snapshots and schemas", 1)[1].split("\n# ", 1)[0]
+    tabulated = {
+        f"alphalab.{module}"
+        for module in re.findall(r"^\| `\w+` \| `([\w.]+)` \| `\w+` \| \d+ \|$", section, re.M)
+    }
+    assert len(tabulated) >= 10, "the durability table moved; this test reads it"
+
+    documented = set(_generator().DOCUMENTED_MODULES)
+    assert documented == tabulated | {"alphalab.api"}
+    assert documented <= set(RECORDED["packages"])
