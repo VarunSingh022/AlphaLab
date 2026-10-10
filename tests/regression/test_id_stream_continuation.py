@@ -284,6 +284,7 @@ def test_a_default_state_carries_an_unseeded_position() -> None:
     assert callable(factory)
     assert factory() == IdStreamPosition(None, 0)
 
+
 def test_initialize_records_the_draws_funding_took() -> None:
     with id_scope(SEED):
         state = ExecutionPipeline.initialize(
