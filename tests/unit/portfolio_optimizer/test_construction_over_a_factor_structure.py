@@ -154,14 +154,18 @@ def test_a_method_that_needs_the_dense_values_is_solved_over_the_matrix() -> Non
 
     structure, _ = _model(30, 4)
     budgets = None
-    over_structure = construct(
-        ConstructionProblem(structure, RiskParity(budgets), _long_only(1.0), SETTINGS)
-    )
+    stated = ConstructionProblem(structure, RiskParity(budgets), _long_only(1.0), SETTINGS)
+    over_structure = construct(stated)
     over_matrix = construct(
         ConstructionProblem(structure.matrix(), RiskParity(budgets), _long_only(1.0), SETTINGS)
     )
     assert over_structure.status is ConstructionStatus.OPTIMAL
     assert over_structure.weights == over_matrix.weights
+    # Solved over the matrix, answered as the problem stated: its identity, and
+    # its risk decomposed through the factors.
+    assert over_structure.problem_id == stated.problem_id != over_matrix.problem_id
+    risk = over_structure.diagnostics.risk
+    assert risk is not None and risk.covariance_id == structure.covariance_id
 
 
 def test_a_small_universe_over_a_structure_is_solved_densely() -> None:
