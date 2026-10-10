@@ -57,7 +57,9 @@ jobs:
       # One statement of what this build was checked to do -- determinism,
       # parity, reproducibility, numerical references, the public API -- held
       # to the committed certificate (ledger FEA-006). A change in what the
-      # engine computes fails here until it is re-certified and reviewed.
+      # engine computes fails here until it is re-certified and reviewed, and
+      # so does a change to the engine's source: the certificate names the
+      # source it certified (ledger REP-004).
       - name: Release certification
         run: python -W error docs/audit/scripts/certify_release.py --check
 

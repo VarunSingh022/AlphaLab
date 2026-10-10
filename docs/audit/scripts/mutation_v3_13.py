@@ -4,9 +4,11 @@ Kept for provenance and re-runnable, not run by the suite (it takes hours). The
 method is v3.12's (``mutation_v3_12.py``, master audit W.4), which this script
 loads and runs unchanged: ``git archive HEAD`` unpacked into scratch copies, one
 mutation at a time, the whole suite with ``-x`` and the tests that read a clock
-deselected, an unmutated baseline first. The table is the 126 mutations of the
-v3.12 run (M01-M24, V01-V18, W01-W37, X01-X47) and fifty-six of v3.13's
-behaviour (Y01-Y56). Usage::
+deselected, an unmutated baseline first. One more test is deselected: the one
+holding the committed certificate to the engine's source digest, which every
+mutation of the engine changes by construction (ledger REP-004). The table is
+the 126 mutations of the v3.12 run (M01-M24, V01-V18, W01-W37, X01-X47) and
+fifty-eight of v3.13's behaviour (Y01-Y58). Usage::
 
     python docs/audit/scripts/mutation_v3_13.py --check <tree>
     python docs/audit/scripts/mutation_v3_13.py <scratch-dir> [--workers N] [--only Y01,Y02]
@@ -461,16 +463,57 @@ V313: tuple[Any, ...] = (
         "            meant = _SHORTHANDS.get(shorthand)\n",
         "            meant = None\n",
     ),
+    # The release certificate's check (FEA-006): what it computes and which
+    # source it certified (REP-004).
+    Mutation(
+        "Y57",
+        "a certificate of other engine source passes --check (REP-004)",
+        "docs/audit/scripts/certify_release.py",
+        "        if certified_source(committed) != certified_source(certificate):\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "Y58",
+        "a check whose evidence moved passes --check (FEA-006)",
+        "docs/audit/scripts/certify_release.py",
+        "    moved += [f\"check {new['id']}\" for new, old in pairs if new != old]\n",
+        "    moved += []\n",
+    ),
 )
 
 #: Every mutation, in the order the run reports them.
 MUTATIONS: tuple[Any, ...] = V312.MUTATIONS + V313
+
+#: Left out beside the clock tests (ledger REP-004): a test holding the committed
+#: certificate to the engine's source digest fails under every mutation of the
+#: engine by construction, so its failing says nothing of the mutation.
+SOURCE_BOUND: tuple[str, ...] = (
+    "tests/regression/test_release_certification.py"
+    "::test_the_committed_certificate_certifies_this_source",
+)
+
+#: v3.12's plugin, its collection hook replaced by one that also leaves those out.
+PLUGIN: str = (
+    V312.PLUGIN
+    + f"""
+
+SOURCE_BOUND = {SOURCE_BOUND!r}
+
+
+def pytest_collection_modifyitems(config, items):
+    left_out = [item for item in items if item.nodeid in SOURCE_BOUND or _is_timing(item)]
+    if left_out:
+        config.hook.pytest_deselected(items=left_out)
+        items[:] = [item for item in items if item not in left_out]
+"""
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """v3.12's runner over this table."""
 
     vars(V312)["MUTATIONS"] = MUTATIONS  # main() reads the table from its module
+    vars(V312)["PLUGIN"] = PLUGIN  # and writes the plugin from it
     V312.__doc__ = __doc__
     result: int = V312.main(argv)
     return result

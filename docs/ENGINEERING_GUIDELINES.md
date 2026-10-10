@@ -529,7 +529,9 @@ Before creating a release, verify
   CHANGELOG section (a test reads both)
 - The release certificate is regenerated **last**
   (`python -W error docs/audit/scripts/certify_release.py`), and `--check`
-  passes on the tree that is tagged (CI runs it)
+  passes on the tree that is tagged (CI runs it). Since v3.13 `--check` also
+  fails when the certificate names other engine source than the build's, so
+  a commit that changes `alphalab/` carries its re-certification
 
 **The version is declared once** (since v3.10): `alphalab/common/_version.py`,
 read by the build (`[tool.hatch.version]`) and by the package. Before v3.10 it

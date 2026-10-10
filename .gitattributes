@@ -1,0 +1,3 @@
+# Every Python file is checked out with LF, on every platform: the engine's
+# source digest is over bytes (ledger REP-004), and ruff formats with LF.
+*.py text eol=lf

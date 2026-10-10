@@ -964,7 +964,73 @@ mark-notional liquidation price (Y37); and a checkpoint segment over an order en
 order, so the last two are reached by a state built by hand. Each was re-checked by applying it
 to the working tree against its new test before the release run.
 
-@@GATE@@ (release-tree run: baseline, result, timing; the table of v3.13 mutations)
+**Release tree** (commit `b6a0fef`; nothing after it changed code or a test, only documents):
+every pattern applied exactly once, none refused. Baseline passed — 8,947 passed, 88 deselected
+(184.2 s). All 182 mutations ran: **181 of 182 caught**; X17 survives, as it must. v3.12's 126:
+125 caught, as on v3.12.0's release tree. v3.13's 56: all caught, the seven that survived the
+first run each by the test TST-016 added for it. The whole run took 16,441 mutation-seconds on
+three copies; the longest single mutation, 183 s (Y35). Y01 and Y05 change prices the release
+certificate records, and its check, which the suite reaches before the unit tests, is the first
+to fail.
+
+| Mutation | Result | Caught by | Seconds |
+| --- | --- | --- | ---: |
+| Y01 an American option never exercised early (NUM-006) | caught | `tests/regression/test_release_certification.py::test_the_build_matches_its_committed_certificate` | 84.5 |
+| Y02 the lattice's spot not net of the dividends before expiry (NUM-006) | caught | `tests/unit/options/test_binomial.py::test_an_escrowed_dividend_prices_a_european_option_as_the_spot_net_of_it` | 147.4 |
+| Y03 the exercise value forgets the dividends still to come (NUM-006) | caught | `tests/unit/options/test_binomial.py::test_a_dividend_just_before_expiry_makes_early_exercise_of_a_call_pay` | 146.4 |
+| Y04 a lattice too coarse for a probability not refused (NUM-006) | caught | `tests/unit/options/test_binomial.py::test_a_lattice_too_coarse_for_its_carry_and_volatility_is_refused_not_clamped` | 149.9 |
+| Y05 the up branch not discounted (NUM-006) | caught | `tests/regression/test_release_certification.py::test_the_build_matches_its_committed_certificate` | 86.4 |
+| Y06 the lattice's step ceiling not enforced (NUM-006) | caught | `tests/unit/options/test_binomial.py::test_a_step_count_outside_its_range_is_refused[5001]` | 148.6 |
+| Y07 a calendar arbitrage interpolated rather than refused (FEA-005) | caught | `tests/unit/options/test_binomial.py::test_falling_total_variance_is_a_calendar_arbitrage_and_is_refused` | 146.8 |
+| Y08 an expiry beyond the last quoted one extrapolated (FEA-005) | caught | `tests/unit/options/test_binomial.py::test_an_expiry_outside_the_quoted_range_is_not_extrapolated[1.5]` | 145.1 |
+| Y09 expiries joined in volatility, not total variance (FEA-005) | caught | `tests/unit/options/test_binomial.py::test_between_expiries_the_total_variance_is_linear_in_maturity` | 145.1 |
+| Y10 a falling marginal cost not refused by the optimal split (BRK-005) | caught | `tests/unit/execution/test_optimal_split.py::test_a_cost_whose_marginal_falls_is_refused` | 140.0 |
+| Y11 fixed-charge venues tried only all at once (BRK-005) | caught | `tests/unit/execution/test_optimal_split.py::test_the_optimal_split_is_the_cheapest_of_every_allocation[buy]` | 140.6 |
+| Y12 the ceiling on fixed-charge venues not enforced (BRK-005) | caught | `tests/unit/execution/test_optimal_split.py::test_too_many_venues_with_a_fixed_charge_are_refused` | 142.2 |
+| Y13 a fixed-charge venue chosen in may take nothing (BRK-005) | caught | `tests/unit/execution/test_optimal_split.py::test_the_optimal_split_is_the_cheapest_of_every_allocation[buy]` | 140.4 |
+| Y14 urgency from the volatility, not the variance (BRK-006) | caught | `tests/unit/execution/test_schedule_cost.py::test_no_schedule_of_the_same_intervals_costs_less[0.000002]` | 141.6 |
+| Y15 urgency ignores the permanent impact's share of an interval (BRK-006) | caught | `tests/unit/execution/test_schedule_cost.py::test_no_schedule_of_the_same_intervals_costs_less[0.000002]` | 141.7 |
+| Y16 a schedule's temporary cost at eta rather than eta-tilde (FEA-008) | caught | `tests/unit/execution/test_schedule_cost.py::test_a_straight_schedule_costs_what_hand_arithmetic_says` | 139.9 |
+| Y17 a schedule's variance counts each holding before its trade (FEA-008) | caught | `tests/unit/execution/test_schedule_cost.py::test_a_straight_schedule_costs_what_hand_arithmetic_says` | 140.2 |
+| Y18 a schedule's permanent cost not halved (FEA-008) | caught | `tests/unit/execution/test_schedule_cost.py::test_a_straight_schedule_costs_what_hand_arithmetic_says` | 141.2 |
+| Y19 two parents draw the same tranches (BRK-006) | caught | `tests/unit/execution/test_urgency_estimate_and_randomized_icebergs.py::test_two_parents_worked_with_one_seed_draw_differently` | 141.1 |
+| Y20 every tranche of a parent the same draw (BRK-006) | caught | `tests/unit/execution/test_urgency_estimate_and_randomized_icebergs.py::test_randomized_tranches_stay_within_the_spread_and_sum_to_the_parent` | 141.5 |
+| Y21 a measured shortfall read without its explicit costs (FEA-008) | caught | `tests/unit/execution/test_schedule_cost.py::test_a_measured_shortfall_is_read_from_arrival_beside_the_model` | 140.7 |
+| Y22 an unfinished order compared with a completed schedule (FEA-008) | caught | `tests/unit/execution/test_schedule_cost.py::test_a_shortfall_unlike_the_models_is_refused` | 140.5 |
+| Y23 a rerun over other dataset bytes not refused (REP-003) | caught (survived the first run; TST-016) | `tests/unit/lifecycle/test_rerun_harness.py::test_each_recorded_input_is_compared_on_its_own_and_named` | 143.6 |
+| Y24 a rerun on another engine source not refused (REP-003) | caught (survived the first run; TST-016) | `tests/unit/lifecycle/test_rerun_harness.py::test_each_recorded_input_is_compared_on_its_own_and_named` | 145.7 |
+| Y25 an original result the manifest does not identify accepted (REP-003) | caught | `tests/unit/lifecycle/test_rerun_harness.py::test_what_cannot_be_rerun_is_refused` | 144.0 |
+| Y26 a rerun of other inputs run anyway (REP-003) | caught | `tests/unit/lifecycle/test_rerun_harness.py::test_another_dataset_or_engine_is_refused_before_anything_runs` | 143.4 |
+| Y27 more differences reported than the stated limit (REP-003) | caught (survived the first run; TST-016) | `tests/unit/lifecycle/test_rerun_harness.py::test_a_divergence_is_reported_with_where_the_records_part` | 144.2 |
+| Y28 a requirements file read as the whole closure (OFE-019) | caught | `tests/unit/lifecycle/test_lock_file_reader.py::test_a_file_without_the_compilers_header_is_not_read_as_a_closure` | 144.1 |
+| Y29 a digest kept from a pin listing several artifacts (OFE-019) | caught | `tests/unit/lifecycle/test_lock_file_reader.py::test_a_pip_compile_lock_is_an_exact_closure_with_its_single_hashes` | 143.7 |
+| Y30 an uncompiled file read as a pip-compile lock (OFE-019) | caught | `tests/unit/lifecycle/test_lock_file_reader.py::test_a_file_without_the_compilers_header_is_not_read_as_a_closure` | 144.8 |
+| Y31 a lock for several environments accepted (OFE-019) | caught | `tests/unit/lifecycle/test_lock_file_reader.py::test_one_distribution_at_two_versions_is_refused` | 145.6 |
+| Y32 both day fields restricted: and, not Vixie cron's or (DAT-006) | caught | `tests/unit/scheduler/test_cron.py::test_two_restricted_day_fields_fire_on_either` | 176.2 |
+| Y33 a minute inside a spring-forward gap fires (DAT-006) | caught | `tests/unit/scheduler/test_cron.py::test_a_minute_inside_the_spring_forward_gap_does_not_fire` | 179.9 |
+| Y34 a repeated minute fires at its second occurrence (DAT-006) | caught | `tests/unit/scheduler/test_cron.py::test_a_repeated_minute_fires_once_at_its_first_occurrence` | 179.4 |
+| Y35 a day of month given by a step from * read as restricted (DAT-006) | caught | `tests/unit/scheduler/test_cron.py::test_a_stepped_star_counts_as_unrestricted` | 182.8 |
+| Y36 funding left out of the entry-notional liquidation price (NUM-014) | caught | `tests/unit/crypto/test_crypto.py::test_fees_bring_liquidation_closer_and_received_funding_pushes_it_away` | 142.1 |
+| Y37 fees left out of the mark-notional liquidation price (NUM-014) | caught (survived the first run; TST-016) | `tests/unit/crypto/test_crypto.py::test_at_the_price_returned_equity_is_exactly_the_requirement[PositionSide.LONG-MaintenanceBasis.MARK_NOTIONAL]` | 141.3 |
+| Y38 a long no fall liquidates given a price at or below zero (NUM-014) | caught | `tests/unit/crypto/test_crypto.py::test_a_long_at_low_leverage_has_no_liquidation_price` | 143.0 |
+| Y39 a position liquidated the moment it opens not refused (NUM-014) | caught | `tests/unit/crypto/test_crypto.py::test_a_position_already_at_its_maintenance_margin_is_refused` | 144.1 |
+| Y40 a replaced order entry not written to the segment (PRF-011) | caught (survived the first run; TST-016) | `tests/regression/test_checkpoints.py::test_an_order_that_changed_between_checkpoints_is_written_by_its_change` | 21.5 |
+| Y41 a moved entry merged by key rather than written whole (PRF-011) | caught (survived the first run; TST-016) | `tests/regression/test_checkpoints.py::test_a_map_that_lost_or_reordered_an_entry_is_written_whole` | 22.7 |
+| Y42 a segment's stated map size not checked (PRF-011) | caught | `tests/regression/test_checkpoints.py::test_a_tampered_map_header_is_refused[1-<lambda>-a change was lost]` | 21.8 |
+| Y43 a map that shrank merged rather than written whole (PRF-011) | caught (survived the first run; TST-016) | `tests/regression/test_checkpoints.py::test_a_map_that_lost_or_reordered_an_entry_is_written_whole` | 22.3 |
+| Y44 a qualified enum name read by its member alone (PER-007) | caught | `tests/regression/test_persisted_enum_names.py::test_the_broker_decoder_reads_a_qualified_name_only_under_its_own_class` | 81.9 |
+| Y45 the reporting currency given an exchange rate of its own (FEA-007) | caught | `tests/unit/analytics/test_factor_risk.py::test_an_exchange_rate_carries_its_share_of_a_two_currency_book` | 139.0 |
+| Y46 factor risk drops the factors' covariances with each other (FEA-007) | caught | `tests/unit/analytics/test_factor_risk.py::test_the_contributions_sum_to_the_volatility_of_the_dense_matrix[0]` | 139.9 |
+| Y47 a decomposition through the factors drops the specific term (PRF-013) | caught | `tests/unit/analytics/test_factor_structure_as_a_covariance.py::test_the_euler_decomposition_through_the_factors_is_the_dense_one[0]` | 140.1 |
+| Y48 a non-finite cell read in bulk as a number (PRF-013) | caught | `tests/unit/analytics/test_risk_model.py::test_malformed_matrices_are_refused[rows2-finite]` | 139.9 |
+| Y49 an asymmetric matrix passed by the bulk check (PRF-013) | caught | `tests/unit/analytics/test_risk_model.py::test_malformed_matrices_are_refused[rows0-symmetric]` | 137.6 |
+| Y50 a structure solved densely answers as the matrix's problem (PRF-013) | caught | `tests/unit/portfolio_optimizer/test_construction_over_a_factor_structure.py::test_a_method_that_needs_the_dense_values_is_solved_over_the_matrix` | 164.5 |
+| Y51 a box set on a book that may short solved as long-only (FEA-009) | caught | `tests/unit/portfolio_optimizer/test_robust_box_with_shorts.py::test_the_robust_optimum_with_shorts_is_the_best_of_every_orthant[22]` | 177.8 |
+| Y52 a portfolio nobody constrained clipped by defaults (OPT-001) | caught | `tests/unit/portfolio_optimizer/test_portfolio_optimizer.py::test_an_unconstrained_portfolio_holds_the_optimizers_own_weights` | 174.2 |
+| Y53 a negative v1 risk limit accepted (RSK-007) | caught | `tests/unit/portfolio_optimizer/test_portfolio_optimizer.py::test_risk_constraints_state_only_the_limits_that_are_checked` | 175.5 |
+| Y54 the research path loads the market-data transports (BND-005) | caught | `tests/regression/test_v313_invariants.py::test_the_research_path_loads_no_network_code` | 104.9 |
+| Y55 an intent not refused where it is emitted (API-001) | caught | `tests/regression/test_strategy_failures_are_reported.py::test_an_invalid_intent_is_reported_as_a_failure` | 99.4 |
+| Y56 a shorthand refused without the fields it stands for (DAT-006) | caught | `tests/unit/scheduler/test_cron.py::test_a_shorthand_is_refused_with_the_fields_it_stands_for[@daily-'0 0 * * *']` | 182.4 |
 
 ## X. New feature proposals
 
@@ -1253,9 +1319,9 @@ itself — the shared names (API-001), the public API manifest (API-002), the pe
 contract (PER-004) and release certification (FEA-006) — so that nothing required is left for a
 later release. Every boundary and limitation the ledger holds was re-read against the code and
 kept with its reason (`v313_outcome` on each), and the ledger assigns nothing beyond v3.13.0:
-216 entries, each implemented or kept. ADR-0048 records the decisions.
+217 entries, each implemented or kept. ADR-0048 records the decisions.
 
-The fresh audit found twenty-two things, each recorded in the ledger:
+The fresh audit found twenty-three things, each recorded in the ledger:
 
 * **Defects**: the broker codec read a qualified enum name by its member alone (PER-007, since
   2.16); the liquidation price assumed one venue's maintenance convention and ignored fees and
@@ -1286,6 +1352,13 @@ The fresh audit found twenty-two things, each recorded in the ledger:
   (LIM-001, LIM-002, LIM-003). A test now holds every ADR's limitations and deferrals to closed
   ledger entries.
 * **Boundaries**: the WebSocket client's two stated omissions are recorded as kept (BND-006).
+* **The certificate's identity** (REP-004, found by the release gates): the certificate names
+  the engine source it certified, and `--check` compared what the build computes, not which
+  build it is — on the release candidate (`b6a0fef`) the committed certificate named the source
+  as it stood before two commits that changed only docstrings, and every gate passed, the
+  defect-injection baseline included. `--check` now holds the name to the build. And because
+  the digest is over bytes, `.gitattributes` checks every Python file out with LF: a checkout
+  whose line endings Git rewrote was other engine source, to the certificate and to a rerun.
 
 ### Release audit (v3.13.0, before release)
 
@@ -1296,18 +1369,18 @@ distributions, and its commit for the defect-injection run, which archives `HEAD
 | --- | --- |
 | `ruff check .` / `ruff format --check .` | clean / 1,240 files formatted |
 | `mypy .` (strict, cold cache) | no issues in 1,152 source files (1,122 at v3.12) |
-| `pytest -W error` | 9,035 passed (4,806 unit, 649 integration, 3,580 regression); 0 failed, 0 skipped, 0 warnings (209 s) |
+| `pytest -W error` | 9,041 passed (4,806 unit, 649 integration, 3,586 regression); 0 failed, 0 skipped, 0 warnings (226 s) |
 | Examples, `-W error`, from the repository root | 69 / 69 under each of two hash seeds, nothing on stderr |
 | Benchmarks, `-W error`, 900 s each | 53 / 53 (455 s in all, on a quiet machine) |
 | `git diff --check` | clean |
-| `python -m build`; `twine check --strict` | @@GATE@@ |
-| Clean Python 3.12 environments, wheel and sdist, `tests/installed_smoke.py 3.13.0` from outside the checkout | @@GATE@@ |
+| `python -m build`; `twine check --strict` | both distributions built and both PASSED: the wheel (1.70 MB) carries the 605 modules of `alphalab` and `py.typed`, nothing else; the sdist (3.85 MB) carries exactly the tracked files of the directories it includes |
+| Clean Python 3.12 environments, wheel and sdist, `tests/installed_smoke.py 3.13.0` from outside the checkout | both pass: version 3.13.0, 605 modules, `py.typed`, example 11 end to end |
 | Determinism | 65 of 69 examples byte-identical across two runs under different hash seeds; the other four (`12`, `13`, `45`, `48`) print a random run or order id, a process id or CPU time, as in v3.12 |
-| Example output against v3.12.0 | 56 of the 65 both have print what they printed; 9 differ, each explained in the CHANGELOG — with identities and versions masked, only `38` moved, by NUM-014's liquidation price |
+| Example output against v3.12.0 | 56 of the 65 examples both releases have print what they printed; 9 differ, each explained in the CHANGELOG — with identities and versions masked, only `38` moved, by NUM-014's liquidation price |
 | Public API against v3.12.0 | 44 packages either side; 2,455 exports → 2,479: 25 removed, 49 added, 29 rebound or re-signed; 52 shared names → 31. Every removed or rebound name is in the CHANGELOG's v3.13.0 section (`test_api_changes_are_in_the_changelog.py`) |
 | Performance against v3.9.0, v3.11.0 and v3.12.0 | the CHANGELOG's table: five interleaved rounds, every median against 3.12 between 0.98x and 1.03x, PRF-006's budget held in every round |
 | Release certificate | eleven checks, each PASSED; `certify_release.py --check` passes on the release tree |
-| Defect injection | section W.5 |
+| Defect injection | section W.5: on the release tree, 181 of 182 mutations caught; X17, the equivalent mutant, survives |
 | Stress | section V.4 |
 
 The gates found what the CHANGELOG lists under "Found during this release" as caught within it:
@@ -1315,7 +1388,8 @@ the state-scaling table still naming the `risk_limits` map RSK-007 removed; two 
 matrix's attributes from a construction's covariance, refused by strict mypy once the field could
 hold a factor structure; a committed certificate that still recorded the API before the
 structure, which the defect-injection harness refused to start on; seven v3.13 rules no test
-pinned (TST-016); and current-state documents that had drifted (DOC-008).
+pinned (TST-016); current-state documents that had drifted (DOC-008); and a certificate that
+named other engine source than the build's, which no gate compared (REP-004).
 
 ## AC. v4.0.0 freeze requirements
 

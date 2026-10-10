@@ -46,7 +46,7 @@ OFE-025), the rerun harness (REP-003, OFE-020) and the lock-file reader
 FEA-006. Its remaining boundary entries were `not_started` because nothing had
 re-read them since the audit.
 
-The fresh audit of the whole tree found twenty-two more, each recorded in the
+The fresh audit of the whole tree found twenty-three more, each recorded in the
 ledger. Five are defects that shipped: the broker codec read a qualified enum
 name by its member alone (PER-007, since 2.16); the liquidation price assumed
 one venue's maintenance convention (NUM-014, since 1.38); importing the
@@ -65,7 +65,10 @@ list, not the "Known limitations" and "DEFERRED" lists of ADR-0042, ADR-0043
 and ADR-0044. Of their 52 items, 23 had no ledger entry — two deferred
 capabilities (FEA-007, FEA-008), one lifted limitation (FEA-009) and the rest
 classified (LIM-001, LIM-002, LIM-003). BND-006 records the WebSocket client's
-two stated omissions.
+two stated omissions. And the release gates found the certificate's own
+identity unheld: it named the engine source it certified, nothing held the
+name to the build, and the name depended on how a checkout wrote line
+endings (REP-004).
 
 ---
 
@@ -167,8 +170,12 @@ pinned for every decoder and every event log; a rename is a schema step.
 
 `certify_release.py` writes eleven checks — determinism, parity,
 reproducibility, published numerical references and the public API — with
-their evidence; CI runs it with `--check`, which fails on a failed check or on
-evidence that moved.
+their evidence; CI runs it with `--check`, which fails on a failed check, on
+evidence that moved, or on a certificate of other engine source than the
+build's (REP-004) — so a commit that changes the engine carries its
+re-certification. The host is recorded, not held. Every Python file is
+checked out with LF (`.gitattributes`): the digest is over bytes, and a
+checkout that rewrote line endings would be other source.
 
 ## 12. Exchange rates as factors, and every factor's share
 
@@ -226,7 +233,7 @@ matrix keeps the identity and the result 3.12 gave it.
 
 # Consequences
 
-* The ledger's 216 entries are each implemented or kept with a reason; none is
+* The ledger's 217 entries are each implemented or kept with a reason; none is
   assigned to a later release.
 * A run configured as in 3.12 behaves as in 3.12, except where 3.12 was wrong,
   each listed in the CHANGELOG — among them the liquidation price, the broker

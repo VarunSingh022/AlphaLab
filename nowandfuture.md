@@ -77,7 +77,8 @@ checkpoint segments carry only the orders that changed. And the freeze: 52
 shared public names at 3.12.0 are 31, each kept for a recorded reason; the
 public API and every persisted enum name are data that tests hold; every
 limitation an ADR states is held to a closed ledger entry; and a certificate
-records what the build was checked to do. ADR-0048.
+records what the build was checked to do, held to the engine source it names.
+ADR-0048.
 
 ## v3.12.0 — the pre-v4 hardening release
 
@@ -1368,7 +1369,7 @@ retry-on-older-protocol fallback exists.
 ruff check .                              # lint
 ruff format --check .                     # format
 mypy .                                    # strict, 1,152 source files (what CI runs)
-pytest -q -W error                        # 9,035 tests, 0 skipped, 0 warnings (what CI runs)
+pytest -q -W error                        # 9,041 tests, 0 skipped, 0 warnings (what CI runs)
 git diff --check
 python -m build && twine check dist/*
 for f in examples/[0-9]*.py; do python -W error "$f"; done    # 69
@@ -1380,7 +1381,7 @@ python -W error docs/audit/scripts/certify_release.py --check # the release cert
 the sdist, each into a fresh environment, and runs `tests/installed_smoke.py`
 against them from outside the checkout; the benchmarks run weekly.
 
-**9,035 tests** — 4,806 unit, 649 integration, 3,580 regression. The
+**9,041 tests** — 4,806 unit, 649 integration, 3,586 regression. The
 regression suite is nearly as large as the unit suite, deliberately: most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
@@ -1431,7 +1432,7 @@ every module in the tree.
 | `test_bar_stamp_convention.py` | v3.10: a bar stamped at the end of its interval, and a source's convention required |
 | `test_release_gates_are_wired.py`, `test_mutation_pins.py` | v3.10: CI, hooks and pyproject agree; every mutation the audit's harness let through is pinned |
 | `test_public_api_manifest.py`, `test_api_changes_are_in_the_changelog.py` | v3.13: every export of every package recorded with its binding, regenerated with each release; a removed or rebound name is refused until the release's CHANGELOG section names it |
-| `test_persisted_enum_names.py`, `test_release_certification.py` | v3.13: a persisted enum's class and member names are part of the format; the release certificate's checks pass and its evidence has not moved |
+| `test_persisted_enum_names.py`, `test_release_certification.py` | v3.13: a persisted enum's class and member names are part of the format; the release certificate's checks pass, its evidence has not moved and the engine source it names is the build's; every Python file is checked out with LF |
 | `test_every_adr_deferral_is_classified.py`, `test_ledger_references_exist.py`, `test_version_markers_agree.py`, `test_nothing_is_left_for_later.py` | v3.13: every limitation and deferral an ADR states maps to a closed ledger entry; every test the ledger cites exists; every document that states the version states the package's; every ledger entry is implemented or kept, none assigned beyond the release, and no current-state document calls anything deferred |
 
 ## Performance
@@ -1776,8 +1777,8 @@ an ADR.
     caller's, with no default.
 74. **What is not done is classified.** Every limitation and deferral an ADR
     states maps to a closed ledger entry, every test the ledger cites exists,
-    and the release certificate's evidence does not move unless the certificate
-    is regenerated.
+    and neither the release certificate's evidence nor the engine source it
+    names moves unless the certificate is regenerated.
 
 The decisions ADR-0046 and ADR-0047 record for v3.11 and v3.12 are frozen with
 these; each is pinned by the regression test its ledger entry cites.

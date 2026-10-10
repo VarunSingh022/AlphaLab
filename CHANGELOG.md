@@ -30,7 +30,7 @@ v3.12 hardened it. v3.13 closes every item the ledger
 (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) assigned to it, and the four it had
 assigned to v4 — the shared names, the public API manifest, the persisted names
 and release certification — so that nothing required is left for later. A
-fresh audit of the whole tree found twenty-two more things, among them two
+fresh audit of the whole tree found twenty-three more things, among them two
 capabilities three ADRs had deferred and the ledger had never recorded; each is
 fixed, implemented, replaced or stated here, and none is deferred. ADR-0048 records the
 decisions. Ledger IDs are given in brackets.
@@ -407,6 +407,18 @@ write the matrix out on each read.
   on another engine source; the rerun's limit of ten differences; fees in the
   mark-notional liquidation price; and checkpoint segments over an order entry
   replaced, lost or reordered since the last link. Each is pinned now.
+* **REP-004** (the certificate's, this release; the line endings', since
+  3.11): the release certificate names the engine source it certified, and
+  `--check` compared what the build computes, not which build it is — at the
+  release candidate the committed certificate named the source as it stood
+  before two commits that changed only docstrings, and every gate passed.
+  `--check` now also fails on a certificate of other engine source, naming
+  both digests. And the digest is over bytes, so a checkout whose line
+  endings Git rewrote (as Git for Windows does by default) was other engine
+  source, to the certificate and to a rerun from a manifest:
+  `.gitattributes` now checks every Python file out with LF. Both are held
+  by tests; the defect-injection harness leaves out the one that compares
+  digests, which every mutation of the engine changes by construction.
 * **DOC-006** and **TST-014** (gaps of method): nothing checked that a release's
   migration table named every changed API, or that the tests the ledger cites
   exist — 3.12 found both by hand. Both are tests now; the second caught two
@@ -437,7 +449,7 @@ status's name and nothing else.
 
 ## Tests, CI and tooling
 
-9,035 tests pass under `-W error` — 4,806 unit, 649 integration and 3,580
+9,041 tests pass under `-W error` — 4,806 unit, 649 integration and 3,586
 regression, none skipped (3.12.0: 8,583). The release's own tooling is
 in the repository beside 3.12's: `docs/audit/scripts/stress_v3_13.py` re-runs
 v3.12's 10,000-asset, 1,000-strategy and 100-venue scenarios and measures what
@@ -445,7 +457,10 @@ v3.13 added — per-order memory, checkpoint segments, the lattice at its
 ceiling, the optimal split at its ceiling, a factor model written out and
 stated by its structure, the long-short box set and the longest cron search;
 `docs/audit/scripts/mutation_v3_13.py` runs v3.12's 126 mutations and 56 of
-v3.13's own behaviour against the whole suite. @@GATE@@ (mutation results).
+v3.13's own behaviour against the whole suite. Its first run caught 49 of the
+56; the seven that survived were rules no test pinned, each pinned now
+[TST-016]. On the release tree it catches 181 of the 182; X17, v3.12's
+equivalent mutant, survives as it must (master audit, section W.5).
 CI runs `certify_release.py --check`. New regression tests hold the API
 manifest and the CHANGELOG to the API's diff, every persisted enum name, every
 test the ledger cites, every ADR limitation against the ledger, the version
