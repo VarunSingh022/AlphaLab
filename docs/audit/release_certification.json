@@ -2,13 +2,13 @@
   "release": "3.13.0",
   "build": {
     "engine": "alphalab 3.13.0",
-    "source_digest": "62ce66872ea46a3b77b561f05b43eb98776b3459c5069dbe66585bbfd29f2764",
-    "tz_database": "2025b"
+    "source_digest": "d663c9958d5b4a54232d2f4b5568cb12098144b60503fedded25c42c6543188d",
+    "tz_database": "2024a"
   },
   "environment": {
-    "python": "3.12.3",
+    "python": "3.12.4",
     "implementation": "CPython",
-    "platform": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39"
+    "platform": "macOS-26.6.2-arm64-arm-64bit"
   },
   "passed": true,
   "checks": [
