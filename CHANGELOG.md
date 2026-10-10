@@ -14,7 +14,7 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
-# [3.13.0] - 2026-10-04
+# [3.13.0] - 2026-10-10
 
 **The final pre-v4 release: American options and a volatility term structure,
 the cheapest split of an order across venues, an urgency estimated rather than

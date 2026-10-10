@@ -91,10 +91,10 @@ uncertainty set takes a book that may short. A factor model is a covariance in
 its own right, stated by its structure: construction over 10,000 assets no
 longer writes 100 million values out first (0.12 s and 6 MB to state the
 model, 1.85 s to construct over it; 4,000 assets written out took 29 s and
-1.3 GB before the first step). Cron timers read a
-stated zone's wall clock across daylight saving. The liquidation price is
-solved for a stated maintenance basis, with fees and funding. Checkpoint
-segments carry only the orders that changed.
+1.3 GB before the first step). Cron timers read a stated zone's wall clock
+across daylight saving. The liquidation price is solved for a stated
+maintenance basis, with fees and funding. Checkpoint segments carry only the
+orders that changed.
 
 **The freeze.** 52 public names bound to two different objects at 3.12.0 are
 31, each kept for a recorded reason; the rest were renamed without aliases,
