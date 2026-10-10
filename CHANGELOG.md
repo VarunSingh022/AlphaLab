@@ -437,7 +437,21 @@ status's name and nothing else.
 
 ## Tests, CI and tooling
 
-@@GATE@@
+@@GATE@@ tests pass under `-W error` — @@GATE@@ unit, @@GATE@@ integration and
+@@GATE@@ regression, none skipped (3.12.0: 8,583). The release's own tooling is
+in the repository beside 3.12's: `docs/audit/scripts/stress_v3_13.py` re-runs
+v3.12's 10,000-asset, 1,000-strategy and 100-venue scenarios and measures what
+v3.13 added — per-order memory, checkpoint segments, the lattice at its
+ceiling, the optimal split at its ceiling, a factor model written out and
+stated by its structure, the long-short box set and the longest cron search;
+`docs/audit/scripts/mutation_v3_13.py` runs v3.12's 126 mutations and 56 of
+v3.13's own behaviour against the whole suite. @@GATE@@ (mutation results).
+CI runs `certify_release.py --check`. New regression tests hold the API
+manifest and the CHANGELOG to the API's diff, every persisted enum name, every
+test the ledger cites, every ADR limitation against the ledger, the version
+every current-state document states, and the claim that nothing is left for
+later; `benchmarks/benchmark_construction_scaling.py` also judges construction
+over a factor structure (4,000 assets over 1,000, ceiling 10x).
 
 ## Examples
 

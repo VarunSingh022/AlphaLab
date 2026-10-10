@@ -1448,7 +1448,20 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-@@GATE@@ (quality assurance bullets: tests, mypy, ruff, benchmarks/examples, mutation harness, stress)
+- ✅ **@@GATE@@ passing tests** (@@GATE@@ unit, @@GATE@@ integration, @@GATE@@ regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, @@GATE@@ source files)
+- ✅ Ruff linting and formatting
+- ✅ @@GATE@@ benchmarks, 69 / 69 examples
+- ✅ A defect-injection harness (`docs/audit/scripts/mutation_v3_13.py`): 182
+  mutations — v3.12's 126 and 56 of v3.13's own behaviour — each against the
+  whole suite; @@GATE@@ (result on the release tree)
+- ✅ A stress program (`docs/audit/scripts/stress_v3_13.py`): v3.12's 10,000
+  assets, 1,000 strategies and 100 venues re-run, construction over a
+  10,000-asset factor structure, the optimal split and the lattice at their
+  ceilings, per-order memory and checkpoint segments
+- ✅ A release certificate (`docs/audit/RELEASE_CERTIFICATION.md`, checked in
+  CI by `certify_release.py --check`): eleven checks — determinism, parity,
+  reproducibility, published numerical references and the public API
 - ✅ Source distribution, wheel and `twine check` validation, and each
   distribution installed into a clean environment and exercised from outside
   the checkout (`tests/installed_smoke.py`)
