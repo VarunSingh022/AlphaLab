@@ -45,7 +45,7 @@ The framework is designed for researchers, quantitative developers, students, an
 | Version | 3.13.0 |
 | Runtime dependencies | **None** (standard library only) |
 | Tests | **9,035 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (@@GATE@@ source files, repository-wide) |
+| Static Typing | **Strict MyPy** (1,152 source files, repository-wide) |
 | Linting | **Ruff Clean** |
 | Benchmarks | **53 / 53 Passing** |
 | Examples | **69 / 69 Passing** |
@@ -1449,7 +1449,7 @@ configs/       Reference configuration files
 AlphaLab is continuously validated through automated tooling.
 
 - ✅ **9,035 passing tests** (4,806 unit, 649 integration, 3,580 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, @@GATE@@ source files)
+- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1,152 source files)
 - ✅ Ruff linting and formatting
 - ✅ 53 / 53 benchmarks, 69 / 69 examples
 - ✅ A defect-injection harness (`docs/audit/scripts/mutation_v3_13.py`): 182

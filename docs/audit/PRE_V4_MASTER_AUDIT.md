@@ -1294,12 +1294,12 @@ distributions, and its commit for the defect-injection run, which archives `HEAD
 
 | Gate | Result |
 | --- | --- |
-| `ruff check .` / `ruff format --check .` | @@GATE@@ |
-| `mypy .` (strict, cold cache) | @@GATE@@ |
+| `ruff check .` / `ruff format --check .` | clean / 1,240 files formatted |
+| `mypy .` (strict, cold cache) | no issues in 1,152 source files (1,122 at v3.12) |
 | `pytest -W error` | 9,035 passed (4,806 unit, 649 integration, 3,580 regression); 0 failed, 0 skipped, 0 warnings (209 s) |
 | Examples, `-W error`, from the repository root | 69 / 69 under each of two hash seeds, nothing on stderr |
 | Benchmarks, `-W error`, 900 s each | 53 / 53 (455 s in all, on a quiet machine) |
-| `git diff --check` | @@GATE@@ |
+| `git diff --check` | clean |
 | `python -m build`; `twine check --strict` | @@GATE@@ |
 | Clean Python 3.12 environments, wheel and sdist, `tests/installed_smoke.py 3.13.0` from outside the checkout | @@GATE@@ |
 | Determinism | 65 of 69 examples byte-identical across two runs under different hash seeds; the other four (`12`, `13`, `45`, `48`) print a random run or order id, a process id or CPU time, as in v3.12 |

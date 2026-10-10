@@ -1367,7 +1367,7 @@ retry-on-older-protocol fallback exists.
 ```bash
 ruff check .                              # lint
 ruff format --check .                     # format
-mypy .                                    # strict, @@GATE@@ source files (what CI runs)
+mypy .                                    # strict, 1,152 source files (what CI runs)
 pytest -q -W error                        # 9,035 tests, 0 skipped, 0 warnings (what CI runs)
 git diff --check
 python -m build && twine check dist/*
