@@ -3,7 +3,7 @@
 v3.12 solved construction over a factor model in ``O(n k^2)`` per step, but the
 public path reached that solver only through :meth:`CovarianceMatrix.factor_model`,
 which writes ``n^2`` values out and renders each into the matrix's identity --
-34 s and 1.4 GB at 4,000 assets. Since v3.13 the :class:`FactorStructure` is a
+34 s and 1.3 GB at 4,000 assets. Since v3.13 the :class:`FactorStructure` is a
 covariance in its own right: built by :meth:`FactorStructure.of` in
 ``O(n k^2)``, decomposed by :func:`euler_decomposition` and :func:`factor_risk`
 through its factors, and written out only when something asks for the dense

@@ -56,7 +56,7 @@ infeasibility; the problem's identity records which method applies.
 Since v3.13 (ledger PRF-013) the covariance can be the structure itself: a
 :class:`~alphalab.analytics.risk_model.FactorStructure` built by
 :meth:`~alphalab.analytics.risk_model.FactorStructure.of` in ``O(n k^2)``.
-Writing ``n^2`` values out had bounded the public path -- 34 s and 1.4 GB at
+Writing ``n^2`` values out had bounded the public path -- 34 s and 1.3 GB at
 4,000 assets before the solver was reached -- and a problem over a structure
 never writes them out unless a method needs the dense values: risk parity, a
 universe under :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS`, a structure that

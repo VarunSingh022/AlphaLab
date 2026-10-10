@@ -1187,7 +1187,7 @@ The fresh audit found twenty-one things, each recorded in the ledger:
   limitation. The one-asset paths' cost against 3.11 is classified as the price of the
   capabilities on the one canonical path (PRF-012). The 10,000-asset construction v3.12
   published was the solver's alone: through the public API a factor model had first to be
-  written out as a dense matrix, O(n²) — 34 s and 1.4 GB at 4,000 assets — so the structure is
+  written out as a dense matrix, O(n²) — 34 s and 1.3 GB at 4,000 assets — so the structure is
   now a covariance construction takes and never writes out (PRF-013).
 * **Documentation and method**: three durability tables were stale (DOC-005); a docstring said
   a delivered rate source "has not arrived" (DOC-007); `nowandfuture.md`'s identity table still
