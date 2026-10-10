@@ -1191,7 +1191,8 @@ The fresh audit found twenty-one things, each recorded in the ledger:
   now a covariance construction takes and never writes out (PRF-013).
 * **Documentation and method**: three durability tables were stale (DOC-005); a docstring said
   a delivered rate source "has not arrived" (DOC-007); `nowandfuture.md`'s identity table still
-  read 3.9.0, and no version marker but the CHANGELOG's was tested (DOC-008); nothing checked a
+  read 3.9.0, `docs/ARCHITECTURE.md`'s Implementation Status called three delivered things
+  deferred, and no version marker but the CHANGELOG's was tested (DOC-008); nothing checked a
   release's migration table against its API (DOC-006) or the ledger's cited tests against the
   suite (TST-014).
 * **The inventory itself** (TST-015): the pre-v4 audit had inventoried ROADMAP's boundaries and

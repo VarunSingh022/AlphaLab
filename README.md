@@ -146,7 +146,8 @@ session timers. It found two costs that grew faster than the work, both fixed:
 a classification limit summed its bucket for every order, and every event asked
 every strategy whether it subscribed. Construction on a factor-model covariance
 is solved in O(n k²) per step: 10,000 assets in 1.6 s, where the dense solver
-took 135 s at 800. Side by side with v3.9.0 on one machine, the OMS benchmark
+took 135 s at 800 — the solve alone: through the public API the covariance was
+first written out, O(n²), until v3.13 stated it by its structure (PRF-013). Side by side with v3.9.0 on one machine, the OMS benchmark
 takes 0.87x its time, a one-asset backtest 1.15x, replay 1.10x and the pipeline
 1.03x, within the budget v3.11 set; against v3.11.0, 0.98x to 1.07x.
 
@@ -262,7 +263,7 @@ re-marks what it priced and what a fill priced, reading exact per-currency
 totals — 0.85–1.24× the per-record cost across an 8× universe, and on a
 single-currency book exactly what re-marking every position gives. The price
 is a higher constant: a one-asset backtest takes about 1.4× as long as in
-v3.9, and a 10-asset one already runs faster (PRF-006, planned for v3.11). A
+v3.9, and a 10-asset one already runs faster (PRF-006, planned for v3.11 and delivered there). A
 bar is stamped at the end of its interval, and a source must say which end it
 stamps.
 

@@ -390,8 +390,12 @@ write the matrix out on each read.
   the covariance (above).
 * **DOC-008** (stale since 3.10): `nowandfuture.md`'s identity table gave the
   version as 3.9.0 at 3.12.0; its release history did not render its last two
-  rows; it listed delivered items as planned. Corrected, and every document
-  that states the version is now held to the package's by a test.
+  rows; it listed delivered items as planned. `docs/ARCHITECTURE.md`'s
+  Implementation Status called three rows "deliberately deferred" that 3.11 to
+  3.13 delivered, and the release checklist named 3.12's counts and none of the
+  API manifest or the certificate. Corrected; every document that states the
+  version is held to the package's, and no current-state document may call
+  anything deferred while the ledger defers nothing, each by a test.
 * **BND-006**: the WebSocket client's two stated omissions, `permessage-deflate`
   and the server side, are recorded as kept; a frame that sets a reserved bit is
   refused, which is what makes the first safe.
@@ -405,7 +409,13 @@ write the matrix out on each read.
   `ScheduledSession`. The certification's first run reported a determinism
   failure that was the check's own: it built the caller's configuration under
   the hostile decimal context, so the engine was given other numbers. The check
-  now holds the engine's arithmetic, not the caller's.
+  now holds the engine's arithmetic, not the caller's. The release gates caught
+  three more: the state-scaling test still listed the `risk_limits` map RSK-007
+  removed; two tests read a matrix's own attributes from a construction's
+  covariance, which strict mypy refused once the field could hold a structure;
+  and the committed certificate still recorded the API before the structure
+  joined it, which the defect-injection harness refused to start on — an
+  unmutated tree that fails means no detection does.
 
 ## Snapshot schemas
 
