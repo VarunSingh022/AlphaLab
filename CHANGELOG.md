@@ -456,10 +456,10 @@ v3.12's 10,000-asset, 1,000-strategy and 100-venue scenarios and measures what
 v3.13 added — per-order memory, checkpoint segments, the lattice at its
 ceiling, the optimal split at its ceiling, a factor model written out and
 stated by its structure, the long-short box set and the longest cron search;
-`docs/audit/scripts/mutation_v3_13.py` runs v3.12's 126 mutations and 56 of
-v3.13's own behaviour against the whole suite. Its first run caught 49 of the
-56; the seven that survived were rules no test pinned, each pinned now
-[TST-016]. On the release tree it catches 181 of the 182; X17, v3.12's
+`docs/audit/scripts/mutation_v3_13.py` runs v3.12's 126 mutations and 58 of
+v3.13's own behaviour against the whole suite. Its first run, over the first
+56, caught 49; the seven that survived were rules no test pinned, each pinned
+now [TST-016]. On the release tree it catches 183 of the 184; X17, v3.12's
 equivalent mutant, survives as it must (master audit, section W.5).
 CI runs `certify_release.py --check`. New regression tests hold the API
 manifest and the CHANGELOG to the API's diff, every persisted enum name, every
