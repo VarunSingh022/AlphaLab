@@ -995,7 +995,7 @@ class CovarianceMatrix:
         matrix records it as its parent, and the loadings and the specific
         variances in its derivation.
 
-        Writing ``n^2`` values out is ``O(n^2)`` in time and memory -- 34 s and
+        Writing ``n^2`` values out is ``O(n^2)`` in time and memory -- 29 s and
         1.3 GB at 4,000 assets. Over a large universe, state the covariance by
         its structure instead (:meth:`FactorStructure.of`, ``O(n k^2)``), which
         construction, :func:`euler_decomposition` and :func:`factor_risk` take
@@ -1511,7 +1511,7 @@ class FactorStructure:
     (v3.12).
 
     Since v3.13 it is also a covariance in its own right (ledger PRF-013).
-    Writing ``n^2`` values out costs ``O(n^2)`` in time and memory -- 34 s and
+    Writing ``n^2`` values out costs ``O(n^2)`` in time and memory -- 29 s and
     1.3 GB at 4,000 assets -- so a large universe never reached the
     ``O(n k^2)`` solver through the public path. Built by :meth:`of`, a
     structure costs ``O(n k^2)`` and holds nothing ``O(n^2)``;

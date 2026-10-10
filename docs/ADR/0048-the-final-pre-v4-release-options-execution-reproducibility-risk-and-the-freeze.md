@@ -56,7 +56,7 @@ portfolio nobody had constrained (OPT-001), both since v1. Three are costs:
 checkpoint segments that grew with a run's orders (PRF-011, shipped in 3.12.0);
 the one-asset paths' cost against 3.11 (PRF-012); and the public path to the
 factor-structured solver, which had to write a factor model out as a dense
-matrix first — O(n²), 34 s and 1.3 GB at 4,000 assets — so that the
+matrix first — O(n²), 29 s and 1.3 GB at 4,000 assets — so that the
 10,000-asset solve v3.12 published was reachable only through an internal
 function (PRF-013). Six are documentation and method (DOC-005, DOC-006,
 DOC-007, DOC-008, TST-014, TST-016). And one is the inventory

@@ -120,8 +120,8 @@ table is long, and every row in it is checked against the public API's own diff
   structure has its own identity (`FactorStructure.covariance_id`, under
   `FACTOR_STRUCTURE_SCHEME`), and `matrix()` writes it out as exactly the
   matrix `CovarianceMatrix.factor_model` builds, identity included. At 10,000
-  assets it takes 0.12 s and 6 MB to state and 2.15 s to construct over
-  (budget, long-only, a 5% cap); written out, 4,000 assets took 34 s and 1.3 GB
+  assets it takes 0.12 s and 6 MB to state and 1.85 s to construct over
+  (budget, long-only, a 5% cap); written out, 4,000 assets took 29 s and 1.3 GB
   before the first step.
 
 ## Added — reproducibility (`alphalab.lifecycle`)
@@ -437,8 +437,8 @@ status's name and nothing else.
 
 ## Tests, CI and tooling
 
-@@GATE@@ tests pass under `-W error` — @@GATE@@ unit, @@GATE@@ integration and
-@@GATE@@ regression, none skipped (3.12.0: 8,583). The release's own tooling is
+9,035 tests pass under `-W error` — 4,806 unit, 649 integration and 3,580
+regression, none skipped (3.12.0: 8,583). The release's own tooling is
 in the repository beside 3.12's: `docs/audit/scripts/stress_v3_13.py` re-runs
 v3.12's 10,000-asset, 1,000-strategy and 100-venue scenarios and measures what
 v3.13 added — per-order memory, checkpoint segments, the lattice at its

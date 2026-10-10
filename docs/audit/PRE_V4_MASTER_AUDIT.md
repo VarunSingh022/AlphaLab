@@ -537,6 +537,59 @@ the run and its 20 checkpoints; base 1.57 MB, last segment 1.96 MB — a segment
 order book, which no retention bounds (stated in PRF-004; the v3.13 audit classifies it). The
 chain reads back as the full capture.
 
+### V.4 The v3.13.0 stress program
+
+`docs/audit/scripts/stress_v3_13.py`, run on the release candidate on a quiet machine: v3.12's
+scenarios re-run as they were written, and v3.13's own. CPU seconds (`time.process_time`) with
+the collector running; memory by `tracemalloc`, traced apart from the timing; peak RSS from the
+operating system. Each scenario asserts what it measures, and every one passed.
+
+**v3.12's scenarios.** 10,000 assets under sector and country limits: 365 µs a record at 400
+assets, 440 at 10,000 — **1.21x** the per-record cost at 25x the universe (1.31x at v3.12), peak
+RSS 278 MB. 1,000 strategies with ceilings: 7.3 ms a record with every strategy on every bar, 1.0
+with each on its own asset, the same 1,665 fills. 100 venues: 12,000 day-order expiries in 0.70 s;
+10,000 orders and fills reconciled across 100 accounts in 0.07 s, no mismatch; 2,200 session-timer
+firings in 0.19 s. The internal factor-structured solver at 10,000 assets: OPTIMAL in 1.46 s, 28
+steps. 20,000 records with retention and a checkpoint every 1,000: base 1.57 MB, **last segment
+1.61 MB** — at v3.12 it was 1.96 MB and grew with every order the run had placed (PRF-011).
+
+**Per-order state and checkpoints** (PRF-011). With every log under retention, a record with no
+order adds nothing (−19 bytes a record), and a record with an order holds 2,658 bytes more — the
+order book, the reports by order and the routed and settled orders, kept as a stated limitation.
+Over 20,000 records with an order every ten, the segments at 2, 10 and 20 links are 1.34, 1.34
+and 1.33 MB against a 1.33 MB base, and the chain reads back as the capture.
+
+**The lattice** (NUM-006). An American put at S = K = 50, r = 10%, σ = 40%: 4.2836, 4.2840 and
+4.2841 at 1,000, 2,500 and 5,000 steps (`MAX_STEPS`), in 0.10, 0.61 and 2.46 s; an implied
+volatility of 0.3000 through 500 steps in 1.16 s and 35 bisections.
+
+**The optimal split at its ceiling** (BRK-005): ten fixed-charge venues beside ten free ones. 1,000
+units: the greedy sweep and the optimal split agree, one leg, 100,009.00, the optimal search in
+13.71 s. 20,000 units: the greedy sweep takes four legs and 2,000,711.00; the optimal split five
+and 2,000,708.92, in 19.71 s. The search is exponential in the fixed-charge venues, which is why
+ten is the stated ceiling.
+
+**A factor model, written out and stated by its structure** (FEA-007, PRF-013), k = 5:
+
+| Assets | Written out (dense) | Traced at its peak | Construction over it |
+| ---: | ---: | ---: | ---: |
+| 1,000 | 1.30 s | 83 MB | 0.27 s |
+| 2,000 | 5.64 s | 329 MB | 1.04 s |
+| 4,000 | 29.26 s | 1,317 MB | 4.34 s |
+
+| Assets | Stated by its structure | Traced at its peak | `factor_risk` | Construction over it |
+| ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 0.01 s | 0.6 MB | 0.002 s | 0.12 s |
+| 4,000 | 0.05 s | 2.3 MB | 0.007 s | 0.73 s |
+| 10,000 | 0.12 s | 6.0 MB | 0.017 s | 1.85 s |
+
+Every construction OPTIMAL under a budget, long-only and a 5% cap, and every `factor_risk`
+residual within 1e-12 of the volatility.
+
+**The long-short box set** (FEA-009): 200 assets with weights in [−5%, 10%], OPTIMAL in 1.56 s,
+292 steps. **Cron** (DAT-006): the longest search an accepted expression makes — the next 29
+February from 1 March 2097 — found 2104-02-29 in 0.001 s (2100 is no leap year).
+
 ## W. Defect-injection tests
 
 A scratch copy of the tree (`git archive HEAD`) had one mutation applied at a time and the full
@@ -886,6 +939,33 @@ mutation-seconds on three copies; the longest single mutation, 260 s.
 | X46 overlapping subscriptions reach a strategy twice, out of order (PRF-010) | caught (final tree) | `tests/unit/strategy/test_routing_index.py::test_the_index_reaches_exactly_the_strategies_that_accept_in_their_order[0]` | 162.4 |
 | X47 an index handed on when a strategy's subscriptions changed (PRF-010) | caught (final tree) | `tests/unit/strategy/test_routing_index.py::test_an_evolution_that_changes_subscriptions_builds_its_own_index` | 164.5 |
 
+### W.5 Run against v3.13.0
+
+`docs/audit/scripts/mutation_v3_13.py` loads v3.12's harness and runs it unchanged: `git
+archive HEAD` unpacked into three scratch copies, one mutation at a time on each, the whole
+suite with `-x` and the tests that read a clock deselected test by test, an unmutated baseline
+first. The table: v3.12's 126 mutations (M01–M24, V01–V18, W01–W37, X01–X47; every pattern still
+applies exactly once to the v3.13 tree) and fifty-six of v3.13's own behaviour (Y01–Y56): the
+lattice, the term structure, the optimal split, urgency, the schedule's cost and the shortfall
+read against it, iceberg tranches, the rerun harness, the lock-file reader, cron, the
+liquidation price, checkpoint segments, the broker codec's qualifier, exchange-rate factors,
+factor structures and a covariance's bulk checks, the long-short box, the v1 optimizer, the
+research path's imports and the intent contract.
+
+**First run**, the v3.13 mutations only, on commit `90a66e5`: the harness refused to start on the
+commit before it — an unmutated tree that fails means no detection does, and that tree's
+committed certificate still recorded the API before the factor structure joined it. Baseline
+passed — 8,934 passed, 88 deselected (183.7 s). **49 of 56 caught.** The seven that survived were
+each a rule no test pinned, now each pinned (TST-016): a rerun over other bytes under the
+recorded dataset version (Y23) or on another engine source (Y24); the rerun's limit of ten
+differences, which the tests read from the constant (Y27); the position's fees in the
+mark-notional liquidation price (Y37); and a checkpoint segment over an order entry replaced
+(Y40), lost or reordered (Y41, Y43) since the last link — the canonical path never removes an
+order, so the last two are reached by a state built by hand. Each was re-checked by applying it
+to the working tree against its new test before the release run.
+
+@@GATE@@ (release-tree run: baseline, result, timing; the table of v3.13 mutations)
+
 ## X. New feature proposals
 
 Proposed only where the gap blocks broad, serious use; each is justified in its ledger entry with
@@ -1187,7 +1267,7 @@ The fresh audit found twenty-two things, each recorded in the ledger:
   limitation. The one-asset paths' cost against 3.11 is classified as the price of the
   capabilities on the one canonical path (PRF-012). The 10,000-asset construction v3.12
   published was the solver's alone: through the public API a factor model had first to be
-  written out as a dense matrix, O(n²) — 34 s and 1.3 GB at 4,000 assets — so the structure is
+  written out as a dense matrix, O(n²) — 29 s and 1.3 GB at 4,000 assets — so the structure is
   now a covariance construction takes and never writes out (PRF-013).
 * **Documentation and method**: three durability tables were stale (DOC-005); a docstring said
   a delivered rate source "has not arrived" (DOC-007); `nowandfuture.md`'s identity table still
@@ -1206,6 +1286,36 @@ The fresh audit found twenty-two things, each recorded in the ledger:
   (LIM-001, LIM-002, LIM-003). A test now holds every ADR's limitations and deferrals to closed
   ledger entries.
 * **Boundaries**: the WebSocket client's two stated omissions are recorded as kept (BND-006).
+
+### Release audit (v3.13.0, before release)
+
+Run against the final tree: the working tree for the fast gates, the examples and the
+distributions, and its commit for the defect-injection run, which archives `HEAD`.
+
+| Gate | Result |
+| --- | --- |
+| `ruff check .` / `ruff format --check .` | @@GATE@@ |
+| `mypy .` (strict, cold cache) | @@GATE@@ |
+| `pytest -W error` | 9,035 passed (4,806 unit, 649 integration, 3,580 regression); 0 failed, 0 skipped, 0 warnings (209 s) |
+| Examples, `-W error`, from the repository root | 69 / 69 under each of two hash seeds, nothing on stderr |
+| Benchmarks, `-W error`, 900 s each | 53 / 53 (455 s in all, on a quiet machine) |
+| `git diff --check` | @@GATE@@ |
+| `python -m build`; `twine check --strict` | @@GATE@@ |
+| Clean Python 3.12 environments, wheel and sdist, `tests/installed_smoke.py 3.13.0` from outside the checkout | @@GATE@@ |
+| Determinism | 65 of 69 examples byte-identical across two runs under different hash seeds; the other four (`12`, `13`, `45`, `48`) print a random run or order id, a process id or CPU time, as in v3.12 |
+| Example output against v3.12.0 | 56 of the 65 both have print what they printed; 9 differ, each explained in the CHANGELOG — with identities and versions masked, only `38` moved, by NUM-014's liquidation price |
+| Public API against v3.12.0 | 44 packages either side; 2,455 exports → 2,479: 25 removed, 49 added, 29 rebound or re-signed; 52 shared names → 31. Every removed or rebound name is in the CHANGELOG's v3.13.0 section (`test_api_changes_are_in_the_changelog.py`) |
+| Performance against v3.9.0, v3.11.0 and v3.12.0 | the CHANGELOG's table: five interleaved rounds, every median against 3.12 between 0.98x and 1.03x, PRF-006's budget held in every round |
+| Release certificate | eleven checks, each PASSED; `certify_release.py --check` passes on the release tree |
+| Defect injection | section W.5 |
+| Stress | section V.4 |
+
+The gates found what the CHANGELOG lists under "Found during this release" as caught within it:
+the state-scaling table still naming the `risk_limits` map RSK-007 removed; two tests reading a
+matrix's attributes from a construction's covariance, refused by strict mypy once the field could
+hold a factor structure; a committed certificate that still recorded the API before the
+structure, which the defect-injection harness refused to start on; seven v3.13 rules no test
+pinned (TST-016); and current-state documents that had drifted (DOC-008).
 
 ## AC. v4.0.0 freeze requirements
 

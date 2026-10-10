@@ -1368,11 +1368,11 @@ retry-on-older-protocol fallback exists.
 ruff check .                              # lint
 ruff format --check .                     # format
 mypy .                                    # strict, @@GATE@@ source files (what CI runs)
-pytest -q -W error                        # @@GATE@@ tests, 0 skipped, 0 warnings (what CI runs)
+pytest -q -W error                        # 9,035 tests, 0 skipped, 0 warnings (what CI runs)
 git diff --check
 python -m build && twine check dist/*
 for f in examples/[0-9]*.py; do python -W error "$f"; done    # 69
-for f in benchmarks/benchmark_*.py; do python "$f"; done      # @@GATE@@
+for f in benchmarks/benchmark_*.py; do python "$f"; done      # 53
 python -W error docs/audit/scripts/certify_release.py --check # the release certificate
 ```
 
@@ -1380,7 +1380,7 @@ python -W error docs/audit/scripts/certify_release.py --check # the release cert
 the sdist, each into a fresh environment, and runs `tests/installed_smoke.py`
 against them from outside the checkout; the benchmarks run weekly.
 
-**@@GATE@@ tests** — @@GATE@@ unit, @@GATE@@ integration, @@GATE@@ regression. The
+**9,035 tests** — 4,806 unit, 649 integration, 3,580 regression. The
 regression suite is nearly as large as the unit suite, deliberately: most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
@@ -1505,10 +1505,10 @@ detection in the draft; both are gone.
 which also re-runs v3.12's 10,000-asset, 1,000-strategy and 100-venue
 scenarios. A factor model stated by its structure is built, decomposed and
 constructed over in O(n k²): 10,000 assets take 0.12 s and 6 MB to state and
-2.15 s to construct over (PRF-013) — where writing the same model out as a
-dense matrix is O(n²), 34 s and 1.3 GB at 4,000 assets. The optimal split
+1.85 s to construct over (PRF-013) — where writing the same model out as a
+dense matrix is O(n²), 29 s and 1.3 GB at 4,000 assets. The optimal split
 searches every set of fixed-charge venues, so its ceiling of ten such venues
-costs seconds (17–25 s of CPU for an order across ten fixed-charge and ten free
+costs seconds (14–20 s of CPU for an order across ten fixed-charge and ten free
 venues); an American price on 5,000 steps, the lattice's ceiling, under three
 seconds; a run's per-order state about 2.7 kB an order (PRF-011, kept).
 

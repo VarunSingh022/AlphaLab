@@ -44,10 +44,10 @@ The framework is designed for researchers, quantitative developers, students, an
 | Python | 3.12+ |
 | Version | 3.13.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **@@GATE@@ Passing, 0 skipped, 0 warnings** |
+| Tests | **9,035 Passing, 0 skipped, 0 warnings** |
 | Static Typing | **Strict MyPy** (@@GATE@@ source files, repository-wide) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **@@GATE@@ Passing** |
+| Benchmarks | **53 / 53 Passing** |
 | Examples | **69 / 69 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
@@ -90,7 +90,7 @@ factors, and every factor's share of a book's volatility is measured; a box
 uncertainty set takes a book that may short. A factor model is a covariance in
 its own right, stated by its structure: construction over 10,000 assets no
 longer writes 100 million values out first (0.12 s and 6 MB to state the
-model, 2.15 s to construct over it; 4,000 assets written out took 34 s and
+model, 1.85 s to construct over it; 4,000 assets written out took 29 s and
 1.3 GB before the first step). Cron timers read a
 stated zone's wall clock across daylight saving. The liquidation price is
 solved for a stated maintenance basis, with fees and funding. Checkpoint
@@ -1437,8 +1437,8 @@ Additional directories:
 ```text
 docs/          Documentation and ADRs
 examples/      69 runnable examples
-benchmarks/    @@GATE@@ performance benchmarks
-tests/         @@GATE@@ tests — unit, integration, regression
+benchmarks/    53 performance benchmarks
+tests/         9035 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
 
@@ -1448,10 +1448,10 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **@@GATE@@ passing tests** (@@GATE@@ unit, @@GATE@@ integration, @@GATE@@ regression) — **0 skipped, 0 warnings**
+- ✅ **9,035 passing tests** (4,806 unit, 649 integration, 3,580 regression) — **0 skipped, 0 warnings**
 - ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, @@GATE@@ source files)
 - ✅ Ruff linting and formatting
-- ✅ @@GATE@@ benchmarks, 69 / 69 examples
+- ✅ 53 / 53 benchmarks, 69 / 69 examples
 - ✅ A defect-injection harness (`docs/audit/scripts/mutation_v3_13.py`): 182
   mutations — v3.12's 126 and 56 of v3.13's own behaviour — each against the
   whole suite; @@GATE@@ (result on the release tree)
