@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -98,3 +99,24 @@ def test_every_shared_name_is_listed_with_its_reason(current: dict[str, Any]) ->
 
 def test_the_manifest_is_exactly_what_the_generator_writes(current: dict[str, Any]) -> None:
     assert MANIFEST.read_text(encoding="utf-8") == _generator().render(current), _REGENERATE
+
+
+def test_the_readme_states_the_manifest_it_describes() -> None:
+    """``docs/api/PUBLIC_API.md`` counts the manifest in prose; the prose had drifted.
+
+    At 3.13's first writing it gave 2,466 exports while the manifest grew to
+    2,479 (ledger DOC-008). The sentence is read here and held to the manifest.
+    """
+
+    text = (ROOT / "docs" / "api" / "PUBLIC_API.md").read_text(encoding="utf-8")
+    stated = re.search(
+        r"At v(?P<release>[\d.]+) the manifest records (?P<packages>\d+) packages, "
+        r"(?P<exports>[\d,]+) exports and (?P<shared>\d+) shared names",
+        text,
+    )
+    assert stated is not None, "the counting sentence moved; this test reads it"
+    assert stated["release"] == RECORDED["release"] == alphalab.__version__
+    assert int(stated["packages"]) == len(RECORDED["packages"])
+    exports = sum(len(names) for names in RECORDED["packages"].values())
+    assert int(stated["exports"].replace(",", "")) == exports
+    assert int(stated["shared"]) == len(RECORDED["shared_names"])

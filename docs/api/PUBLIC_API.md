@@ -11,7 +11,8 @@ data, and the build is held to it.
 | [`generate_public_api.py`](generate_public_api.py) | Writes the manifest from the package. Keeps the reasons already written; leaves a new shared name's reason empty |
 | `tests/regression/test_public_api_manifest.py` | Fails on any export added, removed or rebound, on a shared name without a reason, and on a manifest for another release |
 
-At v3.13.0 the manifest records 44 packages and 2,466 exports.
+At v3.13.0 the manifest records 44 packages, 2,479 exports and 31 shared names
+(`test_public_api_manifest.py` holds this sentence to the manifest).
 
 ## Changing the public API
 
