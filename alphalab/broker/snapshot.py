@@ -460,7 +460,7 @@ def _event(record: Any) -> BrokerEvent:
         raise BrokerSnapshotDecodeError(f"{tag} could not be decoded: {payload!r}") from exc
 
 
-def _venue_sequence(key: str, value: Any) -> int:
+def _venue_sequence(key: str, value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise BrokerSnapshotDecodeError(
             f"venue_sequences[{key!r}] is not a non-negative integer: {value!r}"

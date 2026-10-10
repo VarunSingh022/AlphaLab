@@ -291,7 +291,7 @@ def _decimal(value: Any, field_name: str) -> Decimal:
         ) from None
 
 
-def _integer(value: Any, field_name: str) -> int:
+def _integer(value: object, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise StateDecodeError(f"live run snapshot {field_name} is not an integer: {value!r}")
     return value
