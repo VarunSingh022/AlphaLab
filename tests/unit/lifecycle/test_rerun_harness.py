@@ -88,7 +88,10 @@ def test_a_divergence_is_reported_with_where_the_records_part(
         original=original,
     )
     assert report.outcome is RerunOutcome.DIVERGED
-    assert 0 < len(report.differences) <= RERUN_DIFFERENCE_LIMIT
+    # 184 paths part in this divergence; the first ten are reported, as ADR-0048
+    # decision 5 and the CHANGELOG state.
+    assert RERUN_DIFFERENCE_LIMIT == 10
+    assert len(report.differences) == RERUN_DIFFERENCE_LIMIT
     assert all(" -> " in line for line in report.differences)
     assert any(line.startswith("pipeline.") for line in report.differences)
     # Without the original, the verdict stands and the location is not claimed.

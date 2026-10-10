@@ -368,6 +368,29 @@ def test_fees_bring_liquidation_closer_and_received_funding_pushes_it_away() -> 
     assert short == Decimal("54700")
 
 
+@pytest.mark.parametrize("basis", list(MaintenanceBasis))
+@pytest.mark.parametrize("side", [PositionSide.LONG, PositionSide.SHORT])
+def test_at_the_price_returned_equity_is_exactly_the_requirement(
+    side: PositionSide, basis: MaintenanceBasis
+) -> None:
+    """Fees and funding included, on either basis, checked from the equation (NUM-014).
+
+    Equity is the posted margin, plus the position's P&L at the price, plus
+    funding received, less fees; the requirement is the maintenance rate times
+    the notional the basis names -- the entry's or the mark's. Not the closed
+    form re-derived: the condition it solves.
+    """
+
+    entry, quantity, rate = Decimal("50000"), Decimal("2"), Decimal("0.005")
+    posted, fees, funding = Decimal("10000"), Decimal("180"), Decimal("45")
+    price = _liquidation(side, "10", "0.005", basis, fees="180", funding="45")
+    assert price is not None
+    sign = 1 if side is PositionSide.LONG else -1
+    equity = posted + sign * quantity * (price - entry) + funding - fees
+    notional = quantity * (price if basis is MaintenanceBasis.MARK_NOTIONAL else entry)
+    assert abs(equity - rate * notional) < Decimal("1e-18")
+
+
 def test_a_long_at_low_leverage_has_no_liquidation_price() -> None:
     assert _liquidation(PositionSide.LONG, "1", "0", MaintenanceBasis.MARK_NOTIONAL) is None
     assert _liquidation(PositionSide.LONG, "0.5", "0.005", MaintenanceBasis.ENTRY_NOTIONAL) is None
