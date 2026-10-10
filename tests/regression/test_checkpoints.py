@@ -9,12 +9,15 @@ altered a link must be refused at the link.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from alphalab.common.ids import id_scope
 from alphalab.common.serialization import to_serializable
+from alphalab.execution.policy import FillTiming
 from alphalab.persistence import deserialize, serialize
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.run_state import RunStateRef
@@ -33,10 +36,19 @@ from alphalab.runtime.run_snapshot import capture as capture_run
 from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
 from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import _RETAINED, RuntimeObjects
-from tests.integration.harness import context_factory
+from tests.integration.harness import (
+    ScriptedStrategy,
+    context_factory,
+    running_strategy_state,
+)
 from tests.regression.test_retention import (
+    ASSET_ID,
     POLICY,
     RECORDS,
+    SEED,
+    STRATEGY_ID,
+    _config,
+    _plan,
     _records,
     _run,
 )
@@ -177,6 +189,89 @@ def test_a_segment_writes_the_orders_that_changed_and_no_others() -> None:
     assert len(written) < len(_order_ids(states[RECORDS - 1])) / 4
     held = payload["maps"]["oms.orders"]["size"]
     assert held == len(_order_ids(states[RECORDS - 1]))
+
+
+def _run_filled_a_record_later() -> list[RunState]:
+    """The same workload with each order filled at the next event, not the one deciding it.
+
+    So an order is working at one record and filled at the next: its entry in
+    the book is *replaced* between two checkpoints, not merely added.
+    """
+
+    config = _config(None)
+    config = replace(config, pipeline=replace(config.pipeline, fill_timing=FillTiming.NEXT_EVENT))
+    strategy = ScriptedStrategy(STRATEGY_ID, ASSET_ID, _plan())
+    states: list[RunState] = []
+    with id_scope(SEED):
+        state = TradingSession.initialize(config, running_strategy_state(STRATEGY_ID, strategy))
+        for record in _records():
+            state, _ = TradingSession.advance(state, record, context_factory)
+            states.append(state)
+    return states
+
+
+def test_an_order_that_changed_between_checkpoints_is_written_by_its_change() -> None:
+    """A segment carries an entry that was replaced, not only one that arrived (PRF-011).
+
+    Every record is a link here, and an order checkpointed while working is
+    filled by the next: each segment must carry it again, filled, and the chain
+    must read back as the capture.
+    """
+
+    states = _run_filled_a_record_later()
+    replaced = [
+        index
+        for index in range(1, len(states))
+        if any(
+            states[index].pipeline.oms.orders.contains(order.order_id)
+            and states[index].pipeline.oms.orders.find(order.order_id) is not order
+            for order in states[index - 1].pipeline.oms.orders.orders()
+        )
+    ]
+    assert len(replaced) > 10, "the workload must replace entries between links"
+    payloads, taken = _chain(states, 1)
+    assert all(
+        not header["whole"]
+        for payload in payloads[1:]
+        for header in deserialize(payload)["maps"].values()
+    ), "written by their changes, not whole"
+    for link in (replaced[0], replaced[len(replaced) // 2], len(payloads) - 1):
+        assert to_serializable(read_checkpoints(payloads[: link + 1])) == to_serializable(
+            capture_run(states[taken[link]])
+        )
+
+
+def _without(state: RunState, order: Any) -> RunState:
+    oms = state.pipeline.oms
+    return replace(
+        state,
+        pipeline=replace(
+            state.pipeline, oms=replace(oms, orders=oms.orders.remove(order.order_id))
+        ),
+    )
+
+
+def test_a_map_that_lost_or_reordered_an_entry_is_written_whole() -> None:
+    """The run only adds and replaces orders; a state handed to ``checkpoint`` may not.
+
+    A reader merges a segment's entries by key, so a map that lost an entry --
+    at its end, or before entries that follow -- can only be written whole. The
+    pipeline never removes an order, so both states are built by hand.
+    """
+
+    states = _run(None)
+    base, mark = checkpoint(states[50])
+    marked = states[50].pipeline.oms.orders.orders()
+    shrunk = _without(states[50], marked[-1])
+    moved = _without(states[60], marked[0])
+    assert len(moved.pipeline.oms.orders.orders()) >= len(marked)
+
+    for edited in (shrunk, moved):
+        segment, _ = checkpoint(edited, mark)
+        assert deserialize(segment)["maps"]["oms.orders"]["whole"] is True
+        assert to_serializable(read_checkpoints([base, segment])) == to_serializable(
+            capture_run(edited)
+        )
 
 
 def test_a_mark_rebuilt_from_its_digest_and_ends_writes_the_maps_whole() -> None:
