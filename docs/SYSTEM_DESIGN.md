@@ -38,10 +38,10 @@ Every implementation decision should reinforce these objectives.
                         User
                           │
                           ▼
-                  AlphaLab Workbench
+   The host application (UI, workspaces, orchestration)
                           │
                           ▼
-                  Strategy Studio
+                     alphalab.api
                           │
      ┌────────────┬───────┴──────┬─────────────┐
      ▼            ▼              ▼             ▼
@@ -213,11 +213,7 @@ Validation should never be duplicated across managers.
 The following diagram illustrates communication between major subsystems.
 
 ```
-Workbench
-
-↓
-
-Studio
+alphalab.api   (what a host application imports)
 
 ↓
 
@@ -240,7 +236,9 @@ Lifecycle
 Adapters (broker, marketdata)
 ```
 
-Communication always follows public APIs.
+Communication always follows public APIs. The top of both diagrams was
+`workbench` and `studio` until v3.11, when they moved to the host application
+with `enterprise` (ADR-0046); this document drew them until v3.13.
 
 ---
 
@@ -323,7 +321,7 @@ RunState                 (the run)
 
 LifecycleState
 
-StrategyStudioState
+BrokerConnectorState
 ```
 
 Each operation returns a new instance. The full ownership table is in
@@ -405,15 +403,14 @@ Subsystems should remain independent.
 
 For example
 
-Research should not import
+`research` does not import
 
-- Lifecycle
-- Workbench
+- `lifecycle`, which composes it
+- `data`: it reads point-in-time information through `alt_data` (ADR-0042)
 
-Portfolio Optimizer should not import
-
-- Market Data providers
-- UI components
+`portfolio_optimizer` imports `common`, `analytics` and `conventions`, and
+nothing else (ADR-0043, ADR-0046); `tests/regression/test_v38_invariants.py`
+reads the import graph to hold it.
 
 Isolation simplifies testing and maintenance.
 

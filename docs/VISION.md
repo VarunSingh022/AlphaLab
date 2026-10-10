@@ -73,7 +73,8 @@ AlphaLab provides:
   AlphaLab (v3.9).
 - **Standalone engines** for reporting, portfolio optimization, the feature
   store, ML / deep learning / RL, options, futures, crypto, macro, cloud
-  research, cluster scheduling and the Workbench.
+  research and cluster scheduling. (The Workbench, the Strategy Studio and the
+  enterprise layer moved to the host application in v3.11, ADR-0046.)
 
 Those standalone engines share the engineering model and are deliberately not
 fused into a single runtime (ADR-0009). AlphaLab is a library, not a running

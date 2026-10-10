@@ -1707,8 +1707,9 @@ an ADR.
 54. **v3.3's published decomposition numbers do not move.** They are
     recomputed with the v3.3 expressions and compared float for float.
 55. **`analytics` imports only `common` and `core`, `allocation` never imports
-    `portfolio`, and `portfolio_optimizer` imports only `common` and
-    `analytics`.**
+    `portfolio`, and `portfolio_optimizer` imports only `common`, `analytics`
+    and — since v3.11, to round to lots — `conventions`, which reads only
+    `common`.** (This line named the first two until v3.13.)
 
 56. **One statement of the order lifecycle** (v3.9, ADR-0044).
     `core.lifecycle.ORDER_TRANSITIONS` is read by the OMS and by the venue
@@ -1817,7 +1818,7 @@ future "unification" must break first.
 | `oms.book.OrderBook` / `data.feed.OrderBook` | *My* working orders vs *the market's* resting size. They share no operation. Merging is a category error |
 | `portfolio.PortfolioEngine` / `portfolio_optimizer.PortfolioEngine` | Accounting vs construction. Only the first is reachable from the execution path |
 | `research.parameter_sweep` / `portfolio_optimizer` | Parameter search and weights: one home each since v3.12 removed `optimizer` |
-| `broker` / `brokers` | One venue vs many venues and many accounts. Converged in v2.3; the connector routes canonical types under historical names |
+| `broker` / `brokers` | One venue vs many venues and many accounts. Converged in v2.3; the connector routes the canonical types under their canonical names (its historical aliases were removed in v3.13, API-001) |
 | `data.feed.Bar` / `market.bar.Bar` | Wire vs domain, opposite sides of one conversion |
 | Three things called a venue | Listing exchange, market-data attribution, execution venue. None derives from another |
 | `strategy.StrategyStatus` / `lifecycle.LifecycleState` | A strategy *instance's* stage vs the lifecycle registry. They shared the name `LifecycleState` until v3.13 (API-001) |

@@ -345,7 +345,7 @@ PortfolioState
 
 ExecutionPipelineState
 
-StrategyStudioState
+BrokerConnectorState
 ```
 
 ---
@@ -473,7 +473,7 @@ Example
 Allowed
 
 ```
-Studio
+Lifecycle
 
 ↓
 
@@ -487,7 +487,7 @@ Research
 
 ↓
 
-Workbench
+Lifecycle
 ```
 
 These rules preserve architectural integrity.

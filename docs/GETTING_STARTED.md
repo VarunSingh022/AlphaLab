@@ -339,8 +339,9 @@ Examples include
 - Portfolio Optimizer
 - Market Data
 - The two broker boundaries
-- Strategy Studio
-- Workbench
+- Target weights on a lot grid, and decisions on complete instants
+  (examples 08–09, which until v3.11 demonstrated the Strategy Studio and the
+  Workbench, both now the host application's)
 - The unified backtest, the lifecycle, durable run state and multi-currency
   settlement (examples 11–14)
 - Universal data ingestion and research from a canonical dataset
@@ -427,8 +428,7 @@ After completing this guide, consider exploring
   `alphalab.lifecycle`
 - Durable run state — `examples/13_durable_run_state.py`
 - Multi-currency settlement and the FX feed — `examples/14_multi_currency_settlement.py`
-- The standalone engines — Research, Universal Data, Portfolio Optimizer,
-  Strategy Studio, Workbench
+- The standalone engines — Research, Universal Data, Portfolio Optimizer
 
 `../nowandfuture.md` is the long-form reference for who owns what, which
 invariants are frozen, and what must not be changed casually.

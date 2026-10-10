@@ -393,7 +393,10 @@ write the matrix out on each read.
   rows; it listed delivered items as planned. `docs/ARCHITECTURE.md`'s
   Implementation Status called three rows "deliberately deferred" that 3.11 to
   3.13 delivered, and the release checklist named 3.12's counts and none of the
-  API manifest or the certificate. Corrected; every document that states the
+  API manifest or the certificate. Five design documents still drew the Strategy
+  Studio and the Workbench, gone since 3.11; three said the broker connector
+  exports historical names this release removed; and a frozen invariant gave
+  `portfolio_optimizer`'s import edges without the one 3.11 added. Corrected; every document that states the
   version is held to the package's, and no current-state document may call
   anything deferred while the ledger defers nothing, each by a test.
 * **BND-006**: the WebSocket client's two stated omissions, `permessage-deflate`

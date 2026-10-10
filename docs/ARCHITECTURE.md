@@ -1489,9 +1489,11 @@ fixed, and each has a regression test pinning it:
   `alphalab.market` inputs only.
 - **`broker` / `brokers` overlap was closed in v2.3, and this entry described
   the state before it** (corrected in v2.16). `brokers` routes the canonical
-  types: `AccountSnapshot`, `PositionSnapshot`, `ExecutionReport`, `BrokerOrder`
-  and `OrderStatus` *are* the `alphalab.broker` classes under this package's
-  historical names, pinned by
+  types: `BrokerAccount`, `BrokerPosition`, `BrokerExecution`, `BrokerOrder` and
+  `BrokerOrderStatus` *are* the `alphalab.broker` classes, under their own names.
+  Until v3.13 they were also exported under this package's historical names
+  (`AccountSnapshot`, `PositionSnapshot`, `ExecutionReport`, `OrderStatus`),
+  which v3.13 removed rather than kept as aliases (API-001); both are pinned by
   `tests/regression/test_shared_names_stay_distinct.py`. Live broker
   connectivity reached the execution path in v2.15; see ADR-0031.
 - ~~**`kernel` and `core/events` are unused by the execution path.**~~

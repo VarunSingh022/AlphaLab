@@ -1483,8 +1483,9 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   searches parameters, `portfolio_optimizer` sets weights. Until v3.12 a second
   package, `optimizer`, searched parameters too; it was removed (SCF-003).
 - **`broker` vs `brokers`** — one venue versus many venues and many accounts.
-  The connector package routes the canonical types under its historical names;
-  the identities are asserted.
+  The connector package routes the canonical types under their canonical names
+  (since v3.13; its historical aliases were removed, API-001); the identities
+  are asserted.
 - **A wire record and a domain record** — `data.feed` is `float`/`symbol`,
   `alphalab.market` is `Decimal`/`asset_id`. They sit on opposite sides of an
   explicit conversion (ADR-0011).
