@@ -17,6 +17,7 @@ from alphalab.backtesting.state import BacktestResult
 from alphalab.data.dataset import Dataset
 from alphalab.lifecycle import (
     RERUN_DIFFERENCE_LIMIT,
+    EngineBuild,
     EngineIdentity,
     LifecycleInputError,
     ReproducibilityManifest,
@@ -130,6 +131,46 @@ def test_another_dataset_or_engine_is_refused_before_anything_runs(
     )
     assert report.outcome is RerunOutcome.INPUTS_DIFFER
     assert any("engine build" in line for line in report.detail)
+
+
+def test_each_recorded_input_is_compared_on_its_own_and_named(
+    dataset: Dataset, manifest: ReproducibilityManifest
+) -> None:
+    """One difference at a time, each named in the detail, and nothing run.
+
+    A provenance is a value its caller can build, so a dataset can carry the
+    recorded version label over other bytes: the content is compared as well as
+    the label. The build's source and its time-zone database are compared one
+    by one, so a rerun on another engine source -- the same version number, say,
+    patched -- is refused for what it is.
+    """
+
+    def differences(rerun_on: Dataset, build: EngineBuild) -> list[str]:
+        report = rerun_from_manifest(
+            manifest,
+            _never,
+            dataset=rerun_on,
+            fingerprint=fingerprint(),
+            engine=ENGINE,
+            build=build,
+        )
+        assert report.outcome is RerunOutcome.INPUTS_DIFFER
+        assert report.rerun_manifest is None and report.assessment is None
+        assert report.detail[-1].startswith("nothing was run")
+        return [line.split(":", 1)[0] for line in report.detail[:-1]]
+
+    provenance = dataset.require_provenance()
+    relabelled = replace(
+        dataset,
+        provenance=replace(provenance, source=replace(provenance.source, content_hash="0" * 64)),
+    )
+    relabelled_provenance = relabelled.require_provenance()
+    assert relabelled_provenance.dataset_version == manifest.dataset_version
+    assert relabelled_provenance.content_hash != manifest.dataset_content_hash
+    assert differences(relabelled, BUILD) == ["dataset content"]
+
+    assert differences(dataset, replace(BUILD, source_digest="f" * 64)) == ["engine source"]
+    assert differences(dataset, replace(BUILD, tz_database="1970a")) == ["time-zone database"]
 
 
 def test_a_rerun_with_another_seed_is_of_other_inputs(
