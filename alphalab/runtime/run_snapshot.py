@@ -59,7 +59,7 @@ resumes at record N+1; nothing is replayed.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final
 
 from alphalab.common.append_log import AppendOnlyLog
@@ -71,7 +71,7 @@ from alphalab.oms.order import Order as OMSOrder
 # The order decoder belongs to the module that owns the type. Imported rather
 # than repeated: a second implementation of one decoding contract is how two
 # readers come to disagree about the same payload.
-from alphalab.oms.snapshot import _order
+from alphalab.oms.snapshot import _order, order_v1_to_v2
 from alphalab.persistence.decode import (
     as_bool,
     as_decimal,
@@ -83,9 +83,9 @@ from alphalab.persistence.decode import (
     as_sequence,
     as_str,
     require,
-    require_schema_version,
 )
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState, RunStep, SkippedRecord
 
 # The market-record, fill and report decoders belong to the pipeline snapshot,
@@ -105,6 +105,7 @@ from alphalab.runtime.snapshot import from_primitives as pipeline_from_primitive
 from alphalab.runtime.snapshot import restore as restore_pipeline
 
 __all__ = [
+    "RUN_SCHEMA_HISTORY",
     "RUN_SNAPSHOT_SCHEMA",
     "RunObjects",
     "RunSnapshot",
@@ -125,7 +126,19 @@ __all__ = [
 #: It is the *only* run-envelope constant. It replaces ``SESSION_SNAPSHOT_SCHEMA``
 #: and ``BACKTEST_SNAPSHOT_SCHEMA``, which are removed rather than aliased, and it
 #: is new, so it has nothing to be compatible with.
-RUN_SNAPSHOT_SCHEMA: Final = 1
+#:
+#: Version 2 (v3.10) carries the analytics basis the run declares:
+#: ``years_elapsed`` may be ``null`` (derive it from the equity curve) and
+#: ``periods_per_year`` is new -- and whether the run stops when a strategy fails
+#: (``halt_on_strategy_failure``). Version 3 (v3.11) writes the orders each
+#: recorded step carries in the OMS's version-2 form, with their time in force,
+#: expiry and stop trigger (ledger EXE-003). Version 4 (v3.12) records how many
+#: point-in-time records the run has delivered and the last one's
+#: ``(known_at, delivery_id)`` (ledger OFE-009): the cursor that keeps a
+#: restored run from delivering one twice -- and how many steps and skipped
+#: records a retention policy dropped (``dropped``, ledger PRF-004). Earlier
+#: versions are upgraded by :data:`RUN_SCHEMA_HISTORY`.
+RUN_SNAPSHOT_SCHEMA: Final = 4
 
 _SUBSYSTEM: Final = "run"
 
@@ -156,7 +169,7 @@ class RunSnapshot:
     start_timestamp: float
     ordering: OrderingGuarantee
     max_market_data_age_seconds: float | None
-    years_elapsed: float
+    years_elapsed: float | None
     risk_free_rate: float
     compile_analytics: bool
     fill_policy_type: str
@@ -166,6 +179,19 @@ class RunSnapshot:
     source_id: str | None
     steps: tuple[RunStep, ...]
     skipped: tuple[SkippedRecordRecord, ...]
+    periods_per_year: float | None = None
+    halt_on_strategy_failure: bool = False
+    #: The instant of the last slice the run closed, or ``None`` (ledger
+    #: EXE-004): what stops a restored run closing one instant twice.
+    last_slice_at: float | None = None
+    #: How many point-in-time records the run delivered, and the last one's
+    #: ``(known_at, delivery_id)`` (ledger OFE-009).
+    observations_delivered: int = 0
+    last_observation: tuple[float, str] | None = None
+    #: How many entries the run's own logs dropped before those recorded, by
+    #: name -- ``"steps"``, ``"skipped"`` -- when a retention policy trimmed
+    #: them. Only non-zero counts are written (ledger PRF-004).
+    dropped: Mapping[str, int] = field(default_factory=dict)
     schema_version: int = RUN_SNAPSHOT_SCHEMA
 
 
@@ -207,16 +233,26 @@ def capture(state: RunState) -> RunSnapshot:
         years_elapsed=state.config.years_elapsed,
         risk_free_rate=state.config.risk_free_rate,
         compile_analytics=state.config.compile_analytics,
+        periods_per_year=state.config.periods_per_year,
+        halt_on_strategy_failure=state.config.halt_on_strategy_failure,
         fill_policy_type=type(state.config.fill_policy).__name__,
         processed=state.processed,
         current_timestamp=state.current_timestamp,
         last_record_timestamp=state.last_record_timestamp,
+        last_slice_at=state.last_slice_at,
+        observations_delivered=state.observations_delivered,
+        last_observation=state.last_observation,
         source_id=state.source_id,
         steps=state.steps.to_tuple(),
         skipped=tuple(
             SkippedRecordRecord(type(entry.record.payload).__name__, entry.record, entry.reason)
             for entry in state.skipped
         ),
+        dropped={
+            name: count
+            for name, count in (("skipped", state.skipped.dropped), ("steps", state.steps.dropped))
+            if count
+        },
     )
 
 
@@ -257,6 +293,8 @@ def restore(snapshot: RunSnapshot, objects: RunObjects) -> RunState:
         max_market_data_age_seconds=snapshot.max_market_data_age_seconds,
         years_elapsed=snapshot.years_elapsed,
         risk_free_rate=snapshot.risk_free_rate,
+        periods_per_year=snapshot.periods_per_year,
+        halt_on_strategy_failure=snapshot.halt_on_strategy_failure,
         compile_analytics=snapshot.compile_analytics,
     )
     return RunState(
@@ -265,10 +303,14 @@ def restore(snapshot: RunSnapshot, objects: RunObjects) -> RunState:
         processed=snapshot.processed,
         current_timestamp=snapshot.current_timestamp,
         last_record_timestamp=snapshot.last_record_timestamp,
+        last_slice_at=snapshot.last_slice_at,
+        observations_delivered=snapshot.observations_delivered,
+        last_observation=snapshot.last_observation,
         source_id=snapshot.source_id,
-        steps=AppendOnlyLog(snapshot.steps),
-        skipped=AppendOnlyLog(
-            SkippedRecord(entry.record, entry.reason) for entry in snapshot.skipped
+        steps=AppendOnlyLog.restored(snapshot.steps, snapshot.dropped.get("steps", 0)),
+        skipped=AppendOnlyLog.restored(
+            (SkippedRecord(entry.record, entry.reason) for entry in snapshot.skipped),
+            snapshot.dropped.get("skipped", 0),
         ),
     )
 
@@ -333,6 +375,101 @@ def _optional_int(value: Any, where: str) -> int | None:
     return None if value is None else as_int(value, where)
 
 
+#: How every run payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`.
+def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
+    """Add the analytics basis v3.10 records, as a version-1 run meant it.
+
+    A version-1 run declared no ``periods_per_year`` -- v3.9 annualized every
+    run with 252 without asking -- so the upgraded run declares none, and a
+    report compiled after it resumes observes the figure from the curve and
+    says so. Its ``years_elapsed`` is kept exactly as recorded.
+    """
+
+    # No run before v3.10 could stop on a strategy failure; each ran on.
+    return {**payload, "periods_per_year": None, "halt_on_strategy_failure": False}
+
+
+def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
+    """Carry each recorded step's orders into the OMS's version-2 form, and record no slice.
+
+    A step keeps copies of the orders its record produced; they are OMS orders,
+    and they upgrade by the OMS's own rule
+    (:func:`~alphalab.oms.snapshot.order_v1_to_v2`) -- every one of them a day
+    order with no expiry and no stop, which is what a version-2 run could place.
+    A version-2 run closed no slice: no driver could (ledger EXE-004).
+    """
+
+    steps = [
+        {**step, "orders": [order_v1_to_v2(order) for order in step.get("orders", ())]}
+        if isinstance(step, dict)
+        else step
+        for step in payload.get("steps", ())
+    ]
+    return {**payload, "steps": steps, "last_slice_at": None}
+
+
+def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record that a version-3 run delivered no point-in-time record and dropped no step.
+
+    None could: nothing on the execution path delivered one before v3.12
+    (ledger OFE-009), and no run trimmed its steps (PRF-004).
+    """
+
+    return {**payload, "observations_delivered": 0, "last_observation": None, "dropped": {}}
+
+
+def _dropped(value: Any) -> dict[str, int]:
+    payload = as_mapping(value, "dropped")
+    counts: dict[str, int] = {}
+    for name, count in payload.items():
+        if name not in ("skipped", "steps"):
+            raise StateDecodeError(
+                f"dropped names {name!r}; the run's own logs are 'steps' and 'skipped'."
+            )
+        number = as_int(count, f"dropped.{name}")
+        if number < 1:
+            raise StateDecodeError(
+                f"dropped.{name} is {number}; only a positive count of dropped entries is written."
+            )
+        counts[name] = number
+    return counts
+
+
+RUN_SCHEMA_HISTORY = SchemaHistory(
+    _SUBSYSTEM,
+    RUN_SNAPSHOT_SCHEMA,
+    (
+        SchemaStep(
+            1,
+            "version 2 records the analytics basis the run declares",
+            upgrade=_v1_to_v2,
+        ),
+        SchemaStep(
+            2,
+            "version 3 writes each step's orders in the OMS's version-2 form, and the "
+            "instant of the last slice the run closed",
+            upgrade=_v2_to_v3,
+        ),
+        SchemaStep(
+            3,
+            "version 4 records the point-in-time records the run delivered and the steps it "
+            "dropped; no earlier run delivered any or dropped one",
+            upgrade=_v3_to_v4,
+        ),
+    ),
+)
+
+
+def _cursor(value: Any, where: str) -> tuple[float, str] | None:
+    if value is None:
+        return None
+    pair = as_sequence(value, where)
+    if len(pair) != 2:
+        raise StateDecodeError(f"{where} must be [known_at, delivery_id], got {value!r}.")
+    return as_float(pair[0], f"{where}[0]"), as_str(pair[1], f"{where}[1]")
+
+
 def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
     """Decode a JSON-decoded snapshot payload back into :class:`RunSnapshot`.
 
@@ -349,7 +486,7 @@ def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
     """
 
     payload = as_mapping(payload, "run snapshot")
-    require_schema_version(payload, RUN_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    payload = RUN_SCHEMA_HISTORY.upgrade(payload)
 
     def sequence(key: str, decode: Any) -> tuple[Any, ...]:
         return tuple(
@@ -366,17 +503,27 @@ def from_primitives(payload: Mapping[str, Any]) -> RunSnapshot:
         max_market_data_age_seconds=_optional_float(
             require(payload, "max_market_data_age_seconds"), "max_market_data_age_seconds"
         ),
-        years_elapsed=as_float(require(payload, "years_elapsed"), "years_elapsed"),
+        years_elapsed=_optional_float(require(payload, "years_elapsed"), "years_elapsed"),
         risk_free_rate=as_float(require(payload, "risk_free_rate"), "risk_free_rate"),
+        periods_per_year=_optional_float(require(payload, "periods_per_year"), "periods_per_year"),
         compile_analytics=as_bool(require(payload, "compile_analytics"), "compile_analytics"),
+        halt_on_strategy_failure=as_bool(
+            require(payload, "halt_on_strategy_failure"), "halt_on_strategy_failure"
+        ),
         fill_policy_type=as_str(require(payload, "fill_policy_type"), "fill_policy_type"),
         processed=as_int(require(payload, "processed"), "processed"),
         current_timestamp=as_float(require(payload, "current_timestamp"), "current_timestamp"),
         last_record_timestamp=_optional_float(
             require(payload, "last_record_timestamp"), "last_record_timestamp"
         ),
+        last_slice_at=_optional_float(require(payload, "last_slice_at"), "last_slice_at"),
+        observations_delivered=as_int(
+            require(payload, "observations_delivered"), "observations_delivered"
+        ),
+        last_observation=_cursor(require(payload, "last_observation"), "last_observation"),
         source_id=as_optional_str(require(payload, "source_id"), "source_id"),
         steps=sequence("steps", _step),
         skipped=sequence("skipped", _skipped),
+        dropped=_dropped(require(payload, "dropped")),
         schema_version=RUN_SNAPSHOT_SCHEMA,
     )

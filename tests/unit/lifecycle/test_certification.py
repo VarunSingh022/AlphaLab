@@ -17,6 +17,7 @@ import pytest
 
 from alphalab.api import backtest
 from alphalab.broker.state import ConnectionStatus
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.data.dataset import Dataset
 from alphalab.lifecycle import (
     CertificationEvidence,
@@ -44,10 +45,11 @@ from alphalab.lifecycle import (
 )
 from alphalab.lifecycle.strategy_version import StrategyVersion
 from alphalab.risk.limits import DrawdownLimit, ExposureLimit, LeverageLimit, OrderSizeLimit
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 from tests.integration.harness import context_factory, running_strategy_state
 from tests.unit.lifecycle.evidence_harness import (
     ASSET_ID,
+    BUILD,
     CODE,
     DEFINITION,
     ENGINE,
@@ -299,8 +301,8 @@ def test_a_shared_book_is_not_this_strategys_determinism(dataset: Dataset) -> No
 
 
 def test_a_reproduced_complete_manifest_passes(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
-    rerun = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
+    rerun = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     assessment = certify(dataset, CertificationEvidence(manifest=manifest, rerun=rerun)).assessment(
         P.REPRODUCIBLE
@@ -313,7 +315,7 @@ def test_a_reproduced_complete_manifest_passes(dataset: Dataset) -> None:
 
 
 def test_an_identity_alone_is_not_reproduction(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     assessment = certify(dataset, CertificationEvidence(manifest=manifest)).assessment(
         P.REPRODUCIBLE
@@ -330,8 +332,8 @@ def test_a_reproduction_resting_on_approximate_provenance_is_insufficient(
         DependencyCompleteness.DIRECT_ONLY, (DependencyPin("numpy", "1.26.4"),)
     )
     fp = fingerprint(dependencies=direct)
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE)
-    rerun = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE, build=BUILD)
+    rerun = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE, build=BUILD)
     spec = specification(dataset)
 
     report = certify_strategy(fp, spec, CertificationEvidence(manifest=manifest, rerun=rerun))
@@ -342,9 +344,9 @@ def test_a_reproduction_resting_on_approximate_provenance_is_insufficient(
 
 
 def test_a_divergent_rerun_fails(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     diverged = manifest_for_run(
-        run_backtest(dataset, plan={1: Decimal("5")}), dataset, fingerprint(), ENGINE
+        run_backtest(dataset, plan={1: Decimal("5")}), dataset, fingerprint(), ENGINE, build=BUILD
     )
 
     assessment = certify(
@@ -356,7 +358,7 @@ def test_a_divergent_rerun_fails(dataset: Dataset) -> None:
 
 def test_a_manifest_of_another_strategy_version_is_insufficient(dataset: Dataset) -> None:
     other = fingerprint(code=replace(CODE, version="9.9.9"))
-    manifest = manifest_for_run(run_backtest(dataset), dataset, other, ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, other, ENGINE, build=BUILD)
 
     assessment = certify(dataset, CertificationEvidence(manifest=manifest)).assessment(
         P.REPRODUCIBLE
@@ -366,7 +368,7 @@ def test_a_manifest_of_another_strategy_version_is_insufficient(dataset: Dataset
 
 
 def test_an_altered_manifest_fails_identity(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     assessment = certify(
         dataset, CertificationEvidence(manifest=replace(manifest, result_id="0" * 64))
@@ -378,9 +380,9 @@ def test_an_altered_manifest_fails_identity(dataset: Dataset) -> None:
 def test_an_altered_manifest_with_a_rerun_still_fails_identity(dataset: Dataset) -> None:
     """A rerun is never compared with a record that was altered to match it."""
 
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     diverged = manifest_for_run(
-        run_backtest(dataset, plan={1: Decimal("5")}), dataset, fingerprint(), ENGINE
+        run_backtest(dataset, plan={1: Decimal("5")}), dataset, fingerprint(), ENGINE, build=BUILD
     )
     doctored = replace(manifest, result_id=diverged.result_id)
 
@@ -394,8 +396,8 @@ def test_an_altered_manifest_with_a_rerun_still_fails_identity(dataset: Dataset)
 
 
 def test_an_altered_rerun_manifest_is_insufficient_not_raised(dataset: Dataset) -> None:
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
-    rerun = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
+    rerun = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
 
     assessment = certify(
         dataset, CertificationEvidence(manifest=manifest, rerun=replace(rerun, seed=SEED + 1))
@@ -419,8 +421,10 @@ def test_runs_inside_their_declared_limits_pass(dataset: Dataset) -> None:
     assert assessment.status is S.PASS
     assert assessment.evidence["risk_decisions"] == "2"
     assert assessment.evidence["refusals"] == ""
-    assert any("max_daily_loss is not assessed" in limit for limit in assessment.limitations)
-    assert any("max_net_exposure is not assessed" in limit for limit in assessment.limitations)
+    # v3.10: daily loss and net exposure are enforced by the gate, so they are
+    # covered through its decisions rather than listed as unassessed.
+    assert not any("is not assessed" in limit for limit in assessment.limitations)
+    assert any("net-exposure and daily-loss" in limit for limit in assessment.limitations)
 
 
 def test_a_run_gated_by_other_limits_is_not_evidence_about_these(dataset: Dataset) -> None:
@@ -489,8 +493,9 @@ def test_leverage_under_the_cap_passes_and_is_read_as_the_gate_reads_it(
     # The final snapshot's reading equals the gate's own final reading.
     final = result.equity_curve[-1]
     gross = final.long_exposure + abs(final.short_exposure)
-    assert result.state.risk.current_leverage == (gross / final.total_equity).quantize(
-        Decimal("0.0001")
+    # Exact since v3.10, as the gate reads it (it rounded to four places before).
+    assert result.state.risk.current_leverage == ACCOUNTING_CONTEXT.divide(
+        gross, final.total_equity
     )
 
 

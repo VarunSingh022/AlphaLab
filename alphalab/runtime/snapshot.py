@@ -76,8 +76,11 @@ Round trip
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields
+import math
+import warnings
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, fields
+from datetime import time
 from decimal import Decimal
 from typing import Any, Final
 
@@ -92,10 +95,13 @@ from alphalab.analytics.drawdown import DrawdownMetrics
 from alphalab.analytics.engine import PortfolioSnapshot as EquityPoint
 from alphalab.analytics.events import AnalyticsEvent, ReportGenerated
 from alphalab.analytics.exposure import ExposureMetrics
-from alphalab.analytics.report import PerformanceReport, ReturnSummary, RiskSummary
+from alphalab.analytics.report import PerformanceReport, Periodicity, ReturnSummary, RiskSummary
 from alphalab.analytics.state import AnalyticsState
 from alphalab.analytics.summary import TradeMetrics
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.currency_units import CurrencyUnits
+from alphalab.common.evolve import evolve
+from alphalab.common.exceptions import AlphaLabError, AlphaLabValidationError
 from alphalab.common.ids import IdStreamPosition
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.common.serialization import to_serializable
@@ -106,6 +112,7 @@ from alphalab.core.ids import AssetId, FillId, TradeId
 from alphalab.core.ids import OrderId as CoreOrderId
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
+from alphalab.data.feed import TradeAggressor
 from alphalab.execution.events import (
     ExecutionCompleted,
     ExecutionEvent,
@@ -115,6 +122,7 @@ from alphalab.execution.events import (
     ExecutionSubmitted,
 )
 from alphalab.execution.fill import FillStatus
+from alphalab.execution.policy import FillTiming
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.state import ExecutionState
 from alphalab.instrument.registry import InstrumentRegistry
@@ -128,6 +136,7 @@ from alphalab.market.events import (
     TickReceived,
     TradeReceived,
 )
+from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.level import OrderBookLevel
 from alphalab.market.quote import Quote
 from alphalab.market.snapshot import OrderBookSnapshot
@@ -138,6 +147,7 @@ from alphalab.oms.snapshot import capture as capture_oms
 from alphalab.oms.snapshot import from_primitives as oms_from_primitives
 from alphalab.oms.snapshot import restore as restore_oms
 from alphalab.persistence.decode import (
+    MARKET_TERMS_PAYLOAD,
     as_bool,
     as_decimal,
     as_decimal_mapping,
@@ -145,7 +155,9 @@ from alphalab.persistence.decode import (
     as_int,
     as_mapping,
     as_named_enum,
+    as_optional_decimal,
     as_optional_str,
+    as_order_terms,
     as_sequence,
     as_str,
     as_value_enum,
@@ -153,8 +165,9 @@ from alphalab.persistence.decode import (
 )
 from alphalab.persistence.exceptions import SerializationError, StateDecodeError
 from alphalab.persistence.serializer import deserialize, serialize
+from alphalab.persistence.upgrade import SchemaHistory, SchemaStep, SchemaUpgradeWarning
 from alphalab.portfolio.account import Account
-from alphalab.portfolio.snapshot import PortfolioSnapshot
+from alphalab.portfolio.snapshot import PortfolioSnapshot, declared_units_of_v3_book
 from alphalab.portfolio.snapshot import capture as capture_portfolio
 from alphalab.portfolio.snapshot import from_primitives as portfolio_from_primitives
 from alphalab.portfolio.snapshot import restore as restore_portfolio
@@ -171,6 +184,7 @@ from alphalab.risk.events import (
 )
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import (
+    ClassificationLimit,
     DailyLossLimit,
     DrawdownLimit,
     ExposureLimit,
@@ -181,31 +195,39 @@ from alphalab.risk.limits import (
     RiskLimits,
 )
 from alphalab.risk.margin import MarginStatus
-from alphalab.risk.models import RiskViolation
+from alphalab.risk.models import RiskSeverity, RiskViolation
 from alphalab.risk.state import RiskState
+from alphalab.runtime.calendars import VenueCalendars, venue_calendars_from_primitives
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineConfig,
     ExecutionPipelineState,
     ExecutionRouting,
     UnpricedAsset,
     UnpricedReason,
+    _grouped_book,
+    _require_classifiable,
     _require_one_account_currency,
 )
+from alphalab.runtime.retention import RetentionPolicy
 from alphalab.strategy.events import (
     FillEvent,
     LifecycleTransitioned,
     OrderEvent,
+    SliceClosed,
     StrategyRuntimeEvent,
     TimerEvent,
 )
 from alphalab.strategy.protocol import StrategyProtocol, StrategyStateProtocol
-from alphalab.strategy.state import LifecycleState, StrategyState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
+from alphalab.strategy.state import StrategyState, StrategyStatus
+from alphalab.strategy.subscription import SUBSCRIBE_ALL
 
 __all__ = [
     "NOT_ASKED",
+    "PIPELINE_SCHEMA_HISTORY",
     "PIPELINE_SNAPSHOT_SCHEMA",
     "READABLE_PIPELINE_SCHEMAS",
+    "RETAINED_LOGS",
     "AnalyticsEventRecord",
     "ExecutionEventRecord",
     "MarketEventRecord",
@@ -244,40 +266,477 @@ __all__ = [
 #: added: ``ExecutionPipelineConfig.also_settles`` and ``CapitalBudget.currency``
 #: (ADR-0035). Both are on the *configuration*, which is why the envelope moved
 #: and no state record did.
-PIPELINE_SNAPSHOT_SCHEMA: Final = 3
-
-#: The versions :func:`from_primitives` reads, and the only ones.
 #:
-#: A v2.9 payload (version 1) is missing nothing: it records every field its
-#: writer knew about, and "this run captured no strategy state" is an accurate
-#: reading of it rather than an invented value. That is the OMS precedent, not
-#: the portfolio's -- the portfolio refused version 1 because a v1 payload
-#: genuinely lacked ``Position.opened_at`` and no honest value could be
-#: substituted. See ADR-0025 decision 9.
+#: Version 4 (v3.10) records the minor units the account books money at
+#: (``config.account.currency_units``, see :mod:`alphalab.common.currency_units`).
 #:
-#: A v2.16 payload (version 2) is missing nothing either, and the reason is the
-#: same one stated differently. It has no ``also_settles`` because its writer
-#: could not have had one -- a pipeline before v2.17 settled exactly one
-#: currency, by construction -- so reading it as the empty set is what that
-#: payload *says*, not a value invented for it. Its budget names no currency for
-#: the same reason: with one settlement currency in play the budget's was
-#: determined, and ``""`` is how a v2.17 build spells determined-not-stated.
+#: Version 5 (v3.11) writes a bar's interval as its code (``"30m"``) rather than
+#: as a member of the closed enumeration it replaced (``"TimeFrame.M1"``), and
+#: allows a bar's ``vwap`` and ``trade_count`` to be ``null`` -- not reported
+#: (ledger DAT-005). Each strategy record says whether the strategy is owed its
+#: ``on_start`` (``started``, ledger EXE-005), and its subscriptions are the
+#: routing rather than a note (ledger EXE-007).
 #:
-#: Contrast :data:`~alphalab.portfolio.snapshot.PORTFOLIO_SNAPSHOT_SCHEMA`, which
-#: **refuses** its own version 2. That payload records ``realized_pnl`` as a bare
-#: number in no currency, and choosing a currency for it would be a guess about
-#: money. The rule is not "old payloads are readable" or "old payloads are
-#: refused" -- it is that a default is allowed only when it is what the payload
-#: already meant. A v2 *pipeline* payload nests a v2 *portfolio* payload, so
-#: restoring one still fails at the portfolio decoder: each envelope validates
-#: its own version, which is the churn confinement ADR-0023 decision 1 bought.
+#: Version 6 (v3.12) carries the trading calendar declared for each listing
+#: venue (``config.calendars``, ledger EXE-010): a calendar is data, so it is
+#: recorded rather than supplied back. It also records whether the budget
+#: enforces per-strategy ceilings (``config.budget.enforce_strategy_budgets``,
+#: ledger OFE-003) and each classification-bucket limit
+#: (``risk_limits.classification``, ledger OFE-001) -- and the run's retention
+#: policy (``config.retention``) with, for each log it trimmed, how many entries
+#: were dropped before those recorded (``dropped``, ledger PRF-004), and each
+#: trade print's aggressor side, when its source reported one (``aggressor`` on
+#: every tick, ledger FEA-004).
 #:
-#: This is *not* a migration framework and *not* a generic "missing means
-#: current" rule: a payload declaring no version is still refused, and version 4
-#: is still refused.
-READABLE_PIPELINE_SCHEMAS: Final = (1, 2, 3)
+#: Version 7 (v3.13) writes each strategy's status under the enum's v3.13 name,
+#: ``StrategyStatus.RUNNING`` where version 6 wrote ``LifecycleState.RUNNING``
+#: (ledger API-001): a plain enum member is persisted with its class name, so
+#: the name is part of the format (ledger PER-004). Every earlier version is
+#: read through :data:`PIPELINE_SCHEMA_HISTORY`.
+PIPELINE_SNAPSHOT_SCHEMA: Final = 7
 
 _SUBSYSTEM: Final = "pipeline"
+
+#: Every pipeline log a :class:`~alphalab.runtime.retention.RetentionPolicy` may
+#: trim, by the dotted path from the pipeline state that reaches it -- the names
+#: the snapshot's ``dropped`` counts travel under -- with how to read it and how
+#: to put it back. Spelled out rather than walked by name: this module turns no
+#: string into an attribute (v3.12, ledger PRF-004).
+_RETAINED: Final[
+    tuple[
+        tuple[
+            str,
+            Callable[[ExecutionPipelineState], AppendOnlyLog[Any]],
+            Callable[[ExecutionPipelineState, AppendOnlyLog[Any]], ExecutionPipelineState],
+        ],
+        ...,
+    ]
+] = (
+    (
+        "market.history",
+        lambda s: s.market.history,
+        lambda s, log: evolve(s, market=evolve(s.market, history=log)),
+    ),
+    (
+        "market.events",
+        lambda s: s.market.events,
+        lambda s, log: evolve(s, market=evolve(s.market, events=log)),
+    ),
+    (
+        "allocation.history",
+        lambda s: s.allocation.history,
+        lambda s, log: evolve(s, allocation=evolve(s.allocation, history=log)),
+    ),
+    (
+        "allocation.events",
+        lambda s: s.allocation.events,
+        lambda s, log: evolve(s, allocation=evolve(s.allocation, events=log)),
+    ),
+    (
+        "risk.history",
+        lambda s: s.risk.history,
+        lambda s, log: evolve(s, risk=evolve(s.risk, history=log)),
+    ),
+    (
+        "risk.events",
+        lambda s: s.risk.events,
+        lambda s, log: evolve(s, risk=evolve(s.risk, events=log)),
+    ),
+    (
+        "oms.history",
+        lambda s: s.oms.history,
+        lambda s, log: evolve(s, oms=evolve(s.oms, history=log)),
+    ),
+    ("oms.events", lambda s: s.oms.events, lambda s, log: evolve(s, oms=evolve(s.oms, events=log))),
+    (
+        "execution.history",
+        lambda s: s.execution.history,
+        lambda s, log: evolve(s, execution=evolve(s.execution, history=log)),
+    ),
+    (
+        "execution.events",
+        lambda s: s.execution.events,
+        lambda s, log: evolve(s, execution=evolve(s.execution, events=log)),
+    ),
+    (
+        "portfolio.events",
+        lambda s: s.portfolio.events,
+        lambda s, log: evolve(s, portfolio=evolve(s.portfolio, events=log)),
+    ),
+    (
+        "portfolio.ledger.transactions",
+        lambda s: s.portfolio.ledger.transactions,
+        lambda s, log: evolve(
+            s, portfolio=evolve(s.portfolio, ledger=evolve(s.portfolio.ledger, transactions=log))
+        ),
+    ),
+    ("fills", lambda s: s.fills, lambda s, log: evolve(s, fills=log)),
+    ("trades", lambda s: s.trades, lambda s, log: evolve(s, trades=log)),
+    ("trade_records", lambda s: s.trade_records, lambda s, log: evolve(s, trade_records=log)),
+    (
+        "portfolio_snapshots",
+        lambda s: s.portfolio_snapshots,
+        lambda s, log: evolve(s, portfolio_snapshots=log),
+    ),
+)
+
+#: The names of the pipeline's retained logs, in a fixed order.
+RETAINED_LOGS: Final = tuple(path for path, _, _ in _RETAINED)
+
+
+def _dropped_counts(state: ExecutionPipelineState) -> dict[str, int]:
+    """Each retained log's non-zero dropped count, by its name."""
+
+    return {path: count for path, read, _ in _RETAINED if (count := read(state).dropped)}
+
+
+def _with_dropped(
+    state: ExecutionPipelineState, dropped: Mapping[str, int]
+) -> ExecutionPipelineState:
+    """``state`` with each named log saying how many entries it dropped before its first."""
+
+    for path, read, write in _RETAINED:
+        count = dropped.get(path, 0)
+        if count:
+            state = write(state, AppendOnlyLog.restored(read(state), count))
+    return state
+
+
+def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
+    """Add what settlement-level multi-currency recorded, as a v2 payload meant it.
+
+    A v2.16 pipeline settled exactly one currency by construction, so its
+    ``also_settles`` is the empty set -- what the payload says, not a value
+    invented for it -- and its budget's currency is ``""``, which is how v2.17
+    spells "determined, not stated". See ADR-0035 and ADR-0025 decision 9.
+    """
+
+    config = dict(payload["config"])
+    config.setdefault("also_settles", [])
+    config["budget"] = {"currency": "", **config["budget"]}
+    return {**payload, "config": config}
+
+
+def _v3_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Restate one version-3 performance report in version 4's shape.
+
+    Nothing is recomputed: the figures are the ones the v3.9 writer reported.
+    What changes is that the report now *says* how they were computed. v3.9
+    annualized every run with 252 periods without asking, so the basis is
+    recorded as :attr:`~alphalab.analytics.report.Periodicity.ASSUMED` at 252.
+    The span its CAGR used and the risk-free rate its ratios used were the run's
+    and were not written into the report, so they are ``None`` -- not recorded
+    -- as are the trade counts v3.9 did not keep. A profit factor v3.9 wrote as
+    an infinity is ``None``, which is how v3.10 records "undefined".
+    """
+
+    returns = dict(report["returns"])
+    returns["period_returns"] = returns.pop("daily_returns")
+    returns.update(periods_per_year=252.0, periodicity="ASSUMED", years_elapsed=None)
+    risk = {**report["risk"], "risk_free_rate": None}
+    trades = {**report["trades"], "fills": None, "closed_trades": None}
+    for key, value in trades.items():
+        if isinstance(value, float) and not math.isfinite(value):
+            trades[key] = None
+    return {**report, "returns": returns, "risk": risk, "trades": trades}
+
+
+def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record the account's minor units, and restate the analytics basis.
+
+    The configuration's account is the portfolio's account; both must declare
+    the same units, so they are computed from the nested version-3 portfolio
+    payload by the portfolio's own rule (which also refuses a book holding
+    fractional amounts of a currency ISO 4217 gives no decimals). Compiled
+    performance reports are restated by :func:`_v3_report`.
+    """
+
+    portfolio = payload["portfolio"]
+    declared = (
+        declared_units_of_v3_book(portfolio)
+        if portfolio.get("schema_version") == 3
+        else dict(portfolio["account"].get("currency_units", {}))
+    )
+    config = dict(payload["config"])
+    config["account"] = {**config["account"], "currency_units": declared}
+    # Every simulated order before v3.10 filled at the event that decided it.
+    config["fill_timing"] = FillTiming.SAME_EVENT.value
+    analytics = dict(payload["analytics"])
+    analytics["reports"] = [_v3_report(report) for report in analytics["reports"]]
+    config["risk_limits"] = _v3_risk_limits(config["risk_limits"], "config.risk_limits")
+    risk = dict(payload["risk"])
+    risk["active_limits"] = _v3_risk_limits(risk["active_limits"], "risk.active_limits")
+    risk["history"] = [{**decision, "breaches": []} for decision in risk["history"]]
+    # v3.9 maintained no trading day, so none had begun.
+    risk.update(trading_day=None, day_start_nav=None)
+    return {**payload, "config": config, "analytics": analytics, "risk": risk}
+
+
+def _v3_risk_limits(limits: dict[str, Any], where: str) -> dict[str, Any]:
+    """Carry a version-3 limit set into version 4, which declares a daily loss's day.
+
+    A v3.9 ``DailyLossLimit`` recorded an amount and no trading day, and the
+    v3.9 gate never enforced it -- nothing maintained the loss it read (ledger
+    KD-002). The faithful reading of what that limit *did* is no limit, so the
+    upgraded configuration has none, and the resumed run behaves as the v3.9 run
+    did. The amount is not carried, because v3.10 cannot state it without a day,
+    and no day is invented: :class:`SchemaUpgradeWarning` says so, naming it.
+    """
+
+    upgraded = dict(limits)
+    daily = upgraded.get("daily_loss")
+    if daily is not None:
+        warnings.warn(
+            SchemaUpgradeWarning(
+                f"{where}.daily_loss of {daily.get('max_daily_loss')} was not carried into "
+                "schema version 4: v3.9 recorded no trading day for it and never enforced it, "
+                "so the upgraded run has no daily loss limit, as the v3.9 run had none in "
+                "effect. Restate it as DailyLossLimit(amount, zone=...) to enforce it."
+            ),
+            stacklevel=2,
+        )
+    upgraded["daily_loss"] = None
+    return upgraded
+
+
+#: The interval code of each member of the enumeration ``TimeFrame`` was until
+#: v3.11, as the version-4 encoder wrote them.
+_V4_TIMEFRAME_CODES: Final = {
+    "TimeFrame.M1": "1m",
+    "TimeFrame.M5": "5m",
+    "TimeFrame.M15": "15m",
+    "TimeFrame.H1": "1h",
+    "TimeFrame.H4": "4h",
+    "TimeFrame.D1": "1d",
+    "TimeFrame.W1": "1w",
+    "TimeFrame.MN1": "1M",
+}
+
+
+def _v4_intervals(value: Any) -> Any:
+    """Rewrite every bar's ``TimeFrame.<member>`` as the member's interval code.
+
+    Bars sit in the market record's latest bars and inside its history and event
+    logs; every mapping holding a ``timeframe`` in the version-4 spelling is one,
+    and nothing else in a version-4 payload is spelled that way. A bar's
+    ``vwap`` and ``trade_count`` are carried as written: a version-4 zero may
+    have meant "not reported", but it may equally have been a reported zero,
+    and the payload does not say which -- so it is not guessed.
+    """
+
+    if isinstance(value, dict):
+        rewritten = {key: _v4_intervals(item) for key, item in value.items()}
+        code = rewritten.get("timeframe")
+        if isinstance(code, str) and code in _V4_TIMEFRAME_CODES:
+            rewritten["timeframe"] = _V4_TIMEFRAME_CODES[code]
+        return rewritten
+    if isinstance(value, list):
+        return [_v4_intervals(item) for item in value]
+    return value
+
+
+def _v4_strategy(record: dict[str, Any], where: str) -> dict[str, Any]:
+    """Carry one version-4 strategy record into version 5.
+
+    Two facts, each read as what the version-4 run *did*:
+
+    * **It owes no** ``on_start``. v3.10 never delivered the hook, and a
+      continued run delivering it mid-run would call setup on a strategy that
+      has been trading; ``started`` is ``True``.
+    * **It received every event.** v3.10 recorded subscriptions and routed on
+      none of them, so the faithful reading of a declaration it never enforced is
+      ``"*"`` -- the precedent the version-4 upgrade set for a daily loss limit
+      v3.9 never enforced. A declaration other than ``"*"`` is not carried, and
+      :class:`SchemaUpgradeWarning` names it.
+    """
+
+    declared = record.get("subscriptions")
+    if declared != [SUBSCRIBE_ALL]:
+        warnings.warn(
+            SchemaUpgradeWarning(
+                f"{where}.subscriptions {declared!r} were recorded and never enforced before "
+                "schema version 5, so the upgraded strategy keeps receiving every event, as "
+                "it did: its subscriptions are ['*']. Resubscribe to have them enforced."
+            ),
+            stacklevel=2,
+        )
+    return {**record, "subscriptions": [SUBSCRIBE_ALL], "started": True}
+
+
+def _v4_risk_event(record: Any) -> Any:
+    """A version-4 risk event, its request given the terms every request then had."""
+
+    if not isinstance(record, dict):
+        return record
+    event = record.get("event")
+    if isinstance(event, dict) and isinstance(event.get("request"), dict):
+        request = {**event["request"], "terms": dict(MARKET_TERMS_PAYLOAD)}
+        return {**record, "event": {**event, "request": request}}
+    return record
+
+
+def _v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
+    """Write each bar's interval as its code, restate each strategy's routing, and give
+    each order request its terms.
+
+    See :func:`_v4_intervals` and :func:`_v4_strategy`. Every request a
+    version-4 run made was a market order good for the day -- the pipeline could
+    make no other (ledger EXE-003) -- so a request inside a risk event is given
+    exactly those terms. The allocation and OMS payloads nested here carry their
+    own versions and are upgraded by their own histories.
+    """
+
+    strategies = [
+        _v4_strategy(dict(record), f"strategy[{index}]")
+        for index, record in enumerate(payload["strategy"])
+    ]
+    risk = dict(payload["risk"])
+    risk["events"] = [_v4_risk_event(record) for record in risk.get("events", ())]
+    return {
+        **payload,
+        "market": _v4_intervals(payload["market"]),
+        "strategy": strategies,
+        "risk": risk,
+    }
+
+
+def _v5_to_v6(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record that a version-5 run declared no venue calendar, ceiling, bucket limit or retention,
+    and that none of its prints carried an aggressor side (:func:`_v5_ticks`).
+
+    A v3.11 pipeline could hold no calendar (ledger EXE-010): it refused a
+    simulated day order that did not state its close, and that is exactly what
+    an empty declaration does. The order a v3.11 run did place carries the
+    close its caller stated, so nothing it holds is reinterpreted. Nor did any
+    v3.11 budget enforce a strategy's amount as a ceiling (OFE-003). The nested
+    allocation payload carries its own version and is upgraded by its own
+    history.
+    """
+
+    config = dict(payload["config"])
+    config["calendars"] = {"by_exchange": {}, "default": None}
+    config["budget"] = {**config["budget"], "enforce_strategy_budgets": False}
+    # Nor did any limit a classification bucket (OFE-001), and none trimmed a
+    # history (PRF-004).
+    config["risk_limits"] = {**config["risk_limits"], "classification": []}
+    config["retention"] = dict.fromkeys(("market_history", "steps", "audit_events", "results"))
+    risk = dict(payload["risk"])
+    risk["active_limits"] = {**risk["active_limits"], "classification": []}
+    return {
+        **payload,
+        "config": config,
+        "risk": risk,
+        "dropped": {},
+        "market": _v5_ticks(payload["market"]),
+    }
+
+
+#: A version-5 tick's fields, exactly: what identifies one inside the market record.
+_V5_TICK_FIELDS: Final = frozenset(
+    ("asset_id", "timestamp", "price", "quantity", "trade_id", "venue", "currency")
+)
+
+
+def _v5_ticks(value: Any) -> Any:
+    """Give every version-5 tick the aggressor side it could not record: none.
+
+    Ticks sit in the market record's latest ticks and inside its history and
+    event logs, and a mapping holding exactly a tick's seven fields is one. No
+    v3.11 print carried a direction (ledger FEA-004), so ``None`` -- "not
+    reported" -- is what each one already meant.
+    """
+
+    if isinstance(value, dict):
+        rewritten = {key: _v5_ticks(item) for key, item in value.items()}
+        if set(rewritten) == _V5_TICK_FIELDS:
+            rewritten["aggressor"] = None
+        return rewritten
+    if isinstance(value, list):
+        return [_v5_ticks(item) for item in value]
+    return value
+
+
+#: How a version-6 strategy status begins: the enum's name before v3.13.
+_V6_STATUS_PREFIX: Final = "LifecycleState."
+
+
+def _v6_to_v7(payload: dict[str, Any]) -> dict[str, Any]:
+    """Write each strategy's status under the enum's v3.13 name.
+
+    A plain enum member is persisted as ``ClassName.MEMBER``, so renaming the
+    strategy runtime's ``LifecycleState`` to
+    :class:`~alphalab.strategy.state.StrategyStatus` (ledger API-001) changed
+    how a status is written and nothing about what it means:
+    ``LifecycleState.RUNNING`` was always ``StrategyStatus.RUNNING``. A status
+    written any other way is left as it is, for the decoder to refuse by name.
+    """
+
+    strategies: list[Any] = []
+    for record in payload["strategy"]:
+        status = record.get("status") if isinstance(record, dict) else None
+        if isinstance(status, str) and status.startswith(_V6_STATUS_PREFIX):
+            member = status.removeprefix(_V6_STATUS_PREFIX)
+            record = {**record, "status": f"{StrategyStatus.__name__}.{member}"}
+        strategies.append(record)
+    return {**payload, "strategy": strategies}
+
+
+#: How every pipeline payload a release has written is read by this one.
+#:
+#: A version-1 payload is still missing nothing: it records every field its
+#: writer knew about, and "this run captured no strategy state" is an accurate
+#: reading of it rather than an invented value -- the decoder reads a strategy
+#: record without ``state`` as :data:`NOT_ASKED` exactly when the payload
+#: *started* at version 1 (see :meth:`SchemaHistory.read
+#: <alphalab.persistence.upgrade.SchemaHistory.read>`). Contrast the portfolio,
+#: which refuses its own versions 1 and 2: a default is allowed only when it is
+#: what the payload already meant.
+PIPELINE_SCHEMA_HISTORY: Final = SchemaHistory(
+    _SUBSYSTEM,
+    PIPELINE_SNAPSHOT_SCHEMA,
+    (
+        SchemaStep(
+            1,
+            "version 2 recorded what each strategy said when asked for its state",
+            upgrade=lambda payload: payload,
+        ),
+        SchemaStep(
+            2,
+            "version 3 recorded also_settles and the budget's currency",
+            upgrade=_v2_to_v3,
+        ),
+        SchemaStep(
+            3,
+            "version 4 records the account's minor units and each report's analytics basis",
+            upgrade=_v3_to_v4,
+        ),
+        SchemaStep(
+            4,
+            "version 5 writes a bar's interval as its code, allows an unreported vwap, "
+            "records whether each strategy is owed on_start and routes on its subscriptions, "
+            "and gives each order request its terms",
+            upgrade=_v4_to_v5,
+        ),
+        SchemaStep(
+            5,
+            "version 6 carries the trading calendar declared for each listing venue, "
+            "whether the budget enforces per-strategy ceilings, classification limits, the "
+            "retention policy with what each trimmed log dropped, and each print's aggressor",
+            upgrade=_v5_to_v6,
+        ),
+        SchemaStep(
+            6,
+            "version 7 writes each strategy's status under the enum's v3.13 name, StrategyStatus",
+            upgrade=_v6_to_v7,
+        ),
+    ),
+)
+
+#: The versions :func:`from_primitives` reads -- every one a release wrote.
+READABLE_PIPELINE_SCHEMAS: Final = PIPELINE_SCHEMA_HISTORY.readable
+
+#: The version whose strategy records first carried ``state`` (v2.10).
+_STATE_INTRODUCED_AT: Final = 2
 
 
 class _NotAsked:
@@ -321,7 +780,7 @@ _MARKET_EVENTS: Mapping[str, type[MarketEvent]] = _types(
     QuoteReceived, TickReceived, TradeReceived, BarClosed, BookUpdated, SnapshotCreated
 )
 _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
-    LifecycleTransitioned, FillEvent, OrderEvent, TimerEvent
+    LifecycleTransitioned, FillEvent, OrderEvent, TimerEvent, SliceClosed
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -413,6 +872,9 @@ class ConfigRecord:
     sizing_model_type: str
     simulator_type: str
     instruments_type: str | None
+    fill_timing: FillTiming
+    calendars: VenueCalendars
+    retention: RetentionPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -451,12 +913,15 @@ class StrategyRecord:
     """
 
     strategy_id: str
-    status: LifecycleState
+    status: StrategyStatus
     config: Any
     subscriptions: tuple[str, ...]
     last_error: str | None
     instance_type: str
     state: StrategyStateRecord | _NotAsked | None = NOT_ASKED
+    #: Whether the strategy is owed no ``on_start`` (schema 5). See
+    #: :attr:`~alphalab.strategy.state.StrategyState.started`.
+    started: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -485,6 +950,8 @@ class RiskRecord:
     daily_loss: Decimal
     history: tuple[RiskDecision, ...]
     events: tuple[RiskEventRecord, ...]
+    trading_day: str | None = None
+    day_start_nav: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -525,6 +992,10 @@ class PipelineSnapshot:
     portfolio_snapshots: tuple[EquityPoint, ...]
     unpriced_assets: Mapping[str, UnpricedAsset]
     id_position: IdStreamPosition
+    #: For each log a retention policy trimmed, how many entries it dropped
+    #: before the ones recorded here, by the path :data:`RETAINED_LOGS` names
+    #: it by. Only non-zero counts are written (v3.12, ledger PRF-004).
+    dropped: Mapping[str, int] = field(default_factory=dict)
     schema_version: int = PIPELINE_SNAPSHOT_SCHEMA
 
 
@@ -579,6 +1050,9 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
         sizing_model_type=_type_name(config.sizing_model),
         simulator_type=_type_name(config.simulator),
         instruments_type=(None if config.instruments is None else _type_name(config.instruments)),
+        fill_timing=config.fill_timing,
+        calendars=config.calendars,
+        retention=config.retention,
     )
 
 
@@ -724,6 +1198,7 @@ def _capture_strategies(state: StrategyRuntimeState) -> tuple[StrategyRecord, ..
             last_error=strategy.last_error,
             instance_type=_type_name(strategy.instance),
             state=_capture_state(strategy.instance, strategy_id),
+            started=strategy.started,
         )
         for strategy_id, strategy in state.strategies.items()
     )
@@ -762,6 +1237,8 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
             daily_loss=state.risk.daily_loss,
             history=state.risk.history.to_tuple(),
             events=_tagged(state.risk.events, RiskEventRecord),
+            trading_day=state.risk.trading_day,
+            day_start_nav=state.risk.day_start_nav,
         ),
         oms=capture_oms(state.oms),
         execution=ExecutionRecord(
@@ -781,6 +1258,7 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
         portfolio_snapshots=state.portfolio_snapshots.to_tuple(),
         unpriced_assets=dict(state.unpriced_assets),
         id_position=state.id_position,
+        dropped=_dropped_counts(state),
     )
 
 
@@ -842,6 +1320,9 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
         also_settles=frozenset(record.also_settles),
         routing=record.routing,
         instruments=instruments,
+        fill_timing=record.fill_timing,
+        calendars=record.calendars,
+        retention=record.retention,
     )
 
 
@@ -931,6 +1412,7 @@ def _restore_strategies(
             config=record.config,
             subscriptions=frozenset(record.subscriptions),
             last_error=record.last_error,
+            started=record.started,
         )
     return StrategyRuntimeState(
         strategies=strategies, events=tuple(record.event for record in events)
@@ -955,15 +1437,16 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
             type.
         RuntimeValidationError: If the restored configuration fails a validation
             :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.initialize`
-            enforces -- today, that its two currencies agree. The check runs
-            before the state is built, so nothing is reconstructed against a
-            refused configuration.
+            enforces -- that its two currencies agree, and that classification
+            limits have a registry to read. The checks run before the state is
+            built, so nothing is reconstructed against a refused configuration.
     """
 
     config = _restore_config(snapshot.config, objects)
     _require_one_account_currency(config)
+    _require_classifiable(config)
 
-    return ExecutionPipelineState(
+    state = ExecutionPipelineState(
         config=config,
         market=MarketState(
             latest_quotes=PersistentMap(snapshot.market.latest_quotes),
@@ -986,6 +1469,8 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
             daily_loss=snapshot.risk.daily_loss,
             history=AppendOnlyLog(snapshot.risk.history),
             events=AppendOnlyLog(record.event for record in snapshot.risk.events),
+            trading_day=snapshot.risk.trading_day,
+            day_start_nav=snapshot.risk.day_start_nav,
         ),
         oms=restore_oms(snapshot.oms),
         execution=ExecutionState(
@@ -993,7 +1478,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
             history=AppendOnlyLog(snapshot.execution.history),
             events=AppendOnlyLog(record.event for record in snapshot.execution.events),
         ),
-        portfolio=restore_portfolio(snapshot.portfolio),
+        portfolio=_grouped_book(restore_portfolio(snapshot.portfolio), config),
         analytics=AnalyticsState(
             reports=snapshot.analytics.reports,
             events=tuple(record.event for record in snapshot.analytics.events),
@@ -1006,6 +1491,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
         unpriced_assets=PersistentMap(snapshot.unpriced_assets),
         id_position=snapshot.id_position,
     )
+    return _with_dropped(state, snapshot.dropped)
 
 
 # ---------------------------------------------------------------------------
@@ -1050,13 +1536,13 @@ def _event[EventT](
 
     payload = as_mapping(require(record, "event"), f"{where}.event")
     kwargs: dict[str, Any] = {}
-    for field in fields(cls):  # type: ignore[arg-type]
-        raw = require(payload, field.name)
-        decoder = decoders.get(field.name)
-        kwargs[field.name] = (
-            decoder(raw, f"{where}.{field.name}")
+    for member in fields(cls):  # type: ignore[arg-type]
+        raw = require(payload, member.name)
+        decoder = decoders.get(member.name)
+        kwargs[member.name] = (
+            decoder(raw, f"{where}.{member.name}")
             if decoder is not None
-            else as_str(raw, f"{where}.{field.name}")
+            else as_str(raw, f"{where}.{member.name}")
         )
     return event_type, cls(**kwargs)
 
@@ -1073,7 +1559,23 @@ def _account(value: Any, where: str = "config.account") -> Account:
         created_at=as_float(require(payload, "created_at"), f"{where}.created_at"),
         status=as_str(require(payload, "status"), f"{where}.status"),
         metadata=dict(as_mapping(require(payload, "metadata"), f"{where}.metadata")),
+        currency_units=_currency_units(
+            require(payload, "currency_units"), f"{where}.currency_units"
+        ),
     )
+
+
+def _currency_units(value: Any, where: str) -> CurrencyUnits:
+    payload = as_mapping(value, where)
+    try:
+        return CurrencyUnits(
+            {
+                as_str(currency, f"{where} key"): as_int(units, f"{where}[{currency}]")
+                for currency, units in payload.items()
+            }
+        )
+    except AlphaLabValidationError as exc:
+        raise StateDecodeError(f"{where} is not a valid set of currency units: {exc}") from exc
 
 
 def _budget(value: Any, where: str = "config.budget") -> CapitalBudget:
@@ -1087,10 +1589,14 @@ def _budget(value: Any, where: str = "config.budget") -> CapitalBudget:
         strategy_budgets=as_decimal_mapping(
             require(payload, "strategy_budgets"), f"{where}.strategy_budgets"
         ),
-        # Absent in a version 1 or 2 payload, where it means "unstated" -- which
-        # is what a budget written by a single-currency pipeline was. See
-        # READABLE_PIPELINE_SCHEMAS.
-        currency=as_str(payload.get("currency", ""), f"{where}.currency"),
+        # "" in a payload upgraded from version 1 or 2, where it means
+        # "unstated" -- what a single-currency pipeline's budget was.
+        currency=as_str(require(payload, "currency"), f"{where}.currency"),
+        # False in a payload upgraded from version 5 or earlier: nothing before
+        # v3.12 enforced a strategy's budget (OFE-003).
+        enforce_strategy_budgets=as_bool(
+            require(payload, "enforce_strategy_budgets"), f"{where}.enforce_strategy_budgets"
+        ),
     )
 
 
@@ -1125,9 +1631,50 @@ def _risk_limits(value: Any, where: str) -> RiskLimits:
         exposure=limit("exposure", ExposureLimit, "max_gross_exposure", "max_net_exposure"),
         leverage=limit("leverage", LeverageLimit, "max_leverage"),
         margin=limit("margin", MarginLimit, "max_margin_utilization"),
-        daily_loss=limit("daily_loss", DailyLossLimit, "max_daily_loss"),
+        daily_loss=_daily_loss_limit(require(payload, "daily_loss"), f"{where}.daily_loss"),
         drawdown=limit("drawdown", DrawdownLimit, "max_drawdown_pct"),
+        # Empty in a payload upgraded from version 5 or earlier: nothing before
+        # v3.12 limited a classification bucket (OFE-001).
+        classification=tuple(
+            _classification_limit(item, f"{where}.classification[{index}]")
+            for index, item in enumerate(
+                as_sequence(require(payload, "classification"), f"{where}.classification")
+            )
+        ),
     )
+
+
+def _classification_limit(value: Any, where: str) -> ClassificationLimit:
+    payload = as_mapping(value, where)
+    try:
+        return ClassificationLimit(
+            dimension=as_str(require(payload, "dimension"), f"{where}.dimension"),
+            max_gross=as_optional_decimal(require(payload, "max_gross"), f"{where}.max_gross"),
+            max_share=as_optional_decimal(require(payload, "max_share"), f"{where}.max_share"),
+            label=as_optional_str(require(payload, "label"), f"{where}.label"),
+            refuse_unclassified=as_bool(
+                require(payload, "refuse_unclassified"), f"{where}.refuse_unclassified"
+            ),
+        )
+    except AlphaLabError as exc:
+        raise StateDecodeError(f"{where} is not a valid classification limit: {exc}") from exc
+
+
+def _daily_loss_limit(value: Any, where: str) -> DailyLossLimit | None:
+    if value is None:
+        return None
+    payload = as_mapping(value, where)
+    raw_start = as_str(require(payload, "day_start"), f"{where}.day_start")
+    try:
+        return DailyLossLimit(
+            max_daily_loss=as_decimal(
+                require(payload, "max_daily_loss"), f"{where}.max_daily_loss"
+            ),
+            zone=as_str(require(payload, "zone"), f"{where}.zone"),
+            day_start=time.fromisoformat(raw_start),
+        )
+    except (ValueError, AlphaLabError) as exc:
+        raise StateDecodeError(f"{where} is not a valid daily loss limit: {exc}") from exc
 
 
 def _quote(value: Any, where: str) -> Quote:
@@ -1146,6 +1693,7 @@ def _quote(value: Any, where: str) -> Quote:
 
 def _tick(value: Any, where: str) -> Tick:
     payload = as_mapping(value, where)
+    aggressor = require(payload, "aggressor")
     return Tick(
         asset_id=as_str(require(payload, "asset_id"), f"{where}.asset_id"),
         timestamp=as_float(require(payload, "timestamp"), f"{where}.timestamp"),
@@ -1154,6 +1702,9 @@ def _tick(value: Any, where: str) -> Tick:
         trade_id=as_str(require(payload, "trade_id"), f"{where}.trade_id"),
         venue=as_str(require(payload, "venue"), f"{where}.venue"),
         currency=as_str(require(payload, "currency"), f"{where}.currency"),
+        aggressor=None
+        if aggressor is None
+        else as_value_enum(TradeAggressor, aggressor, f"{where}.aggressor"),
     )
 
 
@@ -1167,10 +1718,19 @@ def _bar(value: Any, where: str) -> Bar:
         low=as_decimal(require(payload, "low"), f"{where}.low"),
         close=as_decimal(require(payload, "close"), f"{where}.close"),
         volume=as_decimal(require(payload, "volume"), f"{where}.volume"),
-        vwap=as_decimal(require(payload, "vwap"), f"{where}.vwap"),
-        trade_count=as_int(require(payload, "trade_count"), f"{where}.trade_count"),
-        timeframe=as_named_enum(TimeFrame, require(payload, "timeframe"), f"{where}.timeframe"),
+        vwap=as_optional_decimal(require(payload, "vwap"), f"{where}.vwap"),
+        trade_count=_optional_int(require(payload, "trade_count"), f"{where}.trade_count"),
+        timeframe=_timeframe(require(payload, "timeframe"), f"{where}.timeframe"),
     )
+
+
+def _timeframe(value: Any, where: str) -> TimeFrame:
+    """Decode an interval from its code (schema 5); earlier codes were upgraded to it."""
+
+    try:
+        return TimeFrame.parse(as_str(value, where))
+    except MarketValidationError as error:
+        raise StateDecodeError(f"{where}: {error}") from None
 
 
 def _book(value: Any, where: str) -> OrderBookSnapshot:
@@ -1214,6 +1774,7 @@ def _order_request(value: Any, where: str) -> OrderRequest:
         contributions=_sequence_of(
             require(payload, "contributions"), f"{where}.contributions", _contribution
         ),
+        terms=as_order_terms(require(payload, "terms"), f"{where}.terms"),
     )
 
 
@@ -1248,7 +1809,7 @@ def _violation(value: Any, where: str) -> RiskViolation:
     return RiskViolation(
         rule=as_str(require(payload, "rule"), f"{where}.rule"),
         description=as_str(require(payload, "description"), f"{where}.description"),
-        severity=as_str(require(payload, "severity"), f"{where}.severity"),
+        severity=as_value_enum(RiskSeverity, require(payload, "severity"), f"{where}.severity"),
         current_value=as_decimal(require(payload, "current_value"), f"{where}.current_value"),
         allowed_value=as_decimal(require(payload, "allowed_value"), f"{where}.allowed_value"),
     )
@@ -1268,6 +1829,7 @@ def _decision(value: Any, where: str) -> RiskDecision:
             require(payload, "remaining_buying_power"), f"{where}.remaining_buying_power"
         ),
         exposure=_exposure(require(payload, "exposure"), f"{where}.exposure"),
+        breaches=_sequence_of(require(payload, "breaches"), f"{where}.breaches", _violation),
     )
 
 
@@ -1296,31 +1858,50 @@ def _floats(value: Any, where: str) -> tuple[float, ...]:
     )
 
 
+def _optional_float(value: Any, field: str) -> float | None:
+    return None if value is None else as_float(value, field)
+
+
+def _optional_decimal(value: Any, field: str) -> Decimal | None:
+    return None if value is None else as_decimal(value, field)
+
+
+def _optional_int(value: Any, field: str) -> int | None:
+    return None if value is None else as_int(value, field)
+
+
 def _performance(value: Any, where: str) -> PerformanceReport:
     payload = as_mapping(value, where)
 
-    def block(key: str, cls: Any, floats: Sequence[str] = (), decimals: Sequence[str] = ()) -> Any:
-        inner = as_mapping(require(payload, key), f"{where}.{key}")
-        kwargs: dict[str, Any] = {
-            name: as_float(require(inner, name), f"{where}.{key}.{name}") for name in floats
-        }
-        kwargs |= {
-            name: as_decimal(require(inner, name), f"{where}.{key}.{name}") for name in decimals
-        }
-        return cls, inner, kwargs
+    def inner(key: str) -> Mapping[str, Any]:
+        return as_mapping(require(payload, key), f"{where}.{key}")
 
-    cls, inner, kwargs = block(
-        "returns", ReturnSummary, ("total_return", "cagr", "arithmetic_return", "geometric_return")
-    )
-    returns = cls(
-        **kwargs,
-        daily_returns=_floats(require(inner, "daily_returns"), f"{where}.returns.daily_returns"),
+    def floats(block: Mapping[str, Any], key: str, *names: str) -> dict[str, float | None]:
+        # Every statistic may be ``null``: undefined is recorded as undefined.
+        return {
+            name: _optional_float(require(block, name), f"{where}.{key}.{name}") for name in names
+        }
+
+    block = inner("returns")
+    returns = ReturnSummary(
+        **floats(block, "returns", "total_return", "cagr", "arithmetic_return", "geometric_return"),
+        period_returns=_floats(require(block, "period_returns"), f"{where}.returns.period_returns"),
+        periods_per_year=_optional_float(
+            require(block, "periods_per_year"), f"{where}.returns.periods_per_year"
+        ),
+        periodicity=as_value_enum(
+            Periodicity, require(block, "periodicity"), f"{where}.returns.periodicity"
+        ),
+        years_elapsed=_optional_float(
+            require(block, "years_elapsed"), f"{where}.returns.years_elapsed"
+        ),
     )
 
-    cls, inner, kwargs = block(
-        "risk",
-        RiskSummary,
-        (
+    block = inner("risk")
+    risk = RiskSummary(
+        **floats(
+            block,
+            "risk",
             "sharpe_ratio",
             "sortino_ratio",
             "calmar_ratio",
@@ -1328,27 +1909,46 @@ def _performance(value: Any, where: str) -> PerformanceReport:
             "cvar_95",
             "annualized_volatility",
         ),
-    )
-    risk = cls(**kwargs)
-
-    cls, inner, kwargs = block("drawdowns", DrawdownMetrics, ("max_drawdown", "ulcer_index"))
-    drawdowns = cls(
-        **kwargs,
-        drawdowns=_floats(require(inner, "drawdowns"), f"{where}.drawdowns.drawdowns"),
+        risk_free_rate=_optional_float(
+            require(block, "risk_free_rate"), f"{where}.risk.risk_free_rate"
+        ),
     )
 
-    cls, inner, kwargs = block(
-        "exposure", ExposureMetrics, ("cash_pct", "leverage"), ("gross", "net", "long", "short")
+    block = inner("drawdowns")
+    drawdowns = DrawdownMetrics(
+        max_drawdown=as_float(require(block, "max_drawdown"), f"{where}.drawdowns.max_drawdown"),
+        ulcer_index=as_float(require(block, "ulcer_index"), f"{where}.drawdowns.ulcer_index"),
+        drawdowns=_floats(require(block, "drawdowns"), f"{where}.drawdowns.drawdowns"),
     )
-    exposure = cls(**kwargs)
 
-    cls, inner, kwargs = block(
-        "trades",
-        TradeMetrics,
-        ("win_rate", "loss_rate", "profit_factor", "avg_holding_period", "turnover"),
-        ("avg_win", "avg_loss", "expectancy"),
+    block = inner("exposure")
+    exposure = ExposureMetrics(
+        cash_pct=as_float(require(block, "cash_pct"), f"{where}.exposure.cash_pct"),
+        leverage=as_float(require(block, "leverage"), f"{where}.exposure.leverage"),
+        **{
+            name: as_decimal(require(block, name), f"{where}.exposure.{name}")
+            for name in ("gross", "net", "long", "short")
+        },
     )
-    trades = cls(**kwargs)
+
+    block = inner("trades")
+    optional_floats = floats(
+        block, "trades", "win_rate", "loss_rate", "profit_factor", "avg_holding_period", "turnover"
+    )
+    trades = TradeMetrics(
+        win_rate=optional_floats["win_rate"],
+        loss_rate=optional_floats["loss_rate"],
+        avg_win=_optional_decimal(require(block, "avg_win"), f"{where}.trades.avg_win"),
+        avg_loss=_optional_decimal(require(block, "avg_loss"), f"{where}.trades.avg_loss"),
+        profit_factor=optional_floats["profit_factor"],
+        expectancy=_optional_decimal(require(block, "expectancy"), f"{where}.trades.expectancy"),
+        avg_holding_period=optional_floats["avg_holding_period"],
+        turnover=optional_floats["turnover"],
+        fills=_optional_int(require(block, "fills"), f"{where}.trades.fills"),
+        closed_trades=_optional_int(
+            require(block, "closed_trades"), f"{where}.trades.closed_trades"
+        ),
+    )
 
     attribution_at = f"{where}.attribution"
     attribution_payload = as_mapping(require(payload, "attribution"), attribution_at)
@@ -1470,10 +2070,22 @@ _MARKET_FIELDS: Mapping[str, Any] = {
     "bar": _bar,
     "snapshot": _book,
 }
+
+
+def _assets(value: Any, where: str) -> tuple[str, ...]:
+    return tuple(
+        as_str(item, f"{where}[{index}]") for index, item in enumerate(as_sequence(value, where))
+    )
+
+
 _STRATEGY_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,
     "fill_quantity": as_decimal,
     "fill_price": as_decimal,
+    "attributed_quantity": as_optional_decimal,
+    "quantity": as_optional_decimal,
+    "filled_quantity": as_optional_decimal,
+    "assets": _assets,
 }
 _RISK_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,
@@ -1513,12 +2125,12 @@ def _config(value: Any) -> ConfigRecord:
         risk_limits=_risk_limits(require(payload, "risk_limits"), f"{where}.risk_limits"),
         venue=as_str(require(payload, "venue"), f"{where}.venue"),
         currency=as_str(require(payload, "currency"), f"{where}.currency"),
-        # Absent in a version 1 or 2 payload: such a pipeline settled exactly one
-        # currency, so the empty set is what it says. See READABLE_PIPELINE_SCHEMAS.
+        # Empty in a payload upgraded from version 1 or 2: such a pipeline
+        # settled exactly one currency. See PIPELINE_SCHEMA_HISTORY.
         also_settles=tuple(
             as_str(entry, f"{where}.also_settles[{index}]")
             for index, entry in enumerate(
-                as_sequence(payload.get("also_settles", ()), f"{where}.also_settles")
+                as_sequence(require(payload, "also_settles"), f"{where}.also_settles")
             )
         ),
         routing=as_named_enum(ExecutionRouting, require(payload, "routing"), f"{where}.routing"),
@@ -1529,7 +2141,58 @@ def _config(value: Any) -> ConfigRecord:
         instruments_type=(
             None if instruments is None else as_str(instruments, f"{where}.instruments_type")
         ),
+        fill_timing=_fill_timing(require(payload, "fill_timing"), f"{where}.fill_timing"),
+        # Empty in a payload upgraded from version 5 or earlier: such a pipeline
+        # held no calendar. See PIPELINE_SCHEMA_HISTORY.
+        calendars=venue_calendars_from_primitives(
+            require(payload, "calendars"), f"{where}.calendars"
+        ),
+        # Keeps everything in a payload upgraded from version 5 or earlier: no
+        # earlier run trimmed a history. See PIPELINE_SCHEMA_HISTORY.
+        retention=_retention(require(payload, "retention"), f"{where}.retention"),
     )
+
+
+def _retention(value: Any, where: str) -> RetentionPolicy:
+    payload = as_mapping(value, where)
+    bounds: dict[str, int | None] = {}
+    for name in ("market_history", "steps", "audit_events", "results"):
+        bound = require(payload, name)
+        bounds[name] = None if bound is None else as_int(bound, f"{where}.{name}")
+    try:
+        return RetentionPolicy(**bounds)
+    except AlphaLabError as error:
+        raise StateDecodeError(f"{where}: {error}") from error
+
+
+def _dropped(value: Any) -> dict[str, int]:
+    """The non-zero dropped counts of the retained logs, each a log this envelope names."""
+
+    payload = as_mapping(value, "dropped")
+    counts: dict[str, int] = {}
+    for path, count in payload.items():
+        if path not in RETAINED_LOGS:
+            raise StateDecodeError(
+                f"dropped names {path!r}, which is not a log a retention policy trims; it "
+                f"names one of {list(RETAINED_LOGS)}."
+            )
+        number = as_int(count, f"dropped.{path}")
+        if number < 1:
+            raise StateDecodeError(
+                f"dropped.{path} is {number}; only a positive count of dropped entries is written."
+            )
+        counts[path] = number
+    return counts
+
+
+def _fill_timing(value: Any, where: str) -> FillTiming:
+    text = as_str(value, where)
+    try:
+        return FillTiming(text)
+    except ValueError as exc:
+        raise StateDecodeError(
+            f"{where} must be one of {[timing.value for timing in FillTiming]}, got {text!r}."
+        ) from exc
 
 
 def _strategy_state_record(value: Any, where: str) -> StrategyStateRecord:
@@ -1560,11 +2223,16 @@ def _strategy_record(value: Any, where: str, version: int) -> StrategyRecord:
     """
 
     payload = as_mapping(value, where)
-    if version < PIPELINE_SNAPSHOT_SCHEMA:
+    # Compared with the version that introduced ``state``, not with the current
+    # one. Until v3.10 this read ``version < PIPELINE_SNAPSHOT_SCHEMA``, which was
+    # right while the constant was 2 and wrong from v2.17, when it became 3: a
+    # genuine version-2 payload -- which always carries ``state`` -- was then
+    # refused as malformed, and one missing it read as "never asked".
+    if version < _STATE_INTRODUCED_AT:
         if "state" in payload:
             raise StateDecodeError(
                 f"{where} declares schema version {version} and carries 'state', "
-                f"which was introduced at version {PIPELINE_SNAPSHOT_SCHEMA}. A "
+                f"which was introduced at version {_STATE_INTRODUCED_AT}. A "
                 "payload that says it predates a field and then carries it is "
                 "malformed; it is not read as the later version."
             )
@@ -1575,7 +2243,7 @@ def _strategy_record(value: Any, where: str, version: int) -> StrategyRecord:
 
     return StrategyRecord(
         strategy_id=as_str(require(payload, "strategy_id"), f"{where}.strategy_id"),
-        status=as_named_enum(LifecycleState, require(payload, "status"), f"{where}.status"),
+        status=as_named_enum(StrategyStatus, require(payload, "status"), f"{where}.status"),
         config=require(payload, "config"),
         subscriptions=tuple(
             as_str(item, f"{where}.subscriptions[{index}]")
@@ -1586,33 +2254,8 @@ def _strategy_record(value: Any, where: str, version: int) -> StrategyRecord:
         last_error=as_optional_str(require(payload, "last_error"), f"{where}.last_error"),
         instance_type=as_str(require(payload, "instance_type"), f"{where}.instance_type"),
         state=state,
+        started=as_bool(require(payload, "started"), f"{where}.started"),
     )
-
-
-def _require_readable_version(payload: Mapping[str, Any]) -> int:
-    """Return the declared version, or refuse a payload this build cannot read.
-
-    Two readable versions rather than one, and the shared
-    :func:`~alphalab.persistence.decode.require_schema_version` enforces exactly
-    one -- so the rule is spelled here, keeping its message shape. A payload
-    declaring no version is still refused: there is no unversioned pipeline
-    payload in existence, because the constant was introduced with the module in
-    v2.9, so there is no legacy shape to recognise and none is inferred.
-    """
-
-    version = require(payload, "schema_version")
-    if not isinstance(version, int) or isinstance(version, bool):
-        raise StateDecodeError(
-            f"{_SUBSYSTEM} snapshot schema_version is not an integer: {version!r}"
-        )
-    if version not in READABLE_PIPELINE_SCHEMAS:
-        readable = ", ".join(str(item) for item in READABLE_PIPELINE_SCHEMAS)
-        raise StateDecodeError(
-            f"{_SUBSYSTEM} snapshot declares schema version {version}, and this build "
-            f"reads versions {readable}. There is no migration path; read it with the "
-            "build that wrote it."
-        )
-    return version
 
 
 def _market(value: Any) -> MarketRecord:
@@ -1663,6 +2306,10 @@ def _risk(value: Any) -> RiskRecord:
                 *_event(item, f"{where}.events[{index}]", _RISK_EVENTS, "risk", _RISK_FIELDS)
             )
             for index, item in enumerate(as_sequence(require(payload, "events"), f"{where}.events"))
+        ),
+        trading_day=as_optional_str(require(payload, "trading_day"), f"{where}.trading_day"),
+        day_start_nav=_optional_decimal(
+            require(payload, "day_start_nav"), f"{where}.day_start_nav"
         ),
     )
 
@@ -1723,7 +2370,7 @@ def from_primitives(payload: Mapping[str, Any]) -> PipelineSnapshot:
     """
 
     payload = as_mapping(payload, "pipeline snapshot")
-    version = _require_readable_version(payload)
+    payload, version = PIPELINE_SCHEMA_HISTORY.read(payload)
 
     return PipelineSnapshot(
         config=_config(require(payload, "config")),
@@ -1767,5 +2414,6 @@ def from_primitives(payload: Mapping[str, Any]) -> PipelineSnapshot:
             require(payload, "unpriced_assets"), "unpriced_assets", _unpriced
         ),
         id_position=_id_position(require(payload, "id_position")),
+        dropped=_dropped(require(payload, "dropped")),
         schema_version=PIPELINE_SNAPSHOT_SCHEMA,
     )

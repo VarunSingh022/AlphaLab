@@ -19,9 +19,11 @@ from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.trade import Trade as CoreTrade
 from alphalab.market.record import MarketRecord
 from alphalab.oms.order import Order as OMSOrder
+from alphalab.portfolio.fx import NO_RATES, FxRates
 from alphalab.portfolio.valuation import PortfolioValuation, PortfolioValuationSnapshot
+from alphalab.runtime.assumptions import ExecutionAssumptions
 from alphalab.runtime.execution_pipeline import ExecutionPipelineState, UnpricedAsset
-from alphalab.runtime.run import RunConfig, RunState, RunStep
+from alphalab.runtime.run import RunConfig, RunState, RunStep, StrategyFailure
 
 __all__ = ["BacktestResult", "ReplayResult"]
 
@@ -68,6 +70,28 @@ class BacktestResult:
         return self.run.config.seed
 
     @property
+    def strategy_failures(self) -> tuple[StrategyFailure, ...]:
+        """Every strategy that failed during the run -- empty for a clean run.
+
+        Read before any figure: a run whose strategy failed early produced its
+        figures without it (ledger EXE-006).
+        """
+
+        return self.run.strategy_failures
+
+    @property
+    def execution_assumptions(self) -> ExecutionAssumptions:
+        """How the run modelled execution -- read this beside any figure it produced.
+
+        :attr:`~alphalab.runtime.assumptions.ExecutionAssumptions.optimistic`
+        names each optimistic assumption in force. A backtest configured with
+        the defaults has three: orders fill at the price that decided them, cost
+        nothing, and fill in full (ledger EXE-002).
+        """
+
+        return self.run.config.execution_assumptions
+
+    @property
     def dataset_id(self) -> str | None:
         """The dataset this run consumed, or ``None`` when it named none.
 
@@ -109,12 +133,35 @@ class BacktestResult:
 
     @property
     def valuation(self) -> PortfolioValuationSnapshot:
-        """Final mark-to-market valuation of the portfolio."""
+        """Final mark-to-market valuation of the portfolio, in the run's currency.
+
+        **Single-currency only.** A book that holds a position or cash in any other
+        currency cannot be valued without rates, and this raises
+        :class:`~alphalab.portfolio.exceptions.MixedCurrencyValuationError` for
+        it; :meth:`valuation_in` takes them. Until v3.12 there was no other way to
+        value a finished multi-currency run (ledger API-004).
+        """
+
+        return self.valuation_in(self.config.pipeline.currency, NO_RATES)
+
+    def valuation_in(self, currency: str, rates: FxRates) -> PortfolioValuationSnapshot:
+        """Final mark-to-market valuation in ``currency``, converting at ``rates``.
+
+        The rates are the caller's: a result does not keep the rates its run was
+        stepped with, and which to value a finished book at -- the last record's,
+        or a later close -- is a choice about *when* it is valued. Every
+        conversion is recorded on the snapshot.
+
+        Raises:
+            MixedCurrencyValuationError: If the book holds a currency ``rates``
+                cannot convert to ``currency``.
+        """
 
         return PortfolioValuation.snapshot(
             self.state.portfolio,
             self.state.portfolio_snapshots[-1].timestamp,
-            self.config.pipeline.currency,
+            currency,
+            rates,
         )
 
     @property

@@ -17,9 +17,12 @@ amendment must leave something to work.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields
 from decimal import Decimal
+from typing import Any, Final
 
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, plain
+from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.core.enums import OrderStatus, OrderType, Side
 from alphalab.core.lifecycle import (
     WORKING_ORDER_STATUSES,
@@ -32,7 +35,22 @@ from alphalab.oms.ids import OrderId
 
 @dataclass(frozen=True, slots=True)
 class Order:
-    """Immutable snapshot of a market order and its lifecycle state."""
+    """Immutable snapshot of an order and its lifecycle state.
+
+    ``order_type``, ``limit_price`` and ``stop_price`` were fields from the start
+    and were always ``MARKET``, ``None`` and ``None`` on the canonical path until
+    v3.11, when an order began carrying the
+    :class:`~alphalab.common.order_terms.OrderTerms` it was asked with (ledger
+    EXE-003). The three fields after ``metadata`` are v3.11's.
+
+    Attributes:
+        time_in_force: How long it works. See
+            :class:`~alphalab.common.order_terms.TimeInForce`.
+        expire_at: When a good-til-date order -- or a day order whose session
+            close was supplied -- stops working.
+        triggered_at: When a stop-limit order's stop was reached; ``None`` until
+            it is. A triggered stop-limit order works as a limit order.
+    """
 
     order_id: OrderId
     strategy_id: str
@@ -53,6 +71,21 @@ class Order:
     updated_at: float
 
     metadata: Mapping[str, str] = field(default_factory=dict)
+    time_in_force: TimeInForce = TimeInForce.DAY
+    expire_at: float | None = None
+    triggered_at: float | None = None
+
+    @property
+    def terms(self) -> OrderTerms:
+        """The terms the order was asked with."""
+
+        return OrderTerms(
+            self.order_type,
+            self.limit_price,
+            self.stop_price,
+            self.time_in_force,
+            self.expire_at,
+        )
 
     @property
     def is_open(self) -> bool:
@@ -84,7 +117,7 @@ class Order:
         status = self._next(
             ExecutionEventKind.ORDER_ACCEPTED, f"Cannot accept order in status: {self.status}"
         )
-        return replace(self, status=status, updated_at=timestamp)
+        return _evolved(self, status=status, updated_at=timestamp)
 
     def reject(self, timestamp: float) -> Order:
         """Transitions order to REJECTED state.
@@ -98,7 +131,7 @@ class Order:
         status = self._next(
             ExecutionEventKind.ORDER_REJECTED, f"Cannot reject order in status: {self.status}"
         )
-        return replace(self, status=status, updated_at=timestamp)
+        return _evolved(self, status=status, updated_at=timestamp)
 
     def cancel(self, timestamp: float) -> Order:
         """Transitions order to CANCELLED state."""
@@ -106,7 +139,7 @@ class Order:
             ExecutionEventKind.ORDER_CANCELLED,
             f"Cannot cancel a closed order. Status: {self.status}",
         )
-        return replace(self, status=status, updated_at=timestamp)
+        return _evolved(self, status=status, updated_at=timestamp)
 
     def expire(self, timestamp: float) -> Order:
         """Transitions order to EXPIRED state."""
@@ -114,7 +147,7 @@ class Order:
             ExecutionEventKind.ORDER_EXPIRED,
             f"Cannot expire a closed order. Status: {self.status}",
         )
-        return replace(self, status=status, updated_at=timestamp)
+        return _evolved(self, status=status, updated_at=timestamp)
 
     def _filled_by(self, fill_qty: Decimal, fill_price: Decimal) -> tuple[Decimal, Decimal]:
         """The filled quantity and average price after a fill, refusing a non-fill."""
@@ -123,10 +156,19 @@ class Order:
             raise InvalidTransitionError(
                 f"A fill of {fill_qty} is not a fill; a fill moves a positive quantity."
             )
-        new_filled = self.filled_quantity + fill_qty
-        new_avg = (
-            (self.filled_quantity * self.average_fill_price) + (fill_qty * fill_price)
-        ) / new_filled
+        # In the pinned accounting context: a volume-weighted average must not
+        # depend on the caller's decimal precision or rounding (ACC-004).
+        ctx = ACCOUNTING_CONTEXT
+        new_filled = ctx.add(self.filled_quantity, fill_qty)
+        new_avg = plain(
+            ctx.divide(
+                ctx.add(
+                    ctx.multiply(self.filled_quantity, self.average_fill_price),
+                    ctx.multiply(fill_qty, fill_price),
+                ),
+                new_filled,
+            )
+        )
         return new_filled, new_avg
 
     def partial_fill(self, fill_qty: Decimal, fill_price: Decimal, timestamp: float) -> Order:
@@ -146,11 +188,11 @@ class Order:
                 f"of {self.quantity}, which leaves nothing working; record it as a fill."
             )
 
-        return replace(
+        return _evolved(
             self,
             status=status,
             filled_quantity=new_filled,
-            remaining_quantity=self.quantity - new_filled,
+            remaining_quantity=ACCOUNTING_CONTEXT.subtract(self.quantity, new_filled),
             average_fill_price=new_avg,
             updated_at=timestamp,
         )
@@ -173,11 +215,11 @@ class Order:
                 f"of {self.quantity}; a complete fill executes exactly what is working."
             )
 
-        return replace(
+        return _evolved(
             self,
             status=status,
             filled_quantity=new_filled,
-            remaining_quantity=self.quantity - new_filled,
+            remaining_quantity=ACCOUNTING_CONTEXT.subtract(self.quantity, new_filled),
             average_fill_price=new_avg,
             updated_at=timestamp,
         )
@@ -201,11 +243,25 @@ class Order:
 
         limit = new_limit if new_limit is not None else self.limit_price
 
-        return replace(
+        return _evolved(
             self,
             status=status,
             quantity=new_qty,
-            remaining_quantity=new_qty - self.filled_quantity,
+            remaining_quantity=ACCOUNTING_CONTEXT.subtract(new_qty, self.filled_quantity),
             limit_price=limit,
             updated_at=timestamp,
         )
+
+
+#: Every field of an order, in declaration order -- read once, so a transition
+#: builds its successor without ``dataclasses.replace`` re-reading the class
+#: on every call (ledger PRF-006).
+_ORDER_FIELDS: Final = tuple(item.name for item in fields(Order))
+
+
+def _evolved(order: Order, **changes: Any) -> Order:
+    """``dataclasses.replace(order, **changes)``, by a precomputed field list."""
+
+    return type(order)(
+        *[changes[name] if name in changes else getattr(order, name) for name in _ORDER_FIELDS]
+    )

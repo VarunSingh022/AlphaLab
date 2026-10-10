@@ -96,10 +96,12 @@ from enum import StrEnum, unique
 from types import MappingProxyType
 from typing import Final
 
+from alphalab.common.arithmetic import canonical_text
 from alphalab.common.currency import ConversionRecord, CurrencyConverter
 from alphalab.core.contribution import split_by_contribution
 from alphalab.core.enums import OrderStatus, Side
 from alphalab.core.order_request import OrderRequest
+from alphalab.execution.algorithms import ScheduleCost
 from alphalab.execution.exceptions import ExecutionValidationError
 from alphalab.execution.report import ExecutionReport
 
@@ -117,6 +119,7 @@ __all__ = [
     "OrderTimeline",
     "ReferencePrice",
     "RejectionRate",
+    "ShortfallAgainstModel",
     "SlippageMeasurement",
     "TimelineMark",
     "VenueQuality",
@@ -126,11 +129,13 @@ __all__ = [
     "measure_latency",
     "measure_slippage",
     "rejection_rate",
+    "shortfall_against_model",
     "venue_quality",
 ]
 
-#: Scheme tag of an execution-quality report's identity.
-EXECUTION_QUALITY_SCHEME: Final = "alphalab.execution_quality.v1"
+#: Scheme tag of an execution-quality report's identity. Version 2 (v3.11, ledger
+#: DET-006) renders every ``Decimal`` by value.
+EXECUTION_QUALITY_SCHEME: Final = "alphalab.execution_quality.v2"
 
 #: Fixed arithmetic, never the caller's thread context.
 _CONTEXT: Final = Context(prec=34, rounding=ROUND_HALF_EVEN)
@@ -150,6 +155,12 @@ _UNRESOLVED: Final = frozenset({OrderStatus.NEW, OrderStatus.PENDING})
 
 def _digest(lines: Iterable[str]) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _value(amount: Decimal | None) -> str:
+    """An amount in an identity: by value (:func:`canonical_text`), or ``None``."""
+
+    return "None" if amount is None else canonical_text(amount)
 
 
 def _add(left: Decimal, right: Decimal) -> Decimal:
@@ -599,6 +610,83 @@ def _reference_value(execution: OrderExecution, reference: ReferencePrice) -> De
     if reference is ReferencePrice.ARRIVAL:
         return execution.benchmarks.arrival_price
     return execution.benchmarks.interval_vwap
+
+
+@dataclass(frozen=True, slots=True)
+class ShortfallAgainstModel:
+    """A measured shortfall read beside what an impact model expected of it (v3.13).
+
+    The Almgren-Chriss shortfall (:class:`~alphalab.execution.algorithms.ScheduleCost`)
+    is measured from the price at arrival, so the measured figure set beside it
+    is the shortfall from arrival: the trading cost and the explicit costs. Not
+    the delay before arrival, which the model does not see, and not an
+    opportunity cost, which a completed schedule has none of.
+
+    Attributes:
+        order_id: The order.
+        currency: What every amount here is in -- the shortfall's; the model's
+            parameters are taken to be in it, which only the caller can know.
+        quantity: What filled, and what the model's schedule traded.
+        realized: ``trading_cost + explicit_costs``.
+        expected: The model's expected shortfall.
+        standard_deviation: The model's standard deviation of it.
+        difference: ``realized - expected``; positive cost more than expected.
+        standard_deviations: ``difference / standard_deviation``, or ``None``
+            when the model has no variance (a volatility of zero).
+    """
+
+    order_id: str
+    currency: str
+    quantity: Decimal
+    realized: Decimal
+    expected: Decimal
+    standard_deviation: Decimal
+    difference: Decimal
+    standard_deviations: Decimal | None
+
+
+def shortfall_against_model(
+    shortfall: ImplementationShortfall, model: ScheduleCost
+) -> ShortfallAgainstModel:
+    """Read an order's measured shortfall beside the model's expectation for its schedule.
+
+    Raises:
+        ExecutionValidationError: If part of the order did not fill (the model
+            costs a completed schedule), the filled quantity is not the
+            quantity the model's schedule trades, or the shortfall has no
+            trading cost because no arrival price was supplied.
+    """
+
+    if shortfall.unfilled_quantity != 0:
+        raise ExecutionValidationError(
+            f"Order {shortfall.order_id} left {shortfall.unfilled_quantity} unfilled; the model "
+            "costs a completed schedule, and an unfinished one is not it."
+        )
+    if shortfall.filled_quantity != model.quantity:
+        raise ExecutionValidationError(
+            f"Order {shortfall.order_id} filled {shortfall.filled_quantity} and the model's "
+            f"schedule trades {model.quantity}: a cost is compared with the cost of the same "
+            "quantity."
+        )
+    if shortfall.trading_cost is None:
+        raise ExecutionValidationError(
+            f"Order {shortfall.order_id} has no trading cost -- no arrival price was supplied -- "
+            "and the model's shortfall is measured from arrival."
+        )
+    realized = _add(shortfall.trading_cost, shortfall.explicit_costs)
+    difference = _sub(realized, model.expected)
+    return ShortfallAgainstModel(
+        order_id=shortfall.order_id,
+        currency=shortfall.currency,
+        quantity=shortfall.filled_quantity,
+        realized=realized,
+        expected=model.expected,
+        standard_deviation=model.standard_deviation,
+        difference=difference,
+        standard_deviations=(
+            None if model.standard_deviation == 0 else _div(difference, model.standard_deviation)
+        ),
+    )
 
 
 def measure_slippage(execution: OrderExecution, reference: ReferencePrice) -> SlippageMeasurement:
@@ -1065,20 +1153,22 @@ class ExecutionQualityReport:
             [
                 EXECUTION_QUALITY_SCHEME,
                 *(
-                    f"order={s.order_id!r}|{s.currency!r}|{s.execution_cost}|{s.explicit_costs}"
-                    f"|{s.opportunity_cost}|{s.total}|{','.join(s.execution_ids)}"
+                    f"order={s.order_id!r}|{s.currency!r}|{_value(s.execution_cost)}|"
+                    f"{_value(s.explicit_costs)}|{_value(s.opportunity_cost)}|{_value(s.total)}|"
+                    f"{','.join(s.execution_ids)}"
                     for s in self.shortfalls
                 ),
-                *(f"currency={c!r}|{t}" for c, t in sorted(self.total_by_currency.items())),
-                f"reporting={self.reporting_currency!r}|{self.reporting_total}",
+                *(f"currency={c!r}|{_value(t)}" for c, t in sorted(self.total_by_currency.items())),
+                f"reporting={self.reporting_currency!r}|{_value(self.reporting_total)}",
                 f"conversion_at={self.conversion_at!r}",
                 *(
-                    f"conversion={c.amount}|{c.rate.base!r}|{c.rate.quote!r}|{c.rate.rate}"
-                    f"|{c.rate.as_of!r}|{c.rate.source!r}|{c.converted}"
+                    f"conversion={_value(c.amount)}|{c.rate.base!r}|{c.rate.quote!r}|"
+                    f"{_value(c.rate.rate)}|{c.rate.as_of!r}|{c.rate.source!r}|"
+                    f"{_value(c.converted)}"
                     for c in self.conversions
                 ),
                 *(
-                    f"strategy={currency!r}|{strategy!r}|{amount}"
+                    f"strategy={currency!r}|{strategy!r}|{_value(amount)}"
                     for currency, shares in sorted(self.strategy_totals.items())
                     for strategy, amount in sorted(shares.items())
                 ),

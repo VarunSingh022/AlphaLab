@@ -13,17 +13,22 @@ from alphalab.reporting.sections import ReportSectionType
 
 
 class ReportJSONEncoder(json.JSONEncoder):
-    """Deterministic JSON encoder for report content."""
+    """Deterministic JSON encoder for report content.
+
+    A ``Decimal`` is written as its exact text -- ``"1000.50"`` -- as every
+    durable format in AlphaLab writes one. Until v3.12 it was written as a
+    ``float``, which loses digits a money amount has, and any other value this
+    encoder did not know was written as ``str(value)``, whose text can carry a
+    memory address and so differs between two exports of one report. Such a
+    value is now refused, and the export with it.
+    """
 
     def default(self, obj: Any) -> Any:
         if isinstance(obj, Decimal):
-            return float(obj)
+            return str(obj)
         if isinstance(obj, Enum):
             return obj.name
-        try:
-            return super().default(obj)
-        except TypeError:
-            return str(obj)
+        return super().default(obj)
 
 
 def export_json(report: Report) -> str:
@@ -46,7 +51,8 @@ def export_json(report: Report) -> str:
                 for s in report.sections
             ],
         }
-        return json.dumps(data, cls=ReportJSONEncoder, sort_keys=True, indent=2)
+        # Strict JSON: a non-finite float is refused, not written as NaN.
+        return json.dumps(data, cls=ReportJSONEncoder, sort_keys=True, indent=2, allow_nan=False)
     except Exception as e:
         raise ExportError(f"Failed to export report {report.report_id} to JSON: {e}") from e
 

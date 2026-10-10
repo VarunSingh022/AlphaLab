@@ -29,6 +29,7 @@ from typing import Any
 import pytest
 
 from alphalab.common.ids import current_id_position, id_scope
+from alphalab.market.events import QuoteReceived
 from alphalab.market.quote import Quote
 from alphalab.market.record import MarketRecord
 from alphalab.persistence import deserialize, serialize
@@ -65,8 +66,8 @@ from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
 from alphalab.strategy.runtime import create_runtime, register_strategy
-from alphalab.strategy.state import LifecycleState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
+from alphalab.strategy.state import StrategyStatus
 from alphalab.strategy.supervisor import RuntimeSupervisor
 from tests.integration.harness import (
     context_factory,
@@ -499,11 +500,27 @@ def test_no_context_is_built_for_a_strategy_that_is_not_running() -> None:
         },
     )
     counting = _CountingFactory()
+    quote = Quote(
+        asset_id=str(uuid.UUID(int=7)),
+        timestamp=2.0,
+        bid=Decimal("99"),
+        ask=Decimal("101"),
+        bid_size=Decimal("1"),
+        ask_size=Decimal("1"),
+        venue="X",
+        currency="USD",
+    )
 
-    StrategyEngine.process_event(state, object(), counting, 2.0)  # type: ignore[arg-type]
+    StrategyEngine.process_event(state, QuoteReceived("E-1", 2.0, quote), counting, 2.0)
 
-    assert state.strategies[MOM].status is LifecycleState.PAUSED
+    assert state.strategies[MOM].status is StrategyStatus.PAUSED
     assert counting.calls == [REV], "only the running strategy had a context built"
+
+    # An event no strategy could be dispatched builds no context at all: since
+    # v3.11 routing is decided before a context is built (ledger EXE-007).
+    unrouted = _CountingFactory()
+    StrategyEngine.process_event(state, object(), unrouted, 2.0)  # type: ignore[arg-type]
+    assert unrouted.calls == []
 
 
 @pytest.mark.parametrize(
@@ -743,7 +760,7 @@ def test_the_context_is_not_added_to_any_snapshot() -> None:
 
     names = {field.name for field in fields(PipelineSnapshot)}
     assert not [n for n in names if "context" in n]
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3, "populating a context moves no schema"
+    assert PIPELINE_SNAPSHOT_SCHEMA == 7, "populating a context moves no schema (v3.10-v3.13 did)"
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,7 @@ from alphalab.options import (
     surface_slice,
     term_structure,
 )
+from alphalab.options.carry import dividend_yield
 
 YEAR = 365.25 * 86400
 VALUATION = datetime(2026, 1, 2, tzinfo=UTC).timestamp()
@@ -91,8 +92,12 @@ def main() -> None:
     print(f"  {'priced at':>10} {'price':>10} {'recovered':>12} {'steps':>7} {'residual':>12}")
     print("  " + "-" * 56)
     for volatility in (0.05, 0.15, 0.25, 0.60, 1.20):
-        price = black_scholes_price(contract, SPOT, volatility, RATE, VALUATION)
-        recovered = implied_volatility(contract, price, SPOT, RATE, VALUATION)
+        price = black_scholes_price(
+            contract, SPOT, volatility, RATE, VALUATION, carry=dividend_yield(0.0)
+        )
+        recovered = implied_volatility(
+            contract, price, SPOT, RATE, VALUATION, carry=dividend_yield(0.0)
+        )
         print(
             f"  {volatility:>10.4f} {price:>10} {recovered.value:>12.8f} "
             f"{recovered.iterations:>7} {recovered.residual:>12.3g}"
@@ -105,7 +110,12 @@ def main() -> None:
     rule("The result carries the model it was inverted under")
 
     recovered = implied_volatility(
-        contract, black_scholes_price(contract, SPOT, 0.25, RATE, VALUATION), SPOT, RATE, VALUATION
+        contract,
+        black_scholes_price(contract, SPOT, 0.25, RATE, VALUATION, carry=dividend_yield(0.0)),
+        SPOT,
+        RATE,
+        VALUATION,
+        carry=dividend_yield(0.0),
     )
     print(f"  volatility  : {recovered.value:.8f}")
     print(f"  vega        : {recovered.vega:.4f}  (price change per 1.0 of volatility)")
@@ -141,7 +151,9 @@ def main() -> None:
     )
     for label, target_contract, price in refusals:
         try:
-            implied_volatility(target_contract, price, SPOT, RATE, VALUATION)
+            implied_volatility(
+                target_contract, price, SPOT, RATE, VALUATION, carry=dividend_yield(0.0)
+            )
             print(f"  {label:<31} NOT REFUSED")
         except ImpliedVolatilityError as error:
             first = str(error).split(". ")[0]
@@ -178,7 +190,11 @@ def main() -> None:
         # A little term structure: the shorter expiry is quoted two points higher.
         volatility = smile[f"{candidate.strike:.0f}"] + (0.02 if years < 0.75 else 0.0)
         prices[occ_symbol(candidate)] = Decimal(
-            str(black_scholes_value(candidate, float(SPOT), volatility, RATE, years))
+            str(
+                black_scholes_value(
+                    candidate, float(SPOT), volatility, RATE, years, carry=dividend_yield(0.0)
+                )
+            )
         )
 
     # One wing is quoted at its intrinsic value, which no volatility reproduces.
@@ -188,7 +204,9 @@ def main() -> None:
     unquoted = occ_symbol(option("180", expiries_declared[1]))
     del prices[unquoted]
 
-    surface, refused = surface_from_chain(chain, prices, SPOT, RATE, VALUATION)
+    surface, refused = surface_from_chain(
+        chain, prices, SPOT, RATE, VALUATION, carry=dividend_yield(0.0)
+    )
     print(f"  contracts in the chain : {len(chain.contracts)}")
     print(f"  points on the surface  : {len(surface.points)}")
     print(f"  refused                : {len(refused)}")

@@ -28,16 +28,24 @@ exceeded.
 The multiple-testing correction, and its assumption
 ---------------------------------------------------
 
-:attr:`OverfittingReport.bonferroni_alpha` is the only correction offered, and
-it is offered because it is the only one whose assumption can be stated in one
-line: for ``k`` configurations tried, a nominal significance of ``alpha``
-becomes ``alpha / k``. It is conservative when the trials are correlated --
-which, for a parameter sweep over neighbouring windows, they strongly are --
-and the report says so rather than leaving a reader to assume otherwise. A
-Šidák or a false-discovery-rate correction needs distributional assumptions
-this module cannot check, and a deflated Sharpe ratio needs the variance of the
-trial statistics *and* an assumption of normality that daily returns do not
-satisfy.
+:attr:`OverfittingReport.bonferroni_alpha` is the correction this report
+carries, because it is the one whose assumption can be stated in one line: for
+``k`` configurations tried, a nominal significance of ``alpha`` becomes
+``alpha / k``. It is conservative when the trials are correlated -- which, for
+a parameter sweep over neighbouring windows, they strongly are -- and the
+report says so rather than leaving a reader to assume otherwise.
+
+Since v3.11 (ledger OFE-005) the others exist beside it, each with the
+assumption it needs stated rather than skipped:
+:mod:`alphalab.research.multiple_testing` adjusts a family of p-values by Holm
+(the same assumption as Bonferroni, never less powerful), Benjamini-Hochberg
+(positive dependence) or Benjamini-Yekutieli (any dependence), and
+:mod:`alphalab.research.sharpe_inference` computes the probabilistic Sharpe
+ratio -- corrected for skewness and kurtosis, so the normality objection no
+longer applies, though independence of returns is still assumed -- and the
+deflated Sharpe ratio of the best of ``N`` trials. The report computes no
+p-values itself; those modules do, from the returns and the trials a caller
+holds.
 
 What ``trials`` must count
 --------------------------
@@ -80,19 +88,21 @@ class SweepResult:
         metric: What was measured at each configuration.
         scores: Rendered configuration to its score, for every configuration
             evaluated. The full set, not the survivors.
-        best: The configuration with the highest score.
+        best: The configuration with the best score -- the highest, or the
+            lowest for a metric where lower is better.
         best_score: Its score.
         sensitivity: Coefficient of variation of the scores -- the standard
             deviation divided by the absolute mean. Scale-free, so a sweep over
             Sharpe ratios and one over information coefficients are comparable.
             ``None`` when fewer than two configurations were tried, or when the
             mean score is zero and the ratio is therefore undefined.
-        neighbour_drop: How far the score falls from the best configuration to
-            the best of its immediate neighbours in the sweep order, as a
+        neighbour_drop: How far the score worsens from the best configuration
+            to the best of its immediate neighbours in the sweep order, as a
             fraction of the best. A large value is the "cliff" a fragile
-            optimum sits on. ``None`` when the best configuration is at an end
-            of the sweep and has only one neighbour, or when the best score is
-            zero.
+            optimum sits on. ``None`` when the best configuration has no
+            neighbour, or when the best score is zero.
+        higher_is_better: Which way the metric improves (v3.12; until then a
+            sweep could only maximise).
     """
 
     metric: str
@@ -101,6 +111,7 @@ class SweepResult:
     best_score: float
     sensitivity: float | None
     neighbour_drop: float | None
+    higher_is_better: bool = True
 
     @property
     def trials(self) -> int:
@@ -113,8 +124,18 @@ def parameter_sweep(
     metric: str,
     configurations: Sequence[str],
     evaluate: Callable[[str], float],
+    *,
+    higher_is_better: bool = True,
 ) -> SweepResult:
     """Evaluate every configuration and report the whole surface.
+
+    The one parameter search in AlphaLab (v3.12, ledger SCF-003):
+    :func:`~alphalab.research.walk_forward_optimization.walk_forward_optimize`
+    runs one per fold, and the research assistant and the cloud-research sweep
+    enumerate their candidates through
+    :class:`~alphalab.research.walk_forward_optimization.ParameterSpace` and
+    count them through this. ``higher_is_better=False`` selects the lowest
+    score, for a metric such as a drawdown.
 
     ``configurations`` are rendered descriptions -- ``"window=20"``,
     ``"window=25"`` -- in the order they should be considered neighbours, which
@@ -141,7 +162,10 @@ def parameter_sweep(
 
     scores = {name: evaluate(name) for name in configurations}
     ordered = list(configurations)
-    best = max(ordered, key=lambda name: scores[name])
+    direction = 1.0 if higher_is_better else -1.0
+    # ``max`` keeps the first of equal scores, so ties go to the earlier
+    # configuration whichever way the metric improves.
+    best = max(ordered, key=lambda name: direction * scores[name])
     best_score = scores[best]
 
     sensitivity: float | None = None
@@ -159,7 +183,8 @@ def parameter_sweep(
         if 0 <= index < len(ordered)
     ]
     if neighbours and best_score != 0.0:
-        neighbour_drop = (best_score - max(neighbours)) / abs(best_score)
+        nearest = max(direction * score for score in neighbours)
+        neighbour_drop = (direction * best_score - nearest) / abs(best_score)
 
     return SweepResult(
         metric=metric,
@@ -168,6 +193,7 @@ def parameter_sweep(
         best_score=best_score,
         sensitivity=sensitivity,
         neighbour_drop=neighbour_drop,
+        higher_is_better=higher_is_better,
     )
 
 

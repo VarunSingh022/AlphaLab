@@ -96,7 +96,9 @@ def test_historical_var_delegates_to_the_existing_authority() -> None:
 
     policy = VaRPolicy(VaRMethod.HISTORICAL, 0.95)
 
-    assert policy.var(PORTFOLIO) == -value_at_risk(PORTFOLIO, 0.95)
+    historical = value_at_risk(PORTFOLIO, 0.95)
+    assert historical is not None
+    assert policy.var(PORTFOLIO) == -historical
 
 
 def test_var_is_reported_as_a_positive_loss_magnitude() -> None:

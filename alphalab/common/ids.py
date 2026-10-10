@@ -44,13 +44,14 @@ therefore a compatibility event to be versioned and decided rather than a free
 one. See ADR-0022.
 """
 
+import os
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass
 from random import Random
 from typing import NewType
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from alphalab.common.exceptions import AlphaLabValidationError
 
@@ -58,6 +59,22 @@ Identifier = NewType("Identifier", str)
 
 #: Source of raw identifier strings for the current context; ``None`` means uuid4.
 _ID_SOURCE: ContextVar[Callable[[], str] | None] = ContextVar("alphalab_id_source", default=None)
+
+
+def require_seed(seed: object, where: str = "An identifier seed") -> int:
+    """``seed``, if it is a non-negative integer; refuse it otherwise.
+
+    A ``bool`` is refused although it is an ``int``: ``True`` as a seed is a
+    mistake, not the number one.
+    """
+
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise AlphaLabValidationError(
+            f"{where} must be a non-negative integer, got {seed!r}. random.Random seeds an "
+            "integer by its absolute value, so a negative seed would mint the same stream "
+            "as its positive twin."
+        )
+    return seed
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,19 +104,32 @@ class IdStreamPosition:
 class DeterministicIdSource:
     """Reproducible stream of UUID-shaped identifiers from an explicit seed.
 
-    Backed by :class:`random.Random`, whose Mersenne Twister stream is
-    guaranteed reproducible across Python versions for a given seed, so a run
-    recorded today replays identically later. It is *not* a source of
-    cryptographic randomness and is not meant to be one.
+    Backed by :class:`random.Random`'s Mersenne Twister, drawing 128 bits per
+    identifier with ``getrandbits``. Python's documentation guarantees the
+    reproducibility of ``random()`` for a given seed across versions, and not,
+    in so many words, of ``getrandbits`` -- so the stream is pinned instead: a
+    regression test holds the first identifiers of a fixed seed, and a Python
+    that minted different ones would fail it rather than silently replay a
+    recorded run into different identifiers (ledger DET-003). It is *not* a
+    source of cryptographic randomness and is not meant to be one.
+
+    The seed is a non-negative integer. ``random.Random`` seeds an integer by
+    its absolute value, so ``-7`` and ``7`` would mint the same stream and two
+    runs a caller meant to differ would share every identifier; a negative seed
+    is refused rather than folded.
 
     The source counts what it has minted. That count is the only thing a stopped
     run needs in order to continue where it left off, and keeping it here rather
     than at the call sites is what leaves every ``new_id()`` caller untouched.
+
+    Raises:
+        AlphaLabValidationError: If ``seed`` is negative, or not an integer.
     """
 
     __slots__ = ("_draws", "_random", "_seed")
 
     def __init__(self, seed: int) -> None:
+        require_seed(seed)
         self._seed = seed
         self._random = Random(seed)
         self._draws = 0
@@ -124,7 +154,23 @@ class DeterministicIdSource:
 
     def __call__(self) -> str:
         self._draws += 1
-        return str(UUID(int=self._random.getrandbits(128), version=4))
+        return _version_4_text(self._random.getrandbits(128))
+
+
+def _version_4_text(bits: int) -> str:
+    """``str(UUID(int=bits, version=4))``, without building the ``UUID``.
+
+    The same two bit operations :class:`uuid.UUID` applies for ``version=4`` --
+    the RFC 4122 variant, then the version -- and the same hexadecimal layout,
+    so the text is identical for every ``bits`` (a regression test compares
+    them). Every event, transaction and order mints one, and the ``UUID``
+    round trip was most of what minting cost (ledger PRF-006).
+    """
+
+    bits = (bits & ~(0xC000 << 48)) | (0x8000 << 48)
+    bits = (bits & ~(0xF000 << 64)) | (4 << 76)
+    text = f"{bits:032x}"
+    return f"{text[:8]}-{text[8:12]}-{text[12:16]}-{text[16:20]}-{text[20:]}"
 
 
 def new_id() -> Identifier:
@@ -132,7 +178,8 @@ def new_id() -> Identifier:
 
     source = _ID_SOURCE.get()
     if source is None:
-        return Identifier(str(uuid4()))
+        # What ``uuid4()`` draws -- sixteen bytes from the OS, read big-endian.
+        return Identifier(_version_4_text(int.from_bytes(os.urandom(16), "big")))
     return Identifier(source())
 
 

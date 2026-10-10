@@ -280,7 +280,9 @@ def _run(events: int) -> ExecutionPipelineState:
 def test_a_default_state_carries_an_unseeded_position() -> None:
     field = ExecutionPipelineState.__dataclass_fields__["id_position"]
 
-    assert field.default_factory() == IdStreamPosition(None, 0)  # type: ignore[misc]
+    factory = field.default_factory
+    assert callable(factory)
+    assert factory() == IdStreamPosition(None, 0)
 
 
 def test_initialize_records_the_draws_funding_took() -> None:

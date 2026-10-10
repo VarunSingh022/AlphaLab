@@ -15,6 +15,10 @@ reads, **ADR-0028** for the settlement boundary, **ADR-0033 decision 10** and
 **ADR-0037** for the rule against invented defaults, and **ADR-0014** for the
 partial-fill retirement the capacity and liquidity work rests on.
 
+**Amended by ADR-0045 (v3.10.0).** Execution assumptions are recorded, not
+only modelled: every run and result carries `ExecutionAssumptions` — fill
+timing, the cost model, and what is optimistic about both.
+
 ---
 
 # Context

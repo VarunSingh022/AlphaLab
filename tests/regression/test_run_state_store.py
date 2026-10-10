@@ -460,8 +460,8 @@ def test_the_retrieved_payload_still_decodes_through_its_own_owner(store: RunSta
 
     decoded = deserialize(retrieved)
     assert isinstance(decoded, dict)
-    assert decoded["schema_version"] == 1, "RUN_SNAPSHOT_SCHEMA, untouched by the store"
-    assert decoded["pipeline"]["schema_version"] == 3, "PIPELINE_SNAPSHOT_SCHEMA"
+    assert decoded["schema_version"] == 4, "RUN_SNAPSHOT_SCHEMA, untouched by the store"
+    assert decoded["pipeline"]["schema_version"] == 7, "PIPELINE_SNAPSHOT_SCHEMA"
 
 
 @pytest.mark.parametrize("store", BACKENDS, indirect=True)
@@ -506,14 +506,35 @@ def test_a_root_that_is_a_file_is_refused(tmp_path: Path) -> None:
         FileRunStateStore(target)
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root bypasses directory permissions")
-def test_an_unwritable_root_is_refused(tmp_path: Path) -> None:
+def test_an_unwritable_root_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refused whoever runs the suite (ledger TST-002).
+
+    The store asks the operating system -- ``os.access(root, W_OK | X_OK)`` --
+    and root is always told yes, so until v3.10 this test was skipped under root
+    and "zero skipped" depended on who ran it. The refusal is exercised here by
+    the answer itself, which no user bypasses; where the operating system does
+    enforce directory permissions, a real read-only directory is refused too.
+    """
+
     root = tmp_path / "readonly"
     root.mkdir()
-    root.chmod(0o500)
-    try:
+    asked: list[tuple[str, int]] = []
+
+    def unwritable(path: object, mode: int) -> bool:
+        asked.append((str(path), mode))
+        return False
+
+    with monkeypatch.context() as patched:
+        patched.setattr("alphalab.persistence.run_store.os.access", unwritable)
         with pytest.raises(StorageError, match="not writable"):
             FileRunStateStore(root)
+    assert asked == [(str(root), os.W_OK | os.X_OK)]
+
+    root.chmod(0o500)
+    try:
+        if not os.access(root, os.W_OK):
+            with pytest.raises(StorageError, match="not writable"):
+                FileRunStateStore(root)
     finally:
         root.chmod(0o700)
 
@@ -753,9 +774,17 @@ def test_no_existing_snapshot_schema_moved() -> None:
     v2.16 for governance actors (ADR-0018), which is that release's deliberate
     bump and not something the run-state store did. ``PIPELINE_SNAPSHOT_SCHEMA``
     and ``PORTFOLIO_SNAPSHOT_SCHEMA`` moved to 3 in v2.17 for settlement-level
-    multi-currency (ADR-0035), on the same terms. What ADR-0029 promised is that
-    *its* change moved nothing, and that is what remains asserted -- against the
-    values those constants hold now, not the values they held then.
+    multi-currency (ADR-0035), on the same terms, and ``PORTFOLIO_SNAPSHOT_SCHEMA``
+    to 4 in v3.10 for per-currency minor units (upgraded from 3, not refused).
+    v3.11 moved ``RUN_SNAPSHOT_SCHEMA`` to 3 and the allocation and OMS constants
+    to 2 for order terms (EXE-003), each upgraded from the one before, and
+    v3.12 ``PIPELINE_SNAPSHOT_SCHEMA`` to 6 for venue calendars (EXE-010) and
+    ``ALLOCATION_SNAPSHOT_SCHEMA`` to 3 for per-strategy ceilings (OFE-003) and
+    ``RUN_SNAPSHOT_SCHEMA`` to 4 for the observation cursor (OFE-009), and
+    v3.13 ``PIPELINE_SNAPSHOT_SCHEMA`` to 7 for the strategy status enum's name
+    (API-001). What ADR-0029 promised is that *its* change moved nothing, and that is what
+    remains asserted -- against the values those constants hold now, not the
+    values they held then.
     """
 
     from alphalab.allocation.snapshot import ALLOCATION_SNAPSHOT_SCHEMA
@@ -772,7 +801,7 @@ def test_no_existing_snapshot_schema_moved() -> None:
         OMS_SNAPSHOT_SCHEMA,
         PORTFOLIO_SNAPSHOT_SCHEMA,
         DEFAULT_SCHEMA_VERSION,
-    ) == (3, 1, 1, 1, 3, 1)
+    ) == (7, 4, 3, 2, 5, 1)
 
 
 def test_a_v212_payload_is_unchanged_by_being_stored(tmp_path: Path) -> None:

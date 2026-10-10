@@ -50,6 +50,27 @@ valuation and ratios refuse inputs whose units do not agree.
 Arithmetic is exact ``Decimal`` in an explicit context (28 digits, half-even),
 never the calling thread's current context, so a caller who changed their
 context cannot change a published ratio.
+
+Share counts that change, and currencies that differ (v3.12)
+------------------------------------------------------------
+
+A per-share figure is stated in the shares outstanding when it was published.
+After a two-for-one split, last year's earnings per share is twice what the
+same earnings are per share today, and comparing it with today's price -- or
+with this year's figure -- reads a split as a halving of earnings.
+:func:`adjusted_for_share_changes` restates a per-share figure or a share count
+in the shares in effect at the research instant, applying each
+:class:`ShareCountChange` that took effect after the figure was published and
+was knowable by then, and records every factor it applied (ledger OFE-011).
+The changes are the corporate-action authority's -- this package ships none;
+:func:`alphalab.factor_library.fundamentals.share_count_changes` reads them from
+the data layer's split records.
+
+:func:`converted_fundamental` states a money or per-share figure in another
+currency at a rate the caller's table holds for the instant -- a
+:class:`RateTable`, which :class:`alphalab.portfolio.fx.FxRates` is -- and
+records the rate it used, so the figure can be traced to its quote. No rate is
+looked up, invented or inverted here.
 """
 
 from __future__ import annotations
@@ -59,7 +80,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from enum import Enum, auto
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Protocol
 
 from alphalab.alt_data.exceptions import AltDataInputError
 from alphalab.alt_data.identity import digest_lines, stamp_lines
@@ -97,8 +118,10 @@ __all__ = [
     "SHARES_OUTSTANDING",
     "TOTAL_ASSETS",
     "TOTAL_DEBT",
+    "AdjustedFundamental",
     "AggregateStep",
     "Aggregation",
+    "ConvertedFundamental",
     "FinancialRatios",
     "FinancialStatement",
     "FiscalPeriod",
@@ -106,12 +129,17 @@ __all__ = [
     "FundamentalInputs",
     "FundamentalObservation",
     "GrowthValue",
+    "QuotedRate",
+    "RateTable",
     "Restatement",
+    "ShareCountChange",
     "StatementType",
     "TrailingValue",
     "ValuationMetrics",
+    "adjusted_for_share_changes",
     "aggregate_timeline",
     "canonical_fundamental_key",
+    "converted_fundamental",
     "currency_of_per_share_unit",
     "financial_ratios",
     "fundamental_as_of",
@@ -1351,3 +1379,241 @@ def restatements(obs_set: ObservationSet[FundamentalObservation]) -> tuple[Resta
             )
         )
     return tuple(found)
+
+
+# --------------------------------------------------------------------------- #
+# Share count changes and currency conversion (ledger OFE-011)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class ShareCountChange:
+    """One split, reverse split or stock dividend, as the corporate-action authority recorded it.
+
+    Attributes:
+        subject: Whose shares, by the same key the fundamentals use.
+        effective_at: The instant -- the ex-date -- from which one share is
+            ``ratio`` shares.
+        ratio: Shares after for each share before: ``2`` for two-for-one,
+            ``0.1`` for one-for-ten, ``1.05`` for a 5% stock dividend.
+        source: Where it came from. Never blank.
+        known_at: When the change became knowable -- its announcement -- or
+            ``None`` when only its effective instant is recorded, which is then
+            when it is taken to be known.
+
+    Raises:
+        AltDataInputError: If a field fails its shape, the ratio is not a finite
+            positive number other than one, or it was known after it took
+            effect (an announcement after the ex-date is a record error).
+    """
+
+    subject: str
+    effective_at: float
+    ratio: Decimal
+    source: str
+    known_at: float | None = None
+
+    def __post_init__(self) -> None:
+        require_label(self.subject, "ShareCountChange.subject")
+        require_finite_instant(self.effective_at, "ShareCountChange.effective_at")
+        require_label(self.source, "ShareCountChange.source")
+        require_finite_value(self.ratio, "ShareCountChange.ratio")
+        if self.ratio <= _ZERO or self.ratio == 1:
+            raise AltDataInputError(
+                f"{self.subject!r}'s share count change has ratio {self.ratio}; a split's ratio "
+                "is positive and not one."
+            )
+        if self.known_at is not None:
+            require_finite_instant(self.known_at, "ShareCountChange.known_at")
+            if self.known_at > self.effective_at:
+                raise AltDataInputError(
+                    f"{self.subject!r}'s share count change is known at {self.known_at!r}, after "
+                    f"it took effect at {self.effective_at!r}."
+                )
+
+    @property
+    def knowable_at(self) -> float:
+        """When the change can be known: its announcement, or else its effective instant."""
+
+        return self.effective_at if self.known_at is None else self.known_at
+
+
+@dataclass(frozen=True, slots=True)
+class AdjustedFundamental:
+    """A per-share figure or share count, restated in the shares in effect at an instant.
+
+    Attributes:
+        observation: The figure as published, unchanged.
+        as_of: The instant whose shares the figure is restated in.
+        value: The restated figure.
+        unit: Its unit -- the observation's.
+        factor: What the published figure was multiplied by: one when no change
+            applied.
+        applied: Every change applied, oldest first.
+    """
+
+    observation: FundamentalObservation
+    as_of: float
+    value: Decimal
+    unit: str
+    factor: Decimal
+    applied: tuple[ShareCountChange, ...]
+
+
+def adjusted_for_share_changes(
+    observation: FundamentalObservation, changes: Iterable[ShareCountChange], as_of: float
+) -> AdjustedFundamental:
+    """``observation`` restated in the share count in effect at ``as_of``.
+
+    A change applies when it is about the observation's subject, took effect
+    *after* the figure was published -- an issuer states a figure published
+    after a split in post-split shares already -- took effect by ``as_of``, and
+    was knowable by ``as_of``. A per-share figure (``"<currency>/share"``) is
+    divided by each ratio; a share count (``"shares"``) is multiplied by it.
+
+    Raises:
+        AltDataInputError: If the observation is neither a per-share figure nor
+            a share count -- an amount of money does not change with the share
+            count, and restating one as though it did would be a wrong number --
+            or ``as_of`` is not finite.
+    """
+
+    require_finite_instant(as_of, "as_of")
+    unit = observation.unit
+    if unit == "shares":
+        per_share = False
+    else:
+        currency_of_per_share_unit(unit)
+        per_share = True
+    applied = tuple(
+        sorted(
+            (
+                change
+                for change in changes
+                if change.subject == observation.subject
+                and observation.published_at < change.effective_at <= as_of
+                and change.knowable_at <= as_of
+            ),
+            key=lambda change: (change.effective_at, change.source),
+        )
+    )
+    if not applied:
+        return AdjustedFundamental(observation, as_of, observation.value, unit, Decimal(1), ())
+    product = Decimal(1)
+    for change in applied:
+        product = _CONTEXT.multiply(product, change.ratio)
+    if per_share:
+        # One division of the published figure, not a multiplication by a
+        # rounded reciprocal: a three-for-one split leaves 3.00 at exactly 1.00.
+        value = _CONTEXT.divide(observation.value, product)
+        factor = _CONTEXT.divide(Decimal(1), product)
+    else:
+        value = _CONTEXT.multiply(observation.value, product)
+        factor = product
+    return AdjustedFundamental(observation, as_of, value, unit, factor, applied)
+
+
+class QuotedRate(Protocol):
+    """A rate a :class:`RateTable` quotes: ``1 base`` buys ``rate`` of ``quote``.
+
+    :class:`alphalab.portfolio.fx.FxRate` is one. Structural, so this package
+    imports no portfolio module.
+    """
+
+    @property
+    def base(self) -> str: ...
+
+    @property
+    def quote(self) -> str: ...
+
+    @property
+    def rate(self) -> Decimal: ...
+
+    @property
+    def as_of(self) -> float: ...
+
+    @property
+    def source(self) -> str: ...
+
+
+class RateTable(Protocol):
+    """Where a conversion's rate comes from. :class:`alphalab.portfolio.fx.FxRates` is one."""
+
+    def rate_at(self, base: str, quote: str, as_of: float | None) -> QuotedRate: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ConvertedFundamental:
+    """A money or per-share figure stated in another currency, with the rate that did it.
+
+    Attributes:
+        observation: The figure as published, unchanged.
+        as_of: The instant the rate was asked for.
+        value: The converted figure.
+        unit: Its unit -- the new currency, per share where the original was.
+        rate: The rate applied, or ``None`` when the figure was already in the
+            currency and nothing was converted.
+        rate_pair: ``(base, quote)`` of that rate.
+        rate_as_of: When that rate was true.
+        rate_source: Where it came from.
+    """
+
+    observation: FundamentalObservation
+    as_of: float
+    value: Decimal
+    unit: str
+    rate: Decimal | None
+    rate_pair: tuple[str, str] | None
+    rate_as_of: float | None
+    rate_source: str | None
+
+
+def _currency_of(unit: str) -> tuple[str, bool]:
+    """The currency a unit is denominated in, and whether it is per share."""
+
+    if "/" in unit:
+        return currency_of_per_share_unit(unit), True
+    if len(unit) == 3 and unit.isascii() and unit.isalpha() and unit.isupper():
+        return unit, False
+    raise AltDataInputError(
+        f"A figure in {unit!r} is not an amount of money or money per share, so it has no "
+        "currency to convert."
+    )
+
+
+def converted_fundamental(
+    observation: FundamentalObservation, currency: str, rates: RateTable, as_of: float
+) -> ConvertedFundamental:
+    """``observation`` in ``currency``, at the rate ``rates`` holds for ``as_of``.
+
+    The figure is multiplied by the ``(its currency, currency)`` rate exactly,
+    in this module's context, and not rounded to a minor unit: a statement
+    figure is not cash. Which instant's rate is right -- the research instant,
+    or the period's end for a balance-sheet level -- is the caller's
+    convention, and ``as_of`` is where it is stated. The table's own refusals
+    stand: a missing pair, a rate dated after ``as_of``, a stale one.
+
+    Raises:
+        AltDataInputError: If the observation is not money or money per share,
+            ``currency`` is not a currency code, or ``as_of`` is not finite.
+    """
+
+    require_finite_instant(as_of, "as_of")
+    base, per_share = _currency_of(observation.unit)
+    target, _ = _currency_of(currency)
+    unit = f"{target}/share" if per_share else target
+    if base == target:
+        return ConvertedFundamental(
+            observation, as_of, observation.value, unit, None, None, None, None
+        )
+    quoted = rates.rate_at(base, target, as_of)
+    return ConvertedFundamental(
+        observation,
+        as_of,
+        _CONTEXT.multiply(observation.value, quoted.rate),
+        unit,
+        quoted.rate,
+        (quoted.base, quoted.quote),
+        quoted.as_of,
+        quoted.source,
+    )

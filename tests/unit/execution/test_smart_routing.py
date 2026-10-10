@@ -464,7 +464,7 @@ def test_evidence_that_contradicts_itself_is_refused() -> None:
     [
         ({"quantity": D("0")}, "routes nothing"),
         ({"quantity_increment": D("0")}, "not a unit"),
-        ({"limit_price": D("-1")}, "not a price"),
+        ({"limit_price": D("NaN")}, "not a price"),
         ({"decided_at": float("nan")}, "not an instant"),
     ],
 )

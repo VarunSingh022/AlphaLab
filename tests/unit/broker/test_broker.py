@@ -21,6 +21,7 @@ from alphalab.broker import (
     positions,
 )
 from alphalab.core.enums import OrderStatus as CoreOrderStatus
+from alphalab.execution.costs import FREE
 
 
 @dataclass(frozen=True)
@@ -48,7 +49,7 @@ def test_initialization(default_state: BrokerState) -> None:
 
 
 def test_connect_disconnect(default_state: BrokerState) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
 
     s1, evts1 = broker.connect(default_state, 1000.0)
     assert s1.connection_status == ConnectionStatus.CONNECTED
@@ -62,7 +63,7 @@ def test_connect_disconnect(default_state: BrokerState) -> None:
 
 
 def test_heartbeat(default_state: BrokerState) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     _s1, _evts = broker.heartbeat(default_state, 1000.0)
     assert len(_evts) == 1
     assert type(_evts[0]).__name__ == "Heartbeat"
@@ -80,7 +81,7 @@ def test_adapter_conversion(base_oms_order: MockOMSOrder) -> None:
 
 
 def test_validation_negative_qty(default_state: BrokerState, base_oms_order: MockOMSOrder) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     order = BrokerAdapter.to_broker_order(base_oms_order, "B-1", BrokerOrderType.LIMIT, 1000.0)
 
     bad_order = replace(order, quantity=Decimal("-10"))
@@ -90,7 +91,7 @@ def test_validation_negative_qty(default_state: BrokerState, base_oms_order: Moc
 
 
 def test_submit_limit_order(default_state: BrokerState, base_oms_order: MockOMSOrder) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     order = BrokerAdapter.to_broker_order(base_oms_order, "B-1", BrokerOrderType.LIMIT, 1000.0)
 
     s1, evts = broker.submit_order(default_state, order, 1001.0)
@@ -106,7 +107,7 @@ def test_submit_limit_order(default_state: BrokerState, base_oms_order: MockOMSO
 def test_submit_market_order_fills_immediately(
     default_state: BrokerState, base_oms_order: MockOMSOrder
 ) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     order = BrokerAdapter.to_broker_order(base_oms_order, "B-1", BrokerOrderType.MARKET, 1000.0)
 
     s1, _evts = broker.submit_order(default_state, order, 1001.0)
@@ -129,7 +130,7 @@ def test_submit_market_order_fills_immediately(
 
 
 def test_cancel_order(default_state: BrokerState, base_oms_order: MockOMSOrder) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     order = BrokerAdapter.to_broker_order(base_oms_order, "B-1", BrokerOrderType.LIMIT, 1000.0)
 
     s1, _ = broker.submit_order(default_state, order, 1001.0)
@@ -142,7 +143,7 @@ def test_cancel_order(default_state: BrokerState, base_oms_order: MockOMSOrder) 
 
 
 def test_cancel_invalid_state(default_state: BrokerState, base_oms_order: MockOMSOrder) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     order = BrokerAdapter.to_broker_order(base_oms_order, "B-1", BrokerOrderType.MARKET, 1000.0)
 
     # Submitting market fills it immediately
@@ -153,7 +154,7 @@ def test_cancel_invalid_state(default_state: BrokerState, base_oms_order: MockOM
 
 
 def test_replace_order(default_state: BrokerState, base_oms_order: MockOMSOrder) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     order = BrokerAdapter.to_broker_order(base_oms_order, "B-1", BrokerOrderType.LIMIT, 1000.0)
 
     s1, _ = broker.submit_order(default_state, order, 1001.0)
@@ -164,7 +165,7 @@ def test_replace_order(default_state: BrokerState, base_oms_order: MockOMSOrder)
 
 
 def test_account_and_position_math_sell(default_state: BrokerState) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
 
     buy_oms = MockOMSOrder("OMS-1", "AAPL", "BUY", "100", "150.00")
     sell_oms = MockOMSOrder("OMS-2", "AAPL", "SELL", "50", "160.00")
@@ -188,7 +189,7 @@ def test_account_and_position_math_sell(default_state: BrokerState) -> None:
 
 
 def test_immutability(default_state: BrokerState, base_oms_order: MockOMSOrder) -> None:
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     order = BrokerAdapter.to_broker_order(base_oms_order, "B-1", BrokerOrderType.LIMIT, 1000.0)
 
     s1, _ = broker.submit_order(default_state, order, 1001.0)

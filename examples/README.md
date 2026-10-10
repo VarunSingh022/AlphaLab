@@ -1,6 +1,6 @@
 # AlphaLab Examples
 
-Sixty-five runnable scripts, each demonstrating one part of AlphaLab against
+Sixty-nine runnable scripts, each demonstrating one part of AlphaLab against
 its real public API. Every one of them runs:
 
 ```bash
@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all sixty-five are executed as a
+paths far more thoroughly under `tests/` — but all sixty-nine are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -19,15 +19,15 @@ API.
 | # | File | What it shows |
 |---|------|---------------|
 | 01 | `01_research.py` | The research engine: a payload in, an immutable `ResearchState` and a score out |
-| 02 | `02_backtest.py` | Strategy Studio's backtest bookkeeping over the sample datasets |
+| 02 | `02_backtest.py` | **Your first backtest**: a CSV ingested into a versioned dataset and run through the canonical path, the strategy stating the position it wants (`TARGET_QUANTITY`) |
 | 03 | `03_replay.py` | The replay cursor: sessions, chronological validation, replay metrics |
-| 04 | `04_market_data.py` | Registering market-data providers and reading provider state |
+| 04 | `04_market_data.py` | A host provider's wire bars through a normalization policy into canonical bars and market state |
 | 05 | `05_broker_connection.py` | The **two** broker boundaries — one venue (`BrokerProtocol`), or a registry of many (`BrokerConnectorProtocol`) |
 | 06 | `06_portfolio_optimizer.py` | Portfolio construction, constraints, exposure and rebalancing |
 | 07 | `07_universal_data.py` | The Universal Data Engine: ingestion, schema, quality, catalogue |
-| 08 | `08_strategy_studio.py` | Strategy Studio orchestration: projects, strategies, pipelines, reports |
-| 09 | `09_workbench.py` | The Workbench workspace: projects, tabs, dashboards |
-| 10 | `10_complete_pipeline.py` | A multi-engine walkthrough, composing the standalone engines by hand |
+| 08 | `08_strategy_studio.py` | Rebalancing a three-name book to target weights; a lot size declared on the instrument, and rounding toward zero |
+| 09 | `09_workbench.py` | Cross-sectional decisions on complete instants (`on_slice`), orders resting to the next bar, and a two-step rotation in a cash account |
+| 10 | `10_complete_pipeline.py` | **Research to a traded book**: walk-forward optimization of a signal, Ledoit-Wolf construction with transaction costs and whole shares, out-of-sample trading, and benchmark-relative statistics |
 | 11 | `11_unified_backtest.py` | **The integrated execution path**: dataset → intents → orders → fills → P&L → analytics, and replay parity against the same dataset |
 | 12 | `12_model_lifecycle.py` | **The lifecycle path**: research candidate → experiment run → evidence → model version → strategy version → gated promotion → deployment → rollback, with governance |
 | 13 | `13_durable_run_state.py` | Stopping a seeded run, storing it with `FileRunStateStore`, continuing it in a **separate interpreter**, and comparing byte-for-byte against a run that never stopped |
@@ -83,6 +83,10 @@ API.
 | 63 | `63_execution_algorithms.py` | TWAP and VWAP as one construction with a stated urgency and whole increments by largest remainder; an incomplete volume profile refused or replaced by time and recorded; a schedule worked with top-up releases that catch up an expired child; participation of observed volume with minimum and maximum children and a stated end-of-window rule; slicing and an iceberg-like tranche; strategies carried by every child; identities in the research record |
 | 64 | `64_smart_routing.py` | A route chosen from supplied venue evidence — quote, declared capabilities, cost model, latency — with every venue judged and explained; lowest all-in cost against best quoted price; one venue, a re-priced split and a partial route only where allowed; stale, look-ahead and foreign-currency quotes, a latency cap, a limit and an undeclared capability; INFEASIBLE kept apart from INSUFFICIENT_EVIDENCE; decision identities that ignore listing order |
 | 65 | `65_execution_analytics.py` | **The whole contract end to end**: two strategies netted into one parent, worked by a VWAP, each child capability-checked and sent, every venue report normalized and settled on the parent; the mirror reconciled against the venue and the book against the mirror; implementation shortfall with its components split between the strategies, slippage against three named references, fill quality, latency across two clocks, rejection rate and venue quality; two currencies converted only at a stated rate; every identity reproduced by a rerun |
+| 66 | `66_american_options.py` | **American options on a lattice**: a put converging step by step to Hull's table and its early-exercise premium; a call on which early exercise is worth nothing until a cash dividend; Greeks from the lattice and a lattice too coarse to carry the rate refused; implied volatility through the lattice an American quote was priced on; volatility between expiries linear in total variance, with a calendar arbitrage refused |
+| 67 | `67_optimal_split_and_urgency.py` | The greedy sweep against the optimal split of one order across three venues — a fee paid on a remainder, a venue filled past its marginal cost — and a falling marginal cost refused; an Almgren–Chriss urgency estimated from stated inputs; iceberg tranches varied from a seed and reproduced on a rerun |
+| 68 | `68_rerun_from_a_manifest.py` | A lock file read into the dependency manifest a fingerprint records; a backtest re-executed from its manifest: REPRODUCED, DIVERGED with the first paths where the records part, and INPUTS_DIFFER with nothing run |
+| 69 | `69_cron_timers.py` | Cron expressions on a stated zone's wall clock: the day-field rule, a spring-forward gap and a fall-back repeat with their UTC instants, refusals when written, and a cron timer fired and rescheduled on the engine |
 
 ## Reading order
 
@@ -137,6 +141,10 @@ in children, **64** where each one should go, and **65** runs all of it end to
 end — strategy, order, algorithm, capability check, normalized venue reports,
 reconciliation — before measuring what the execution cost. Read **65** last: it
 is the one that shows the pieces are one contract.
+
+`66`–`69` are v3.13's and stand alone: **66** after `36`, **67** after `63` and
+`64`, **68** after `47`, and **69** after `32`. Each shows a capability v3.13
+implemented rather than leave for a later major version.
 
 `05_broker_connection.py` was rewritten in v2.17 against the canonical broker
 boundary, having used `alphalab.integrations` until that package was removed

@@ -52,8 +52,8 @@ class DeploymentRecord:
         is_rollback: Whether this record was produced by
             :func:`alphalab.deployment_manager.rollback.rollback`.
         timestamp: Unix timestamp of the change.
-        actor_id: Who made the change, as an
-            ``alphalab.enterprise.Principal.principal_id``. ``""`` means *not
+        actor_id: Who made the change, as the application's actor
+            identifier. ``""`` means *not
             recorded*, which is the truthful reading of every record written
             before v2.16 and of any deployment made through this package
             directly rather than through ``alphalab.lifecycle``.

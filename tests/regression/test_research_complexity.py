@@ -23,7 +23,6 @@ than a reflex.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 
 from alphalab.data.feed import Bar as WireBar
@@ -46,6 +45,7 @@ from alphalab.research import (
     label_ends_from_horizon,
     walk_forward_splits,
 )
+from tests.regression._timing import compare, growth
 
 DAY = 86400.0
 START = 1_735_689_600.0
@@ -71,26 +71,15 @@ def _records(instants: int, symbols: int = 1) -> list[WireBar]:
     return built
 
 
-def _elapsed(work: Callable[[], object]) -> float:
-    """Best of three, so one scheduling hiccup does not fail the suite."""
-
-    return min(_once(work) for _ in range(3))
-
-
-def _once(work: Callable[[], object]) -> float:
-    start = time.perf_counter()
-    work()
-    return time.perf_counter() - start
-
-
 def _growth(small: Callable[[], object], large: Callable[[], object]) -> float:
     """How much more the 10x input costs, with a floor on the small measurement.
 
     The floor matters: a small case that runs in a microsecond divides into a
-    huge ratio for reasons that have nothing to do with complexity.
+    huge ratio for reasons that have nothing to do with complexity. Read with the
+    one stabilized method every guard shares (tests/regression/_timing.py).
     """
 
-    return _elapsed(large) / max(_elapsed(small), 1e-4)
+    return growth(small, large)
 
 
 # --------------------------------------------------------------------------- #
@@ -165,7 +154,8 @@ def test_computing_ten_features_reads_the_records_once() -> None:
             results.append(compute_feature(definition, frame))
         return results
 
-    assert _elapsed(shared) < _elapsed(repeated), (
+    fast_shared, fast_repeated = compare(shared, repeated)
+    assert fast_shared < fast_repeated, (
         "reading the records once for ten features is not faster than re-reading them, "
         "which means the frame is not being reused"
     )
@@ -236,7 +226,7 @@ def test_the_information_coefficient_is_near_linear_in_instants() -> None:
             _records(instants, 10), FeatureField.CLOSE, "UTC", "bench@v1"
         )
         panel = compute_feature(SMA_20, frame)
-        realized = forward_returns(frame, 5)
+        realized = forward_returns(frame, 5, lag=0, delistings=())
         indexed = FeaturePanel.of(panel)
         return lambda: information_coefficient(indexed, realized, 5)
 

@@ -20,7 +20,6 @@ Measured on the machine this was developed on: 1,000 rows in 7ms, 10,000 in
 from __future__ import annotations
 
 import inspect
-import time
 
 from alphalab.data import (
     CleaningPolicy,
@@ -40,6 +39,8 @@ from alphalab.data import (
     read_delimited,
     validation,
 )
+from alphalab.data.time import BarStamp
+from tests.regression._timing import CLOCK, timings
 
 #: Ratio of the two workload sizes used by the timing test.
 SCALE = 10
@@ -83,15 +84,16 @@ def _ingest(rows: int) -> float:
             SourceKind.IN_MEMORY, "benchmark", text.encode("utf-8"), 1.0, "text/csv"
         ),
         frequency=TimeFrequency.MINUTE,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=POLICY,
         price_basis=PriceBasis.RAW,
     )
 
-    started = time.perf_counter()
+    started = CLOCK()
     table = read_delimited(text, CsvDialect(","))
     result = ingest_table(table, request)
-    elapsed = time.perf_counter() - started
+    elapsed = CLOCK() - started
 
     assert len(result.dataset.records) == rows, "the workload must actually be done"
     return elapsed
@@ -108,7 +110,9 @@ def test_duplicate_detection_uses_a_hashed_set_rather_than_rescanning() -> None:
 
     source = inspect.getsource(validation.validate_records)
 
-    assert "seen: set[tuple[str, float]] = set()" in source
+    # Keyed by ``duplicate_key`` since v3.12, so a trade print is keyed by its
+    # identifier rather than its instant (ledger FEA-004); still one set.
+    assert "seen: set[tuple[object, ...]] = set()" in source
     assert "seen.add(key)" in source
     assert "in seen" in source
 
@@ -126,7 +130,9 @@ def test_ordering_is_checked_against_a_high_water_mark_per_instrument() -> None:
 def test_deduplication_keeps_one_pass_and_one_dict() -> None:
     source = inspect.getsource(cleaning._deduplicate)
 
-    assert "chosen: dict[tuple[str, float], CanonicalRecord] = {}" in source
+    # One dict from each key to where its survivor stands (v3.12: keyed by
+    # ``duplicate_key``, and a print with no identifier has no key).
+    assert "position: dict[tuple[object, ...], int] = {}" in source
     assert "for record in records:" in source
     assert source.count("for ") == 1, "one pass, not a nested scan"
 
@@ -149,8 +155,9 @@ def test_cleaning_does_not_copy_the_record_set_per_row() -> None:
 
 
 def test_ingestion_does_not_grow_quadratically_with_row_count() -> None:
-    small = _ingest(SMALL)
-    large = _ingest(LARGE)
+    # Read with the one stabilized method every guard shares
+    # (tests/regression/_timing.py); three rounds keep the 50,000-row side brief.
+    small, large = timings(_ingest, SMALL, LARGE, rounds=3)
 
     # A floor on the small measurement keeps a fast machine's timer resolution
     # from turning a tiny denominator into a spurious growth ratio.

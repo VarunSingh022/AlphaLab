@@ -287,7 +287,7 @@ from alphalab.lifecycle import (
 )
 from alphalab.runtime.run import ExecutionMode
 from tests.unit.lifecycle.evidence_harness import (
-    AVAILABLE, ENGINE, EVERYTHING, ASSET_ID, equity_convention, fingerprint, ingest,
+    AVAILABLE, BUILD, ENGINE, EVERYTHING, ASSET_ID, equity_convention, fingerprint, ingest,
     run_backtest, specification,
 )
 
@@ -295,8 +295,8 @@ dataset = ingest()
 fp = fingerprint()
 spec = specification(dataset)
 result = run_backtest(dataset)
-manifest = manifest_for_run(result, dataset, fp, ENGINE)
-rerun = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE)
+manifest = manifest_for_run(result, dataset, fp, ENGINE, build=BUILD)
+rerun = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE, build=BUILD)
 evidence = CertificationEvidence(
     runs=(result,),
     repeated_runs=(result, run_backtest(dataset)),
@@ -343,10 +343,16 @@ def test_every_v36_identity_is_the_same_in_two_processes_with_different_hash_see
 
 def test_the_fresh_process_agrees_with_this_one() -> None:
     from alphalab.lifecycle import manifest_for_run
-    from tests.unit.lifecycle.evidence_harness import ENGINE, fingerprint, ingest, run_backtest
+    from tests.unit.lifecycle.evidence_harness import (
+        BUILD,
+        ENGINE,
+        fingerprint,
+        ingest,
+        run_backtest,
+    )
 
     dataset = ingest()
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     other = _in_a_fresh_interpreter("7")
 
     assert other[1] == fingerprint().fingerprint
@@ -363,6 +369,7 @@ def test_nothing_machine_local_reaches_an_identity_or_an_artifact() -> None:
     )
     from alphalab.persistence.serializer import serialize
     from tests.unit.lifecycle.evidence_harness import (
+        BUILD,
         ENGINE,
         fingerprint,
         ingest,
@@ -372,7 +379,7 @@ def test_nothing_machine_local_reaches_an_identity_or_an_artifact() -> None:
 
     dataset = ingest()
     fp = fingerprint()
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE, build=BUILD)
     report = certify_strategy(fp, specification(dataset), CertificationEvidence(manifest=manifest))
     rendered = "\n".join(
         [
@@ -691,6 +698,7 @@ def test_every_v36_value_is_machine_readable_as_deterministic_json() -> None:
     from alphalab.runtime.run import ExecutionMode
     from tests.unit.lifecycle.evidence_harness import (
         AVAILABLE,
+        BUILD,
         ENGINE,
         EVERYTHING,
         fingerprint,
@@ -701,7 +709,7 @@ def test_every_v36_value_is_machine_readable_as_deterministic_json() -> None:
 
     dataset = ingest()
     fp, spec = fingerprint(), specification(dataset)
-    manifest = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE)
+    manifest = manifest_for_run(run_backtest(dataset), dataset, fp, ENGINE, build=BUILD)
     report = certify_strategy(fp, spec, CertificationEvidence(manifest=manifest))
     portability = evaluate_portability(
         fp, spec, (TargetEnvironment("paper", ExecutionMode.PAPER, EVERYTHING, AVAILABLE),)

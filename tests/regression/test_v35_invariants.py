@@ -87,7 +87,7 @@ def test_there_is_one_strategy_progression_vocabulary() -> None:
 
     from alphalab.lifecycle.progression import StrategyLifecycleStage
     from alphalab.model_registry.registry import ModelStage
-    from alphalab.strategy.state import LifecycleState as InstanceState
+    from alphalab.strategy.state import StrategyStatus as InstanceState
 
     offenders = [
         name
@@ -261,7 +261,7 @@ specification = build_specification(
         exposure=ExposureLimit(Decimal("200000"), Decimal("150000")),
         leverage=LeverageLimit(Decimal("2")),
         margin=MarginLimit(Decimal("0.5")),
-        daily_loss=DailyLossLimit(Decimal("5000")),
+        daily_loss=DailyLossLimit(Decimal("5000"), "UTC"),
         drawdown=DrawdownLimit(Decimal("0.2")),
     ),
     capital=CapitalPolicy("acct", "USD", Decimal("1000000"), ("USD", "EUR")),

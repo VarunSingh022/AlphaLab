@@ -1,14 +1,14 @@
 """The live data path, end to end, over real production abstractions.
 
-Nothing here is a mock of an AlphaLab layer. The only test double is
+Nothing here is a mock of an AlphaLab layer. The test doubles are
 :class:`~alphalab.marketdata.transport.StaticTransport`, which stands in for the
-network -- and it is the transport the repository already ships for exactly this
-purpose. Everything between the HTTP boundary and the portfolio is production
-code:
+network and is the transport the repository ships for exactly this purpose, and
+:class:`_RestBarProvider`, a few lines that parse a JSON bar list into wire
+bars the way a host application's provider client would. Everything between the
+wire bars and the portfolio is production code:
 
     StaticTransport            (canned bytes, no network)
-      -> binanceClient         real /api/v3/klines parsing
-      -> binanceAdapter        real provider adapter
+      -> _RestBarProvider      a host-side provider: JSON -> wire bars
       -> ProviderHistorySource normalization + record identity  (v2.5)
       -> TradingSession        the canonical step
       -> ExecutionPipeline     strategy / allocation / risk / OMS / execution
@@ -16,8 +16,11 @@ code:
       -> capture / restore     typed snapshot                   (v2.5)
 
 Before v2.5 this chain was broken in exactly one place: nothing turned a provider
-adapter into a ``MarketDataSource``, so ``normalize_wire_*`` had no production
-caller and the Binance client could not reach a session.
+into a ``MarketDataSource``, so ``normalize_wire_*`` had no production caller.
+Until v3.10 the provider here was the library's own Binance client; vendor
+clients are the host application's and were removed (ledger BND-001), so the
+provider is now the test's -- :class:`~alphalab.market.provider.BarHistoryProvider`
+is the whole contract a provider has to meet.
 """
 
 import json
@@ -29,6 +32,7 @@ from typing import Any
 import pytest
 
 from alphalab.core.enums import AssetType
+from alphalab.data.time import BarStamp
 from alphalab.instrument import (
     InstrumentRecord,
     InstrumentRegistry,
@@ -39,10 +43,8 @@ from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.normalization import NormalizationPolicy
 from alphalab.market.provider import ProviderHistorySource
 from alphalab.market.source import MarketDataSource, OrderingGuarantee, SequenceSource
-from alphalab.marketdata.binance.adapter import binanceAdapter
-from alphalab.marketdata.binance.config import binanceConfig
-from alphalab.marketdata.timeframe import Timeframe
-from alphalab.marketdata.transport import StaticTransport
+from alphalab.marketdata.feed import Bar as WireBar
+from alphalab.marketdata.transport import StaticTransport, Transport
 from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.portfolio.snapshot import capture, from_primitives, restore
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState
@@ -56,7 +58,7 @@ from tests.integration.harness import (
     running_strategy_state,
 )
 
-BASE_URL = "https://api.binance.com"
+BARS_URL = "https://bars.example/v1/bars"
 STRATEGY = "3c7d9e21-4f5a-4b18-8c2e-1a9d7f0b6e45"
 
 #: The instrument the provider's ``"BTCUSDT"`` denotes. Until v2.7 this file
@@ -69,57 +71,75 @@ BTCUSDT = InstrumentRecord(
     asset_type=AssetType.CRYPTO,
     exchange="BINANCE",
     currency="USDT",
-    aliases={"binance": "BTCUSDT"},
+    aliases={"bars-rest": "BTCUSDT"},
 )
 ASSET = BTCUSDT.asset_id
 INSTRUMENTS = register_instrument(InstrumentRegistry(), BTCUSDT)
 
 POLICY = NormalizationPolicy(
+    bar_stamp=BarStamp.INTERVAL_END,
     venue="BINANCE",
     currency="USDT",
     timeframe=TimeFrame.M1,
     identity=INSTRUMENTS,
-    provider="binance",
+    provider="bars-rest",
 )
 
-#: Four one-minute klines in Binance's documented array-of-arrays shape.
+#: Four one-minute bars: ``[end_ms, open, high, low, close, volume]``, each
+#: stamped at the end of its interval (hence ``BarStamp.INTERVAL_END`` above).
 _MIDS = ("50000.00", "50200.00", "50400.00", "50600.00")
 
 
-def _klines(count: int = 4, start_ms: int = 1_700_000_000_000) -> bytes:
+def _bars(count: int = 4, start_ms: int = 1_700_000_000_000) -> bytes:
     return json.dumps(
-        [
-            [
-                start_ms + index * 60_000,
-                _MIDS[index],
-                _MIDS[index],
-                _MIDS[index],
-                _MIDS[index],
-                "10.0",
-                0,
-                "0",
-                0,
-                "0",
-                "0",
-                "0",
-            ]
-            for index in range(count)
-        ]
+        [[start_ms + index * 60_000, *(_MIDS[index],) * 4, "10.0"] for index in range(count)]
     ).encode()
 
 
-def _adapter(payload: bytes | None = None) -> binanceAdapter:
-    transport = StaticTransport(
-        responses={f"{BASE_URL}/api/v3/klines": payload if payload is not None else _klines()}
+class _RestBarProvider:
+    """A provider as a host application writes one: fetch, parse, return wire bars.
+
+    Satisfies :class:`~alphalab.market.provider.BarHistoryProvider` and nothing
+    more. Prices stay the strings the payload wrote until the wire record's
+    float, and normalization lifts them through ``str`` -- which is what the
+    precision test below pins.
+    """
+
+    def __init__(self, transport: Transport) -> None:
+        self._transport = transport
+
+    def request_history(
+        self, symbol: str, timeframe: TimeFrame, start: float, end: float
+    ) -> tuple[WireBar, ...]:
+        body = self._transport.get(
+            BARS_URL,
+            {"symbol": symbol, "interval": timeframe.code, "start": str(start), "end": str(end)},
+        )
+        return tuple(
+            WireBar(
+                symbol,
+                int(row[0]) / 1000.0,
+                float(row[1]),
+                float(row[2]),
+                float(row[3]),
+                float(row[4]),
+                float(row[5]),
+            )
+            for row in json.loads(body)
+        )
+
+
+def _adapter(payload: bytes | None = None) -> _RestBarProvider:
+    return _RestBarProvider(
+        StaticTransport(responses={BARS_URL: payload if payload is not None else _bars()})
     )
-    return binanceAdapter(binanceConfig(provider_id="binance-1", api_key="k"), transport)
 
 
-def _source(payload: bytes | None = None, source_id: str = "BINANCE-BTC") -> ProviderHistorySource:
+def _source(payload: bytes | None = None, source_id: str = "REST-BTC") -> ProviderHistorySource:
     return ProviderHistorySource.of(
         _adapter(payload),
         ["BTCUSDT"],
-        Timeframe.MINUTE,
+        TimeFrame.M1,
         1_700_000_000.0,
         1_700_000_240.0,
         source_id,
@@ -213,16 +233,14 @@ def test_the_records_carry_canonical_domain_values_not_wire_values() -> None:
     assert isinstance(bar.volume, Decimal)
     assert bar.open == Decimal("50000.00")
     assert bar.asset_id == ASSET
-    assert bar.timeframe is TimeFrame.M1
+    assert bar.timeframe == TimeFrame.M1
 
 
 def test_precision_goes_through_str_not_through_the_float() -> None:
     """``Decimal(0.1)`` keeps a float's binary expansion; ``Decimal(str(0.1))``
     keeps the number the provider wrote. That is what makes it deterministic."""
 
-    payload = json.dumps(
-        [[1_700_000_000_000, "0.1", "0.1", "0.1", "0.1", "0.1", 0, "0", 0, "0", "0", "0"]]
-    ).encode()
+    payload = json.dumps([[1_700_000_000_000, "0.1", "0.1", "0.1", "0.1", "0.1"]]).encode()
     bar = _first_bar(_source(payload=payload))
 
     assert bar.open == Decimal("0.1")
@@ -233,8 +251,8 @@ def test_unreported_fields_stay_unreported() -> None:
     """A wire bar carries no vwap and no trade count; none is invented."""
 
     bar = _first_bar(_source())
-    assert bar.vwap == Decimal("0")
-    assert bar.trade_count == 0
+    assert bar.vwap is None
+    assert bar.trade_count is None
 
 
 def test_record_identity_is_deterministic_in_the_source_id() -> None:
@@ -242,7 +260,7 @@ def test_record_identity_is_deterministic_in_the_source_id() -> None:
     second = [record.event_id for record in _source().records()]
 
     assert first == second
-    assert first[0].startswith("BINANCE-BTC-")
+    assert first[0].startswith("REST-BTC-")
     assert [r.event_id for r in _source(source_id="OTHER").records()] != first
 
 
@@ -265,7 +283,7 @@ def test_an_empty_provider_response_is_refused() -> None:
 
 def test_no_symbols_is_refused() -> None:
     with pytest.raises(MarketValidationError, match="at least one symbol"):
-        ProviderHistorySource.of(_adapter(), [], Timeframe.MINUTE, 0.0, 1.0, "EMPTY", POLICY)
+        ProviderHistorySource.of(_adapter(), [], TimeFrame.M1, 0.0, 1.0, "EMPTY", POLICY)
 
 
 def test_a_provider_returning_history_out_of_order_is_refused() -> None:
@@ -273,8 +291,8 @@ def test_a_provider_returning_history_out_of_order_is_refused() -> None:
 
     reversed_payload = json.dumps(
         [
-            [1_700_000_060_000, "1", "1", "1", "1", "1.0", 0, "0", 0, "0", "0", "0"],
-            [1_700_000_000_000, "1", "1", "1", "1", "1.0", 0, "0", 0, "0", "0", "0"],
+            [1_700_000_060_000, "1", "1", "1", "1", "1.0"],
+            [1_700_000_000_000, "1", "1", "1", "1", "1.0"],
         ]
     ).encode()
     # The merge sorts by (timestamp, asset_id), so a single symbol's reversed
@@ -395,3 +413,23 @@ def test_a_restored_portfolio_reports_the_same_valuation() -> None:
     assert restored.cash.balance("USD") == portfolio.cash.balance("USD")
     assert restored.realized_pnl == portfolio.realized_pnl
     assert replace(restored) == portfolio
+
+
+def test_a_request_at_an_interval_the_policy_does_not_label_is_refused() -> None:
+    """v3.11 (DAT-005): one interval type from the request to the canonical bar.
+
+    Bars fetched at five minutes and labelled one-minute by the policy would be
+    mislabelled with nothing downstream able to tell; until v3.11 the request
+    and the label were two unrelated vocabularies and could not even be compared.
+    """
+
+    with pytest.raises(MarketValidationError, match="asked for 5m bars and the policy labels"):
+        ProviderHistorySource.of(
+            _adapter(),
+            ["BTCUSDT"],
+            TimeFrame.M5,
+            1_700_000_000.0,
+            1_700_000_240.0,
+            "REST-BTC",
+            POLICY,
+        )

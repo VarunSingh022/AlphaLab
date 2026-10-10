@@ -82,6 +82,7 @@ from typing import Any, Final, Protocol
 from alphalab.backtesting.state import BacktestResult
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.fingerprint import (
+    EngineBuild,
     EngineIdentity,
     StrategyFingerprint,
     verify_fingerprint,
@@ -393,6 +394,11 @@ class ReproducibilityManifest:
             it does.
         fingerprint: The strategy, or ``None`` for a study that measured
             features rather than a strategy.
+        build: The engine's source digest and time-zone database (v3.11,
+            ledger REP-002/DAT-007), or ``None`` where the producer did not
+            record one -- which :func:`manifest_gaps` reports. Rendered into the
+            identity only when recorded, so a manifest derived before v3.11
+            still verifies.
     """
 
     manifest_id: str
@@ -406,6 +412,19 @@ class ReproducibilityManifest:
     seed_role: SeedRole
     engine: EngineIdentity
     fingerprint: StrategyFingerprint | None
+    build: EngineBuild | None = None
+
+    @property
+    def evidence_kind(self) -> str:
+        """What kind of evidence this is, for an evidence store (ledger OFE-016)."""
+
+        return "reproducibility_manifest"
+
+    @property
+    def evidence_identity(self) -> str:
+        """What identifies it there: its ``manifest_id``."""
+
+        return self.manifest_id
 
     @property
     def mode(self) -> ExecutionMode | None:
@@ -447,30 +466,34 @@ def canonical_manifest_key(
     seed_role: SeedRole,
     engine: EngineIdentity,
     fingerprint: str | None,
+    build: EngineBuild | None = None,
 ) -> str:
     """Render the canonical key a manifest's identity is derived from.
 
     Public so the rendering can be pinned by a test and read by anyone auditing
     a manifest. The configuration enters through its digest; the fingerprint
     through its own derived identity, which already commits to the code,
-    dependencies, parameters, research configuration and engine it names.
+    dependencies, parameters, research configuration and engine it names. The
+    engine build's two lines are appended only when a build was recorded.
     """
 
-    return "\n".join(
-        [
-            REPRODUCIBILITY_MANIFEST_SCHEME,
-            f"kind={kind.name}",
-            f"result={result_id!r}",
-            f"dataset={dataset_version!r}",
-            f"content={dataset_content_hash!r}",
-            f"configuration={configuration_id!r}",
-            f"seed_role={seed_role.name}",
-            f"seed={seed!r}",
-            f"strategy={fingerprint!r}",
-            f"engine.name={engine.name!r}",
-            f"engine.version={engine.version!r}",
-        ]
-    )
+    lines = [
+        REPRODUCIBILITY_MANIFEST_SCHEME,
+        f"kind={kind.name}",
+        f"result={result_id!r}",
+        f"dataset={dataset_version!r}",
+        f"content={dataset_content_hash!r}",
+        f"configuration={configuration_id!r}",
+        f"seed_role={seed_role.name}",
+        f"seed={seed!r}",
+        f"strategy={fingerprint!r}",
+        f"engine.name={engine.name!r}",
+        f"engine.version={engine.version!r}",
+    ]
+    if build is not None:
+        lines.append(f"engine.source={build.source_digest!r}")
+        lines.append(f"engine.tz_database={build.tz_database!r}")
+    return "\n".join(lines)
 
 
 def derive_manifest_id(
@@ -483,6 +506,7 @@ def derive_manifest_id(
     seed_role: SeedRole,
     engine: EngineIdentity,
     fingerprint: str | None,
+    build: EngineBuild | None = None,
 ) -> str:
     """SHA-256 over :func:`canonical_manifest_key`. Derived, never minted."""
 
@@ -497,6 +521,7 @@ def derive_manifest_id(
             seed_role,
             engine,
             fingerprint,
+            build,
         )
     )
 
@@ -511,6 +536,7 @@ def _manifest(
     seed_role: SeedRole,
     engine: EngineIdentity,
     fingerprint: StrategyFingerprint | None,
+    build: EngineBuild | None,
 ) -> ReproducibilityManifest:
     configuration_id = _sha256(configuration)
     return ReproducibilityManifest(
@@ -524,6 +550,7 @@ def _manifest(
             seed_role,
             engine,
             None if fingerprint is None else fingerprint.fingerprint,
+            build,
         ),
         kind=kind,
         result_id=result_id,
@@ -535,27 +562,29 @@ def _manifest(
         seed_role=seed_role,
         engine=engine,
         fingerprint=fingerprint,
+        build=build,
     )
 
 
 def _identifying(dataset: VersionedDataset) -> DatasetProvenanceView:
-    """A dataset's provenance, refused when its version cannot identify its content.
+    """A dataset's provenance, refused when it records no bytes to reproduce from.
 
-    A dataset version is derived from the source bytes its provenance records,
-    and :func:`alphalab.api.ingest_rows` records the source a caller supplies,
-    as given (ADR-0036). A source recorded with an empty payload gives every set
-    of rows ingested under one name and configuration the *same* version -- so
-    a manifest naming it would claim one dataset for any data at all.
+    A manifest identifies a dataset by the content hash of the source bytes its
+    provenance records, and :func:`alphalab.api.ingest_rows` records the source
+    a caller supplies, as given (ADR-0036). Since v3.10 a row-ingested dataset's
+    *version* is derived from the rows themselves (ledger KD-004), so two row
+    sets no longer share one -- but a source recorded with an empty payload
+    still gives the manifest nothing to reproduce the rows from.
     """
 
     provenance = dataset.require_provenance()
     if provenance.source.byte_count == 0:
         raise LifecycleInputError(
-            f"Dataset {provenance.dataset_version} records an empty source payload, so its "
-            "version cannot tell it from any other rows ingested under the same name and "
-            "configuration. Record the bytes the rows came from -- raw_source_from_bytes "
-            "with the rows' own payload -- or ingest the file with ingest_csv, which records "
-            "them itself."
+            f"Dataset {provenance.dataset_version} records an empty source payload. Its "
+            "version identifies the rows, but a manifest identifies a dataset by its "
+            "source's bytes, and these record none to reproduce the rows from. Record the "
+            "bytes the rows came from -- raw_source_from_bytes with the rows' own payload -- "
+            "or ingest the file with ingest_csv, which records them itself."
         )
     return provenance
 
@@ -574,6 +603,8 @@ def manifest_for_run(
     dataset: VersionedDataset,
     fingerprint: StrategyFingerprint,
     engine: EngineIdentity,
+    *,
+    build: EngineBuild | None,
 ) -> ReproducibilityManifest:
     """The manifest of a finished run, with every identity read from its owner.
 
@@ -588,6 +619,10 @@ def manifest_for_run(
         engine: The engine that executed the run -- typically
             :func:`~alphalab.lifecycle.fingerprint.running_engine` in the
             process that ran it.
+        build: Its source digest and time-zone database -- typically
+            :func:`~alphalab.lifecycle.fingerprint.running_build` in the same
+            process -- or ``None`` to record none, which is reported as a gap.
+            Required, so that not recording one is a statement.
 
     Raises:
         DataValidationError: If ``dataset`` carries no provenance.
@@ -635,6 +670,7 @@ def manifest_for_run(
         seed_role=SeedRole.IDENTIFIER_STREAM,
         engine=engine,
         fingerprint=fingerprint,
+        build=build,
     )
 
 
@@ -643,6 +679,8 @@ def manifest_for_study(
     dataset: VersionedDataset,
     engine: EngineIdentity,
     fingerprint: StrategyFingerprint | None = None,
+    *,
+    build: EngineBuild | None,
 ) -> ReproducibilityManifest:
     """The manifest of a v3.2 research study's result.
 
@@ -657,6 +695,7 @@ def manifest_for_study(
         engine: The engine that ran the study.
         fingerprint: The strategy the study was of, if it was of one. When its
             research configuration names a study, it must be this one.
+        build: As :func:`manifest_for_run`'s.
 
     Raises:
         DataValidationError: If ``dataset`` carries no provenance.
@@ -702,6 +741,7 @@ def manifest_for_study(
         seed_role=SeedRole.ABSENT if seed is None else SeedRole.STOCHASTIC_STEPS,
         engine=engine,
         fingerprint=fingerprint,
+        build=build,
     )
 
 
@@ -736,6 +776,7 @@ def verify_manifest(manifest: ReproducibilityManifest) -> bool:
         manifest.seed_role,
         manifest.engine,
         None if manifest.fingerprint is None else manifest.fingerprint.fingerprint,
+        manifest.build,
     )
 
 
@@ -748,6 +789,17 @@ def manifest_gaps(manifest: ReproducibilityManifest) -> tuple[str, ...]:
     """
 
     gaps: list[str] = []
+    if manifest.build is None:
+        gaps.append(
+            "no engine build recorded: the engine is identified by its version alone, so "
+            "two builds of that version -- and two time-zone databases -- would not be told "
+            "apart."
+        )
+    elif manifest.build.tz_database is None:
+        gaps.append(
+            "the time-zone database version was not discoverable, so a rerun on a host with "
+            "another database could compute different local-time session bounds unseen."
+        )
     fingerprint = manifest.fingerprint
     if fingerprint is None:
         if manifest.kind is ResultKind.RUN:
@@ -890,7 +942,11 @@ def _study_inputs(configuration: str) -> tuple[tuple[str, str], ...]:
     """
 
     collected: list[str] = []
-    for line in reversed(configuration.split("\n")):
+    lines = configuration.split("\n")
+    if lines and lines[-1].startswith("implementation_lag:"):
+        # v3.11 appends the declared lag after every section; it holds no ``=``.
+        lines = lines[:-1]
+    for line in reversed(lines):
         if line == "inputs":
             return tuple(
                 (role, identity)
@@ -974,6 +1030,16 @@ def _input_differences(
         ("seed", repr(original.seed), repr(rerun.seed)),
         ("seed role", original.seed_role.name, rerun.seed_role.name),
         ("engine", str(original.engine), str(rerun.engine)),
+        (
+            "engine source",
+            repr(None if original.build is None else original.build.source_digest),
+            repr(None if rerun.build is None else rerun.build.source_digest),
+        ),
+        (
+            "time-zone database",
+            repr(None if original.build is None else original.build.tz_database),
+            repr(None if rerun.build is None else rerun.build.tz_database),
+        ),
         (
             "strategy",
             repr(None if original.fingerprint is None else original.fingerprint.fingerprint),

@@ -52,9 +52,7 @@ class Conv1DGradients:
     input_gradients: tuple[float, ...]
 
 
-def create_conv1d_layer(
-    kernel_size: int, activation: ActivationType, seed: int = 42
-) -> Conv1DLayer:
+def create_conv1d_layer(kernel_size: int, activation: ActivationType, seed: int) -> Conv1DLayer:
     """Creates a Conv1DLayer with deterministic, seeded weight initialization.
 
     Raises:

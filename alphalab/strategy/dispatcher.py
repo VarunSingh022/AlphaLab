@@ -6,16 +6,18 @@ Market events are routed on their **fully qualified** type name --
 Until v2.16 the four market branches read ``type(event).__name__ ==
 "TickReceived"`` and three siblings, under a comment that began "Assuming
 generic market events differentiate via class type or structure". A bare class
-name is not a type: three packages in this repository define a class called
-``TickReceived``, ``QuoteReceived`` or ``TradeReceived``, and the comparison
-matched all of them.
+name is not a type: three packages in this repository then defined a class
+called ``TickReceived``, ``QuoteReceived`` or ``TradeReceived``, and the
+comparison matched all of them.
 
-``alphalab.live.events.TickReceived`` carries ``provider_id`` / ``symbol`` /
+``alphalab.live.events.TickReceived`` carried ``provider_id`` / ``symbol`` /
 ``tick_type`` where the canonical event carries a ``tick``. It was routed to
 ``on_tick``, the strategy read ``event.tick``, the ``AttributeError`` landed in
 the handler below, and the strategy was transitioned to ``FAILED`` -- blamed for
-a routing mistake it did not make. ``alphalab.marketdata.events`` collides the
-same way on two more names.
+a routing mistake it did not make. ``alphalab.marketdata.events`` collided the
+same way on two more names. Both packages were removed in v3.10 (ledger
+SCF-002); the hazard was not, because a host application's own event vocabulary
+will reuse these names.
 
 **Why this is not ``isinstance``.** ADR-0016 decision 3 is normative:
 "``alphalab.strategy`` acquires no dependency on ``alphalab.instrument`` or
@@ -58,17 +60,20 @@ alias for why nothing narrower is honest.
 
 from collections.abc import Iterable
 
+from alphalab.common.evolve import evolve
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import (
     FillEvent,
     Intent,
     LifecycleTransitioned,
+    ObservationReceived,
     OrderEvent,
+    SliceClosed,
     StrategyInboundEvent,
     TimerEvent,
 )
 from alphalab.strategy.exceptions import InvalidIntentError
-from alphalab.strategy.state import LifecycleState, StrategyState
+from alphalab.strategy.state import StrategyState, StrategyStatus
 from alphalab.strategy.supervisor import RuntimeSupervisor
 from alphalab.strategy.validation import validate_intent
 
@@ -93,8 +98,9 @@ def market_hook_for(event: object) -> str | None:
     """The hook ``event`` routes to, or ``None`` when it is not routed here.
 
     Exact in both directions: a canonical market event resolves to its hook, and
-    a class that merely shares its name -- ``alphalab.live.events.TickReceived``,
-    ``alphalab.marketdata.events.QuoteReceived`` -- resolves to ``None``.
+    a class that merely shares its name -- a host application's own
+    ``TickReceived``, as ``alphalab.live.events`` defined until v3.10 --
+    resolves to ``None``.
     """
 
     event_type = type(event)
@@ -105,6 +111,58 @@ def market_hook_for(event: object) -> str | None:
 
 class Dispatcher:
     """Stateless router mapping events to strategy hooks."""
+
+    @staticmethod
+    def start(
+        strategy_state: StrategyState, context: StrategyContext, timestamp: float
+    ) -> tuple[StrategyState, tuple[LifecycleTransitioned, ...]]:
+        """Deliver ``on_start``, once, and record that it was delivered.
+
+        Returns the strategy marked ``started`` -- or, when the hook raised,
+        ``FAILED`` with the reason, exactly as a hook raising on an event fails
+        it. A strategy that is not running, or has already started, is returned
+        unchanged.
+        """
+
+        if strategy_state.status is not StrategyStatus.RUNNING or strategy_state.started:
+            return strategy_state, ()
+        try:
+            strategy_state.instance.on_start(context)
+        except Exception as e:
+            failed_state, trans_evt = RuntimeSupervisor.fail(
+                strategy_state, f"HookExecutionError: on_start: {e!s}", timestamp
+            )
+            return evolve(failed_state, started=True), (trans_evt,)
+        return evolve(strategy_state, started=True), ()
+
+    @staticmethod
+    def stop(
+        strategy_state: StrategyState, context: StrategyContext, timestamp: float
+    ) -> tuple[StrategyState, tuple[Intent, ...], tuple[LifecycleTransitioned, ...]]:
+        """Deliver ``on_shutdown`` then ``on_stop``, and move the strategy to ``STOPPED``.
+
+        The intents ``on_shutdown`` returns are validated as any hook's are. A
+        hook that raises, or an invalid intent, fails the strategy instead: its
+        shutdown intents are dropped, as a failing event hook's are. A strategy
+        that is not running or paused is returned unchanged.
+        """
+
+        if strategy_state.status not in {StrategyStatus.RUNNING, StrategyStatus.PAUSED}:
+            return strategy_state, (), ()
+        instance = strategy_state.instance
+        try:
+            intents = tuple(instance.on_shutdown(context) or ())
+            for intent in intents:
+                validate_intent(intent)
+            instance.on_stop(context)
+        except Exception as e:
+            failed_state, trans_evt = RuntimeSupervisor.fail(
+                strategy_state, f"HookExecutionError: on_shutdown/on_stop: {e!s}", timestamp
+            )
+            return failed_state, (), (trans_evt,)
+        stopping, first = RuntimeSupervisor.stop(strategy_state, timestamp)
+        stopped, second = RuntimeSupervisor.complete_drain(stopping, timestamp)
+        return stopped, intents, (first, second)
 
     @staticmethod
     def dispatch_event(
@@ -131,7 +189,7 @@ class Dispatcher:
         static type is a claim about callers that type-check and this is the one
         place a wrong claim would be charged to the *strategy*.
         """
-        if strategy_state.status != LifecycleState.RUNNING:
+        if strategy_state.status != StrategyStatus.RUNNING:
             return strategy_state, (), ()
 
         instance = strategy_state.instance
@@ -144,6 +202,17 @@ class Dispatcher:
                 intents_iter = instance.on_order(context, event)
             elif isinstance(event, TimerEvent):
                 intents_iter = instance.on_timer(context, event)
+            elif isinstance(event, SliceClosed):
+                # Optional: SliceStrategyProtocol is separate so every strategy
+                # written against the ten hooks still satisfies StrategyProtocol.
+                on_slice = getattr(instance, "on_slice", None)
+                if on_slice is not None:
+                    intents_iter = on_slice(context, event)
+            elif isinstance(event, ObservationReceived):
+                # Optional for the same reason (ObservationStrategyProtocol).
+                on_observation = getattr(instance, "on_observation", None)
+                if on_observation is not None:
+                    intents_iter = on_observation(context, event)
             else:
                 hook = market_hook_for(event)
                 if hook is not None:

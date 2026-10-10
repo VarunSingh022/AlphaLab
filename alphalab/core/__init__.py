@@ -7,6 +7,7 @@ boundary read: what a venue can do (:mod:`alphalab.core.capabilities`) and which
 order transitions exist (:mod:`alphalab.core.lifecycle`). See ADR-0044.
 """
 
+from alphalab.common.order_terms import MARKET, OrderTerms
 from alphalab.core.capabilities import (
     ANY_LISTING_VENUE,
     CAPABILITY_DECLARATION_SCHEME,
@@ -93,6 +94,7 @@ __all__ = [
     "CONNECTIVITY_EVENT_KINDS",
     "EXECUTION_REQUIREMENTS_SCHEME",
     "FILL_EVENT_KINDS",
+    "MARKET",
     "ORDER_EVENT_KINDS",
     "ORDER_TRANSITIONS",
     "ORDER_TYPE_CAPABILITIES",
@@ -123,6 +125,7 @@ __all__ = [
     "OrderId",
     "OrderRequest",
     "OrderStatus",
+    "OrderTerms",
     "OrderType",
     "PortfolioId",
     "PositionId",

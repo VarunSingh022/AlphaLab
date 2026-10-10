@@ -46,6 +46,18 @@ REMOVED_PACKAGES = (
     "alphalab.integrations",
     "alphalab.production",
     "alphalab.core.events",
+    # v3.10 (ADR-0045): vendor feeds and the provider-shaped live surface.
+    "alphalab.feed",
+    "alphalab.live",
+    # v3.11 (ADR-0046): the application's packages -- identity and RBAC, UI
+    # state, and project management of results computed elsewhere.
+    "alphalab.enterprise",
+    "alphalab.workbench",
+    "alphalab.studio",
+    # v3.12 (ADR-0047, ledger SCF-003): a plugin loader whose execute() was a
+    # placeholder, and a second parameter search beside research.parameter_sweep.
+    "alphalab.plugins",
+    "alphalab.optimizer",
 )
 
 #: Modules removed from packages that survive.
@@ -71,10 +83,71 @@ REMOVED_MODULES = (
     "alphalab.runtime.metrics",
     "alphalab.runtime.runtime",
     "alphalab.runtime.lifecycle",
+    # v3.11 (ADR-0046): the reference REST venue and its credentials moved to
+    # tests/reference_adapter (ledger BRK-007); the closed interval list and
+    # the bridge to the removed studio.
+    "alphalab.broker.transport",
+    "alphalab.broker.venue",
+    "alphalab.marketdata.timeframe",
+    "alphalab.experiment_tracking.studio_bridge",
+    # v3.12 (ADR-0047, ledger SCF-003): dashboard layouts, which are presentation.
+    "alphalab.reporting.dashboard",
+    # v3.13 (ledger API-001): modules that held only the connector's historical
+    # aliases of the canonical broker types.
+    "alphalab.brokers.account",
+    "alphalab.brokers.execution",
+    "alphalab.brokers.order",
+    "alphalab.brokers.position",
 )
 
 #: ``package -> the names that must no longer be reachable through it``.
 REMOVED_NAMES = {
+    # v3.13 (ledger API-001): the connector's aliases of canonical types, and
+    # its own vocabulary where it reused the boundary's names for other classes.
+    "alphalab.brokers": (
+        "AccountSnapshot",
+        "AssetClass",
+        "BrokerAdapter",
+        "BrokerConnected",
+        "BrokerDisconnected",
+        "BrokerEvent",
+        "BrokerValidationError",
+        "ExecutionReceived",
+        "ExecutionReport",
+        "Heartbeat",
+        "InvalidBrokerStateError",
+        "OrderCancelled",
+        "OrderFilled",
+        "OrderStatus",
+        "OrderSubmitted",
+        "PositionSnapshot",
+        "open_orders",
+        "validate_execution",
+        "validate_order_submission",
+    ),
+    # v3.13 (ledger API-001): names one package used for another package's
+    # concept, renamed without an alias -- the strategy runtime's status, the
+    # scheduler's dated session, a cross-validation index split and a delisting
+    # return.
+    "alphalab.strategy": ("LifecycleState",),
+    "alphalab.scheduler": ("TradingSession",),
+    "alphalab.ml": ("Split",),
+    "alphalab.factor_library": ("Delisting",),
+    # v3.13 (ledger API-001): the optimizer's copy of the research volatility,
+    # under the same name with another keyword and no validation.
+    "alphalab.portfolio_optimizer": ("calculate_volatility",),
+    # v3.13 (ledger API-001): allocation's own, disagreeing intent check.
+    "alphalab.allocation": ("validate_intent",),
+    "alphalab.reporting": (
+        "Dashboard",
+        "DashboardCard",
+        "DashboardChart",
+        "DashboardGenerated",
+        "DashboardSection",
+        "DashboardTable",
+        "dashboard_summary",
+        "validate_dashboard",
+    ),
     "alphalab.common": ("CommonEvent",),
     "alphalab.common.events": ("CommonEvent",),
     "alphalab.persistence": (
@@ -148,6 +221,28 @@ REMOVED_NAMES = {
 
 #: What had to survive beside each removal, because it shared the package.
 SURVIVING_NEIGHBOURS = {
+    # v3.13 (ledger API-001): what each rename and removal left in its place.
+    "alphalab.strategy": ("StrategyStatus", "validate_intent"),
+    "alphalab.scheduler": ("ScheduledSession",),
+    "alphalab.ml": ("TrainTestSplit",),
+    "alphalab.factor_library": ("DelistingReturn",),
+    "alphalab.research": ("calculate_volatility", "calculate_max_drawdown"),
+    "alphalab.brokers": (
+        "BrokerConnectorAdapter",
+        "BrokerConnectorEvent",
+        "BrokerConnectorStateError",
+        "BrokerConnectorValidationError",
+        "RegisteredBrokerConnected",
+        "RegisteredBrokerDisconnected",
+        "RegisteredBrokerHeartbeat",
+        "RoutedExecutionReceived",
+        "RoutedOrderCancelled",
+        "RoutedOrderFilled",
+        "RoutedOrderSubmitted",
+        "open_routed_orders",
+        "validate_routed_execution",
+        "validate_routed_submission",
+    ),
     # The persistence codec spine: every snapshot module in the repository
     # imports it, and it is the reason the store's notice was PEP 562 rather
     # than an import-time warning.

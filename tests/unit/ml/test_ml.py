@@ -134,6 +134,87 @@ def test_linear_regression_ridge_penalty_shrinks_coefficients() -> None:
     assert abs(regularized.coefficients[0]) < abs(unregularized.coefficients[0])
 
 
+def test_linear_regression_keeps_its_digits_on_a_nearly_collinear_design() -> None:
+    """Solved by QR rather than by inverting ``X'X`` (ledger NUM-007, v3.12).
+
+    The column-scaled design is conditioned at about 2e4, so a QR solve loses
+    about four of its sixteen digits. Forming ``X'X`` squares that: the v3.11
+    solve was off by 2.6e-8 here, the QR one by 5.5e-13.
+    """
+
+    import math
+
+    count = 40
+    x = tuple((i / count, i / count + 1e-4 * math.sin(7.0 * i)) for i in range(count))
+    y = tuple(2.0 - 3.0 * a + 5.0 * b for a, b in x)
+
+    model = train_linear_regression(("a", "b"), x, y)
+
+    assert model.intercept == pytest.approx(2.0, abs=1e-10)
+    assert model.coefficients == pytest.approx((-3.0, 5.0), abs=1e-10)
+
+
+def test_linear_regression_refuses_a_rank_deficient_design() -> None:
+    x = tuple((float(i), 2.0 * i) for i in range(10))  # b is a, doubled
+    y = tuple(float(i) for i in range(10))
+    with pytest.raises(MLInputError, match="cannot be solved as posed"):
+        train_linear_regression(("a", "b"), x, y)
+
+
+def test_a_feature_that_is_zero_everywhere_is_named() -> None:
+    x = tuple((float(i), 0.0) for i in range(10))
+    with pytest.raises(MLInputError, match="'b' is zero in every sample"):
+        train_linear_regression(("a", "b"), x, tuple(float(i) for i in range(10)))
+
+
+def test_a_badly_scaled_but_well_posed_design_is_not_refused() -> None:
+    """The condition is measured with every column scaled to unit length:
+    a feature quoted in millions is a unit, not a near-collinearity."""
+
+    x = tuple((1e6 * i, float(i % 3)) for i in range(20))
+    y = tuple(4.0 + 3e-6 * a - 2.0 * b for a, b in x)
+    model = train_linear_regression(("dollars", "bucket"), x, y)
+    assert model.intercept == pytest.approx(4.0, rel=1e-9)
+    assert model.coefficients == pytest.approx((3e-6, -2.0), rel=1e-9)
+
+
+def test_ridge_is_the_penalized_normal_equations_solved_exactly() -> None:
+    """Augmented rows minimize the same objective ``(X'X + lambda I')`` solves;
+    the reference here is solved in exact rational arithmetic."""
+
+    from fractions import Fraction
+
+    x = ((1.0, 2.0), (2.0, 1.0), (3.0, 5.0), (4.0, 3.0), (5.0, 8.0))
+    y = (1.0, 2.0, 2.5, 4.0, 5.5)
+    penalty = 0.75
+    design = [[Fraction(1), Fraction(a), Fraction(b)] for a, b in x]
+    gram: list[list[Fraction]] = [
+        [sum((row[i] * row[j] for row in design), Fraction(0)) for j in range(3)] for i in range(3)
+    ]
+    for i in (1, 2):
+        gram[i][i] += Fraction(penalty)
+    rhs: list[Fraction] = [
+        sum((row[i] * Fraction(v) for row, v in zip(design, y, strict=True)), Fraction(0))
+        for i in range(3)
+    ]
+    for pivot in range(3):  # Gauss-Jordan, exact
+        scale = gram[pivot][pivot]
+        gram[pivot] = [value / scale for value in gram[pivot]]
+        rhs[pivot] /= scale
+        for other in range(3):
+            if other != pivot:
+                factor = gram[other][pivot]
+                gram[other] = [
+                    v - factor * p for v, p in zip(gram[other], gram[pivot], strict=True)
+                ]
+                rhs[other] -= factor * rhs[pivot]
+
+    model = train_linear_regression(("a", "b"), x, y, l2_penalty=penalty)
+
+    assert model.intercept == pytest.approx(float(rhs[0]), rel=1e-12)
+    assert model.coefficients == pytest.approx((float(rhs[1]), float(rhs[2])), rel=1e-12)
+
+
 def test_linear_regression_raises_on_mismatched_sample_counts() -> None:
     with pytest.raises(MLInputError):
         train_linear_regression(("x",), ((1.0,), (2.0,)), (1.0,))

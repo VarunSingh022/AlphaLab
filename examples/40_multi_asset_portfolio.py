@@ -135,6 +135,13 @@ def rule(title: str) -> None:
     print(f"\n{title}\n{'-' * len(title)}")
 
 
+#: Decimals of each currency's money that ISO 4217 does not fix. USDT is not an
+#: ISO currency, so its minor unit is declared -- here as the 8 decimals Binance
+#: reports USDT balances in. Since v3.10 a currency with no known minor unit is
+#: refused rather than rounded to cents.
+DECLARED_MINOR_UNITS = {"USDT": 8}
+
+
 def position(asset_id: str, quantity: str, price: str, currency: str, at: float) -> Position:
     return Position(
         asset_id=asset_id,
@@ -144,6 +151,7 @@ def position(asset_id: str, quantity: str, price: str, currency: str, at: float)
         realized_pnl=Decimal("0"),
         currency=currency,
         last_updated=at,
+        minor_units=DECLARED_MINOR_UNITS.get(currency),
     )
 
 

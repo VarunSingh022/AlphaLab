@@ -103,12 +103,23 @@ def context_factory(strategy_id: str) -> StrategyContext:
     )
 
 
-def running_strategy_state(strategy_id: str, strategy: StrategyProtocol) -> StrategyRuntimeState:
+def running_strategy_state(
+    strategy_id: str,
+    strategy: StrategyProtocol,
+    subscriptions: frozenset[str] = frozenset({"*"}),
+) -> StrategyRuntimeState:
+    """A runtime holding one running strategy.
+
+    Subscribed to everything by default, which is what every strategy received
+    until v3.11 routed on subscriptions (ledger EXE-007); a test about routing
+    passes its own.
+    """
+
     state = register_strategy(create_runtime(), strategy_id, strategy)
     strategy_state = state.strategies[strategy_id]
     configured, _ = RuntimeSupervisor.configure(strategy_state, {}, 1.0)
     initialized, _ = RuntimeSupervisor.initialize(configured, 1.1)
-    subscribed, _ = RuntimeSupervisor.subscribe(initialized, frozenset({"quotes"}), 1.2)
+    subscribed, _ = RuntimeSupervisor.subscribe(initialized, subscriptions, 1.2)
     running, _ = RuntimeSupervisor.start(subscribed, 1.3)
     return replace(state, strategies={strategy_id: running})
 
@@ -123,7 +134,7 @@ def permissive_risk_limits(max_order_quantity: Decimal = Decimal("100000")) -> R
         exposure=ExposureLimit(huge, huge),
         leverage=LeverageLimit(Decimal("1000")),
         margin=MarginLimit(Decimal("1.00")),
-        daily_loss=DailyLossLimit(huge),
+        daily_loss=DailyLossLimit(huge, "UTC"),
         drawdown=DrawdownLimit(Decimal("1.00")),
     )
 

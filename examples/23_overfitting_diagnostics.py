@@ -75,7 +75,7 @@ def main() -> None:
 
     dataset = load_panel()
     frame = observe(dataset, FeatureField.CLOSE)
-    realized = forward_returns(frame, HORIZON)
+    realized = forward_returns(frame, HORIZON, lag=0, delistings=())
     instants = list(frame.timestamps)
     half = len(instants) // 2
 

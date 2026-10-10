@@ -115,3 +115,64 @@ def test_to_tuple_and_repr() -> None:
     assert log.to_tuple() == (1, 2)
     assert isinstance(log.to_tuple(), tuple)
     assert repr(log) == "AppendOnlyLog([1, 2])"
+
+
+# --------------------------------------------------------------------------- #
+# Keeping only the newest entries (v3.12, ledger PRF-004)
+# --------------------------------------------------------------------------- #
+
+
+def test_retaining_the_last_entries_counts_the_rest_as_dropped() -> None:
+    log = AppendOnlyLog(range(10))
+
+    kept = log.retain_last(4)
+
+    assert kept.to_tuple() == (6, 7, 8, 9)
+    assert kept.dropped == 6
+    assert (kept[0], kept[-1], kept[1:3]) == (6, 9, (7, 8))
+    assert list(reversed(kept)) == [9, 8, 7, 6]
+    assert log.to_tuple() == tuple(range(10)) and log.dropped == 0
+    assert log.retain_last(10) is log
+    assert log.retain_last(0).to_tuple() == () and log.retain_last(0).dropped == 10
+
+
+def test_a_trimmed_log_keeps_appending_and_dropping() -> None:
+    log: AppendOnlyLog[int] = AppendOnlyLog()
+    for value in range(1000):
+        log = log.append(value).retain_last(5)
+
+    assert log.to_tuple() == (995, 996, 997, 998, 999)
+    assert log.dropped == 995
+    # The dropped entries were released, not kept behind the view.
+    assert len(log._buffer) <= 5 + 2 * 32
+
+
+def test_branching_from_a_trimmed_view_leaves_every_view_correct() -> None:
+    base = AppendOnlyLog(range(6)).retain_last(3)  # (3, 4, 5)
+    newer = base.append(6)
+    other = base.append(60)
+
+    assert base.to_tuple() == (3, 4, 5)
+    assert newer.to_tuple() == (3, 4, 5, 6)
+    assert other.to_tuple() == (3, 4, 5, 60)
+    assert newer.dropped == other.dropped == 3
+
+
+def test_equality_is_by_entries_and_the_dropped_count_is_separate() -> None:
+    trimmed = AppendOnlyLog(range(5)).retain_last(2)
+    fresh = AppendOnlyLog((3, 4))
+
+    assert trimmed == fresh
+    assert hash(trimmed) == hash(fresh)
+    assert (trimmed.dropped, fresh.dropped) == (3, 0)
+
+
+def test_a_restored_log_says_what_it_dropped() -> None:
+    log = AppendOnlyLog.restored((7, 8), 5)
+
+    assert log.to_tuple() == (7, 8) and log.dropped == 5
+    assert log.append(9).dropped == 5
+    with pytest.raises(ValueError, match="dropped -1"):
+        AppendOnlyLog.restored((), -1)
+    with pytest.raises(ValueError, match="keep -2"):
+        AppendOnlyLog(()).retain_last(-2)

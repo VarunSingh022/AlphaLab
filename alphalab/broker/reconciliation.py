@@ -96,6 +96,9 @@ from alphalab.broker.order import (
 )
 from alphalab.broker.position import BrokerPosition
 from alphalab.broker.state import BrokerState
+from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, canonical_text, plain
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.enums import OrderStatus as CoreOrderStatus
 
 __all__ = [
@@ -163,18 +166,29 @@ class ReconciliationLog:
     A refused fill is information, not an error to swallow: it is the evidence
     that AlphaLab and the venue disagree, and it is the input to the next
     :func:`reconcile`.
+
+    Both histories are :class:`~alphalab.common.append_log.AppendOnlyLog`s as of
+    v3.10, so recording one is O(1). They were tuples rebuilt on every record,
+    which made a session that saw ``n`` redeliveries do ``O(n**2)`` copying. A
+    tuple passed to the constructor is accepted and adopted.
     """
 
-    breaks: tuple[ExecutionDecision, ...] = field(default_factory=tuple)
-    duplicates: tuple[ExecutionDecision, ...] = field(default_factory=tuple)
+    breaks: AppendOnlyLog[ExecutionDecision] = field(default_factory=AppendOnlyLog)
+    duplicates: AppendOnlyLog[ExecutionDecision] = field(default_factory=AppendOnlyLog)
+
+    def __post_init__(self) -> None:
+        for name in ("breaks", "duplicates"):
+            value = getattr(self, name)
+            if not isinstance(value, AppendOnlyLog):
+                object.__setattr__(self, name, AppendOnlyLog(value))
 
     def record(self, decision: ExecutionDecision) -> ReconciliationLog:
         """Return a log with ``decision`` recorded in the right place."""
 
         if decision.outcome is ExecutionOutcome.DUPLICATE:
-            return replace(self, duplicates=(*self.duplicates, decision))
+            return replace(self, duplicates=self.duplicates.append(decision))
         if decision.is_break:
-            return replace(self, breaks=(*self.breaks, decision))
+            return replace(self, breaks=self.breaks.append(decision))
         return self
 
 
@@ -185,10 +199,21 @@ class ExternalOrderMap:
     Rebinding either direction is refused. A venue reusing a handle, or AlphaLab
     sending one OMS order under two handles, is a defect that must surface here
     rather than as one order's fills landing on another.
+
+    Both directions are :class:`~alphalab.common.persistent_map.PersistentMap`s
+    as of v3.10, so a bind is O(1) amortized; until then each bind copied both
+    dictionaries, which is quadratic over a session. A plain mapping passed to
+    the constructor is accepted and adopted.
     """
 
-    to_broker: Mapping[str, str] = field(default_factory=dict)
-    to_oms: Mapping[str, str] = field(default_factory=dict)
+    to_broker: PersistentMap[str, str] = field(default_factory=PersistentMap)
+    to_oms: PersistentMap[str, str] = field(default_factory=PersistentMap)
+
+    def __post_init__(self) -> None:
+        for name in ("to_broker", "to_oms"):
+            value = getattr(self, name)
+            if not isinstance(value, PersistentMap):
+                object.__setattr__(self, name, PersistentMap(value))
 
     def bind(self, oms_order_id: str, broker_order_id: str) -> ExternalOrderMap:
         """Record that ``oms_order_id`` is known to the venue as ``broker_order_id``."""
@@ -209,9 +234,11 @@ class ExternalOrderMap:
                 f"{existing_oms}; refusing to rebind it to {oms_order_id}."
             )
 
+        if existing_broker is not None:
+            return self  # already bound, identically
         return ExternalOrderMap(
-            {**self.to_broker, oms_order_id: broker_order_id},
-            {**self.to_oms, broker_order_id: oms_order_id},
+            self.to_broker.set(oms_order_id, broker_order_id),
+            self.to_oms.set(broker_order_id, oms_order_id),
         )
 
     def bind_order(self, order: BrokerOrder) -> ExternalOrderMap:
@@ -250,17 +277,19 @@ def classify_execution(state: BrokerState, execution: BrokerExecution) -> Execut
             execution,
             f"Fill quantity must be positive, got {execution.fill_quantity}.",
         )
-    if execution.fill_price < Decimal("0"):
+    # A price's sign is the instrument's question, and a commission is signed --
+    # a negative one is a rebate -- since v3.11 (ACC-007).
+    if not execution.fill_price.is_finite():
         return ExecutionDecision(
             ExecutionOutcome.INVALID,
             execution,
-            f"Fill price cannot be negative, got {execution.fill_price}.",
+            f"Fill price must be a finite number, got {execution.fill_price}.",
         )
-    if execution.commission < Decimal("0"):
+    if not execution.commission.is_finite():
         return ExecutionDecision(
             ExecutionOutcome.INVALID,
             execution,
-            f"Commission cannot be negative, got {execution.commission}.",
+            f"Commission must be a finite number, got {execution.commission}.",
         )
 
     order = state.orders.get(execution.broker_order_id)
@@ -328,14 +357,17 @@ def apply_execution(
         return state, decision, current_log.record(decision)
 
     order = state.orders[execution.broker_order_id]
-    filled = order.filled_quantity + execution.fill_quantity
-    cost = (order.filled_quantity * order.average_fill_price) + (
-        execution.fill_quantity * execution.fill_price
+    # The volume-weighted average in the pinned accounting context (ACC-004).
+    ctx = ACCOUNTING_CONTEXT
+    filled = ctx.add(order.filled_quantity, execution.fill_quantity)
+    cost = ctx.add(
+        ctx.multiply(order.filled_quantity, order.average_fill_price),
+        ctx.multiply(execution.fill_quantity, execution.fill_price),
     )
     updated = replace(
         order,
         filled_quantity=filled,
-        average_fill_price=cost / filled,
+        average_fill_price=plain(ctx.divide(cost, filled)),
         status=_status_after_fill(order, filled),
         updated_at=max(order.updated_at, execution.timestamp),
     )
@@ -524,30 +556,41 @@ def _refuse_duplicates(noun: str, keys: Sequence[str]) -> None:
 # reconciliation ADR-0012 defined, extended, and it is pinned beside
 # ``reconcile`` in ``test_shared_names_stay_distinct.py``.
 
-VENUE_SNAPSHOT_SCHEME: Final = "alphalab.venue_snapshot.v1"
-SNAPSHOT_RECONCILIATION_SCHEME: Final = "alphalab.snapshot_reconciliation.v1"
+#: Version 2 (v3.10) renders every amount in its canonical form, so equal
+#: evidence has one identity whatever exponent each number arrived with. Version
+#: 1 rendered ``str(Decimal)``: ``100`` and ``100.00`` gave two (ledger BRK-001).
+VENUE_SNAPSHOT_SCHEME: Final = "alphalab.venue_snapshot.v2"
+SNAPSHOT_RECONCILIATION_SCHEME: Final = "alphalab.snapshot_reconciliation.v2"
 
 
 def _digest(lines: Iterable[str]) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
+def _amount(value: Decimal | None) -> str:
+    """One text per number (:func:`~alphalab.common.arithmetic.canonical_text`), or ``None``."""
+
+    if value is None:
+        return "None"
+    return canonical_text(value)
+
+
 def _render_order(order: BrokerOrder) -> str:
     return (
         f"order={order.broker_order_id!r}|oms={order.oms_order_id!r}|symbol={order.symbol!r}"
-        f"|side={order.side}|type={order.order_type}|quantity={order.quantity}"
-        f"|price={order.price}|filled={order.filled_quantity}"
-        f"|average={order.average_fill_price}|status={order.status!s}"
+        f"|side={order.side}|type={order.order_type}|quantity={_amount(order.quantity)}"
+        f"|price={_amount(order.price)}|filled={_amount(order.filled_quantity)}"
+        f"|average={_amount(order.average_fill_price)}|status={order.status!s}"
         f"|created={order.created_at!r}|updated={order.updated_at!r}"
-        f"|account={order.account_id!r}|tif={order.tif}|stop={order.stop_price}"
+        f"|account={order.account_id!r}|tif={order.tif}|stop={_amount(order.stop_price)}"
     )
 
 
 def _render_execution(execution: BrokerExecution) -> str:
     return (
         f"execution={execution.execution_id!r}|order={execution.broker_order_id!r}"
-        f"|symbol={execution.symbol!r}|quantity={execution.fill_quantity}"
-        f"|price={execution.fill_price}|commission={execution.commission}"
+        f"|symbol={execution.symbol!r}|quantity={_amount(execution.fill_quantity)}"
+        f"|price={_amount(execution.fill_price)}|commission={_amount(execution.commission)}"
         f"|at={execution.timestamp!r}|account={execution.account_id!r}"
         f"|external={execution.external_id!r}"
     )
@@ -555,20 +598,21 @@ def _render_execution(execution: BrokerExecution) -> str:
 
 def _render_position(position: BrokerPosition) -> str:
     return (
-        f"position={position.symbol!r}|quantity={position.quantity}"
-        f"|average={position.average_price}|value={position.market_value}"
-        f"|unrealized={position.unrealized_pnl}|realized={position.realized_pnl}"
+        f"position={position.symbol!r}|quantity={_amount(position.quantity)}"
+        f"|average={_amount(position.average_price)}|value={_amount(position.market_value)}"
+        f"|unrealized={_amount(position.unrealized_pnl)}"
+        f"|realized={_amount(position.realized_pnl)}"
         f"|account={position.account_id!r}|class={position.asset_class}"
-        f"|mark={position.market_price}"
+        f"|mark={_amount(position.market_price)}"
     )
 
 
 def _render_account(account: BrokerAccount) -> str:
     return (
-        f"account={account.account_id!r}|currency={account.currency!r}|cash={account.cash}"
-        f"|equity={account.equity}|buying_power={account.buying_power}"
-        f"|margin={account.margin}|available={account.available_funds}"
-        f"|broker={account.broker_id!r}"
+        f"account={account.account_id!r}|currency={account.currency!r}"
+        f"|cash={_amount(account.cash)}|equity={_amount(account.equity)}"
+        f"|buying_power={_amount(account.buying_power)}|margin={_amount(account.margin)}"
+        f"|available={_amount(account.available_funds)}|broker={account.broker_id!r}"
     )
 
 
@@ -919,10 +963,13 @@ def _execution_divergences(
             )
             continue
         compared += 1
+        # Compared as numbers, as every other field here is. Until v3.10 these
+        # three were compared as text, so a venue reporting ``100`` for a fill
+        # the mirror holds as ``100.00`` was an EXECUTION_MISMATCH (BRK-001).
         for label, mine, theirs in (
-            ("quantity", str(local.fill_quantity), str(other.fill_quantity)),
-            ("price", str(local.fill_price), str(other.fill_price)),
-            ("commission", str(local.commission), str(other.commission)),
+            ("quantity", local.fill_quantity, other.fill_quantity),
+            ("price", local.fill_price, other.fill_price),
+            ("commission", local.commission, other.commission),
             ("order", local.broker_order_id, other.broker_order_id),
         ):
             if mine != theirs:
@@ -930,8 +977,8 @@ def _execution_divergences(
                     SnapshotDivergence(
                         SnapshotDivergenceKind.EXECUTION_MISMATCH,
                         execution_id,
-                        mine,
-                        theirs,
+                        str(mine),
+                        str(theirs),
                         f"The fill's {label} differs.",
                     )
                 )

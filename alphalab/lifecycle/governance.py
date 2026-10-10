@@ -11,19 +11,29 @@ The gap it closes
 Before v2.16 ``promote_strategy_version`` took no actor, ``StrategyPromotionRecord``
 had no actor field, and ``DeploymentRecord`` had none either. The lifecycle's
 audit trail answered *what* changed and *when*, and was silent on *who*.
-Meanwhile ``alphalab.enterprise`` held ``Principal``, ``Session``, ``AuditEvent``
-and a complete RBAC implementation -- thirty-two tests and, as
-``git grep "from alphalab.enterprise"`` outside the package showed, **zero
-production consumers**.
+
+Who may act: a question, not a user database (v3.11)
+----------------------------------------------------
+
+Until v3.11 the permission check read ``alphalab.enterprise``: principals,
+sessions with a time-to-live, workspaces, secret references with rotation and
+compliance reports -- the user and tenant management of an application, living
+inside the engine (ledger BND-002). v3.11 removes that package. What governance
+needs from an identity system is one answer -- *may this actor do this?* -- so it
+asks for exactly that, through :class:`PermissionAuthority`, and the
+application's identity system supplies it. :class:`StaticPermissions` is the
+deterministic reference authority: a fixed map from actor to the permissions it
+holds, enough for research, tests and a single operator. Nothing here
+authenticates anyone or stores a credential (ledger BDY-010).
 
 The shape, and why each part of it
 ----------------------------------
 
-**Option (b), not (a) or (c).** ADR-0018 considered three ways to reach an
-``EnterpriseState`` from a governance entry point:
+**Option (b), not (a) or (c).** ADR-0018 considered three ways to reach a
+permission check from a governance entry point:
 
-* *(a) a field on ``LifecycleState``* -- rejected: it puts enterprise data inside
-  the lifecycle snapshot and couples two packages that are deliberately separate.
+* *(a) a field on ``LifecycleState``* -- rejected: it puts identity data inside
+  the lifecycle snapshot and couples two concerns that are deliberately separate.
 * *(c) leave the check to callers* -- rejected as a permanent answer, in the
   ADR's own words: "a gate anyone can bypass by calling the function directly is
   not a governance control".
@@ -34,16 +44,13 @@ The shape, and why each part of it
 default of "unchecked" -- an optional gate is option (c) wearing option (b)'s
 clothes.
 
-**The actor is a reference, not an object.** ``Principal.principal_id`` carried
-as a bare ``str`` on the lifecycle's records, matching how ``run_id``,
-``evidence_id`` and ``policy_id`` are already carried.
+**The actor is a reference, not an object.** The application's actor
+identifier, carried as a bare ``str`` on the lifecycle's records, matching how
+``run_id``, ``evidence_id`` and ``policy_id`` are already carried.
 
-**Two logs, one authority each.** The lifecycle's own append-only records are
-authoritative for what, when and who; ``enterprise.AuditEvent`` remains the
-standalone capability its docstring describes. Nothing here writes into the
-enterprise audit log, so no governance entry point returns an
-``EnterpriseState`` and ``alphalab.enterprise`` keeps its stated rule that RBAC,
-workspace and secret operations do not auto-emit audit events.
+**One log.** The lifecycle's own append-only records are authoritative for
+what, when and who. An application that keeps its own audit trail records the
+same acts from the records these entry points return.
 
 **Nothing is written before a refusal.** Every gated function authorizes first,
 which is the contract ``deploy_strategy_version`` already kept for its other
@@ -71,14 +78,17 @@ looks authoritative is worse than an absent one.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Final
+from types import MappingProxyType
+from typing import Final, Protocol, runtime_checkable
 
 from alphalab.deployment_manager.releases import DeploymentRecord
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import require_permission
-from alphalab.lifecycle.exceptions import LifecycleInputError, LifecycleTransitionError
+from alphalab.lifecycle.exceptions import (
+    LifecycleInputError,
+    LifecyclePermissionError,
+    LifecycleTransitionError,
+)
 from alphalab.lifecycle.strategy_version import StrategyPromotionRecord
 
 __all__ = [
@@ -91,6 +101,8 @@ __all__ = [
     "ApprovalRecord",
     "Governance",
     "GovernedAct",
+    "PermissionAuthority",
+    "StaticPermissions",
     "approval_for",
     "approvals_for",
     "governance_trail",
@@ -121,6 +133,65 @@ LIFECYCLE_PERMISSIONS: Final[frozenset[str]] = frozenset(
         PERMISSION_APPROVE,
     }
 )
+
+
+@runtime_checkable
+class PermissionAuthority(Protocol):
+    """Whether an actor holds a permission -- the one question governance asks.
+
+    Implemented by the application's identity system, which is where actors,
+    roles, sessions and credentials live. AlphaLab never authenticates an actor:
+    it asks this question before every governed act and records who acted.
+    """
+
+    def is_permitted(self, actor_id: str, permission: str) -> bool:
+        """``True`` if ``actor_id`` holds ``permission``; ``False`` otherwise.
+
+        An actor the authority does not know holds nothing, so the answer for it
+        is ``False``.
+        """
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class StaticPermissions:
+    """The reference :class:`PermissionAuthority`: a fixed actor -> permissions map.
+
+    Deterministic and self-contained -- enough for research, tests and a single
+    operator. An application with real identities supplies its own authority.
+
+    Attributes:
+        grants: Each actor and the permissions it holds. An actor absent from
+            the map holds no permission.
+    """
+
+    grants: Mapping[str, frozenset[str]]
+
+    def __post_init__(self) -> None:
+        frozen: dict[str, frozenset[str]] = {}
+        for actor, permissions in self.grants.items():
+            if not isinstance(actor, str) or not actor.strip() or actor != actor.strip():
+                raise LifecycleInputError(
+                    f"StaticPermissions actor {actor!r} must be a non-blank, unpadded string."
+                )
+            if isinstance(permissions, str):
+                raise LifecycleInputError(
+                    f"StaticPermissions grants {actor!r} a string, {permissions!r}; grant a "
+                    "collection of permission names, so 'lifecycle.deploy' is not read as "
+                    "sixteen one-letter permissions."
+                )
+            held = frozenset(permissions)
+            for permission in held:
+                if not isinstance(permission, str) or not permission.strip():
+                    raise LifecycleInputError(
+                        f"StaticPermissions grants {actor!r} the permission {permission!r}; "
+                        "a permission is a non-blank name."
+                    )
+            frozen[actor] = held
+        object.__setattr__(self, "grants", MappingProxyType(dict(sorted(frozen.items()))))
+
+    def is_permitted(self, actor_id: str, permission: str) -> bool:
+        return permission in self.grants.get(actor_id, frozenset())
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,28 +227,34 @@ class ApprovalRecord:
 
 @dataclass(frozen=True, slots=True)
 class Governance:
-    """Who is acting, against which enterprise state, and where approval is needed.
+    """Who is acting, who says they may, and where approval is needed.
 
     Passed explicitly to every entry point that changes what is live or
-    archived. It is a *parameter*, deliberately: ADR-0018 rejected putting an
-    ``EnterpriseState`` on ``LifecycleState``, which would have put enterprise
-    data inside the lifecycle snapshot.
+    archived. It is a *parameter*, deliberately: ADR-0018 rejected putting
+    identity data on ``LifecycleState``, which would have put it inside the
+    lifecycle snapshot.
 
     Attributes:
-        enterprise: The state permissions are checked against.
-        actor_id: The principal performing the act. Recorded on whatever record
-            the act produces.
+        authority: Answers whether an actor holds a permission -- the
+            application's identity system, or :class:`StaticPermissions`.
+        actor_id: The actor performing the act. Recorded on whatever record the
+            act produces.
         approval_required_in: Environments in which a deployment must have a
-            recorded approval from a *different* principal. Empty by default,
+            recorded approval from a *different* actor. Empty by default,
             because AlphaLab does not know which environments a given firm
             gates -- see the module docstring.
     """
 
-    enterprise: EnterpriseState
+    authority: PermissionAuthority
     actor_id: str
     approval_required_in: frozenset[str] = field(default_factory=frozenset)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.authority, PermissionAuthority):
+            raise LifecycleInputError(
+                f"Governance.authority must answer is_permitted(actor_id, permission); "
+                f"{type(self.authority).__name__} does not."
+            )
         if not self.actor_id.strip():
             raise LifecycleInputError(
                 "Governance.actor_id cannot be empty. A governed act is performed by "
@@ -193,11 +270,15 @@ class Governance:
         and cannot record an actor it did not authorize.
 
         Raises:
-            EnterpriseInputError: If the principal is unknown.
-            EnterprisePermissionError: If the principal lacks ``permission``.
+            LifecyclePermissionError: If the authority does not answer ``True`` --
+                exactly ``True``: an authority that answers something else has not
+                granted anything.
         """
 
-        require_permission(self.enterprise, self.actor_id, permission)
+        if self.authority.is_permitted(self.actor_id, permission) is not True:
+            raise LifecyclePermissionError(
+                f"{self.actor_id!r} is not permitted {permission!r}; nothing was changed."
+            )
         return self.actor_id
 
     def requires_approval(self, environment: str) -> bool:

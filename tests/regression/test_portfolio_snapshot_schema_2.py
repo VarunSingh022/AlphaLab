@@ -71,9 +71,11 @@ def test_the_portfolio_snapshot_declares_its_current_version() -> None:
     not record what the newer one needs and no honest value can be invented.
     """
 
-    assert PORTFOLIO_SNAPSHOT_SCHEMA == 3
-    assert capture(_state()).schema_version == 3
-    assert _payload()["schema_version"] == 3
+    # Version 5 since v3.11 (each position's economics); versions 3 and 4 are
+    # upgraded, 1 and 2 refused.
+    assert PORTFOLIO_SNAPSHOT_SCHEMA == 5
+    assert capture(_state()).schema_version == 5
+    assert _payload()["schema_version"] == 5
 
 
 def test_no_other_schema_constant_moved() -> None:
@@ -100,7 +102,7 @@ def test_a_version_one_payload_is_refused_with_a_message_naming_the_version() ->
     payload = _payload()
     payload["schema_version"] = 1
 
-    with pytest.raises(StateDecodeError, match="declares schema version 1"):
+    with pytest.raises(StateDecodeError, match="schema version 1 cannot be upgraded"):
         from_primitives(payload)
 
 

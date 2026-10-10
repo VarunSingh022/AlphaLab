@@ -119,6 +119,7 @@ def test_the_lifecycle_snapshot_records_the_model_type_it_cannot_carry() -> None
 def test_the_oms_snapshot_covers_every_state_field() -> None:
     carried = _names(OMSSnapshot) | {
         "orders",  # the book -> orders array; its indices are rebuilt by restore
+        "working_by_asset",  # active_orders by asset: derived, rebuilt by restore
     }
     missing = _names(OMSState) - carried
 

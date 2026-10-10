@@ -4,8 +4,12 @@ from dataclasses import replace
 
 from alphalab.broker.account import BrokerAccount
 from alphalab.brokers.connection import BrokerConnection
-from alphalab.brokers.events import BrokerConnected, BrokerDisconnected, BrokerRegistered
-from alphalab.brokers.exceptions import InvalidBrokerStateError
+from alphalab.brokers.events import (
+    BrokerRegistered,
+    RegisteredBrokerConnected,
+    RegisteredBrokerDisconnected,
+)
+from alphalab.brokers.exceptions import BrokerConnectorStateError
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.brokers.validation import validate_account, validate_broker_registration
 from alphalab.common.ids import new_id
@@ -44,14 +48,14 @@ class BrokerRegistry:
     ) -> BrokerConnectorState:
         """Marks a registered broker as connected."""
         if broker_id not in state.connections:
-            raise InvalidBrokerStateError(f"Broker '{broker_id}' not found.")
+            raise BrokerConnectorStateError(f"Broker '{broker_id}' not found.")
 
         conn = state.connections[broker_id]
         if conn.connected:
             return state
 
         new_conn = replace(conn, connected=True, last_heartbeat=timestamp)
-        evt = BrokerConnected(BrokerRegistry._create_id(), timestamp, broker_id)
+        evt = RegisteredBrokerConnected(BrokerRegistry._create_id(), timestamp, broker_id)
 
         return replace(
             state,
@@ -65,14 +69,16 @@ class BrokerRegistry:
     ) -> BrokerConnectorState:
         """Marks a connected broker as disconnected."""
         if broker_id not in state.connections:
-            raise InvalidBrokerStateError(f"Broker '{broker_id}' not found.")
+            raise BrokerConnectorStateError(f"Broker '{broker_id}' not found.")
 
         conn = state.connections[broker_id]
         if not conn.connected:
             return state
 
         new_conn = replace(conn, connected=False)
-        evt = BrokerDisconnected(BrokerRegistry._create_id(), timestamp, broker_id, reason)
+        evt = RegisteredBrokerDisconnected(
+            BrokerRegistry._create_id(), timestamp, broker_id, reason
+        )
 
         return replace(
             state,

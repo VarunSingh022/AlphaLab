@@ -22,16 +22,34 @@ What is implemented, and where the list stops
 * :func:`neutralize_beta` -- the residual of an ordinary least squares fit on
   one continuous exposure, with an intercept, through
   :func:`~alphalab.common.statistics.linear_regression`.
+* :func:`neutralize_exposures` -- the residual of one least-squares fit on
+  *several* continuous exposures at once, with an intercept (v3.11, ledger
+  OFE-004).
 
-Neutralization against *several* continuous exposures at once is deliberately
-not offered. It needs a general least-squares solve, and a rank-deficient or
-ill-conditioned design -- two exposures that are nearly collinear, which
-factor exposures routinely are -- produces residuals that look like a result
-and are numerically meaningless. The v3.2 roadmap asks only for methods that
-"can be made deterministic and well-defined within the current architecture",
-and a solver whose failure mode is a plausible wrong answer does not meet that
-bar. A caller who needs it composes: neutralize by group, then by beta, and the
-transform chain records that this is what they did.
+Several exposures at once, and the case it refuses
+--------------------------------------------------
+Until v3.11 this was deliberately not offered: a general least-squares solve
+over a rank-deficient or ill-conditioned design -- two exposures that are
+nearly collinear, which factor exposures routinely are -- produces residuals
+that look like a result and are numerically meaningless. The objection was to
+the failure mode, not to the operation, and
+:func:`~alphalab.common.linalg.least_squares` removes the failure mode: it
+solves by Householder QR (never the normal equations, which square the
+condition number) and *measures* the design's condition, refusing it above a
+stated bound.
+
+Each exposure is centred and scaled to unit length at every instant before
+the solve, and the intercept is a unit column too. None of that changes the
+residuals -- they depend only on the space the columns span -- but it makes
+the condition number a measure of how collinear the *exposures* are, rather
+than of the units a market capitalization happens to be quoted in. An instant
+whose exposures are too collinear is not neutralized: it is counted as
+skipped and its reason is kept in :attr:`NeutralizationReport.refusals`, with
+the condition number that was measured.
+
+Composing -- by group, then by beta -- remains the right tool when the
+exposures are of different kinds; it is not the same operation as a joint
+fit, and the transform chain records which of the two was done.
 
 Alignment is checked, never assumed
 -----------------------------------
@@ -45,20 +63,32 @@ so.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Final
 
 from alphalab.common.exceptions import AlphaLabValidationError
+from alphalab.common.linalg import IllConditionedError, least_squares
 from alphalab.common.statistics import linear_regression, mean
 from alphalab.factor_library.exceptions import FactorInputError
 from alphalab.factor_library.panel import FactorTransform, FeaturePanel
 
 __all__ = [
+    "MAXIMUM_EXPOSURE_CONDITION",
     "NeutralizationReport",
     "neutralize_beta",
+    "neutralize_exposures",
     "neutralize_group",
     "neutralize_mean",
 ]
+
+#: The largest condition number :func:`neutralize_exposures` accepts by default
+#: for its centred, unit-scaled design. The residuals of a least-squares fit
+#: lose about ``log10(condition)`` digits to rounding, so at this bound they
+#: keep about ten of their sixteen; a design past it has exposures so nearly
+#: collinear that which of them "explains" the factor is decided by rounding.
+MAXIMUM_EXPOSURE_CONDITION: Final = 1e6
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,12 +106,18 @@ class NeutralizationReport:
             transformed value. A number near zero says the exposure explained
             almost nothing, which is worth seeing before concluding a factor is
             "neutral".
+        refusals: ``(instant, reason)`` for every cross-section that was large
+            enough to transform and was refused anyway -- an exposure with no
+            dispersion, or a design too ill-conditioned to fit. A subset of
+            :attr:`instants_skipped`, in time order; the remainder were too
+            small to try.
     """
 
     panel: FeaturePanel
     instants_neutralized: int
     instants_skipped: int
     mean_absolute_removed: float
+    refusals: tuple[tuple[float, str], ...] = ()
 
 
 def _finish(
@@ -90,18 +126,21 @@ def _finish(
     removed: list[float],
     skipped: int,
     transform: FactorTransform,
+    refusals: tuple[tuple[float, str], ...] = (),
 ) -> NeutralizationReport:
     if not rows:
+        detail = f" The first refusal: {refusals[0][1]}" if refusals else ""
         raise FactorInputError(
             f"{transform.operation} transformed no instant at all; every one of the "
             f"{len(panel)} cross-sections was skipped. A panel of nothing is not a "
-            "neutralized factor."
+            f"neutralized factor.{detail}"
         )
     return NeutralizationReport(
         panel=panel.derive(rows, transform),
         instants_neutralized=len(rows),
         instants_skipped=skipped,
         mean_absolute_removed=sum(removed) / len(removed) if removed else 0.0,
+        refusals=refusals,
     )
 
 
@@ -302,4 +341,129 @@ def neutralize_beta(
         removed,
         skipped,
         FactorTransform("neutralize_beta", f"minimum_assets={minimum_assets}"),
+    )
+
+
+def neutralize_exposures(
+    panel: FeaturePanel,
+    exposures: Mapping[str, Mapping[float, Mapping[str, float]]],
+    *,
+    minimum_assets: int,
+    maximum_condition: float = MAXIMUM_EXPOSURE_CONDITION,
+) -> NeutralizationReport:
+    """Keep the residual of one least-squares fit on several exposures and an intercept.
+
+    ``exposures`` maps an exposure's name to its values in the shape
+    :func:`neutralize_beta` takes -- instant to ``{asset: exposure}``. With a
+    single exposure this is :func:`neutralize_beta` computed by QR; with
+    several it removes everything their joint span explains, which neutralizing
+    against each in turn does not (the second pass reintroduces what the first
+    removed whenever the exposures are correlated).
+
+    Args:
+        panel: The factor.
+        exposures: At least one named exposure.
+        minimum_assets: The smallest cross-section fitted. Must exceed the
+            number of coefficients -- the exposures plus the intercept -- by at
+            least one: a fit with as many coefficients as assets is exact, and
+            its residuals are identically zero.
+        maximum_condition: The largest condition number of the centred,
+            unit-scaled design accepted at an instant; see the module
+            docstring and :data:`MAXIMUM_EXPOSURE_CONDITION`.
+
+    Raises:
+        FactorInputError: If no exposure is named, ``minimum_assets`` is too
+            small for the number of coefficients, ``maximum_condition`` is not
+            a finite number of at least one, an instant the panel holds is
+            missing from an exposure, an asset has no value for an exposure at
+            an instant it is held, or no instant could be fitted at all.
+    """
+
+    names = sorted(exposures)
+    if not names:
+        raise FactorInputError("Neutralizing against exposures needs at least one exposure.")
+    coefficients = len(names) + 1
+    if minimum_assets < coefficients + 1:
+        raise FactorInputError(
+            f"minimum_assets must be at least {coefficients + 1} for {len(names)} exposure(s) "
+            f"and an intercept, got {minimum_assets}. A fit with as many coefficients as "
+            "assets is exact and would report a perfect neutralization."
+        )
+    if not math.isfinite(maximum_condition) or maximum_condition < 1.0:
+        raise FactorInputError(
+            f"maximum_condition must be a finite number of at least 1, got {maximum_condition!r}."
+        )
+
+    rows: dict[float, dict[str, float]] = {}
+    removed: list[float] = []
+    refusals: list[tuple[float, str]] = []
+    skipped = 0
+
+    for stamp in panel.timestamps:
+        section = panel.cross_section(stamp)
+        if len(section) < minimum_assets:
+            skipped += 1
+            continue
+
+        assets = sorted(section)
+        columns: list[list[float]] = [[1.0 / math.sqrt(len(assets))] * len(assets)]
+        refusal: str | None = None
+        for name in names:
+            at_instant = exposures[name].get(stamp)
+            if at_instant is None:
+                raise FactorInputError(
+                    f"The panel holds a cross-section at {stamp!r} and the exposure {name!r} "
+                    "does not. Neutralizing against an exposure that was not measured at that "
+                    "instant would mean substituting one measured at another."
+                )
+            missing = [asset for asset in assets if asset not in at_instant]
+            if missing:
+                raise FactorInputError(
+                    f"At {stamp!r} the cross-section holds {missing[:5]} and the exposure "
+                    f"{name!r} does not. A zero exposure is a claim that the asset has none, "
+                    "not an absence of information."
+                )
+            values = [at_instant[asset] for asset in assets]
+            centre = mean(values)
+            centred = [value - centre for value in values]
+            length = math.hypot(*centred)
+            if length == 0.0:
+                refusal = (
+                    f"the exposure {name!r} is constant across the cross-section, so there "
+                    "is nothing to neutralize against and every coefficient fits equally well"
+                )
+                break
+            columns.append([value / length for value in centred])
+
+        if refusal is None:
+            design = [[column[row] for column in columns] for row in range(len(assets))]
+            try:
+                fit = least_squares(design, [section[asset] for asset in assets], maximum_condition)
+            except IllConditionedError as error:
+                refusal = (
+                    f"the exposures {names} are too collinear to separate: {error.condition:.6g} "
+                    f"against a maximum of {maximum_condition:g}"
+                )
+            else:
+                rows[stamp] = dict(zip(assets, fit.residuals, strict=True))
+                removed.extend(
+                    abs(section[asset] - residual)
+                    for asset, residual in zip(assets, fit.residuals, strict=True)
+                )
+                continue
+
+        skipped += 1
+        refusals.append((stamp, refusal))
+
+    return _finish(
+        panel,
+        rows,
+        removed,
+        skipped,
+        FactorTransform(
+            "neutralize_exposures",
+            f"exposures={','.join(names)},minimum_assets={minimum_assets},"
+            f"maximum_condition={maximum_condition:g}",
+        ),
+        tuple(refusals),
     )

@@ -60,7 +60,7 @@ from alphalab.data.corporate_actions import PriceBasis
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
+from alphalab.data.time import BarStamp, TimeFrequency
 from alphalab.lifecycle import (
     BrokerCapabilities,
     BrokerRequirements,
@@ -91,7 +91,7 @@ from alphalab.risk.limits import (
     PositionLimit,
     RiskLimits,
 )
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 
 # --------------------------------------------------------------------------- #
 # A dataset with real provenance, so the assumption names actual bytes
@@ -126,7 +126,7 @@ LIMITS = RiskLimits(
     exposure=ExposureLimit(Decimal("1500000"), Decimal("900000")),
     leverage=LeverageLimit(Decimal("2")),
     margin=MarginLimit(Decimal("0.5")),
-    daily_loss=DailyLossLimit(Decimal("25000")),
+    daily_loss=DailyLossLimit(Decimal("25000"), "America/New_York"),
     drawdown=DrawdownLimit(Decimal("0.15")),
 )
 
@@ -205,6 +205,8 @@ def main() -> None:
                 SourceKind.IN_MEMORY, "example-42", b"", 1_700_000_000.0, "text/csv", "utf-8"
             ),
             frequency=TimeFrequency.DAILY,
+            # Stamped at each bar's close, the instant it was knowable.
+            bar_stamp=BarStamp.INTERVAL_END,
             asset_class=DataAssetClass.EQUITY,
             cleaning_policy=CLEANING,
             price_basis=PriceBasis.RAW,

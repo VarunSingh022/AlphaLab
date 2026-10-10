@@ -11,8 +11,10 @@ producers of it, and all three are reused rather than reimplemented:
 * :class:`~alphalab.analytics.report.PerformanceReport`, compiled by a run
   through the execution path and reachable as
   :attr:`~alphalab.backtesting.state.BacktestResult.report`.
-* :class:`~alphalab.research.research.ResearchScore`, produced by
-  :meth:`~alphalab.research.engine.ResearchEngine.run_full_research`.
+* :attr:`~alphalab.research.state.ResearchState.metrics`, measured by
+  :meth:`~alphalab.research.engine.ResearchEngine.run_full_research`. Until
+  v3.12 this was the v1 ``ResearchScore`` -- a blended grade from constants
+  nobody chose, which a promotion policy could gate on (ledger RES-001).
 * :class:`~alphalab.research.study.StudyResult`, produced by a v3.2 research
   study running from a canonical dataset through features and diagnostics.
 
@@ -73,7 +75,7 @@ class ValidationMethod(Enum):
 
     #: A run through the execution path; metrics from its ``PerformanceReport``.
     BACKTEST = auto()
-    #: ``ResearchEngine.run_full_research``; metrics from its ``ResearchScore``.
+    #: ``ResearchEngine.run_full_research``; metrics are its measurements.
     RESEARCH = auto()
     #: Measured outside AlphaLab. The metrics are taken at face value, and the
     #: evidence says so rather than implying this repository computed them.
@@ -233,7 +235,7 @@ def evidence_from_backtest(
             "a guess recorded as a fact."
         )
 
-    metrics = {
+    measured: dict[str, float | None] = {
         "total_return": report.returns.total_return,
         "cagr": report.returns.cagr,
         "arithmetic_return": report.returns.arithmetic_return,
@@ -250,6 +252,11 @@ def evidence_from_backtest(
         "profit_factor": report.trades.profit_factor,
         "turnover": report.trades.turnover,
     }
+    # An undefined statistic is not evidence of anything: it is left out rather
+    # than recorded as a number, so a policy threshold on it fails for want of
+    # the metric instead of passing on a placeholder. Until v3.10 the report
+    # wrote 0.0 (or an infinite profit factor) and both reached the evidence.
+    metrics = {name: value for name, value in measured.items() if value is not None}
     return build_evidence(
         method=ValidationMethod.BACKTEST,
         subject=subject,
@@ -266,37 +273,30 @@ def evidence_from_research(
 ) -> ValidationEvidence:
     """Extracts evidence from a completed research evaluation.
 
-    The metrics are the eight scores
-    :func:`~alphalab.research.research.compute_overall_score` produces. The nine
-    underlying reports stay on the ``ResearchState``; ``source_id`` points back
-    at it.
+    The metrics are every measurement the evaluation made
+    (:func:`~alphalab.research.research.research_metrics`): returns,
+    volatility, drawdowns, the bootstrap and walk-forward Sharpe ratios, the
+    parameter search's surface -- each only when it was measured. A promotion
+    policy states its own thresholds over them. The underlying reports stay on
+    the ``ResearchState``; ``source_id`` points back at it.
+
+    Until v3.12 the metrics were the v1 engine's eight 0-100 scores, an
+    ``overall_score`` among them (ledger RES-001).
 
     Raises:
-        LifecycleInputError: If the research has not completed and so has no
-            score.
+        LifecycleInputError: If the research has not completed.
     """
-    score = state.score
-    if score is None:
+    if not state.completed:
         raise LifecycleInputError(
-            f"Research '{state.research_id}' has produced no score yet; run "
+            f"Research '{state.research_id}' has not completed; run "
             "ResearchEngine.run_full_research before recording it as evidence."
         )
 
-    metrics = {
-        "bias_score": score.bias_score,
-        "confidence_score": score.confidence_score,
-        "robustness_score": score.robustness_score,
-        "capacity_score": score.capacity_score,
-        "stability_score": score.stability_score,
-        "generalisation_score": score.generalisation_score,
-        "stress_score": score.stress_score,
-        "overall_score": score.overall_score,
-    }
     return build_evidence(
         method=ValidationMethod.RESEARCH,
         subject=subject,
         dataset_id=dataset_id,
-        metrics=metrics,
+        metrics=dict(state.metrics),
         produced_at=produced_at,
         seed=None,
         source_id=state.research_id,

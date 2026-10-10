@@ -25,13 +25,11 @@ from typing import Any
 
 import pytest
 
-from alphalab.allocation.snapshot import ALLOCATION_SNAPSHOT_SCHEMA
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import ReplayBacktest
 from alphalab.backtesting.state import BacktestResult, ReplayResult
 from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
 from alphalab.lifecycle.snapshot import LIFECYCLE_SNAPSHOT_SCHEMA
-from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.run_state import RUN_STATE_ENVELOPE_SCHEMA
 from alphalab.runtime.execution_pipeline import (
@@ -81,15 +79,19 @@ def test_the_pipeline_schema_does_not_move() -> None:
     the stable core does not.
     """
 
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3
-    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3)
+    # v2.14 did not move it; v3.10 did, to 4, v3.11 to 5 (a bar's interval code,
+    # DAT-005), v3.12 to 6 (venue calendars, EXE-010) and v3.13 to 7 (the
+    # strategy status enum's name, API-001), each reading every earlier version.
+    assert PIPELINE_SNAPSHOT_SCHEMA == 7
+    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4, 5, 6, 7)
 
 
 @pytest.mark.parametrize(
     ("constant", "value"),
     [
-        (ALLOCATION_SNAPSHOT_SCHEMA, 1),
-        (OMS_SNAPSHOT_SCHEMA, 1),
+        # ALLOCATION_SNAPSHOT_SCHEMA and OMS_SNAPSHOT_SCHEMA were here and are not
+        # any more: v3.11 moved both to 2 for order terms (EXE-003), a later
+        # release's deliberate bump.
         # PORTFOLIO_SNAPSHOT_SCHEMA was here and is not any more. It moved to 3
         # in v2.17 for per-currency settlement (ADR-0035), which is a later
         # release's deliberate bump and not something this one did -- the same
@@ -116,15 +118,17 @@ def test_the_lifecycle_constant_moved_on_its_own_terms() -> None:
     """And not as a side effect of anything the run envelope did."""
 
     assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
-    assert RUN_SNAPSHOT_SCHEMA == 1
+    # v3.10: the analytics basis; v3.11: step orders' terms; v3.12: observations.
+    assert RUN_SNAPSHOT_SCHEMA == 4
     assert DEFAULT_SCHEMA_VERSION == 1
 
 
 def test_the_run_envelope_is_the_only_new_constant() -> None:
-    assert RUN_SNAPSHOT_SCHEMA == 1
+    # v3.10: the analytics basis; v3.11: step orders' terms; v3.12: observations.
+    assert RUN_SNAPSHOT_SCHEMA == 4
 
     source = inspect.getsource(importlib.import_module("alphalab.runtime.run_snapshot"))
-    assert "RUN_SNAPSHOT_SCHEMA: Final = 1" in source
+    assert "RUN_SNAPSHOT_SCHEMA: Final = 4" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
@@ -466,7 +470,9 @@ def test_the_run_snapshot_covers_every_run_config_field() -> None:
 
 
 def test_the_run_snapshot_invents_nothing() -> None:
-    derived = {"fill_policy_type", "schema_version", "pipeline"}
+    # ``dropped``: the steps' and skipped records' own dropped counts (PRF-004),
+    # which the state carries on the logs and the snapshot beside their entries.
+    derived = {"fill_policy_type", "schema_version", "pipeline", "dropped"}
     state = {f.name for f in dataclasses.fields(RunState)}
     config = {f.name for f in dataclasses.fields(RunConfig)}
     unexpected = {f.name for f in dataclasses.fields(RunSnapshot)} - state - config - derived
@@ -574,13 +580,31 @@ def test_a_fully_consumed_run_round_trips() -> None:
 
 @pytest.mark.parametrize(
     "field",
-    ["processed", "current_timestamp", "last_record_timestamp", "source_id", "steps", "skipped"],
+    [
+        "processed",
+        "current_timestamp",
+        "last_record_timestamp",
+        "source_id",
+        "steps",
+        "skipped",
+        "last_slice_at",
+        "observations_delivered",
+        "last_observation",
+    ],
 )
 def test_every_bookkeeping_field_survives_the_round_trip(field: str) -> None:
     from dataclasses import replace as _replace
 
     state, objects = _run()
-    state = _replace(state, source_id="DS-BOUNDARY")
+    # None is set by the drive itself: this run is named by no stream, its
+    # strategy receives no slice and it is delivered no observation.
+    state = _replace(
+        state,
+        source_id="DS-BOUNDARY",
+        last_slice_at=state.current_timestamp,
+        observations_delivered=2,
+        last_observation=(state.current_timestamp, "SET@abc:record"),
+    )
 
     assert getattr(_round_trip(state, objects), field) == getattr(state, field)
 

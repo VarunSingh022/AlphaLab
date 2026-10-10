@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 
-from alphalab.scheduler.session import TradingSession
+from alphalab.scheduler.session import ScheduledSession
 from alphalab.scheduler.state import SchedulerState
 from alphalab.scheduler.timer import Timer
 
@@ -12,7 +12,7 @@ def scheduled_timers(state: SchedulerState) -> Sequence[Timer]:
     return tuple(state.timers.values())
 
 
-def active_sessions(state: SchedulerState) -> Sequence[TradingSession]:
+def active_sessions(state: SchedulerState) -> Sequence[ScheduledSession]:
     """Returns all currently open trading sessions."""
     return tuple(state.active_sessions.values())
 

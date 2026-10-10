@@ -25,6 +25,7 @@ from alphalab.broker import (
 from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.order import BrokerOrder
 from alphalab.core.enums import OrderStatus, OrderType, Side
+from alphalab.execution.costs import FREE
 
 
 class _OMSOrder:
@@ -41,7 +42,7 @@ class _OMSOrder:
 def _working_state(quantity: str = "100") -> tuple[BrokerState, PaperBroker, BrokerOrder]:
     """A connected paper venue holding one accepted limit order."""
     state = BrokerEngine.initialize("PAPER", Decimal("1000000.00"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     state, _ = broker.connect(state, 1000.0)
     order = BrokerAdapter.to_broker_order(
         _OMSOrder("OMS-1", quantity), "B-1", BrokerOrderType.LIMIT, 1000.0
@@ -255,32 +256,47 @@ def test_an_empty_log_and_a_clean_report_are_the_only_proof_of_agreement() -> No
 def test_a_paper_broker_satisfies_the_canonical_contract() -> None:
     from alphalab.broker.protocol import BrokerProtocol
 
-    assert isinstance(PaperBroker(), BrokerProtocol)
+    assert isinstance(PaperBroker(FREE), BrokerProtocol)
 
 
 def test_both_broker_packages_route_one_order_type() -> None:
-    """`broker` defines the vocabulary; `brokers` routes it."""
-    from alphalab.broker.order import BrokerOrder as Canonical
-    from alphalab.brokers import BrokerOrder as Routed
-    from alphalab.brokers import ExecutionReport, PositionSnapshot
-
-    assert Routed is Canonical
-    assert ExecutionReport is BrokerExecution
-    assert PositionSnapshot.__module__ == "alphalab.broker.position"
-
-
-def test_the_router_and_the_adapter_agree_on_account_and_asset_vocabulary() -> None:
+    """`broker` defines the vocabulary; `brokers` routes it, under the same names."""
+    import alphalab.brokers as connectors
     from alphalab.broker.account import BrokerAccount
-    from alphalab.brokers import AccountSnapshot, AssetClass
-    from alphalab.core.enums import AssetType
+    from alphalab.broker.order import BrokerOrder as Canonical
+    from alphalab.broker.position import BrokerPosition
 
-    assert AccountSnapshot is BrokerAccount
-    assert AssetClass is AssetType
+    assert connectors.BrokerOrder is Canonical
+    assert connectors.BrokerExecution is BrokerExecution
+    assert connectors.BrokerPosition is BrokerPosition
+    assert connectors.BrokerAccount is BrokerAccount
+
+
+def test_the_historical_names_are_gone_rather_than_aliased() -> None:
+    """v3.13 (ledger API-001): one name, one thing.
+
+    ``brokers.ExecutionReport`` was ``BrokerExecution`` while
+    ``execution.ExecutionReport`` is the fill report; ``brokers.OrderStatus`` was
+    ``BrokerOrderStatus`` while ``core.OrderStatus`` is the lifecycle. An alias
+    left reachable would keep one name meaning two things.
+    """
+
+    import alphalab.brokers as connectors
+
+    for name in (
+        "AccountSnapshot",
+        "PositionSnapshot",
+        "ExecutionReport",
+        "OrderStatus",
+        "AssetClass",
+    ):
+        assert not hasattr(connectors, name), name
+        assert name not in connectors.__all__
 
 
 def test_broker_local_statuses_are_one_set_shared_by_both_packages() -> None:
     from alphalab.broker.order import BrokerOrderStatus
-    from alphalab.brokers import OrderStatus as ConnectorStatus
+    from alphalab.brokers import BrokerOrderStatus as ConnectorStatus
 
     assert ConnectorStatus is BrokerOrderStatus
     assert {"PENDING_SUBMIT", "SUBMITTED", "PENDING_CANCEL"} <= set(BrokerOrderStatus.__members__)

@@ -36,6 +36,7 @@ from alphalab.execution.algorithms import (
     release_children,
     start_algorithm,
 )
+from alphalab.execution.costs import FREE
 from alphalab.execution.routing import RoutingObjective, RoutingPolicy
 from alphalab.lifecycle import (
     BrokerCapabilities,
@@ -286,12 +287,12 @@ def _worked_in_children(
         AlgorithmTerms(2.0, 100.0, Decimal("1"), OrderType.LIMIT, Decimal("100")),
     )
     venue = BrokerEngine.initialize("VENUE", Decimal("1000000"), "USD")
-    venue, _ = PaperBroker().connect(venue, 1.0)
+    venue, _ = PaperBroker(FREE).connect(venue, 1.0)
     bindings = ChildOrderBindings()
     algorithm, (child,) = release_children(algorithm, 3.0)
     routed = route_child_order(
         venue,
-        PaperBroker(),
+        PaperBroker(FREE),
         parent,
         child,
         3.0,

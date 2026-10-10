@@ -51,9 +51,11 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
+from alphalab.common.currency_units import CurrencyUnits
 from alphalab.portfolio.exceptions import PortfolioError
 from alphalab.portfolio.fx import NO_RATES, FxConversion, FxRates
-from alphalab.portfolio.money import ZERO_MONEY, to_money
+from alphalab.portfolio.money import ZERO_MONEY
 
 __all__ = ["CurrencyAmounts"]
 
@@ -93,7 +95,7 @@ class CurrencyAmounts(Mapping[str, Decimal]):
     def single(cls, amount: Decimal, currency: str) -> CurrencyAmounts:
         """One currency, one amount. The usual way to build a non-empty value."""
 
-        return cls({currency: to_money(amount)})
+        return cls({currency: amount})
 
     def of(self, currency: str) -> Decimal:
         """The total accrued in ``currency``, or ``0.00`` if none has."""
@@ -101,13 +103,13 @@ class CurrencyAmounts(Mapping[str, Decimal]):
         return self.amounts.get(currency, ZERO_MONEY)
 
     def add(self, amount: Decimal, currency: str) -> CurrencyAmounts:
-        """A new value with ``amount`` added to ``currency``.
+        """A new value with ``amount`` added to ``currency``, exactly.
 
-        ``amount`` is rounded to the currency's minor unit exactly once, here,
-        following :mod:`alphalab.portfolio.money` rule 2. Callers that have
-        already rounded -- which every fill path has, because a fill's notional
-        and commission are rounded at entry -- pay nothing for it, because
-        rounding an exact value is the identity.
+        Nothing is rounded here. :mod:`alphalab.portfolio.money` rule 2 puts the
+        one rounding at whoever produces an amount: every fill path rounds a
+        fill's notional and commission at entry, a position rounds its market
+        value, and an exposure built from contract notionals stays exact. Until
+        v3.10 this rounded again, to one cent whatever the currency.
         """
 
         if not currency.strip():
@@ -116,7 +118,8 @@ class CurrencyAmounts(Mapping[str, Decimal]):
                 "accumulation is exactly what ADR-0033 decision 13 named as the "
                 "blocker to settlement-level multi-currency."
             )
-        return CurrencyAmounts({**self.amounts, currency: self.of(currency) + to_money(amount)})
+        total = ACCOUNTING_CONTEXT.add(self.of(currency), amount)
+        return CurrencyAmounts({**self.amounts, currency: total})
 
     @property
     def currencies(self) -> tuple[str, ...]:
@@ -136,7 +139,12 @@ class CurrencyAmounts(Mapping[str, Decimal]):
         return len(self.amounts) <= 1
 
     def total_in(
-        self, currency: str, rates: FxRates = NO_RATES, as_of: float | None = None
+        self,
+        currency: str,
+        rates: FxRates = NO_RATES,
+        as_of: float | None = None,
+        *,
+        units: CurrencyUnits | None = None,
     ) -> tuple[Decimal, tuple[FxConversion, ...]]:
         """Express the whole accumulation in ``currency``, and say how.
 
@@ -178,7 +186,7 @@ class CurrencyAmounts(Mapping[str, Decimal]):
                     f"{[c for c in self.currencies if c != currency]}, or read each "
                     "currency separately with of()."
                 )
-            conversion = rates.convert(amount, held, currency, as_of)
+            conversion = rates.convert(amount, held, currency, as_of, units=units)
             total += conversion.converted
             performed.append(conversion)
         return total, tuple(performed)

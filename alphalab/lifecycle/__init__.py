@@ -46,7 +46,8 @@ one canonical rendering, and refuses a name that would not round-trip.
 measured, over what data, with what seed, and against thresholds stated in
 advance. The measurements come from the two deterministic producers AlphaLab
 already has -- a run's ``PerformanceReport`` and the research engine's
-``ResearchScore`` -- and are referenced, not recomputed.
+measurements (its ``ResearchScore`` grade until v3.12) -- and are referenced,
+not recomputed.
 
 **A strategy version.** :mod:`~alphalab.lifecycle.strategy_version` is the
 immutable, numbered record that was missing: distinct from the strategy line,
@@ -101,7 +102,7 @@ than a parallel system, and none of them a runtime:
     LIVE -> PAUSED -> ARCHIVED`` -- with declared transitions and a history.
     Distinct from :class:`~alphalab.model_registry.registry.ModelStage`, which
     asks whether an artifact is promotable, and from
-    :class:`alphalab.strategy.state.LifecycleState`, which asks whether an
+    :class:`alphalab.strategy.state.StrategyStatus`, which asks whether an
     instance in a session is running.
 
 :mod:`~alphalab.lifecycle.specification`
@@ -237,6 +238,12 @@ from alphalab.lifecycle.deployment import (
     release_manifest,
     rollback_environment,
 )
+from alphalab.lifecycle.environment import (
+    engine_source_digest,
+    running_build,
+    source_tree_digest,
+    tz_database_version,
+)
 from alphalab.lifecycle.evidence import (
     MetricThreshold,
     ValidationEvidence,
@@ -254,6 +261,7 @@ from alphalab.lifecycle.evidence import (
 from alphalab.lifecycle.exceptions import (
     LifecycleError,
     LifecycleInputError,
+    LifecyclePermissionError,
     LifecycleTransitionError,
 )
 from alphalab.lifecycle.execution import (
@@ -278,6 +286,7 @@ from alphalab.lifecycle.fingerprint import (
     DependencyCompleteness,
     DependencyManifest,
     DependencyPin,
+    EngineBuild,
     EngineIdentity,
     ExecutionAlgorithmIdentity,
     ResearchConfiguration,
@@ -311,6 +320,8 @@ from alphalab.lifecycle.governance import (
     ApprovalRecord,
     Governance,
     GovernedAct,
+    PermissionAuthority,
+    StaticPermissions,
     approval_for,
     approvals_for,
 )
@@ -321,10 +332,12 @@ from alphalab.lifecycle.health import (
     HealthReport,
     HealthSeverity,
     HealthStatus,
+    HealthWindowReport,
     RuntimeObservation,
     StateExpectation,
     UnevaluatedCategory,
     evaluate_health,
+    evaluate_health_window,
     observation_from_live_run,
 )
 from alphalab.lifecycle.identity import (
@@ -337,6 +350,7 @@ from alphalab.lifecycle.identity import (
     StrategyVersionRef,
     parse_ref,
 )
+from alphalab.lifecycle.lockfile import LockFormat, read_lock_file
 from alphalab.lifecycle.portability import (
     PORTABILITY_REPORT_SCHEME,
     EnvironmentPortability,
@@ -378,12 +392,14 @@ from alphalab.lifecycle.promotion import (
 )
 from alphalab.lifecycle.reconciliation import (
     BROKER_STATUS_EQUIVALENTS,
+    AccountMirror,
     Mismatch,
     MismatchCategory,
     ReconciliationTolerances,
     StateReconciliation,
     SymbolMapping,
     UnreconciledArea,
+    reconcile_accounts,
     reconcile_execution_state,
 )
 from alphalab.lifecycle.registration import register_model_version, register_strategy
@@ -412,6 +428,7 @@ from alphalab.lifecycle.reproducibility import (
     manifest_gaps,
     verify_manifest,
 )
+from alphalab.lifecycle.rerun import RERUN_DIFFERENCE_LIMIT, RerunReport, rerun_from_manifest
 from alphalab.lifecycle.specification import (
     DEPLOYMENT_SPECIFICATION_SCHEME,
     BrokerCapabilities,
@@ -482,11 +499,13 @@ __all__ = [
     "PORTFOLIO_SETTING_PREFIX",
     "PROGRESSION_MODEL_STAGES",
     "REPRODUCIBILITY_MANIFEST_SCHEME",
+    "RERUN_DIFFERENCE_LIMIT",
     "ROUTING_SETTING_PREFIX",
     "STAGEABLE_MODEL_STAGES",
     "STRATEGY_FINGERPRINT_SCHEME",
     "STRATEGY_SOURCE_SCHEME",
     "UNDECLARED_DEPENDENCIES",
+    "AccountMirror",
     "AdaptiveReplayAssessment",
     "AlignmentKey",
     "ApprovalRecord",
@@ -511,6 +530,7 @@ __all__ = [
     "DependencyPin",
     "DeploymentRef",
     "DeploymentSpecification",
+    "EngineBuild",
     "EngineIdentity",
     "EnvironmentPortability",
     "ExecutionAlgorithmIdentity",
@@ -525,10 +545,13 @@ __all__ = [
     "HealthReport",
     "HealthSeverity",
     "HealthStatus",
+    "HealthWindowReport",
     "LifecycleError",
     "LifecycleInputError",
+    "LifecyclePermissionError",
     "LifecycleState",
     "LifecycleTransitionError",
+    "LockFormat",
     "MarketAvailability",
     "MarketRequirements",
     "MeasurementBasis",
@@ -537,6 +560,7 @@ __all__ = [
     "MismatchCategory",
     "ModelRef",
     "PairComparison",
+    "PermissionAuthority",
     "PortabilityReport",
     "PortabilityRequirement",
     "PortabilityStatus",
@@ -547,6 +571,7 @@ __all__ = [
     "RequirementCheck",
     "RequirementOutcome",
     "RerunOutcome",
+    "RerunReport",
     "ResearchConfiguration",
     "ResourceBudget",
     "ResourceMeasurement",
@@ -565,6 +590,7 @@ __all__ = [
     "StageTransition",
     "StateExpectation",
     "StateReconciliation",
+    "StaticPermissions",
     "StrategyFingerprint",
     "StrategyLifecycleStage",
     "StrategyProgression",
@@ -614,8 +640,10 @@ __all__ = [
     "derive_strategy_fingerprint",
     "differing_parameters",
     "digest_run",
+    "engine_source_digest",
     "environments_running",
     "evaluate_health",
+    "evaluate_health_window",
     "evaluate_policy",
     "evaluate_portability",
     "evidence_for",
@@ -643,6 +671,8 @@ __all__ = [
     "pause_progression",
     "progression_conflicts",
     "promote_strategy_version",
+    "read_lock_file",
+    "reconcile_accounts",
     "reconcile_execution_state",
     "record_evidence",
     "record_stage_change",
@@ -651,6 +681,7 @@ __all__ = [
     "register_strategy_version",
     "release_manifest",
     "replace_strategy_version",
+    "rerun_from_manifest",
     "research_configuration",
     "research_configuration_for_study",
     "research_configuration_with_adaptive",
@@ -662,11 +693,14 @@ __all__ = [
     "retire_strategy_version",
     "rollback_environment",
     "run_plan",
+    "running_build",
     "running_engine",
     "source_digest",
+    "source_tree_digest",
     "specification_for_version",
     "specification_id_for",
     "strategy_names",
+    "tz_database_version",
     "unmet_broker_requirements",
     "unmet_market_requirements",
     "validate_specification",

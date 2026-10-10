@@ -15,11 +15,61 @@ None of those is the default, so :class:`LotSpecification` has none.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_FLOOR, Decimal
+from decimal import (
+    ROUND_FLOOR,
+    Context,
+    Decimal,
+    DivisionByZero,
+    Inexact,
+    InvalidOperation,
+    Overflow,
+)
+from typing import Final
 
+from alphalab.common.arithmetic import ACCOUNTING_PRECISION
 from alphalab.conventions.exceptions import ConventionInputError, ConventionViolationError
 
 __all__ = ["LotSpecification", "lots_in", "round_down_to_lot"]
+
+#: Lot arithmetic is exact or refused: a remainder, a lot count and a rounded
+#: quantity are computed at the accounting precision with ``Inexact`` trapped,
+#: whatever context the caller runs in. Until v3.11 they ran in the caller's
+#: context, where a division rounded *before* the floor was taken: under a
+#: precision of 5, ``round_down_to_lot(12345.9, lot 1)`` returned 12346 -- a
+#: quantity further from zero than the one asked for (ledger NUM-013).
+_EXACT: Final = Context(
+    prec=ACCOUNTING_PRECISION,
+    rounding=ROUND_FLOOR,
+    Emin=-999999,
+    Emax=999999,
+    traps=[InvalidOperation, DivisionByZero, Overflow, Inexact],
+)
+
+
+def _remainder(magnitude: Decimal, lot_size: Decimal) -> Decimal:
+    """``magnitude mod lot_size``, exactly, or a refusal."""
+
+    try:
+        return _EXACT.remainder(magnitude, lot_size)
+    except (InvalidOperation, Inexact) as exc:
+        raise ConventionViolationError(
+            f"{magnitude} is {ACCOUNTING_PRECISION} or more significant digits of "
+            f"{lot_size} lots; it cannot be divided into lots exactly."
+        ) from exc
+
+
+def _exactly(operation: str, left: Decimal, right: Decimal) -> Decimal:
+    try:
+        if operation == "whole lots":
+            return _EXACT.divide_int(left, right)
+        if operation == "times":
+            return _EXACT.multiply(left, right)
+        return _EXACT.divide(left, right)
+    except (InvalidOperation, Inexact) as exc:
+        raise ConventionViolationError(
+            f"{left} and {right} need more than {ACCOUNTING_PRECISION} significant digits to "
+            "count in lots exactly."
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +104,7 @@ class LotSpecification:
                 f"minimum_quantity is {self.minimum_quantity}; a market with no minimum states "
                 "one lot, not zero."
             )
-        if self.minimum_quantity % self.lot_size != Decimal("0"):
+        if _remainder(self.minimum_quantity, self.lot_size) != Decimal("0"):
             raise ConventionInputError(
                 f"minimum_quantity {self.minimum_quantity} is not a whole number of "
                 f"{self.lot_size} lots, so the smallest tradable quantity is not tradable."
@@ -73,8 +123,10 @@ class LotSpecification:
         the minimum. Sign is ignored -- a short of 50 is as tradable as a long
         of 50, and direction is not this type's question."""
 
-        magnitude = abs(quantity)
-        return magnitude >= self.minimum_quantity and magnitude % self.lot_size == Decimal("0")
+        magnitude = quantity.copy_abs()
+        return magnitude >= self.minimum_quantity and _remainder(
+            magnitude, self.lot_size
+        ) == Decimal("0")
 
     def require(self, quantity: Decimal) -> Decimal:
         """``quantity`` if it is tradable, else a refusal naming why.
@@ -86,12 +138,12 @@ class LotSpecification:
                 which one is the caller's decision.
         """
 
-        magnitude = abs(quantity)
+        magnitude = quantity.copy_abs()
         if magnitude < self.minimum_quantity:
             raise ConventionViolationError(
                 f"{quantity} is below the minimum tradable quantity of {self.minimum_quantity}."
             )
-        if magnitude % self.lot_size != Decimal("0"):
+        if _remainder(magnitude, self.lot_size) != Decimal("0"):
             raise ConventionViolationError(
                 f"{quantity} is not a whole number of {self.lot_size} lots. Rounding it here "
                 "would choose between two different orders on the caller's behalf."
@@ -108,12 +160,12 @@ def lots_in(quantity: Decimal, specification: LotSpecification) -> Decimal:
             returning one invites it to be multiplied by a lot value.
     """
 
-    if quantity % specification.lot_size != Decimal("0"):
+    if _remainder(quantity.copy_abs(), specification.lot_size) != Decimal("0"):
         raise ConventionViolationError(
             f"{quantity} is not a whole number of {specification.lot_size} lots, so it is not "
             "a lot count."
         )
-    return quantity / specification.lot_size
+    return _exactly("divide", quantity, specification.lot_size)
 
 
 def round_down_to_lot(quantity: Decimal, specification: LotSpecification) -> Decimal:
@@ -125,9 +177,9 @@ def round_down_to_lot(quantity: Decimal, specification: LotSpecification) -> Dec
     answer -- there is no tradable quantity there.
     """
 
-    magnitude = abs(quantity)
-    lots = (magnitude / specification.lot_size).quantize(Decimal("1"), rounding=ROUND_FLOOR)
-    rounded = lots * specification.lot_size
+    magnitude = quantity.copy_abs()
+    lots = _exactly("whole lots", magnitude, specification.lot_size)
+    rounded = _exactly("times", lots, specification.lot_size)
     if rounded < specification.minimum_quantity:
         return Decimal("0")
-    return -rounded if quantity < Decimal("0") else rounded
+    return rounded.copy_negate() if quantity < Decimal("0") else rounded

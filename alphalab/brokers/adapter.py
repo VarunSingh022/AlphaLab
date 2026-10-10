@@ -10,10 +10,10 @@ from alphalab.core.enums import OrderType as CoreOrderType
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.enums import TimeInForce as CoreTimeInForce
 
-__all__ = ["BrokerAdapter"]
+__all__ = ["BrokerConnectorAdapter"]
 
 
-class BrokerAdapter:
+class BrokerConnectorAdapter:
     """Stateless translator formatting dict payloads into pure Domain objects."""
 
     @staticmethod

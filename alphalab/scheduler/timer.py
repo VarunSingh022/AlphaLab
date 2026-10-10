@@ -4,16 +4,35 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from alphalab.data.calendar import MarketCalendar
+from alphalab.scheduler.cron import CronSchedule
 from alphalab.scheduler.schedule import ScheduleType
 
 
 @dataclass(frozen=True, slots=True)
 class Timer:
-    """Immutable representation of a scheduled timer."""
+    """Immutable representation of a scheduled timer.
+
+    Attributes:
+        timer_id: Unique within one scheduler.
+        target_timestamp: When it next fires, in Unix seconds.
+        schedule_type: How it repeats.
+        interval: The period of an ``INTERVAL`` or ``REPEATING`` timer.
+        cron: The schedule a ``CRON`` timer follows -- required for one and
+            refused for every other kind. Until v3.13 this was
+            ``cron_expression``, a string nothing parsed, and a ``CRON`` timer
+            was refused at registration (ledger DAT-006).
+        metadata: The caller's own attributes.
+        calendar: The market whose trading day a ``SESSION_OPEN`` or
+            ``SESSION_CLOSE`` timer follows -- required for those and refused
+            for every other kind (v3.12, ledger SCF-003). See
+            :mod:`alphalab.scheduler.scheduler` for which instants they fire at.
+    """
 
     timer_id: str
     target_timestamp: float
     schedule_type: ScheduleType
     interval: float | None = None
-    cron_expression: str | None = None
+    cron: CronSchedule | None = None
     metadata: Mapping[str, Any] | None = None
+    calendar: MarketCalendar | None = None

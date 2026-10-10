@@ -1,10 +1,17 @@
-"""Immutable metrics tracking and deterministic mathematical evaluators."""
+"""Immutable metrics tracking and deterministic mathematical evaluators.
 
-import math
-from collections.abc import Sequence
+Until v3.13 this module also exported its own ``calculate_volatility``: the
+research metric of the same name, with another keyword (``periods``), no check
+that a year holds a positive number of periods, and another rounding order.
+One name had two implementations of one contract (ledger API-001); the
+duplicate is removed, and annualized volatility is
+:func:`alphalab.research.calculate_volatility` or
+:func:`alphalab.analytics.annualized_volatility`.
+"""
+
 from dataclasses import dataclass
 
-from alphalab.common.statistics import sample_variance
+from alphalab.common.statistics import compounded_max_drawdown
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,28 +29,7 @@ class PortfolioMetrics:
     diversification_ratio: float
 
 
-def calculate_max_drawdown(returns: Sequence[float]) -> float:
-    max_dd = 0.0
-    peak = 1.0
-    current = 1.0
-    for r in returns:
-        current *= 1.0 + r
-        if current > peak:
-            peak = current
-        dd = (peak - current) / peak
-        if dd > max_dd:
-            max_dd = dd
-    return max_dd
-
-
-def calculate_volatility(returns: Sequence[float], periods: int = 252) -> float:
-    """Annualized volatility, over the one shared unbiased estimator.
-
-    ``sqrt(var * periods)`` rather than ``sqrt(var) * sqrt(periods)``: the two
-    are equal in exact arithmetic and not always in floating point, and this
-    module has always used the first. Changing it would move published numbers
-    for no reason.
-    """
-    if len(returns) < 2:
-        return 0.0
-    return math.sqrt(sample_variance(returns) * periods)
+#: The largest fall of the compounded path from its running peak -- one
+#: implementation, in :mod:`alphalab.common.statistics`, shared with
+#: ``alphalab.research`` since v3.13 (ledger API-001).
+calculate_max_drawdown = compounded_max_drawdown

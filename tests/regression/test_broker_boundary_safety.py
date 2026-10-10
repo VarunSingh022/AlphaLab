@@ -23,6 +23,7 @@ from alphalab.broker import (
     PaperBroker,
 )
 from alphalab.broker.reconciliation import ReconciliationReport
+from alphalab.execution.costs import FREE
 from alphalab.runtime.broker_routing import RoutingConfig, RoutingResult
 
 _CREDENTIAL_WORDS = (
@@ -86,7 +87,7 @@ def test_only_connected_can_trade() -> None:
 
 def test_a_disconnect_never_silently_reopens_trading() -> None:
     state = BrokerEngine.initialize("V", Decimal("1000"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
 
     connected, _ = broker.connect(state, 1.0)
     dropped, _ = broker.disconnect(connected, "link lost", 2.0)
@@ -98,7 +99,7 @@ def test_a_disconnect_never_silently_reopens_trading() -> None:
 def test_a_heartbeat_does_not_reconnect_a_dropped_link() -> None:
     """Liveness is not connectivity: a heartbeat must not imply a usable link."""
     state = BrokerEngine.initialize("V", Decimal("1000"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
 
     beaten, _ = broker.heartbeat(state, 1.0)
 
@@ -130,7 +131,12 @@ def test_routing_events_name_the_venue_handle_they_actually_carry() -> None:
     """
     from alphalab.brokers import events as routing_events
 
-    for name in ("OrderSubmitted", "OrderCancelled", "OrderFilled", "ExecutionReceived"):
+    for name in (
+        "RoutedOrderSubmitted",
+        "RoutedOrderCancelled",
+        "RoutedOrderFilled",
+        "RoutedExecutionReceived",
+    ):
         fields = {f.name for f in dataclasses.fields(getattr(routing_events, name))}
         assert "broker_order_id" in fields, f"{name} must name the venue handle"
         assert "order_id" not in fields, f"{name} must not carry an ambiguous order_id"
@@ -142,9 +148,9 @@ def test_a_routing_event_records_the_venue_handle_the_order_carries() -> None:
         BrokerConnection,
         BrokerConnectorEngine,
         BrokerType,
-        OrderSubmitted,
+        RoutedOrderSubmitted,
     )
-    from alphalab.brokers.adapter import BrokerAdapter
+    from alphalab.brokers.adapter import BrokerConnectorAdapter
 
     state = BrokerConnectorEngine.initialize("E")
     state = BrokerConnectorEngine.register_broker(
@@ -163,7 +169,7 @@ def test_a_routing_event_records_the_venue_handle_the_order_carries() -> None:
             broker_id="B-1",
         ),
     )
-    order = BrokerAdapter.dict_to_order(
+    order = BrokerConnectorAdapter.dict_to_order(
         {
             "order_id": "VENUE-HANDLE-1",
             "oms_order_id": "OMS-1",
@@ -178,7 +184,7 @@ def test_a_routing_event_records_the_venue_handle_the_order_carries() -> None:
     )
     submitted = BrokerConnectorEngine.submit_order(state, order, 2.0)
 
-    event = next(e for e in submitted.events if isinstance(e, OrderSubmitted))
+    event = next(e for e in submitted.events if isinstance(e, RoutedOrderSubmitted))
     assert event.broker_order_id == "VENUE-HANDLE-1"
     assert event.broker_order_id == order.broker_order_id
     assert event.broker_order_id != order.oms_order_id

@@ -12,11 +12,12 @@ Nothing is copied into this state. It holds the four registries as they are, and
 adds only what none of them owned: the evidence store, and the record of which
 release package stands for which strategy version.
 
-Not to be confused with :class:`alphalab.strategy.state.LifecycleState`, which
-is an enum naming the stages of a strategy *instance running inside a session*
--- created, subscribed, running, stopping. That is a different axis: a deployed
-strategy version is started and stopped many times without its lifecycle stage
-changing at all.
+Not to be confused with :class:`alphalab.strategy.state.StrategyStatus` (also
+named ``LifecycleState`` until v3.13, ledger API-001), which is an enum naming
+the stages of a strategy *instance running inside a session* -- created,
+subscribed, running, stopping. That is a different axis: a deployed strategy
+version is started and stopped many times without its lifecycle stage changing
+at all.
 """
 
 from __future__ import annotations

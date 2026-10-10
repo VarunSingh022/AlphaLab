@@ -30,7 +30,7 @@ def run_benchmark() -> None:
         exposure=ExposureLimit(Decimal("1000000"), Decimal("500000")),
         leverage=LeverageLimit(Decimal("2.0")),
         margin=MarginLimit(Decimal("0.80")),
-        daily_loss=DailyLossLimit(Decimal("10000")),
+        daily_loss=DailyLossLimit(Decimal("10000"), "UTC"),
         drawdown=DrawdownLimit(Decimal("0.10")),
     )
 
@@ -40,6 +40,7 @@ def run_benchmark() -> None:
     state = replace(
         state,
         buying_power=Decimal("1000000"),
+        current_nav=Decimal("1000000"),
     )
 
     request = OrderRequest(

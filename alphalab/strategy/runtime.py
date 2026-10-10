@@ -1,7 +1,7 @@
 """High-level instantiation and initial setup for the runtime."""
 
 from alphalab.strategy.protocol import StrategyProtocol
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 
 
 def create_runtime() -> RuntimeState:
@@ -16,7 +16,7 @@ def register_strategy(
     new_strategies = dict(state.strategies)
     new_strategies[strategy_id] = StrategyState(
         strategy_id=strategy_id,
-        status=LifecycleState.CREATED,
+        status=StrategyStatus.CREATED,
         instance=instance,
     )
     return RuntimeState(strategies=new_strategies, events=state.events)

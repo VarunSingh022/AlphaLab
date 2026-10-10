@@ -29,7 +29,6 @@ for a **constant** cost per call instead.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -64,8 +63,10 @@ from alphalab.options import (
     occ_symbol,
     surface_from_chain,
 )
+from alphalab.options.carry import dividend_yield
 from alphalab.portfolio.contracts import ContractHolding, contract_exposures
 from alphalab.portfolio.position import Position
+from tests.regression._timing import growth
 
 DAY = 86400.0
 
@@ -80,20 +81,10 @@ LINEAR_BOUND = 25.0
 SMALL_STEP_BOUND = 12.0
 
 
-def _elapsed(work: Callable[[], object]) -> float:
-    """Best of three, so one scheduling hiccup does not fail the suite."""
+def _growth(small: Callable[[], object], large: Callable[[], object], floor: float = 1e-4) -> float:
+    """Read with the one stabilized method every guard shares (tests/regression/_timing.py)."""
 
-    return min(_once(work) for _ in range(3))
-
-
-def _once(work: Callable[[], object]) -> float:
-    start = time.perf_counter()
-    work()
-    return time.perf_counter() - start
-
-
-def _growth(small: Callable[[], object], large: Callable[[], object]) -> float:
-    return _elapsed(large) / max(_elapsed(small), 1e-4)
+    return growth(small, large, floor=floor)
 
 
 # --------------------------------------------------------------------------- #
@@ -209,7 +200,9 @@ def _option_chain(strikes: int) -> tuple[OptionChain, dict[str, Decimal]]:
     )
     chain = OptionChain("UND", 0.0, contracts)
     prices = {
-        occ_symbol(contract): Decimal(str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0)))
+        occ_symbol(contract): Decimal(
+            str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0, carry=dividend_yield(0.0)))
+        )
         for contract in contracts
     }
     return chain, prices
@@ -219,8 +212,12 @@ def test_inverting_a_chain_into_a_surface_is_near_linear_in_contracts() -> None:
     small_chain, small_prices = _option_chain(50)
     large_chain, large_prices = _option_chain(500)
     growth = _growth(
-        lambda: surface_from_chain(small_chain, small_prices, Decimal("150"), 0.04, 0.0),
-        lambda: surface_from_chain(large_chain, large_prices, Decimal("150"), 0.04, 0.0),
+        lambda: surface_from_chain(
+            small_chain, small_prices, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
+        lambda: surface_from_chain(
+            large_chain, large_prices, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
     )
     assert growth < LINEAR_BOUND, f"surface construction grew {growth:.1f}x for 10x strikes"
 
@@ -233,10 +230,20 @@ def test_one_implied_volatility_costs_a_bounded_amount_regardless_of_the_input()
     contract = OptionContract(
         "UND", Decimal("150"), 365.25 * DAY, OptionType.CALL, ExerciseStyle.EUROPEAN, 100
     )
-    near = Decimal(str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0)))
-    far = Decimal(str(black_scholes_value(contract, 150.0, 4.0, 0.04, 1.0)))
-    ratio = _elapsed(lambda: implied_volatility(contract, far, Decimal("150"), 0.04, 0.0)) / max(
-        _elapsed(lambda: implied_volatility(contract, near, Decimal("150"), 0.04, 0.0)), 1e-6
+    near = Decimal(
+        str(black_scholes_value(contract, 150.0, 0.25, 0.04, 1.0, carry=dividend_yield(0.0)))
+    )
+    far = Decimal(
+        str(black_scholes_value(contract, 150.0, 4.0, 0.04, 1.0, carry=dividend_yield(0.0)))
+    )
+    ratio = _growth(
+        lambda: implied_volatility(
+            contract, near, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
+        lambda: implied_volatility(
+            contract, far, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
+        floor=1e-6,
     )
     assert ratio < 5.0, f"a high-volatility inversion cost {ratio:.1f}x a low one"
 
@@ -279,8 +286,10 @@ def test_the_yield_inversion_is_bounded_by_its_iteration_cap() -> None:
     settlement = date(2025, 1, 15)
     near = clean_price(bond, 0.05, settlement)
     far = clean_price(bond, 0.40, settlement)
-    ratio = _elapsed(lambda: yield_from_clean_price(bond, far, settlement)) / max(
-        _elapsed(lambda: yield_from_clean_price(bond, near, settlement)), 1e-6
+    ratio = _growth(
+        lambda: yield_from_clean_price(bond, near, settlement),
+        lambda: yield_from_clean_price(bond, far, settlement),
+        floor=1e-6,
     )
     assert ratio < 5.0, f"a far-from-par inversion cost {ratio:.1f}x a near-par one"
 
@@ -354,7 +363,8 @@ def test_a_session_lookup_does_not_scale_with_the_holiday_set() -> None:
 
     few, many = calendar(10), calendar(1_000)
     instant = datetime(2026, 3, 16, 14, tzinfo=UTC).timestamp()
-    ratio = _elapsed(lambda: [many.is_open(instant) for _ in range(2_000)]) / max(
-        _elapsed(lambda: [few.is_open(instant) for _ in range(2_000)]), 1e-4
+    ratio = _growth(
+        lambda: [few.is_open(instant) for _ in range(2_000)],
+        lambda: [many.is_open(instant) for _ in range(2_000)],
     )
     assert ratio < 3.0, f"a 100x holiday set cost {ratio:.1f}x per session lookup"

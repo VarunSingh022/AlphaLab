@@ -33,7 +33,7 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
+from alphalab.data.time import BarStamp, TimeFrequency
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instruments
 from alphalab.lifecycle import (
@@ -44,6 +44,7 @@ from alphalab.lifecycle import (
     CodeIdentity,
     DependencyManifest,
     DeploymentSpecification,
+    EngineBuild,
     EngineIdentity,
     MarketAvailability,
     MarketRequirements,
@@ -64,10 +65,10 @@ from alphalab.model_registry import ModelStage
 from alphalab.risk.limits import RiskLimits
 from alphalab.runtime.execution_pipeline import ExecutionRouting
 from alphalab.runtime.run import ExecutionMode, RunConfig
+from alphalab.strategy import StrategyDefinition
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.studio.strategy import StrategyDefinition
 from tests.integration.harness import (
     START_CASH,
     context_factory,
@@ -86,6 +87,7 @@ ASSET_ID = INSTRUMENT.asset_id
 REGISTRY: InstrumentRegistry = register_instruments(InstrumentRegistry(), (INSTRUMENT,))
 
 NORMALIZATION = NormalizationPolicy(
+    bar_stamp=BarStamp.INTERVAL_END,
     venue="XNYS",
     currency="USD",
     timeframe=TimeFrame.D1,
@@ -172,6 +174,7 @@ def ingest(name: str = "V36-PRICES", closes: Iterable[Decimal] = CLOSES) -> Data
             SourceKind.IN_MEMORY, "v36-tests", csv_payload(rows), RETRIEVED_AT, "text/csv", "utf-8"
         ),
         frequency=TimeFrequency.DAILY,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,
@@ -286,6 +289,10 @@ CODE = CodeIdentity(
 )
 
 ENGINE = EngineIdentity("alphalab", "3.6.0")
+
+#: A fixed engine build, so manifests built by tests are complete and their
+#: identities do not depend on the checkout or the host's tz database.
+BUILD = EngineBuild(source_digest="ab" * 32, tz_database="2025b")
 
 RESEARCH: ResearchConfiguration = research_configuration(
     {"validation": "single in-sample backtest", "costs": "ExecutionSimulator defaults"}

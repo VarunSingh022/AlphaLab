@@ -18,18 +18,17 @@ Nothing here stubs a pipeline stage.
 """
 
 import inspect
-import time
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
 import pytest
 
-from alphalab.allocation.snapshot import ALLOCATION_SNAPSHOT_SCHEMA
 from alphalab.analytics.attribution import calculate_attribution
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import ReplayBacktest
 from alphalab.broker.execution import BrokerExecution
+from alphalab.common.constants import DEFAULT_SCHEMA_VERSION
 from alphalab.common.ids import current_id_position, id_scope
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.instrument.registry import (
@@ -38,7 +37,6 @@ from alphalab.instrument.registry import (
     register_instrument,
 )
 from alphalab.market.source import SequenceSource
-from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
 from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.runtime.broker_routing import (
     RoutingConfig,
@@ -51,7 +49,6 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionRouting,
 )
 from alphalab.runtime.run import ExecutionMode, RunConfig
-from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 from alphalab.runtime.session import TradingSession
 from alphalab.runtime.snapshot import (
     PIPELINE_SNAPSHOT_SCHEMA,
@@ -71,6 +68,7 @@ from tests.integration.harness import (
     registry_of,
     running_strategy_state,
 )
+from tests.regression._timing import CLOCK, timings
 
 _STRATEGY = "SECTOR-STRAT"
 
@@ -490,9 +488,11 @@ def test_a_run_with_no_registry_is_unchanged_in_every_field() -> None:
         # PIPELINE_SNAPSHOT_SCHEMA was here and is not any more: v2.17 moved it
         # to 3 for settlement-level multi-currency (ADR-0035), which is a later
         # release's deliberate bump and not something this one did.
-        (RUN_SNAPSHOT_SCHEMA, 1),
-        (ALLOCATION_SNAPSHOT_SCHEMA, 1),
-        (OMS_SNAPSHOT_SCHEMA, 1),
+        # RUN_SNAPSHOT_SCHEMA was here and is not any more: v3.10 moved it to 2
+        # for the analytics basis.
+        # ALLOCATION_SNAPSHOT_SCHEMA and OMS_SNAPSHOT_SCHEMA were here and are not
+        # any more: v3.11 moved both to 2 for order terms (EXE-003).
+        (DEFAULT_SCHEMA_VERSION, 1),
         # PORTFOLIO_SNAPSHOT_SCHEMA was here and is not any more: it moved to 3
         # in v2.17 (ADR-0035). Pinning another release's constant makes every
         # future bump edit unrelated files.
@@ -534,7 +534,7 @@ def test_a_payload_carrying_a_null_sector_still_restores() -> None:
     state = _run(_ROUND_TRIP, None, _APPLE.asset_id)
     payload = deserialize(serialize(capture_pipeline(state)))
 
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA
     assert [record["sector_id"] for record in payload["trade_records"]] == [None, None]
 
     objects = RuntimeObjects(
@@ -652,8 +652,18 @@ def test_the_instrument_package_still_imports_no_higher_layer() -> None:
             assert f"import {name}" not in source, f"{module.name} imports {name}"
 
 
-def test_the_runtime_reads_the_registry_through_record_for_and_nothing_else() -> None:
-    """ADR-0016 keeps resolution at the wire boundary; v2.11 takes none of it back."""
+def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -> None:
+    """ADR-0016 keeps resolution at the wire boundary; v2.11 takes none of it back.
+
+    Until v3.12 every read was ``record_for``. A classification-bucket limit
+    (OFE-001) adds keyed reads of declared facts, and no write: one
+    ``label_of`` per limited dimension of a judged order, and either one
+    ``label_of`` per asset with working orders -- when the book keeps the
+    bucket's gross -- or one ``bucket_members``, both lookups in the registry's
+    own index; and one read of that index, ``members``, when a pipeline state
+    comes into being, for the book to keep each bucket's gross (the v3.12
+    stress finding).
+    """
 
     from alphalab.runtime import execution_pipeline as module
 
@@ -662,12 +672,19 @@ def test_the_runtime_reads_the_registry_through_record_for_and_nothing_else() ->
     assert ".resolve(" not in source
     assert "register_instrument" not in source
     assert "classify_instrument" not in source
-    # Four keyed reads, and no fifth. One for the unpriced path; one in
+    # Six keyed reads, and no seventh. One for the unpriced path; one in
     # `_sector_of`, the single rule both the fill reader and the exposure reader
-    # go through; one in `_currency_of`, its v2.12 sibling (ADR-0028); and one on
+    # go through; one in `_currency_of`, its v2.12 sibling (ADR-0028); one on
     # `_settlement_refusal`'s cold path, which a healthy run never takes and
-    # which buys a message naming the instrument rather than only its id.
-    assert source.count("record_for(") == 4
+    # which buys a message naming the instrument rather than only its id;
+    # (v3.11, FEA-001) one in `_instrument_grid`, once per distinct asset a
+    # batch of intents names, for the lot grid and minimum notional it declares;
+    # and (v3.12, EXE-010) one in `_listing_exchange`, once per simulated resting
+    # day order that states no close, for the venue whose calendar it reads.
+    assert source.count("record_for(") == 6
+    assert source.count(".label_of(") == 2
+    assert source.count(".bucket_members(") == 1
+    assert source.count(".members") == 1
 
 
 def test_sector_resolution_is_a_keyed_lookup_and_never_a_scan() -> None:
@@ -680,13 +697,13 @@ def test_sector_resolution_is_a_keyed_lookup_and_never_a_scan() -> None:
         state = _run({2.0: Decimal("1")}, registry, _APPLE.asset_id)
         state = replace(state, config=replace(state.config, instruments=registry))
         target = equity(f"SYM{count - 1}", "Technology").asset_id
-        start = time.perf_counter()
+        start = CLOCK()
         for _ in range(2_000):
             _sector_for(state, target)
-        return time.perf_counter() - start
+        return CLOCK() - start
 
-    small = _elapsed(10)
-    large = _elapsed(400)
+    # Read with the one stabilized method every guard shares (tests/regression/_timing.py).
+    small, large = timings(_elapsed, 10, 400, rounds=3)
 
     # 40x the registry. A scan would cost about 40x; a keyed lookup is flat.
     # The bound is deliberately loose -- this catches a reintroduced scan, not
@@ -829,7 +846,7 @@ def test_sector_exposure_survives_a_round_trip_without_moving_the_schema() -> No
     payload = deserialize(serialize(capture_pipeline(state)))
     restored = restore_pipeline(pipeline_from_primitives(payload), objects)
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 3
+    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 7
     assert payload["risk"]["exposure"]["sector_exposure"] == {
         "Technology": "1000.00",
         "Financials": "-400.00",
@@ -852,13 +869,30 @@ def test_the_exposure_payload_gained_no_key() -> None:
     }
 
 
-def test_risk_limits_still_read_no_sector() -> None:
-    """Exposure by sector is visibility. Enforcement was not extended."""
+def test_the_risk_gate_still_reads_no_registry() -> None:
+    """Exposure by sector was visibility until v3.12, and enforcement was not extended.
 
-    from alphalab.risk import checks, limits
+    v3.12 extends it, opt-in: a ``ClassificationLimit`` bounds the buckets of
+    any dimension, the sector among them (ledger OFE-001). What v2.11 kept true
+    still holds -- the gate never reads the instrument registry. The pipeline
+    says which bucket an order's instrument is in and what the bucket holds
+    (``BucketExposure``), as it says the order's price.
+    """
 
-    for module in (checks, limits):
-        assert "sector" not in inspect.getsource(module)
+    import ast
+
+    from alphalab.risk import checks, engine, limits, projection
+
+    for module in (checks, engine, limits, projection):
+        tree = ast.parse(inspect.getsource(module))
+        imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+        called = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert "alphalab.instrument.registry" not in imported, module.__name__
+        assert not called & {"label_of", "bucket_members", "record_for"}, module.__name__
 
 
 def test_the_simulator_and_registry_are_independent_configuration() -> None:

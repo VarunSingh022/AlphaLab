@@ -99,6 +99,7 @@ from alphalab.lifecycle import (
     manifest_for_run,
     register_strategy,
     research_configuration,
+    running_build,
     specification_for_version,
     verify_certification_report,
 )
@@ -226,8 +227,10 @@ def main() -> None:
 
     print("\n[2] Everything observed")
     result = run_backtest(dataset)
-    manifest = manifest_for_run(result, dataset, fingerprint, ENGINE)
-    rerun = manifest_for_run(run_backtest(dataset), dataset, fingerprint, ENGINE)
+    manifest = manifest_for_run(result, dataset, fingerprint, ENGINE, build=running_build())
+    rerun = manifest_for_run(
+        run_backtest(dataset), dataset, fingerprint, ENGINE, build=running_build()
+    )
     measurements = measure(dataset)
     evidence = CertificationEvidence(
         runs=(result,),
@@ -244,12 +247,16 @@ def main() -> None:
     leverage = report.assessment(CertificationProperty.MAX_LEVERAGE)
     risk = report.assessment(CertificationProperty.RISK_LIMITS)
     usage = report.assessment(CertificationProperty.RESOURCE_USAGE)
+    # The evidence carries the exact figures the assessment compared; they are
+    # rounded here for display only.
+    peak_leverage = Decimal(leverage.evidence["observed.peak_leverage"])
+    peak_drawdown = Decimal(risk.evidence["observed.peak_drawdown_pct"])
     print(
-        f"\n  leverage   : peaked at {leverage.evidence['observed.peak_leverage']}x, cap "
+        f"\n  leverage   : peaked at {peak_leverage:.4f}x, cap "
         f"{leverage.evidence['declared.max_leverage']}x"
     )
     print(
-        f"  drawdown   : peaked at {risk.evidence['observed.peak_drawdown_pct']}, limit "
+        f"  drawdown   : peaked at {peak_drawdown:.4f}, limit "
         f"{risk.evidence['declared.drawdown.max_drawdown_pct']}"
     )
     print(

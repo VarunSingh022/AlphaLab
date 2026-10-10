@@ -27,12 +27,12 @@ from typing import Any
 
 import pytest
 
-from alphalab.broker.transport import (
+from alphalab.common.tls import MINIMUM_TLS_VERSION, tls_context
+from tests.reference_adapter.transport import (
     HttpVenueTransport,
     VenueCredentials,
     VenueTransportError,
 )
-from alphalab.common.tls import MINIMUM_TLS_VERSION, tls_context
 
 _KEY = "TESTKEY-0001"
 _SECRET = "test-signing-secret-not-a-real-credential"
@@ -147,7 +147,7 @@ def test_certificate_and_hostname_verification_are_preserved(
 
 
 def test_nothing_in_the_module_disables_verification() -> None:
-    import alphalab.broker.transport as module
+    import tests.reference_adapter.transport as module
 
     source = inspect.getsource(module)
     for forbidden in ("CERT_NONE", "check_hostname = False", "_create_unverified_context"):
@@ -173,10 +173,10 @@ def test_one_policy_not_two() -> None:
     the failure this consolidation exists to prevent.
     """
 
-    from alphalab.broker import transport as venue
     from alphalab.common import tls as shared
     from alphalab.marketdata import transport as feed
     from alphalab.marketdata import websocket as ws
+    from tests.reference_adapter import transport as venue
 
     # `vars(...)` rather than attribute access: in the two transports
     # `tls_context` is an *imported* name, not part of their public surface, so

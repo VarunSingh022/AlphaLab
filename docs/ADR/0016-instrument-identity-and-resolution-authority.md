@@ -21,6 +21,11 @@ alone, and remains in force for shipping any taxonomy or reference data. N5's
 exclusion of `sector` from the identity key is unchanged and is what ADR-0027
 relies on.
 
+**Amended by ADR-0045 (v3.10.0).** The wire boundary also owns *when* a bar
+is stamped: a canonical bar is stamped at the end of its interval, and a
+source must declare which end it stamps (`BarStamp`) before its bars cross the
+boundary. The identity rules above are unchanged.
+
 ---
 
 # Context

@@ -10,7 +10,9 @@ class Greeks:
     Attributes:
         delta: Sensitivity to a $1 change in the underlying's price.
         gamma: Sensitivity of delta to a $1 change in the underlying's price.
-        theta: Sensitivity to one day of time decay (already divided by 365).
+        theta: Sensitivity to one calendar day of time decay: the year's theta
+            over the 365.25 days the model calls a year (until v3.12, over 365
+            while maturities used 365.25 -- ledger NUM-004).
         vega: Sensitivity to a 1.0 (100 percentage point) change in volatility.
         rho: Sensitivity to a 1.0 (100 percentage point) change in the risk-free
             rate.

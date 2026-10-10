@@ -1,23 +1,31 @@
 """Implied volatility surface: strike/expiry-indexed implied vol observations.
 
-This is deliberately a simple model: exact (strike, expiry) match, or linear
-interpolation between the two nearest strikes at a matching expiry. It does not fit
-a full 2D surface (e.g. SVI, SABR) or interpolate across expiries -- AlphaLab has no
-numpy/scipy dependency to build that on top of, and a from-scratch numerical fit is
-out of scope here. `implied_vol_at` returns None rather than extrapolating when a
-strike falls outside the observed range or no data exists for the requested expiry.
+This is deliberately a simple model: exact (strike, expiry) match, linear
+interpolation between the two nearest strikes at a matching expiry, and -- since
+v3.13, by a named method -- interpolation in total variance between the two
+nearest expiries. It does not fit a parametric surface (SVI, SABR): a fit
+reports a model's parameters as though they were observations, which is a
+boundary rather than a gap. `implied_vol_at` returns None rather than
+extrapolating when a strike falls outside the observed range or no data exists
+for the requested expiry.
 
-Interpolation is along strikes only, never across expiries
------------------------------------------------------------
+Across expiries: total variance, by name
+----------------------------------------
 
-This is a boundary rather than a shortcut. Two expiries' volatilities are not
-comparable by linear interpolation: variance accumulates with time, so the
-quantity that interpolates sensibly between a one-month and a three-month
-observation is total variance, and reading a two-month volatility as the average
-of its neighbours' *volatilities* is wrong by an amount that grows with the
-gap. :func:`term_structure` therefore reports the observed expiries and
-interpolates between none of them, and :func:`surface_slice` refuses an expiry
-nobody quoted.
+Two expiries' volatilities are not comparable by linear interpolation: variance
+accumulates with time, so the quantity that interpolates between a one-month and
+a three-month observation is total variance, ``w = sigma^2 T``, and reading a
+two-month volatility as the average of its neighbours' *volatilities* is wrong
+by an amount that grows with the gap. Until v3.13 that made interpolation across
+expiries a boundary. :func:`implied_vol_across_expiries` now does it the way
+that is right, and only when asked by name
+(:attr:`ExpiryInterpolation.TOTAL_VARIANCE_LINEAR`): linear in total variance
+between the two nearest quoted expiries, at a fixed strike, exact at a quoted
+expiry. It refuses what would need a guess -- an expiry outside the quoted range
+(extrapolation) -- and quotes whose total variance falls with maturity, a
+calendar arbitrage that interpolating between them would price in (ledger
+FEA-005). :func:`term_structure` still reports only observed expiries, and
+:func:`surface_slice` still refuses an expiry nobody quoted.
 
 Building a surface from a chain
 --------------------------------
@@ -30,10 +38,14 @@ strike with no vega -- and dropping them silently is how a surface comes to
 look complete while its corners are missing.
 """
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import Enum, auto
 
+from alphalab.options.binomial import BinomialLattice
+from alphalab.options.carry import Carry
 from alphalab.options.chain import OptionChain
 from alphalab.options.contract import occ_symbol
 from alphalab.options.exceptions import OptionInputError, OptionsError
@@ -188,12 +200,104 @@ def term_structure(surface: VolatilitySurface, strike: float) -> tuple[tuple[flo
     )
 
 
+_SECONDS_PER_YEAR = 365.25 * 86400
+
+
+class ExpiryInterpolation(Enum):
+    """How a volatility between two quoted expiries is read. One method, by name."""
+
+    #: Linear in total variance ``sigma^2 T`` between the two nearest quoted
+    #: expiries, at a fixed strike; exact at a quoted expiry; no extrapolation.
+    #: ``T`` is years from the surface's as-of instant over 365.25 days, the
+    #: basis the pricers use.
+    TOTAL_VARIANCE_LINEAR = auto()
+
+
+def implied_vol_across_expiries(
+    surface: VolatilitySurface,
+    strike: float,
+    expiry: float,
+    *,
+    method: ExpiryInterpolation,
+) -> float:
+    """The implied volatility at ``(strike, expiry)``, between quoted expiries.
+
+    At each of the two nearest quoted expiries around ``expiry`` the strike is
+    read as :func:`implied_vol_at` reads it -- exact, or linear between the two
+    nearest strikes -- and the two are joined in total variance. A quoted
+    expiry returns its own reading.
+
+    The total variance is taken at a fixed strike. With a non-zero carry the
+    forward moves with maturity, so a fixed strike is not a fixed moneyness;
+    the method states it rather than inferring forwards it was not given.
+
+    Raises:
+        OptionInputError: If ``method`` is not an :class:`ExpiryInterpolation`,
+            ``expiry`` is not after the surface's as-of instant, ``expiry`` lies
+            outside the quoted expiries (no extrapolation), the strike cannot be
+            read at either bracketing expiry, or the total variance falls from
+            the nearer expiry to the farther (a calendar arbitrage).
+    """
+
+    if not isinstance(method, ExpiryInterpolation):
+        raise OptionInputError(
+            f"method must be an ExpiryInterpolation, got {method!r}; interpolating across "
+            "expiries is done only by a named method."
+        )
+    if not expiry > surface.timestamp:
+        raise OptionInputError(
+            f"expiry {expiry} is not after the surface's as-of instant {surface.timestamp}."
+        )
+    quoted = surface_expiries(surface)
+    if not quoted or expiry < quoted[0] or expiry > quoted[-1]:
+        raise OptionInputError(
+            f"{surface.underlying_asset_id} quotes expiries {quoted}; {expiry} lies outside "
+            "them, and reading it would extrapolate the term structure."
+        )
+
+    def read(at: float) -> float:
+        volatility = implied_vol_at(surface, strike, at)
+        if volatility is None:
+            raise OptionInputError(
+                f"Strike {strike} cannot be read at expiry {at}: it lies outside that "
+                "expiry's quoted strikes, and a volatility there would be an extrapolation."
+            )
+        return volatility
+
+    if expiry in quoted:
+        return read(expiry)
+    near = max(at for at in quoted if at < expiry)
+    far = min(at for at in quoted if at > expiry)
+    near_years = (near - surface.timestamp) / _SECONDS_PER_YEAR
+    far_years = (far - surface.timestamp) / _SECONDS_PER_YEAR
+    if near_years <= 0.0:
+        raise OptionInputError(
+            f"Quoted expiry {near} is not after the surface's as-of instant {surface.timestamp}; "
+            "it has no total variance to interpolate from."
+        )
+    near_variance = read(near) ** 2 * near_years
+    far_variance = read(far) ** 2 * far_years
+    if far_variance < near_variance:
+        raise OptionInputError(
+            f"At strike {strike} total variance falls from {near_variance:.6g} at expiry "
+            f"{near} to {far_variance:.6g} at {far}: the quotes admit a calendar arbitrage, "
+            "and interpolating between them would price it in."
+        )
+    years = (expiry - surface.timestamp) / _SECONDS_PER_YEAR
+    weight = (years - near_years) / (far_years - near_years)
+    variance = near_variance + weight * (far_variance - near_variance)
+    return math.sqrt(variance / years)
+
+
 def surface_from_chain(
     chain: OptionChain,
     market_prices: Mapping[str, Decimal],
     spot: Decimal,
     risk_free_rate: float,
     valuation_timestamp: float,
+    *,
+    carry: Carry,
+    lattice: BinomialLattice | None = None,
 ) -> tuple[VolatilitySurface, tuple[SurfaceRefusal, ...]]:
     """Invert a whole chain into a surface, and say what could not be inverted.
 
@@ -205,6 +309,11 @@ def surface_from_chain(
         spot: The underlying at the same instant.
         risk_free_rate: Continuously-compounded annual rate. Required.
         valuation_timestamp: When the quotes were observed.
+        carry: The underlying's carry, the same for every contract in the chain.
+        lattice: Invert on this lattice -- early exercise for each American
+            contract, the stated cash dividends -- rather than the European
+            closed form. ``None`` keeps the closed form, which reads an
+            American quote's early-exercise premium as volatility.
 
     Returns:
         ``(surface, refusals)``. The surface holds one point per contract that
@@ -231,7 +340,13 @@ def surface_from_chain(
             continue
         try:
             inverted: ImpliedVolatility = implied_volatility(
-                contract, price, spot, risk_free_rate, valuation_timestamp
+                contract,
+                price,
+                spot,
+                risk_free_rate,
+                valuation_timestamp,
+                carry=carry,
+                lattice=lattice,
             )
         except OptionsError as error:
             refusals.append(

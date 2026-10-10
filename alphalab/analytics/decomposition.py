@@ -70,7 +70,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum, auto
-from statistics import NormalDist
 
 from alphalab.analytics.drawdown import calculate_drawdowns
 from alphalab.analytics.exceptions import AnalyticsValidationError
@@ -85,8 +84,10 @@ from alphalab.analytics.risk_model import (
 )
 from alphalab.common.statistics import (
     linear_regression,
+    normal_quantile,
     percentile,
     sample_variance,
+    standardized_moments,
 )
 
 __all__ = [
@@ -186,7 +187,9 @@ class VaRPolicy:
         if self.method is VaRMethod.HISTORICAL:
             # The repository's existing historical VaR, unchanged. Negated once,
             # here, to this module's loss-magnitude convention.
-            return -value_at_risk(sample, self.confidence)
+            historical = value_at_risk(sample, self.confidence)
+            assert historical is not None  # _require_sample admits no empty sample
+            return -historical
 
         deviation = math.sqrt(sample_variance(sample))
         average = sum(sample) / len(sample)
@@ -195,7 +198,7 @@ class VaRPolicy:
         if self.method is VaRMethod.GAUSSIAN:
             return -(average + z * deviation)
 
-        adjusted = _cornish_fisher_quantile(z, sample, average, deviation)
+        adjusted = _cornish_fisher_quantile(z, sample, deviation)
         return -(average + adjusted * deviation)
 
     def cvar(self, returns: Sequence[float]) -> float:
@@ -220,7 +223,9 @@ class VaRPolicy:
         self._require_sample(sample)
 
         if self.method is VaRMethod.HISTORICAL:
-            return -conditional_var(sample, self.confidence)
+            shortfall = conditional_var(sample, self.confidence)
+            assert shortfall is not None  # _require_sample admits no empty sample
+            return -shortfall
 
         threshold = -self.var(sample)
         tail = [value for value in sample if value <= threshold]
@@ -261,19 +266,19 @@ def _standard_normal_quantile(probability: float) -> float:
         raise AnalyticsValidationError(
             f"A normal quantile is defined strictly inside (0, 1); got {probability!r}."
         )
-    return NormalDist().inv_cdf(probability)
+    return normal_quantile(probability)
 
 
-def _cornish_fisher_quantile(
-    z: float, sample: Sequence[float], average: float, deviation: float
-) -> float:
+def _cornish_fisher_quantile(z: float, sample: Sequence[float], deviation: float) -> float:
     """Adjust a normal quantile for the sample's skewness and excess kurtosis.
 
     The standard third-order expansion. Moments are taken about the sample mean
     and standardized by the **sample** standard deviation --
     :func:`~alphalab.common.statistics.sample_variance`'s ``n - 1`` estimator --
     so the skewness and kurtosis here are consistent with every other dispersion
-    figure the repository reports.
+    figure the repository reports. The moments are
+    :func:`~alphalab.common.statistics.standardized_moments` since v3.11, the
+    same estimator the probabilistic Sharpe ratio uses.
     """
 
     if deviation == 0.0:
@@ -282,10 +287,9 @@ def _cornish_fisher_quantile(
             "the third and fourth moments by a dispersion of zero."
         )
 
-    count = len(sample)
-    standardized = [(value - average) / deviation for value in sample]
-    skewness = sum(value**3 for value in standardized) / count
-    kurtosis = sum(value**4 for value in standardized) / count - 3.0
+    moments = standardized_moments(sample)
+    skewness = moments.skewness
+    kurtosis = moments.kurtosis - 3.0
 
     return (
         z

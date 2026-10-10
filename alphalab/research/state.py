@@ -11,14 +11,19 @@ from alphalab.research.diagnostics import DiagnosticReport
 from alphalab.research.events import ResearchEvent
 from alphalab.research.montecarlo import MonteCarloReport
 from alphalab.research.regime import RegimeReport
-from alphalab.research.research import ResearchScore
+from alphalab.research.research import ResearchPolicy
 from alphalab.research.sensitivity import RobustnessReport
 from alphalab.research.stress import StressReport
 
 
 @dataclass(frozen=True, slots=True)
 class ResearchState:
-    """Deterministic snapshot of an active research evaluation."""
+    """Deterministic snapshot of an active research evaluation.
+
+    ``policy`` and ``metrics`` replaced the v1 ``score`` in v3.12 (ledger
+    RES-001): the bounds the evaluation was run against, and every measurement
+    it made, flat -- see :func:`~alphalab.research.research.research_metrics`.
+    """
 
     research_id: str
     strategy_id: str
@@ -33,6 +38,7 @@ class ResearchState:
     capacity_report: CapacityReport | None = None
     stress_report: StressReport | None = None
     diagnostic_report: DiagnosticReport | None = None
-    score: ResearchScore | None = None
+    policy: ResearchPolicy | None = None
+    metrics: Mapping[str, float] = field(default_factory=dict)
     events: tuple[ResearchEvent, ...] = field(default_factory=tuple)
     metadata: Mapping[str, str] = field(default_factory=dict)

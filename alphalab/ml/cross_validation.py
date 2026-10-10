@@ -14,10 +14,10 @@ market/factor/macro/alt-data features, is effectively always.
 
 from alphalab.ml.exceptions import MLInputError
 
-Split = tuple[tuple[int, ...], tuple[int, ...]]
+TrainTestSplit = tuple[tuple[int, ...], tuple[int, ...]]
 
 
-def k_fold_split(n_samples: int, k: int) -> tuple[Split, ...]:
+def k_fold_split(n_samples: int, k: int) -> tuple[TrainTestSplit, ...]:
     """Splits sample indices into k sequential, contiguous folds (no shuffling).
 
     Each fold takes a turn as the test set; the remaining folds form the training
@@ -47,7 +47,7 @@ def k_fold_split(n_samples: int, k: int) -> tuple[Split, ...]:
 
 def walk_forward_split(
     n_samples: int, n_splits: int, min_train_size: int, expanding: bool = True
-) -> tuple[Split, ...]:
+) -> tuple[TrainTestSplit, ...]:
     """Splits time-ordered sample indices so every training fold only contains
     samples strictly before its corresponding test fold.
 

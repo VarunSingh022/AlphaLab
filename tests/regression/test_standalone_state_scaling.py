@@ -7,7 +7,10 @@ where linear is ~2x. ADR-0034 converts them to
 :class:`~alphalab.common.append_log.AppendOnlyLog` and
 :class:`~alphalab.common.persistent_map.PersistentMap` / ``PersistentSet`` -- the
 containers the execution path has used since v2.1 and v2.2. Two of the ten,
-``alphalab.integrations`` and ``alphalab.production``, were removed instead.
+``alphalab.integrations`` and ``alphalab.production``, were removed instead,
+and v3.12 removed two more, ``alphalab.plugins`` and ``alphalab.optimizer``
+(ledger SCF-003): a plugin loader whose ``execute()`` was a placeholder, and a
+second parameter search beside ``research.parameter_sweep``.
 
 **The containers were not the whole story, and profiling first is what found
 that.** Three packages had a larger term the finding did not name, and converting
@@ -25,30 +28,28 @@ Package                 The term that actually dominated
 ``feature_store``       ``{m.feature_id for m in features.values()}`` per
                         registration
 ``plugins``             ``{p.metadata().name for p in plugins.values()}``
-                        per registration (~54%)
+                        per registration (~54%) -- until the package was
+                        removed in v3.12
 ======================= ====================================================
 
 Each is now answered by a **derived index** carried on the state --
-``queued_ids``, ``registered_feature_ids``, ``registered_names`` -- exactly as
+``queued_ids`` and ``registered_feature_ids`` -- exactly as
 the OMS order book has carried its asset and strategy indexes since v2.2. A
 derived index is only as good as its agreement with what it indexes, so this
 file asserts that agreement after every operation that can move it.
 
-What is deliberately *not* linear is recorded too:
-``OptimizerState.pending_trials``. See that module's docstring for the
-measurement that settled it.
+Until v3.12 one thing was deliberately *not* linear:
+``OptimizerState.pending_trials``. It went with the optimizer (ledger OFE-013).
 """
 
-import gc
-import time
 from collections.abc import Callable
-from itertools import pairwise
 
 import pytest
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.reporting.state import ReportingState
+from tests.regression._timing import CLOCK, timings
 
 # --------------------------------------------------------------------------- #
 # Builders: one per package, each driving the path that used to be quadratic
@@ -112,36 +113,6 @@ def _distributed(n: int) -> object:
     return state
 
 
-def _plugins(n: int) -> object:
-    from alphalab.plugins import (
-        BasePlugin,
-        PluginEngine,
-        PluginManager,
-        PluginMetadata,
-        PluginType,
-    )
-
-    class _Plugin(BasePlugin):
-        def __init__(self, plugin_id: str) -> None:
-            self._meta = PluginMetadata(
-                plugin_id=plugin_id,
-                name=plugin_id,
-                version="1.0",
-                author="test",
-                description="synthetic",
-                plugin_type=PluginType.STRATEGY,
-                api_version="1.0.0",
-            )
-
-        def metadata(self) -> PluginMetadata:
-            return self._meta
-
-    state = PluginEngine.initialize("P")
-    for i in range(n):
-        state = PluginManager.register_plugin(state, _Plugin(f"P-{i}"), float(i))
-    return state
-
-
 def _reporting(n: int) -> ReportingState:
     from alphalab.reporting import (
         Report,
@@ -185,7 +156,6 @@ BUILDERS: dict[str, Callable[[int], object]] = {
     "scheduler": _scheduler,
     "feature_store": _feature_store,
     "distributed": _distributed,
-    "plugins": _plugins,
     "reporting": _reporting,
     "portfolio_optimizer": _portfolio_optimizer,
     "data": _data,
@@ -213,22 +183,12 @@ CANONICAL_FIELDS: dict[str, dict[str, type]] = {
         "running_jobs": PersistentMap,
         "completed_jobs": PersistentMap,
         "failed_jobs": PersistentMap,
-        "events": AppendOnlyLog,
-    },
-    "alphalab.plugins.state.PluginState": {
-        "plugins": PersistentMap,
-        "enabled_ids": PersistentSet,
-        "registered_names": PersistentSet,
+        "cancelled_jobs": PersistentMap,
         "events": AppendOnlyLog,
     },
     "alphalab.reporting.state.ReportingState": {
         "reports": PersistentMap,
-        "dashboards": PersistentMap,
         "exports": PersistentMap,
-        "events": AppendOnlyLog,
-    },
-    "alphalab.optimizer.state.OptimizerState": {
-        "completed_trials": AppendOnlyLog,
         "events": AppendOnlyLog,
     },
     "alphalab.data.state.UniversalDataState": {
@@ -243,7 +203,6 @@ CANONICAL_FIELDS: dict[str, dict[str, type]] = {
         "portfolios": PersistentMap,
         "weights": PersistentMap,
         "constraints": PersistentMap,
-        "risk_limits": PersistentMap,
         "metrics": PersistentMap,
         "exposures": PersistentMap,
         "allocations": PersistentMap,
@@ -317,9 +276,7 @@ def test_no_converted_package_still_splats_a_state_tuple() -> None:
         "scheduler",
         "feature_store",
         "distributed",
-        "plugins",
         "reporting",
-        "optimizer",
         "data",
         "cluster_scheduler",
         "portfolio_optimizer",
@@ -446,79 +403,6 @@ def test_the_feature_store_id_index_agrees_after_every_registration() -> None:
             }
 
 
-def test_the_plugin_name_index_agrees_after_registration_and_removal() -> None:
-    from alphalab.plugins import (
-        BasePlugin,
-        PluginEngine,
-        PluginManager,
-        PluginMetadata,
-        PluginType,
-    )
-
-    class _Plugin(BasePlugin):
-        def __init__(self, plugin_id: str) -> None:
-            self._meta = PluginMetadata(
-                plugin_id=plugin_id,
-                name=f"name-of-{plugin_id}",
-                version="1.0",
-                author="test",
-                description="synthetic",
-                plugin_type=PluginType.STRATEGY,
-                api_version="1.0.0",
-            )
-
-        def metadata(self) -> PluginMetadata:
-            return self._meta
-
-    state = PluginEngine.initialize("P")
-    for i in range(4):
-        state = PluginManager.register_plugin(state, _Plugin(f"P-{i}"), float(i))
-        assert set(state.registered_names) == {
-            plugin.metadata().name for plugin in state.plugins.values()
-        }
-
-    state = PluginManager.unregister_plugin(state, "P-1", 9.0)
-    assert set(state.registered_names) == {
-        plugin.metadata().name for plugin in state.plugins.values()
-    }
-    assert "name-of-P-1" not in state.registered_names
-
-
-def test_a_removed_plugin_name_can_be_registered_again() -> None:
-    """The index is only useful if removal actually frees the name."""
-
-    from alphalab.plugins import (
-        BasePlugin,
-        PluginEngine,
-        PluginManager,
-        PluginMetadata,
-        PluginType,
-    )
-
-    class _Plugin(BasePlugin):
-        def __init__(self, plugin_id: str, name: str) -> None:
-            self._meta = PluginMetadata(
-                plugin_id=plugin_id,
-                name=name,
-                version="1.0",
-                author="test",
-                description="synthetic",
-                plugin_type=PluginType.STRATEGY,
-                api_version="1.0.0",
-            )
-
-        def metadata(self) -> PluginMetadata:
-            return self._meta
-
-    state = PluginEngine.initialize("P")
-    state = PluginManager.register_plugin(state, _Plugin("A", "shared"), 1.0)
-    state = PluginManager.unregister_plugin(state, "A", 2.0)
-    state = PluginManager.register_plugin(state, _Plugin("B", "shared"), 3.0)
-
-    assert set(state.plugins) == {"B"}
-    assert set(state.registered_names) == {"shared"}
-
-
 # --------------------------------------------------------------------------- #
 # 3. Semantics the conversion had to preserve
 # --------------------------------------------------------------------------- #
@@ -590,12 +474,13 @@ def test_a_duplicate_job_id_is_still_refused_from_every_container() -> None:
 
     state = DistributedEngine.submit_job(state, _job("cancelled"), 6.0)
     state = DistributedEngine.cancel_job(state, "cancelled", 7.0)
-    assert "cancelled" in state.failed_jobs
+    # Recorded among the cancellations since v3.12 (ledger SCF-003), not the failures.
+    assert "cancelled" in state.cancelled_jobs
     with pytest.raises(DistributedValidationError, match="Duplicate"):
         DistributedEngine.submit_job(state, _job("cancelled"), 8.0)
 
 
-def test_a_duplicate_feature_name_and_plugin_name_are_still_refused() -> None:
+def test_a_feature_is_refused_until_what_it_depends_on_is_registered() -> None:
     from alphalab.feature_store import (
         FeatureMetadata,
         FeatureRegistry,
@@ -692,53 +577,52 @@ def test_the_converted_containers_still_serialize_as_the_shapes_they_replaced() 
 # 4. Scaling
 # --------------------------------------------------------------------------- #
 
-#: Workload sizes for the doubling sweep. Linear predicts ~2x per doubling and
-#: quadratic ~4x. The ceiling sits between them, far enough from 2.0 to survive a
-#: loaded machine and far enough from 4.0 to fail a reintroduced quadratic. The
-#: development machine measured 2.04x-2.11x for every package here, against
+#: Workload sizes. Linear predicts ~4x over the 4x input and quadratic ~16x.
+#: The ceiling sits between them -- the square of the 3.0x-per-doubling ceiling
+#: the sweep this replaced used -- far enough from 4 to survive a loaded machine
+#: and far enough from 16 to fail a reintroduced quadratic. The development
+#: machine measured 2.04x-2.11x per doubling for every package here, against
 #: 3.4x-4.9x before the conversion.
-SIZES = (1_000, 2_000, 4_000)
-MAX_GROWTH_PER_DOUBLING = 3.0
+SMALL, LARGE = 1_000, 4_000
+MAX_GROWTH = 9.0
+
+
+def _measure(build: Callable[[int], object], size: int) -> float:
+    start = CLOCK()
+    build(size)
+    return CLOCK() - start
 
 
 @pytest.mark.parametrize("package", sorted(BUILDERS))
 def test_accumulation_is_no_longer_quadratic(package: str) -> None:
-    build = BUILDERS[package]
-    timings: list[float] = []
+    """Read with the one stabilized method every guard shares (tests/regression/_timing.py).
 
-    for size in SIZES:
-        gc.collect()
-        start = time.perf_counter()
-        build(size)
-        timings.append(time.perf_counter() - start)
-
-    growth = [later / earlier for earlier, later in pairwise(timings)]
-    worst = max(growth)
-
-    assert worst <= MAX_GROWTH_PER_DOUBLING, (
-        f"{package} grows at {worst:.2f}x per doubling "
-        f"(timings {[f'{t:.3f}' for t in timings]}); quadratic accumulation is back"
-    )
-
-
-def test_the_optimizer_queue_is_the_one_term_left_super_linear() -> None:
-    """Recorded rather than hidden: the decision and its cost are in ADR-0034.
-
-    ``OptimizerState.pending_trials`` drops its head with ``pending[1:]``, which
-    copies. Making it O(1) needs a start offset on ``AppendOnlyLog``, which was
-    implemented, benchmarked at **+3.9%** on the execution pipeline across four
-    interleaved runs, and refused -- the same trade ADR-0028 decision 7 refused
-    at +1.78%. This asserts the accumulation half *was* fixed, which is the half
-    the containers could fix.
+    Until v3.10 this was a doubling sweep on the wall clock with the collector
+    running, and it failed on a timing blip under load (ledger TST-001).
     """
 
-    from alphalab.optimizer.state import OptimizerState
+    build = BUILDERS[package]
+    small, large = timings(lambda size: _measure(build, size), SMALL, LARGE)
+    growth = large / max(small, 1e-6)
 
-    fields = OptimizerState.__dataclass_fields__
-
-    assert fields["completed_trials"].default_factory is AppendOnlyLog
-    assert fields["events"].default_factory is AppendOnlyLog
-    assert "tuple" in str(fields["pending_trials"].type), (
-        "pending_trials became a canonical container without the measurement "
-        "that would justify it -- see alphalab.optimizer.state"
+    assert growth <= MAX_GROWTH, (
+        f"{package} grows {growth:.2f}x over a {LARGE // SMALL}x input "
+        f"({small:.4f}s -> {large:.4f}s); quadratic accumulation is back"
     )
+
+
+def test_the_one_term_left_super_linear_went_with_the_optimizer() -> None:
+    """Recorded rather than hidden, until v3.12 (ledger OFE-013).
+
+    ``OptimizerState.pending_trials`` dropped its head with ``pending[1:]``,
+    which copies, so the queue was the one term these packages kept
+    super-linear: making it O(1) needed a start offset on ``AppendOnlyLog``,
+    measured at +3.9% on the execution pipeline and refused (ADR-0034). v3.12
+    removed the package instead -- a second parameter search beside
+    ``research.parameter_sweep`` (SCF-003) -- and the term with it.
+    """
+
+    import importlib
+
+    with pytest.raises(ImportError):
+        importlib.import_module("alphalab.optimizer.state")

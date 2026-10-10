@@ -72,15 +72,33 @@ additivity every out-of-order case above relies on. The quantities decide, the
 decision's ``reason`` records the disagreement, and a missing fill shows up
 where it belongs -- as a filled-quantity difference in a snapshot reconciliation.
 
-**Amendments, positions and balances are absolute and are not ordered here.**
-Each replaces a value rather than adding to one, so two delivered out of order
-leave the earlier value in place. A :class:`~alphalab.broker.order.BrokerOrder`
-has no field for a venue sequence number, and adding one would change
-``BROKER_SNAPSHOT_SCHEMA``; the check for this case is a snapshot
-reconciliation (:func:`~alphalab.broker.reconciliation.reconcile_snapshot`),
-which compares quantities, prices and balances against the venue's own
-records. Delivering these in venue order is the adapter's obligation, and it is
-stated rather than assumed.
+**Amendments, positions and balances are absolute, and a venue sequence orders
+them.** Each replaces a value rather than adding to one, so two delivered out of
+order would leave the earlier value in place. Since v3.11 an event may carry the
+venue's own ``sequence`` number, and the mirror records, per amended order, per
+position and for the balances, the number of the last report it applied
+(:attr:`~alphalab.broker.state.BrokerState.venue_sequences`):
+
+* a report numbered **below** the recorded one is ``STALE`` -- the newer value is
+  already in place;
+* a report numbered **the same** is a ``DUPLICATE`` when the mirror holds what it
+  says, and a ``CONFLICT`` when it does not -- a venue does not give two
+  different values one number;
+* a report numbered **above** is applied and recorded, even when its value is
+  the one the mirror already holds: a later report restating a value is still
+  the latest word, and an older one delivered after it must read as stale.
+
+A sequence compares only within one connection session -- a venue may number a
+new session afresh -- so an applied ``BROKER_CONNECTED`` clears every recorded
+number, and the snapshot reconciliation a connection requires anyway
+(:attr:`LifecycleDecision.resync_required`) covers the gap. Once a venue numbers
+an entity's reports, an unnumbered report about it cannot be ordered against
+them and is ``INVALID``. A venue that numbers nothing leaves these reports in
+delivery order: delivering them in venue order is then the adapter's
+obligation, stated rather than assumed, and
+:func:`~alphalab.broker.reconciliation.reconcile_snapshot` is the check. Status
+events and fills may carry the venue's number as well; it is not compared,
+because the lifecycle and additivity already order them.
 
 What this module does not do
 ----------------------------
@@ -122,6 +140,7 @@ from alphalab.broker.reconciliation import (
     classify_execution,
 )
 from alphalab.broker.state import BrokerState, ConnectionStatus
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.core.enums import OrderStatus
 from alphalab.core.lifecycle import (
     ACCOUNT_EVENT_KINDS,
@@ -146,6 +165,10 @@ __all__ = [
 
 #: Statuses an order is in before the venue has acknowledged it.
 _UNACKNOWLEDGED: Final = frozenset({OrderStatus.NEW, OrderStatus.PENDING})
+
+#: The key the balances' venue sequence is recorded under. An amendment's is
+#: ``order:<broker_order_id>`` and a position's ``position:<symbol>``.
+_BALANCES: Final = "account"
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,11 +196,17 @@ class VenueEvent:
         account: The venue's account balances, for ``BALANCE_CHANGED``.
         reason: What the venue said, verbatim, for a rejection, a refused cancel
             or a disconnect. Carried, never interpreted.
+        sequence: The venue's own number for the report, when it numbers them;
+            ``None`` when it does not. Orders the absolute reports -- an
+            amendment, a position, the balances -- against each other; see the
+            module docstring. A connectivity event carries none: it opens or
+            closes the session the numbers are counted in.
 
     Raises:
-        BrokerValidationError: If the timestamp is not finite, or the payload
-            does not match the kind -- a fill with no execution, an amendment
-            with no quantity, an order event naming no order.
+        BrokerValidationError: If the timestamp is not finite, the payload does
+            not match the kind -- a fill with no execution, an amendment with no
+            quantity, an order event naming no order -- or the sequence is not a
+            non-negative integer, or is given for a connectivity event.
     """
 
     kind: ExecutionEventKind
@@ -189,12 +218,27 @@ class VenueEvent:
     position: BrokerPosition | None = None
     account: BrokerAccount | None = None
     reason: str = ""
+    sequence: int | None = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.timestamp):
             raise BrokerValidationError(
                 f"A {self.kind} event stamped {self.timestamp!r} has no instant."
             )
+        if self.sequence is not None:
+            if (
+                isinstance(self.sequence, bool)
+                or not isinstance(self.sequence, int)
+                or self.sequence < 0
+            ):
+                raise BrokerValidationError(
+                    f"A venue sequence is a non-negative integer, got {self.sequence!r}."
+                )
+            if self.kind in CONNECTIVITY_EVENT_KINDS:
+                raise BrokerValidationError(
+                    f"A {self.kind} event opens or closes the session a venue numbers its "
+                    "reports in; it carries no sequence of its own."
+                )
         carried = {
             "execution": self.execution is not None,
             "quantity": self.quantity is not None,
@@ -410,6 +454,95 @@ def _fill_event(state: BrokerState, event: VenueEvent) -> tuple[BrokerState, Lif
     )
 
 
+def _sequence_gate(
+    state: BrokerState,
+    event: VenueEvent,
+    key: str,
+    subject: str,
+    holds_it: bool,
+    order: BrokerOrder | None = None,
+) -> LifecycleDecision | None:
+    """What the venue sequence alone decides about an absolute report, if anything.
+
+    ``None`` means the sequence permits applying the report: it is unnumbered for
+    an entity the venue has not numbered, the first numbered report about it, or
+    newer than the last one applied. ``holds_it`` says whether the mirror already
+    holds the value the report carries.
+    """
+
+    last = state.venue_sequences.get(key)
+    if event.sequence is None:
+        if last is None:
+            return None
+        return _decision(
+            event,
+            LifecycleOutcome.INVALID,
+            f"The venue numbers its reports about {subject} and the mirror applied number "
+            f"{last}; a report with no number cannot be ordered against it.",
+            order,
+        )
+    if last is None or event.sequence > last:
+        return None
+    if event.sequence < last:
+        return _decision(
+            event,
+            LifecycleOutcome.STALE,
+            f"Report {event.sequence} about {subject} predates report {last}, which the "
+            "mirror already applied; it arrived late and changes nothing.",
+            order,
+        )
+    if holds_it:
+        return _decision(
+            event,
+            LifecycleOutcome.DUPLICATE,
+            f"The mirror applied report {last} about {subject} and holds what it says.",
+            order,
+        )
+    return _decision(
+        event,
+        LifecycleOutcome.CONFLICT,
+        f"The venue gave two different reports about {subject} the number {last}; the mirror "
+        "holds the first, and a reconciliation must decide which is true.",
+        order,
+    )
+
+
+def _numbered(state: BrokerState, event: VenueEvent, key: str) -> BrokerState:
+    """``state`` with the event's sequence recorded as the last applied for ``key``."""
+
+    if event.sequence is None:
+        return state
+    return replace(state, venue_sequences=state.venue_sequences.set(key, event.sequence))
+
+
+def _restated(
+    state: BrokerState,
+    event: VenueEvent,
+    key: str,
+    subject: str,
+    order: BrokerOrder | None = None,
+) -> tuple[BrokerState, LifecycleDecision]:
+    """A report restating the value the mirror holds.
+
+    Unnumbered, it is a ``DUPLICATE`` and changes nothing. Numbered -- and the gate
+    has already established the number is new -- it is the venue's latest word
+    about the entity, and recording that is a change: an older report delivered
+    after it must read as stale.
+    """
+
+    if event.sequence is None:
+        return state, _decision(
+            event, LifecycleOutcome.DUPLICATE, f"The mirror already holds {subject}.", order
+        )
+    return _numbered(state, event, key), _decision(
+        event,
+        LifecycleOutcome.APPLIED,
+        f"The mirror already holds what report {event.sequence} says about {subject}; it is "
+        "recorded as the latest one.",
+        order,
+    )
+
+
 def _replaced(state: BrokerState, event: VenueEvent) -> tuple[BrokerState, LifecycleDecision]:
     quantity, price = event.quantity, event.price
     assert quantity is not None and price is not None  # construction guarantees them
@@ -427,12 +560,15 @@ def _replaced(state: BrokerState, event: VenueEvent) -> tuple[BrokerState, Lifec
             f"An amendment to quantity {quantity} at price {price} is not an order.",
             order,
         )
-    if quantity == order.quantity and price == order.price:
-        return state, _decision(
-            event,
-            LifecycleOutcome.DUPLICATE,
-            f"Order {order.broker_order_id} already stands at {quantity} @ {price}.",
-            order,
+    key = f"order:{order.broker_order_id}"
+    subject = f"order {order.broker_order_id}"
+    stands = quantity == order.quantity and price == order.price
+    gated = _sequence_gate(state, event, key, subject, stands, order)
+    if gated is not None:
+        return state, gated
+    if stands:
+        return _restated(
+            state, event, key, f"order {order.broker_order_id} at {quantity} @ {price}", order
         )
     current = canonical_status(order.status)
     if ExecutionEventKind.ORDER_REPLACED not in ORDER_TRANSITIONS[current]:
@@ -458,8 +594,9 @@ def _replaced(state: BrokerState, event: VenueEvent) -> tuple[BrokerState, Lifec
         price=price,
         updated_at=max(order.updated_at, event.timestamp),
     )
+    amended = replace(state, orders=state.orders.set(order.broker_order_id, moved))
     return (
-        replace(state, orders=state.orders.set(order.broker_order_id, moved)),
+        _numbered(amended, event, key),
         _decision(event, LifecycleOutcome.APPLIED, "", order, order.status),
     )
 
@@ -475,14 +612,20 @@ def _account_event(state: BrokerState, event: VenueEvent) -> tuple[BrokerState, 
                 f"A position for account {position.account_id!r} is not this mirror's; it holds "
                 f"{state.account.account_id!r}.",
             )
-        if state.positions.get(position.symbol) == position:
-            return state, _decision(
-                event,
-                LifecycleOutcome.DUPLICATE,
-                f"The mirror already holds this position in {position.symbol}.",
-            )
+        key = f"position:{position.symbol}"
+        subject = f"the position in {position.symbol}"
+        held = state.positions.get(position.symbol) == position
+        gated = _sequence_gate(state, event, key, subject, held)
+        if gated is not None:
+            return state, gated
+        if held:
+            return _restated(state, event, key, f"this position in {position.symbol}")
         return (
-            replace(state, positions=state.positions.set(position.symbol, position)),
+            _numbered(
+                replace(state, positions=state.positions.set(position.symbol, position)),
+                event,
+                key,
+            ),
             _decision(event, LifecycleOutcome.APPLIED, ""),
         )
 
@@ -502,11 +645,15 @@ def _account_event(state: BrokerState, event: VenueEvent) -> tuple[BrokerState, 
             f"Balances in {account.currency} are not a change to an account denominated in "
             f"{state.account.currency}; a currency is named, never converted by assignment.",
         )
-    if account == state.account:
-        return state, _decision(
-            event, LifecycleOutcome.DUPLICATE, "The mirror already holds these balances."
-        )
-    return replace(state, account=account), _decision(event, LifecycleOutcome.APPLIED, "")
+    held = account == state.account
+    gated = _sequence_gate(state, event, _BALANCES, "the balances", held)
+    if gated is not None:
+        return state, gated
+    if held:
+        return _restated(state, event, _BALANCES, "these balances")
+    return _numbered(replace(state, account=account), event, _BALANCES), _decision(
+        event, LifecycleOutcome.APPLIED, ""
+    )
 
 
 def _connectivity_event(
@@ -521,14 +668,18 @@ def _connectivity_event(
         return state, _decision(
             event, LifecycleOutcome.DUPLICATE, f"The connection is already {target.name}."
         )
+    if target is ConnectionStatus.CONNECTED:
+        # A new session: the venue may number its reports afresh.
+        return replace(state, connection_status=target, venue_sequences=PersistentMap()), _decision(
+            event,
+            LifecycleOutcome.APPLIED,
+            "Connected. What the venue holds is unconfirmed until a snapshot is reconciled, "
+            "and no report numbered in an earlier session is compared with this one's.",
+        )
     return replace(state, connection_status=target), _decision(
         event,
         LifecycleOutcome.APPLIED,
-        (
-            "Connected. What the venue holds is unconfirmed until a snapshot is reconciled."
-            if target is ConnectionStatus.CONNECTED
-            else f"Disconnected: {event.reason or 'no reason given'}. No order may be sent."
-        ),
+        f"Disconnected: {event.reason or 'no reason given'}. No order may be sent.",
     )
 
 

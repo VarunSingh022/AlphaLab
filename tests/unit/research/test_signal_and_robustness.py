@@ -84,7 +84,9 @@ def _graded(assets: int = 8, instants: int = 20) -> tuple[FeaturePanel, Observat
 def test_a_perfectly_graded_signal_reports_a_monotone_quantile_profile() -> None:
     panel, frame = _graded()
 
-    measured = signal_diagnostics(panel, forward_returns(frame, 1), buckets=4, minimum_assets=4)
+    measured = signal_diagnostics(
+        panel, forward_returns(frame, 1, lag=0, delistings=()), buckets=4, minimum_assets=4
+    )
 
     assert measured.monotonicity == pytest.approx(1.0)
     assert measured.spread is not None and measured.spread > 0.0
@@ -95,7 +97,9 @@ def test_a_perfectly_graded_signal_reports_a_monotone_quantile_profile() -> None
 def test_every_bucket_reports_the_sample_behind_it() -> None:
     panel, frame = _graded()
 
-    measured = signal_diagnostics(panel, forward_returns(frame, 1), buckets=4, minimum_assets=4)
+    measured = signal_diagnostics(
+        panel, forward_returns(frame, 1, lag=0, delistings=()), buckets=4, minimum_assets=4
+    )
 
     assert sum(bucket.observations for bucket in measured.quantiles) == measured.observations
     assert all(bucket.observations > 0 and bucket.instants > 0 for bucket in measured.quantiles)
@@ -104,7 +108,9 @@ def test_every_bucket_reports_the_sample_behind_it() -> None:
 def test_a_sample_too_small_to_measure_reports_none_rather_than_zero() -> None:
     panel, frame = _graded(assets=3)
 
-    measured = signal_diagnostics(panel, forward_returns(frame, 1), buckets=2, minimum_assets=10)
+    measured = signal_diagnostics(
+        panel, forward_returns(frame, 1, lag=0, delistings=()), buckets=2, minimum_assets=10
+    )
 
     assert measured.rank_ic.mean_rank is None
     assert measured.rank_ic.instants_skipped > 0
@@ -115,19 +121,21 @@ def test_diagnostics_across_two_datasets_are_refused() -> None:
     other = _frame({f"S{index}": [100.0, 101.0, 102.0, 103.0] for index in range(8)}, "ds@v2")
 
     with pytest.raises(ResearchValidationError, match="two different datasets"):
-        signal_diagnostics(panel, forward_returns(other, 1))
+        signal_diagnostics(panel, forward_returns(other, 1, lag=0, delistings=()))
 
 
 def test_one_bucket_is_refused_because_its_spread_is_zero_by_construction() -> None:
     panel, frame = _graded()
     with pytest.raises(ResearchValidationError, match="One bucket is the universe"):
-        signal_diagnostics(panel, forward_returns(frame, 1), buckets=1)
+        signal_diagnostics(panel, forward_returns(frame, 1, lag=0, delistings=()), buckets=1)
 
 
 def test_a_horizon_study_measures_each_horizon_separately() -> None:
     panel, frame = _graded(instants=30)
 
-    measured = signal_horizons(panel, frame, [1, 3, 5], buckets=4, minimum_assets=4)
+    measured = signal_horizons(
+        panel, frame, [1, 3, 5], buckets=4, minimum_assets=4, lag=0, delistings=()
+    )
 
     assert sorted(measured) == [1, 3, 5]
     assert all(result.horizon == horizon for horizon, result in measured.items())
@@ -143,7 +151,7 @@ def test_conditional_diagnostics_slice_by_the_callers_own_labels() -> None:
     }
 
     measured = conditional_diagnostics(
-        panel, forward_returns(frame, 1), regimes, buckets=4, minimum_assets=4
+        panel, forward_returns(frame, 1, lag=0, delistings=()), regimes, buckets=4, minimum_assets=4
     )
 
     assert sorted(measured) == ["early", "late"]
@@ -157,7 +165,7 @@ def test_an_unlabelled_instant_is_excluded_rather_than_pooled() -> None:
     regimes = dict.fromkeys(instants[:6], "known")
 
     measured = conditional_diagnostics(
-        panel, forward_returns(frame, 1), regimes, buckets=4, minimum_assets=4
+        panel, forward_returns(frame, 1, lag=0, delistings=()), regimes, buckets=4, minimum_assets=4
     )
 
     assert sorted(measured) == ["known"]
@@ -170,7 +178,12 @@ def test_a_regime_that_occurred_too_rarely_is_omitted() -> None:
     regimes = {stamp: ("rare" if index == 0 else "common") for index, stamp in enumerate(instants)}
 
     measured = conditional_diagnostics(
-        panel, forward_returns(frame, 1), regimes, buckets=4, minimum_assets=4, minimum_instants=5
+        panel,
+        forward_returns(frame, 1, lag=0, delistings=()),
+        regimes,
+        buckets=4,
+        minimum_assets=4,
+        minimum_instants=5,
     )
 
     assert sorted(measured) == ["common"]
@@ -182,7 +195,11 @@ def test_conditional_diagnostics_refuse_when_no_slice_is_large_enough() -> None:
 
     with pytest.raises(ResearchValidationError, match="No regime held at least"):
         conditional_diagnostics(
-            panel, forward_returns(frame, 1), regimes, minimum_assets=4, minimum_instants=10_000
+            panel,
+            forward_returns(frame, 1, lag=0, delistings=()),
+            regimes,
+            minimum_assets=4,
+            minimum_instants=10_000,
         )
 
 
@@ -366,7 +383,7 @@ def test_a_delayed_signal_loses_the_information_a_simultaneous_one_had() -> None
     """The cheapest robustness test there is, exercised end to end."""
 
     panel, frame = _graded(instants=24)
-    realized = forward_returns(frame, 1)
+    realized = forward_returns(frame, 1, lag=0, delistings=())
 
     baseline = signal_diagnostics(panel, realized, buckets=4, minimum_assets=4)
     delayed = signal_diagnostics(delay_signal(panel, 3), realized, buckets=4, minimum_assets=4)
@@ -532,3 +549,22 @@ def test_observations_per_parameter_is_none_for_a_rule_with_nothing_to_fit() -> 
 
     assert build_overfitting_report("ic", 0.1, 0.1, policy, 0).observations_per_parameter is None
     assert build_overfitting_report("ic", 0.1, 0.1, policy, 2).observations_per_parameter == 0.5
+
+
+def test_a_sweep_selects_the_lowest_score_when_lower_is_better() -> None:
+    """The one parameter search can minimise (v3.12, ledger SCF-003): a drawdown sweep."""
+
+    surface = {"w=5": 0.30, "w=10": 0.10, "w=20": 0.18}
+    lowest = parameter_sweep("drawdown", list(surface), surface.__getitem__, higher_is_better=False)
+    highest = parameter_sweep("drawdown", list(surface), surface.__getitem__)
+
+    assert (lowest.best, lowest.best_score, lowest.higher_is_better) == ("w=10", 0.10, False)
+    assert highest.best == "w=5"
+    # The best neighbour is worse by 0.08 on a best of 0.10: the cliff, read downhill.
+    assert lowest.neighbour_drop == pytest.approx(0.8)
+    assert lowest.trials == 3 and lowest.sensitivity == highest.sensitivity
+    # Ties go to the earlier configuration whichever way the metric improves.
+    tied = parameter_sweep(
+        "x", ["a", "b"], {"a": 1.0, "b": 1.0}.__getitem__, higher_is_better=False
+    )
+    assert tied.best == "a"

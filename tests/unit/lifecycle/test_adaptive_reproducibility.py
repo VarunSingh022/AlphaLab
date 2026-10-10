@@ -41,7 +41,7 @@ from alphalab.strategy import (
     observation_stream,
     replay_updates,
 )
-from tests.unit.lifecycle.evidence_harness import ENGINE, SYMBOL, fingerprint, ingest
+from tests.unit.lifecycle.evidence_harness import BUILD, ENGINE, SYMBOL, fingerprint, ingest
 
 CONFIGURATION = AdaptiveConfiguration(
     name="ewma",
@@ -257,7 +257,7 @@ def _study_manifest(inputs: Mapping[str, str]) -> Any:
         inputs=inputs,
     )
     result = build_result(study, {"mom_2.h1.ic_mean": 0.125}, 5.0)
-    return manifest_for_study(result, dataset, ENGINE)
+    return manifest_for_study(result, dataset, ENGINE, build=BUILD)
 
 
 def test_a_studys_auxiliary_inputs_are_listed_as_external_requirements() -> None:

@@ -1,12 +1,11 @@
-"""Shared package version access."""
+"""Shared package version access.
 
-from importlib.metadata import PackageNotFoundError, version
+Re-exports :data:`alphalab.common._version.__version__`, the single source of truth that
+the build backend reads too. Nothing here consults installed-distribution
+metadata: that describes whichever install the interpreter found, which is not
+necessarily the source being imported (ledger REP-001).
+"""
 
-from alphalab.common.constants import PACKAGE_NAME
-
-try:
-    __version__ = version(PACKAGE_NAME)
-except PackageNotFoundError:
-    __version__ = "3.9.0"
+from alphalab.common._version import __version__
 
 __all__ = ["__version__"]

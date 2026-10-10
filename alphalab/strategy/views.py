@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 
 
 def get_strategy(state: RuntimeState, strategy_id: str) -> StrategyState | None:
@@ -12,9 +12,9 @@ def get_strategy(state: RuntimeState, strategy_id: str) -> StrategyState | None:
 
 def active_strategies(state: RuntimeState) -> Sequence[StrategyState]:
     """Returns all strategies currently in the RUNNING state."""
-    return tuple(s for s in state.strategies.values() if s.status == LifecycleState.RUNNING)
+    return tuple(s for s in state.strategies.values() if s.status == StrategyStatus.RUNNING)
 
 
 def failed_strategies(state: RuntimeState) -> Sequence[StrategyState]:
     """Returns all strategies currently in the FAILED state."""
-    return tuple(s for s in state.strategies.values() if s.status == LifecycleState.FAILED)
+    return tuple(s for s in state.strategies.values() if s.status == StrategyStatus.FAILED)

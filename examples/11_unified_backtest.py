@@ -184,11 +184,13 @@ def build_config() -> RunConfig:
                 cash_buffer=Decimal("0"),
                 strategy_budgets={STRATEGY_ID: START_CASH},
             ),
-            # Shorting is allowed because allocation nets signed *deltas* and
-            # does not see the portfolio: a "sell 20 of what I hold" intent
-            # nets to -20 and would be refused as a short otherwise.
+            # Long-only. Allocation nets signed *deltas*, and since v3.10 judges
+            # long-only against the committed position (filled plus working), so
+            # a "sell 20 of what I hold" intent closes a long and passes -- until
+            # then it netted to -20 and was refused as a short, and this example
+            # had to allow shorting to sell at all.
             allocation_constraints=AllocationConstraints(
-                allow_shorting=True, enforce_integer_quantities=False
+                allow_shorting=False, enforce_integer_quantities=False
             ),
             risk_limits=RiskLimits(
                 order_size=OrderSizeLimit(huge, huge),
@@ -196,7 +198,7 @@ def build_config() -> RunConfig:
                 exposure=ExposureLimit(huge, huge),
                 leverage=LeverageLimit(Decimal("1000")),
                 margin=MarginLimit(Decimal("1.00")),
-                daily_loss=DailyLossLimit(huge),
+                daily_loss=DailyLossLimit(huge, "UTC"),
                 drawdown=DrawdownLimit(Decimal("1.00")),
             ),
             # A per-share commission, so the example pays real costs.
@@ -266,6 +268,17 @@ def main() -> None:
     print(f"Fills            : {len(result.fills)}")
     print()
 
+    # How the run modelled execution -- read it beside every figure below. This
+    # example keeps the defaults, and the result says what they assume.
+    assumptions = result.execution_assumptions
+    print("Execution model")
+    print("-" * 62)
+    print(f"Fill timing      : {assumptions.fill_timing.value}")
+    print(f"Costs            : {'none' if assumptions.frictionless else assumptions.costs}")
+    for line in assumptions.optimistic:
+        print(f"  optimistic: {line}")
+    print()
+
     print("Portfolio")
     print("-" * 62)
     print(f"Cash             : {valuation.cash}")
@@ -296,6 +309,13 @@ def main() -> None:
         print("Analytics")
         print("-" * 62)
         print(f"Total return     : {report.returns.total_return}")
+        # The quotes are one second apart and the run declares no
+        # RunConfig.periods_per_year, so the ratios are annualized by the
+        # observed spacing: seconds in a year, not 252 trading days.
+        print(
+            f"Annualized by    : {report.returns.periodicity.value.lower()} spacing, "
+            f"{report.returns.periods_per_year:,.0f} periods a year"
+        )
         print(f"Sharpe ratio     : {report.risk.sharpe_ratio:.4f}")
         print(f"Max drawdown     : {report.drawdowns.max_drawdown}")
         print(f"Ending capital   : {report.ending_capital}")

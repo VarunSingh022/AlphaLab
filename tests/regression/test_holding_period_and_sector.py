@@ -195,7 +195,9 @@ def test_the_average_holding_period_ignores_fills_that_held_nothing() -> None:
     assert metrics.avg_holding_period == 9.0
 
 
-def test_the_average_is_zero_when_nothing_measured_one() -> None:
+def test_the_average_is_undefined_when_nothing_measured_one() -> None:
+    """v3.10: ``None``, not ``0.0`` -- a mean of no holding periods is not zero."""
+
     metrics = calculate_trade_metrics(
         profits=(Decimal("1"),),
         holding_periods=(None,),
@@ -203,7 +205,7 @@ def test_the_average_is_zero_when_nothing_measured_one() -> None:
         average_equity=Decimal("1"),
     )
 
-    assert metrics.avg_holding_period == 0.0
+    assert metrics.avg_holding_period is None
 
 
 # ---------------------------------------------------------------------------

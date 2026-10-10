@@ -126,9 +126,13 @@ def test_validation_failures() -> None:
     with pytest.raises(MarketValidationError, match="Negative spread"):
         MarketEngine.publish_quote(state, bad_quote)
 
-    # Negative price tick
-    bad_tick = Tick("AAPL", 1000.0, Decimal("-10"), Decimal("100"), "T1", "SIM", "USD")
-    with pytest.raises(MarketValidationError, match="Tick price cannot be negative"):
+    # A negative price is data since v3.11 (ACC-007): whether the instrument can
+    # take it is its economics' question, which the pipeline asks. A price that
+    # is not a number at all is still refused here.
+    negative = Tick("CL", 1000.0, Decimal("-37.63"), Decimal("100"), "T1", "SIM", "USD")
+    assert MarketEngine.publish_tick(state, negative).latest_ticks["CL"] == negative
+    bad_tick = Tick("AAPL", 1000.0, Decimal("NaN"), Decimal("100"), "T1", "SIM", "USD")
+    with pytest.raises(MarketValidationError, match="finite"):
         MarketEngine.publish_tick(state, bad_tick)
 
     # Crossed Book

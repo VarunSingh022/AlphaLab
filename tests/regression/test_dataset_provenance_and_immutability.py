@@ -60,6 +60,7 @@ from alphalab.data import (
     read_delimited,
 )
 from alphalab.data.cleaning import TransformationRecord
+from alphalab.data.time import BarStamp
 from alphalab.market.bar import TimeFrame
 from alphalab.market.normalization import NormalizationPolicy
 
@@ -94,6 +95,7 @@ def _request(name: str = "DS", content: str = CSV, **overrides: Any) -> Ingestio
         "asset_class": DataAssetClass.EQUITY,
         "cleaning_policy": POLICY,
         "price_basis": PriceBasis.RAW,
+        "bar_stamp": BarStamp.INTERVAL_END,
     }
     fields.update(overrides)
     return IngestionRequest(**fields)  # type: ignore[arg-type]
@@ -378,7 +380,10 @@ def test_the_derived_version_becomes_the_market_dataset_identity() -> None:
 
     dataset = _ingest().dataset
     market = to_market_dataset(
-        dataset, NormalizationPolicy(venue="XNYS", currency="USD", timeframe=TimeFrame.D1)
+        dataset,
+        NormalizationPolicy(
+            bar_stamp=BarStamp.INTERVAL_END, venue="XNYS", currency="USD", timeframe=TimeFrame.D1
+        ),
     )
 
     assert market.dataset_id == dataset.dataset_version
@@ -398,7 +403,9 @@ def test_a_dataset_with_no_provenance_cannot_reach_a_run() -> None:
     )
 
     with pytest.raises(DataValidationError):
-        to_market_dataset(legacy, NormalizationPolicy(timeframe=TimeFrame.D1))
+        to_market_dataset(
+            legacy, NormalizationPolicy(bar_stamp=BarStamp.INTERVAL_END, timeframe=TimeFrame.D1)
+        )
 
 
 def test_the_dataset_is_frozen_in_the_ordinary_python_sense_too() -> None:

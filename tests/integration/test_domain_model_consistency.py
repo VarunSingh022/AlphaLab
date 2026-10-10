@@ -23,6 +23,7 @@ from alphalab.broker import (
 )
 from alphalab.broker.adapter import BrokerAdapter
 from alphalab.core.enums import OrderStatus, OrderType, Side, TimeInForce
+from alphalab.execution.costs import FREE
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,7 @@ def test_canonical_order_status_propagates_from_broker_adapter_through_paper_bro
 
     # Step 2: submit the order through the real PaperBroker state machine.
     state = BrokerEngine.initialize("PAPER-DOMAIN-CHECK", Decimal("100000.00"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     connected_state, _ = broker.connect(state, timestamp=1000.0)
     filled_state, events = broker.submit_order(connected_state, broker_order, timestamp=1000.0)
 
@@ -101,10 +102,11 @@ def test_brokers_registry_order_also_uses_canonical_side_and_type() -> None:
     v2.3 goes one step further: `brokers` no longer defines its own order *type*
     either. The assertion below is that the class itself is the canonical one --
     two dataclasses with identical fields would still be different types, so this
-    checks identity, not shape.
+    checks identity, not shape. (v3.13 removed the `brokers.order` module that
+    re-exported it; the package's own export is what remains.)
     """
     from alphalab.broker.order import BrokerOrder as CanonicalBrokerOrder
-    from alphalab.brokers.order import BrokerOrder as RegistryBrokerOrder
+    from alphalab.brokers import BrokerOrder as RegistryBrokerOrder
 
     assert RegistryBrokerOrder is CanonicalBrokerOrder
 

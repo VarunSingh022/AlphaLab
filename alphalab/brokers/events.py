@@ -24,64 +24,64 @@ from decimal import Decimal
 from alphalab.common.events import BaseEvent
 
 __all__ = [
-    "BrokerConnected",
-    "BrokerDisconnected",
-    "BrokerEvent",
+    "BrokerConnectorEvent",
     "BrokerRegistered",
-    "ExecutionReceived",
-    "Heartbeat",
-    "OrderCancelled",
-    "OrderFilled",
-    "OrderSubmitted",
+    "RegisteredBrokerConnected",
+    "RegisteredBrokerDisconnected",
+    "RegisteredBrokerHeartbeat",
+    "RoutedExecutionReceived",
+    "RoutedOrderCancelled",
+    "RoutedOrderFilled",
+    "RoutedOrderSubmitted",
 ]
 
 
 @dataclass(frozen=True, slots=True)
-class BrokerEvent(BaseEvent):
+class BrokerConnectorEvent(BaseEvent):
     """Base class for all Broker Connector events."""
 
     pass
 
 
 @dataclass(frozen=True, slots=True)
-class BrokerRegistered(BrokerEvent):
+class BrokerRegistered(BrokerConnectorEvent):
     broker_id: str
     broker_type: str
 
 
 @dataclass(frozen=True, slots=True)
-class BrokerConnected(BrokerEvent):
+class RegisteredBrokerConnected(BrokerConnectorEvent):
     broker_id: str
 
 
 @dataclass(frozen=True, slots=True)
-class BrokerDisconnected(BrokerEvent):
+class RegisteredBrokerDisconnected(BrokerConnectorEvent):
     broker_id: str
     reason: str
 
 
 @dataclass(frozen=True, slots=True)
-class OrderSubmitted(BrokerEvent):
+class RoutedOrderSubmitted(BrokerConnectorEvent):
     broker_order_id: str
     account_id: str
     symbol: str
 
 
 @dataclass(frozen=True, slots=True)
-class OrderCancelled(BrokerEvent):
+class RoutedOrderCancelled(BrokerConnectorEvent):
     broker_order_id: str
     account_id: str
 
 
 @dataclass(frozen=True, slots=True)
-class OrderFilled(BrokerEvent):
+class RoutedOrderFilled(BrokerConnectorEvent):
     broker_order_id: str
     account_id: str
     fill_quantity: Decimal
 
 
 @dataclass(frozen=True, slots=True)
-class ExecutionReceived(BrokerEvent):
+class RoutedExecutionReceived(BrokerConnectorEvent):
     execution_id: str
     broker_order_id: str
     fill_price: Decimal
@@ -89,6 +89,6 @@ class ExecutionReceived(BrokerEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class Heartbeat(BrokerEvent):
+class RegisteredBrokerHeartbeat(BrokerConnectorEvent):
     broker_id: str
     latency_ms: float

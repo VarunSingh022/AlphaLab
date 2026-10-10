@@ -1,7 +1,7 @@
 """The strategy version: the thing that gets promoted, deployed and rolled back.
 
 Before v2.4 a strategy had a name, an instance and a runtime status, and
-:class:`~alphalab.studio.strategy.StrategyDefinition` recorded its parameters
+:class:`~alphalab.strategy.definition.StrategyDefinition` recorded its parameters
 with a free-form ``version`` string. Nothing was a *version* in the sense the
 lifecycle needs: an immutable, numbered record you can point a deployment at and
 compare against the one before it.
@@ -23,7 +23,7 @@ Four identities are kept apart here, because collapsing any two of them makes
     recorded here -- one version deployed to two environments is two
     deployments, and a field on the version could not say that.
 
-The definition itself is a ``StrategyDefinition``, the canonical Studio record,
+The definition itself is a ``StrategyDefinition``, the canonical strategy record,
 carried rather than re-modelled: :mod:`alphalab.research_assistant` already
 lifts a searched candidate into one, so a candidate reaches a strategy version
 without a second parameter format in between.
@@ -40,7 +40,7 @@ from alphalab.common.persistent_map import PersistentMap
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.identity import ModelRef, StrategyVersionRef
 from alphalab.model_registry.registry import ModelStage
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy.definition import StrategyDefinition
 
 __all__ = [
     "StrategyPromotionRecord",

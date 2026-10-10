@@ -8,7 +8,6 @@ import pytest
 from alphalab.allocation import (
     AllocationConstraints,
     AllocationEngine,
-    AllocationValidationError,
     CapitalBudget,
     EqualWeightSizing,
     FixedDollarSizing,
@@ -17,9 +16,9 @@ from alphalab.allocation import (
     VolatilityTargetSizing,
     allocation_history,
     total_notional_allocated,
-    validate_intent,
 )
 from alphalab.core.enums import Side
+from alphalab.strategy import InvalidIntentError, validate_intent
 from alphalab.strategy.events import Intent
 
 
@@ -43,13 +42,13 @@ def default_constraints() -> AllocationConstraints:
 
 def test_validation_rejects_nan() -> None:
     intent = Intent("S1", "AAPL", Decimal(math.nan))
-    with pytest.raises(AllocationValidationError):
+    with pytest.raises(InvalidIntentError):
         validate_intent(intent)
 
 
 def test_validation_rejects_negative_timestamp() -> None:
     intent = Intent("S1", "AAPL", Decimal("100"), timestamp=-1.0)
-    with pytest.raises(AllocationValidationError):
+    with pytest.raises(InvalidIntentError):
         validate_intent(intent)
 
 

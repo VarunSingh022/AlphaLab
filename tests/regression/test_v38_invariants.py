@@ -225,9 +225,14 @@ def _package_edges(package: str) -> set[str]:
 
 
 def test_the_construction_authority_reads_only_common_and_the_risk_model() -> None:
-    """ADR-0043: ``portfolio_optimizer``'s one new edge is ``analytics``."""
+    """ADR-0043: ``portfolio_optimizer``'s one new edge is ``analytics``.
 
-    assert _package_edges("portfolio_optimizer") == {"common", "analytics"}
+    v3.11 (ledger OFE-002, ADR-0046) adds ``conventions``: rounding a
+    constructed portfolio to lots reads the instrument's declared economics
+    and lot grid -- a package that itself reads only ``common``.
+    """
+
+    assert _package_edges("portfolio_optimizer") == {"common", "analytics", "conventions"}
 
 
 def test_analytics_still_imports_neither_portfolio_nor_allocation_nor_instrument() -> None:
@@ -238,7 +243,15 @@ def test_allocation_still_does_not_import_portfolio() -> None:
     """FX reaches capital allocation through a structural protocol, not an import."""
 
     assert "portfolio" not in _package_edges("allocation")
-    assert _package_edges("allocation") == {"common", "core", "persistence", "strategy"}
+    # v3.11 (FEA-001): a target is rounded to the instrument's lot grid, which
+    # the conventions package states; conventions imports only common.
+    assert _package_edges("allocation") == {
+        "common",
+        "conventions",
+        "core",
+        "persistence",
+        "strategy",
+    }
 
 
 def test_portfolio_gains_only_core_for_the_contribution_record() -> None:
@@ -1090,9 +1103,14 @@ def test_v38_added_no_snapshot_owner_and_no_schema_constant() -> None:
         }
     )
 
+    # v3.12 added two durable formats, deliberately, each versioned like every
+    # other: the evidence store's envelope (ledger OFE-016, BDY-008) and the
+    # checkpoint chain's envelope around a run snapshot (ledger PRF-004).
     assert constants == [
         "ALLOCATION_SNAPSHOT_SCHEMA",
         "BROKER_SNAPSHOT_SCHEMA",
+        "CHECKPOINT_SCHEMA",
+        "EVIDENCE_SCHEMA",
         "FX_FEED_SNAPSHOT_SCHEMA",
         "INSTRUMENT_SNAPSHOT_SCHEMA",
         "LIFECYCLE_SNAPSHOT_SCHEMA",

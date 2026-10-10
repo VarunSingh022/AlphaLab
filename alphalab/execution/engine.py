@@ -1,8 +1,8 @@
 """Pure functional execution engine."""
 
-from dataclasses import replace
 from decimal import Decimal
 
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import new_id
 from alphalab.execution.events import (
     ExecutionCompleted,
@@ -41,7 +41,7 @@ class ExecutionEngine:
             fill_quantity=report.fill_quantity,
         )
 
-        return replace(
+        return evolve(
             state,
             reports=new_reports,
             history=state.history.append(report),
@@ -67,7 +67,7 @@ class ExecutionEngine:
             remaining_quantity=remaining_quantity,
         )
 
-        return replace(
+        return evolve(
             state,
             reports=new_reports,
             history=state.history.append(report),
@@ -88,7 +88,7 @@ class ExecutionEngine:
             order_id=instruction.order_id,
             reason=reason,
         )
-        return replace(state, events=state.events.append(event))
+        return evolve(state, events=state.events.append(event))
 
     @staticmethod
     def expire(
@@ -102,7 +102,7 @@ class ExecutionEngine:
             timestamp=timestamp,
             order_id=instruction.order_id,
         )
-        return replace(state, events=state.events.append(event))
+        return evolve(state, events=state.events.append(event))
 
     @staticmethod
     def simulate(
@@ -116,8 +116,13 @@ class ExecutionEngine:
         bid: Decimal | None = None,
         ask: Decimal | None = None,
         available_liquidity: Decimal | None = None,
+        *,
+        passive: bool = False,
     ) -> ExecutionState:
         """Fully simulates an execution and updates the state deterministically.
+
+        ``passive`` is a resting order's fill; see
+        :meth:`~alphalab.execution.simulator.ExecutionSimulator.simulate_fill`.
 
         ``bid``, ``ask`` and ``available_liquidity`` are what the market event
         showed, and each is ``None`` when it showed nothing of the kind. They
@@ -143,7 +148,7 @@ class ExecutionEngine:
             price=instruction.price,
         )
 
-        state_with_sub = replace(state, events=state.events.append(sub_event))
+        state_with_sub = evolve(state, events=state.events.append(sub_event))
 
         # 2. Simulate
         report = simulator.simulate_fill(
@@ -155,6 +160,7 @@ class ExecutionEngine:
             bid=bid,
             ask=ask,
             available_liquidity=available_liquidity,
+            passive=passive,
         )
 
         # 3. Apply state change

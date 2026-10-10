@@ -1,7 +1,7 @@
 """A real HTTP venue, on a real socket, for the execution transport to talk to.
 
 AlphaLab's development and CI environment has no network egress and holds no
-vendor credentials, so :class:`~alphalab.broker.transport.HttpVenueTransport`
+vendor credentials, so :class:`~tests.reference_adapter.transport.HttpVenueTransport`
 cannot be pointed at a commercial venue from here. The alternative is not to
 stub the transport -- a test that replaces the thing under test proves nothing
 about it -- but to stand up the *other end* of the protocol locally and drive
@@ -46,7 +46,7 @@ from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Final
 
-from alphalab.broker.transport import VenueCredentials
+from tests.reference_adapter.transport import VenueCredentials
 
 #: How far a request's signature timestamp may be from the server's clock.
 _MAX_CLOCK_SKEW_MS: Final = 30_000

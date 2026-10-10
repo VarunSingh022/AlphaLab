@@ -206,6 +206,16 @@ def test_a_regression_recovers_the_line_it_was_given() -> None:
     assert all(residual == pytest.approx(0.0) for residual in fit.residuals)
 
 
+def test_r_squared_of_a_constant_series_is_undefined_not_zero() -> None:
+    """0/0: a constant y has no variance to explain (ledger NUM-003, v3.12)."""
+
+    fit = linear_regression([5.0, 5.0, 5.0, 5.0], [1.0, 2.0, 3.0, 4.0])
+
+    assert fit.r_squared is None
+    assert (fit.slope, fit.intercept) == (0.0, 5.0)
+    assert fit.residuals == (0.0, 0.0, 0.0, 0.0)
+
+
 def test_residuals_sum_to_zero_and_are_uncorrelated_with_the_regressor() -> None:
     """The two defining properties of an OLS fit with an intercept."""
 
@@ -305,18 +315,22 @@ def test_the_three_volatility_functions_agree_with_the_shared_estimator() -> Non
     returns = (0.01, -0.02, 0.015, 0.003, -0.008, 0.02, -0.011)
     expected = math.sqrt(sample_variance(returns)) * math.sqrt(252)
 
-    assert annualized_volatility(returns) == expected
-    assert calculate_volatility(returns) == expected
-    assert rolling_volatility(returns, len(returns))[0] == expected
+    assert annualized_volatility(returns, 252) == expected
+    assert calculate_volatility(returns, 252) == expected
+    assert rolling_volatility(returns, len(returns), 252)[0] == expected
 
 
-def test_the_volatility_functions_still_report_zero_for_a_short_window() -> None:
-    """Their guards are unchanged: the shared estimator raises, they do not."""
+def test_the_volatility_functions_do_not_raise_for_a_short_window() -> None:
+    """The shared estimator raises; the reporting functions report instead.
+
+    Since v3.10 the analytics one reports ``None`` -- undefined -- rather than
+    ``0.0``, which read as a measured absence of volatility.
+    """
 
     from alphalab.analytics.returns import annualized_volatility
     from alphalab.research.metrics import calculate_volatility
 
-    assert annualized_volatility((0.01,)) == 0.0
-    assert calculate_volatility((0.01,)) == 0.0
+    assert annualized_volatility((0.01,), 252) is None
+    assert calculate_volatility((0.01,), 252) == 0.0
     with pytest.raises(AlphaLabValidationError):
         sample_variance((0.01,))

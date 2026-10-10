@@ -19,6 +19,7 @@ from decimal import Decimal
 import pytest
 
 from alphalab.core.enums import AssetType
+from alphalab.data.time import BarStamp
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instrument
 from alphalab.market.exceptions import MarketValidationError
@@ -67,7 +68,11 @@ def _source(
             url=url,
             symbols=[_SYMBOL],
             policy=NormalizationPolicy(
-                provider=_PROVIDER, identity=_registry(), venue="XNAS", currency="USD"
+                bar_stamp=BarStamp.INTERVAL_END,
+                provider=_PROVIDER,
+                identity=_registry(),
+                venue="XNAS",
+                currency="USD",
             ),
             liveness_timeout_seconds=3.0,
             reconnect_backoff_seconds=0.01,

@@ -6,18 +6,18 @@ canonical :class:`~alphalab.market.record.MarketRecord` s -- and
 ``alphalab.market.normalization`` defined how a provider's wire record becomes
 canonical. Between them there was nothing, so ``normalize_wire_*`` had no
 production caller and :class:`~alphalab.market.source.SequenceSource` was the
-only source in the repository. A real provider client existed too
-(:mod:`alphalab.marketdata.binance`, over
-:class:`~alphalab.marketdata.transport.HttpTransport`) and could not reach a
+only source in the repository, and a provider client could not reach a
 :class:`~alphalab.runtime.session.TradingSession`.
 
 This module is that link, and only that link. It adds no HTTP, models no vendor
-API, and implements no second provider: everything it uses already existed and
-was already tested.
+API, and implements no provider: a provider is the host application's, and
+:class:`BarHistoryProvider` is the one method AlphaLab asks of it. (Until v3.10
+the library also shipped vendor clients of its own; they were removed, ledger
+BND-001.)
 
 ::
 
-    provider adapter        marketdata.binance.binanceAdapter
+    provider                any BarHistoryProvider (the host's)
         -> wire bars        marketdata.feed.Bar          (float, provider symbol)
         -> normalization    market.normalization         (Decimal, asset_id, venue)
         -> MarketRecord     market.record
@@ -48,14 +48,13 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from alphalab.data.feed import Bar as WireBar
 from alphalab.instrument.registry import InstrumentRegistry
-from alphalab.market.bar import Bar
+from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.exceptions import InstrumentResolutionError, MarketValidationError
-from alphalab.market.normalization import DEFAULT_POLICY, NormalizationPolicy, normalize_wire_bar
+from alphalab.market.normalization import NormalizationPolicy, normalize_wire_bar
 from alphalab.market.record import MarketRecord, records_from_inputs
 from alphalab.market.source import OrderingGuarantee, validate_ordering
-from alphalab.marketdata.feed import Bar as WireBar
-from alphalab.marketdata.timeframe import Timeframe
 
 __all__ = ["BarHistoryProvider", "ProviderHistorySource", "normalize_wire_bars"]
 
@@ -70,19 +69,17 @@ class BarHistoryProvider(Protocol):
     """
 
     def request_history(
-        self, symbol: str, timeframe: Timeframe, start: float, end: float
+        self, symbol: str, timeframe: TimeFrame, start: float, end: float
     ) -> tuple[WireBar, ...]: ...
 
 
-def normalize_wire_bars(
-    bars: Sequence[WireBar], policy: NormalizationPolicy = DEFAULT_POLICY
-) -> tuple[Bar, ...]:
+def normalize_wire_bars(bars: Sequence[WireBar], policy: NormalizationPolicy) -> tuple[Bar, ...]:
     """Lift a provider's wire bars into canonical bars.
 
     Every rule stays where v2.3 put it: precision through ``Decimal(str(...))``,
     the venue, currency and timeframe from ``policy`` because the wire cannot
-    carry them, and ``vwap`` / ``trade_count`` left at zero and documented as
-    unreported rather than invented. This function only maps the sequence.
+    carry them, and ``vwap`` / ``trade_count`` ``None`` -- unreported rather than
+    invented. This function only maps the sequence.
     """
 
     return tuple(normalize_wire_bar(bar, policy) for bar in bars)
@@ -115,7 +112,7 @@ class ProviderHistorySource:
         cls,
         provider: BarHistoryProvider,
         symbols: Sequence[str],
-        timeframe: Timeframe,
+        timeframe: TimeFrame,
         start: float,
         end: float,
         source_id: str,
@@ -141,10 +138,14 @@ class ProviderHistorySource:
                 :class:`~alphalab.instrument.registry.InstrumentRegistry`. The
                 unresolved mode yields provider symbols, which cannot reach a
                 fill.
-            MarketValidationError: If ``symbols`` is empty, if the provider
-                returned no bars at all, or if the normalized records are not
-                chronological -- a provider that returned history out of order
-                is a broken response, not something to quietly sort around.
+            MarketValidationError: If ``symbols`` is empty, if ``timeframe``
+                is not the interval ``policy`` labels bars with -- bars
+                requested at one interval and recorded as another would be
+                mislabelled, and there is no way to tell afterwards -- if the
+                provider returned no bars at all, or if the normalized records
+                are not chronological -- a provider that returned history out of
+                order is a broken response, not something to quietly sort
+                around.
         """
 
         # Before anything else, and before the provider is called: a source that
@@ -160,6 +161,12 @@ class ProviderHistorySource:
 
         if not symbols:
             raise MarketValidationError("A provider source needs at least one symbol.")
+        if policy.timeframe != timeframe:
+            raise MarketValidationError(
+                f"The provider is asked for {timeframe.code} bars and the policy labels bars "
+                f"{'with no interval' if policy.timeframe is None else policy.timeframe.code}. "
+                "The request and the label must be the same interval (v3.11)."
+            )
 
         canonical: list[Bar] = []
         for symbol in symbols:

@@ -26,6 +26,11 @@ reaching `Position.currency`, and everything that follows from it".
 FX rates, conversion, triangulation and multi-currency aggregation remain
 deferred, and no part of this decision presumes they will arrive.
 
+**Amended by ADR-0045 (v3.10.0).** Decision 8: the routing configuration is
+no longer optional. `RoutingConfig` names its venue and currency, and every
+function that routes or books a venue execution takes it; there is no default
+venue or `"USD"`.
+
 ---
 
 # Context

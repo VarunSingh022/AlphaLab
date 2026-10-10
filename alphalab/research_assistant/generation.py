@@ -6,16 +6,34 @@ in a stable order. "Generation" here means systematic enumeration of a
 researcher-defined space, not a learned generative process -- this repository
 has no LLM and no network access, and the honest scope is a reproducible grid
 builder.
+
+The enumeration is not this module's own (v3.12, ledger SCF-003). It is
+:class:`~alphalab.research.walk_forward_optimization.ParameterSpace` -- the one
+search space AlphaLab has, which walk-forward optimization and the cloud
+research sweep read as well -- so a grid enumerates in one order, is validated by
+one set of rules and has one identity, whichever of them searched it. Until
+v3.12 there were four parameter searches and each built its own grid.
 """
 
-import itertools
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from alphalab.common.types import ParamValue
+from alphalab.research.exceptions import ResearchValidationError
+from alphalab.research.walk_forward_optimization import ParameterSpace
 from alphalab.research_assistant.exceptions import ResearchAssistantInputError
 
-ParameterSpace = Mapping[str, tuple[float, ...]]
-"""Parameter name -> the discrete values that parameter may take."""
+__all__ = [
+    "ParameterAxes",
+    "ParameterSpace",
+    "StrategyCandidate",
+    "candidate_count",
+    "generate_candidates",
+    "parameter_space",
+]
+
+type ParameterAxes = Mapping[str, Sequence[ParamValue]]
+"""Parameter name -> the discrete values that parameter may take, in order."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,18 +50,41 @@ class StrategyCandidate:
 
     candidate_id: str
     template: str
-    parameters: Mapping[str, float] = field(default_factory=dict)
+    parameters: Mapping[str, ParamValue] = field(default_factory=dict)
+
+
+def parameter_space(space: ParameterSpace | ParameterAxes) -> ParameterSpace:
+    """``space`` as the research authority's :class:`ParameterSpace`.
+
+    A mapping of axes is the grid :meth:`ParameterSpace.grid` builds from it:
+    parameter names sorted, so the order does not depend on the mapping's
+    insertion order, and each parameter's own values in the order given.
+
+    Raises:
+        ResearchAssistantInputError: If the axes are empty, a parameter has no
+            choices, or a value is not a finite bool, int, float or str.
+    """
+    if isinstance(space, ParameterSpace):
+        return space
+    if not space:
+        raise ResearchAssistantInputError("space cannot be empty.")
+    for name in sorted(space):
+        if not space[name]:
+            raise ResearchAssistantInputError(f"Parameter '{name}' has no choices.")
+    try:
+        return ParameterSpace.grid(space)
+    except ResearchValidationError as error:
+        raise ResearchAssistantInputError(str(error)) from error
 
 
 def generate_candidates(
-    template: str, space: ParameterSpace, limit: int | None = None
+    template: str, space: ParameterSpace | ParameterAxes, limit: int | None = None
 ) -> tuple[StrategyCandidate, ...]:
-    """Enumerates the Cartesian product of ``space`` as strategy candidates.
+    """Enumerates ``space`` as strategy candidates, in the space's order.
 
-    Parameter names are sorted so the enumeration order is independent of the
-    mapping's insertion order; each parameter's own values keep the order given.
     With ``limit`` set, only the first ``limit`` candidates in that order are
-    returned.
+    returned -- and only those are a search: a sweep over them counts ``limit``
+    trials, not the size of the grid.
 
     Raises:
         ResearchAssistantInputError: If ``template`` is blank, ``space`` is
@@ -51,44 +92,27 @@ def generate_candidates(
     """
     if not template.strip():
         raise ResearchAssistantInputError("template cannot be empty.")
-    if not space:
-        raise ResearchAssistantInputError("space cannot be empty.")
     if limit is not None and limit <= 0:
         raise ResearchAssistantInputError(f"limit must be positive, got {limit}.")
 
-    names = sorted(space)
-    for name in names:
-        if not space[name]:
-            raise ResearchAssistantInputError(f"Parameter '{name}' has no choices.")
-
-    choice_lists = [space[name] for name in names]
-    candidates = []
-    for index, combination in enumerate(itertools.product(*choice_lists)):
-        if limit is not None and index >= limit:
-            break
-        parameters = dict(zip(names, combination, strict=True))
-        candidates.append(
-            StrategyCandidate(
-                candidate_id=f"{template}-{index:03d}",
-                template=template,
-                parameters=parameters,
-            )
+    candidates = parameter_space(space).candidates
+    if limit is not None:
+        candidates = candidates[:limit]
+    return tuple(
+        StrategyCandidate(
+            candidate_id=f"{template}-{index:03d}",
+            template=template,
+            parameters=dict(parameters),
         )
-    return tuple(candidates)
+        for index, parameters in enumerate(candidates)
+    )
 
 
-def candidate_count(space: ParameterSpace) -> int:
+def candidate_count(space: ParameterSpace | ParameterAxes) -> int:
     """Returns the size of the full Cartesian product of ``space``.
 
     Raises:
         ResearchAssistantInputError: If ``space`` is empty or a parameter has no
             choices.
     """
-    if not space:
-        raise ResearchAssistantInputError("space cannot be empty.")
-    total = 1
-    for name, choices in space.items():
-        if not choices:
-            raise ResearchAssistantInputError(f"Parameter '{name}' has no choices.")
-        total *= len(choices)
-    return total
+    return len(parameter_space(space))

@@ -41,8 +41,8 @@ from alphalab.lifecycle import (
 )
 from alphalab.lifecycle.strategy_version import StrategyVersion
 from alphalab.research.study import ResearchStudy
+from alphalab.strategy import StrategyDefinition, StrategyValidationError
 from alphalab.strategy.registry import StrategyClassRegistry
-from alphalab.studio.strategy import StrategyDefinition
 from tests.unit.lifecycle.evidence_harness import (
     CODE,
     DEFINITION,
@@ -480,17 +480,50 @@ def test_differences_name_every_input_that_changed() -> None:
 
 @pytest.mark.parametrize(
     "parameters",
-    [{"entry": float("nan")}, {"entry": float("inf")}, {"entry": True}, {"": 1.0}],
+    [{"entry": float("nan")}, {"entry": float("inf")}, {"": 1.0}, {"entry": [1.0]}],
 )
 def test_parameters_that_cannot_identify_are_refused(parameters: dict[str, object]) -> None:
-    version = StrategyVersion(
-        name="bad",
+    """Refused where a definition is written, and again where an identity is derived."""
+
+    with pytest.raises(StrategyValidationError):
+        StrategyDefinition("BAD", "bad", "1", "a", "d", parameters)  # type: ignore[arg-type]
+    with pytest.raises(LifecycleInputError):
+        build_fingerprint(
+            "bad",
+            "BAD",
+            CODE,
+            NO_DEPENDENCIES,
+            parameters,  # type: ignore[arg-type]
+            RESEARCH,
+            ENGINE,
+        )
+
+
+def test_typed_parameters_identify_by_value_and_by_type() -> None:
+    """v3.11 (SCF-001): a boolean, an integer and a string are parameters, and distinct."""
+
+    fingerprints = {
+        build_fingerprint(
+            "typed", "TYPED", CODE, NO_DEPENDENCIES, {"flag": value}, RESEARCH, ENGINE
+        ).fingerprint
+        for value in (True, 1, "1", 1.0)
+    }
+    assert len(fingerprints) == 4
+
+    typed = StrategyVersion(
+        name="typed",
         version=1,
-        definition=StrategyDefinition("BAD", "bad", "1", "a", "d", parameters),  # type: ignore[arg-type]
+        definition=StrategyDefinition(
+            "TYPED", "typed", "1", "a", "d", {"lookback": 20, "mode": "fast", "hedge": False}
+        ),
         stage=VERSION.stage,
     )
-    with pytest.raises(LifecycleInputError):
-        fingerprint_for_version(version, CODE, NO_DEPENDENCIES, RESEARCH, ENGINE)
+    derived = fingerprint_for_version(typed, CODE, NO_DEPENDENCIES, RESEARCH, ENGINE)
+    assert dict(derived.parameters) == {"lookback": 20, "mode": "fast", "hedge": False}
+    assert (
+        derived.fingerprint
+        == fingerprint_for_version(typed, CODE, NO_DEPENDENCIES, RESEARCH, ENGINE).fingerprint
+    )
 
 
 @pytest.mark.parametrize("name", ["", "a@b", "line\nbreak"])

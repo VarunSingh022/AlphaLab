@@ -6,7 +6,7 @@ from typing import Any
 from alphalab.common.ids import new_id
 from alphalab.strategy.events import LifecycleTransitioned
 from alphalab.strategy.exceptions import InvalidTransitionError
-from alphalab.strategy.state import LifecycleState, StrategyState
+from alphalab.strategy.state import StrategyState, StrategyStatus
 
 
 class RuntimeSupervisor:
@@ -19,8 +19,8 @@ class RuntimeSupervisor:
     @staticmethod
     def _create_transition_event(
         strategy_id: str,
-        old: LifecycleState,
-        new: LifecycleState,
+        old: StrategyStatus,
+        new: StrategyStatus,
         timestamp: float,
         reason: str = "",
     ) -> LifecycleTransitioned:
@@ -37,12 +37,12 @@ class RuntimeSupervisor:
     def configure(
         state: StrategyState, config: Any, timestamp: float
     ) -> tuple[StrategyState, LifecycleTransitioned]:
-        if state.status not in {LifecycleState.CREATED, LifecycleState.FAILED}:
+        if state.status not in {StrategyStatus.CREATED, StrategyStatus.FAILED}:
             raise InvalidTransitionError(f"Cannot configure from {state.status.name}")
 
-        new_state = replace(state, status=LifecycleState.CONFIGURED, config=config, last_error=None)
+        new_state = replace(state, status=StrategyStatus.CONFIGURED, config=config, last_error=None)
         event = RuntimeSupervisor._create_transition_event(
-            state.strategy_id, state.status, LifecycleState.CONFIGURED, timestamp
+            state.strategy_id, state.status, StrategyStatus.CONFIGURED, timestamp
         )
         return new_state, event
 
@@ -50,12 +50,12 @@ class RuntimeSupervisor:
     def initialize(
         state: StrategyState, timestamp: float
     ) -> tuple[StrategyState, LifecycleTransitioned]:
-        if state.status != LifecycleState.CONFIGURED:
+        if state.status != StrategyStatus.CONFIGURED:
             raise InvalidTransitionError(f"Cannot initialize from {state.status.name}")
 
-        new_state = replace(state, status=LifecycleState.INITIALIZED)
+        new_state = replace(state, status=StrategyStatus.INITIALIZED)
         event = RuntimeSupervisor._create_transition_event(
-            state.strategy_id, state.status, LifecycleState.INITIALIZED, timestamp
+            state.strategy_id, state.status, StrategyStatus.INITIALIZED, timestamp
         )
         return new_state, event
 
@@ -63,12 +63,12 @@ class RuntimeSupervisor:
     def subscribe(
         state: StrategyState, subscriptions: frozenset[str], timestamp: float
     ) -> tuple[StrategyState, LifecycleTransitioned]:
-        if state.status != LifecycleState.INITIALIZED:
+        if state.status != StrategyStatus.INITIALIZED:
             raise InvalidTransitionError(f"Cannot subscribe from {state.status.name}")
 
-        new_state = replace(state, status=LifecycleState.SUBSCRIBED, subscriptions=subscriptions)
+        new_state = replace(state, status=StrategyStatus.SUBSCRIBED, subscriptions=subscriptions)
         event = RuntimeSupervisor._create_transition_event(
-            state.strategy_id, state.status, LifecycleState.SUBSCRIBED, timestamp
+            state.strategy_id, state.status, StrategyStatus.SUBSCRIBED, timestamp
         )
         return new_state, event
 
@@ -76,12 +76,12 @@ class RuntimeSupervisor:
     def start(
         state: StrategyState, timestamp: float
     ) -> tuple[StrategyState, LifecycleTransitioned]:
-        if state.status not in {LifecycleState.SUBSCRIBED, LifecycleState.PAUSED}:
+        if state.status not in {StrategyStatus.SUBSCRIBED, StrategyStatus.PAUSED}:
             raise InvalidTransitionError(f"Cannot start/resume from {state.status.name}")
 
-        new_state = replace(state, status=LifecycleState.RUNNING)
+        new_state = replace(state, status=StrategyStatus.RUNNING)
         event = RuntimeSupervisor._create_transition_event(
-            state.strategy_id, state.status, LifecycleState.RUNNING, timestamp
+            state.strategy_id, state.status, StrategyStatus.RUNNING, timestamp
         )
         return new_state, event
 
@@ -89,23 +89,23 @@ class RuntimeSupervisor:
     def pause(
         state: StrategyState, timestamp: float
     ) -> tuple[StrategyState, LifecycleTransitioned]:
-        if state.status != LifecycleState.RUNNING:
+        if state.status != StrategyStatus.RUNNING:
             raise InvalidTransitionError(f"Cannot pause from {state.status.name}")
 
-        new_state = replace(state, status=LifecycleState.PAUSED)
+        new_state = replace(state, status=StrategyStatus.PAUSED)
         event = RuntimeSupervisor._create_transition_event(
-            state.strategy_id, state.status, LifecycleState.PAUSED, timestamp
+            state.strategy_id, state.status, StrategyStatus.PAUSED, timestamp
         )
         return new_state, event
 
     @staticmethod
     def stop(state: StrategyState, timestamp: float) -> tuple[StrategyState, LifecycleTransitioned]:
-        if state.status not in {LifecycleState.RUNNING, LifecycleState.PAUSED}:
+        if state.status not in {StrategyStatus.RUNNING, StrategyStatus.PAUSED}:
             raise InvalidTransitionError(f"Cannot stop from {state.status.name}")
 
-        new_state = replace(state, status=LifecycleState.STOPPING)
+        new_state = replace(state, status=StrategyStatus.STOPPING)
         event = RuntimeSupervisor._create_transition_event(
-            state.strategy_id, state.status, LifecycleState.STOPPING, timestamp
+            state.strategy_id, state.status, StrategyStatus.STOPPING, timestamp
         )
         return new_state, event
 
@@ -113,9 +113,9 @@ class RuntimeSupervisor:
     def fail(
         state: StrategyState, error: str, timestamp: float
     ) -> tuple[StrategyState, LifecycleTransitioned]:
-        new_state = replace(state, status=LifecycleState.FAILED, last_error=error)
+        new_state = replace(state, status=StrategyStatus.FAILED, last_error=error)
         event = RuntimeSupervisor._create_transition_event(
-            state.strategy_id, state.status, LifecycleState.FAILED, timestamp, reason=error
+            state.strategy_id, state.status, StrategyStatus.FAILED, timestamp, reason=error
         )
         return new_state, event
 
@@ -123,12 +123,12 @@ class RuntimeSupervisor:
     def complete_drain(
         state: StrategyState, timestamp: float
     ) -> tuple[StrategyState, LifecycleTransitioned]:
-        if state.status != LifecycleState.STOPPING:
+        if state.status != StrategyStatus.STOPPING:
             raise InvalidTransitionError(f"Cannot complete drain from {state.status.name}")
 
-        new_state = replace(state, status=LifecycleState.STOPPED)
+        new_state = replace(state, status=StrategyStatus.STOPPED)
         event = RuntimeSupervisor._create_transition_event(
-            state.strategy_id, state.status, LifecycleState.STOPPED, timestamp
+            state.strategy_id, state.status, StrategyStatus.STOPPED, timestamp
         )
         return new_state, event
 
@@ -136,11 +136,11 @@ class RuntimeSupervisor:
     def dispose(
         state: StrategyState, timestamp: float
     ) -> tuple[StrategyState, LifecycleTransitioned]:
-        if state.status not in {LifecycleState.STOPPED, LifecycleState.FAILED}:
+        if state.status not in {StrategyStatus.STOPPED, StrategyStatus.FAILED}:
             raise InvalidTransitionError(f"Cannot dispose from {state.status.name}")
 
-        new_state = replace(state, status=LifecycleState.DISPOSED)
+        new_state = replace(state, status=StrategyStatus.DISPOSED)
         event = RuntimeSupervisor._create_transition_event(
-            state.strategy_id, state.status, LifecycleState.DISPOSED, timestamp
+            state.strategy_id, state.status, StrategyStatus.DISPOSED, timestamp
         )
         return new_state, event

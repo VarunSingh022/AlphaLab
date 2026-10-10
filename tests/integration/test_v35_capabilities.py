@@ -62,10 +62,8 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
+from alphalab.data.time import BarStamp, TimeFrequency
+from alphalab.execution.costs import FREE
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instruments
 from alphalab.lifecycle import (
@@ -110,7 +108,7 @@ from alphalab.lifecycle import (
     validate_specification,
     verify_specification_id,
 )
-from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance, StaticPermissions
 from alphalab.lifecycle.strategy_version import StrategyVersion, get_strategy_version
 from alphalab.market.bar import TimeFrame
 from alphalab.market.normalization import NormalizationPolicy
@@ -122,10 +120,10 @@ from alphalab.runtime.execution_pipeline import ExecutionRouting
 from alphalab.runtime.live import LiveRunState, LiveSession, live_health
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunEngine
 from alphalab.runtime.session import TradingSession
+from alphalab.strategy import StrategyDefinition
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.studio.strategy import StrategyDefinition
 from tests.integration.harness import (
     START_CASH,
     context_factory,
@@ -148,6 +146,7 @@ ASSET_ID = INSTRUMENT.asset_id
 REGISTRY: InstrumentRegistry = register_instruments(InstrumentRegistry(), (INSTRUMENT,))
 
 NORMALIZATION = NormalizationPolicy(
+    bar_stamp=BarStamp.INTERVAL_END,
     venue="XNYS",
     currency="USD",
     timeframe=TimeFrame.D1,
@@ -230,6 +229,7 @@ def dataset() -> Dataset:
             SourceKind.IN_MEMORY, "v35-integration", b"", RETRIEVED_AT, "text/csv", "utf-8"
         ),
         frequency=TimeFrequency.DAILY,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,
@@ -312,7 +312,7 @@ def live(records: tuple[MarketRecord, ...], dataset_version: str) -> LiveRunStat
     and no credential exists.
     """
 
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     state = LiveSession.initialize(
         _run_config(ExecutionMode.LIVE),
         _strategy_state(),
@@ -345,16 +345,8 @@ def live(records: tuple[MarketRecord, ...], dataset_version: str) -> LiveRunStat
 # The lifecycle record the deployment specification is built from
 # --------------------------------------------------------------------------- #
 
-_ENTERPRISE = grant_role(
-    define_role(
-        register_principal(EnterpriseState(), "release-engineer", "Release Engineer", 0.0)[0],
-        "release",
-        LIFECYCLE_PERMISSIONS,
-    ),
-    "release-engineer",
-    "release",
-)
-GOVERNANCE = Governance(_ENTERPRISE, "release-engineer")
+_PERMISSIONS = StaticPermissions({"release-engineer": LIFECYCLE_PERMISSIONS})
+GOVERNANCE = Governance(_PERMISSIONS, "release-engineer")
 
 DEFINITION = StrategyDefinition(
     strategy_id=STRATEGY_ID,

@@ -50,8 +50,9 @@ Which helpers refuse, and which do not
 
 Until v2.12 the check was confined to :meth:`~PortfolioValuation.snapshot` and
 its siblings were left currency-blind, deferred to "the release that supplies
-the rate source" (ADR-0020 decision 5). That release has not arrived, and the
-deferral was closed earlier instead, on measurement. What sorts the helpers is
+the rate source" (ADR-0020 decision 5). v2.12 closed the deferral before that
+release came, on measurement; the rate source itself arrived in v2.16, as the
+:class:`~alphalab.portfolio.fx.FxRates` table above. What sorts the helpers is
 not whether they *could* produce a wrong figure but **what each one claims**:
 
 =========================================  ==========================  ========
@@ -87,15 +88,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
+from alphalab.common.arithmetic import in_accounting_context
+from alphalab.common.currency_units import CurrencyUnits
+from alphalab.portfolio.book import PositionBook
 from alphalab.portfolio.cash import CashLedger
 from alphalab.portfolio.engine import PortfolioState
 from alphalab.portfolio.exceptions import MixedCurrencyValuationError
 from alphalab.portfolio.fx import NO_RATES, FxConversion, FxRates
-from alphalab.portfolio.money import CURRENCY_QUANT, ZERO_MONEY
+from alphalab.portfolio.money import ZERO_MONEY
 from alphalab.portfolio.position import Position
 
 __all__ = [
-    "CURRENCY_QUANT",
     "PortfolioValuation",
     "PortfolioValuationSnapshot",
     "assert_single_currency",
@@ -121,9 +124,12 @@ def foreign_currencies(
     fills arrived in.
     """
 
-    foreign_positions = sorted(
-        {position.currency for position in positions.values()} - {base_currency}
+    held = (
+        positions.currencies
+        if isinstance(positions, PositionBook)
+        else {position.currency for position in positions.values()}
     )
+    foreign_positions = sorted(set(held) - {base_currency})
     foreign_cash = sorted(
         currency
         for currency, amount in cash.balances.items()
@@ -235,15 +241,24 @@ def assert_single_currency(
 
 
 def _convert(
-    amount: Decimal, base: str, quote: str, rates: FxRates, as_of: float | None
+    amount: Decimal,
+    base: str,
+    quote: str,
+    rates: FxRates,
+    as_of: float | None,
+    units: CurrencyUnits | None = None,
 ) -> FxConversion:
     """One conversion, or the identity when there is nothing to convert."""
 
-    return rates.convert(amount, base, quote, as_of)
+    return rates.convert(amount, base, quote, as_of, units=units)
 
 
 def cash_in(
-    cash: CashLedger, base_currency: str, rates: FxRates, as_of: float | None
+    cash: CashLedger,
+    base_currency: str,
+    rates: FxRates,
+    as_of: float | None,
+    units: CurrencyUnits | None = None,
 ) -> tuple[Decimal, tuple[FxConversion, ...]]:
     """Total cash expressed in ``base_currency``, and the conversions used.
 
@@ -252,6 +267,9 @@ def cash_in(
     book holding another currency was refused rather than converted. A zero
     balance in another currency is skipped -- it converts to zero and recording
     a rate for it would put noise in the provenance.
+
+    ``units`` rounds each converted balance; the rates' own
+    :attr:`~alphalab.portfolio.fx.FxRates.currency_units` when ``None``.
     """
 
     total = ZERO_MONEY
@@ -262,14 +280,18 @@ def cash_in(
             continue
         if amount == ZERO_MONEY:
             continue
-        conversion = rates.convert(amount, currency, base_currency, as_of)
+        conversion = rates.convert(amount, currency, base_currency, as_of, units=units)
         total += conversion.converted
         performed.append(conversion)
     return total, tuple(performed)
 
 
 def _positions_in(
-    positions: Mapping[str, Position], base_currency: str, rates: FxRates, as_of: float | None
+    positions: Mapping[str, Position],
+    base_currency: str,
+    rates: FxRates,
+    as_of: float | None,
+    units: CurrencyUnits | None = None,
 ) -> tuple[Decimal, tuple[FxConversion, ...]]:
     """Total position value in ``base_currency``, and the conversions used."""
 
@@ -277,12 +299,68 @@ def _positions_in(
     performed: list[FxConversion] = []
     for position in positions.values():
         if position.currency == base_currency:
-            total += position.market_value
+            total += position.carrying_value
             continue
-        conversion = rates.convert(position.market_value, position.currency, base_currency, as_of)
+        conversion = rates.convert(
+            position.carrying_value, position.currency, base_currency, as_of, units=units
+        )
         total += conversion.converted
         performed.append(conversion)
     return total, tuple(performed)
+
+
+def book_totals_in(
+    book: PositionBook,
+    base_currency: str,
+    rates: FxRates,
+    as_of: float | None,
+    units: CurrencyUnits | None = None,
+) -> tuple[Decimal, Decimal, Decimal, tuple[FxConversion, ...], Decimal]:
+    """The book's long value, short value, unrealized P&L, the conversions, and its
+    uncarried value, in ``base_currency``.
+
+    Each currency's totals are converted once -- the positions in the base
+    currency need no rate -- and the conversions performed are returned in the
+    order performed, one per converted figure. The uncarried value (see
+    :class:`~alphalab.portfolio.book.CurrencyTotals`) is converted only where a
+    currency has any, so a book of fully paid positions converts what it
+    always did.
+    """
+
+    long_value = ZERO_MONEY
+    short_value = ZERO_MONEY
+    unrealized = ZERO_MONEY
+    uncarried = ZERO_MONEY
+    performed: list[FxConversion] = []
+    for currency in book.currencies:
+        totals = book.totals(currency)
+        if currency == base_currency:
+            long_value += totals.long_value
+            short_value += totals.short_value
+            unrealized += totals.unrealized_pnl
+            uncarried += totals.uncarried_value
+            continue
+        if totals.uncarried_value != 0:
+            conversion = _convert(
+                totals.uncarried_value, currency, base_currency, rates, as_of, units
+            )
+            performed.append(conversion)
+            uncarried += conversion.converted
+        if totals.longs:
+            conversion = _convert(totals.long_value, currency, base_currency, rates, as_of, units)
+            performed.append(conversion)
+            long_value += conversion.converted
+        if totals.shorts:
+            conversion = _convert(totals.short_value, currency, base_currency, rates, as_of, units)
+            performed.append(conversion)
+            short_value += conversion.converted
+        if totals.longs or totals.shorts:
+            conversion = _convert(
+                totals.unrealized_pnl, currency, base_currency, rates, as_of, units
+            )
+            performed.append(conversion)
+            unrealized += conversion.converted
+    return long_value, short_value, unrealized, tuple(performed), uncarried
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,10 +428,16 @@ class PortfolioValuation:
         return {asset: p.market_value for asset, p in positions.items()}
 
     @staticmethod
-    def cash_value(cash_ledger: CashLedger, base_currency: str = "USD") -> Decimal:
-        # A keyed lookup, not an aggregation: it returns the balance in the one
-        # currency it was asked for and claims nothing about any other, so there
-        # is no mixed book for it to refuse. See the module docstring.
+    def cash_value(cash_ledger: CashLedger, base_currency: str) -> Decimal:
+        """The balance in ``base_currency`` -- a keyed lookup, not an aggregation.
+
+        It returns the balance in the one currency it was asked for and claims
+        nothing about any other, so there is no mixed book for it to refuse. See
+        the module docstring. ``base_currency`` is required as of v3.10: until
+        then it defaulted to ``"USD"``, and a book holding no dollars was
+        reported as holding ``0.00`` rather than asked which currency it meant.
+        """
+
         return cash_ledger.balance(base_currency)
 
     @staticmethod
@@ -370,7 +454,7 @@ class PortfolioValuation:
         module docstring and ADR-0028 decision 7.
         """
 
-        return sum((p.market_value for p in positions.values() if p.quantity > 0), Decimal("0.00"))
+        return sum((p.market_value for p in positions.values() if p.quantity > 0), ZERO_MONEY)
 
     @staticmethod
     def short_value(positions: Mapping[str, Position]) -> Decimal:
@@ -380,13 +464,14 @@ class PortfolioValuation:
         none claimed, and no refusal.
         """
 
-        return sum((p.market_value for p in positions.values() if p.quantity < 0), Decimal("0.00"))
+        return sum((p.market_value for p in positions.values() if p.quantity < 0), ZERO_MONEY)
 
     @staticmethod
+    @in_accounting_context
     def portfolio_value(
         cash_ledger: CashLedger,
         positions: Mapping[str, Position],
-        base_currency: str = "USD",
+        base_currency: str,
         rates: FxRates = NO_RATES,
         as_of: float | None = None,
     ) -> Decimal:
@@ -409,6 +494,7 @@ class PortfolioValuation:
         return cash_val + pos_val
 
     @staticmethod
+    @in_accounting_context
     def snapshot(
         state: PortfolioState,
         timestamp: float,
@@ -432,7 +518,9 @@ class PortfolioValuation:
 
         base_currency = currency if currency is not None else state.account.base_currency
         foreign_positions, foreign_cash = assert_single_currency(state, base_currency, rates)
-        positions = state.positions
+        # Converted figures land at the account's unit for the reporting
+        # currency -- the unit the account books that currency at.
+        units = state.account.currency_units
 
         # Settlement truth -> reporting truth. Both accumulations are per
         # currency on the state; a valuation names one, so anything realized or
@@ -441,10 +529,10 @@ class PortfolioValuation:
         # v2.17 and the overwhelming majority since -- converts nothing and
         # takes the same addition it always did.
         realized, realized_conversions = state.realized_pnl.total_in(
-            base_currency, rates, timestamp
+            base_currency, rates, timestamp, units=units
         )
         commission, commission_conversions = state.commission_paid.total_in(
-            base_currency, rates, timestamp
+            base_currency, rates, timestamp, units=units
         )
         settlement_conversions = (*realized_conversions, *commission_conversions)
 
@@ -452,38 +540,38 @@ class PortfolioValuation:
             # The homogeneous path, byte-for-byte what it was before v2.16. The
             # assertion has already proven the book is in one currency, so the
             # unguarded component sums are correct and nothing is converted.
+            # The book keeps these sums as it changes, so reading them costs
+            # the same whatever it holds; they are the numbers a fresh sum over
+            # the positions gives, written the same way (PRF-001).
             cash = state.cash.balance(base_currency)
-            long_value = PortfolioValuation.long_value(positions)
-            short_value = PortfolioValuation.short_value(positions)
-            positions_value = long_value + short_value
-            unrealized = sum((p.unrealized_pnl for p in positions.values()), ZERO_MONEY)
+            totals = state.book.totals(base_currency)
+            long_value = totals.long_value
+            short_value = totals.short_value
+            # What the positions add to equity: their market value, less the
+            # notional of any whose gains settle as cash (ACC-005) -- which is
+            # zero, and changes nothing, for a book of fully paid positions.
+            positions_value = long_value + short_value - totals.uncarried_value
+            unrealized = totals.unrealized_pnl
             conversions: tuple[FxConversion, ...] = settlement_conversions
         else:
             # The converting path, reached only by a book that is actually
-            # mixed. Each position is converted from the currency it declares,
-            # so a sum is never taken across two.
+            # mixed. The book keeps its totals per currency, so each currency's
+            # longs, shorts and unrealized P&L are converted once, as totals: a
+            # sum is never taken across two currencies, each figure is rounded
+            # once rather than once per position, and the cost does not grow
+            # with the book. Until v3.10 each position was converted and
+            # rounded on its own, so a book of many positions in one currency
+            # carried one rounding per position (ledger PRF-001).
             performed: list[FxConversion] = []
-            cash, cash_conversions = cash_in(state.cash, base_currency, rates, timestamp)
+            cash, cash_conversions = cash_in(state.cash, base_currency, rates, timestamp, units)
             performed.extend(cash_conversions)
 
-            long_value = ZERO_MONEY
-            short_value = ZERO_MONEY
-            unrealized = ZERO_MONEY
-            for position in positions.values():
-                value = _convert(
-                    position.market_value, position.currency, base_currency, rates, timestamp
-                )
-                pnl = _convert(
-                    position.unrealized_pnl, position.currency, base_currency, rates, timestamp
-                )
-                performed.extend(c for c in (value, pnl) if c.rate.source != "identity")
-                if position.quantity > 0:
-                    long_value += value.converted
-                elif position.quantity < 0:
-                    short_value += value.converted
-                unrealized += pnl.converted
+            long_value, short_value, unrealized, position_conversions, uncarried = book_totals_in(
+                state.book, base_currency, rates, timestamp, units
+            )
+            performed.extend(position_conversions)
 
-            positions_value = long_value + short_value
+            positions_value = long_value + short_value - uncarried
             conversions = (*settlement_conversions, *performed)
 
         return PortfolioValuationSnapshot(

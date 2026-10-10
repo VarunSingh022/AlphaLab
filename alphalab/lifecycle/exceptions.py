@@ -19,3 +19,12 @@ class LifecycleTransitionError(LifecycleError):
     something real and the move it asked for is not one the lifecycle allows
     from where that thing currently is.
     """
+
+
+class LifecyclePermissionError(LifecycleError):
+    """Raised when the acting principal is not permitted a governed act.
+
+    Answered by the caller's :class:`~alphalab.lifecycle.governance.PermissionAuthority`:
+    AlphaLab asks whether an actor holds a permission and records who acted; who
+    the actors are, and how they authenticate, is the application's.
+    """

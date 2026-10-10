@@ -69,7 +69,11 @@ from alphalab.factor_library import (
 
 MOMENTUM = FeatureDefinition("mom_60", FeatureKind.MOMENTUM, FeatureField.CLOSE, window=60)
 VOLATILITY = FeatureDefinition(
-    "vol_60", FeatureKind.REALIZED_VOLATILITY, FeatureField.CLOSE, window=60
+    "vol_60",
+    FeatureKind.REALIZED_VOLATILITY,
+    FeatureField.CLOSE,
+    window=60,
+    parameters={"periods_per_year": 252.0},
 )
 
 
@@ -145,7 +149,7 @@ def main() -> None:
     # Step 04 : The information coefficient
     # ------------------------------------------------------------------
 
-    realized = forward_returns(frame, 20)
+    realized = forward_returns(frame, 20, lag=0, delistings=())
     raw_ic = information_coefficient(panel, realized, minimum_assets=5)
     neutral_ic = information_coefficient(by_sector.panel, realized, minimum_assets=5)
 
@@ -179,7 +183,7 @@ def main() -> None:
     # Step 05 : Decay
     # ------------------------------------------------------------------
 
-    profile = factor_decay(panel, frame, [1, 5, 10, 20, 40], minimum_assets=5)
+    profile = factor_decay(panel, frame, [1, 5, 10, 20, 40], minimum_assets=5, lag=0, delistings=())
 
     print()
     print("Step 05 - Factor decay")

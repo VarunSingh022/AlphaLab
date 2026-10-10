@@ -32,7 +32,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from alphalab.factor_library.exceptions import FactorInputError
-from alphalab.factor_library.forward_returns import forward_returns
+from alphalab.factor_library.forward_returns import DelistingReturn, forward_returns
 from alphalab.factor_library.ic import InformationCoefficient, information_coefficient
 from alphalab.factor_library.observations import ObservationFrame
 from alphalab.factor_library.panel import FeaturePanel
@@ -93,6 +93,9 @@ def factor_decay(
     prices: ObservationFrame,
     horizons: Sequence[int],
     minimum_assets: int = 5,
+    *,
+    lag: int,
+    delistings: Sequence[DelistingReturn],
 ) -> DecayProfile:
     """Measure one factor's IC at each of several forward horizons.
 
@@ -100,6 +103,10 @@ def factor_decay(
     It is passed rather than derived because the field a return should be
     measured on is the caller's decision -- a close-to-close study and a
     mid-to-mid study are different studies, and this function will not pick one.
+
+    ``lag`` and ``delistings`` are
+    :func:`~alphalab.factor_library.forward_returns.forward_returns`'s, applied
+    at every horizon, and required for the same reasons.
 
     Raises:
         FactorInputError: If ``horizons`` is empty, if it repeats a horizon, if
@@ -122,7 +129,11 @@ def factor_decay(
         )
 
     measured = {
-        horizon: information_coefficient(factor, forward_returns(prices, horizon), minimum_assets)
+        horizon: information_coefficient(
+            factor,
+            forward_returns(prices, horizon, lag=lag, delistings=delistings),
+            minimum_assets,
+        )
         for horizon in sorted(horizons)
     }
 

@@ -3,9 +3,7 @@
 from dataclasses import replace
 
 from alphalab.common.ids import new_id
-from alphalab.reporting.dashboard import Dashboard
 from alphalab.reporting.events import (
-    DashboardGenerated,
     ExportCompleted,
     ExportFailed,
     ReportGenerated,
@@ -14,7 +12,7 @@ from alphalab.reporting.exceptions import ReportingError
 from alphalab.reporting.export import export_csv, export_json, export_markdown
 from alphalab.reporting.report import Report
 from alphalab.reporting.state import ReportingState
-from alphalab.reporting.validation import validate_dashboard, validate_report
+from alphalab.reporting.validation import validate_report
 
 
 class ReportingEngine:
@@ -51,29 +49,6 @@ class ReportingEngine:
         return replace(
             state,
             reports=state.reports.set(report.report_id, report),
-            statistics=new_stats,
-            events=state.events.append(evt),
-        )
-
-    @staticmethod
-    def register_dashboard(state: ReportingState, dashboard: Dashboard) -> ReportingState:
-        """Validates and immutably registers a new Dashboard into the state."""
-        validate_dashboard(state, dashboard)
-
-        evt = DashboardGenerated(
-            event_id=ReportingEngine._create_id(),
-            timestamp=dashboard.timestamp,
-            dashboard_id=dashboard.dashboard_id,
-        )
-
-        new_stats = replace(
-            state.statistics,
-            total_dashboards_generated=state.statistics.total_dashboards_generated + 1,
-        )
-
-        return replace(
-            state,
-            dashboards=state.dashboards.set(dashboard.dashboard_id, dashboard),
             statistics=new_stats,
             events=state.events.append(evt),
         )

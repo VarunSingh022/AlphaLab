@@ -29,6 +29,7 @@ from alphalab.lifecycle import (
     Tolerance,
     build_specification,
     evaluate_health,
+    evaluate_health_window,
 )
 from alphalab.risk.limits import (
     DailyLossLimit,
@@ -40,7 +41,7 @@ from alphalab.risk.limits import (
     PositionLimit,
     RiskLimits,
 )
-from alphalab.risk.models import RiskViolation
+from alphalab.risk.models import RiskSeverity, RiskViolation
 
 LIMITS = RiskLimits(
     order_size=OrderSizeLimit(Decimal("100"), Decimal("10000")),
@@ -48,7 +49,7 @@ LIMITS = RiskLimits(
     exposure=ExposureLimit(Decimal("200000"), Decimal("150000")),
     leverage=LeverageLimit(Decimal("2")),
     margin=MarginLimit(Decimal("0.5")),
-    daily_loss=DailyLossLimit(Decimal("5000")),
+    daily_loss=DailyLossLimit(Decimal("5000"), "UTC"),
     drawdown=DrawdownLimit(Decimal("0.2")),
 )
 
@@ -381,7 +382,7 @@ class TestRiskBreach:
         violation = RiskViolation(
             rule="max_leverage",
             description="leverage 3.1 exceeds 2.0",
-            severity="CRITICAL",
+            severity=RiskSeverity.CRITICAL,
             current_value=Decimal("3.1"),
             allowed_value=Decimal("2.0"),
         )
@@ -391,8 +392,11 @@ class TestRiskBreach:
         assert findings[0].subject == "max_leverage"
         assert findings[0].detail["observed"] == "3.1"
         assert findings[0].detail["threshold"] == "2.0"
-        # The risk engine's own vocabulary survives verbatim.
+        # The risk engine's own vocabulary survives verbatim, as a plain string:
+        # the detail is Mapping[str, str], and an enum member there would print
+        # and serialize as something other than the string it compares equal to.
         assert findings[0].detail["risk_severity"] == "CRITICAL"
+        assert type(findings[0].detail["risk_severity"]) is str
         assert findings[0].severity is HealthSeverity.BREACH
 
 
@@ -482,7 +486,9 @@ class TestSimultaneousAndRecovery:
                 broker_connection=ConnectionStatus.FAILED,
                 executions=(ExecutionObservation("o-1", 0.0, 100.0),),
                 observed_positions={"a": Decimal("99")},
-                risk_violations=(RiskViolation("r", "d", "HIGH", Decimal("1"), Decimal("0")),),
+                risk_violations=(
+                    RiskViolation("r", "d", RiskSeverity.HIGH, Decimal("1"), Decimal("0")),
+                ),
                 state_expectations=(StateExpectation("serving", "a", "b"),),
             ),
         )
@@ -531,3 +537,95 @@ class TestNoRemediation:
     def test_a_negative_observation_instant_is_refused(self) -> None:
         with pytest.raises(LifecycleInputError, match="negative instant"):
             RuntimeObservation(observed_at=-1.0)
+
+
+# --------------------------------------------------------------------------- #
+# Over a window (ledger OFE-017)
+# --------------------------------------------------------------------------- #
+
+
+def _at(instant: float, **overrides: object) -> RuntimeObservation:
+    """A healthy observation at ``instant``, every clock reading relative to it."""
+
+    arguments: dict[str, object] = {
+        "observed_at": instant,
+        "last_market_data_at": instant - 5.0,
+        "last_heartbeat_at": instant - 1.0,
+        "executions": (ExecutionObservation("o-1", instant - 1.5, instant - 1.0),),
+    }
+    arguments.update(overrides)
+    return healthy_observation(**arguments)
+
+
+class TestHealthWindow:
+    def test_a_window_of_healthy_observations_is_healthy(self) -> None:
+        window = evaluate_health_window(
+            SPEC, [_at(NOW - 20.0), _at(NOW - 10.0), _at(NOW)], as_of=NOW, window_seconds=30.0
+        )
+
+        assert window.status is HealthStatus.HEALTHY
+        assert [report.evaluated_at for report in window.reports] == [980.0, 990.0, 1000.0]
+        assert (window.start, window.end) == (970.0, NOW)
+        assert window.occurrences == {} and window.persistent == ()
+        assert window.never_evaluated == ()
+
+    def test_only_observations_inside_the_window_are_judged(self) -> None:
+        stale = _at(NOW - 40.0, last_market_data_at=NOW - 400.0)  # outside: ignored
+        window = evaluate_health_window(
+            SPEC, [_at(NOW), stale, _at(NOW - 30.0)], as_of=NOW, window_seconds=30.0
+        )
+
+        assert [report.evaluated_at for report in window.reports] == [NOW], "start is exclusive"
+        assert window.status is HealthStatus.HEALTHY
+
+    def test_a_condition_found_at_every_instant_is_persistent_and_a_blip_is_counted(self) -> None:
+        stale = {"last_market_data_at": 0.0}
+        reconnecting = {"broker_connection": ConnectionStatus.RECONNECTING}
+        observations = [
+            _at(NOW - 20.0, **stale),
+            _at(NOW - 10.0, **stale, **reconnecting),
+            _at(NOW, **stale),
+        ]
+
+        window = evaluate_health_window(SPEC, observations, as_of=NOW, window_seconds=30.0)
+
+        assert window.status is HealthStatus.BREACHED
+        assert window.persistent == (HealthCategory.STALE_DATA,)
+        assert window.occurrences == {
+            HealthCategory.STALE_DATA: 3,
+            HealthCategory.BROKER_DISCONNECT: 1,
+        }
+
+    def test_an_empty_window_is_unknown_not_healthy(self) -> None:
+        window = evaluate_health_window(SPEC, [_at(NOW - 100.0)], as_of=NOW, window_seconds=30.0)
+
+        assert window.reports == ()
+        assert window.status is HealthStatus.UNKNOWN
+        assert window.never_evaluated == tuple(HealthCategory)
+
+    def test_a_category_nobody_reported_on_in_the_window_keeps_it_unknown(self) -> None:
+        silent = [_at(NOW - 10.0, broker_connection=None), _at(NOW, broker_connection=None)]
+
+        window = evaluate_health_window(SPEC, silent, as_of=NOW, window_seconds=30.0)
+
+        assert window.never_evaluated == (HealthCategory.BROKER_DISCONNECT,)
+        assert window.status is HealthStatus.UNKNOWN
+
+    def test_it_reads_no_clock_and_is_repeatable(self) -> None:
+        observations = [_at(NOW - 10.0, last_heartbeat_at=0.0), _at(NOW)]
+
+        first = evaluate_health_window(SPEC, observations, as_of=NOW, window_seconds=30.0)
+        second = evaluate_health_window(SPEC, observations[::-1], as_of=NOW, window_seconds=30.0)
+
+        assert first == second
+        assert first.status is HealthStatus.BREACHED
+
+    @pytest.mark.parametrize(
+        ("as_of", "window_seconds"),
+        [(float("nan"), 30.0), (NOW, 0.0), (NOW, -1.0), (NOW, float("inf"))],
+    )
+    def test_a_malformed_window_is_refused(self, as_of: float, window_seconds: float) -> None:
+        from alphalab.lifecycle.exceptions import LifecycleInputError
+
+        with pytest.raises(LifecycleInputError):
+            evaluate_health_window(SPEC, [], as_of=as_of, window_seconds=window_seconds)

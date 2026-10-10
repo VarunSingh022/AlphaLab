@@ -1,4 +1,13 @@
-"""Estimates strategy degradation at institutional capital scales."""
+"""The scale a finished run traded at -- not a capacity estimate.
+
+Capacity is the capital at which a strategy's own trading runs into the market,
+and it cannot be read from a return series and a trade count. Until v3.12 this
+module tried: it degraded the CAGR by 0.01, 0.05 and 0.15 per ten thousand
+trades at three fixed AUM levels and scored the survival at the middle one
+(ledger RES-001) -- a table with no liquidity in it. The estimate is
+:mod:`alphalab.execution.capacity`'s, which reads the liquidity and impact
+models a fill is priced with. This report keeps the run's own scale.
+"""
 
 from dataclasses import dataclass
 
@@ -8,38 +17,32 @@ from alphalab.research.protocol import ResearchPayload
 
 @dataclass(frozen=True, slots=True)
 class CapacityReport:
+    """The capital the run was sized against, what it earned, and how often it traded.
+
+    Attributes:
+        base_aum: The assets the run was sized against.
+        base_cagr: Its compound annual growth, annualized with the payload's
+            periods; ``None`` without returns.
+        trade_count: How many trades it made.
+        trades_per_year: Trades per year of returns; ``None`` without returns.
+    """
+
     base_aum: float
-    base_cagr: float
-    cagr_at_10m: float
-    cagr_at_100m: float
-    cagr_at_1b: float
-    capacity_score: float
+    base_cagr: float | None
+    trade_count: int
+    trades_per_year: float | None
 
 
 def estimate_capacity(payload: ResearchPayload) -> CapacityReport:
-    """Projects performance decay due to slippage and market impact at scale."""
-    base_cagr = calculate_cagr(payload.returns)
-    trade_count = len(payload.trades)
+    """The run's scale; see the module docstring for why nothing more."""
 
-    if trade_count == 0:
-        return CapacityReport(payload.aum, base_cagr, 0.0, 0.0, 0.0, 0.0)
-
-    # Heuristic: Higher frequency = higher slippage scaling penalty
-    penalty_factor = trade_count / 10000.0
-
-    # Deterministic degradation
-    cagr_10m = max(0.0, base_cagr - (0.01 * penalty_factor))
-    cagr_100m = max(0.0, base_cagr - (0.05 * penalty_factor))
-    cagr_1b = max(0.0, base_cagr - (0.15 * penalty_factor))
-
-    # Capacity score based on survival at 100M
-    score = max(0.0, min(100.0, (cagr_100m / (base_cagr + 0.0001)) * 100.0))
-
+    observations = len(payload.returns)
+    years = observations / payload.periods_per_year
     return CapacityReport(
-        payload.aum,
-        round(base_cagr, 4),
-        round(cagr_10m, 4),
-        round(cagr_100m, 4),
-        round(cagr_1b, 4),
-        round(score, 2),
+        base_aum=payload.aum,
+        base_cagr=(
+            calculate_cagr(payload.returns, payload.periods_per_year) if observations else None
+        ),
+        trade_count=len(payload.trades),
+        trades_per_year=len(payload.trades) / years if observations else None,
     )

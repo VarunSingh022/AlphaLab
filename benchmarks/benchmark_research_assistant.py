@@ -13,8 +13,8 @@ from alphalab.research_assistant import (
 
 
 def _evaluator(candidate: StrategyCandidate) -> Mapping[str, float]:
-    fast = candidate.parameters["fast"]
-    slow = candidate.parameters["slow"]
+    fast = float(candidate.parameters["fast"])
+    slow = float(candidate.parameters["slow"])
     return {"sharpe": -abs(fast - 25.0) - abs(slow - 75.0), "turnover": fast + slow}
 
 

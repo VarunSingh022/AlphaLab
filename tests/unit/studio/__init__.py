@@ -1,1 +1,0 @@
-"""Strategy Studio unit tests."""

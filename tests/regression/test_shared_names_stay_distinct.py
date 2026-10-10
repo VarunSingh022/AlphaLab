@@ -10,6 +10,7 @@ Nothing here is a fix. Every entry is a decision to keep two things apart.
 """
 
 import dataclasses
+import importlib
 import inspect
 from collections.abc import Sequence
 from decimal import Decimal
@@ -112,27 +113,26 @@ def test_only_the_accounting_engine_is_reachable_from_the_execution_path() -> No
 
 
 # --------------------------------------------------------------------------- #
-# 3. `optimizer` and `portfolio_optimizer` -- two searches, two subjects
+# 3. `optimizer` and `portfolio_optimizer` -- one left (v3.12)
 # --------------------------------------------------------------------------- #
 
 
-def test_the_two_optimizer_packages_do_not_overlap() -> None:
-    """``optimizer`` searches *parameters*; ``portfolio_optimizer`` sets *weights*.
+def test_parameter_search_has_one_home_and_construction_another() -> None:
+    """Until v3.12 ``optimizer`` searched *parameters* beside ``portfolio_optimizer``'s *weights*.
 
-    The similar names invite a merge. The subjects are unrelated:
-    ``optimizer`` runs trials over a search space and scores each with an
-    objective (Sharpe, Calmar, drawdown); ``portfolio_optimizer`` solves for
-    asset weights under constraints. Neither imports the other, and neither has
-    a function the other could use.
+    The similar names invited a merge, and the two never overlapped. v3.12 went
+    further (ledger SCF-003): parameter search has one authority,
+    ``research.parameter_sweep`` over a ``research.ParameterSpace``, and the
+    ``optimizer`` package -- a second search beside it -- is gone. Weights stay
+    ``portfolio_optimizer``'s.
     """
 
-    import alphalab.optimizer as parameter_search
     import alphalab.portfolio_optimizer as portfolio_construction
+    import alphalab.research as research
 
-    shared = set(parameter_search.__all__) & set(portfolio_construction.__all__)
-    assert shared == set(), f"the two optimizer packages export {shared} in common"
-
-    assert {"generate_grid_search", "Parameter", "TrialResult"} <= set(parameter_search.__all__)
+    with pytest.raises(ImportError):
+        importlib.import_module("alphalab.optimizer")
+    assert {"ParameterSpace", "parameter_sweep"} <= set(research.__all__)
     assert {"optimize_minimum_variance", "WeightConstraints"} <= set(portfolio_construction.__all__)
 
 
@@ -142,11 +142,14 @@ def test_the_two_optimizer_packages_do_not_overlap() -> None:
 
 
 def test_the_connector_package_routes_the_canonical_types() -> None:
-    """v2.3 collapsed the duplicate models; the historical names are aliases.
+    """v2.3 collapsed the duplicate models; v3.13 removed the historical names.
 
     ``ARCHITECTURE.md`` listed "broker / brokers overlap" as an open gap
-    deferred to v2.3. v2.3 closed it and the entry was never removed, which the
-    v2.16 audit corrected. These identities are what "closed" means.
+    deferred to v2.3. v2.3 closed it and kept the connector's historical names
+    as aliases; v3.13 removed them (ledger API-001), because an alias kept one
+    name meaning two things -- ``brokers.ExecutionReport`` was a broker
+    execution, ``execution.ExecutionReport`` a fill report. The connector
+    exports the canonical types under their canonical names.
     """
 
     import alphalab.brokers as connectors
@@ -155,11 +158,14 @@ def test_the_connector_package_routes_the_canonical_types() -> None:
     from alphalab.broker.order import BrokerOrderStatus
     from alphalab.broker.position import BrokerPosition
 
-    assert connectors.AccountSnapshot is BrokerAccount
-    assert connectors.ExecutionReport is BrokerExecution
-    assert connectors.PositionSnapshot is BrokerPosition
-    assert connectors.OrderStatus is BrokerOrderStatus
-    assert connectors.AssetClass is AssetType
+    assert connectors.BrokerAccount is BrokerAccount
+    assert connectors.BrokerExecution is BrokerExecution
+    assert connectors.BrokerPosition is BrokerPosition
+    assert connectors.BrokerOrderStatus is BrokerOrderStatus
+    for historical in ("AccountSnapshot", "ExecutionReport", "PositionSnapshot", "OrderStatus"):
+        assert not hasattr(connectors, historical)
+    assert not hasattr(connectors, "AssetClass"), "the asset vocabulary is core's AssetType"
+    assert AssetType.__module__ == "alphalab.core.enums"
 
 
 def test_exactly_one_public_broker_protocol_exists() -> None:
@@ -459,35 +465,36 @@ def test_no_second_portfolio_model_came_back_with_the_removed_kernel() -> None:
 
 
 def test_the_strategy_declaration_has_one_definition_and_lifecycle_takes_it() -> None:
-    """It reads like an upward dependency. It is the single-model rule.
+    """One strategy-declaration type, owned by ``alphalab.strategy`` (v3.11).
 
-    ``alphalab.lifecycle`` and ``alphalab.experiment_tracking`` import from
-    ``alphalab.studio``, which the layer sketch in ``ARCHITECTURE.md`` places
-    above them. The alternative is worse and is the defect this repository keeps
-    removing: a second strategy-declaration type, so a candidate produced by
-    ``research_assistant`` would need translating before it could reach a
-    strategy version. ``register_strategy``'s own docstring says so.
+    Until v3.11 ``StrategyDefinition`` lived in ``alphalab.studio``, so the
+    lifecycle imported from a package the layer sketch placed above it. Studio
+    is gone (SCF-001) and the record lives with the strategy runtime. The rule
+    it kept is unchanged: there is one declaration, and a candidate produced by
+    ``research_assistant`` reaches a strategy version without being translated.
 
-    What makes it safe is that ``StrategyDefinition`` is not orchestration. It
-    is a frozen dataclass of author metadata and parameter bounds that imports
-    nothing but the standard library, so taking it drags no Studio machinery
-    along. The two ``studio_bridge`` modules are named for exactly this seam.
+    The declaration stays a leaf inside its package -- the standard library,
+    ``alphalab.common`` and the package's own exceptions -- so taking it drags no
+    runtime machinery into the lifecycle.
     """
 
-    import alphalab.studio.strategy as declaration
+    import alphalab.strategy.definition as declaration
     from alphalab.lifecycle.registration import register_strategy
-    from alphalab.studio.strategy import StrategyDefinition
+    from alphalab.research_assistant import to_strategy_definition
+    from alphalab.strategy import StrategyDefinition
 
-    source = inspect.getsource(declaration)
-    assert "from alphalab." not in source, (
-        "the strategy declaration must stay a leaf, or importing it would drag "
-        "the Studio engine into the lifecycle"
-    )
+    imported = {
+        line.split()[1]
+        for line in inspect.getsource(declaration).splitlines()
+        if line.startswith("from alphalab.")
+    }
+    assert imported <= {"alphalab.common.types", "alphalab.strategy.exceptions"}, imported
 
     import typing
 
     hints = typing.get_type_hints(register_strategy)
     assert hints["definition"] is StrategyDefinition
+    assert typing.get_type_hints(to_strategy_definition)["return"] is StrategyDefinition
 
     # And there is no second one waiting to be introduced.
     import alphalab.lifecycle as lifecycle
@@ -534,51 +541,27 @@ def test_the_two_sources_are_a_protocol_and_a_receipt() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_scheduler_calendar_and_the_market_calendar_answer_different_questions() -> None:
-    """``TradingCalendar`` asks "should this job fire today?" over UTC weekends
-    and an optional holiday hook. It knows nothing about venues, sessions or
-    local time, and deliberately so -- a scheduler that had to resolve an
-    exchange's session to decide whether to run would need reference data it
-    has no business holding.
+def test_there_is_one_calendar_and_it_is_the_markets() -> None:
+    """Until v3.10 the scheduler kept a calendar of its own.
 
-    ``MarketCalendar`` asks "was this venue open at this instant?", which needs
-    the exchange's timezone, its session windows, its lunch break and its half
-    days. Answering the scheduler's question with it would require every caller
-    to declare a venue; answering the market's question with the scheduler's
-    would put every bar in UTC and misplace every session outside it.
+    ``TradingCalendar`` answered "should this job fire today?" over UTC weekends
+    with Saturday and Sunday hard-coded, and aligned sessions to UTC midnight --
+    a second answer to a calendar question, wrong for every market whose week
+    or day is not UTC's. It was removed (ledger DAT-006): ``MarketCalendar``,
+    which knows the venue's zone, sessions, lunch breaks and half days, is the
+    one calendar, and a job tied to a market takes its instants from there.
     """
 
+    import importlib.util
+
+    import alphalab.scheduler as scheduler
     from alphalab.data.calendar import MarketCalendar
-    from alphalab.scheduler.calendar import TradingCalendar
 
-    market: type = MarketCalendar
-    assert market is not TradingCalendar
-
-    assert "timezone_name" in MarketCalendar.__dataclass_fields__
-    assert not hasattr(TradingCalendar, "__dataclass_fields__"), (
-        "the scheduler's is stateless utilities, not a declared calendar"
-    )
-
-    scheduler_members = {name for name in dir(TradingCalendar) if not name.startswith("_")}
-    market_members = {name for name in dir(MarketCalendar) if not name.startswith("_")}
-
-    # They share exactly one name, and it takes different things and means
-    # different things in each. The scheduler's reads an instant and answers
-    # about the UTC week; the market's reads a *local date* and answers about a
-    # venue. A caller passing a timestamp to the market one gets a type error
-    # rather than a plausible wrong answer, which is what keeps the collision
-    # harmless.
-    assert scheduler_members & market_members == {"is_trading_day"}
-
-    scheduler_signature = inspect.signature(TradingCalendar.is_trading_day)
-    market_signature = inspect.signature(MarketCalendar.is_trading_day)
-    assert list(scheduler_signature.parameters) == ["timestamp", "holiday_calendar"]
-    assert list(market_signature.parameters) == ["self", "day"]
-    assert market_signature.parameters["day"].annotation == "date"
-
-    # And the market one can express what the scheduler's cannot.
-    assert MarketCalendar.continuous("X", "UTC").is_continuous
-    assert not hasattr(TradingCalendar, "continuous")
+    assert importlib.util.find_spec("alphalab.scheduler.calendar") is None
+    assert not hasattr(scheduler, "TradingCalendar")
+    assert not hasattr(scheduler, "HolidayCalendarProtocol")
+    # The market calendar keeps a week that is not UTC's.
+    assert MarketCalendar.continuous("X", "Asia/Riyadh").is_continuous
 
 
 # --------------------------------------------------------------------------- #
@@ -956,14 +939,16 @@ def test_the_feature_metadata_and_the_feature_definition_answer_different_questi
 
 
 def test_the_two_capacity_models_answer_different_questions() -> None:
-    """One degrades a CAGR. The other finds where the market pushes back.
+    """One reports the scale a run traded at. The other finds where the market pushes back.
 
     ``alphalab.research.capacity.estimate_capacity`` reads a
     :class:`~alphalab.research.protocol.ResearchPayload` -- a return series, a
-    trade count and an AUM -- and reports what the CAGR would be at three fixed
-    capital levels. It sees no prices, no volumes and no positions, so it cannot
-    know which *name* would bind first or why; the degradation is a stated
-    heuristic on trade frequency.
+    trade count and an AUM -- and reports the run's own scale. It sees no
+    prices, no volumes and no positions, so it cannot know which *name* would
+    bind first or why. Until v3.12 it degraded the CAGR at three fixed capital
+    levels by a heuristic on trade frequency; that table went with the v1
+    engine's other uncalibrated scores (ledger RES-001), and the estimate is
+    this other module's.
 
     ``alphalab.execution.capacity.CapacityModel`` reads liquidity: a price, an
     average daily volume and a weight per name, a turnover, a participation
@@ -987,12 +972,13 @@ def test_the_two_capacity_models_answer_different_questions() -> None:
     assert {"participation_limit", "turnover", "impact_model"} <= execution_inputs
     assert research_inputs & execution_inputs == set()
 
-    heuristic = set(CapacityReport.__dataclass_fields__)
+    scale = set(CapacityReport.__dataclass_fields__)
     measured = set(CapacityResult.__dataclass_fields__)
 
-    assert {"cagr_at_10m", "cagr_at_100m", "capacity_score"} <= heuristic
+    assert {"base_aum", "base_cagr", "trade_count"} <= scale
+    assert not {"cagr_at_10m", "cagr_at_100m", "capacity_score"} & scale
     assert {"capacity", "constraint", "binding_asset_id", "assumptions"} <= measured
-    assert heuristic & measured == set(), "the two reports share no field"
+    assert scale & measured == set(), "the two reports share no field"
 
 
 def test_only_the_execution_capacity_model_reads_liquidity() -> None:
@@ -1017,8 +1003,9 @@ def test_the_two_stress_surfaces_shock_different_objects() -> None:
     """One perturbs a curve of numbers. The other shocks positions.
 
     ``alphalab.research.stress.apply_stress_tests`` edits a **return series**:
-    it subtracts a tenth from one observation and rescales the rest, then
-    measures the drawdown of the result. It never sees a position, a price or a
+    it adds a declared shock to one observation and rescales the rest by
+    declared multipliers (literals until v3.12, ledger RES-001), then measures
+    the drawdown of the result. It never sees a position, a price or a
     currency, so it cannot express "energy fell twenty percent" or "the euro
     fell against the dollar" at all.
 
@@ -1037,13 +1024,13 @@ def test_the_two_stress_surfaces_shock_different_objects() -> None:
     research_inputs = set(inspect.signature(apply_stress_tests).parameters)
     scenario_inputs = set(inspect.signature(Scenario.apply).parameters)
 
-    assert research_inputs == {"payload"}
+    assert research_inputs == {"payload", "shock_return", "gain_multiplier", "loss_multiplier"}
     assert scenario_inputs == {"self", "state"}
 
     curve_report = set(StressReport.__dataclass_fields__)
     book_report = set(ScenarioResult.__dataclass_fields__)
 
-    assert {"flash_crash_drawdown", "stress_survival_score"} <= curve_report
+    assert {"shock_drawdown", "liquidity_drawdown"} <= curve_report
     assert {"base_state", "shocked_state", "change_by_asset"} <= book_report
     assert curve_report & book_report == set()
 
@@ -1189,7 +1176,19 @@ def test_the_three_margins_answer_three_questions_from_three_inputs() -> None:
     published = set(inspect.signature(position_margin).parameters)
 
     assert "cash_ledger" in account and "specifications" not in account
-    assert liquidation == {"entry_price", "side", "leverage", "maintenance_margin_rate"}
+    # Since v3.13 also the notional maintenance is charged on, the size, and
+    # the fees and funding against the margin -- still a position's terms and
+    # a rate, never a book or a published figure.
+    assert liquidation == {
+        "entry_price",
+        "side",
+        "leverage",
+        "maintenance_margin_rate",
+        "basis",
+        "quantity",
+        "fees",
+        "funding",
+    }
     assert "specifications" in published and "leverage" not in published
 
     # The published one carries an amount and a currency; the others carry rates.
@@ -1306,7 +1305,7 @@ def test_the_two_currency_breakdowns_measure_different_things() -> None:
 
 def test_the_three_lifecycle_state_machines_ask_three_questions() -> None:
     """``ModelStage`` asks whether a *registered artifact* may be promoted.
-    ``strategy.state.LifecycleState`` asks whether an *instance in a session* is
+    ``strategy.state.StrategyStatus`` asks whether an *instance in a session* is
     running. ``StrategyLifecycleStage`` asks how far a *strategy* has travelled
     from research to live money.
 
@@ -1323,7 +1322,7 @@ def test_the_three_lifecycle_state_machines_ask_three_questions() -> None:
         StrategyLifecycleStage,
     )
     from alphalab.model_registry.registry import ModelStage
-    from alphalab.strategy.state import LifecycleState as InstanceState
+    from alphalab.strategy.state import StrategyStatus as InstanceState
 
     progression = {stage.name for stage in StrategyLifecycleStage}
     promotable = {stage.name for stage in ModelStage}
@@ -1623,10 +1622,11 @@ def test_an_engine_event_and_an_information_event_are_different_things() -> None
 
 
 def test_the_three_regime_shaped_things_answer_three_questions() -> None:
-    """``research.analyze_regimes`` (v1) **scores a finished run's returns** by
-    labels somebody supplied on the payload -- it detects nothing and blends a
-    score. ``research.classify_regimes`` (v3.7) **detects** labels from signals
-    under a declared rule with a reconstructable state, and scores nothing.
+    """``research.analyze_regimes`` (v1) **measures a finished run's returns** by
+    labels somebody supplied on the payload -- it detects nothing (and, until
+    v3.12, blended a score; ledger RES-001). ``research.classify_regimes``
+    (v3.7) **detects** labels from signals under a declared rule with a
+    reconstructable state, and measures nothing.
     ``FeatureKind.VOLATILITY_REGIME`` (v3.2) is **a number** -- short over long
     volatility -- which a detector may read as its signal.
 
@@ -1641,7 +1641,10 @@ def test_the_three_regime_shaped_things_answer_three_questions() -> None:
 
     assert "payload" in _inspect.signature(analyze_regimes).parameters
     assert "signals" in _inspect.signature(classify_regimes).parameters
-    assert "regime_generalisation_score" in {f.name for f in dataclasses.fields(RegimeReport)}
+    assert {f.name for f in dataclasses.fields(RegimeReport)} == {
+        "observations_by_regime",
+        "sharpe_by_regime",
+    }
     assert FeatureKind.VOLATILITY_REGIME.name == "VOLATILITY_REGIME"
 
 
@@ -1760,7 +1763,7 @@ def test_the_three_new_states_are_not_the_runtime_state() -> None:
     assert "status" in runtime and "status" not in learned
     assert "lineage" in learned and "lineage" not in detector
     assert "candidate" in detector
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3
+    assert PIPELINE_SNAPSHOT_SCHEMA == 7  # moved by v3.10 to v3.13, not by adaptive state
 
 
 # --------------------------------------------------------------------------- #
@@ -2119,7 +2122,7 @@ def test_the_capability_summary_is_a_projection_of_the_capability_declaration() 
 def test_the_five_execution_report_shaped_things_are_five_things() -> None:
     """``execution.ExecutionReport`` is a fill the *portfolio* consumes.
     ``broker.BrokerExecution`` (``brokers.ExecutionReport`` under its historical
-    name) is a fill *as the venue reported it*, keyed by the venue's id.
+    name until v3.13) is a fill *as the venue reported it*, keyed by the venue's id.
     ``broker.lifecycle.VenueEvent`` (v3.9) is *any* normalized venue report -- an
     acknowledgement, a rejection, an amendment, a disconnect -- and carries a
     ``BrokerExecution`` only when it is a fill. ``execution.events.ExecutionEvent``
@@ -2138,7 +2141,9 @@ def test_the_five_execution_report_shaped_things_are_five_things() -> None:
     from alphalab.execution.events import ExecutionEvent
     from alphalab.execution.report import ExecutionReport
 
-    assert brokers.ExecutionReport is BrokerExecution
+    # Since v3.13 the connector exports it under its canonical name only.
+    assert brokers.BrokerExecution is BrokerExecution
+    assert not hasattr(brokers, "ExecutionReport")
     book_fill: type = ExecutionReport
     assert book_fill is not BrokerExecution
     assert {"execution_id", "venue", "currency", "strategy_id"} <= {

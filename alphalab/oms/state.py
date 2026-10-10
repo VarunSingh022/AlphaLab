@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.persistent_map import PersistentSet
+from alphalab.common.persistent_map import PersistentMap, PersistentSet
 from alphalab.oms.book import OrderBook
 from alphalab.oms.events import OMSEvent
 from alphalab.oms.ids import OrderId
@@ -27,6 +27,18 @@ class OMSState:
     completed_orders: PersistentSet[OrderId] = field(default_factory=PersistentSet)
     history: AppendOnlyLog[OMSEvent] = field(default_factory=AppendOnlyLog)
     events: AppendOnlyLog[OMSEvent] = field(default_factory=AppendOnlyLog)
+    #: ``active_orders`` indexed by asset, kept with it by the engine and rebuilt
+    #: on restore -- derived, so never persisted. What lets a run find the orders
+    #: working in one asset without walking every working order (PRF-001).
+    working_by_asset: PersistentMap[str, PersistentSet[OrderId]] = field(
+        default_factory=PersistentMap, compare=False, repr=False
+    )
+
+    def working_orders_for(self, asset_id: str) -> tuple[OrderId, ...]:
+        """The orders still working in ``asset_id``, in the order they were placed."""
+
+        working = self.working_by_asset.get(asset_id)
+        return tuple(working) if working is not None else ()
 
     def __serializable__(self) -> Any:
         """Serialize through the explicit :mod:`alphalab.oms.snapshot` projection.

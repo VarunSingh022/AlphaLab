@@ -34,7 +34,7 @@ Five defining inputs
     and a fingerprint that could not tell them apart would be claiming a
     reproducibility it does not have.
 ``parameters``
-    :attr:`~alphalab.studio.strategy.StrategyDefinition.parameters`, read from
+    :attr:`~alphalab.strategy.definition.StrategyDefinition.parameters`, read from
     the registered version by :func:`fingerprint_for_version` rather than typed
     again -- ADR-0017's lesson.
 ``research``
@@ -78,6 +78,7 @@ from enum import Enum, auto
 from types import MappingProxyType
 from typing import Final, Protocol
 
+from alphalab.common.types import ParamValue
 from alphalab.common.version import __version__
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.strategy_version import StrategyVersion
@@ -101,6 +102,7 @@ __all__ = [
     "DependencyCompleteness",
     "DependencyManifest",
     "DependencyPin",
+    "EngineBuild",
     "EngineIdentity",
     "ExecutionAlgorithmIdentity",
     "ResearchConfiguration",
@@ -497,9 +499,10 @@ class EngineIdentity:
 def running_engine() -> EngineIdentity:
     """The AlphaLab running in this interpreter, as an identity to record.
 
-    Reads :data:`alphalab.__version__`, which is the installed distribution's
-    metadata version (falling back to the version declared in source when the
-    package is not installed). That is an *observation of this interpreter*: a
+    Reads :data:`alphalab.__version__`, which is the version the imported source
+    declares (``alphalab/common/_version.py``, the one the build reads too) -- not the
+    installed distribution's metadata, which describes whichever install the
+    interpreter found (ledger REP-001). That is an *observation of this interpreter*: a
     caller records it when fingerprinting or producing a result here, and
     verification later compares against what was recorded, never against
     whatever happens to be installed then. Nothing in this module calls it on a
@@ -507,6 +510,51 @@ def running_engine() -> EngineIdentity:
     """
 
     return EngineIdentity(name="alphalab", version=__version__)
+
+
+# --------------------------------------------------------------------------- #
+# The engine build (v3.11)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class EngineBuild:
+    """What a version string cannot say about the engine that ran (ledger REP-002).
+
+    Two builds of one version -- a local patch, the commits between two
+    releases -- report the same :class:`EngineIdentity` and can compute
+    different results. And every local-time computation -- a session's bounds,
+    a trading day, a daily-loss window -- depends on the IANA time-zone
+    database the host carries, which differs between machines without anything
+    recording which one was used (ledger DAT-007).
+
+    Observed by :func:`alphalab.lifecycle.environment.running_build`, recorded
+    in a :class:`~alphalab.lifecycle.reproducibility.ReproducibilityManifest`, and
+    deliberately **not** in a strategy fingerprint: a fingerprint identifies the
+    strategy, and a strategy does not become a different strategy because the
+    engine was patched. A manifest identifies a *result*, which might.
+
+    Attributes:
+        source_digest: SHA-256 over every ``.py`` file of the imported
+            ``alphalab`` package, each as ``<relative path> NUL <sha256 of its
+            bytes>``, sorted by path. Byte-exact, so a changed comment changes
+            it; that is the price of a digest that cannot miss a changed line.
+        tz_database: The IANA release of the time-zone database ``zoneinfo``
+            reads (``"2025b"``), or ``None`` when it cannot be discovered. See
+            :func:`~alphalab.lifecycle.environment.tz_database_version`.
+    """
+
+    source_digest: str
+    tz_database: str | None
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"[0-9a-f]{64}", self.source_digest):
+            raise LifecycleInputError(
+                f"EngineBuild.source_digest must be a SHA-256 hex digest, got "
+                f"{self.source_digest!r}."
+            )
+        if self.tz_database is not None:
+            _require_text(self.tz_database, "EngineBuild.tz_database")
 
 
 # --------------------------------------------------------------------------- #
@@ -619,7 +667,7 @@ def research_configuration_with_adaptive(
     so :func:`canonical_fingerprint_key` is unchanged and every v3.6 fingerprint
     still verifies; a strategy fingerprinted this way changes identity when its
     learning rule, cadence or starting state does. Numeric parameters a strategy
-    reads from its :class:`~alphalab.studio.strategy.StrategyDefinition` are in
+    reads from its :class:`~alphalab.strategy.definition.StrategyDefinition` are in
     the fingerprint already, through its parameters.
 
     Raises:
@@ -882,7 +930,7 @@ class StrategyFingerprint:
         fingerprint: ``"<name>@<sha256>"``, from
             :func:`derive_strategy_fingerprint`.
         name: The strategy line.
-        strategy_id: The :attr:`~alphalab.studio.strategy.StrategyDefinition.strategy_id`
+        strategy_id: The :attr:`~alphalab.strategy.definition.StrategyDefinition.strategy_id`
             a class registry resolves to code and a run executes under. Part of
             the identity, and what lets a manifest or a certification check that
             a run executed *this* strategy.
@@ -898,9 +946,21 @@ class StrategyFingerprint:
     strategy_id: str
     code: CodeIdentity
     dependencies: DependencyManifest
-    parameters: Mapping[str, float]
+    parameters: Mapping[str, ParamValue]
     research: ResearchConfiguration
     engine: EngineIdentity
+
+    @property
+    def evidence_kind(self) -> str:
+        """What kind of evidence this is, for an evidence store (ledger OFE-016)."""
+
+        return "strategy_fingerprint"
+
+    @property
+    def evidence_identity(self) -> str:
+        """What identifies it there: its ``fingerprint``."""
+
+        return self.fingerprint
 
     @property
     def digest(self) -> str:
@@ -918,14 +978,15 @@ def _require_name(name: str) -> None:
         )
 
 
-def _require_parameters(parameters: Mapping[str, float]) -> None:
+def _require_parameters(parameters: Mapping[str, ParamValue]) -> None:
     for key, value in parameters.items():
         _require_text(key, "A parameter name")
-        if isinstance(value, bool) or not isinstance(value, int | float):
+        if not isinstance(value, str | int | float | bool):
             raise LifecycleInputError(
-                f"Parameter {key!r} is {value!r}; a strategy parameter is a number."
+                f"Parameter {key!r} is {value!r}; a strategy parameter is a string, an "
+                "integer, a float or a boolean (v3.11 widened it from a number)."
             )
-        if not math.isfinite(value):
+        if isinstance(value, float) and not math.isfinite(value):
             raise LifecycleInputError(
                 f"Parameter {key!r} is {value!r}. A non-finite parameter is not equal to "
                 "itself, so no identity built on it could ever verify."
@@ -937,7 +998,7 @@ def canonical_fingerprint_key(
     strategy_id: str,
     code: CodeIdentity,
     dependencies: DependencyManifest,
-    parameters: Mapping[str, float],
+    parameters: Mapping[str, ParamValue],
     research: ResearchConfiguration,
     engine: EngineIdentity,
 ) -> str:
@@ -987,7 +1048,7 @@ def derive_strategy_fingerprint(
     strategy_id: str,
     code: CodeIdentity,
     dependencies: DependencyManifest,
-    parameters: Mapping[str, float],
+    parameters: Mapping[str, ParamValue],
     research: ResearchConfiguration,
     engine: EngineIdentity,
 ) -> str:
@@ -1015,7 +1076,7 @@ def build_fingerprint(
     strategy_id: str,
     code: CodeIdentity,
     dependencies: DependencyManifest,
-    parameters: Mapping[str, float],
+    parameters: Mapping[str, ParamValue],
     research: ResearchConfiguration,
     engine: EngineIdentity,
 ) -> StrategyFingerprint:
@@ -1087,7 +1148,9 @@ def verify_fingerprint(fingerprint: StrategyFingerprint) -> bool:
     return fingerprint.fingerprint == derived
 
 
-def differing_parameters(left: Mapping[str, float], right: Mapping[str, float]) -> tuple[str, ...]:
+def differing_parameters(
+    left: Mapping[str, ParamValue], right: Mapping[str, ParamValue]
+) -> tuple[str, ...]:
     """The parameter names whose values differ between two parameter sets, sorted.
 
     Compared as :func:`canonical_fingerprint_key` renders them -- by ``repr`` --

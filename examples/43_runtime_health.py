@@ -79,7 +79,7 @@ from alphalab.risk.limits import (
     PositionLimit,
     RiskLimits,
 )
-from alphalab.risk.models import RiskViolation
+from alphalab.risk.models import RiskSeverity, RiskViolation
 
 #: The instant every observation below is *for*. Supplied, never read from a
 #: clock: a health report that cannot be re-evaluated to the same answer a year
@@ -96,7 +96,7 @@ SPECIFICATION = build_specification(
         exposure=ExposureLimit(Decimal("1500000"), Decimal("900000")),
         leverage=LeverageLimit(Decimal("2")),
         margin=MarginLimit(Decimal("0.5")),
-        daily_loss=DailyLossLimit(Decimal("25000")),
+        daily_loss=DailyLossLimit(Decimal("25000"), "America/New_York"),
         drawdown=DrawdownLimit(Decimal("0.15")),
     ),
     capital=CapitalPolicy("ACC-EU-EQUITY", "USD", Decimal("1000000"), ("USD",)),
@@ -239,7 +239,7 @@ def main() -> None:
             RiskViolation(
                 rule="max_leverage",
                 description="gross exposure 2.4x against a 2.0x cap",
-                severity="CRITICAL",
+                severity=RiskSeverity.CRITICAL,
                 current_value=Decimal("2.4"),
                 allowed_value=Decimal("2.0"),
             ),

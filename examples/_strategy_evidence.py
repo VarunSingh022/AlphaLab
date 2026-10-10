@@ -15,7 +15,7 @@ machine.
 
 The strategy's quantitative logic lives in :class:`MomentumStrategy` and reads
 its sizes from the parameters it is constructed with -- the
-:class:`~alphalab.studio.strategy.StrategyDefinition` parameters, handed over by
+:class:`~alphalab.strategy.StrategyDefinition` parameters, handed over by
 the :class:`~alphalab.strategy.registry.StrategyClassRegistry` factory. So the
 parameters a fingerprint hashes are the ones that actually drive the orders.
 """
@@ -32,6 +32,7 @@ from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.api import backtest, ingest_rows
 from alphalab.backtesting.state import BacktestResult
+from alphalab.common.types import ParamValue
 from alphalab.core.enums import AssetType
 from alphalab.data.cleaning import (
     CleaningPolicy,
@@ -45,7 +46,7 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
+from alphalab.data.time import BarStamp, TimeFrequency
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instruments
@@ -64,13 +65,13 @@ from alphalab.risk.limits import (
 )
 from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig
 from alphalab.runtime.run import ExecutionMode, RunConfig
+from alphalab.strategy import StrategyDefinition
 from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy, StrategyProtocol
 from alphalab.strategy.registry import StrategyClassRegistry, runtime_for
 from alphalab.strategy.state import RuntimeState
 from alphalab.strategy.supervisor import RuntimeSupervisor
-from alphalab.studio.strategy import StrategyDefinition
 
 STRATEGY_ID = "EX-MOMENTUM"
 SYMBOL = "EXM"
@@ -83,7 +84,12 @@ ASSET_ID = INSTRUMENT.asset_id
 INSTRUMENTS: InstrumentRegistry = register_instruments(InstrumentRegistry(), (INSTRUMENT,))
 
 NORMALIZATION = NormalizationPolicy(
-    venue="XNYS", currency="USD", timeframe=TimeFrame.D1, identity=INSTRUMENTS, provider=PROVIDER
+    bar_stamp=BarStamp.INTERVAL_END,
+    venue="XNYS",
+    currency="USD",
+    timeframe=TimeFrame.D1,
+    identity=INSTRUMENTS,
+    provider=PROVIDER,
 )
 
 CLEANING = CleaningPolicy(
@@ -136,7 +142,7 @@ LIMITS = RiskLimits(
     exposure=ExposureLimit(Decimal("1500000"), Decimal("1500000")),
     leverage=LeverageLimit(Decimal("1.5")),
     margin=MarginLimit(Decimal("1.00")),
-    daily_loss=DailyLossLimit(Decimal("50000")),
+    daily_loss=DailyLossLimit(Decimal("50000"), "America/New_York"),
     drawdown=DrawdownLimit(Decimal("0.10")),
 )
 
@@ -149,7 +155,7 @@ class MomentumStrategy(BaseStrategy):
     state example 48 shows certification catching.
     """
 
-    def __init__(self, strategy_id: str, parameters: Mapping[str, float]) -> None:
+    def __init__(self, strategy_id: str, parameters: Mapping[str, ParamValue]) -> None:
         self._strategy_id = strategy_id
         self._plan = {
             2: Decimal(str(parameters["entry"])),
@@ -172,7 +178,7 @@ class MomentumStrategy(BaseStrategy):
         )
 
 
-def momentum_factory(strategy_id: str, parameters: Mapping[str, float], /) -> StrategyProtocol:
+def momentum_factory(strategy_id: str, parameters: Mapping[str, ParamValue], /) -> StrategyProtocol:
     """How the class registry builds the strategy from its declared parameters."""
 
     return MomentumStrategy(strategy_id, parameters)
@@ -215,6 +221,8 @@ def ingest_prices(name: str = "EX-PRICES", closes: Sequence[Decimal] = CLOSES) -
             SourceKind.IN_MEMORY, "examples", _csv(rows), 1_717_200_000.0, "text/csv", "utf-8"
         ),
         frequency=TimeFrequency.DAILY,
+        # Stamped at each bar's close, the instant it was knowable.
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,

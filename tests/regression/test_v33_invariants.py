@@ -23,6 +23,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from decimal import Decimal
+from typing import TypedDict
 
 import pytest
 
@@ -40,6 +41,7 @@ from alphalab.analytics.decomposition import (
     portfolio_volatility,
     risk_contributions,
 )
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.core.contribution import StrategyContribution
 from alphalab.core.enums import Side
 from alphalab.execution.capacity import AssetLiquidity, CapacityModel
@@ -63,6 +65,14 @@ from alphalab.scenario import ScenarioExposure, ScenarioState, scenario
 # --------------------------------------------------------------------------- #
 # 1. Execution cost accounting reconciles, and nothing is counted twice
 # --------------------------------------------------------------------------- #
+
+
+class _Market(TypedDict):
+    """What a quoted market event shows the cost model, typed so ``**`` is checked."""
+
+    bid: Decimal
+    ask: Decimal
+    available_liquidity: Decimal
 
 
 def instrument(side: Side = Side.BUY) -> OrderInstruction:
@@ -97,7 +107,7 @@ def test_the_report_s_two_cost_figures_are_exactly_the_six_items() -> None:
     """The itemization and the report cannot drift apart."""
 
     sim = simulator()
-    kwargs = {
+    kwargs: _Market = {
         "bid": Decimal("49.95"),
         "ask": Decimal("50.05"),
         "available_liquidity": Decimal("4000"),
@@ -114,7 +124,7 @@ def test_a_price_embedded_cost_is_in_the_price_and_never_also_in_cash() -> None:
     """The double-count this separation exists to prevent."""
 
     sim = simulator()
-    kwargs = {
+    kwargs: _Market = {
         "bid": Decimal("49.95"),
         "ask": Decimal("50.05"),
         "available_liquidity": Decimal("4000"),
@@ -124,8 +134,10 @@ def test_a_price_embedded_cost_is_in_the_price_and_never_also_in_cash() -> None:
         instrument(), Decimal("100"), Decimal("50"), 1.0, FillStatus.FULL_FILL, **kwargs
     )
 
-    # The fill price carries exactly the three concessions, and no more.
-    assert report.fill_price == Decimal("50") + costs.price_concession
+    # The fill price carries exactly the three concessions, and no more -- summed
+    # in the pinned accounting context the cost model computes in (v3.10), so the
+    # comparison does not depend on this test's own decimal context.
+    assert report.fill_price == ACCOUNTING_CONTEXT.add(Decimal("50"), costs.price_concession)
     # The cash charge carries exactly the three cash costs, and no concession.
     assert report.commission == costs.commission + costs.fees + costs.tax
     assert costs.price_concession not in (report.commission,)
@@ -133,7 +145,7 @@ def test_a_price_embedded_cost_is_in_the_price_and_never_also_in_cash() -> None:
 
 def test_the_all_in_cost_is_the_two_channels_and_nothing_else() -> None:
     sim = simulator()
-    kwargs = {
+    kwargs: _Market = {
         "bid": Decimal("49.95"),
         "ask": Decimal("50.05"),
         "available_liquidity": Decimal("4000"),
@@ -144,10 +156,11 @@ def test_the_all_in_cost_is_the_two_channels_and_nothing_else() -> None:
         instrument(), quantity, Decimal("50"), 1.0, FillStatus.FULL_FILL, **kwargs
     )
 
-    paid = report.fill_price * quantity + report.commission
-    reference = Decimal("50") * quantity
+    ctx = ACCOUNTING_CONTEXT
+    paid = ctx.add(ctx.multiply(report.fill_price, quantity), report.commission)
+    reference = ctx.multiply(Decimal("50"), quantity)
 
-    assert paid - reference == costs.total(quantity)
+    assert ctx.subtract(paid, reference) == costs.total(quantity)
 
 
 def test_a_simulator_configured_the_pre_v33_way_is_unchanged() -> None:
@@ -175,7 +188,7 @@ def test_a_simulator_configured_the_pre_v33_way_is_unchanged() -> None:
 
 def test_a_sell_and_a_buy_pay_the_concession_in_opposite_directions() -> None:
     sim = simulator()
-    kwargs = {
+    kwargs: _Market = {
         "bid": Decimal("49.95"),
         "ask": Decimal("50.05"),
         "available_liquidity": Decimal("4000"),

@@ -44,8 +44,8 @@ from enum import Enum, auto
 from typing import Final
 
 from alphalab.data.exceptions import DataQualityError
-from alphalab.data.feed import Bar, CanonicalRecord
-from alphalab.data.validation import FindingKind, Severity, ValidationFinding
+from alphalab.data.feed import Bar, CanonicalRecord, Quote, Trade
+from alphalab.data.validation import FindingKind, Severity, ValidationFinding, duplicate_key
 
 __all__ = [
     "REFUSE_EVERYTHING",
@@ -64,7 +64,12 @@ __all__ = [
 
 
 class DuplicatePolicy(Enum):
-    """What to do with two records for one instrument at one instant."""
+    """What to do with two records for one instrument at one instant.
+
+    For trade prints, two records carrying one venue identifier: many prints
+    share an instant, and a print with no identifier is never a duplicate (see
+    :func:`~alphalab.data.validation.duplicate_key`).
+    """
 
     #: Stop. Nothing in the data says which of the two is correct.
     REFUSE = auto()
@@ -192,6 +197,7 @@ def clean_records(
         FindingKind.INVALID_OHLC,
         FindingKind.NON_POSITIVE_PRICE,
         FindingKind.NEGATIVE_VOLUME,
+        FindingKind.NON_POSITIVE_SIZE,
     }
     has_invalid = any(
         finding.kind in invalid_kinds and finding.severity is Severity.ERROR for finding in findings
@@ -222,13 +228,19 @@ def clean_records(
 
     duplicate_keys = _duplicate_keys(working)
     if duplicate_keys:
+        prints = any(key[1] == "trade" for key in duplicate_keys)
         if policy.duplicates is DuplicatePolicy.REFUSE:
-            example = next(iter(sorted(duplicate_keys)))
+            example = min(duplicate_keys, key=repr)
             raise DataQualityError(
-                f"{len(duplicate_keys)} instrument/instant pairs occur more than once (for "
-                f"example {example[0]} at {example[1]!r}), and DuplicatePolicy.REFUSE does "
-                "not permit choosing between them. Choose KEEP_FIRST or KEEP_LAST to say "
-                "which copy is authoritative."
+                (
+                    f"{len(duplicate_keys)} trade identifiers occur more than once (for "
+                    f"example {example[0]} {example[2]!r})"
+                    if prints
+                    else f"{len(duplicate_keys)} instrument/instant pairs occur more than "
+                    f"once (for example {example[0]} at {example[1]!r})"
+                )
+                + ", and DuplicatePolicy.REFUSE does not permit choosing between them. Choose "
+                "KEEP_FIRST or KEEP_LAST to say which copy is authoritative."
             )
         keep_last = policy.duplicates is DuplicatePolicy.KEEP_LAST
         deduplicated = _deduplicate(working, keep_last=keep_last)
@@ -239,7 +251,8 @@ def clean_records(
                     operation="drop_duplicate",
                     rows_affected=removed,
                     reason=(
-                        f"duplicate symbol+timestamp; {policy.duplicates.name} kept the "
+                        f"duplicate {'trade identifier' if prints else 'symbol+timestamp'}; "
+                        f"{policy.duplicates.name} kept the "
                         f"{'last' if keep_last else 'first'} occurrence in source order"
                     ),
                 )
@@ -279,26 +292,45 @@ def is_internally_consistent(record: CanonicalRecord) -> bool:
 
     A bar is consistent when its low is the lowest of its four prices, its
     high the highest, every price is strictly positive, and its volume is not
-    negative. Records that are not bars carry no cross-field relationship to
-    check and are consistent by construction.
+    negative. A quote is when both its prices are strictly positive and neither
+    size is negative -- a crossed quote is reported, not invalid, because real
+    books cross briefly -- and a trade print when its price and its size are
+    both strictly positive. Every other record carries no relationship to
+    check and is consistent by construction.
+
+    Until v3.12 a quote was consistent by construction here while validation
+    reported a non-positive bid as an error, so ``InvalidRecordPolicy.DROP``
+    kept the very quote ``REFUSE`` refused, and the quality report counted it
+    valid.
     """
 
-    if not isinstance(record, Bar):
-        return True
-    return (
-        record.low <= record.high
-        and record.low <= record.open <= record.high
-        and record.low <= record.close <= record.high
-        and min(record.open, record.high, record.low, record.close) > 0.0
-        and record.volume >= 0.0
-    )
+    if isinstance(record, Bar):
+        return (
+            record.low <= record.high
+            and record.low <= record.open <= record.high
+            and record.low <= record.close <= record.high
+            and min(record.open, record.high, record.low, record.close) > 0.0
+            and record.volume >= 0.0
+        )
+    if isinstance(record, Quote):
+        return (
+            record.bid > 0.0
+            and record.ask > 0.0
+            and record.bid_size >= 0.0
+            and record.ask_size >= 0.0
+        )
+    if isinstance(record, Trade):
+        return record.price > 0.0 and record.size > 0.0
+    return True
 
 
-def _duplicate_keys(records: Sequence[CanonicalRecord]) -> set[tuple[str, float]]:
-    seen: set[tuple[str, float]] = set()
-    duplicates: set[tuple[str, float]] = set()
+def _duplicate_keys(records: Sequence[CanonicalRecord]) -> set[tuple[object, ...]]:
+    seen: set[tuple[object, ...]] = set()
+    duplicates: set[tuple[object, ...]] = set()
     for record in records:
-        key = (record.symbol, record.timestamp)
+        key = duplicate_key(record)
+        if key is None:
+            continue
         if key in seen:
             duplicates.add(key)
         seen.add(key)
@@ -306,14 +338,25 @@ def _duplicate_keys(records: Sequence[CanonicalRecord]) -> set[tuple[str, float]
 
 
 def _deduplicate(records: Sequence[CanonicalRecord], keep_last: bool) -> list[CanonicalRecord]:
-    """Keep one record per instrument/instant, preserving source order."""
+    """Keep one record per :func:`~alphalab.data.validation.duplicate_key`.
 
-    chosen: dict[tuple[str, float], CanonicalRecord] = {}
+    The survivor stands where the key first occurred, whichever copy it is, so
+    resolving a duplicate never reorders the source; a record with no key -- a
+    print with no identifier -- is always kept, where it stood.
+    """
+
+    position: dict[tuple[object, ...], int] = {}
+    kept: list[CanonicalRecord] = []
     for record in records:
-        key = (record.symbol, record.timestamp)
-        if keep_last or key not in chosen:
-            chosen[key] = record
-    return list(chosen.values())
+        key = duplicate_key(record)
+        if key is None:
+            kept.append(record)
+        elif key not in position:
+            position[key] = len(kept)
+            kept.append(record)
+        elif keep_last:
+            kept[position[key]] = record
+    return kept
 
 
 def _is_ordered(records: Sequence[CanonicalRecord]) -> bool:

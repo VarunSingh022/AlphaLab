@@ -24,22 +24,30 @@ both reported because a large gap between them is itself the finding: a factor
 whose rank IC is healthy and whose Pearson IC is not is one whose extreme
 values are mis-scaled rather than mis-ordered.
 
-What is *not* reported, and why
--------------------------------
+A t-statistic that accounts for the overlap (v3.11)
+---------------------------------------------------
 
-No p-value, no t-statistic, no confidence interval. The standard
-``t = IC_mean / (IC_std / sqrt(n))`` treats the per-instant ICs as independent,
-and overlapping forward-return windows make consecutive ICs strongly
+The textbook ``t = IC_mean / (IC_std / sqrt(n))`` treats the per-instant ICs as
+independent, and overlapping forward-return windows make consecutive ICs
 autocorrelated by construction -- a horizon of 20 on daily data shares 19 of
-its 20 days with the next instant's. The resulting t-statistic is inflated by a
-factor that depends on the overlap, and reporting it would be reporting a
-significance this module cannot establish.
+its 20 days with the next instant's. That t-statistic is inflated by a factor
+that grows with the overlap, and until v3.10 this module reported none rather
+than report it (ledger OFE-006).
+
+:attr:`InformationCoefficient.rank_t_statistic` is the mean rank IC over its
+Newey-West standard error
+(:func:`~alphalab.common.statistics.newey_west_standard_error`), with the lag
+set to ``horizon - 1`` -- the order of the moving-average dependence that
+windows of ``horizon`` periods, stepping one period at a time, induce. The lag
+is reported beside it. What it still assumes: the measured instants are
+consecutive. An instant skipped for too few assets leaves a gap the lag
+structure cannot see, which is one more reason
+:attr:`InformationCoefficient.instants_skipped` is reported.
 
 :attr:`InformationCoefficient.hit_rate` -- the share of instants whose IC was
-positive -- is reported instead. It has the same limitation as a *test*, and
-makes no claim to be one. What the study layer does with overlap is stated in
-:mod:`alphalab.research.purging`, which is where overlapping information is
-actually handled rather than assumed away.
+positive -- is reported too, and makes no claim to be a test. What the study
+layer does with overlap *between training and evaluation* is stated in
+:mod:`alphalab.research.purging`.
 """
 
 from __future__ import annotations
@@ -47,7 +55,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from alphalab.common.exceptions import AlphaLabValidationError
-from alphalab.common.statistics import mean, pearson_correlation, rank_correlation
+from alphalab.common.statistics import (
+    mean,
+    newey_west_standard_error,
+    pearson_correlation,
+    rank_correlation,
+)
 from alphalab.factor_library.exceptions import FactorInputError
 from alphalab.factor_library.forward_returns import ForwardReturnPanel
 from alphalab.factor_library.panel import FeaturePanel
@@ -78,6 +91,14 @@ class InformationCoefficient:
             ``None``. Not a significance test; see the module docstring.
         per_instant_rank: Every per-instant rank IC, keyed by instant, so a
             caller can plot the series rather than take the mean on trust.
+        lag: The implementation lag the forward returns were measured at, in
+            observations: ``0`` enters at the close the factor was computed from.
+        newey_west_lag: The lag of the standard error, ``horizon - 1``.
+        rank_standard_error: The Newey-West standard error of
+            :attr:`mean_rank`, or ``None`` when fewer than ``horizon + 1``
+            instants were measured or the series has no variation.
+        rank_t_statistic: ``mean_rank / rank_standard_error``, or ``None`` with
+            it.
     """
 
     horizon: int
@@ -91,6 +112,10 @@ class InformationCoefficient:
     mean_rank: float | None
     hit_rate: float | None
     per_instant_rank: tuple[tuple[float, float], ...]
+    lag: int
+    newey_west_lag: int
+    rank_standard_error: float | None
+    rank_t_statistic: float | None
 
     @property
     def is_measurable(self) -> bool:
@@ -161,6 +186,15 @@ def information_coefficient(
         observations += len(shared)
 
     measured = len(spearmans)
+    series = [value for _, value in spearmans]
+    newey_west_lag = returns.horizon - 1
+    standard_error: float | None = None
+    try:
+        standard_error = newey_west_standard_error(series, newey_west_lag)
+    except AlphaLabValidationError:
+        # Too few instants for the lag, or no variation: no standard error,
+        # which is reported as None rather than as a figure.
+        standard_error = None
     return InformationCoefficient(
         horizon=returns.horizon,
         factor_lineage=factor.lineage,
@@ -173,4 +207,8 @@ def information_coefficient(
         mean_rank=mean([value for _, value in spearmans]) if spearmans else None,
         hit_rate=(sum(1 for _, value in spearmans if value > 0.0) / measured if measured else None),
         per_instant_rank=tuple(spearmans),
+        lag=returns.lag,
+        newey_west_lag=newey_west_lag,
+        rank_standard_error=standard_error,
+        rank_t_statistic=(None if standard_error is None else mean(series) / standard_error),
     )

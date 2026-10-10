@@ -25,17 +25,21 @@ the read-only views it hands a strategy.
 package-wide norm rather than an oversight:
 :class:`~alphalab.portfolio.engine.PortfolioState`,
 :class:`~alphalab.portfolio.cash.CashLedger` and
-:class:`~alphalab.studio.strategy.StrategyDefinition` are all frozen dataclasses
+:class:`~alphalab.strategy.definition.StrategyDefinition` are all frozen dataclasses
 holding a ``Mapping`` and none of them is hashable either. Equality is what these
 values are compared by, and equality is unaffected -- a ``MappingProxyType``
 compares equal to the dictionary it wraps, so a payload built from a literal
 still equals one built from the same literal.
 """
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Protocol
+
+from alphalab.research.exceptions import ResearchValidationError
+from alphalab.research.overfitting import SweepResult
 
 __all__ = [
     "ResearchPayload",
@@ -69,6 +73,21 @@ class ResearchPayload:
             afterwards. See the module docstring.
         market_regimes: The regime label observed for each period.
         aum: Assets under management the run was sized against.
+        periods_per_year: How many of ``returns`` make a year -- 252 for US
+            equity trading days, 365 for a venue that never closes, 12 for
+            monthly returns. Required since v3.12: the v1 engine annualized
+            every series as if it were daily (ledger RES-001).
+        risk_free_rate: The annual rate excess returns are measured over.
+            Required since v3.12, for the same reason.
+        sweep: The parameter search the run's configuration was chosen from,
+            as :func:`~alphalab.research.overfitting.parameter_sweep` counted
+            it -- the only evidence of parameter robustness there is. ``None``
+            when no search was run or none was recorded; robustness is then
+            reported as not measured.
+
+    Raises:
+        ResearchValidationError: If ``periods_per_year`` is not a positive whole
+            number or ``risk_free_rate`` is not finite.
     """
 
     strategy_id: str
@@ -77,8 +96,24 @@ class ResearchPayload:
     parameters: Mapping[str, float]
     market_regimes: tuple[str, ...]
     aum: float
+    periods_per_year: int
+    risk_free_rate: float
+    sweep: SweepResult | None = None
 
     def __post_init__(self) -> None:
+        if (
+            isinstance(self.periods_per_year, bool)
+            or not isinstance(self.periods_per_year, int)
+            or self.periods_per_year <= 0
+        ):
+            raise ResearchValidationError(
+                f"periods_per_year is {self.periods_per_year!r}; a year holds a positive whole "
+                "number of periods, and nothing assumes it is 252."
+            )
+        if not math.isfinite(self.risk_free_rate):
+            raise ResearchValidationError(
+                f"risk_free_rate is {self.risk_free_rate!r}; a rate is finite."
+            )
         # Copy first, then wrap. The proxy alone would still be a live view of
         # the caller's dictionary, so a caller that mutated its own copy would
         # change what this payload reports having been run with.

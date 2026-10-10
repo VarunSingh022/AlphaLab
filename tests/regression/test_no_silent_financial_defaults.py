@@ -28,21 +28,39 @@ universal: a futures account, a portfolio-margin account and a non-US broker
 each answer differently, so the default produced a requirement computed against
 a policy nobody chose.
 
-What is deliberately still defaulted, and why
-----------------------------------------------
+What was deliberately still defaulted, and why it no longer is
+---------------------------------------------------------------
 
-``base_currency="USD"`` on the valuation helpers, ``NAVCalculator.calculate``
-and ``MarginEngine``'s two aggregate reads. The distinction is not the parameter
-but **what a wrong value does**: each of those flows into
-:func:`~alphalab.portfolio.valuation.assert_single_currency_book`, which
-*refuses* a book it cannot express in that currency. A wrong currency there
-produces an error, never a number. A wrong margin rate produces a number.
-ADR-0028 decision 7 classified those helpers and
-``tests/regression/test_currency_authority.py`` pins the classification.
+Until v3.10 ``base_currency="USD"`` stayed defaulted on the valuation helpers,
+``NAVCalculator.calculate`` and ``MarginEngine``'s two aggregate reads, on the
+grounds that each flows into
+:func:`~alphalab.portfolio.valuation.assert_single_currency_book`, which refuses
+a book it cannot express in that currency. That holds for a *mixed* book and not
+for a book held entirely in another currency: ``PortfolioValuation.cash_value``
+of a EUR-only book returned ``0.00`` -- a true statement about dollars nobody
+asked for -- and it was exempted as "refuses" when it did not. The pre-v4 audit
+(ledger ACC-008) removed all six defaults; a helper that names a currency is
+told which one.
 
 ``rates=NO_RATES`` is not a default rate. It is the **empty table** -- the honest
 state of a run nobody supplied rates to -- and every consumer of it refuses when
 it needs a rate it does not have. That is the mechanism, not a hole in it.
+
+What v3.10 added to the sweep (ledger API-003)
+----------------------------------------------
+
+* **A default of zero is a default.** The sweep skipped ``None``, ``""`` and
+  ``False`` as "not supplied" by comparing with ``in``, and ``0.0 == False`` in
+  Python -- so every ``rate=0.0`` passed unexamined. "Not supplied" is now
+  checked by identity and type. It found ``risk_free_rate=0.0`` on three
+  functions, which are listed below with the reason each stands.
+* **Annualization is a financial convention.** ``periods_per_year`` joins the
+  swept names; it found four defaults of 252, a daily series' count, applied
+  to whatever series arrived.
+* **A call site can default too.** A literal passed to a financial keyword
+  inside the package (``currency="USD"``), and a literal fallback read from a
+  mapping (``.get("periods_per_year", 252.0)``), decide a value on the
+  caller's behalf exactly as a default does.
 """
 
 import ast
@@ -63,19 +81,18 @@ FINANCIAL = (
     "actor",
     "margin_rate",
     "maint_rate",
+    "periods_per_year",
+)
+
+#: A risk-free rate the report it produces records.
+_RECORDED_RATE = (
+    "the rate is written into the PerformanceReport it produces "
+    "(risk.risk_free_rate), so a ratio is never published without the rate it used"
 )
 
 #: Parameters allowed a default, each with the reason it cannot produce a wrong
 #: number. Keyed by ``(qualified function, parameter)``.
 PERMITTED: dict[tuple[str, str], str] = {
-    # Flow into assert_single_currency_book, which refuses rather than converts
-    # silently. A wrong value produces an error, never a figure. ADR-0028.
-    ("NAVCalculator.calculate", "base_currency"): "refuses a book it cannot express",
-    ("PortfolioValuation.cash_value", "base_currency"): "a keyed lookup, aggregates nothing",
-    ("PortfolioValuation.portfolio_value", "base_currency"): "refuses a mixed book",
-    ("MarginEngine.buying_power", "base_currency"): "refuses through NAVCalculator",
-    ("MarginEngine.margin_remaining", "base_currency"): "refuses through NAVCalculator",
-    ("ExposureEngine.asset_weights", "base_currency"): "a component, names no account",
     # The empty table, not a rate. Every consumer refuses when it needs one.
     ("*", "rates"): "NO_RATES is the absence of rates, which is what refuses",
     # ADR-0027: classification provenance defaults to the operator, which is a
@@ -86,7 +103,37 @@ PERMITTED: dict[tuple[str, str], str] = {
     # model, not a monetary figure, and a wrong one shows up as a worse fit
     # rather than as a confident number about money.
     ("train_logistic_regression", "learning_rate"): "a hyperparameter, not a price",
+    # Found in v3.10 once a default of zero stopped passing as "not supplied".
+    ("assign_jobs_with_aging", "aging_rate"): "a job scheduler's aging rate, not a price",
+    ("AnalyticsEngine.compile_report", "risk_free_rate"): _RECORDED_RATE,
+    ("ExecutionPipeline.compile_analytics", "risk_free_rate"): _RECORDED_RATE,
+    # The v1 research engine's three exemptions (ledger RES-001) went in v3.12,
+    # when the periods and the rate became the caller's to state.
 }
+
+#: Literals passed to a financial keyword, or read as a mapping fallback, inside
+#: the package -- each with the reason it is not a decision made for a caller.
+#: Keyed by ``"<file>:<keyword>"``: the permission is for that keyword in that file.
+PERMITTED_LITERALS: dict[str, str] = {
+    "alphalab/runtime/snapshot.py:periods_per_year": (
+        "restating a v3.9 performance report: 252 is what v3.9 applied, and it is "
+        "recorded as Periodicity.ASSUMED rather than presented as observed"
+    ),
+}
+
+
+def _unsupplied(value: object) -> bool:
+    """``None``, ``False`` or the empty string -- by identity and type, not ``==``.
+
+    ``0.0 in (None, "", False)`` is ``True``, which is how a default rate of zero
+    went unexamined until v3.10.
+    """
+
+    return value is None or value is False or (isinstance(value, str) and value == "")
+
+
+def _financial(name: str) -> bool:
+    return any(name == known or name.endswith("_" + known) for known in FINANCIAL)
 
 
 def _defaults() -> list[tuple[str, str, str, object]]:
@@ -131,11 +178,11 @@ def test_no_public_surface_defaults_a_currency_a_rate_or_a_policy() -> None:
     offenders: list[str] = []
 
     for file, qualified, parameter, default in _defaults():
-        if not any(parameter == name or parameter.endswith("_" + name) for name in FINANCIAL):
+        if not _financial(parameter):
             continue
         # ``None``, ``""`` and ``False`` are "not supplied", which is the shape
         # ADR-0033 decision 8 uses deliberately -- not an invented value.
-        if default in (None, "", False):
+        if _unsupplied(default):
             continue
         if (qualified, parameter) in PERMITTED or ("*", parameter) in PERMITTED:
             continue
@@ -144,6 +191,88 @@ def test_no_public_surface_defaults_a_currency_a_rate_or_a_policy() -> None:
     assert not offenders, (
         "a financial or provenance parameter is defaulted where a wrong value "
         "would produce a number rather than a refusal:\n  " + "\n  ".join(sorted(offenders))
+    )
+
+
+def test_a_default_of_zero_is_not_mistaken_for_not_supplied() -> None:
+    """The v3.10 loophole, pinned: ``0.0 == False`` must not exempt a rate."""
+
+    assert not _unsupplied(0.0)
+    assert not _unsupplied(0)
+    assert not _unsupplied(Decimal("0"))
+    assert _unsupplied(None) and _unsupplied(False) and _unsupplied("")
+
+
+def test_no_financial_keyword_is_given_a_literal_inside_the_package() -> None:
+    """A call site that passes ``currency="USD"`` has defaulted it for its caller.
+
+    Also catches a literal fallback on a financial name read from a mapping --
+    ``parameters.get("periods_per_year", 252.0)`` -- which is how the factor
+    library's realized volatility annualized every series as daily until v3.10.
+    """
+
+    offenders: list[str] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in str(path):
+            continue
+        file = str(path.relative_to(PACKAGE.parent))
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                value = keyword.value
+                if (
+                    keyword.arg is not None
+                    and _financial(keyword.arg)
+                    and isinstance(value, ast.Constant)
+                    and not _unsupplied(value.value)
+                    and f"{file}:{keyword.arg}" not in PERMITTED_LITERALS
+                ):
+                    offenders.append(f"{file}:{node.lineno} {keyword.arg}={value.value!r}")
+            function = node.func
+            if (
+                isinstance(function, ast.Attribute)
+                and function.attr == "get"
+                and len(node.args) == 2
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                and _financial(node.args[0].value)
+                and isinstance(node.args[1], ast.Constant)
+                and not _unsupplied(node.args[1].value)
+            ):
+                offenders.append(
+                    f"{file}:{node.lineno} .get({node.args[0].value!r}, {node.args[1].value!r})"
+                )
+
+    assert not offenders, (
+        "a financial value is decided at a call site inside the package:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_annualization_is_named_where_it_is_not_tracked_for_removal() -> None:
+    """The factor library and the research volatility say what a year is.
+
+    The optimizer's copy of the research volatility, which this test also held
+    to a required ``periods``, was removed in v3.13 (ledger API-001).
+    """
+
+    import inspect
+
+    from alphalab.factor_library.definition import KIND_REQUIREMENTS, FeatureKind
+    from alphalab.factor_library.volatility import compute_volatility
+    from alphalab.research.metrics import calculate_volatility
+
+    assert (
+        inspect.signature(compute_volatility).parameters["periods_per_year"].default
+        is inspect.Parameter.empty
+    )
+    assert (
+        inspect.signature(calculate_volatility).parameters["periods_per_year"].default
+        is inspect.Parameter.empty
+    )
+    assert KIND_REQUIREMENTS[FeatureKind.REALIZED_VOLATILITY].required_parameters == (
+        "periods_per_year",
     )
 
 
@@ -170,38 +299,46 @@ def test_the_three_that_were_found_stay_required() -> None:
         )
 
 
-def test_the_permitted_ones_refuse_rather_than_return_a_wrong_number() -> None:
-    """The exemption is earned, not asserted. Each one must actually refuse."""
+def test_every_valuation_helper_is_told_its_currency() -> None:
+    """ACC-008: the six ``base_currency="USD"`` exemptions are gone, and stay gone."""
 
-    from alphalab.portfolio.account import Account
-    from alphalab.portfolio.cash import CashLedger
-    from alphalab.portfolio.engine import PortfolioState
-    from alphalab.portfolio.exceptions import MixedCurrencyValuationError
+    import inspect
+
+    from alphalab.portfolio.exposure import ExposureEngine
     from alphalab.portfolio.margin import MarginEngine
+    from alphalab.portfolio.nav import NAVCalculator
+    from alphalab.portfolio.valuation import PortfolioValuation
+
+    for function in (
+        NAVCalculator.calculate,
+        PortfolioValuation.cash_value,
+        PortfolioValuation.portfolio_value,
+        MarginEngine.buying_power,
+        MarginEngine.margin_remaining,
+        ExposureEngine.asset_weights,
+    ):
+        declared = inspect.signature(function).parameters["base_currency"]
+        assert declared.default is inspect.Parameter.empty, (
+            f"{function.__qualname__}(base_currency) is defaulted again"
+        )
+
+
+def test_a_book_in_another_currency_is_valued_in_the_currency_asked_for() -> None:
+    from alphalab.portfolio.cash import CashLedger
+    from alphalab.portfolio.exceptions import MixedCurrencyValuationError
     from alphalab.portfolio.nav import NAVCalculator
     from alphalab.portfolio.position import Position
     from alphalab.portfolio.valuation import PortfolioValuation
 
-    # A book in EUR, read by a helper defaulting to USD.
     cash = CashLedger(balances={"EUR": Decimal("1000.00")})
     positions = {
         "X": Position("X", Decimal("10"), Decimal("10"), Decimal("11"), Decimal("0"), "EUR", 1.0)
     }
-    state = PortfolioState(account=Account("A", "EUR", "n", 1.0), cash=cash, positions=positions)
 
+    assert NAVCalculator.calculate(cash, positions, "EUR") == Decimal("1110.00")
+    assert PortfolioValuation.cash_value(cash, "EUR") == Decimal("1000.00")
     with pytest.raises(MixedCurrencyValuationError):
-        NAVCalculator.calculate(cash, positions)
-    with pytest.raises(MixedCurrencyValuationError):
-        PortfolioValuation.portfolio_value(cash, positions)
-    with pytest.raises(MixedCurrencyValuationError):
-        MarginEngine.buying_power(cash, positions, Decimal("0.50"))
-    with pytest.raises(MixedCurrencyValuationError):
-        MarginEngine.margin_remaining(cash, positions, Decimal("0.50"))
-
-    # And the one that is a keyed lookup returns what it was asked for, which is
-    # zero -- a true answer about USD, not a wrong answer about the book.
-    assert PortfolioValuation.cash_value(cash) == Decimal("0.00")
-    assert state.settlement_currencies == ("EUR",)
+        NAVCalculator.calculate(cash, positions, "USD")
 
 
 def test_no_rates_is_the_absence_of_rates_rather_than_a_rate() -> None:

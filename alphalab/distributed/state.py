@@ -79,7 +79,9 @@ class DistributedState:
             index; see the module docstring.
         running_jobs: Assigned or executing jobs, keyed by ``job_id``.
         completed_jobs: Successfully finished jobs, keyed by ``job_id``.
-        failed_jobs: Failed and cancelled jobs, keyed by ``job_id``.
+        failed_jobs: Failed jobs, keyed by ``job_id``.
+        cancelled_jobs: Jobs withdrawn before they ran, keyed by ``job_id``.
+            Since v3.12: until then they were stored among the failures.
         statistics: Cluster-wide counters.
         events: Everything that has happened, in order.
         metadata: Cluster-specific attributes with no canonical field.
@@ -92,6 +94,7 @@ class DistributedState:
     running_jobs: PersistentMap[str, Job] = field(default_factory=PersistentMap)
     completed_jobs: PersistentMap[str, Job] = field(default_factory=PersistentMap)
     failed_jobs: PersistentMap[str, Job] = field(default_factory=PersistentMap)
+    cancelled_jobs: PersistentMap[str, Job] = field(default_factory=PersistentMap)
     statistics: DistributedStatistics = field(default_factory=DistributedStatistics)
     events: AppendOnlyLog[DistributedEvent] = field(default_factory=AppendOnlyLog)
     metadata: Mapping[str, str] = field(default_factory=dict)

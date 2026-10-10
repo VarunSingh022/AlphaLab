@@ -3,18 +3,22 @@
 from collections.abc import Mapping
 from decimal import Decimal
 
+from alphalab.common.arithmetic import in_accounting_context
+from alphalab.portfolio.book import PositionBook
 from alphalab.portfolio.cash import CashLedger
 from alphalab.portfolio.fx import NO_RATES, FxRates
+from alphalab.portfolio.money import ZERO_MONEY
 from alphalab.portfolio.position import Position
-from alphalab.portfolio.valuation import assert_single_currency_book, cash_in
+from alphalab.portfolio.valuation import assert_single_currency_book, book_totals_in, cash_in
 
 
 class NAVCalculator:
     @staticmethod
+    @in_accounting_context
     def calculate(
         cash_ledger: CashLedger,
         positions: Mapping[str, Position],
-        base_currency: str = "USD",
+        base_currency: str,
         rates: FxRates = NO_RATES,
         as_of: float | None = None,
     ) -> Decimal:
@@ -41,6 +45,10 @@ class NAVCalculator:
         unchanged and takes no conversion, which is what keeps the per-event
         risk resync at the cost that was measured.
 
+        ``base_currency`` is required as of v3.10 (it defaulted to ``"USD"``),
+        and ``as_of`` should be passed whenever a rate may be used: a conversion
+        with no instant cannot refuse a stale or future-dated rate.
+
         Raises:
             MixedCurrencyValuationError: If the book holds a currency
                 ``base_currency`` cannot express and no rate converts it.
@@ -51,21 +59,31 @@ class NAVCalculator:
         )
         if not foreign_positions and not foreign_cash:
             cash = cash_ledger.balance(base_currency)
+            if isinstance(positions, PositionBook):
+                # The book's own totals: the same sums, kept as it changes. A
+                # position whose gains settle as cash adds only what has not
+                # been settled yet, not its notional (ACC-005).
+                totals = positions.totals(base_currency)
+                return cash + totals.long_value + totals.short_value - totals.uncarried_value
             long_value = sum(
-                (p.market_value for p in positions.values() if p.market_value > 0),
-                Decimal("0.00"),
+                (p.carrying_value for p in positions.values() if p.carrying_value > 0),
+                ZERO_MONEY,
             )
             short_liability = sum(
-                (p.market_value for p in positions.values() if p.market_value < 0),
-                Decimal("0.00"),
+                (p.carrying_value for p in positions.values() if p.carrying_value < 0),
+                ZERO_MONEY,
             )
             return cash + long_value + short_liability  # Short value is inherently negative
 
-        # Mixed, and convertible: value each position in the currency it
-        # declares, so a sum is never taken across two.
-        total = cash_in(cash_ledger, base_currency, rates, as_of)[0]
-        for position in positions.values():
-            total += rates.convert(
-                position.market_value, position.currency, base_currency, as_of
-            ).converted
-        return total
+        # Mixed, and convertible: each currency's longs and shorts are
+        # converted once, as the book keeps them -- the same figures
+        # PortfolioValuation.snapshot sums into equity -- so a sum is never
+        # taken across two currencies (PRF-001).
+        book = positions if isinstance(positions, PositionBook) else PositionBook(positions)
+        long_value, short_value, _, _, uncarried = book_totals_in(book, base_currency, rates, as_of)
+        return (
+            cash_in(cash_ledger, base_currency, rates, as_of)[0]
+            + long_value
+            + short_value
+            - uncarried
+        )

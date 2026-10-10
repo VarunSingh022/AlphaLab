@@ -30,6 +30,48 @@ Black-Litterman is a *model* that produces expected returns, not an objective:
 posterior and :class:`MeanVariance` constructs from it. A factor-neutral
 portfolio is any objective with :class:`FactorBound` constraints.
 
+Since v3.11 (ledger OFE-002) a mean-variance objective may charge
+:class:`LinearCosts` for trading away from the current book, solved exactly
+(each orthant around the book is a quadratic program; a subgradient
+certificate says when the right one has been found), and the answer can be
+turned into tradable quantities by
+:func:`~alphalab.portfolio_optimizer.lots.round_to_lots`. The covariance can be
+shrunk (:meth:`~alphalab.analytics.risk_model.CovarianceMatrix.ledoit_wolf`),
+exponentially weighted (:meth:`~alphalab.analytics.risk_model.CovarianceMatrix.ewma`)
+or implied by a factor model
+(:meth:`~alphalab.analytics.risk_model.CovarianceMatrix.factor_model`).
+
+Since v3.12 (ledger PRF-005) a large universe is solved through its risk
+model's structure. A covariance built by
+:meth:`~alphalab.analytics.risk_model.CovarianceMatrix.factor_model` carries
+its :class:`~alphalab.analytics.risk_model.FactorStructure`; over
+:data:`FACTOR_STRUCTURED_MINIMUM_ASSETS` or more assets every quadratic
+program of the construction is then solved by
+:mod:`~alphalab.portfolio_optimizer.factor_quadratic` in ``O(n k^2)`` per step
+rather than ``O(n^2)`` -- 0.18 s against 142 s for 800 assets, measured -- and
+its positive definiteness is established from the structure. Any program that
+method does not certify goes to the dense method, which decides it and proves
+infeasibility; the problem's identity records which method applies.
+
+Since v3.13 (ledger PRF-013) the covariance can be the structure itself: a
+:class:`~alphalab.analytics.risk_model.FactorStructure` built by
+:meth:`~alphalab.analytics.risk_model.FactorStructure.of` in ``O(n k^2)``.
+Writing ``n^2`` values out had bounded the public path -- 29 s and 1.3 GB at
+4,000 assets before the solver was reached -- and a problem over a structure
+never writes them out unless a method needs the dense values: risk parity, a
+universe under :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS`, a structure that
+cannot establish definiteness by itself, or a program the structured method
+does not certify. Its diagnostics are computed through the factors.
+
+What construction does not solve, by design: **cardinality** (at most ``k``
+names) and **joint lot selection** are integer programs, and no integer
+solver is part of this library -- rounding is per asset, toward zero, and
+reported; **CVaR, drawdown and other scenario objectives** need a linear
+program over scenarios, which this quadratic solver is not; and
+**multi-period** construction (trading a path of books against a cost of
+getting there) is a sequence of single-period problems the caller composes.
+Each is an explicit boundary, not a limitation discovered later.
+
 Units, stated once
 ------------------
 
@@ -88,11 +130,18 @@ from alphalab.analytics.risk_model import (
     Classification,
     CovarianceMatrix,
     FactorLoadings,
+    FactorStructure,
     RiskContributions,
     euler_decomposition,
     portfolio_factor_exposures,
 )
+from alphalab.common.arithmetic import canonical_text
 from alphalab.portfolio_optimizer.exceptions import ConstructionInputError, OptimizationError
+from alphalab.portfolio_optimizer.factor_quadratic import (
+    FactorCurvature,
+    FactorQuadraticProgram,
+    solve_factor_quadratic_program,
+)
 from alphalab.portfolio_optimizer.quadratic import (
     AbsoluteSumLimit,
     LinearConstraint,
@@ -108,6 +157,7 @@ __all__ = [
     "CONSTRUCTION_PROBLEM_SCHEME",
     "CONSTRUCTION_RESULT_SCHEME",
     "EXPECTED_RETURNS_SCHEME",
+    "FACTOR_STRUCTURED_MINIMUM_ASSETS",
     "BoxUncertainty",
     "ConstraintSet",
     "ConstructionDiagnostics",
@@ -120,6 +170,7 @@ __all__ = [
     "ExposureRange",
     "FactorBound",
     "GroupBound",
+    "LinearCosts",
     "MaximumDiversification",
     "MeanVariance",
     "MinimumVariance",
@@ -132,9 +183,19 @@ __all__ = [
     "construct",
 ]
 
-CONSTRUCTION_PROBLEM_SCHEME: Final = "alphalab.construction_problem.v1"
+#: Version 2 (v3.11, ledger DET-006): money and risk budgets -- the ``Decimal``
+#: inputs -- are rendered by value, so ``100`` and ``100.00`` state one problem.
+CONSTRUCTION_PROBLEM_SCHEME: Final = "alphalab.construction_problem.v2"
 CONSTRUCTION_RESULT_SCHEME: Final = "alphalab.construction_result.v1"
 EXPECTED_RETURNS_SCHEME: Final = "alphalab.expected_returns.v1"
+
+#: The smallest universe the factor-structured method solves (v3.12, ledger
+#: PRF-005). The structured method is the faster one from about fifty assets
+#: (measured: 0.01 s against 0.02 s at 50, 0.01 s against 0.13 s at 100); below
+#: this the dense method takes about a tenth of a second, and keeping it there
+#: keeps every smaller problem's identity and result bit for bit as v3.11 had
+#: them. See :mod:`~alphalab.portfolio_optimizer.factor_quadratic`.
+FACTOR_STRUCTURED_MINIMUM_ASSETS: Final = 100
 
 #: The arithmetic a money limit becomes a weight bound under: 28 significant
 #: digits, half-even, never the caller's thread context (the rule
@@ -533,6 +594,66 @@ class TurnoverLimit:
 
 
 @dataclass(frozen=True, slots=True)
+class LinearCosts:
+    """What trading away from a stated book costs, charged in the objective (OFE-002).
+
+    ``sum_i rates_i * |w_i - current_i|`` is subtracted from the mean-variance
+    objective: each unit of weight traded in asset ``i`` costs ``rates_i`` of
+    return, in the covariance's currency and period -- so a one-way cost of ten
+    basis points of notional, expected to be paid once over a holding period of
+    a year while returns are daily, is ``0.001 / 252``: amortizing it is the
+    caller's statement, not an assumption made here. The optimum trades an
+    asset only where the improvement pays its cost, and leaves it exactly where
+    it is otherwise -- a no-trade region a penalty-free optimum does not have.
+
+    Attributes:
+        current: The weights held now, for **exactly** the construction
+            universe (zeros included); a missing asset is refused, as for a
+            :class:`TurnoverLimit`.
+        rates: The cost of trading one unit of weight, per asset, for exactly
+            the universe. Non-negative; zero trades freely.
+    """
+
+    current: Mapping[str, float]
+    rates: Mapping[str, float]
+
+    def __post_init__(self) -> None:
+        current = {
+            _text(asset, "cost asset"): _number(value, f"current weight of {asset!r}")
+            for asset, value in sorted(self.current.items())
+        }
+        rates: dict[str, float] = {}
+        for asset, value in sorted(self.rates.items()):
+            rate = _number(value, f"cost rate of {asset!r}")
+            if rate < 0.0:
+                raise ConstructionInputError(
+                    f"The cost rate of {asset!r} is {rate!r}; trading does not pay."
+                )
+            rates[_text(asset, "cost asset")] = rate
+        if set(current) != set(rates):
+            raise ConstructionInputError(
+                "LinearCosts must give a current weight and a rate for the same assets: "
+                f"weights only {sorted(set(current) - set(rates))}, rates only "
+                f"{sorted(set(rates) - set(current))}."
+            )
+        object.__setattr__(self, "current", MappingProxyType(current))
+        object.__setattr__(self, "rates", MappingProxyType(rates))
+
+    def rendering(self) -> list[str]:
+        return [
+            *(f"costs.current[{_render(a)}]={_render(v)}" for a, v in self.current.items()),
+            *(f"costs.rate[{_render(a)}]={_render(v)}" for a, v in self.rates.items()),
+        ]
+
+    def cost(self, weights: Mapping[str, float]) -> float:
+        """``sum_i rates_i * |w_i - current_i|`` for ``weights``."""
+
+        return math.fsum(
+            rate * abs(weights[asset] - self.current[asset]) for asset, rate in self.rates.items()
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class NotionalLimits:
     """``|w_i| * capital <= maximum_i``: money caps per asset, as weight bounds.
 
@@ -657,9 +778,9 @@ class ConstraintSet:
         if self.notional_limits is None:
             lines.append("notional=None")
         else:
-            lines.append(f"notional.capital={self.notional_limits.capital}")
+            lines.append(f"notional.capital={canonical_text(self.notional_limits.capital)}")
             lines.extend(
-                f"notional[{_render(asset)}]={amount}"
+                f"notional[{_render(asset)}]={canonical_text(amount)}"
                 for asset, amount in self.notional_limits.maximum_notional.items()
             )
         return lines
@@ -680,28 +801,38 @@ class MinimumVariance:
 
 @dataclass(frozen=True, slots=True)
 class MeanVariance:
-    """Maximize ``mu' w - (risk_aversion / 2) * w' C w``.
+    """Maximize ``mu' w - (risk_aversion / 2) * w' C w`` -- less linear costs, when given.
 
     Attributes:
         expected_returns: ``mu``, in the covariance's currency and period.
         risk_aversion: ``lambda > 0``. Required: it sets the trade-off between
             return and variance, and there is no neutral value for it.
+        costs: What trading away from the current book costs, subtracted from
+            the objective (:class:`LinearCosts`, v3.11), or ``None`` for a
+            construction that trades for free, as every one did before. Only a
+            mean-variance objective takes costs: they are in return units, and
+            no other objective here has a scale they could be traded against.
     """
 
     expected_returns: ExpectedReturns
     risk_aversion: float
+    costs: LinearCosts | None = None
 
     def __post_init__(self) -> None:
         aversion = _number(self.risk_aversion, "risk_aversion")
         if aversion <= 0.0:
             raise ConstructionInputError(f"risk_aversion is {aversion!r}; it must be positive.")
         object.__setattr__(self, "risk_aversion", aversion)
+        if self.costs is not None and not isinstance(self.costs, LinearCosts):
+            raise ConstructionInputError(f"costs must be LinearCosts, got {self.costs!r}.")
 
     def rendering(self) -> list[str]:
         return [
             "objective=mean_variance",
             f"expected_returns={self.expected_returns.returns_id}",
             f"risk_aversion={_render(self.risk_aversion)}",
+            # Only when given, so a cost-free problem's identity is what it was.
+            *(() if self.costs is None else self.costs.rendering()),
         ]
 
 
@@ -772,7 +903,10 @@ class RiskParity:
             return ["objective=risk_parity", "budgets=equal"]
         return [
             "objective=risk_parity",
-            *(f"budget[{_render(asset)}]={budget}" for asset, budget in self.budgets.items()),
+            *(
+                f"budget[{_render(asset)}]={canonical_text(budget)}"
+                for asset, budget in self.budgets.items()
+            ),
         ]
 
 
@@ -844,9 +978,13 @@ class BoxUncertainty:
 
     For a **long-only** portfolio the worst case is exactly ``mu_hat - half_width``
     element by element, so the robust problem is mean-variance on the shifted
-    returns -- an identity, not an approximation, and the reason a box set is
-    refused for a portfolio that may short (its robust counterpart is then an
-    ``L1`` penalty on the weights, which is not offered).
+    returns -- an identity, not an approximation. For a portfolio that **may
+    short**, the worst case is ``mu_hat' w - half_width' |w|``: an ``L1``
+    penalty on the weights, solved exactly as :class:`LinearCosts` are -- one
+    orthant at a time, certified by the true subgradient condition -- with the
+    held weights at zero (v3.13; until then a box set was refused for a
+    portfolio that may short). An asset whose return is too uncertain to be
+    worth holding either way is held at exactly zero, and the result says so.
 
     Attributes:
         half_widths: Asset -> ``>= 0``, for exactly the universe.
@@ -921,16 +1059,24 @@ type ConstructionObjective = (
 class ConstructionProblem:
     """Everything a construction is decided by.
 
+    Which method solves it follows from the covariance: a
+    :class:`~alphalab.analytics.risk_model.FactorStructure`, or a matrix that
+    carries one, over at least :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS` assets,
+    is solved by the factor-structured method (v3.12, ledger PRF-005), and its
+    :attr:`problem_id` says so.
+
     Attributes:
-        covariance: The risk model. Its assets are the universe, in canonical
-            order; its currency and period are the units of every weight and
-            risk figure.
+        covariance: The risk model: a matrix, or since v3.13 a covariance
+            stated by its factor structure, which is never written out unless a
+            method needs the dense values (ledger PRF-013). Its assets are the
+            universe, in canonical order; its currency and period are the units
+            of every weight and risk figure.
         objective: What is optimized.
         constraints: What must hold.
         settings: The numerical contract.
     """
 
-    covariance: CovarianceMatrix
+    covariance: CovarianceMatrix | FactorStructure
     objective: ConstructionObjective
     constraints: ConstraintSet
     settings: SolverSettings
@@ -954,6 +1100,11 @@ class ConstructionProblem:
                 f"feasibility_tolerance={_render(self.settings.feasibility_tolerance)}",
                 f"convergence_tolerance={_render(self.settings.convergence_tolerance)}",
                 f"max_iterations={_render(self.settings.max_iterations)}",
+                # v3.12 (PRF-005): the two methods agree within the tolerances, not
+                # to the bit, so which one solves a problem is part of what it is.
+                # Present only when the structured method applies, so every other
+                # problem keeps the identity it had.
+                *(["solver=factor-structured"] if _factor_structured(self) else []),
             ]
         )
 
@@ -1018,6 +1169,8 @@ class ConstructionDiagnostics:
             objective, the risk aversion at which the capped solution was
             found (the cap's multiplier, re-expressed); otherwise ``None``.
         detail: A sentence saying why the status is what it is.
+        transaction_cost: ``sum_i rates_i * |w_i - current_i|`` when the
+            objective charged :class:`LinearCosts`, or ``None`` (v3.11).
     """
 
     method: str
@@ -1041,6 +1194,7 @@ class ConstructionDiagnostics:
     budget_deviation: float | None
     effective_risk_aversion: float | None
     detail: str
+    transaction_cost: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1247,6 +1401,127 @@ def _hessian(rows: Sequence[Sequence[float]], scale: float) -> tuple[tuple[float
     return tuple(tuple(scale * value for value in row) for row in rows)
 
 
+@dataclass(frozen=True, slots=True)
+class _Constraints:
+    """A program's constraints alone: what checking a point reads, nothing ``n x n``."""
+
+    constraints: tuple[LinearConstraint, ...]
+    absolute_sums: tuple[AbsoluteSumLimit, ...]
+
+
+def _structure(problem: ConstructionProblem) -> FactorStructure | None:
+    """The factor structure: the covariance itself, the one its matrix carries, or none."""
+
+    covariance = problem.covariance
+    return covariance if isinstance(covariance, FactorStructure) else covariance.factors
+
+
+def _matrix(problem: ConstructionProblem) -> CovarianceMatrix:
+    """The dense covariance: the problem's matrix, or the one its structure implies.
+
+    A structure writes its matrix out -- ``O(n^2)`` -- the first time a method
+    needs the dense values, and keeps it (ledger PRF-013).
+    """
+
+    covariance = problem.covariance
+    return covariance.matrix() if isinstance(covariance, FactorStructure) else covariance
+
+
+def _factor_structured(problem: ConstructionProblem) -> bool:
+    """Whether the factor-structured method solves ``problem``'s programs (ledger PRF-005).
+
+    When the covariance is or carries a factor structure, the structure
+    establishes positive definiteness by itself, the universe has at least
+    :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS` assets, and the objective is solved
+    by quadratic programs -- risk parity is not.
+    """
+
+    factors = _structure(problem)
+    return (
+        factors is not None
+        and not isinstance(problem.objective, RiskParity)
+        and len(problem.covariance.assets) >= FACTOR_STRUCTURED_MINIMUM_ASSETS
+        and factors.definiteness() is not None
+    )
+
+
+def _curvature(problem: ConstructionProblem, scale: float) -> FactorCurvature:
+    factors = _structure(problem)
+    assert factors is not None  # only asked for when _factor_structured holds
+    return FactorCurvature.of_structure(factors, scale)
+
+
+def _solve(
+    problem: ConstructionProblem,
+    scale: float,
+    linear: Sequence[float],
+    constraints: tuple[LinearConstraint, ...],
+    absolute: tuple[AbsoluteSumLimit, ...],
+    iterations: int,
+    hessian: tuple[tuple[float, ...], ...] | None = None,
+) -> QuadraticSolution:
+    """One program with curvature ``scale * C``, or ``hessian``, by the problem's method.
+
+    The factor-structured method answers when it certifies. Anything else it
+    returns goes to the dense method with the steps that remain, which decides
+    -- the structured method never claims infeasibility -- and the detail says
+    so. ``hessian`` is a curvature that is not a multiple of the covariance (a
+    robust objective's), which only the dense method takes.
+    """
+
+    settings = problem.settings
+    budget = max(1, settings.max_iterations - iterations)
+    if hessian is None and _factor_structured(problem):
+        structured = solve_factor_quadratic_program(
+            FactorQuadraticProgram(
+                _curvature(problem, scale), tuple(linear), constraints, absolute
+            ),
+            feasibility_tolerance=settings.feasibility_tolerance,
+            convergence_tolerance=settings.convergence_tolerance,
+            max_iterations=budget,
+        )
+        if structured.status is SolveStatus.OPTIMAL:
+            return structured
+        dense = solve_quadratic_program(
+            QuadraticProgram(
+                _hessian(_matrix(problem).values, scale), tuple(linear), constraints, absolute
+            ),
+            feasibility_tolerance=settings.feasibility_tolerance,
+            convergence_tolerance=settings.convergence_tolerance,
+            max_iterations=max(1, budget - structured.iterations),
+        )
+        return replace(
+            dense,
+            iterations=structured.iterations + dense.iterations,
+            detail=(
+                f"{dense.detail} The factor-structured method did not certify this program "
+                f"({structured.status.name}: {structured.detail}), so the dense method decided "
+                "it."
+            ),
+        )
+    return solve_quadratic_program(
+        QuadraticProgram(
+            hessian if hessian is not None else _hessian(_matrix(problem).values, scale),
+            tuple(linear),
+            constraints,
+            absolute,
+        ),
+        feasibility_tolerance=settings.feasibility_tolerance,
+        convergence_tolerance=settings.convergence_tolerance,
+        max_iterations=budget,
+    )
+
+
+def _portfolio_volatility(problem: ConstructionProblem, weights: Sequence[float]) -> float:
+    """``sqrt(w' C w)``, through the factor structure when the problem is solved through it."""
+
+    if _factor_structured(problem):
+        product = _curvature(problem, 1.0).times(weights)
+        variance = math.fsum(w * p for w, p in zip(weights, product, strict=True))
+        return math.sqrt(max(0.0, variance))
+    return _volatility(weights, _matrix(problem).values)
+
+
 # --------------------------------------------------------------------------- #
 # Diagnostics
 # --------------------------------------------------------------------------- #
@@ -1298,9 +1573,10 @@ def _result(
 ) -> ConstructionResult:
     universe = problem.universe
     constraints = problem.constraints
-    checker = QuadraticProgram(
-        problem.covariance.values, tuple(0.0 for _ in universe), compiled.linear, compiled.absolute
+    objective_costs = (
+        problem.objective.costs if isinstance(problem.objective, MeanVariance) else None
     )
+    checker = _Constraints(compiled.linear, compiled.absolute)
     if outcome.weights is None or outcome.status is not ConstructionStatus.OPTIMAL:
         diagnostics = ConstructionDiagnostics(
             method=method,
@@ -1379,6 +1655,7 @@ def _result(
         diversification_ratio=diversification,
         net_exposure=math.fsum(outcome.weights),
         gross_exposure=math.fsum(abs(value) for value in outcome.weights),
+        transaction_cost=(objective_costs.cost(weights) if objective_costs is not None else None),
         turnover=(
             None
             if constraints.turnover is None
@@ -1419,18 +1696,170 @@ def _result(
 def _qp(
     problem: ConstructionProblem,
     compiled: _Compiled,
-    hessian: tuple[tuple[float, ...], ...],
+    scale: float,
     linear: Sequence[float],
     iterations: int,
+    hessian: tuple[tuple[float, ...], ...] | None = None,
 ) -> _Outcome:
-    settings = problem.settings
-    solution = solve_quadratic_program(
-        QuadraticProgram(hessian, tuple(linear), compiled.linear, compiled.absolute),
-        feasibility_tolerance=settings.feasibility_tolerance,
-        convergence_tolerance=settings.convergence_tolerance,
-        max_iterations=max(1, settings.max_iterations - iterations),
+    solution = _solve(
+        problem, scale, linear, compiled.linear, compiled.absolute, iterations, hessian
     )
     return _from_solution(solution, iterations)
+
+
+def _qp_with_costs(
+    problem: ConstructionProblem,
+    compiled: _Compiled,
+    scale: float,
+    linear: Sequence[float],
+    costs: LinearCosts,
+    iterations: int,
+    *,
+    penalty: str = "Linear costs",
+    side: str = "no trade in {asset} (not worth its cost)",
+) -> _Outcome:
+    """Minimize ``1/2 x'Gx + a'x + sum_i c_i |x_i - w0_i|`` exactly, one orthant at a time.
+
+    The cost term is linear on each orthant around the current book: with
+    signs ``s``, the problem is the quadratic program with linear term
+    ``a + c * s`` and every charged asset held to its side of ``w0`` -- which
+    the solver solves and certifies like any other. The orthant's optimum is
+    the true optimum when the certificate also holds for the true problem: a
+    side constraint that binds (``x_i = w0_i``, the asset not traded) with
+    multiplier ``mu_i`` leaves the subgradient ``s_i (c_i - mu_i)``, inside
+    ``[-c_i, c_i]`` exactly when ``mu_i <= 2 c_i``. Where one exceeds that,
+    trading ``i`` the other way pays, and that asset's side is switched. The
+    point just found lies on the new orthant too, so the objective never rises;
+    no orthant is solved twice, so the method ends. It starts from the orthant
+    of the cost-free optimum, where the answer usually already is. Should every
+    switch a certificate asks for lead back to an orthant already solved -- a
+    degenerate vertex whose multipliers are not unique -- the method says it
+    could not certify rather than returning an uncertified portfolio.
+    """
+
+    universe = problem.universe
+    settings = problem.settings
+    size = len(universe)
+    current = [costs.current[asset] for asset in universe]
+    rates = [costs.rates[asset] for asset in universe]
+    charged = [index for index in range(size) if rates[index] > 0.0]
+    base = _qp(problem, compiled, scale, linear, iterations)
+    if base.status is not ConstructionStatus.OPTIMAL or base.weights is None or not charged:
+        # Costs change no constraint: what the cost-free problem cannot
+        # satisfy, no orthant of it can -- and with nothing charged it is the
+        # problem.
+        return base
+    signs = {index: 1.0 if base.weights[index] >= current[index] else -1.0 for index in charged}
+    labels = {index: side.format(asset=universe[index]) for index in charged}
+    used = base.iterations
+    solved: set[tuple[float, ...]] = set()
+    lowest = math.inf
+    while True:
+        solved.add(tuple(signs[index] for index in charged))
+        solution = _solve(
+            problem,
+            scale,
+            tuple(linear[i] + rates[i] * signs.get(i, 0.0) for i in range(size)),
+            (
+                *compiled.linear,
+                *(
+                    LinearConstraint(labels[i], ((i, signs[i]),), signs[i] * current[i], False)
+                    for i in charged
+                ),
+            ),
+            compiled.absolute,
+            used,
+        )
+        outcome = _from_solution(solution, used)
+        used = outcome.iterations
+        if outcome.status is not ConstructionStatus.OPTIMAL or outcome.weights is None:
+            return outcome
+        value = _costed_objective(problem, scale, outcome.weights, linear, current, rates)
+        if value > lowest + settings.convergence_tolerance * max(1.0, abs(lowest)):
+            return _Outcome(
+                ConstructionStatus.NUMERICAL_FAILURE,
+                None,
+                used,
+                (),
+                (),
+                outcome.stationarity,
+                f"Switching a side raised the costed objective from {lowest!r} to {value!r}, "
+                "which exact arithmetic excludes: the solves disagree beyond tolerance.",
+            )
+        lowest = min(lowest, value)
+        excesses = sorted(
+            (-(solution.multipliers.get(labels[i], 0.0) - 2.0 * rates[i]), i)
+            for i in charged
+            if solution.multipliers.get(labels[i], 0.0) - 2.0 * rates[i]
+            > settings.convergence_tolerance * max(1.0, 2.0 * rates[i])
+        )
+        if not excesses:
+            return replace(
+                outcome,
+                detail=(
+                    f"{outcome.detail} {penalty}: the orthant optimum meets the true "
+                    f"subgradient condition, after {len(solved) - 1} side switch(es)."
+                ),
+            )
+        switch = next(
+            (
+                i
+                for _, i in excesses
+                if tuple(-signs[j] if j == i else signs[j] for j in charged) not in solved
+            ),
+            None,
+        )
+        if switch is None:
+            return _Outcome(
+                ConstructionStatus.NUMERICAL_FAILURE,
+                None,
+                used,
+                (),
+                (),
+                outcome.stationarity,
+                f"{penalty}: every side switch the optimality certificate asks for leads "
+                "to an orthant already solved -- a degenerate vertex -- so optimality "
+                "could not be certified.",
+            )
+        if used >= settings.max_iterations:
+            return _Outcome(
+                ConstructionStatus.ITERATION_LIMIT,
+                None,
+                used,
+                (),
+                (),
+                math.inf,
+                "The cost-bearing optimum was not reached within the step budget.",
+            )
+        signs[switch] = -signs[switch]
+
+
+def _costed_objective(
+    problem: ConstructionProblem,
+    scale: float,
+    x: Sequence[float],
+    linear: Sequence[float],
+    current: Sequence[float],
+    rates: Sequence[float],
+) -> float:
+    """``1/2 x'Gx + a'x + sum_i c_i |x_i - w0_i|``, ``G = scale * C``, summed exactly-rounded."""
+
+    size = len(x)
+    if _factor_structured(problem):
+        product = _curvature(problem, scale).times(x)
+        quadratic = [0.5 * x[i] * product[i] for i in range(size)]
+    else:
+        rows = _matrix(problem).values
+        quadratic = [
+            0.5 * x[i] * (scale * rows[i][j]) * x[j] for i in range(size) for j in range(size)
+        ]
+    return math.fsum(
+        [
+            *quadratic,
+            *(linear[i] * x[i] for i in range(size)),
+            *(rates[i] * abs(x[i] - current[i]) for i in range(size)),
+        ]
+    )
 
 
 def _volatility(weights: Sequence[float], rows: Sequence[Sequence[float]]) -> float:
@@ -1463,18 +1892,18 @@ def _cap(
     settings = problem.settings
     cap = problem.constraints.max_volatility
     assert cap is not None
-    rows = problem.covariance.values
+    size = len(problem.universe)
     tolerance = settings.feasibility_tolerance
     first = solve_at(aversion, 0)
     if first.status is not ConstructionStatus.OPTIMAL or first.weights is None:
         return first
-    if _volatility(first.weights, rows) <= cap + tolerance:
+    if _portfolio_volatility(problem, first.weights) <= cap + tolerance:
         return first
 
-    floor = _qp(problem, compiled, rows, [0.0] * len(rows), first.iterations)
+    floor = _qp(problem, compiled, 1.0, [0.0] * size, first.iterations)
     if floor.status is not ConstructionStatus.OPTIMAL or floor.weights is None:
         return floor
-    lowest = _volatility(floor.weights, rows)
+    lowest = _portfolio_volatility(problem, floor.weights)
     if lowest > cap + tolerance:
         return _Outcome(
             ConstructionStatus.INFEASIBLE,
@@ -1497,7 +1926,7 @@ def _cap(
         iterations = trial.iterations
         if trial.status is not ConstructionStatus.OPTIMAL or trial.weights is None:
             return trial
-        if _volatility(trial.weights, rows) <= cap + tolerance:
+        if _portfolio_volatility(problem, trial.weights) <= cap + tolerance:
             best = trial
             break
         low = high
@@ -1515,7 +1944,7 @@ def _cap(
     effective = high
     for _ in range(settings.max_iterations):
         assert best.weights is not None
-        reached = _volatility(best.weights, rows)
+        reached = _portfolio_volatility(problem, best.weights)
         if reached >= cap * (1.0 - settings.convergence_tolerance) or (
             high / low - 1.0 <= settings.convergence_tolerance
         ):
@@ -1536,7 +1965,7 @@ def _cap(
         iterations = trial.iterations
         if trial.status is not ConstructionStatus.OPTIMAL or trial.weights is None:
             return trial
-        if _volatility(trial.weights, rows) <= cap + tolerance:
+        if _portfolio_volatility(problem, trial.weights) <= cap + tolerance:
             high, best, effective = middle, trial, middle
         else:
             low = middle
@@ -1569,6 +1998,16 @@ def _returns_vector(problem: ConstructionProblem, returns: ExpectedReturns) -> l
     return [returns.values[asset] for asset in problem.universe]
 
 
+def _is_long_only(problem: ConstructionProblem) -> bool:
+    """Whether every weight is bounded below by zero or more."""
+
+    for asset in problem.universe:
+        lower, _ = problem.constraints.bounds.for_asset(asset)
+        if lower is None or lower < 0.0:
+            return False
+    return True
+
+
 def _long_only(problem: ConstructionProblem, what: str) -> None:
     for asset in problem.universe:
         lower, _ = problem.constraints.bounds.for_asset(asset)
@@ -1583,11 +2022,20 @@ def _mean_variance(
     problem: ConstructionProblem, compiled: _Compiled, objective: MeanVariance
 ) -> _Outcome:
     returns = _returns_vector(problem, objective.expected_returns)
-    rows = problem.covariance.values
     linear = [-value for value in returns]
+    costs = objective.costs
+    if costs is not None and set(costs.current) != set(problem.universe):
+        universe = set(problem.universe)
+        raise ConstructionInputError(
+            "LinearCosts must cover exactly the universe, zeros included: missing "
+            f"{sorted(universe - set(costs.current))}, outside "
+            f"{sorted(set(costs.current) - universe)}."
+        )
 
     def solve_at(aversion: float, iterations: int) -> _Outcome:
-        return _qp(problem, compiled, _hessian(rows, aversion), linear, iterations)
+        if costs is None:
+            return _qp(problem, compiled, aversion, linear, iterations)
+        return _qp_with_costs(problem, compiled, aversion, linear, costs, iterations)
 
     if problem.constraints.max_volatility is None:
         return solve_at(objective.risk_aversion, 0)
@@ -1599,22 +2047,23 @@ def _robust(
 ) -> _Outcome:
     returns = _returns_vector(problem, objective.expected_returns)
     settings = problem.settings
-    rows = problem.covariance.values
+    rows = _matrix(problem).values
     uncertainty = objective.uncertainty
 
     if isinstance(uncertainty, BoxUncertainty):
-        _long_only(problem, "A box uncertainty set's robust counterpart")
         if set(uncertainty.half_widths) != set(problem.universe):
             raise ConstructionInputError(
                 "A box uncertainty set must give a half width for exactly the universe."
             )
+        if not _is_long_only(problem):
+            return _robust_box_with_shorts(problem, compiled, objective, returns, uncertainty)
         shifted = [
             -(value - uncertainty.half_widths[asset])
             for asset, value in zip(problem.universe, returns, strict=True)
         ]
 
         def solve_box(aversion: float, iterations: int) -> _Outcome:
-            outcome = _qp(problem, compiled, _hessian(rows, aversion), shifted, iterations)
+            outcome = _qp(problem, compiled, aversion, shifted, iterations)
             if outcome.weights is None:
                 return outcome
             worst = -math.fsum(
@@ -1652,7 +2101,7 @@ def _robust(
         at most the convergence tolerance, relatively.
         """
 
-        outcome = _qp(problem, compiled, _hessian(rows, aversion), linear, iterations)
+        outcome = _qp(problem, compiled, aversion, linear, iterations)
         if outcome.weights is None or radius == 0.0:
             return _robust_outcome(outcome, returns, omega.values, radius)
         eta = _volatility(outcome.weights, omega.values)
@@ -1667,7 +2116,9 @@ def _robust(
                 )
                 for row in range(len(rows))
             )
-            outcome = _qp(problem, compiled, hessian, linear, outcome.iterations + 1)
+            outcome = _qp(
+                problem, compiled, aversion, linear, outcome.iterations + 1, hessian=hessian
+            )
             if outcome.weights is None:
                 return outcome
             updated = _volatility(outcome.weights, omega.values)
@@ -1687,6 +2138,53 @@ def _robust(
     if problem.constraints.max_volatility is None:
         return solve_robust(objective.risk_aversion, 0)
     return _cap(problem, compiled, solve_robust, objective.risk_aversion)
+
+
+def _robust_box_with_shorts(
+    problem: ConstructionProblem,
+    compiled: _Compiled,
+    objective: RobustMeanVariance,
+    returns: Sequence[float],
+    uncertainty: BoxUncertainty,
+) -> _Outcome:
+    """The box's robust counterpart for a portfolio that may short (v3.13).
+
+    ``min over mu in the box of mu' w`` is ``mu_hat' w - half_width' |w|``, so
+    the robust problem minimizes ``(lambda / 2) w' C w - mu_hat' w +
+    half_width' |w|`` -- the costed problem of :class:`LinearCosts` with the
+    held weights at zero, solved and certified by the same method.
+    """
+
+    universe = problem.universe
+    linear = [-value for value in returns]
+    widths = [uncertainty.half_widths[asset] for asset in universe]
+    penalty = LinearCosts(current=dict.fromkeys(universe, 0.0), rates=dict(uncertainty.half_widths))
+
+    def solve_box(aversion: float, iterations: int) -> _Outcome:
+        outcome = _qp_with_costs(
+            problem,
+            compiled,
+            aversion,
+            linear,
+            penalty,
+            iterations,
+            penalty="Box uncertainty (an L1 penalty on the weights)",
+            side="no position in {asset} (its return too uncertain to hold either way)",
+        )
+        if outcome.weights is None:
+            return outcome
+        held = outcome.weights
+        worst = math.fsum(
+            [
+                *(value * weight for value, weight in zip(returns, held, strict=True)),
+                *(-width * abs(weight) for width, weight in zip(widths, held, strict=True)),
+            ]
+        )
+        return _with_worst_case(outcome, worst)
+
+    if problem.constraints.max_volatility is None:
+        return solve_box(objective.risk_aversion, 0)
+    return _cap(problem, compiled, solve_box, objective.risk_aversion)
 
 
 def _with_worst_case(outcome: _Outcome, worst: float) -> _Outcome:
@@ -1773,15 +2271,7 @@ def _maximum_diversification(problem: ConstructionProblem, compiled: _Compiled) 
     # No explicit y >= 0 is needed: every lower bound is at least zero (checked
     # above), and each homogenizes to B y_i >= lower * 1'y >= 0.
 
-    settings = problem.settings
-    solution = solve_quadratic_program(
-        QuadraticProgram(
-            problem.covariance.values, tuple(0.0 for _ in universe), tuple(homogenized)
-        ),
-        feasibility_tolerance=settings.feasibility_tolerance,
-        convergence_tolerance=settings.convergence_tolerance,
-        max_iterations=settings.max_iterations,
-    )
+    solution = _solve(problem, 1.0, [0.0] * count, tuple(homogenized), (), 0)
     outcome = _from_solution(solution, 0)
     if solution.x is None:
         return outcome
@@ -1822,7 +2312,7 @@ def _risk_parity(
         budgets = [float(objective.budgets[asset]) for asset in universe]
     settings = problem.settings
     iterate = solve_risk_budgets(
-        problem.covariance.values,
+        _matrix(problem).values,
         budgets,
         convergence_tolerance=settings.convergence_tolerance,
         max_sweeps=settings.max_iterations,
@@ -1840,17 +2330,14 @@ def _risk_parity(
             budget_deviation=iterate.max_deviation,
         )
     weights = tuple(budget * value for value in iterate.weights)
-    checker = QuadraticProgram(
-        problem.covariance.values, tuple(0.0 for _ in universe), compiled.linear, compiled.absolute
-    )
-    residuals = constraint_residuals(checker, weights)
+    residuals = constraint_residuals(_Constraints(compiled.linear, compiled.absolute), weights)
     unmet = [
         label for label, residual in residuals.items() if residual > settings.feasibility_tolerance
     ]
     cap = constraints.max_volatility
     if (
         cap is not None
-        and _volatility(weights, problem.covariance.values) > cap + settings.feasibility_tolerance
+        and _volatility(weights, _matrix(problem).values) > cap + settings.feasibility_tolerance
     ):
         unmet.append(f"volatility <= {cap!r}")
     if unmet:
@@ -1893,13 +2380,30 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
             constraint the objective cannot express.
     """
 
+    # A structure under a method that reads the dense values -- risk parity, a
+    # universe too small for the structured method, a structure that cannot
+    # establish definiteness by itself -- is written out once, here, and the
+    # problem solved over the matrix it implies. Its result is the problem's
+    # as stated: its identity, and diagnostics through the factors (PRF-013).
+    stated = problem
+    if isinstance(problem.covariance, FactorStructure) and not _factor_structured(problem):
+        problem = replace(problem, covariance=problem.covariance.matrix())
     covariance = problem.covariance
-    try:
-        evidence = covariance.require_positive_definite(
-            f"{type(problem.objective).__name__} construction"
-        )
-    except AnalyticsValidationError as error:
-        raise ConstructionInputError(str(error)) from error
+    factors = _structure(problem)
+    structured = (
+        factors.definiteness() if factors is not None and _factor_structured(problem) else None
+    )
+    if structured is not None:
+        # Established from the factor structure in O(n k^2): every specific
+        # variance positive and the factor covariance positive semidefinite.
+        evidence = structured
+    else:
+        try:
+            evidence = _matrix(problem).require_positive_definite(
+                f"{type(problem.objective).__name__} construction"
+            )
+        except AnalyticsValidationError as error:
+            raise ConstructionInputError(str(error)) from error
     _require_universe(problem)
     compiled = _compile(problem)
     objective = problem.objective
@@ -1919,13 +2423,13 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
             0.0,
             "A constraint reaches no asset in the universe and cannot hold at zero.",
         )
-        return _result(problem, method, outcome, compiled, evidence.pivot_ratio, expected)
+        return _result(stated, method, outcome, compiled, evidence.pivot_ratio, expected)
 
     if isinstance(objective, MinimumVariance):
-        outcome = _qp(problem, compiled, covariance.values, [0.0] * len(covariance.assets), 0)
+        outcome = _qp(problem, compiled, 1.0, [0.0] * len(covariance.assets), 0)
         cap = problem.constraints.max_volatility
         if outcome.weights is not None and cap is not None:
-            lowest = _volatility(outcome.weights, covariance.values)
+            lowest = _portfolio_volatility(problem, outcome.weights)
             if lowest > cap + problem.settings.feasibility_tolerance:
                 outcome = _Outcome(
                     ConstructionStatus.INFEASIBLE,
@@ -1945,4 +2449,4 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
         outcome = _maximum_diversification(problem, compiled)
     else:
         outcome = _risk_parity(problem, compiled, objective)
-    return _result(problem, method, outcome, compiled, evidence.pivot_ratio, expected)
+    return _result(stated, method, outcome, compiled, evidence.pivot_ratio, expected)

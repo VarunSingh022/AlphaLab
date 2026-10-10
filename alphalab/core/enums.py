@@ -1,6 +1,23 @@
-"""Core domain enumerations."""
+"""Core domain enumerations.
+
+:class:`OrderType` and :class:`TimeInForce` are defined in
+:mod:`alphalab.common.order_terms` since v3.11 and re-exported here: a strategy
+states an order's terms on its intent, and the strategy package imports nothing
+but ``alphalab.common``. They are the same classes.
+"""
 
 from enum import StrEnum, unique
+
+from alphalab.common.order_terms import OrderType, TimeInForce
+
+__all__ = [
+    "AssetType",
+    "EventType",
+    "OrderStatus",
+    "OrderType",
+    "Side",
+    "TimeInForce",
+]
 
 
 @unique
@@ -9,16 +26,6 @@ class Side(StrEnum):
 
     BUY = "buy"
     SELL = "sell"
-
-
-@unique
-class OrderType(StrEnum):
-    """Supported order execution instructions."""
-
-    MARKET = "market"
-    LIMIT = "limit"
-    STOP = "stop"
-    STOP_LIMIT = "stop_limit"
 
 
 @unique
@@ -58,13 +65,3 @@ class EventType(StrEnum):
     TRADE = "trade"
     POSITION = "position"
     PORTFOLIO = "portfolio"
-
-
-@unique
-class TimeInForce(StrEnum):
-    """Order lifetime policies."""
-
-    DAY = "day"
-    GTC = "good_til_cancelled"
-    IOC = "immediate_or_cancel"
-    FOK = "fill_or_kill"

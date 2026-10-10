@@ -18,11 +18,15 @@ from .contracts import SettlementExposure as SettlementExposure
 from .contracts import contract_exposures as contract_exposures
 from .contracts import holding_notional as holding_notional
 from .contracts import settlement_exposures as settlement_exposures
+from .corporate_actions import CashFlow as CashFlow
+from .corporate_actions import CashFlowKind as CashFlowKind
+from .corporate_actions import Split as Split
 from .engine import PortfolioEngine as PortfolioEngine
 from .engine import PortfolioState as PortfolioState
 from .events import (
     CashDeposited as CashDeposited,
 )
+from .events import CashFlowBooked as CashFlowBooked
 from .events import (
     CashWithdrawn as CashWithdrawn,
 )
@@ -44,6 +48,8 @@ from .events import (
 from .events import (
     PositionReduced as PositionReduced,
 )
+from .events import PositionSplit as PositionSplit
+from .events import VariationSettled as VariationSettled
 from .exceptions import (
     InsufficientFundsError as InsufficientFundsError,
 )
@@ -116,6 +122,9 @@ __all__ = [
     "Account",
     "BookValuation",
     "CashDeposited",
+    "CashFlow",
+    "CashFlowBooked",
+    "CashFlowKind",
     "CashLedger",
     "CashWithdrawn",
     "ContractExposure",
@@ -151,13 +160,16 @@ __all__ = [
     "PositionOpened",
     "PositionReduced",
     "PositionSide",
+    "PositionSplit",
     "SettlementExposure",
+    "Split",
     "StaleRateError",
     "StrategySleeve",
     "StrategyValuation",
     "Transaction",
     "TransactionLedger",
     "TransactionType",
+    "VariationSettled",
     "carry_rate",
     "cash_in",
     "contract_exposures",

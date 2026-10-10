@@ -17,7 +17,13 @@ class FillStatus(Enum):
 
 @dataclass(frozen=True, slots=True)
 class OrderInstruction:
-    """Immutable representation of an order sent for execution."""
+    """Immutable representation of an order sent for execution.
+
+    ``minor_units`` is the number of decimals of ``currency``'s minor unit, which
+    a simulated fill's cash costs are rounded to. ``None`` means ISO 4217's
+    figure for ``currency``; the execution pipeline passes its account's, so a
+    settlement currency the account declared is rounded at the declared unit.
+    """
 
     order_id: str
     strategy_id: str
@@ -27,6 +33,7 @@ class OrderInstruction:
     side: Side
     venue: str
     currency: str
+    minor_units: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.side, Side):

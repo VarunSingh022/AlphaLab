@@ -16,10 +16,11 @@ every transition.
 The structural assertions are deterministic and are the real guard: they check
 that the state holds a persistent container, which is the property the fix
 rests on. The timing assertions are coarse backstops with wide tolerances --
-there to catch a return to quadratic scaling, not to police constant factors.
+there to catch a return to quadratic scaling, not to police constant factors --
+read with the one stabilized method every guard shares
+(tests/regression/_timing.py).
 """
 
-import time
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -27,9 +28,11 @@ from alphalab.broker import BrokerAdapter, BrokerEngine, BrokerOrderType, PaperB
 from alphalab.brokers.state import BrokerConnectorState
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.execution.costs import FREE
 from alphalab.market.engine import MarketEngine
 from alphalab.market.quote import Quote
 from alphalab.market.state import MarketState
+from tests.regression._timing import CLOCK, timings
 
 
 def _quote(asset_id: str, timestamp: float) -> Quote:
@@ -57,24 +60,24 @@ class _OMSOrder:
 def _publish(count: int, universe: int) -> float:
     quotes = [_quote(f"S{i % universe}", float(i + 1)) for i in range(count)]
     state = MarketEngine.reset()
-    start = time.perf_counter()
+    start = CLOCK()
     for quote in quotes:
         state = MarketEngine.publish_quote(state, quote)
-    return time.perf_counter() - start
+    return CLOCK() - start
 
 
 def _submit(count: int) -> float:
     orders = [_OMSOrder(f"OMS-{i}", "AAPL", "BUY", "1", "10.00") for i in range(count)]
     state = BrokerEngine.initialize("BENCH", Decimal("100000000000.00"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     broker_orders = [
         BrokerAdapter.to_broker_order(order, f"B-{i}", BrokerOrderType.MARKET, float(i))
         for i, order in enumerate(orders)
     ]
-    start = time.perf_counter()
+    start = CLOCK()
     for index, order in enumerate(broker_orders):
         state, _ = broker.submit_order(state, order, float(index))
-    return time.perf_counter() - start
+    return CLOCK() - start
 
 
 # --- structural: the property the fix rests on -------------------------------
@@ -119,7 +122,7 @@ def test_publishing_shares_structure_instead_of_copying_the_index() -> None:
 
 def test_a_submitted_order_is_invisible_to_the_state_before_it() -> None:
     state = BrokerEngine.initialize("B", Decimal("1000000"), "USD")
-    broker = PaperBroker()
+    broker = PaperBroker(FREE)
     order = BrokerAdapter.to_broker_order(
         _OMSOrder("OMS-1", "AAPL", "BUY", "1", "10.00"), "B-1", BrokerOrderType.LIMIT, 1.0
     )
@@ -137,8 +140,7 @@ def test_publishing_does_not_slow_down_as_the_universe_grows() -> None:
 
     Before v2.3 this ratio was roughly the universe ratio itself.
     """
-    narrow = _publish(20_000, universe=1)
-    wide = _publish(20_000, universe=10_000)
+    narrow, wide = timings(lambda universe: _publish(20_000, universe), 1, 10_000, rounds=3)
 
     assert wide < narrow * 3.0, (
         f"Publishing into a 10,000-instrument universe took {wide:.3f}s against "
@@ -148,8 +150,7 @@ def test_publishing_does_not_slow_down_as_the_universe_grows() -> None:
 
 def test_broker_submission_stays_linear_in_the_orders_already_placed() -> None:
     """Quadratic would be ~16x over a 4x workload; linear is ~4x."""
-    small = _submit(2_000)
-    large = _submit(8_000)
+    small, large = timings(_submit, 2_000, 8_000)
 
     assert large < small * 8.0, (
         f"Submitting 8,000 orders took {large:.3f}s against {small:.3f}s for 2,000; "

@@ -63,6 +63,7 @@ from alphalab.data import (
     TimeFrequency,
     raw_source_from_bytes,
 )
+from alphalab.data.time import BarStamp
 
 DATA = Path(__file__).parent / "data" / "messy_ohlcv.csv"
 
@@ -162,6 +163,8 @@ def main() -> None:
             SourceKind.LOCAL_FILE, str(DATA), b"", RETRIEVED_AT, "text/csv", "utf-8"
         ),
         frequency=TimeFrequency.DAILY,
+        # Stamped at each bar's close, the instant it was knowable.
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=policy,
         price_basis=PriceBasis.RAW,

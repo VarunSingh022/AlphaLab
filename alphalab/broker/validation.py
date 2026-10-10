@@ -12,8 +12,9 @@ def validate_order_submission(state: BrokerState, order: BrokerOrder) -> None:
     if order.quantity <= Decimal("0.00"):
         raise BrokerValidationError(f"Order quantity must be positive, got {order.quantity}")
 
-    if order.price < Decimal("0.00"):
-        raise BrokerValidationError(f"Order price cannot be negative, got {order.price}")
+    # The sign of a price is the instrument's question since v3.11 (ACC-007).
+    if not order.price.is_finite():
+        raise BrokerValidationError(f"Order price must be a finite number, got {order.price}")
 
     if order.broker_order_id in state.orders:
         raise BrokerValidationError(f"Duplicate broker_order_id: {order.broker_order_id}")
@@ -57,8 +58,8 @@ def validate_replace_request(
             f"Cannot amend order {broker_order_id} to {new_quantity}: "
             f"{order.filled_quantity} has already filled, so nothing would be left working."
         )
-    if new_price < Decimal("0"):
-        raise BrokerValidationError(f"Order price cannot be negative, got {new_price}")
+    if not new_price.is_finite():
+        raise BrokerValidationError(f"Order price must be a finite number, got {new_price}")
 
 
 def validate_execution(state: BrokerState, execution_id: str) -> None:

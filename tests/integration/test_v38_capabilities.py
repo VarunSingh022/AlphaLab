@@ -678,7 +678,11 @@ def _loadings() -> FactorLoadings:
     volatility = percentile_rank_panel(
         compute_panel(
             FeatureDefinition(
-                "volatility", FeatureKind.REALIZED_VOLATILITY, FeatureField.CLOSE, window=10
+                "volatility",
+                FeatureKind.REALIZED_VOLATILITY,
+                FeatureField.CLOSE,
+                window=10,
+                parameters={"periods_per_year": 252.0},
             ),
             frame,
         )

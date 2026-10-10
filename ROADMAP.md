@@ -83,18 +83,63 @@ against named references. `alphalab.core`, `broker`, `execution`, `runtime` and
 `lifecycle` deepen; no package and no package edge is added, and no snapshot
 schema changes. ADR-0044.
 
+**v3.13.0** is the last of four **pre-v4 releases**, and leaves nothing for
+later. It closes every item the ledger assigned to it and the four it had
+assigned to v4.0.0 — American options and a volatility term structure, the
+optimal split, an estimated urgency and randomized icebergs, a rerun harness, a
+lock-file reader, cron timers, an exact liquidation price, checkpoint segments
+that no longer grow with a run's orders — with the two capabilities and the
+limitations three ADRs had stated and the ledger had never recorded:
+exchange-rate risk as factors, the shortfall an impact model expects, and a box
+uncertainty set on a book that may short. And it does the freeze's own work: one
+name for one contract across the public API, the API and every persisted name
+recorded as data and held by tests, and a certificate of what the build was
+checked to do (ADR-0048). Every boundary and limitation was re-read against the
+code and kept with its reason; nothing is assigned to a later release.
+
+**v3.12.0** is the third of four **pre-v4 releases**: numerical methods right
+at the edges of their range, durable state that restores what was captured,
+costs that follow the work at 10,000 assets, 1,000 strategies and 100 venues,
+and the capabilities deferred to it — calendars inside simulation, strategy
+capital ceilings, classification limits, external information on the
+execution path, retention and incremental checkpoints, an evidence store,
+multi-account reconciliation, declared trade prints and trainable sequence
+models (ADR-0047). `plugins`, `optimizer` and the reporting dashboards leave
+the library (SCF-003).
+
+**v3.11.0** is the second of four **pre-v4 releases**: the capabilities a
+strategy needs before its API is frozen — instrument economics, order terms,
+target positions, slices, leak-proof research, construction with costs and
+lots — with the application's packages moved out of the library (ADR-0046).
+
+**v3.10.0** is the first of four **pre-v4 releases**, and is a correctness
+release rather than a capability one. The pre-v4 audit re-read every subsystem
+of v3.9.0 and recorded, item by item, what must be true before v4.0 freezes the
+public surface: the master audit is `docs/audit/PRE_V4_MASTER_AUDIT.md` and the
+plan of record is `docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`, where every item
+has an ID, a disposition and a release. v3.10 closes the items assigned to it —
+risk, allocation, money, analytics, execution realism, performance, time,
+determinism, upgradeable persistence, the vendor code and the silent defaults.
+v3.11, v3.12 and v3.13 close the rest, and v4.0.0 certifies the result.
+ADR-0045.
+
 | Class | Meaning |
 | --- | --- |
 | **Delivered** | Built, tested, and described by the documentation |
 | **Deliberate boundary** | Not built, on purpose, with a reason and usually a regression test |
 | **External dependency** | Not AlphaLab's engineering to do — data, credentials, a vendor's API |
 | **Known defect** | A real defect, found and stated where it matters, not yet fixed |
-| **Optional future evolution** | Could be built; no commitment; nothing depends on it |
+| **Planned before v4** | Required for a complete v4, scheduled in the pre-v4 ledger with an ID and a release |
 
-Nothing classed as a deliberate boundary, an external dependency or optional
-future evolution is a defect, and none of them blocks a release. Known defects
-are listed apart, in their own class, so they are never mistaken for
-decisions.
+Until v3.10 a fifth class, *optional future evolution*, held things that could
+be built with no commitment. The pre-v4 audit re-classified every item in it:
+most are required for a complete v4 and are now **planned**, a few are
+**deliberate boundaries**, and one was removed with the code it described. At
+v4.0 this document lists only boundaries and external dependencies.
+
+Nothing classed as a deliberate boundary or an external dependency is a defect,
+and none blocks a release. Known defects are listed apart, in their own class,
+so they are never mistaken for decisions.
 
 ---
 
@@ -194,6 +239,146 @@ The first capability release on the frozen architecture, confined to
   with the evidence digest unchanged.
 - **`alphalab.api`** — the application-facing Python API, so a host
   platform imports one module rather than reaching into internals.
+
+## v3.13.0 — the final pre-v4 release
+
+- **Options** (NUM-006, BDY-016, FEA-005, BDY-015): American exercise and
+  discrete dividends on a Cox–Ross–Rubinstein lattice, reproducing Hull's
+  table; implied volatility through the lattice; interpolation across expiries,
+  linear in total variance, by name.
+- **Execution** (BRK-005, OFE-024, BRK-006, OFE-025, FEA-008): the optimal
+  split of an order across venues; an Almgren–Chriss urgency estimated from
+  stated inputs, and the expected shortfall and variance of a schedule under the
+  same model, a measured shortfall read beside them; iceberg tranches drawn from
+  a seed.
+- **Risk and construction** (FEA-007, FEA-009, PRF-013, RSK-007, OPT-001):
+  exchange-rate loadings and every factor's share of a book's volatility; a box
+  uncertainty set on a book that may short; a factor model stated by its
+  structure, which construction takes at 10,000 assets without writing it out;
+  the v1 optimizer's risk constraints state only what is checked, and its
+  manager applies only the constraints configured.
+- **Reproducibility** (REP-003, OFE-020, OFE-019): a run re-executed from its
+  manifest, its divergence located; a lock file read into a dependency
+  manifest.
+- **Scheduling and crypto** (DAT-006, NUM-014): cron timers on a stated zone's
+  wall clock, `BAR_BOUNDARY` removed; the liquidation price solved for a stated
+  maintenance basis, with fees and funding.
+- **Persistence** (PRF-011, PER-007, DOC-005, DOC-008): checkpoint segments that
+  carry only the orders that changed; a qualified enum name read only under its
+  own class; durability tables and every version marker held to the code.
+- **The freeze** (API-001, API-002, PER-004, FEA-006, DOC-006, TST-014,
+  TST-015): 52 shared public names reduced to 31, each with its reason; the
+  public API recorded per release and every change to it required in the
+  CHANGELOG; the persisted names pinned; a release certificate run in CI; the
+  ledger's cited tests checked to exist; every limitation and deferral an ADR
+  states held to a closed ledger entry.
+- **Boundaries** (BND-005): the research path no longer loads the market-data
+  transports.
+
+## v3.12.0 — the pre-v4 hardening release
+
+- **Numerics** (NUM-003, NUM-004, NUM-007, DAT-008): R² undefined for a
+  constant series; the normal CDF from `erfc`, precise deep in the lower tail;
+  least squares by Householder QR with a condition bound; theta on the
+  pricing year; a float instant's resolution stated.
+- **Durability** (PER-003, PER-006): directories flushed after a rename; an
+  allocation budget's currency restored; every v3.11.0 payload read from
+  frozen fixtures.
+- **Simulation** (EXE-010): a DAY order expires at its venue's last close of
+  the trading day.
+- **Capital and risk** (OFE-003, OFE-001, PRF-009): per-strategy capital
+  ceilings; classification along any dimension and limits on its buckets,
+  their gross kept by the book.
+- **External information** (OFE-009, OFE-011): observations delivered at the
+  instant they became knowable; streaming observation sets; split-adjusted and
+  converted fundamentals.
+- **Memory and checkpoints** (PRF-004): declared retention, history refused
+  beyond it, incremental checkpoints verified link by link.
+- **Evidence and health** (OFE-016, BDY-008, OFE-017): a durable evidence
+  store; health over a window.
+- **Reconciliation** (BRK-004, OFE-023): one book against every account it is
+  spread across.
+- **Data** (FEA-004, BDY-018, DAT-009): declared trade prints with venue
+  identifiers and aggressor sides; cleaning judges quotes as validation does.
+- **Models** (SCF-004): backpropagation through time for the LSTM, and
+  attention's backward pass.
+- **Research and consolidation** (RES-001, SCF-003, OFE-013): the v1 engine
+  restated as measurements under a stated policy; one parameter-search
+  authority, with `optimizer` removed; `plugins` and the reporting dashboards
+  removed; distributed cancellation fixed; session timers over a calendar;
+  exact report numbers (ANA-006).
+- **Scale** (PRF-005, PRF-010, TST-011): factor-structured construction to
+  10,000 assets; an event reaches strategies through an index; every benchmark
+  ceiling judged by one method; a stress program at 10,000 assets, 1,000
+  strategies and 100 venues.
+
+## v3.11.0 — the pre-v4 capability release
+
+- **Instruments** (ACC-005–007): declared economics — multiplier, settlement
+  (fully paid, futures variation margin, option premium, perpetual), lot,
+  minimum notional, negative prices; cash flows and splits through the path;
+  maker rebates.
+- **Orders** (EXE-003): limit, stop, stop-limit; IOC, FOK, GTD, DAY, OPG, CLS;
+  resting orders filled as makers or takers.
+- **Targets** (FEA-001, ALC-006, ALC-007): target quantities and weights against
+  each strategy's own position, rounded toward zero onto whole units and lots;
+  a sale commits no budget.
+- **Dispatch** (EXE-004, EXE-005, EXE-007): enforced subscriptions; slices;
+  `on_start`, `on_stop`, fill and order feedback.
+- **Live** (BRK-002, BRK-003, BRK-008, EXE-009, LIV-001): venue sequence
+  numbers, persisted requests, holds, FX settlement, a required paper cost
+  model.
+- **Research** (DAT-002, DAT-003, FEA-003, OFE-004–006, FEA-002, NUM-005):
+  implementation lag, delisting returns, walk-forward optimization, multiple
+  testing, deflated Sharpe, Newey-West IC, multivariate neutralization,
+  benchmark statistics, carry in Black-Scholes.
+- **Data and identity** (DAT-004, DAT-005, DAT-007, REP-002, DET-006): dated
+  aliases, `TimeFrame` as a value, engine build and tz database in manifests,
+  identities by value.
+- **Construction** (OFE-002): Ledoit-Wolf, EWMA and factor-model covariance;
+  linear costs solved exactly; lot rounding.
+- **Boundary** (BND-002, BND-003, SCF-001, BRK-007): `enterprise`, `workbench`,
+  `studio` and venue credentials moved to the application.
+- **Numerics and performance** (NUM-012, NUM-013, PRF-006, PRF-007): every run
+  entry point pinned; exact lot arithmetic; a run's cost linear in its length
+  again (a log slice had copied the whole log since v2.1); v3.10's per-operation
+  cost reduced.
+
+## v3.10.0 — the pre-v4 correctness release
+
+- **Risk on the projected book** (KD-001–003, RSK-001–006): one projection of
+  the book after the order, counting working orders; buying power charged only
+  for what grows a position; no limit refuses a trade that reduces what it
+  limits; breaches refuse only what grows exposure; the daily loss limit
+  maintained in a declared IANA zone; net exposure enforced; typed severity.
+- **Allocation** (ALC-001–003, ALC-005): long-only against committed positions;
+  `Intent` documented and typed as a delta; sizing refuses what it cannot size.
+- **Money** (ACC-001–004, ACC-008): ISO 4217 minor units plus declared ones;
+  exact prices and quantities; one pinned decimal context; no default currency
+  on a valuation helper.
+- **Analytics** (ANA-001–005): one point per instant; declared or observed
+  annualization, recorded; `None` for undefined statistics; trade statistics
+  over realizing fills.
+- **Execution realism** (EXE-001, EXE-002, EXE-006, EXE-008, NUM-008):
+  `FillTiming`; recorded `ExecutionAssumptions`; reported strategy failures and
+  an optional halt; as-of FX on the risk path; exact costs.
+- **Performance** (PRF-001–003): incremental marking over exact per-currency
+  totals — linear in the universe; compacting persistent maps.
+- **Time and data** (DAT-001, DAT-006, KD-004): bars stamped at the end of their
+  interval, the source's convention required; the scheduler's UTC calendar
+  removed; row-ingested datasets identified by their content.
+- **Determinism, numerics, persistence** (DET-001–004, REP-001, BRK-001,
+  NUM-001/002/010/011, PER-001/002, REL-001): seeds required and the stream
+  pinned; one version source; numeric reconciliation; non-finite inputs
+  refused; **versioned schema upgrades** replacing the "no migration framework"
+  boundary; strict JSON; sockets released.
+- **Boundary and defaults** (BND-001, BND-004, SCF-002, API-003): vendor
+  market-data clients, `feed`, `live` and exchange symbol quirks removed; the
+  last `"USD"` configuration defaults removed and the defaults sweep tightened.
+- **Gates** (TST-001–007): stabilized complexity guards and a universe-growth
+  guard; zero skips for every user; CI with `-W error`, examples, clean
+  wheel/sdist installs and scheduled benchmarks; hooks aligned with CI; every
+  mutation the audit's harness let through pinned.
 
 ## v3.9.0 — the universal execution contract
 
@@ -644,10 +829,11 @@ future "simplification" would have to break first —
   exposure depends on whether it holds shares or contracts, so it is supplied by
   the caller from whichever authority their book calls for. A third exposure
   site would be the one that forgot the multiplier.
-- **No durable state for the v3.5 values.** Each snapshot subsystem supports
-  exactly one schema version and AlphaLab has no migration framework, so a new
-  field on `LifecycleState` would make every earlier payload unreadable to serve
-  a value the caller can simply hold.
+- **Durable state for the v3.5 values — since v3.12.** The reason this was a
+  boundary was that a new field would have made every earlier payload
+  unreadable; v3.10's schema upgrades removed that reason, and v3.12's
+  evidence store files manifests, fingerprints and reports under their own
+  identities (BDY-008, OFE-016). `LifecycleState` itself is unchanged.
 - **No `SettlementPolicy` object.** `STRICT_MATCH` is the only settlement rule
   because no alternative exists: a permissive mode could only book honestly —
   making the book mixed, which the next valuation refuses without rates — or
@@ -656,12 +842,15 @@ future "simplification" would have to break first —
 - **No triangulation, no implicit inversion, no default rate.** A configured rate
   is an invented one. `with_inverses()` will mint the opposite direction, and
   marks what it mints as `derived` (ADR-0020, ADR-0035).
-- **No migration framework.** Each snapshot subsystem supports exactly one schema
-  version and refuses any other, naming the build that wrote it. The field exists
-  so the first schema change is a decision rather than a silent misread.
-- **No authentication, credential handling, IAM or federation.** Permanently out
-  of scope per ADR-0018. `alphalab.enterprise` models principals and roles; it
-  accepts and stores no credentials.
+- ~~**No migration framework.**~~ **Replaced in v3.10** (BDY-007, PER-001): every
+  snapshot subsystem declares its schema history and upgrades an older payload
+  through explicit, pure steps that refuse rather than invent (ADR-0045).
+- **No authentication, IAM or federation.** Out of scope per ADR-0018. Until
+  v3.11 the library held venue credentials — an `api_key` and signing secret in
+  `broker.transport.VenueCredentials` for the HMAC-signed venue transport — and
+  `alphalab.enterprise` kept secret *references* with rotation metadata. Both
+  are application concerns and left the library in v3.11 (BRK-007, BND-002;
+  ADR-0046); it now holds no credential of any kind.
 - **No supervised live *process*.** Restart policy, alerting and scheduling are
   an operator's concern. `live_health` answers "should a human look at this?"
   for a run this process is driving, and v3.5's `evaluate_health` answers the
@@ -697,16 +886,20 @@ future "simplification" would have to break first —
   30E/360 and ACT/ACT ISDA day-count variants are each absent because each needs
   a model or an end-of-month rule whose correct form depends on the instrument's
   own terms. The module, the example and this line all say *foundation*.
-- **No volatility-surface fit, and no interpolation across expiries.** A
-  `VolatilitySurface` interpolates along strikes at a matching expiry and refuses
-  an expiry nobody quoted. Variance accumulates with time, so the quantity that
-  interpolates sensibly between two maturities is total variance rather than
-  volatility, and an SVI or SABR fit is a model with parameters somebody has to
-  choose. `term_structure` reports the expiries that actually quote a strike.
-- **No American option pricing.** `black_scholes_price` is a European closed
-  form and `ModelAssumptions.prices_early_exercise` is `False`, carried on every
-  implied volatility so a figure cannot travel without it. `ExerciseStyle` is
-  required on a contract and is read by `resolve_expiration`, not by the pricer.
+- **No volatility-surface fit; between expiries, only by name — since v3.13.**
+  A `VolatilitySurface` interpolates along strikes at a matching expiry. Between
+  two quoted expiries it interpolates only when asked to by name
+  (`ExpiryInterpolation.TOTAL_VARIANCE_LINEAR`, FEA-005): variance accumulates
+  with time, so total variance is the quantity that interpolates, and an expiry
+  outside the quoted range or total variance that falls with expiry is refused
+  rather than extrapolated or smoothed. An SVI or SABR fit stays out: a model
+  with parameters somebody has to choose and defend (BDY-015).
+- ~~**No American option pricing.**~~ **Implemented in v3.13** (NUM-006,
+  BDY-016): a Cox–Ross–Rubinstein lattice prices early exercise and discrete
+  cash dividends, its step count part of the model's stated assumptions, and an
+  implied volatility can be inverted through the lattice an American quote was
+  priced on. The Black–Scholes–Merton closed form stays European, and says so in
+  `ModelAssumptions.prices_early_exercise`.
 - **No inferred roll rule.** Volume, open interest and days-to-expiry each give
   a defensible answer and they disagree. A `RollPolicy` has no default, and a
   trigger refuses the input it needs rather than approximating it from another —
@@ -715,10 +908,11 @@ future "simplification" would have to break first —
   position `MarketCalendar` takes on holidays, for the same reason: an exchange
   revises them, they differ between segments of one venue, and a table baked in
   here would be wrong within a year while looking authoritative.
-- **No trade or depth ingestion from a flat file.** A `price`/`size` pair is
-  indistinguishable from a partially populated bar without a declaration, and a
-  depth book is not a flat table. `RecordType` has `BAR` and `QUOTE` only; a
-  caller that builds the records itself can still ingest them.
+- **No depth ingestion from a flat file; trade prints only when declared.** A
+  `price`/`size` pair is indistinguishable from a partially populated bar
+  without a declaration, so since v3.12 a print is read only from the columns a
+  caller names (`TradeColumns`, FEA-004) and never detected from a header; a
+  depth book is not a flat table, and stays out (BDY-018).
 - **No marketplace logic.** AlphaLab provides fingerprints, manifests,
   certification reports and portability reports; listing, publishing, purchase,
   payment, subscription, ranking, search, seller and buyer accounts, licensing
@@ -733,7 +927,9 @@ future "simplification" would have to break first —
 - **No dependency resolver and no environment snapshot.** A dependency closure
   is declared, with its completeness stated. Listing "whatever is installed
   here" and calling it exact is the false reproducibility claim the manifest
-  exists to prevent.
+  exists to prevent. v3.13's `read_lock_file` reads a lock file's text into that
+  declaration and resolves nothing: it opens no file, reads no environment, and
+  states a closure exact only when the lock is one (OFE-019, BDY-020).
 - **No adaptation for portability.** A strategy that needs a capability an
   environment lacks is not portable there; nothing converts an order type,
   drops a short or retunes a parameter to make it fit.
@@ -785,7 +981,11 @@ future "simplification" would have to break first —
   (v3.9).
 - **No default urgency, quote age or tolerance, and no best-execution claim.**
   Each is a choice with no neutral value; whether an order may be routed away
-  from a venue at all is not something AlphaLab knows (v3.9).
+  from a venue at all is not something AlphaLab knows (v3.9). v3.13 keeps it:
+  `estimate_urgency` derives an urgency from risk aversion, volatility and
+  impact the caller states, none of them defaulted; iceberg randomization is
+  off unless asked for; and the optimal split claims the lowest cost under the
+  caller's quotes and cost models, not best execution (BDY-026).
 
 ---
 
@@ -860,138 +1060,91 @@ Real, and not AlphaLab's engineering to complete.
 
 # Known defects — found, not yet fixed
 
-A class of its own, because unlike everything above these are defects. Each
-predates v3.6, was found by building real evidence for it, and is stated where
-v3.6 meets it rather than silently relied on. Fixing the first three needs
-position quantities in the persisted risk state — a pipeline snapshot schema
-decision that deserves its own ADR (ADR-0041, *Consequences*).
+The four defects this section listed through v3.9 — the position check that
+compared different units, the daily loss limit that was never enforced, the net
+exposure limit nothing read, and `ingest_rows` identifying rows by the source
+its caller named — are fixed in v3.10 (KD-001–004).
 
-- **The pre-trade position check compares different units.**
-  `check_position_limit` adds an asset's notional exposure
-  (`ExposureStatus.asset_exposure` holds market values) to an order's quantity
-  and compares the sum with `PositionLimit.max_quantity`. A cap near a real
-  share count refuses orders the position does not warrant. Every
-  `RISK_LIMITS` certification states it.
-- **`DailyLossLimit` is never enforced.** `RiskState.daily_loss` is not
-  maintained on the execution path, so the daily-loss check always reads zero.
-- **`ExposureLimit.max_net_exposure` is read by no pre-trade check**, and its
-  sign convention is defined nowhere.
-- **`ingest_rows` identifies what its caller's source says.** It records the
-  `RawSource` it is given (ADR-0036), so rows recorded with an empty payload
-  share one dataset version whatever they contain. Reproducibility manifests
-  refuse such a dataset and certification does not count it as verified data;
-  the ingestion contract itself is unchanged.
+What was known is in the pre-v4 ledger, each with an ID and a release.
+v3.12 fixed the research engine's daily assumption and 0–100 scores (RES-001),
+the single-currency `BacktestResult.valuation` (API-004), the calendar-less
+DAY order (EXE-010), the single-sample benchmark ceilings (TST-011), the three
+numerical defects (NUM-003, NUM-004, NUM-007) and the unflushed directory
+(PER-003). v3.13 fixed the liquidation price (NUM-014), the broker codec's
+unread qualifier (PER-007), the research path's network imports (BND-005), and
+the v1 optimizer's unread risk limits and unconfigured clipping (RSK-007,
+OPT-001), and classified the two items v3.12 left open and every limitation the
+release ADRs state (LIM-001–003). The ledger holds no open defect;
+what remains is stated as a limitation, with its reason:
+
+- **Memory** (PRF-011, an explicit limitation): the OMS order book, execution
+  reports by order, and a live session's routed and settled orders hold an
+  entry for every order a run places — exactly-once handling of a venue's late
+  or repeated report needs the order it names. Retention bounds the logs, not
+  these. Since v3.13 a checkpoint segment carries only the orders that changed,
+  so checkpoints no longer pay for them.
+- **Performance** (PRF-006, bounded; PRF-012, an explicit limitation): against
+  v3.9 on one machine (five interleaved rounds, measured for v3.13.0), the
+  portfolio-engine micro-benchmark runs at 1.61× v3.9's time (1.58–1.67; exact
+  per-currency totals and instrument economics on every fill), a one-asset
+  backtest 1.14×, replay 1.15×, the pipeline 1.07× and the OMS 0.81× — inside
+  PRF-006's budget in every round. Against v3.11 the one-asset paths cost
+  between nothing and 11% more: no single place spends it, but the per-record
+  checks of the capabilities v3.12 put on the one canonical path and the state
+  they carry, which a run pays whether or not it configures them. v3.13 adds
+  nothing to v3.12.
 
 ---
 
-# Optional future evolution
+# Planned before v4 — the former optional list, re-classified
 
-Could be built. Nothing depends on any of it, and no commitment is made here.
+Every item this section listed as optional future evolution through v3.9, with
+the disposition the pre-v4 audit gave it.
 
-- **Classification dimensions beyond sector in the registry**, and
-  sector-based *pre-trade* risk limits. v3.8's risk budgets and construction
-  group bounds read any caller classification; no pre-trade check reads one.
-- **Richer portfolio construction** (ADR-0043): covariance estimators beyond
-  the sample (an estimated shrinkage intensity, EWMA, a factor-model
-  covariance), cardinality and lot-size constraints, transaction costs in the
-  objective, CVaR or drawdown objectives, multi-period construction, caps on a
-  bucket's risk contribution inside other objectives (not a convex constraint),
-  and exchange-rate return factors for a pure currency-risk dimension. v3.8's
-  solvers are exact, pure Python and cubic in the universe.
-- **Per-strategy capital ceilings on the execution path.** An account's
-  `CapitalBudget` enforces its total; a strategy's amount in it is what
-  weight-based sizing reads (ADR-0015 §1), not a second ceiling.
-- **Neutralization against several continuous exposures at once.** v3.2 offers
-  mean, group and single-regressor beta, each of which is exact. A general
-  least-squares solve over a rank-deficient or nearly-collinear design — which
-  factor exposures routinely are — produces residuals that look like a result
-  and are numerically meaningless, so it is not offered. Composing two
-  neutralizations is supported, and the transform chain records that this is
-  what was done.
-- **A deflated Sharpe ratio, and corrections beyond Bonferroni.** Šidák and
-  false-discovery-rate corrections need distributional assumptions
-  `alphalab.research` cannot check; a deflated Sharpe needs the variance of the
-  trial statistics *and* normality that daily returns do not satisfy.
-  Bonferroni is offered because its assumption fits in a line, and the report
-  says where it is conservative.
-- **A t-statistic on an information coefficient.** Overlapping forward-return
-  windows make consecutive ICs strongly autocorrelated by construction, so the
-  usual `IC_mean / (IC_std / sqrt(n))` is inflated by a factor this package
-  cannot measure. The per-instant series is reported instead, so a caller who
-  can model the overlap has what they need.
-- **A half-life fitted to a decay profile.** It requires assuming a functional
-  form and fitting it to a handful of noisy points, after which the fit is
-  quoted as though it were measured. The profile and the first negative horizon
-  are reported instead.
-- **A vendor adapter package** implementing one named venue's request shapes over
-  the existing transport, which is the smallest step from connectivity to
-  integration.
-- **Execution-path delivery of external information.** An adaptive strategy on
-  the execution path learns from the market events it is dispatched; external
-  information reaches adaptive state through a research replay and a trained
-  checkpoint. Delivering observations as execution-path events changes the
-  canonical spine and its snapshots, and needs its own ADR (ADR-0042).
-- **Statistical regime models** — hidden Markov, Markov switching — which need
-  an estimation step with an identity and a stated fitting window.
-- **A streaming observation set** for data arriving during a live run, and
-  split-adjusted per-share fundamentals or currency-converted figures (v3.7 reads
-  them as published and refuses a mixed-currency input).
-- **Consolidating the two identical provider-vocabulary `AssetClass` enums** in
-  `live.provider` and `marketdata.symbols`. Neither is on the canonical path and
-  neither is persisted; the canonical asset taxonomy is `core.enums.AssetType`,
-  which `brokers` aliases and `data` deliberately renames `DataAssetClass`.
-- **A start offset on `AppendOnlyLog`**, which is what
-  `OptimizerState.pending_trials` would need to stop being super-linear. It was
-  implemented, measured at **+3.9%** on `benchmark_execution_pipeline`, and
-  refused on that evidence — the same trade ADR-0028 refused at +1.78%.
-  `alphalab.optimizer` is a standalone package with no in-repo consumer, so the
-  term is off every canonical path.
-- **Reviving `on_fill` / `on_order` / `on_timer` as pipeline-driven hooks.**
-  `StrategyProtocol` declares them and `Dispatcher` routes them, but nothing in
-  `ExecutionPipeline` constructs the events that would reach them; a caller
-  driving `StrategyEngine.process_event` directly can. Wiring them into the
-  pipeline needs a second strategy dispatch per event and would change intent
-  ordering and every parity baseline.
-- **Per-strategy sub-ledgers in `PortfolioEngine`.** The strategy-runtime design
-  anticipated them; what shipped instead is the allocation contribution ledger
-  and `order_shares_by_strategy`, which answers the attribution question without
-  a second book.
-- **A durable home for a `StrategyProgression`.** v3.5 keeps it as a value the
-  caller holds, because a field on `LifecycleState` would move
-  `LIFECYCLE_SNAPSHOT_SCHEMA` and AlphaLab has no migration framework. An
-  application that wants one persists it through its own store, exactly as it
-  persists a `RunAuthorization`.
-- **Health evaluated over a window rather than an instant.** `evaluate_health`
-  judges one observation, so "this has been degraded for ten minutes" and "it
-  recovered and broke again" are a caller's to derive from a series of reports.
-  A window needs a retention policy and a clock, and neither belongs in a pure
-  function.
-- **Derived alignment for a comparison.** `AlignmentKey` has two members and no
-  inference. A fuzzy matcher over price, quantity and time would pair records no
-  identity connects and report the pairing as a measurement.
-- **A lock-file reader** that turns a caller's lock file into a
-  `DependencyManifest`. It would read a file the caller names and resolve
-  nothing, so it would not break the "no environment snapshot" boundary; it is
-  simply not needed to state the contract.
-- **A durable home for fingerprints, manifests and reports.** An application
-  that wants one persists them through its own store; each has a deterministic
-  JSON form through `alphalab.persistence.serialize`.
-- **A rerun harness.** A rerun is the caller's to perform from a manifest's
-  declared inputs; the lifecycle constructs and executes nothing (ADR-0033
-  decision 5), so a harness would live beside the execution path, not in it.
-- **A venue sequence number on orders** (ADR-0044), so amendments, positions and
-  balances delivered out of order can be ordered by it. It would change
-  `BROKER_SNAPSHOT_SCHEMA`; until then delivering them in order is the adapter's
-  stated obligation and a snapshot reconciliation is the check.
-- **Persisting child bindings and the request ledger.** Both are values the
-  caller holds; bindings rebuild from the mirror, and a lost ledger is safe
-  because cancels and amendments are absolute at a venue.
-- **A book-to-mirror reconciliation across several brokers' accounts.**
-  `reconcile_execution_state` compares a pipeline's book with one mirror.
-- **An optimal split** under per-trade fees or non-linear impact; v3.9's sweep is
-  greedy, and each leg's own price shows what it costs.
-- **Urgency estimated** from risk aversion, volatility and impact rather than
-  stated, and **randomized iceberg tranches**.
+**Planned** — each an item in `docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`:
+
+| Item | Ledger | Release |
+| --- | --- | --- |
+| Richer portfolio construction: estimated shrinkage, EWMA and factor-model covariance, costs in the objective, rounding to lots (cardinality and joint lot selection are integer programs: an explicit boundary, ADR-0046) | OFE-002 | v3.11 — delivered |
+| Neutralization against several continuous exposures at once, by a rank-revealing solve | OFE-004 | v3.11 — delivered |
+| A deflated Sharpe ratio; Holm and false-discovery-rate corrections beside Bonferroni | OFE-005 | v3.11 — delivered |
+| A t-statistic on an information coefficient, corrected for overlapping windows (Newey–West) | OFE-006 | v3.11 — delivered |
+| Pipeline-driven `on_fill` / `on_order` / `on_timer` | OFE-014 | v3.11 — delivered |
+| A venue sequence number; persisted child bindings and request ledger | OFE-021, OFE-022 | v3.11 — delivered |
+| Classification dimensions beyond sector; sector-based pre-trade limits | OFE-001 | v3.12 — delivered |
+| Per-strategy capital ceilings on the execution path | OFE-003 | v3.12 — delivered |
+| Execution-path delivery of external information | OFE-009 | v3.12 — delivered |
+| A streaming observation set; split-adjusted and currency-converted fundamentals | OFE-011 | v3.12 — delivered |
+| The optimizer's super-linear `pending_trials`, removed with the research consolidation | OFE-013 | v3.12 — delivered: the optimizer was removed (SCF-003) |
+| A durable home for progressions, fingerprints, manifests and reports | OFE-016 | v3.12 — delivered |
+| Health evaluated over a window | OFE-017 | v3.12 — delivered |
+| Book-to-mirror reconciliation across several brokers' accounts | OFE-023 | v3.12 — delivered |
+| A lock-file reader | OFE-019 | v3.13 — delivered |
+| A rerun harness | OFE-020 | v3.13 — delivered |
+| An optimal split; estimated urgency and randomized iceberg tranches | OFE-024, OFE-025 | v3.13 — delivered |
+
+As of v3.13.0 every planned item is delivered; the ledger assigns nothing to a
+later release.
+
+**Kept as deliberate boundaries**: statistical regime models, which need an
+estimation step with an identity (OFE-010); a half-life fitted to a decay
+profile and derived alignment for a comparison, each of which would report a
+fit or a pairing as a measurement (OFE-007, OFE-018); per-strategy sub-ledgers
+in `PortfolioEngine`, whose question the contribution ledger already answers
+(OFE-015); process supervision, hot reload and hook timeouts, which are the
+host's (OFE-026) — strategy-API versioning, the part of that item a library can
+own, is held since v3.13 by the public API manifest.
+
+**External**: a vendor adapter package (OFE-008) — a venue's request shapes
+belong to the application that connects to it.
+
+**Removed**: the two provider-vocabulary `AssetClass` enums, with the packages
+that held them (OFE-012, v3.10).
+
+The two reasons the old list gave for not building a deflated Sharpe ratio and
+an information-coefficient t-statistic did not hold on re-examination: Holm's
+step-down needs no assumption beyond Bonferroni's, and overlapping windows are
+what a Newey–West correction is for (DOC-002).
 
 ---
 
@@ -1048,6 +1201,13 @@ something to work; a fill during a pending cancel keeps the cancel pending in
 the mirror; `validate_cancel_request` refuses `EXPIRED` and `replace_order`
 validates an amendment; and `broker.reconcile` refuses duplicated remote records
 and a remote account in another currency.
+
+**v3.10.0–v3.13.0**, the pre-v4 releases, made the breaking changes the pre-v4
+audit required, each listed in its CHANGELOG entry's migration table. v3.13.0's
+are renames and removals that give one name one contract (API-001), taken
+without aliases so that v4 freezes one spelling; since v3.13 a test diffs each
+release's public API with the previous release's and requires every removed or
+rebound name in that release's CHANGELOG section (DOC-006).
 
 After v3.0.0, the bar for a change rises: the invariants listed in
 `nowandfuture.md` are frozen, and a change to any of them is a major release with

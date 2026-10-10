@@ -74,18 +74,49 @@ own way and AlphaLab names it by a derived ``asset_id``.
 :meth:`SymbolMapping.identity` is a *named* choice a caller makes when the venue
 symbols are already asset ids -- which is true of AlphaLab's own routing, and of
 nothing else.
+
+One book, several accounts (v3.12)
+----------------------------------
+
+A desk that routes one book through several brokers holds one OMS book, one
+portfolio and one set of applied fills, and a mirror per account.
+:func:`reconcile_execution_state` compares a book with *one* mirror, so until
+v3.12 such a desk had to cut its book into per-account pieces by hand (ledger
+BRK-004). :func:`reconcile_accounts` takes every account's
+:class:`AccountMirror` and a **declared** assignment of orders to accounts, and
+reconciles the whole book in one pass:
+
+* **Orders and fills, per account.** Each account is compared exactly as
+  :func:`reconcile_execution_state` compares one, over the orders declared for
+  it and the fills applied to them. An order bound -- or a fill reported -- at an
+  account other than the one it is declared for is an
+  :attr:`MismatchCategory.ACCOUNT_ASSIGNMENT_MISMATCH`: the multi-broker way to
+  send an order twice.
+* **Positions and cash, in total.** The book holds one position per instrument
+  and one balance per currency, with no account dimension, so neither can be cut
+  per account from the book's own records. Each is compared against the sum over
+  the accounts that report it, and a break names every account's share.
+* **Undeclared orders are reported, never guessed.** An order the book holds
+  fills for, or that some account binds, and that the assignment does not name,
+  is listed in :attr:`StateReconciliation.unassigned` and compared to nothing.
+  Placing it by its binding would be inferring the very fact the assignment
+  exists to state.
+
+Every mismatch found at one account carries that account in
+:attr:`Mismatch.account`; a total across accounts carries ``None``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from enum import Enum, auto
 
 from alphalab.broker.order import BROKER_STATUS_EQUIVALENTS, BrokerOrder, BrokerOrderStatus
 from alphalab.broker.reconciliation import ExternalOrderMap
 from alphalab.broker.state import BrokerState
+from alphalab.execution.report import ExecutionReport
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.tolerance import Tolerance, ToleranceOutcome
 from alphalab.oms.order import Order as OMSOrder
@@ -94,18 +125,20 @@ from alphalab.runtime.execution_pipeline import ExecutionPipelineState
 
 __all__ = [
     "BROKER_STATUS_EQUIVALENTS",
+    "AccountMirror",
     "Mismatch",
     "MismatchCategory",
     "ReconciliationTolerances",
     "StateReconciliation",
     "SymbolMapping",
     "UnreconciledArea",
+    "reconcile_accounts",
     "reconcile_execution_state",
 ]
 
 
 class MismatchCategory(Enum):
-    """The fourteen ways AlphaLab's execution state and a broker can disagree.
+    """The fifteen ways AlphaLab's execution state and a broker can disagree.
 
     Each is a separate member because each needs a different fix. A missing
     order may need re-sending; an unexpected one may belong to another session;
@@ -156,6 +189,10 @@ class MismatchCategory(Enum):
     #: One order is finished on one side and still working on the other, or a
     #: binding names an order that no longer exists.
     LIFECYCLE_STATE_MISMATCH = auto()
+
+    #: An order bound, or a fill reported, at an account other than the one the
+    #: order is declared for (:func:`reconcile_accounts`, v3.12).
+    ACCOUNT_ASSIGNMENT_MISMATCH = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +264,9 @@ class Mismatch:
         observed: What the broker holds, rendered, or ``None`` when it holds
             nothing.
         reason: One sentence naming the difference.
+        account: The account it was found at when a book is reconciled against
+            several (:func:`reconcile_accounts`); ``None`` against one account,
+            and for a position or a balance compared in total across accounts.
 
     Both sides are strings rather than typed values, deliberately. A mismatch
     spans quantities, prices, statuses, symbols and currencies, and a field
@@ -239,6 +279,7 @@ class Mismatch:
     expected: str | None
     observed: str | None
     reason: str
+    account: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +307,10 @@ class StateReconciliation:
         compared_orders: How many bound orders were examined.
         compared_fills: How many fills were examined.
         compared_positions: How many instruments were examined.
+        unassigned: The OMS orders a reconciliation across accounts could place
+            at none, in id order: the book holds fills for each, or an account
+            binds it, and the declared assignment names no account for it.
+            Nothing about them was compared. Always empty against one account.
     """
 
     mismatches: tuple[Mismatch, ...] = ()
@@ -273,6 +318,7 @@ class StateReconciliation:
     compared_orders: int = 0
     compared_fills: int = 0
     compared_positions: int = 0
+    unassigned: tuple[str, ...] = ()
 
     @property
     def reconciled(self) -> bool:
@@ -290,12 +336,17 @@ class StateReconciliation:
     def fully_reconciled(self) -> bool:
         """Whether the two sides agree and nothing was left unexamined."""
 
-        return not self.mismatches and not self.unreconciled
+        return not self.mismatches and not self.unreconciled and not self.unassigned
 
     def mismatches_in(self, category: MismatchCategory) -> tuple[Mismatch, ...]:
         """Every mismatch of one kind, in order."""
 
         return tuple(entry for entry in self.mismatches if entry.category is category)
+
+    def mismatches_at(self, account: str | None) -> tuple[Mismatch, ...]:
+        """Every mismatch found at one account, in order; ``None`` for the totals."""
+
+        return tuple(entry for entry in self.mismatches if entry.account == account)
 
 
 # --------------------------------------------------------------------------- #
@@ -345,17 +396,19 @@ def _compare_children(
     children: ChildOrderBindings,
     symbols: SymbolMapping,
     tolerances: ReconciliationTolerances,
+    parents: Iterable[str] | None = None,
 ) -> tuple[list[Mismatch], int]:
     """An algorithm's child venue orders against the one OMS order they work.
 
     Fills are not compared here: each child fill carries the venue's execution
     id onto the parent's execution report, so :func:`_compare_fills` joins it
-    exactly as it joins a directly routed fill.
+    exactly as it joins a directly routed fill. ``parents`` limits the parents
+    compared, in sorted order; ``None`` compares every one.
     """
 
     mismatches: list[Mismatch] = []
     compared = 0
-    for parent_id in sorted(children.by_parent):
+    for parent_id in sorted(children.by_parent if parents is None else parents):
         local = local_orders.get(parent_id)
         if local is None:
             mismatches.append(
@@ -438,18 +491,29 @@ def _compare_children(
 
 
 def _compare_orders(
-    pipeline: ExecutionPipelineState,
+    local_orders: Mapping[str, OMSOrder],
     broker: BrokerState,
     mapping: ExternalOrderMap,
     symbols: SymbolMapping,
     tolerances: ReconciliationTolerances,
     children: ChildOrderBindings | None,
+    *,
+    bound: Iterable[str] | None = None,
+    parents: Iterable[str] | None = None,
 ) -> tuple[list[Mismatch], int]:
+    """Every binding's two orders, then every broker order nothing binds.
+
+    ``bound`` and ``parents`` limit the bindings and the algorithm parents
+    compared -- across accounts, to those declared for this one; ``None``
+    compares every one. A broker order *any* binding here names is never
+    unexpected: one bound for an order declared elsewhere is the caller's to
+    report.
+    """
+
     mismatches: list[Mismatch] = []
-    local_orders = {str(order.order_id.value): order for order in pipeline.oms.orders.orders()}
     compared = 0
 
-    for oms_order_id in sorted(mapping.to_broker):
+    for oms_order_id in sorted(mapping.to_broker if bound is None else bound):
         broker_order_id = mapping.to_broker[oms_order_id]
         local = local_orders.get(oms_order_id)
         remote = broker.orders.get(broker_order_id)
@@ -597,7 +661,7 @@ def _compare_orders(
 
     if children is not None:
         child_mismatches, child_compared = _compare_children(
-            local_orders, broker, children, symbols, tolerances
+            local_orders, broker, children, symbols, tolerances, parents
         )
         mismatches.extend(child_mismatches)
         compared += child_compared
@@ -606,21 +670,27 @@ def _compare_orders(
 
 
 def _compare_fills(
-    pipeline: ExecutionPipelineState,
+    local_reports: Mapping[str, ExecutionReport],
     broker: BrokerState,
     mapping: ExternalOrderMap,
     tolerances: ReconciliationTolerances,
     children: ChildOrderBindings | None,
+    book_reports: Mapping[str, ExecutionReport] | None = None,
 ) -> tuple[list[Mismatch], int]:
     """Fills joined on ``execution_id``, which both sides already share.
 
     :func:`~alphalab.runtime.broker_routing.execution_report_from_broker` copies
     the venue's ``execution_id`` onto the report it builds, so a live fill has
     exactly one identity on both sides and no second key has to be invented.
+
+    ``local_reports`` are the fills expected at this broker. ``book_reports``,
+    when given, are every fill the book holds: a broker fill among them and not
+    expected here belongs to an order declared for another account, which the
+    caller reports, and is not "a fill AlphaLab has not applied".
     """
 
     mismatches: list[Mismatch] = []
-    local_reports = pipeline.execution.reports
+    applied = local_reports if book_reports is None else book_reports
     compared = 0
 
     for execution_id in sorted(local_reports):
@@ -696,7 +766,7 @@ def _compare_fills(
             )
 
     for execution_id in sorted(broker.executions):
-        if execution_id in local_reports:
+        if execution_id in applied:
             continue
         remote = broker.executions[execution_id]
         mismatches.append(
@@ -713,12 +783,11 @@ def _compare_fills(
     return mismatches, compared
 
 
-def _compare_positions(
-    pipeline: ExecutionPipelineState,
-    broker: BrokerState,
-    symbols: SymbolMapping,
-    tolerances: ReconciliationTolerances,
-) -> tuple[list[Mismatch], int]:
+def _resolved_positions(
+    broker: BrokerState, symbols: SymbolMapping
+) -> tuple[dict[str, Decimal], list[Mismatch]]:
+    """One broker's positions by ``asset_id``, and the symbols that would not resolve."""
+
     mismatches: list[Mismatch] = []
     remote_by_asset: dict[str, Decimal] = {}
 
@@ -750,17 +819,29 @@ def _compare_positions(
             )
             continue
         remote_by_asset[resolved] = position.quantity
+    return remote_by_asset, mismatches
 
-    local_by_asset = {
-        asset_id: position.quantity for asset_id, position in pipeline.portfolio.positions.items()
-    }
 
+def _compare_positions(
+    local_by_asset: Mapping[str, Decimal],
+    remote_by_asset: Mapping[str, Decimal],
+    tolerances: ReconciliationTolerances,
+    shares: Mapping[str, str] | None = None,
+) -> tuple[list[Mismatch], int]:
+    """The book's position in each instrument against what the broker side holds.
+
+    ``shares``, across accounts, renders each instrument's per-account split,
+    which a break then names.
+    """
+
+    mismatches: list[Mismatch] = []
     compared = 0
     for asset_id in sorted({*local_by_asset, *remote_by_asset}):
         held = local_by_asset.get(asset_id)
         reported = remote_by_asset.get(asset_id)
         compared += 1
 
+        split = "" if shares is None else f" The accounts report {shares.get(asset_id, 'none')}."
         if held is None:
             mismatches.append(
                 Mismatch(
@@ -769,7 +850,7 @@ def _compare_positions(
                     None,
                     str(reported),
                     "the broker holds a position in an instrument AlphaLab's book does "
-                    "not carry at all.",
+                    f"not carry at all.{split}",
                 )
             )
             continue
@@ -790,7 +871,8 @@ def _compare_positions(
                         "AlphaLab holds a position the broker does not report."
                         if reported is None
                         else "the position sizes differ by more than the stated tolerance."
-                    ),
+                    )
+                    + split,
                 )
             )
     return mismatches, compared
@@ -893,40 +975,351 @@ def reconcile_execution_state(
             describes.
     """
 
+    _require_consistent(mapping)
+
+    order_mismatches, compared_orders = _compare_orders(
+        _orders_by_id(pipeline), broker, mapping, symbols, tolerances, children
+    )
+    fill_mismatches, compared_fills = _compare_fills(
+        pipeline.execution.reports, broker, mapping, tolerances, children
+    )
+    remote_by_asset, symbol_mismatches = _resolved_positions(broker, symbols)
+    position_mismatches, compared_positions = _compare_positions(
+        _positions_by_asset(pipeline), remote_by_asset, tolerances
+    )
+    cash_mismatches, unreconciled = _compare_cash(pipeline, broker, tolerances)
+
+    return StateReconciliation(
+        mismatches=_in_order(
+            [
+                *order_mismatches,
+                *fill_mismatches,
+                *symbol_mismatches,
+                *position_mismatches,
+                *cash_mismatches,
+            ]
+        ),
+        unreconciled=tuple(unreconciled),
+        compared_orders=compared_orders,
+        compared_fills=compared_fills,
+        compared_positions=compared_positions,
+    )
+
+
+def _require_consistent(mapping: ExternalOrderMap, account: str | None = None) -> None:
+    """Refuse a binding that disagrees with itself; see :func:`reconcile_execution_state`."""
+
+    where = "" if account is None else f"Account {account!r}: "
     for oms_order_id, broker_order_id in mapping.to_broker.items():
         if mapping.to_oms.get(broker_order_id) != oms_order_id:
             raise LifecycleInputError(
-                f"The venue binding maps OMS order {oms_order_id} to {broker_order_id} "
+                f"{where}The venue binding maps OMS order {oms_order_id} to {broker_order_id} "
                 f"and {broker_order_id} back to "
                 f"{mapping.to_oms.get(broker_order_id)!r}. A binding that disagrees with "
                 "itself cannot say which order is which, and every comparison under it "
                 "would be about the wrong pair."
             )
 
-    order_mismatches, compared_orders = _compare_orders(
-        pipeline, broker, mapping, symbols, tolerances, children
-    )
-    fill_mismatches, compared_fills = _compare_fills(
-        pipeline, broker, mapping, tolerances, children
-    )
-    position_mismatches, compared_positions = _compare_positions(
-        pipeline, broker, symbols, tolerances
-    )
-    cash_mismatches, unreconciled = _compare_cash(pipeline, broker, tolerances)
 
-    mismatches = [
-        *order_mismatches,
-        *fill_mismatches,
-        *position_mismatches,
-        *cash_mismatches,
-    ]
-    order = {category: index for index, category in enumerate(MismatchCategory)}
-    mismatches.sort(key=lambda entry: (order[entry.category], entry.key, entry.reason))
+def _orders_by_id(pipeline: ExecutionPipelineState) -> dict[str, OMSOrder]:
+    return {str(order.order_id.value): order for order in pipeline.oms.orders.orders()}
+
+
+def _positions_by_asset(pipeline: ExecutionPipelineState) -> dict[str, Decimal]:
+    return {
+        asset_id: position.quantity for asset_id, position in pipeline.portfolio.positions.items()
+    }
+
+
+_CATEGORY_ORDER = {category: index for index, category in enumerate(MismatchCategory)}
+
+
+def _in_order(mismatches: list[Mismatch]) -> tuple[Mismatch, ...]:
+    """Category declaration order, then key, then account, then reason."""
+
+    mismatches.sort(
+        key=lambda entry: (
+            _CATEGORY_ORDER[entry.category],
+            entry.key,
+            entry.account or "",
+            entry.reason,
+        )
+    )
+    return tuple(mismatches)
+
+
+# --------------------------------------------------------------------------- #
+# One book, several accounts (v3.12, ledger BRK-004)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class AccountMirror:
+    """One broker account's side of a book spread across several.
+
+    Exactly the arguments :func:`reconcile_execution_state` takes for its one
+    account, held per account, because each venue has its own handles, its own
+    instrument names and its own algorithm children.
+
+    Attributes:
+        broker: The normalized state the adapter for this account filled in.
+        mapping: This account's OMS-order-to-venue-handle binding.
+        symbols: How this venue's symbols join AlphaLab instruments.
+        children: This venue's child handles of algorithm-worked orders, or
+            ``None`` when no order was worked in children here.
+    """
+
+    broker: BrokerState
+    mapping: ExternalOrderMap
+    symbols: SymbolMapping
+    children: ChildOrderBindings | None = None
+
+
+def _assignment_mismatch(key: str, declared: str, account: str, what: str) -> Mismatch:
+    return Mismatch(
+        MismatchCategory.ACCOUNT_ASSIGNMENT_MISMATCH,
+        key,
+        declared,
+        account,
+        f"{what} at account {account!r} and the order is declared for account "
+        f"{declared!r}; one order working at two venues can be filled twice.",
+        account,
+    )
+
+
+def _shares(by_account: Mapping[str, Mapping[str, Decimal]], key: str) -> str:
+    """``"a: 10, b: 5"`` -- each account's share of one total, in account order."""
+
+    return ", ".join(
+        f"{account}: {values[key]}" for account, values in by_account.items() if key in values
+    )
+
+
+def _compare_cash_totals(
+    pipeline: ExecutionPipelineState,
+    accounts: Mapping[str, AccountMirror],
+    tolerances: ReconciliationTolerances,
+    cash_by_currency: Mapping[str, Tolerance],
+) -> tuple[list[Mismatch], list[UnreconciledArea]]:
+    """The book's balance in each currency against the sum of its accounts' cash."""
+
+    mismatches: list[Mismatch] = []
+    unreconciled: list[UnreconciledArea] = []
+    totals: dict[str, Decimal] = {}
+    held_at: dict[str, dict[str, Decimal]] = {}
+    for account, mirror in accounts.items():
+        currency = mirror.broker.account.currency
+        if not currency.strip():
+            unreconciled.append(
+                UnreconciledArea(
+                    f"account {account} cash",
+                    "the broker account names no currency, so its cash balance is a number "
+                    "with no unit and nothing in AlphaLab's ledger can be compared to it.",
+                )
+            )
+            continue
+        totals[currency] = totals.get(currency, Decimal("0")) + mirror.broker.account.cash
+        held_at.setdefault(account, {})[currency] = mirror.broker.account.cash
+
+    for currency in sorted(totals):
+        held = pipeline.portfolio.cash.balance(currency)
+        tolerance = cash_by_currency.get(currency, tolerances.cash)
+        if tolerance.outcome(held, totals[currency]) is ToleranceOutcome.MATERIAL:
+            mismatches.append(
+                Mismatch(
+                    MismatchCategory.ACCOUNT_CASH_MISMATCH,
+                    currency,
+                    str(held),
+                    str(totals[currency]),
+                    "the settled cash balances differ by more than the stated tolerance; the "
+                    f"accounts hold {_shares(held_at, currency)}.",
+                )
+            )
+
+    others = sorted(
+        currency
+        for currency, amount in pipeline.portfolio.cash.balances.items()
+        if currency not in totals and amount != Decimal("0.00")
+    )
+    if others:
+        unreconciled.append(
+            UnreconciledArea(
+                "account cash",
+                f"AlphaLab's ledger also holds {others}, and no account supplied is "
+                "denominated in them; those balances were not compared to anything, which "
+                "is not the same as agreeing.",
+            )
+        )
+    return mismatches, unreconciled
+
+
+def reconcile_accounts(
+    pipeline: ExecutionPipelineState,
+    accounts: Mapping[str, AccountMirror],
+    assignment: Mapping[str, str],
+    tolerances: ReconciliationTolerances,
+    *,
+    cash_by_currency: Mapping[str, Tolerance] | None = None,
+) -> StateReconciliation:
+    """Compare one book against every broker account it is spread across.
+
+    Pure, total and deterministic, like :func:`reconcile_execution_state`, which
+    this applies account by account; see the module docstring for what is
+    compared per account and what in total.
+
+    Args:
+        pipeline: AlphaLab's execution state -- the one book.
+        accounts: Every account the book is spread across, by account id. All of
+            them: positions and cash are compared in total, so an account left
+            out would read as a break in everything it holds.
+        assignment: ``oms_order_id`` -> the account the order was sent to. The
+            caller's own record, stated rather than inferred from the bindings.
+        tolerances: How close each compared number has to be, for the whole book.
+        cash_by_currency: A cash tolerance per currency, where minor units
+            differ; a currency it does not name is judged by ``tolerances.cash``.
+
+    Returns:
+        A :class:`StateReconciliation` whose mismatches each name the account
+        they were found at (``None`` for a total), and whose
+        :attr:`~StateReconciliation.unassigned` lists the orders the assignment
+        did not place.
+
+    Raises:
+        LifecycleInputError: If no account is supplied, an account id is blank,
+            the assignment names an account not supplied, or an account's binding
+            disagrees with itself.
+    """
+
+    if not accounts:
+        raise LifecycleInputError(
+            "reconcile_accounts needs at least one account; a book compared with no "
+            "broker at all has been compared with nothing."
+        )
+    for account in accounts:
+        if not account.strip():
+            raise LifecycleInputError("An account id must not be blank.")
+    stray = sorted({account for account in assignment.values() if account not in accounts})
+    if stray:
+        raise LifecycleInputError(
+            f"The assignment sends orders to {stray}, which are not among the accounts "
+            f"supplied ({sorted(accounts)}). A book reconciled without one of its accounts "
+            "would report everything that account holds as a break."
+        )
+    for account in sorted(accounts):
+        _require_consistent(accounts[account].mapping, account)
+
+    local_orders = _orders_by_id(pipeline)
+    reports = pipeline.execution.reports
+    expected: dict[str, dict[str, ExecutionReport]] = {account: {} for account in accounts}
+    unassigned: set[str] = set()
+    for execution_id, report in reports.items():
+        declared = assignment.get(report.order_id)
+        if declared is None:
+            unassigned.add(report.order_id)
+        else:
+            expected[declared][execution_id] = report
+
+    mismatches: list[Mismatch] = []
+    compared_orders = compared_fills = 0
+    remote_by_account: dict[str, dict[str, Decimal]] = {}
+    for account in sorted(accounts):
+        mirror = accounts[account]
+        found: list[Mismatch] = []
+
+        bound: list[str] = []
+        for oms_order_id in mirror.mapping.to_broker:
+            declared = assignment.get(oms_order_id)
+            if oms_order_id not in local_orders or declared == account:
+                bound.append(oms_order_id)
+            elif declared is None:
+                unassigned.add(oms_order_id)
+            else:
+                found.append(
+                    _assignment_mismatch(
+                        oms_order_id,
+                        declared,
+                        account,
+                        f"the order is bound as {mirror.mapping.to_broker[oms_order_id]}",
+                    )
+                )
+        parents: list[str] = []
+        if mirror.children is not None:
+            for parent_id, handles in mirror.children.by_parent.items():
+                declared = assignment.get(parent_id)
+                if parent_id not in local_orders or declared == account:
+                    parents.append(parent_id)
+                elif declared is None:
+                    unassigned.add(parent_id)
+                else:
+                    found.append(
+                        _assignment_mismatch(
+                            parent_id,
+                            declared,
+                            account,
+                            f"the order's children {', '.join(handles)} are working",
+                        )
+                    )
+
+        order_mismatches, compared = _compare_orders(
+            local_orders,
+            mirror.broker,
+            mirror.mapping,
+            mirror.symbols,
+            tolerances,
+            mirror.children,
+            bound=bound,
+            parents=parents,
+        )
+        compared_orders += compared
+        fill_mismatches, compared = _compare_fills(
+            expected[account],
+            mirror.broker,
+            mirror.mapping,
+            tolerances,
+            mirror.children,
+            book_reports=reports,
+        )
+        compared_fills += compared
+        for execution_id in sorted(mirror.broker.executions):
+            held = reports.get(execution_id)
+            if held is None or execution_id in expected[account]:
+                continue
+            declared = assignment.get(held.order_id)
+            if declared is not None:
+                found.append(
+                    _assignment_mismatch(
+                        execution_id,
+                        declared,
+                        account,
+                        f"the fill was reported against order {held.order_id}",
+                    )
+                )
+
+        remote_by_account[account], symbol_mismatches = _resolved_positions(
+            mirror.broker, mirror.symbols
+        )
+        found.extend((*order_mismatches, *fill_mismatches, *symbol_mismatches))
+        mismatches.extend(replace(entry, account=account) for entry in found)
+
+    totals: dict[str, Decimal] = {}
+    for held_here in remote_by_account.values():
+        for asset_id, quantity in held_here.items():
+            totals[asset_id] = totals.get(asset_id, Decimal("0")) + quantity
+    position_mismatches, compared_positions = _compare_positions(
+        _positions_by_asset(pipeline),
+        totals,
+        tolerances,
+        {asset_id: _shares(remote_by_account, asset_id) for asset_id in totals},
+    )
+    cash_mismatches, unreconciled = _compare_cash_totals(
+        pipeline, accounts, tolerances, cash_by_currency or {}
+    )
 
     return StateReconciliation(
-        mismatches=tuple(mismatches),
+        mismatches=_in_order([*mismatches, *position_mismatches, *cash_mismatches]),
         unreconciled=tuple(unreconciled),
         compared_orders=compared_orders,
         compared_fills=compared_fills,
         compared_positions=compared_positions,
+        unassigned=tuple(sorted(unassigned)),
     )

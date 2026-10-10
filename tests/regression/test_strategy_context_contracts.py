@@ -265,7 +265,9 @@ def test_the_table_names_the_views_the_pipeline_actually_overlays() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "replace"
+        # ``evolve`` since v3.11: dataclasses.replace with its field walk
+        # computed once (alphalab.common.evolve, ledger PRF-006).
+        and node.func.id == "evolve"
     )
 
     assert set(overlaid) == fields, (

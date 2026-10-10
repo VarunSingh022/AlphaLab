@@ -47,11 +47,14 @@ Precision
 
 **A conversion produces money, so it rounds like money.**
 :mod:`alphalab.portfolio.money` states the contract: every monetary amount is an
-exact multiple of the currency's minor unit, and ``to_money`` is the only place
-rounding happens. A rate is a *price*, not money -- ``500.00 EUR`` at
-``1.087343`` is ``543.6715 USD``, which is not a number of cents -- so
-:meth:`FxRates.convert` is that rounding point for this path, exactly as
-:func:`~alphalab.portfolio.money.notional` is for a fill.
+exact multiple of its currency's minor unit, rounded once by whoever produces
+it. A rate is a *price*, not money -- ``500.00 EUR`` at ``1.087343`` is
+``543.6715 USD``, which is not a number of cents -- so :meth:`FxRates.convert`
+is that rounding point for this path, exactly as
+:func:`~alphalab.portfolio.money.notional` is for a fill. It rounds to the
+minor unit of the currency converted *into*: a cent for USD, a yen for JPY, and
+for a currency outside ISO 4217 whatever :attr:`FxRates.currency_units`
+declares (a conversion into an undeclared one is refused).
 
 Rounding happens **per conversion, not on the total**, which is money.py's rule
 2 applied unchanged: round once at entry and let everything downstream be exact
@@ -83,6 +86,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, plain
+from alphalab.common.currency_units import STANDARD_CURRENCY_UNITS, CurrencyUnits
 from alphalab.portfolio.exceptions import PortfolioError
 from alphalab.portfolio.money import to_money
 
@@ -161,7 +166,7 @@ class FxRate:
                 "worth one of itself, and stating it as a rate invites a table "
                 "where it is not."
             )
-        if self.rate <= Decimal("0"):
+        if not self.rate.is_finite() or self.rate <= Decimal("0"):
             raise PortfolioError(
                 f"{self.base}/{self.quote} is quoted at {self.rate}, which is not an "
                 "exchange rate. A non-positive rate would make a long position value "
@@ -190,7 +195,7 @@ class FxRate:
         return FxRate(
             base=self.quote,
             quote=self.base,
-            rate=Decimal("1") / self.rate,
+            rate=plain(ACCOUNTING_CONTEXT.divide(Decimal("1"), self.rate)),
             as_of=self.as_of,
             source=self.source,
             derived=True,
@@ -245,13 +250,22 @@ class FxRates:
         max_age_seconds: How stale a rate may be at the instant it is used.
             ``None`` disables the check -- see the module docstring for why that
             is the default and not a number AlphaLab chose.
+        currency_units: The minor units a converted amount is rounded to. ISO
+            4217 unless the table declares more; a conversion into a currency
+            with no known minor unit is refused.
     """
 
     rates: Mapping[tuple[str, str], FxRate] = field(default_factory=dict)
     max_age_seconds: float | None = None
+    currency_units: CurrencyUnits = STANDARD_CURRENCY_UNITS
 
     @classmethod
-    def of(cls, quoted: Iterable[FxRate], max_age_seconds: float | None = None) -> FxRates:
+    def of(
+        cls,
+        quoted: Iterable[FxRate],
+        max_age_seconds: float | None = None,
+        currency_units: CurrencyUnits = STANDARD_CURRENCY_UNITS,
+    ) -> FxRates:
         """Build a table from quoted rates.
 
         Raises:
@@ -268,7 +282,7 @@ class FxRates:
                     f"{rate.rate} from {rate.source!r}. Supply one."
                 )
             table[rate.pair] = rate
-        return cls(table, max_age_seconds)
+        return cls(table, max_age_seconds, currency_units)
 
     def with_rate(self, rate: FxRate) -> FxRates:
         """A table with ``rate`` added or replacing the one for its pair."""
@@ -344,7 +358,7 @@ class FxRates:
         return FxRate(
             base=base,
             quote=quote,
-            rate=first.rate * second.rate,
+            rate=ACCOUNTING_CONTEXT.multiply(first.rate, second.rate),
             as_of=min(first.as_of, second.as_of),
             source=f"cross via {via}: {first.source!r} x {second.source!r}",
             derived=True,
@@ -373,36 +387,19 @@ class FxRates:
 
         return self.rates.get((base, quote))
 
-    def convert(
-        self, amount: Decimal, base: str, quote: str, as_of: float | None = None
-    ) -> FxConversion:
-        """Convert ``amount`` from ``base`` to ``quote``, and say how.
+    def rate_at(self, base: str, quote: str, as_of: float | None) -> FxRate:
+        """The rate for ``base``/``quote`` at ``as_of``, checked exactly as a conversion is.
 
-        A conversion to the same currency is the identity and needs no rate --
-        it is not a conversion, and requiring a ``USD/USD`` entry would make
-        every table carry a row that means nothing.
-
-        The result is rounded to the currency's minor unit exactly once, here.
-
-        Args:
-            amount: The figure to convert.
-            base: What it is denominated in.
-            quote: What it should be expressed in.
-            as_of: The instant the conversion is for, against which staleness is
-                measured. ``None`` skips the check even when a tolerance is set,
-                because a caller that names no instant is not claiming one.
+        For a caller that needs the rate itself rather than a converted amount --
+        a *price* in another currency, which must not be rounded to a minor unit
+        the way money is. :meth:`convert` uses it, so the two refuse the same
+        rates for the same reasons.
 
         Raises:
             MissingRateError: If no rate is held for the pair.
+            FutureDatedRateError: If the rate was not yet true at ``as_of``.
             StaleRateError: If the rate is older than :attr:`max_age_seconds`.
         """
-
-        if base == quote:
-            return FxConversion(
-                amount,
-                to_money(amount),
-                FxRate(base, f"{quote}*", Decimal("1"), 0.0, "identity"),
-            )
 
         rate = self.rate_for(base, quote)
         if rate is None:
@@ -430,10 +427,59 @@ class FxRates:
                     f"{rate.source!r} as of {rate.as_of}. A stale rate is refused rather "
                     "than used, because a figure derived from one is confidently wrong."
                 )
+        return rate
+
+    def convert(
+        self,
+        amount: Decimal,
+        base: str,
+        quote: str,
+        as_of: float | None = None,
+        *,
+        units: CurrencyUnits | None = None,
+    ) -> FxConversion:
+        """Convert ``amount`` from ``base`` to ``quote``, and say how.
+
+        A conversion to the same currency is the identity and needs no rate --
+        it is not a conversion, and requiring a ``USD/USD`` entry would make
+        every table carry a row that means nothing.
+
+        The result is rounded to ``quote``'s minor unit exactly once, here, in
+        the pinned accounting context.
+
+        Args:
+            amount: The figure to convert.
+            base: What it is denominated in.
+            quote: What it should be expressed in.
+            as_of: The instant the conversion is for, against which staleness is
+                measured. ``None`` skips the check even when a tolerance is set,
+                because a caller that names no instant is not claiming one.
+            units: The minor units to round the result to, when the caller keeps
+                its own -- the portfolio engine passes its account's, so a
+                converted credit lands at the unit that cash balance is kept at.
+                :attr:`currency_units` otherwise.
+
+        Raises:
+            MissingRateError: If no rate is held for the pair.
+            StaleRateError: If the rate is older than :attr:`max_age_seconds`.
+            UnknownCurrencyUnitsError: If ``quote`` has no known minor unit.
+        """
+
+        rounding = self.currency_units if units is None else units
+        if base == quote:
+            return FxConversion(
+                amount,
+                to_money(amount, quote, rounding),
+                FxRate(base, f"{quote}*", Decimal("1"), 0.0, "identity"),
+            )
+
+        rate = self.rate_at(base, quote, as_of)
 
         # The rounding point for this path. See "Precision" in the module
         # docstring: a rate is a price, and a converted amount is money.
-        return FxConversion(amount, to_money(amount * rate.rate), rate)
+        return FxConversion(
+            amount, to_money(ACCOUNTING_CONTEXT.multiply(amount, rate.rate), quote, rounding), rate
+        )
 
 
 #: A table holding nothing. The honest state of a run nobody supplied rates to,

@@ -1,22 +1,27 @@
 """Comprehensive tests validating strict portfolio allocation,
 constraints, and matrix optimization."""
 
+import dataclasses
+import math
+
 import pytest
 
 from alphalab.portfolio_optimizer import (
     CapitalAllocation,
+    ConstraintViolationError,
     CostModel,
     OptimizationError,
     Portfolio,
     PortfolioEngine,
     PortfolioEngineState,
+    PortfolioMetrics,
     PortfolioValidationError,
     RebalanceTrigger,
+    RiskConstraints,
     WeightConstraints,
     allocation_report,
     apply_weight_constraints,
     calculate_max_drawdown,
-    calculate_volatility,
     check_schedule_rebalance,
     check_threshold_rebalance,
     expected_costs,
@@ -25,6 +30,7 @@ from alphalab.portfolio_optimizer import (
     optimize_maximum_sharpe,
     optimize_minimum_variance,
     portfolio_summary,
+    validate_risk_constraints,
     weight_breakdown,
 )
 from alphalab.portfolio_optimizer.optimizer import _invert_matrix, _matrix_vector_multiply
@@ -47,12 +53,6 @@ def test_calculate_max_drawdown() -> None:
     returns = [0.1, -0.2, 0.1]
     assert calculate_max_drawdown(returns) == pytest.approx(0.20)
     assert calculate_max_drawdown([0.1, 0.1]) == 0.0
-
-
-def test_calculate_volatility() -> None:
-    returns = [0.01, -0.01, 0.01, -0.01]
-    vol = calculate_volatility(returns, periods=252)
-    assert vol > 0.10
 
 
 def test_matrix_inversion_2x2() -> None:
@@ -113,6 +113,77 @@ def test_optimize_maximum_sharpe() -> None:
     assert weights["A"] + weights["B"] == pytest.approx(1.0)
     assert sum(weights.values()) == pytest.approx(1.0)
     assert all(w >= 0.0 for w in weights.values())
+
+
+def test_an_unconstrained_portfolio_holds_the_optimizers_own_weights(
+    base_state: PortfolioEngineState, test_portfolio: Portfolio
+) -> None:
+    """Nothing configured, nothing applied (v3.13).
+
+    Two highly correlated assets: the minimum-variance portfolio shorts the
+    riskier one. Until v3.13 the manager clipped an unconfigured portfolio with
+    the defaults of ``WeightConstraints()`` and recorded ``(1.0, 0.0)`` -- not
+    the minimum-variance portfolio -- under the method's name.
+    """
+
+    covariance = ((0.04, 0.05), (0.05, 0.09))
+    state = PortfolioEngine.create(base_state, test_portfolio, 1000.0)
+    state = PortfolioEngine.optimize(
+        state, "P-1", "MINIMUM_VARIANCE", ("A", "B"), {"covariance": covariance}, 1001.0
+    )
+    held = state.weights["P-1"].weights
+    assert held == optimize_minimum_variance(("A", "B"), covariance)
+    assert held["A"] == pytest.approx(4 / 3) and held["B"] == pytest.approx(-1 / 3)
+
+    constrained = PortfolioEngine.apply_constraints(
+        PortfolioEngine.create(base_state, test_portfolio, 1000.0),
+        "P-1",
+        WeightConstraints(long_only=True),
+        1000.5,
+    )
+    constrained = PortfolioEngine.optimize(
+        constrained, "P-1", "MINIMUM_VARIANCE", ("A", "B"), {"covariance": covariance}, 1001.0
+    )
+    assert constrained.weights["P-1"].weights == {"A": 1.0, "B": 0.0}
+
+
+def test_risk_constraints_state_only_the_limits_that_are_checked() -> None:
+    """Three limits, each required, each checked; the three nothing read are gone (v3.13)."""
+
+    assert [field.name for field in dataclasses.fields(RiskConstraints)] == [
+        "max_drawdown_limit",
+        "max_volatility_limit",
+        "max_turnover",
+    ]
+    assert "risk_limits" not in {field.name for field in dataclasses.fields(PortfolioEngineState)}
+    with pytest.raises(TypeError):
+        RiskConstraints()  # type: ignore[call-arg]
+    for bad in (math.nan, math.inf, -0.1, True, "0.2"):
+        with pytest.raises(PortfolioValidationError, match="finite number at least zero"):
+            RiskConstraints(bad, 0.2, 0.5)  # type: ignore[arg-type]
+
+    limits = RiskConstraints(max_drawdown_limit=0.2, max_volatility_limit=0.3, max_turnover=0.5)
+    within = PortfolioMetrics(
+        portfolio_id="P-1",
+        timestamp=1000.0,
+        total_return=0.1,
+        annual_return=0.1,
+        volatility=0.3,
+        sharpe_ratio=0.33,
+        sortino_ratio=0.4,
+        calmar_ratio=0.5,
+        max_drawdown=0.2,
+        turnover=0.5,
+        diversification_ratio=1.2,
+    )
+    validate_risk_constraints(within, limits)
+    for breach in (
+        dataclasses.replace(within, max_drawdown=0.21),
+        dataclasses.replace(within, volatility=0.31),
+        dataclasses.replace(within, turnover=0.51),
+    ):
+        with pytest.raises(ConstraintViolationError):
+            validate_risk_constraints(breach, limits)
 
 
 # --- CONSTRAINT TESTS (15 Assertions) ---

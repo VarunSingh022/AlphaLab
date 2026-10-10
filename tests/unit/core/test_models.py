@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 
+from alphalab.common.serialization import dataclass_to_dict
 from alphalab.core import (
     AssetId,
     AssetType,
@@ -131,10 +132,15 @@ def test_portfolio_state_is_immutable_snapshot_with_serializable_positions() -> 
         positions={position.asset_id: position},
     )
 
-    data = asdict(portfolio)
+    # The repository's serializable projection. ``dataclasses.asdict`` does not
+    # recurse into the persistent containers a state holds -- the positions are
+    # a PositionBook since v3.10, as its histories are append-only logs -- which
+    # is why dataclass_to_dict exists (see alphalab.common.serialization).
+    data = dataclass_to_dict(portfolio)
 
     assert data["positions"][position.asset_id]["asset_id"] == position.asset_id
     assert data["cash"]["balances"]["USD"] == Decimal("10000.00")
+    assert dict(portfolio.positions) == {position.asset_id: position}
     with pytest.raises(FrozenInstanceError):
         portfolio.__setattr__("account", Account("other", "EUR", "Other", NOW.timestamp()))
 
@@ -155,18 +161,27 @@ def test_asset_type_enum_behavior() -> None:
     assert AssetType("equity") is AssetType.EQUITY
 
 
-def test_fill_rejects_negative_commission() -> None:
-    with pytest.raises(DomainValidationError):
-        Fill(
+def test_fill_takes_a_rebate_and_refuses_a_commission_that_is_not_a_number() -> None:
+    """Signed since v3.11 (ACC-007): a negative commission is a rebate."""
+
+    def fill(commission: str, price: str = "10") -> Fill:
+        return Fill(
             fill_id=new_fill_id(),
             order_id=new_order_id(),
             asset_id=new_asset_id(),
             side=Side.BUY,
             quantity=Decimal("1"),
-            price=Decimal("10"),
+            price=Decimal(price),
             filled_at=NOW_TS,
-            commission=Decimal("-0.01"),
+            commission=Decimal(commission),
         )
+
+    assert fill("-0.01").commission == Decimal("-0.01")
+    assert fill("0", price="-37.63").price == Decimal("-37.63")
+    with pytest.raises(DomainValidationError, match="finite"):
+        fill("NaN")
+    with pytest.raises(DomainValidationError, match="finite"):
+        fill("0", price="Infinity")
 
 
 def test_trade_rejects_duplicate_fill_ids() -> None:

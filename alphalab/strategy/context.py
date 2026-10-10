@@ -39,6 +39,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Protocol
 
+from alphalab.common.time import ClockProtocol
+
 
 class PortfolioSnapshotProtocol(Protocol):
     """Read-only view of portfolio state.
@@ -148,12 +150,6 @@ class MarketViewProtocol(Protocol):
     def price(self, asset_id: str) -> Decimal | None:
         """The mark for ``asset_id``, or ``None`` when it has never been priced."""
         ...
-
-
-class ClockProtocol(Protocol):
-    """Virtual or monotonic clock source."""
-
-    def now(self) -> float: ...
 
 
 class ScopedLoggerProtocol(Protocol):
@@ -281,6 +277,25 @@ class HistoryAccessorProtocol(Protocol):
 
     def __len__(self) -> int:
         """How many events are visible at :attr:`as_of`."""
+        ...
+
+    @property
+    def window(self) -> int | None:
+        """How many of the newest market events this accessor reads, or ``None`` for all.
+
+        Set by a run's retention policy (v3.12, ledger PRF-004). A question that
+        would need an older event is refused, not answered short.
+        """
+        ...
+
+    @property
+    def visible(self) -> int:
+        """How many market events this accessor can read."""
+        ...
+
+    @property
+    def complete(self) -> bool:
+        """Whether this accessor reaches the run's first event: nothing older was dropped."""
         ...
 
 
@@ -537,6 +552,20 @@ class NoHistory:
 
     def __len__(self) -> int:
         return 0
+
+    @property
+    def window(self) -> int | None:
+        return None
+
+    @property
+    def visible(self) -> int:
+        return 0
+
+    @property
+    def complete(self) -> bool:
+        """``True``: nothing was dropped -- nothing was supplied. :attr:`available` says so."""
+
+        return True
 
     def __bool__(self) -> bool:
         return False

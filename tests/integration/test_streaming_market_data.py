@@ -21,6 +21,7 @@ from decimal import Decimal
 import pytest
 
 from alphalab.core.enums import AssetType
+from alphalab.data.time import BarStamp
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instrument
 from alphalab.market.exceptions import (
@@ -58,7 +59,11 @@ def _registry() -> InstrumentRegistry:
 
 def _policy() -> NormalizationPolicy:
     return NormalizationPolicy(
-        provider=_PROVIDER, identity=_registry(), venue="XNAS", currency="USD"
+        bar_stamp=BarStamp.INTERVAL_END,
+        provider=_PROVIDER,
+        identity=_registry(),
+        venue="XNAS",
+        currency="USD",
     )
 
 
@@ -202,7 +207,11 @@ def test_a_policy_that_cannot_name_instruments_is_refused_before_connecting() ->
     """The same admission rule `ProviderHistorySource` applies, at the same boundary."""
 
     with pytest.raises(InstrumentResolutionError, match="StreamingSource requires"):
-        StreamConfig(url="ws://127.0.0.1:1/s", symbols=["X"], policy=NormalizationPolicy())
+        StreamConfig(
+            url="ws://127.0.0.1:1/s",
+            symbols=["X"],
+            policy=NormalizationPolicy(bar_stamp=BarStamp.INTERVAL_END),
+        )
 
 
 def test_a_subscription_to_nothing_is_refused() -> None:

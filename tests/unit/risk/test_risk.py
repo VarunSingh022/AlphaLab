@@ -32,7 +32,7 @@ def default_limits() -> RiskLimits:
         exposure=ExposureLimit(Decimal("1000000"), Decimal("500000")),
         leverage=LeverageLimit(Decimal("2.0")),
         margin=MarginLimit(Decimal("0.80")),
-        daily_loss=DailyLossLimit(Decimal("10000")),
+        daily_loss=DailyLossLimit(Decimal("10000"), "UTC"),
         drawdown=DrawdownLimit(Decimal("0.10")),
     )
 
@@ -61,7 +61,7 @@ def test_evaluate_accepts_a_canonical_request_with_no_conversion(
     default_limits: RiskLimits,
 ) -> None:
     state = RiskEngine.reset(default_limits)
-    state = replace(state, buying_power=Decimal("1000000"))
+    state = replace(state, buying_power=Decimal("1000000"), current_nav=Decimal("1000000"))
 
     # Constructed straight from core with a canonical Side member.
     request = OrderRequest(
@@ -94,6 +94,7 @@ def test_clean_approval(default_limits: RiskLimits, base_request: OrderRequest) 
     state = replace(
         state,
         buying_power=Decimal("50000"),
+        current_nav=Decimal("100000"),
     )
 
     new_state, decision = RiskEngine.evaluate(state, base_request, 1000.0)
@@ -108,6 +109,7 @@ def test_order_size_limit_rejection(default_limits: RiskLimits, base_request: Or
     state = replace(
         state,
         buying_power=Decimal("1000000"),
+        current_nav=Decimal("1000000"),
     )
 
     # 2000 quantity > 1000 limit
@@ -139,6 +141,7 @@ def test_buying_power_rejection(default_limits: RiskLimits, base_request: OrderR
     state = replace(
         state,
         buying_power=Decimal("100"),
+        current_nav=Decimal("100000"),
     )
 
     # Order notional = 15000 > BP 100

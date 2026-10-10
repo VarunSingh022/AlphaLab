@@ -9,9 +9,6 @@ from dataclasses import replace
 
 import pytest
 
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import complete_run, fail_run, log_metrics, start_run
 from alphalab.lifecycle import (
     COMPONENT_EVIDENCE,
@@ -46,9 +43,9 @@ from alphalab.lifecycle import (
     strategy_names,
     validate_strategy_version,
 )
-from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance, StaticPermissions
 from alphalab.model_registry import ModelStage, deployment_metadata, promote
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 
 # --------------------------------------------------------------------------- #
 # Governance (v2.16): every act that changes what is live names its principal
@@ -59,16 +56,8 @@ from alphalab.studio.strategy import StrategyDefinition
 #: that adding governance did not turn every existing test into a governance
 #: test.
 _ACTOR = "release-engineer"
-_ENTERPRISE = grant_role(
-    define_role(
-        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
-        "release",
-        LIFECYCLE_PERMISSIONS,
-    ),
-    _ACTOR,
-    "release",
-)
-GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
+_PERMISSIONS = StaticPermissions({_ACTOR: LIFECYCLE_PERMISSIONS})
+GOVERNANCE = Governance(_PERMISSIONS, _ACTOR)
 
 POLICY = ValidationPolicy(
     "prod-v1",

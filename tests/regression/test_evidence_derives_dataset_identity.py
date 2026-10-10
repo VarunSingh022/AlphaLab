@@ -30,9 +30,6 @@ import pytest
 
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.state import BacktestResult
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.lifecycle.evidence import (
     MetricThreshold,
     ValidationEvidence,
@@ -46,7 +43,7 @@ from alphalab.lifecycle.evidence import (
     verify_evidence_id,
 )
 from alphalab.lifecycle.exceptions import LifecycleInputError
-from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance, StaticPermissions
 from tests.integration.harness import (
     ScriptedStrategy,
     backtest_config,
@@ -64,16 +61,8 @@ from tests.integration.harness import (
 #: that adding governance did not turn every existing test into a governance
 #: test.
 _ACTOR = "release-engineer"
-_ENTERPRISE = grant_role(
-    define_role(
-        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
-        "release",
-        LIFECYCLE_PERMISSIONS,
-    ),
-    _ACTOR,
-    "release",
-)
-GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
+_PERMISSIONS = StaticPermissions({_ACTOR: LIFECYCLE_PERMISSIONS})
+GOVERNANCE = Governance(_PERMISSIONS, _ACTOR)
 MIDS = [Decimal("100.005"), Decimal("120.007"), Decimal("119.003")]
 PLAN = {2.0: Decimal("10")}
 
@@ -394,7 +383,7 @@ def test_a_v2_6_lifecycle_snapshot_restores_verifies_and_still_gates() -> None:
     from alphalab.lifecycle.snapshot import capture, from_primitives, restore
     from alphalab.lifecycle.state import LifecycleState
     from alphalab.persistence.serializer import deserialize, serialize
-    from alphalab.studio.strategy import StrategyDefinition
+    from alphalab.strategy import StrategyDefinition
 
     # Evidence built exactly as v2.6 built it: an explicitly named dataset.
     evidence = build_evidence(

@@ -39,6 +39,7 @@ from alphalab.data import (
     validate_records,
 )
 from alphalab.data.feed import Bar
+from alphalab.data.time import BarStamp
 from alphalab.data.validation import coerce_row
 
 #: Every policy at its most permissive. Cleaning has no default policy, so a
@@ -576,6 +577,7 @@ def _ingest(rows: list[dict[str, str]]):  # type: ignore[no-untyped-def]
             name="DOORS",
             source=raw_source_from_bytes(SourceKind.IN_MEMORY, "fixture", b"rows", 1.0, "text/csv"),
             frequency=TimeFrequency.SECOND,
+            bar_stamp=BarStamp.INTERVAL_END,
             asset_class=DataAssetClass.EQUITY,
             cleaning_policy=PERMISSIVE,
             price_basis=PriceBasis.RAW,

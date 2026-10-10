@@ -126,7 +126,7 @@ def main() -> None:
     print(f"decisions withheld in the warmup: {withheld}; the record verifies: {research.verify()}")
 
     section("4. Cadence: observe every bar, adapt every fifth")
-    weekly = configuration_for(DEFINITION.parameters, UpdateCadence.EVERY_N_OBSERVATIONS, 5)
+    weekly = configuration_for(DEFINITION.numbers(), UpdateCadence.EVERY_N_OBSERVATIONS, 5)
     weekly_stream = observation_stream(STREAM, rows, first_sequence=0)
     midweek = replay_updates(weekly, RULE, weekly_stream[:8], AdaptationMode.LEARNING).final
     window, pending = midweek.payload["values"], midweek.payload["pending"]

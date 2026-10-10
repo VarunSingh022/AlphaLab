@@ -148,7 +148,11 @@ def test_inverses_are_available_but_only_deliberately_and_marked_as_derived() ->
     assert derived is not None
     assert derived.derived, "a computed rate presented itself as a quote"
     assert derived.source == "ECB", "the derivation keeps the provenance it came from"
-    assert derived.rate == Decimal("1") / Decimal("1.10")
+    # Computed in the pinned accounting context (34 significant digits), whatever
+    # context the caller happens to be in.
+    from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
+
+    assert derived.rate == ACCOUNTING_CONTEXT.divide(Decimal("1"), Decimal("1.10"))
 
     # And the original quote is untouched.
     quoted = inverted.rate_for("EUR", "USD")
@@ -493,7 +497,8 @@ def test_the_pipeline_config_carries_no_rate_table() -> None:
     names = {f.name for f in dataclass_fields(ExecutionPipelineConfig)}
     assert "fx_rates" not in names
     assert "rates" not in names
-    assert PIPELINE_SNAPSHOT_SCHEMA == 3
+    # v3.10 minor units; v3.11 interval code; v3.12 calendars; v3.13 the status enum's name
+    assert PIPELINE_SNAPSHOT_SCHEMA == 7
 
 
 # --------------------------------------------------------------------------- #
@@ -502,14 +507,17 @@ def test_the_pipeline_config_carries_no_rate_table() -> None:
 
 
 def _is_money(amount: Decimal) -> bool:
-    """Exact at the minor unit: the right value *and* no sub-cent digits."""
+    """Exact at the minor unit: the right value *and* no sub-cent digits.
 
-    from alphalab.portfolio.money import CURRENCY_QUANT
+    Every figure in these tests is in USD or EUR, whose minor unit is the cent.
+    """
+
+    from alphalab.portfolio.money import to_money
 
     exponent = amount.as_tuple().exponent
     if not isinstance(exponent, int):  # NaN / Infinity are not money either
         return False
-    return amount == amount.quantize(CURRENCY_QUANT) and -exponent <= 2
+    return amount == to_money(amount, "USD") and -exponent <= 2
 
 
 def test_a_converted_figure_is_money_shaped_like_every_other_figure() -> None:

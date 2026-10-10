@@ -73,6 +73,7 @@ from alphalab.execution.algorithms import (
 )
 from alphalab.execution.commission import FixedCommission
 from alphalab.execution.costs import (
+    FREE,
     ExecutionCostModel,
     NoImpact,
     NoSlippage,
@@ -370,7 +371,7 @@ def _drive() -> Scenario:
     lifecycle: list[tuple[str, LifecycleOutcome]] = []
     timeline: list[TimelineMark] = []
     midpoints: dict[str, Decimal] = {}
-    broker = ScriptedVenue()
+    broker = ScriptedVenue(FREE)
     venue = BrokerEngine.initialize("VEN-A", CASH, "USD")
     venue = _deliver(venue, VenueEvent(E.BROKER_CONNECTED, 1.5), lifecycle)
     children = ChildOrderBindings()

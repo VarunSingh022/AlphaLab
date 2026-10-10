@@ -31,11 +31,15 @@ run one owner; what is left here is a driver.
 
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Iterable
 from contextlib import AbstractContextManager
-from dataclasses import replace
+from typing import Any
 
+from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
 from alphalab.backtesting.state import BacktestResult
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import id_scope, id_source
 from alphalab.market.state import MarketState
 from alphalab.runtime.execution_pipeline import ContextFactory, ExecutionPipelineResult
@@ -45,6 +49,7 @@ from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 __all__ = [
     "BacktestEngine",
     "advance",
+    "close_slice",
     "finalize",
     "id_scope",
     "id_source",
@@ -93,6 +98,23 @@ def advance(
     return RunEngine.advance(state, record, context_factory)
 
 
+def close_slice(
+    state: RunState,
+    context_factory: ContextFactory,
+    *,
+    before: float | None = None,
+) -> RunState:
+    """Close the instant of the last record -- when ``before`` shows it complete.
+
+    See :meth:`~alphalab.runtime.run.RunEngine.close_slice` (ledger EXE-004). A
+    caller stepping a dataset by hand calls this with each record's timestamp
+    before advancing it, and once without one at the end of the data, as
+    :meth:`BacktestEngine.run` does.
+    """
+
+    return RunEngine.close_slice(state, context_factory, before=before)
+
+
 def finalize(state: RunState) -> BacktestResult:
     """Compile analytics (if configured) and freeze the run into a result.
 
@@ -138,6 +160,17 @@ class BacktestEngine:
         return advance(state, record, context_factory)
 
     @staticmethod
+    def close_slice(
+        state: RunState,
+        context_factory: ContextFactory,
+        *,
+        before: float | None = None,
+    ) -> RunState:
+        """Close the last record's instant when complete. See :func:`close_slice`."""
+
+        return close_slice(state, context_factory, before=before)
+
+    @staticmethod
     def finalize(state: RunState) -> BacktestResult:
         """Compile analytics and freeze the run. See :func:`finalize`."""
 
@@ -149,18 +182,41 @@ class BacktestEngine:
         dataset: MarketDataset,
         strategy_state: StrategyRuntimeState,
         context_factory: ContextFactory,
+        observations: Iterable[ObservationDelivery[Any]] = (),
     ) -> BacktestResult:
         """Run ``dataset`` end to end and return the finished result.
 
         The run records the dataset it consumed as its ``source_id``, and
-        declares :attr:`~alphalab.runtime.run.ExecutionMode.BACKTEST`.
+        declares :attr:`~alphalab.runtime.run.ExecutionMode.BACKTEST`. Each
+        instant's slice is closed when the next instant's first record arrives,
+        and the last when the data ends (ledger EXE-004).
+
+        ``observations`` -- a :class:`~alphalab.alt_data.streaming.DeliverySchedule`,
+        or any deliveries -- are merged with the records by instant (ledger
+        OFE-009): each is delivered at its knowledge instant, **after** every
+        record of that instant and before its slice closes, so what a strategy
+        does with information known at ``t`` rests until a price printed after
+        the instant's own -- and an ``on_slice`` at ``t`` sees it. One known
+        after the last record is beyond the data, and is not delivered.
         """
 
+        pending = deque(sorted(observations, key=lambda delivery: delivery.order_key))
         with id_scope(config.seed):
-            state = replace(
-                initialize(replace(config, mode=ExecutionMode.BACKTEST), strategy_state),
+            state = evolve(
+                initialize(evolve(config, mode=ExecutionMode.BACKTEST), strategy_state),
                 source_id=dataset.dataset_id,
             )
             for record in dataset.records:
+                # What became knowable before this record's instant, in order;
+                # an instant's slice closes before anything known after it.
+                while pending and pending[0].known_at < record.timestamp:
+                    delivery = pending.popleft()
+                    state = close_slice(state, context_factory, before=delivery.known_at)
+                    state = RunEngine.deliver_observation(state, delivery, context_factory)
+                # The first record of an instant completes the one before it.
+                state = close_slice(state, context_factory, before=record.timestamp)
                 state, _ = advance(state, record, context_factory)
-            return finalize(state)
+            last = state.last_record_timestamp
+            while pending and last is not None and pending[0].known_at <= last:
+                state = RunEngine.deliver_observation(state, pending.popleft(), context_factory)
+            return finalize(close_slice(state, context_factory))

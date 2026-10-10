@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v3.9.0.**
+**A long-term project reference, written at v3.0.0 and updated at v3.13.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,16 +42,131 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **3.9.0** |
+| Version | **3.13.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **Stable. Architecture frozen at v3.0.0; v3.1.0 through v3.9.0 are additive to it.** |
+| Status | **Architecture frozen at v3.0.0; v3.1.0 through v3.9.0 are additive to it; v3.10.0 through v3.13.0 are the four pre-v4 releases, and v3.13.0 the last: nothing required is assigned to a later release (ADR-0048).** |
 
 ---
 
-# 2. What v3.9.0, v3.8.0, v3.7.0, v3.6.0, v3.5.0, v3.4.0, v3.3.0, v3.2.0 and v3.1.0 add, and what v3.0.0 means
+# 2. What v3.13.0 completes, what v3.12.0 hardens, what v3.11.0 adds, what v3.10.0 corrects, what v3.9.0 – v3.1.0 add, and what v3.0.0 means
+
+## v3.13.0 — the final pre-v4 release
+
+The last of the four pre-v4 releases, and the one that leaves nothing required
+for later. It closes every item the ledger assigned to it and the four it had
+assigned to v4.0 itself, re-reads every boundary and limitation against the
+code, and adds what its own audit found. An American option is priced on a
+Cox–Ross–Rubinstein lattice whose step count is part of the model, with
+discrete dividends, and a surface is read between expiries in total variance
+when asked to by name. An order can be split across venues at the least total
+cost where each venue's cost is a fixed charge plus a convex function; an
+Almgren–Chriss urgency is estimated, the shortfall its model expects is
+computed with its variance, and a measured shortfall read beside it; iceberg
+tranches vary from a seed and reproduce. A run is re-executed from its manifest,
+refusing other inputs first, and a divergence located; a lock file is read into
+the dependencies a fingerprint records. Cron timers read a stated zone's wall
+clock; the liquidation price is solved for a stated maintenance basis;
+exchange rates enter a factor model as factors and every factor's share of a
+book's volatility is measured; a box uncertainty set takes a book that may
+short; a factor model's covariance can be stated by its structure and
+constructed over at 10,000 assets without writing n² values out (PRF-013);
+checkpoint segments carry only the orders that changed. And the freeze: 52
+shared public names at 3.12.0 are 31, each kept for a recorded reason; the
+public API and every persisted enum name are data that tests hold; every
+limitation an ADR states is held to a closed ledger entry; and a certificate
+records what the build was checked to do, held to the engine source it names.
+ADR-0048.
+
+## v3.12.0 — the pre-v4 hardening release
+
+The third of four pre-v4 releases. Numerical methods are right at the edges of
+their range: R² of a constant series is undefined, the normal CDF is computed
+from `erfc` so the lower tail keeps its precision, least squares runs by
+Householder QR and refuses an ill-conditioned or rank-deficient design, and
+theta uses the year the price uses. Durable state is durable — a rename is
+flushed with its directory — and restores what was captured: an allocation
+budget had lost its currency on every restore since v2.17, and every payload
+v3.11.0 wrote is now frozen as a fixture the suite reads. Simulation reads its
+venues' calendars, so a DAY order expires at its trading day's last close. A
+strategy's capital can be capped; any classification dimension can bound a
+bucket, counting working orders, reduce-only, with the bucket's gross kept by
+the book; an observation reaches the strategies subscribed to it at the
+instant it became knowable. A run can bound the history it keeps and
+checkpoint incrementally. Evidence has a durable home, health a window, one
+book a reconciliation against every account it is spread across. Trade prints
+are read from declared columns; LSTMs and attention train; the v1 research
+engine reports measurements under a stated policy. A stress program runs
+10,000 assets, 1,000 strategies and 100 venues; it found a classification
+limit summing its bucket for every order and every event asking every strategy
+whether it subscribed, and both are fixed. `plugins` (whose `execute()` was a
+placeholder), `optimizer` (a second parameter search beside the research
+authority's) and the reporting dashboards leave the library. ADR-0047.
+
+## v3.11.0 — the pre-v4 capability release
+
+The second of four pre-v4 releases. It gives the canonical path what a strategy
+needs before its API is frozen, and moves out of the library what belongs to
+the application that uses it. An instrument declares its economics — multiplier,
+settlement (fully paid, futures variation margin, option premium, perpetual),
+lot, minimum notional, whether its price may be negative — and nothing assumes
+a multiplier. An order carries its terms (limit, stop, stop-limit; IOC, FOK,
+GTD, DAY, on-open, on-close) and rests across events. A strategy may state a
+target position, measured against its own share of every fill and rounded
+toward zero onto the lot; a sale commits no allocation budget. Subscriptions are
+enforced, a slice delivers a complete instant, and the path tells a strategy of
+its fills and orders. Research enters forward returns after a declared lag,
+keeps delisted names, optimizes walk-forward without handing a selection its
+test, and corrects for multiple testing. Construction shrinks covariance, pays
+for trading exactly and rounds to lots. `studio`, `workbench`, `enterprise` and
+the venue credentials are the host's. Every public entry point of a run
+computes in the accounting context, and a run's cost is linear in its length
+again: a slice of an append-only log had copied the whole log since v2.1, and
+the pipeline takes two per fill (PRF-007). ADR-0046.
+
+## v3.10.0 — the pre-v4 correctness release
+
+The first of four releases the pre-v4 audit plans before the v4.0 freeze. It
+adds almost no capability: it corrects the canonical path where the audit found
+it computing wrong numbers, removes code that contradicts the library's
+boundary, and makes persisted state upgradeable. Two packages removed (`feed`,
+`live`), none added, no package edge added; snapshot schemas portfolio 4,
+pipeline 4, run 2, with every v3.9 payload upgraded on read. ADR-0045; the plan
+of record is `docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`.
+
+### What it fixed
+
+| Where | What v3.9 did | What v3.10 does |
+| --- | --- | --- |
+| Risk | charged buying power and exposure for every order whatever its side; refused liquidation in a drawdown; never maintained the daily loss; ignored working orders | judges every check on one projection of the post-trade book, working orders included; never refuses a reduction; maintains the daily loss in a declared zone |
+| Allocation | refused every sale under long-only; defaulted a missing volatility to 1% | judges long-only against committed positions; refuses what it cannot size |
+| Money | rounded every currency to a cent and every price to 1e-4 before computing money | rounds once, at each currency's minor unit (ISO 4217 or declared); keeps prices and quantities exact; one pinned context |
+| Analytics | took returns per snapshot and annualized with 252 | takes returns per instant; annualization declared or observed, and recorded; `None` for undefined |
+| Execution | filled an order at the event that decided it, silently optimistic; absorbed a failing strategy | offers `NEXT_EVENT` fills; records `ExecutionAssumptions`; reports strategy failures and can halt |
+| Performance | re-marked and re-valued every position on every event | re-marks what was priced; reads exact per-currency totals — linear in the universe |
+| Time | gave a bar's timestamp no meaning | stamps a bar at the end of its interval and requires the source's convention |
+| Persistence | read exactly one schema version per subsystem | upgrades older payloads through explicit steps that refuse rather than invent |
+| Boundary | shipped vendor clients (four stubs), `feed`, `live`, exchange symbol quirks and `"USD"` defaults | ships none of them |
+
+### Found and corrected on the way
+
+ALC-005 (a zero-quantity sale after integer rounding), NUM-010 (quotients
+written as `1E+2`), NUM-011 (correlation wrong in the fourth digit near
+`1e-160`), BND-004 (exchange symbol quirks), a hole in the defaults sweep
+(`0.0 == False`), four v3.10 fixes that had no tests yet, and two examples
+broken by v3.10's own refusals. Two regressions of v3.10 itself, caught by
+comparing every example's output with v3.9's: DET-005 (two multi-strategy
+books that compare equal had two identities once amounts stopped being rounded
+a second time — identities render amounts by value now) and API-006 (a typed
+severity in a string mapping). RES-001 — the v1 research engine's daily
+assumption and uncalibrated scores — is recorded for v3.12, and DET-006 —
+the other content identities, which render a declared `Decimal` by its text —
+for v3.11, as is PRF-006: the per-operation constant rose (a one-asset
+backtest takes about 1.4× as long as in v3.9, the OMS benchmark 2.2×), the
+price of exact book totals and a compacting map, measured in the release
+gates.
 
 ## v3.9.0 — the universal execution contract
 
@@ -660,30 +775,32 @@ Verified at v3.0: none of the four drivers holds a field.
 
 # 4. Package ownership
 
-All 50 packages, and which path reaches each.
+All 43 packages, and which path reaches each, with the `api` module above them
+all. (v3.10 removed `feed` and `live`; v3.11 `studio`, `workbench` and
+`enterprise`; v3.12 `plugins` and `optimizer`.)
 
 ## The execution spine
 
 | Package | Owns |
 | --- | --- |
 | `core` | The canonical execution domain models: `Side`, `OrderRequest`, `Fill`, `Trade`, `StrategyContribution`, `AssetType`, `OrderType`, `TimeInForce`, and the id validators. Since v3.9 also the capability model (`core.capabilities`), the normalized execution events and the one order-transition table (`core.lifecycle`), and the strategy split (`split_by_contribution`) |
-| `runtime` | The execution step, the run, the four drivers, broker routing, and four snapshot modules. Since v3.9 broker routing also sends an algorithm's children for their parent (`route_child_order`, `ChildOrderBindings`) and can gate on a capability report |
-| `strategy` | What a strategy *is*: `StrategyProtocol`, `StrategyStateProtocol`, `StrategyContext`, the `Dispatcher`, the `RuntimeSupervisor`, and the strategy-class registry. Since v3.7 also the adaptive engine — configuration, observation, immutable learned state with lineage, `apply_update`, replay, checkpoint and restore — three rules, and `AdaptiveStrategy`. Still imports only `common` |
+| `runtime` | The execution step, the run, the four drivers, broker routing, and four snapshot modules. Since v3.9 broker routing also sends an algorithm's children for their parent (`route_child_order`, `ChildOrderBindings`) and can gate on a capability report. Since v3.12 it reads venue calendars (`runtime.calendars`, over `data`'s `MarketCalendar`), delivers point-in-time observations (`alt_data`), bounds what a run keeps (`runtime.retention`) and checkpoints incrementally (`runtime.checkpoint`) |
+| `strategy` | What a strategy *is*: `StrategyProtocol`, `StrategyStateProtocol`, `StrategyContext`, the `Dispatcher`, the `RuntimeSupervisor`, and the strategy-class registry. Since v3.7 also the adaptive engine — configuration, observation, immutable learned state with lineage, `apply_update`, replay, checkpoint and restore — three rules, and `AdaptiveStrategy`. Since v3.11 also `StrategyDefinition` (`strategy.definition`, moved from the removed `studio`). Still imports only `common` |
 | `allocation` | Intent sizing and netting into `OrderRequest`, the capital budget, the per-order reservation ledger and the contribution ledger. Since v3.8 also capital plans across strategies, markets, brokers, accounts and currencies (`allocation.capital`), reading reserved capital from the reservation ledger and producing each run's budget; FX reaches it through a structural protocol, and it still does not import `portfolio` |
-| `risk` | Pre-trade checks and limits |
+| `risk` | Pre-trade checks and limits. Since v3.10 every check reads one projection of the book after the order, working orders included (`risk.projection`), and a limit never refuses a trade that reduces what it limits. Since v3.12 classification limits (`ClassificationLimit`), whose dimension and label are normalized by `instrument`'s rules — names only: the gate is handed each bucket's exposure and never reads the registry |
 | `oms` | The order lifecycle. `oms.order.Order` is *the* lifecycle order; since v3.9 its methods read `core.lifecycle.ORDER_TRANSITIONS` rather than their own guards |
 | `execution` | The deterministic execution simulator, commission models, fill policies, slippage, latency. Since v3.9 also execution algorithms (`algorithms`), route selection (`routing`) and execution quality (`quality`) — all over the canonical `OrderRequest` and `ExecutionReport`, importing only `common` and `core` beyond itself |
-| `portfolio` | Cash, positions, the transaction ledger, NAV, per-currency P&L, valuation, margin, exposure, FX and the FX feed. Since v3.4 also FX research (cross rates, covered-parity forwards, carry, hedging, currency attribution) and contract-aware exposure. Since v3.8 also multi-strategy books (`portfolio.multi_strategy`) — sleeves of canonical positions, never a second book of record — which is why it now imports `core` |
+| `portfolio` | Cash, positions, the transaction ledger, NAV, per-currency P&L, valuation, margin, exposure, FX and the FX feed. Since v3.4 also FX research (cross rates, covered-parity forwards, carry, hedging, currency attribution) and contract-aware exposure. Since v3.8 also multi-strategy books (`portfolio.multi_strategy`) — sleeves of canonical positions, never a second book of record — which is why it now imports `core`. Since v3.10 `PositionBook` keeps exact per-currency totals and a market event re-marks only what was priced (`pending_marks`) |
 | `analytics` | Performance reports and attribution. Its `CURRENCY` dimension buckets realized P&L per currency and has no total; the *return* decomposition that does is `portfolio.fx_research` and neither derives the other. Since v3.8 the risk model (`risk_model`: covariance, correlation, factor loadings, classifications, Euler contributions), risk budgets (`risk_budget`) and cross-strategy risk (`cross_strategy`). Imports only `common` and `core` |
 | `market` | The canonical market-data model, the normalization boundary, market sources, streaming |
 | `instrument` | Canonical instrument identity, the registry, classification and its provenance |
-| `common` | Version, `BaseEvent`, deterministic serialization, the seeded identifier source, `AppendOnlyLog` / `PersistentMap` / `PersistentSet`, TLS policy, and the point-in-time core: `known_as_of`, and since v3.7 `PointInTimeStamp`, `AvailabilityBasis`, `VisibilityRule` and `PointInTimeIndex`. Since v3.9 the currency-conversion protocols (`common.currency`), moved down from `allocation.capital` |
-| `persistence` | The codec spine (`serialize`, typed `decode`, exceptions) and `RunStateStore` |
-| `backtesting` | The dataset type and the two drivers over it |
+| `common` | Version, `BaseEvent`, deterministic serialization, the seeded identifier source, `AppendOnlyLog` / `PersistentMap` / `PersistentSet`, TLS policy, and the point-in-time core: `known_as_of`, and since v3.7 `PointInTimeStamp`, `AvailabilityBasis`, `VisibilityRule` and `PointInTimeIndex`. Since v3.9 the currency-conversion protocols (`common.currency`), moved down from `allocation.capital`. Since v3.10 the one version declaration (`common._version`), each currency's minor unit (`common.currency_units`) and the pinned accounting context (`common.arithmetic`) |
+| `persistence` | The codec spine (`serialize`, typed `decode`, exceptions), `RunStateStore`, and since v3.10 versioned schema upgrades (`persistence.upgrade`) |
+| `backtesting` | The dataset type and the two drivers over it. Since v3.12 a backtest merges point-in-time observations (`alt_data`) with its records |
 | `replay` | The deterministic replay cursor, clock and session lifecycle |
-| `broker` | **One** venue: `BrokerProtocol`, the canonical broker vocabulary, reconciliation, the HMAC transport, `RestVenueBroker`, `PaperBroker`. Since v3.9 also normalized venue events and their application to the mirror (`broker.lifecycle`), cancel and amend request identities (`broker.requests`) and snapshot reconciliation; it re-exports the capability model |
+| `broker` | **One** venue: `BrokerProtocol`, the canonical broker vocabulary, reconciliation, `PaperBroker` (the HMAC transport and `RestVenueBroker` left in v3.11 with their credentials, BRK-007). Since v3.9 also normalized venue events and their application to the mirror (`broker.lifecycle`), cancel and amend request identities (`broker.requests`) and snapshot reconciliation; it re-exports the capability model |
 | `data` | The canonical **wire** record, and the Universal Data Engine: source provenance, delimited reading, schema detection, timestamps and frequency, validation findings, cleaning policy, quality reporting, asset-class semantics, market calendars, corporate-action basis, and the derived dataset version. Its only outward edges are `common` and `options` (one leaf enum), which is what keeps the package graph acyclic |
-| `marketdata` | Provider clients, HTTP transport, the WebSocket client, symbols, subscriptions |
+| `marketdata` | The HTTP and WebSocket transports and the wire records it re-exports from `data.feed` (`Timeframe` was removed in v3.11: the interval is `market.bar.TimeFrame`). Until v3.10 also vendor clients (four of five were stubs) and a v1 provider engine, removed: a provider is the host application's |
 | `api` | **The top of the graph** (v3.1). The application-facing Python API joining the data layer to the execution path: `ingest_csv`, `select`, `to_market_dataset`, `backtest`, `replay`. Since v3.7 also point-in-time ingestion of observations, events and fundamentals with an explicit availability rule, and the lifting of single-timestamp wire records. Since v3.8 sector and currency classifications read from the instrument registry. Nothing imports it, which is what lets it depend on both `data` and `market` without closing a cycle |
 
 ## The lifecycle path
@@ -694,9 +811,7 @@ All 50 packages, and which path reaches each.
 | `experiment_tracking` | Experiment runs, parameters, metric history |
 | `model_registry` | Model versions, stages, promotion, `ArtifactRef`, the content-addressed artifact store |
 | `deployment_manager` | Release packages and the append-only environment ledger |
-| `studio` | `StrategyDefinition` — the one record of what a strategy is — plus projects and orchestration |
-| `enterprise` | Principals, RBAC, the audit log. Governance reads it |
-| `research` | Research workflows and `ResearchScore`, which validation evidence extracts from. Since v3.2 the study methodology; since v3.7 event studies and regime detection, reading `alt_data` and never `data` |
+| `research` | Research workflows and the v1 run evaluation — restated in v3.12 as measurements under a stated `ResearchPolicy` (`research_metrics`), which validation evidence extracts from, and the one parameter search (`parameter_sweep`). Since v3.2 the study methodology; since v3.7 event studies and regime detection, reading `alt_data` and never `data` |
 | `factor_library` | The computation engine (v3.2): features, factors, cross-sectional research, signal diagnostics, validation. Since v3.7 knowledge frames over point-in-time information and point-in-time fundamental snapshots. Since v3.8 factor loadings read from its panels into the risk model's type. Reached through `research`; imports neither `research`, `lifecycle` nor `api` |
 | `alt_data` | Point-in-time external information (v3.7): `ExternalObservation`, `InformationEvent`, `FundamentalObservation`, `ObservationSource`, versioned `ObservationSet`s and their views, session placement, point-in-time fundamentals; the v1 typed categories and `DataProvenance` stay. Reached through `research` and `factor_library`. Its only outward edge is `common`; a calendar reaches it through `SessionCalendar`, a structural protocol |
 
@@ -708,11 +823,13 @@ All 50 packages, and which path reaches each.
 
 ## Standalone engines — reached by neither path
 
-`portfolio_optimizer`, `optimizer`, `reporting`, `feature_store`,
+`portfolio_optimizer`, `reporting`, `feature_store`,
 `ml`, `deep_learning`, `reinforcement_learning`,
 `options`, `futures`, `crypto`, `macro`, `cloud_research`, `cluster_scheduler`,
-`distributed`, `workbench`, `research_assistant`, `live`, `feed`, `brokers`,
-`plugins`, `scheduler`.
+`distributed`, `research_assistant`, `brokers`,
+`scheduler`, `scenario`. (`scenario`, added in v3.3, imports only `common` and
+was missing from this list until v3.10; `live` and `feed` were removed in v3.10,
+and `workbench`, `studio` and `enterprise` in v3.11 — ADR-0046.)
 
 Each is deterministic, individually tested and individually benchmarked. **A
 package with no in-repo consumer is a standalone engine by design, not an
@@ -729,6 +846,17 @@ which `lifecycle` imports, imports both. Each edge runs one way and each is
 measured — `test_one_research_authority_per_concept.py` for the first,
 `test_v37_invariants.py` (which asserts `alt_data` imports only `common`) for the
 second.
+
+**v3.12 adds eight package edges, each one way and none a cycle**:
+`runtime → data` and `scheduler → data` (a `MarketCalendar` for venue calendars
+and session timers), `runtime → alt_data` and `backtesting → alt_data`
+(observations delivered on the path), `cloud_research → research` and
+`research_assistant → research` (one parameter-search authority, SCF-003),
+`lifecycle → execution` (multi-account reconciliation reads `ExecutionReport`),
+and `risk → instrument` (a classification limit normalizes its dimension and
+label by the registry's own rules; the gate still never reads the registry,
+which `test_sector_classification_reaches_attribution.py` asserts).
+`test_import_graph_stays_acyclic.py` asserts there is no cycle.
 
 `conventions` (v3.4) is not on this list and is not on either path either. It is
 a **leaf library imported by other packages** — `macro` and `portfolio` today,
@@ -769,7 +897,7 @@ One name, one meaning, one definition. Changing any of these is a major release.
 | Stream record | `market.record.MarketRecord` | ADR-0011 |
 | Wire record | `data.feed.*` — `float` prices keyed by provider symbol | ADR-0011 |
 | What a strategy emits | `strategy.events.Intent` | ADR-0008, `SIGNAL_MODEL.md` |
-| What a strategy is | `studio.strategy.StrategyDefinition` | ADR-0035 |
+| What a strategy is | `strategy.definition.StrategyDefinition` (in `studio` until v3.11) | ADR-0035, ADR-0046 |
 | Money | `Decimal`, exact at the currency minor unit | ADR-0008 |
 
 ## The wire/domain split
@@ -780,9 +908,17 @@ about AlphaLab (`float`, provider symbol, lossy), the other is what the executio
 path consumes (`Decimal`, `asset_id`, venue, currency, timeframe). They sit on
 opposite sides of one explicit conversion, `market.normalization`.
 
-Collapsing them would force one to lie. `marketdata.feed` and `live.message`
-re-export the *same class objects* from `data.feed`, so there is exactly one wire
-record per concept, and `test_market_model_convergence.py` asserts it.
+Collapsing them would force one to lie. `marketdata.feed` re-exports the *same
+class objects* from `data.feed`, so there is exactly one wire record per
+concept, and `test_market_model_convergence.py` asserts it — and, since v3.10,
+that the second normalization authority `alphalab.feed` had been (with a
+hard-coded `"USD"` and a one-minute default timeframe) stays removed.
+
+The policy doing the lifting states what the wire cannot, and since v3.10 has
+no defaults for it: a quote or trade is refused without a currency, a bar
+without a timeframe or without the source's `BarStamp` — which end of its
+interval the bar's timestamp names. A start-stamped bar is moved to its end,
+the instant its close is known.
 
 ---
 
@@ -836,18 +972,27 @@ equity == deposits - withdrawals + realized_pnl + unrealized_pnl - commission_pa
 
 Verified at v3.0 through the real pipeline at 500 / 1k / 2k / 4k / 8k records.
 
-## The rounding policy — `portfolio.money`
+## The rounding policy — `portfolio.money` (restated in v3.10)
 
-1. **Money is exact at the currency minor unit.** Every monetary amount stored in
-   `PortfolioState` is an exact multiple of `0.01`. `to_money` is the *only*
-   place rounding happens.
+1. **Money is exact at its currency's minor unit.** The minor unit is a property
+   of the currency: ISO 4217's table (`common.currency_units`, JPY 0, USD 2,
+   KWD 3, CLF 4), plus the units a book declares for what ISO 4217 does not
+   list (`Account.currency_units`). A currency with neither is refused.
+   `to_money(amount, currency)` is the *only* place rounding happens, half to
+   even. Until v3.10 every currency was rounded to `0.01`.
 2. **Rounding happens once, at entry.** `apply_fill` rounds the notional and
    commission as they enter; the cash movement *and* the cost basis derive from
    those same rounded values.
-3. **Prices and quantities are inputs, not money** (`PRICE_QUANT` 1e-4,
-   `SHARE_QUANT` 1e-6) and become money only when multiplied into an amount.
+3. **Prices and quantities are exact inputs, not money.** They are kept as the
+   venue or the market gave them and become money only when multiplied into an
+   amount. Until v3.10 they were quantized to 1e-4 and 1e-6 first, which booked
+   EUR/USD 1,000,000 @ 1.08345 at 1,083,400.00 and could not book a 0.0000005
+   BTC fill.
 4. **A split rounds one part and derives the other by subtraction**, so the parts
    always sum to the exact whole.
+5. **One decimal context.** Every accounting and execution computation runs in
+   `ACCOUNTING_CONTEXT` (precision 34, half-even, trapping), never in the
+   caller's thread's context.
 
 Before this policy the ledger and the position rounded the same economic event
 independently and drifted by up to five cents on randomized portfolios. Do not
@@ -968,19 +1113,24 @@ Ten durable states. Each has **one** snapshot owner, **one** schema constant and
 
 | State | Snapshot module | Constant | Value |
 | --- | --- | --- | --- |
-| `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA` | 1 |
-| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 3 |
+| `OMSState` | `oms.snapshot` | `OMS_SNAPSHOT_SCHEMA` | 2 |
+| `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA` | 2 |
-| `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 1 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 3 |
-| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 1 |
-| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 1 |
-| `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 1 |
-| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 1 |
+| `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 7 |
+| `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 4 |
+| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 3 |
+| `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
+| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
 
 Plus `persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, which versions what
-the *store* records about a payload and nothing inside it.
+the *store* records about a payload and nothing inside it, and the envelopes of
+an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 2`; v3.12, and
+2 since v3.13 writes per-order state by its changes) and of the evidence store
+(`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12). The
+values are v3.13's, and `tests/regression/test_documented_schemas_are_current.py`
+keeps them so.
 
 The contract is `restore(capture(s)) == s` — semantic equality, not container
 lineage.
@@ -992,11 +1142,16 @@ lineage.
   bumping it would version every event in the system as a side effect of one
   subsystem's change. Four regression tests pin the de-aliasing, and each snapshot
   module carries a comment saying why.
-- **One readable version per subsystem. No migration framework.**
-  `require_schema_version` refuses anything else and names the build that wrote
-  it. Two bounded exceptions, both documented: `PIPELINE_SNAPSHOT_SCHEMA` reads
-  1/2/3 because the missing fields genuinely *mean* the values it supplies, and
-  `OMS_SNAPSHOT_SCHEMA` reads one exact legacy unversioned key set.
+- **Older payloads are upgraded, explicitly and honestly (v3.10).** Each
+  subsystem declares a `SchemaHistory` (`persistence.upgrade`): one pure step per
+  earlier version, run on primitives before typed decoding, so a decoder only
+  ever reads its current schema. A step supplies a value only when it is what
+  the older payload already meant; otherwise it refuses
+  (`SchemaUpgradeRefused`), and where a recorded fact cannot be carried it warns
+  (`SchemaUpgradeWarning`). Payloads written by v3.9.0 itself are golden
+  fixtures (`tests/fixtures/snapshots/v3.9.0`). This replaced the rule "one
+  readable version per subsystem, no migration framework"; `OMS_SNAPSHOT_SCHEMA`
+  still also reads one exact legacy unversioned key set.
 - **Envelopes nest, never merge.** The live envelope carries a run snapshot and a
   broker snapshot, each versioned by its own constant, which is why adding venue
   durability in v2.16 moved no schema a backtest writes.
@@ -1039,7 +1194,10 @@ asserted.
 
 ## Determinism
 
-`RunConfig.seed` installs a `DeterministicIdSource` for the run.
+`RunConfig.seed` installs a `DeterministicIdSource` for the run. A seed is a
+non-negative integer (`bool` refused), and the identifier stream is pinned by a
+golden test (v3.10); every other stochastic step — initializers, bootstraps,
+searches — takes its seed explicitly, with no default.
 `IdStreamPosition` is `(seed, draws)` — two readable integers, not a serialized
 generator state, so nothing in the persisted format pins a PRNG implementation.
 Without a seed, identifiers stay on `uuid4` and only the economics reproduce;
@@ -1061,8 +1219,9 @@ is still required — derivation alone would turn every typo into a new instrume
 | `InstrumentRegistry` | refuses an unregistered `(provider, symbol)` at the boundary | the only mode that may reach a `Fill` |
 | `UnresolvedIdentity` | passes the provider symbol through | testing the wire→canonical lift **only** |
 
-`DEFAULT_POLICY` uses the second mode and is therefore a **testing** default;
-`ProviderHistorySource.of` refuses it before calling a provider.
+`ProviderHistorySource.of` refuses the second mode before calling a provider.
+(Until v3.10 a `DEFAULT_POLICY` in that mode was every `normalize_wire_*`
+function's default; there is no default policy now.)
 
 **Two tenses, two owners.** The registry says what an instrument *is* classified
 as; a `TradeRecord` says what it *was* classified as when the fill happened. A
@@ -1106,7 +1265,7 @@ Easy to confuse; they are not the same thing.
 
 | | Answers | Lives in |
 | --- | --- | --- |
-| `studio.StrategyDefinition` | *what is this strategy?* — author, parameters | `studio` |
+| `strategy.StrategyDefinition` | *what is this strategy?* — author, parameters | `strategy` (`studio` until v3.11) |
 | `lifecycle` registration | *which version of it should be live, and who said so?* | `lifecycle` |
 | `strategy.registry.StrategyClassRegistry` | *which code runs it?* | `strategy` |
 
@@ -1160,8 +1319,10 @@ for the order.
 
 **Broker.** Two boundaries: `BrokerProtocol` for one venue,
 `BrokerConnectorProtocol` for many venues and many accounts. The connector routes
-the canonical types under its historical names — `brokers.ExecutionReport` **is**
-`broker.BrokerExecution`, asserted by test. Reconciliation is total: `APPLIED`,
+the canonical types under their canonical names — `brokers.BrokerExecution` **is**
+`broker.BrokerExecution`, asserted by test; its historical aliases
+(`brokers.ExecutionReport`, `brokers.OrderStatus`, ...) were removed in v3.13,
+because each kept one name meaning two things (ledger API-001). Reconciliation is total: `APPLIED`,
 `DUPLICATE`, `UNKNOWN_ORDER`, `TERMINAL_ORDER`, `OVERFILL`, `INVALID` — nothing
 is silently dropped. Two pre-trade gates: never on a disconnected connection,
 never twice for one OMS order, with the client order id **derived** from the OMS
@@ -1175,7 +1336,7 @@ and `ExecutionState.reports` ("has the *portfolio* booked it?") — and a fill i
 one and not the other is the normal case. Gating the portfolio on the broker
 layer's answer silently dropped every live fill in the first implementation.
 
-**Governance.** `Governance(enterprise, actor_id, approval_required_in)` is the
+**Governance.** `Governance(authority, actor_id, approval_required_in)` is the
 **required** second argument of every entry point that changes what is live. Not
 optional: an optional gate is one anyone bypasses by calling the function
 directly. An approval names an exact `(name, version, environment)` and one
@@ -1207,25 +1368,30 @@ retry-on-older-protocol fallback exists.
 ```bash
 ruff check .                              # lint
 ruff format --check .                     # format
-mypy .                                    # strict, 1183 source files (what CI runs)
-pytest -q                                 # 7387 tests, 0 skipped, 0 warnings
-pytest -q -W error::DeprecationWarning    # the same 7387
+mypy .                                    # strict, 1,152 source files (what CI runs)
+pytest -q -W error                        # 9,041 tests, 0 skipped, 0 warnings (what CI runs)
 git diff --check
 python -m build && twine check dist/*
-for f in examples/[0-9]*.py; do python "$f"; done    # 65
-for f in benchmarks/*.py; do python "$f"; done       # 59
+for f in examples/[0-9]*.py; do python -W error "$f"; done    # 69
+for f in benchmarks/benchmark_*.py; do python "$f"; done      # 53
+python -W error docs/audit/scripts/certify_release.py --check # the release certificate
 ```
 
-`make check` runs the first four.
+`make check` runs the first four. Since v3.10 CI also installs the wheel and
+the sdist, each into a fresh environment, and runs `tests/installed_smoke.py`
+against them from outside the checkout; the benchmarks run weekly.
 
-**7387 tests.** The regression suite is the largest deliberately — most of its
+**9,041 tests** — 4,806 unit, 649 integration, 3,586 regression. The
+regression suite is nearly as large as the unit suite, deliberately: most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
 `test_the_suite_reports_nothing_deferred.py` reads the **collected items** rather
-than the summary line, and spawns a **fresh interpreter** with
-`-W error::DeprecationWarning` to import every module in the tree.
+than the summary line, refuses any `skipif` it does not list — it lists none
+since v3.10, so the suite skips nothing whoever runs it, root included — and
+spawns a **fresh interpreter** with `-W error::DeprecationWarning` to import
+every module in the tree.
 
 ## The tests to read before changing anything
 
@@ -1233,7 +1399,7 @@ than the summary line, and spawns a **fresh interpreter** with
 | --- | --- |
 | `test_shared_names_stay_distinct.py` | Fifty sets of same-named things that are not one thing, including the three lifecycle state machines, the two reconciliations, the two health surfaces, the five content identities, the three ways of checking a strategy, v3.7's events, regimes, provenance records, fundamentals, as-of readers, states, observations and replays, v3.8's capital shapes, budgets and limits, factor exposures, projection versus optimization, correlation versus similarity, Euler weightings, Cholesky factorizations and target weights, and v3.9's two capability shapes, five execution-report-shaped things, assumed versus measured slippage and latency, route selection versus sending, a child order as an instruction, the order lifecycle as a fourth axis, and snapshot reconciliation as the same pair as `reconcile` |
 | `test_venue_concepts_stay_distinct.py` | Listing exchange vs market-data attribution vs execution venue |
-| `test_no_silent_financial_defaults.py` | An AST sweep of the whole package; each exemption earned by a refusal test |
+| `test_no_silent_financial_defaults.py` | An AST sweep of the whole package — parameter defaults, call-site literals and mapping fallbacks on financial names, with a default of zero counted as a default since v3.10; each exemption carries its reason |
 | `test_snapshot_field_coverage.py` | Silent state loss when a state gains a field |
 | `test_removed_surfaces_stay_removed.py` | That removed names stay gone, including under a different spelling |
 | `test_currency_authority.py`, `test_settlement_multi_currency.py` | The currency roles and the two seams |
@@ -1259,11 +1425,25 @@ than the summary line, and spawns a **fresh interpreter** with
 | `test_v38_complexity.py` | That factor crowding, a risk budget with a limit per strategy, book valuation, capital allocation, common exposures and overlap stay near-linear — timed with the stabilized method, and each guard run against its defect |
 | `test_v39_invariants.py` | One home per v3.9 concept; no package or edge added; the OMS and the venue boundary reading one table; terminal statuses absorbing; event streams idempotent under replay and convergent under reordering; compatibility true only when every check is; schedules summing exactly; routes selecting only eligible venues regardless of listing order; shortfall decomposing exactly; every injected snapshot divergence reported; identities reproduced across hash seeds and working directories; no clock, entropy, environment, transcendental or ambient decimal context; no vendor, network, secret field, snapshot owner or schema constant |
 | `test_v39_complexity.py` | That capability checks, a venue event stream, a many-slice schedule, slicing by count, route selection, snapshot reconciliation and venue quality stay near-linear — stabilized method, each guard run against its defect |
+| `test_risk_projection.py`, `test_allocation_semantics.py` | v3.10: risk judged on the projected book and never refusing a reduction; long-only against committed positions |
+| `test_universe_scaling.py` | v3.10: the canonical path linear in the number of assets, and six injected regressions of incremental marking each failing it |
+| `test_schema_upgrades.py` | v3.10: every v3.9.0 golden payload upgraded, or refused with its reason |
+| `test_fill_timing.py`, `test_execution_assumptions.py`, `test_strategy_failures_are_reported.py` | v3.10: next-event fills, recorded execution assumptions, reported strategy failures |
+| `test_bar_stamp_convention.py` | v3.10: a bar stamped at the end of its interval, and a source's convention required |
+| `test_release_gates_are_wired.py`, `test_mutation_pins.py` | v3.10: CI, hooks and pyproject agree; every mutation the audit's harness let through is pinned |
+| `test_public_api_manifest.py`, `test_api_changes_are_in_the_changelog.py` | v3.13: every export of every package recorded with its binding, regenerated with each release; a removed or rebound name is refused until the release's CHANGELOG section names it |
+| `test_persisted_enum_names.py`, `test_release_certification.py` | v3.13: a persisted enum's class and member names are part of the format; the release certificate's checks pass, its evidence has not moved and the engine source it names is the build's; every Python file is checked out with LF |
+| `test_every_adr_deferral_is_classified.py`, `test_ledger_references_exist.py`, `test_version_markers_agree.py`, `test_nothing_is_left_for_later.py` | v3.13: every limitation and deferral an ADR states maps to a closed ledger entry; every test the ledger cites exists; every document that states the version states the package's; every ledger entry is implemented or kept, none assigned beyond the release, and no current-state document calls anything deferred |
 
 ## Performance
 
-The canonical path is **linear**: ~2.0× per doubling, measured 500 → 8,000
-records at v3.0, with the accounting identity holding at every size. Engine
+The canonical path is **linear** in records — ~2.0× per doubling, measured
+500 → 8,000 records at v3.0, with the accounting identity holding at every
+size — and, since v3.10, **in the universe**: a market event re-marks what it
+priced and reads exact per-currency totals, so the per-record cost across an
+8× universe (50 → 400 assets) measured between 0.85× and 1.24× over four runs
+in the release gates, 663–918 µs a record (it was quadratic until v3.10,
+which the audit's probe measured at about 35× the time for 8× the assets). Engine
 histories are `AppendOnlyLog` (O(1) amortized append) and keyed state is
 `PersistentMap` / `PersistentSet` (O(1) amortized write, copy-on-branch).
 
@@ -1322,7 +1502,19 @@ schedule that is identical on every platform. Writing the guards found a
 declaration identity rendered on every check and `list.count` duplicate
 detection in the draft; both are gone.
 
-One term is deliberately left super-linear — see section 17.
+**The v3.13 scales are measured** by `docs/audit/scripts/stress_v3_13.py`,
+which also re-runs v3.12's 10,000-asset, 1,000-strategy and 100-venue
+scenarios. A factor model stated by its structure is built, decomposed and
+constructed over in O(n k²): 10,000 assets take 0.12 s and 6 MB to state and
+1.85 s to construct over (PRF-013) — where writing the same model out as a
+dense matrix is O(n²), 29 s and 1.3 GB at 4,000 assets. The optimal split
+searches every set of fixed-charge venues, so its ceiling of ten such venues
+costs seconds (14–20 s of CPU for an order across ten fixed-charge and ten free
+venues); an American price on 5,000 steps, the lattice's ceiling, under three
+seconds; a run's per-order state about 2.7 kB an order (PRF-011, kept).
+
+The one term v3.10 left super-linear — the optimizer's pending trials — left
+with the optimizer in v3.12 (OFE-013).
 
 ---
 
@@ -1516,8 +1708,9 @@ an ADR.
 54. **v3.3's published decomposition numbers do not move.** They are
     recomputed with the v3.3 expressions and compared float for float.
 55. **`analytics` imports only `common` and `core`, `allocation` never imports
-    `portfolio`, and `portfolio_optimizer` imports only `common` and
-    `analytics`.**
+    `portfolio`, and `portfolio_optimizer` imports only `common`, `analytics`
+    and — since v3.11, to round to lots — `conventions`, which reads only
+    `common`.** (This line named the first two until v3.13.)
 
 56. **One statement of the order lifecycle** (v3.9, ADR-0044).
     `core.lifecycle.ORDER_TRANSITIONS` is read by the OMS and by the venue
@@ -1544,6 +1737,52 @@ an ADR.
     it names no venue, holds no credential and defines no vendor message
     structure.
 
+63. **A risk limit is judged on the projected book, and never refuses a
+    reduction** (v3.10, ADR-0045). One projection — the portfolio's signed
+    position, the order, the working orders — feeds every check; a breach
+    refuses only what grows exposure.
+64. **A currency's minor unit is the currency's.** ISO 4217 or a declaration,
+    never a constant and never a guess; prices and quantities are exact; money
+    is rounded once, in `ACCOUNTING_CONTEXT`.
+65. **A statistic says how it was annualized, and an undefined one is
+    `None`.** Returns are taken per instant; periods per year are declared or
+    observed, never assumed.
+66. **A bar is stamped at the end of its interval**, and a source says which end
+    it stamps or is refused.
+67. **The canonical path is linear in the universe.** A market event re-marks
+    what it priced and what a fill priced since its last mark; valuation reads
+    exact totals. `test_universe_scaling.py` measures it and fails on each of
+    six injected regressions.
+68. **An older payload is upgraded by an explicit step or refused with a
+    reason** — never decoded by guesswork, never silently defaulted.
+69. **No silent default for a currency, a rate, a zone, an annualization or a
+    seed.** A default of zero is a default; a literal at a call site is a
+    default; each exemption states its reason (`test_no_silent_financial_defaults.py`).
+70. **A provider and a venue are the application's.** AlphaLab ships transports,
+    the wire records and one method a provider implements
+    (`BarHistoryProvider.request_history`); no vendor client and no exchange
+    symbol spelling.
+
+71. **One name, one contract** (v3.13, ADR-0048). A public name bound to two
+    different objects is renamed — never aliased — merged, or kept with its
+    reason in `docs/api/public_api.json`, which records every export and is
+    regenerated with each release; a removed or rebound name is refused until
+    the release's CHANGELOG section names it.
+72. **A persisted enum's class and member names are part of the format.** A
+    rename is a schema step with an upgrade, never a refactoring (PER-004).
+73. **A price states its model, and a method states where it is exact.** A
+    lattice price names its step count; a surface is read between expiries only
+    by name and never extrapolated; the optimal split refuses a cost it cannot
+    call optimal; a model's parameters — impact, risk aversion, a seed — are the
+    caller's, with no default.
+74. **What is not done is classified.** Every limitation and deferral an ADR
+    states maps to a closed ledger entry, every test the ledger cites exists,
+    and neither the release certificate's evidence nor the engine source it
+    names moves unless the certificate is regenerated.
+
+The decisions ADR-0046 and ADR-0047 record for v3.11 and v3.12 are frozen with
+these; each is pinned by the regression test its ledger entry cites.
+
 ## The failure mode to watch for
 
 The most expensive defects in AlphaLab's history were not unknown problems. They
@@ -1555,8 +1794,9 @@ the whole class, mechanically.
 
 The second most expensive: **a document that was true when written and was never
 re-read.** Hence section 13's release checklist and
-`docs/ENGINEERING_GUIDELINES.md`'s note that the version lives in three places
-and the current-state claim in four documents.
+`docs/ENGINEERING_GUIDELINES.md`'s note that the current-state claim lives in
+four documents (the version, which lived in three places, is declared once
+since v3.10).
 
 v3.2 produced an instance worth recording. `docs/ARCHITECTURE.md` listed
 `factor_library` among the packages "reached by **neither** wired path". That
@@ -1578,11 +1818,11 @@ future "unification" must break first.
 | --- | --- |
 | `oms.book.OrderBook` / `data.feed.OrderBook` | *My* working orders vs *the market's* resting size. They share no operation. Merging is a category error |
 | `portfolio.PortfolioEngine` / `portfolio_optimizer.PortfolioEngine` | Accounting vs construction. Only the first is reachable from the execution path |
-| `optimizer` / `portfolio_optimizer` | Two searches, two subjects |
-| `broker` / `brokers` | One venue vs many venues and many accounts. Converged in v2.3; the connector routes canonical types under historical names |
+| `research.parameter_sweep` / `portfolio_optimizer` | Parameter search and weights: one home each since v3.12 removed `optimizer` |
+| `broker` / `brokers` | One venue vs many venues and many accounts. Converged in v2.3; the connector routes the canonical types under their canonical names (its historical aliases were removed in v3.13, API-001) |
 | `data.feed.Bar` / `market.bar.Bar` | Wire vs domain, opposite sides of one conversion |
 | Three things called a venue | Listing exchange, market-data attribution, execution venue. None derives from another |
-| `strategy.LifecycleState` / `lifecycle.LifecycleState` | A strategy *instance's* stage vs the lifecycle registry |
+| `strategy.StrategyStatus` / `lifecycle.LifecycleState` | A strategy *instance's* stage vs the lifecycle registry. They shared the name `LifecycleState` until v3.13 (API-001) |
 | `strategy.RuntimeState` | Holds strategy instances. Not a runtime-package state |
 | Two matrix inversions | Different input classes; neither is a shared numerical layer |
 | `AppendOnlyLog` batch operations keeping local copies | One copy in and one value out is O(collection) per *call*, not per element; writing each element through `PersistentMap.set` measured ~30% worse |
@@ -1608,15 +1848,23 @@ future "unification" must break first.
 | `ChildOrder` / `oms.order.Order` | An instruction an algorithm released for a parent vs the one lifecycle order the OMS holds (v3.9) |
 
 Also deliberate: **no CLI, no server, no daemon, no event bus, no composition
-root, no `SettlementPolicy` object, no migration framework, no per-environment
-promotion policy, no supervised live process, no authentication or credential
-handling, no marketplace logic, no overall certification score, no dependency
-resolver or environment snapshot, no regime taxonomy, no p-value in an event
-study, no default availability rule, no silent scaling of capital, no
-enforcement in a risk budget, no broker adapter in capital allocation, no
-capability discovery, no vendor message structure, no retry of a venue's
-refusal, no conversion inside a routing decision, no best-execution claim.**
-Each is a NON-GOAL with a recorded reason.
+root, no `SettlementPolicy` object, no per-environment promotion policy, no
+supervised live process, no authentication, no marketplace logic, no overall
+certification score, no dependency resolver or environment snapshot, no regime
+taxonomy and no estimated regime model, no fitted half-life, no derived
+alignment, no per-strategy sub-ledger, no p-value in an event study, no default
+availability rule, no silent scaling of capital, no enforcement in a risk
+budget, no broker adapter in capital allocation, no capability discovery, no
+vendor message structure, no retry of a venue's refusal, no conversion inside a
+routing decision, no best-execution claim.** Each is a NON-GOAL with a recorded
+reason.
+
+Two items this list carried until v3.10 are corrected rather than kept: **"no
+migration framework"** was replaced by versioned schema upgrades (ADR-0045), and
+**"no credential handling"** was not true — the HMAC venue transport holds an
+API key and signing secret (`broker.transport.VenueCredentials`) and
+`enterprise` kept secret references. Both left the library in v3.11 (BRK-007,
+BND-002).
 
 ---
 
@@ -1642,68 +1890,39 @@ integration does not.**
 
 ---
 
-# 17. Optional future evolution — D
+# 17. Planned before v4 — D (was "optional future evolution")
 
-Could be built. **Nothing depends on any of it**, and no commitment is made. None
-of these is a defect.
+Until v3.10 this section listed what could be built with no commitment. The
+pre-v4 audit re-classified every item; the ledger
+(`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) holds each with its disposition
+and release, and `ROADMAP.md` has the table. **Nothing is planned any more:
+every item was delivered by v3.13 or is kept, with its reason.** In short:
 
-- **Classification dimensions beyond sector in the registry**, and
-  sector-based *pre-trade* risk limits. v3.8's risk budgets and construction read
-  any caller classification; no pre-trade check reads one.
-- **Richer portfolio construction** (ADR-0043): covariance estimators beyond the
-  sample (an estimated shrinkage intensity, EWMA, a factor-model covariance),
-  cardinality and lot-size constraints, transaction costs in the objective, CVaR
-  or drawdown objectives, multi-period construction, caps on a bucket's risk
-  contribution inside other objectives (not a convex constraint), and
-  exchange-rate return factors for a pure currency-risk dimension.
-- **Per-strategy capital ceilings on the execution path.** An account's
-  `CapitalBudget` enforces its total; a strategy's amount in it is what
-  weight-based sizing reads (ADR-0015 §1), not a second ceiling.
-- **A vendor adapter package** over the existing transport — the smallest step
-  from connectivity to integration. Since v3.9 it would translate its venue's
-  messages into `VenueEvent`s and declare the venue's capabilities; nothing above
-  the boundary would change.
-- **Richer execution** (ADR-0044): a venue sequence number on orders, so
-  amendments, positions and balances delivered out of order can be ordered by
-  it (it moves `BROKER_SNAPSHOT_SCHEMA`); persisted child bindings and request
-  ledgers; a book-to-mirror reconciliation across several brokers' accounts; an
-  optimal split under fixed fees or non-linear impact; urgency estimated rather
-  than stated; randomized iceberg tranches.
-- **A lock-file reader, a durable home for v3.6 values, and a rerun harness.**
-  Each could be built beside the contracts v3.6 states; none is needed to state
-  them (ROADMAP, *Optional future evolution*).
-- **Consolidating the two identical `AssetClass` enums** in `live.provider` and
-  `marketdata.symbols`. Field-for-field identical, un-aliased, and the one
-  collision of this kind the repository has not resolved — `brokers` aliases the
-  canonical `core.enums.AssetType` and `data` renames its own `DataAssetClass`.
-  Neither is on the canonical path and neither is persisted.
-- **A start offset on `AppendOnlyLog`**, which is what
-  `OptimizerState.pending_trials` needs to stop being super-linear. It was
-  implemented, measured at **+3.9%** on `benchmark_execution_pipeline`, and
-  **refused on that evidence** — the same trade ADR-0028 refused at +1.78%.
-  `alphalab.optimizer` has no in-repo consumer, so the term is off every canonical
-  path. Do not reopen this without new measurement.
-- **Execution-path delivery of external information.** The execution path
-  dispatches market events only, so an adaptive strategy on it learns from
-  those; external information reaches adaptive state through a research replay
-  and a trained checkpoint. Delivering observations as execution-path events
-  changes the canonical spine and its snapshots, and needs its own ADR.
-- **Statistical regime models** (hidden Markov, Markov switching), which need an
-  estimation step with an identity and a stated fitting window; v3.7's regimes
-  are declared rules.
-- **A streaming observation set**, and split-adjusted per-share fundamentals or
-  converted-currency figures. v3.7 reads per-share figures and share counts as
-  published, and refuses rather than converts a figure in another currency.
-- **Pipeline-driven `on_fill` / `on_order` / `on_timer`.** Declared and routed;
-  the pipeline constructs no such events. Wiring them needs a second dispatch per
-  event and would change intent ordering and every parity baseline.
-- **Per-strategy sub-ledgers in `PortfolioEngine`.** The strategy-runtime design
-  anticipated them; the contribution ledger answers the attribution question
-  without a second book.
-- **A hook timeout, a plugin static-analysis pass, an independently versioned
-  `strategy-api`, hot reload, a threading model.** All designed in
-  `docs/architecture/strategy/`, none implemented; that directory's README
-  carries the full list.
+- **Delivered in v3.11**: richer construction (OFE-002); multi-exposure
+  neutralization (OFE-004); a deflated Sharpe ratio and corrections beyond
+  Bonferroni (OFE-005); an overlap-corrected IC t-statistic (OFE-006);
+  pipeline-driven `on_fill` / `on_order` / `on_timer` (OFE-014); a venue
+  sequence number and persisted child bindings (OFE-021, OFE-022).
+- **Delivered in v3.12**: classification beyond sector and limits on its
+  buckets (OFE-001); per-strategy capital ceilings (OFE-003); execution-path
+  delivery of external information (OFE-009); streaming observation sets and
+  adjusted fundamentals (OFE-011); durable evidence for progressions,
+  fingerprints, manifests and reports (OFE-016); health over a window
+  (OFE-017); cross-broker book-to-mirror reconciliation (OFE-023); the
+  optimizer's `pending_trials`, removed with the optimizer rather than patched
+  (OFE-013, SCF-003).
+- **Delivered in v3.13**: a lock-file reader (OFE-019); a rerun harness
+  (OFE-020); an optimal split, estimated urgency and randomized icebergs
+  (OFE-024, OFE-025); and, from the ledger's v4.0 column, the shared names,
+  the public API manifest, the persisted-name contract and release
+  certification (API-001, API-002, PER-004, FEA-006).
+- **Kept as boundaries**: statistical regime models (OFE-010); a fitted
+  half-life and derived alignment (OFE-007, OFE-018); per-strategy sub-ledgers
+  (OFE-015); hook timeouts, plugin analysis, hot reload and a threading model
+  (OFE-026) — see section 15.
+- **External**: a vendor adapter package (OFE-008).
+- **Done**: the two duplicate `AssetClass` enums were removed with `live` and
+  `marketdata`'s provider engine in v3.10 (OFE-012).
 
 ---
 
@@ -1727,8 +1946,12 @@ of these is a defect.
 | **v3.7.0** | **Advanced quant research: a point-in-time statement of when information became knowable; canonical events, alternative data with source identity and versioned sets, and point-in-time fundamentals in `alt_data`, now a leaf over `common`; knowledge frames with a checked price join; event studies anchored where news could be traded; regime detection from declared rules; and adaptive strategies whose learned state replays exactly and reaches the run record — no package added, no snapshot schema touched (ADR-0042)** |
 | **v3.8.0** | **Advanced portfolio and risk: the risk model as values with identities; constrained construction — minimum variance, mean-variance, maximum diversification, risk parity, robust — by one certified solver that names conflicts, and Black–Litterman; risk budgets along five dimensions; multi-strategy books across currencies; cross-strategy risk; and capital allocation across strategies, markets, brokers, accounts and currencies — no package added, three edges measured, no snapshot schema touched (ADR-0043)** |
 | **v3.9.0** | **The universal execution contract: capabilities declared at venue, market and account level and checked three-valued; one order-transition table for the OMS and the venue, every venue report given one outcome, idempotent cancels and amendments; TWAP, VWAP, participation, slicing and iceberg-like algorithms whose children stay their parent's; explained routing from supplied evidence; execution analytics; snapshot reconciliation — no package or edge added, no snapshot schema touched (ADR-0044)** |
+| **v3.10.0** | **The first pre-v4 release: risk on the projected book, never refusing a reduction; money exact at each currency's minor unit; analytics per instant with stated annualization; next-event fills and recorded execution assumptions; a canonical path linear in the universe; bars stamped at their close; upgradeable snapshots (portfolio 4, pipeline 4, run 2); vendor code, `feed`, `live` and silent defaults removed (ADR-0045)** |
+| **v3.11.0** | **The second pre-v4 release: instrument economics, corporate actions and negative prices; order terms and resting orders; target positions against each strategy's own position; enforced subscriptions, slices and feedback; leak-proof research, walk-forward optimization and multiple-testing corrections; construction with costs and lots; `studio`, `workbench`, `enterprise` and venue credentials moved to the application; snapshots pipeline 5, run 3, portfolio 5 (ADR-0046)** |
+| **v3.12.0** | **The third pre-v4 release: numerics right at the edges of their range; durable writes and exact restores; calendars inside simulation; strategy capital ceilings; classification limits along any dimension; external information on the execution path; retention and incremental checkpoints; an evidence store; multi-account reconciliation; declared trade prints; LSTM and attention backpropagation; factor-structured construction; a stress program at 10,000 assets, 1,000 strategies and 100 venues; snapshots pipeline 6, run 4, allocation 3, instrument 3 (ADR-0047)** |
+| **v3.13.0** | **The final pre-v4 release: American options and a volatility term structure; the optimal split; an estimated urgency, the shortfall its model expects and seeded iceberg tranches; a rerun from a manifest and a lock-file reader; cron timers; an exact liquidation price; exchange-rate risk as factors; a factor model constructed over by its structure; checkpoint segments that carry only what changed; one name for one contract, the public API and persisted names as data, every ADR limitation held to the ledger, and a release certificate; snapshots pipeline 7, checkpoint 2 (ADR-0048)** |
 
-44 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
+48 ADRs, in `docs/ADR/`. Every supersession is stated explicitly in the
 superseding ADR's Status block; read the Status block first.
 
 ---
@@ -1793,8 +2016,11 @@ in `test_shared_names_stay_distinct.py` or `test_venue_concepts_stay_distinct.py
 stop and read the reason in that test's docstring — it was written for you.
 
 **Before any release**, run the full checklist in
-`docs/ENGINEERING_GUIDELINES.md`. The version lives in three places and the
-current-state claim in four documents; they have drifted before.
+`docs/ENGINEERING_GUIDELINES.md`. The current-state claim lives in four
+documents and has drifted before; the version is declared once, in
+`alphalab/common/_version.py`, and every document that restates it is held to
+it by a test. Regenerate the API manifest (`docs/api/generate_public_api.py`)
+and, last, the release certificate (`docs/audit/scripts/certify_release.py`).
 
 ---
 
@@ -1806,23 +2032,20 @@ Genuinely unresolved, recorded so they are not rediscovered:
   against the protocols as written and against local servers that verify the hard
   parts. Whether a commercial venue's quirks break them cannot be known from here.
 - **UNKNOWN: whether the linear scaling holds at a workload far beyond what is
-  benchmarked.** Measured to 20,000 transitions in the standalone packages and
-  8,000 records on the canonical path; beyond that is extrapolation.
+  measured.** The stress programs (v3.12, re-run in v3.13) measure the canonical
+  path at 10,000 assets, 1,000 strategies and 100 venues, checkpoint chains of
+  20,000 records and construction at 10,000 assets; beyond that is
+  extrapolation.
 - **UNKNOWN: whether the single-threaded model is sufficient** for a deployment
   running many strategies at high event rates. The design anticipated sharding;
   nothing was built, and nothing has needed it.
-- **KNOWN DEFECT: the pre-trade position check compares different units.**
-  `check_position_limit` adds an asset's notional exposure
-  (`ExposureStatus.asset_exposure` holds market values) to an order's quantity
-  and compares the sum with `PositionLimit.max_quantity`. Found in v3.6; a fix
-  needs position quantities in the persisted risk state — a pipeline snapshot
-  schema decision with its own ADR.
-- **KNOWN DEFECT: `DailyLossLimit` is never enforced.** `RiskState.daily_loss`
-  is not maintained on the execution path. Found in v3.6.
-- **KNOWN DEFECT: `ExposureLimit.max_net_exposure` is read by no pre-trade
-  check**, and its sign convention is defined nowhere. Found in v3.6.
-- **KNOWN CAVEAT: seven timing backstops still time the wall clock with the
-  collector running.** Found in v3.7 while fixing
+- **FIXED in v3.10 (KD-001–003): the three pre-trade risk defects found in
+  v3.6** — the position check comparing different units, the daily loss limit
+  never maintained, the net exposure limit read by nothing. The known defects
+  that remain are in the pre-v4 ledger and in `ROADMAP.md`, each with a release.
+- **FIXED in v3.10 (TST-001): the timing backstops that timed the wall clock
+  with the collector running.** Every complexity guard now uses the stabilized
+  method. The history, kept because it explains the method: Found in v3.7 while fixing
   `test_lifecycle_registry_complexity.py`, which now times CPU time with the
   collector off and its two sizes interleaved (its `_timings` docstring holds
   the measurements). Run under load with a heap the size of the suite's, the
@@ -1837,10 +2060,11 @@ Genuinely unresolved, recorded so they are not rediscovered:
   the stabilized method from the start, and passed 30 of 30 comparisons with
   every core busy; v3.9's `test_v39_complexity.py` imports the same method and
   passed 5 of 5 runs with eight CPU-bound processes competing.
-- **UNKNOWN: how far the pure-Python construction solver scales.** It is exact
-  and cubic in the universe; the benchmark measures twenty-five and fifty
-  assets. Hundreds of assets are expected to work and to be slow; nothing larger
-  has been measured.
+- **MEASURED since v3.12: how far the pure-Python construction solver
+  scales.** The dense solver is cubic — 135 s at 800 assets. A factor model is
+  solved in O(n k²) per step (v3.12), and since v3.13 stated by its
+  structure and never written out (PRF-013): 10,000 assets through the public
+  path, measured in the stress program.
 - **UNKNOWN: how real venues order amendments, positions and balances relative
   to fills.** The execution contract orders status events by the lifecycle and
   fills by addition, and leaves absolute reports to the adapter's delivery
@@ -1854,6 +2078,9 @@ Genuinely unresolved, recorded so they are not rediscovered:
 
 ---
 
-*Written at v3.0.0, updated at v3.1.0, v3.2.0, v3.3.0, v3.4.0, v3.5.0, v3.6.0, v3.7.0, v3.8.0 and v3.9.0. If you are reading this long after, check the version in
-`pyproject.toml` first: where this document and the code disagree, the code is
-right, and this document has a bug worth fixing.*
+*Written at v3.0.0 and updated at each release since, through v3.13.0. At
+v3.13.0 its identity table was found still reading 3.9.0 (DOC-008), and
+`tests/regression/test_version_markers_agree.py` now holds it to the code. If you
+are reading this long after, check the version in `alphalab/common/_version.py`
+first: where this document and the code disagree, the code is right, and this
+document has a bug worth fixing.*

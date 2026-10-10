@@ -23,8 +23,13 @@ def completed_jobs(state: DistributedState) -> Sequence[Job]:
 
 
 def failed_jobs(state: DistributedState) -> Sequence[Job]:
-    """Returns all failed or cancelled jobs."""
+    """Returns all failed jobs."""
     return tuple(state.failed_jobs.values())
+
+
+def cancelled_jobs(state: DistributedState) -> Sequence[Job]:
+    """Returns all jobs withdrawn before they ran (v3.12)."""
+    return tuple(state.cancelled_jobs.values())
 
 
 def worker_utilization(state: DistributedState) -> dict[str, float]:

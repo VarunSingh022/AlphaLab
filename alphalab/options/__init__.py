@@ -16,8 +16,27 @@ a quote has no volatility that reproduces it; `ModelAssumptions`, so a Greek can
 travel with the four things the model does not do; and `resolve_expiration`,
 which says whether a contract was exercised, assigned or abandoned and moves
 cash and underlying units as two separate signed quantities.
+
+What v3.13 added
+----------------
+
+A second model: a Cox-Ross-Rubinstein lattice of a stated number of steps
+(`BinomialLattice`) that exercises an American contract early and escrows a
+stock's cash dividends (`CashDividend`), with its own Greeks and an inversion
+on it (`implied_volatility(..., lattice=)`); and interpolation across expiries
+in total variance, by name (`implied_vol_across_expiries`), refusing
+extrapolation and calendar arbitrage.
 """
 
+from alphalab.options.binomial import (
+    MAX_STEPS,
+    BinomialLattice,
+    CashDividend,
+    binomial_greeks,
+    binomial_price,
+    binomial_value,
+)
+from alphalab.options.carry import FUTURES_CARRY, Carry, CarryKind, dividend_yield, foreign_rate
 from alphalab.options.chain import (
     OptionChain,
     by_expiry,
@@ -63,10 +82,12 @@ from alphalab.options.strategy import (
     signed_quantity,
 )
 from alphalab.options.volatility_surface import (
+    ExpiryInterpolation,
     SurfaceRefusal,
     VolatilitySurface,
     VolPoint,
     VolSlice,
+    implied_vol_across_expiries,
     implied_vol_at,
     surface_expiries,
     surface_from_chain,
@@ -76,10 +97,17 @@ from alphalab.options.volatility_surface import (
 
 __all__ = [
     "BLACK_SCHOLES_MERTON",
+    "FUTURES_CARRY",
+    "MAX_STEPS",
+    "BinomialLattice",
+    "Carry",
+    "CarryKind",
+    "CashDividend",
     "ExerciseStyle",
     "ExpirationOutcome",
     "ExpirationPolicy",
     "ExpirationResult",
+    "ExpiryInterpolation",
     "Greeks",
     "ImpliedVolatility",
     "ImpliedVolatilityError",
@@ -99,6 +127,9 @@ __all__ = [
     "VolPoint",
     "VolSlice",
     "VolatilitySurface",
+    "binomial_greeks",
+    "binomial_price",
+    "binomial_value",
     "black_scholes_greeks",
     "black_scholes_price",
     "black_scholes_value",
@@ -106,7 +137,10 @@ __all__ = [
     "calls",
     "compute_payoff_at_expiry",
     "compute_pnl",
+    "dividend_yield",
     "expiries",
+    "foreign_rate",
+    "implied_vol_across_expiries",
     "implied_vol_at",
     "implied_volatility",
     "intrinsic_value",

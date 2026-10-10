@@ -14,11 +14,13 @@ with its replay is not worth measuring.
 """
 
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
+
+from _stable_timing import SAMPLES, fastest
 
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
@@ -56,7 +58,12 @@ SEED = 20220905
 # a v2.2 run measures above 4.00x is the cyclic garbage collector walking a
 # growing live heap, not an algorithmic term: with the collector paused the same
 # path scales ~4.3x (2.06x and 2.08x per doubling). The benchmark leaves it on
-# because that is what a real run pays.
+# because that is what a real run pays. (v3.11: part of it was algorithmic -- a
+# log slice copied the whole log, twice per fill; ledger PRF-007. With the
+# collector paused a backtest now costs 677 and 699 microseconds a record at 8k
+# and 16k records.) The ceilings below are judged by ``_stable_timing`` -- CPU
+# time, collector paused, workloads interleaved, fastest of three -- rather than
+# on the one run of each size the report prints (ledger TST-011).
 MAX_SCALING_FACTOR = 6.0
 # The replay cursor adds one lifecycle event per record on top of an identical
 # execution path, so it should cost a little more, not a lot.
@@ -139,7 +146,7 @@ def _config(strategy_id: str) -> RunConfig:
                 exposure=ExposureLimit(huge, huge),
                 leverage=LeverageLimit(Decimal("1000")),
                 margin=MarginLimit(Decimal("1.00")),
-                daily_loss=DailyLossLimit(huge),
+                daily_loss=DailyLossLimit(huge, "UTC"),
                 drawdown=DrawdownLimit(Decimal("1.00")),
             ),
         ),
@@ -187,6 +194,18 @@ def _run(records: int) -> tuple[float, float, BacktestResult, BacktestResult]:
     return backtest_duration, replay_duration, backtest, replay.backtest
 
 
+def _workloads(records: int) -> tuple[Callable[[], object], Callable[[], object]]:
+    """A backtest and a replay of one prebuilt dataset, to be timed by ``fastest``."""
+
+    strategy_id, asset_id = str(uuid4()), str(uuid4())
+    config, dataset = _config(strategy_id), _dataset(asset_id, records)
+    runtime = _running_state(strategy_id, asset_id)
+    return (
+        lambda: BacktestEngine.run(config, dataset, runtime, _context_factory),
+        lambda: ReplayBacktest.run(config, dataset, runtime, _context_factory),
+    )
+
+
 def _totals(result: BacktestResult) -> Mapping[str, Decimal]:
     valuation = result.valuation
     return {
@@ -231,12 +250,22 @@ def run_benchmark() -> None:
     _report(large_records, large_bt, large_rp, large_backtest)
     _assert_parity(large_backtest, large_replay)
 
-    scaling = large_bt / max(small_bt, 1e-9)
-    overhead = large_rp / max(large_bt, 1e-9)
-    print(f"  4x workload cost {scaling:.2f}x the time (linear would be 4.00x)")
-    print(f"  replay cost {overhead:.2f}x the backtest over the same dataset")
+    print(
+        f"  in these runs: 4x workload cost {large_bt / max(small_bt, 1e-9):.2f}x the time "
+        f"(linear would be 4.00x); replay cost {large_rp / max(large_bt, 1e-9):.2f}x the backtest"
+    )
     print(f"  final totals: {_totals(large_backtest)}")
     print("  parity: order sequence and final valuation identical at both sizes")
+
+    small_work, _ = _workloads(small_records)
+    large_work, large_replay_work = _workloads(large_records)
+    small_cpu, large_cpu, replay_cpu = fastest([small_work, large_work, large_replay_work])
+    scaling = large_cpu / max(small_cpu, 1e-9)
+    overhead = replay_cpu / max(large_cpu, 1e-9)
+    print(
+        f"  judged (CPU time, collector paused, fastest of {SAMPLES}): 4x workload cost "
+        f"{scaling:.2f}x the time; replay cost {overhead:.2f}x the backtest"
+    )
 
     if scaling > MAX_SCALING_FACTOR:
         raise SystemExit(

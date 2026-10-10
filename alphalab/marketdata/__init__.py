@@ -1,98 +1,55 @@
-"""AlphaLab Market Data Infrastructure Layer."""
+"""Market-data transports and the wire records a provider produces.
 
-from alphalab.marketdata.adapter import MarketDataAdapter
-from alphalab.marketdata.cache import CacheRecord, MarketDataCache
-from alphalab.marketdata.catalog import ProviderCatalog
-from alphalab.marketdata.client import BaseClient
-from alphalab.marketdata.config import ProviderConfig
-from alphalab.marketdata.connection import ConnectionState, ConnectionStatus
-from alphalab.marketdata.engine import MarketDataEngine
-from alphalab.marketdata.events import (
-    BarReceived,
-    HeartbeatReceived,
-    MarketDataEvent,
-    OrderBookUpdated,
-    ProviderConnected,
-    ProviderDisconnected,
-    ProviderRecovered,
-    ProviderRegistered,
-    QuoteReceived,
-    SubscriptionCreated,
-    SubscriptionRemoved,
-    TradeReceived,
-)
-from alphalab.marketdata.exceptions import (
-    InvalidMarketStateError,
-    MarketDataError,
-    MarketDataValidationError,
-)
+What remains of this package in v3.10 is what the canonical market model
+(:mod:`alphalab.market`) consumes and nothing else:
+
+* :mod:`~alphalab.marketdata.transport` -- a request/response HTTP transport
+  over the standard library, and a static one for tests;
+* :mod:`~alphalab.marketdata.websocket` -- an RFC 6455 client, the streaming
+  half, used by :mod:`alphalab.market.stream`;
+* :mod:`~alphalab.marketdata.feed` -- the wire records (a re-export of
+  :mod:`alphalab.data.feed`).
+
+Until v3.11 it also held ``Timeframe`` (``TICK``, ``SECOND``, ``MINUTE``,
+``HOURLY``, ``DAILY``), the resolution a
+:class:`~alphalab.market.provider.BarHistoryProvider` was asked for -- a second
+vocabulary for the interval :class:`~alphalab.market.bar.TimeFrame` already
+named, with no way to say a request for minutes and a policy labelling the
+result as days disagreed. A provider is now asked for a
+:class:`~alphalab.market.bar.TimeFrame`, the one interval type (ledger DAT-005).
+
+Until v3.10 it also shipped vendor-named clients (Binance, Databento, NSE,
+Polygon, Yahoo -- four of them ``NotImplementedError`` stubs) and a v1 provider
+engine with registries, connection managers, API-key configs and metrics that
+nothing updated, alongside the equally unused ``alphalab.feed`` and
+``alphalab.live`` packages. A vendor's endpoints, symbols and credentials are
+the host application's; AlphaLab takes their output as wire records through
+:mod:`alphalab.market.normalization`. They were removed (ledger BND-001,
+SCF-002; ADR-0045).
+"""
+
+from alphalab.marketdata.exceptions import MarketDataError
 from alphalab.marketdata.feed import Bar, OrderBook, OrderBookLevel, Quote, Trade
-from alphalab.marketdata.manager import ConnectionManager
-from alphalab.marketdata.metadata import MarketMetadata, MarketStatus
-from alphalab.marketdata.protocol import MarketDataProtocol
-from alphalab.marketdata.registry import ProviderRegistry
-from alphalab.marketdata.state import MarketDataHealth, MarketDataState, ProviderMetrics
-from alphalab.marketdata.subscription import Subscription, SubscriptionStatus
-from alphalab.marketdata.symbols import AssetClass, SymbolMetadata
-from alphalab.marketdata.timeframe import Timeframe
-from alphalab.marketdata.validation import validate_provider_registration
-from alphalab.marketdata.views import (
-    cache_statistics,
-    connection_status,
-    market_health,
-    provider_metrics,
-    provider_summary,
-    subscription_summary,
+from alphalab.marketdata.transport import HttpTransport, StaticTransport, Transport
+from alphalab.marketdata.websocket import (
+    WebSocketConnection,
+    WebSocketError,
+    WebSocketTransport,
+    connect_websocket,
 )
 
 __all__ = [
-    "AssetClass",
     "Bar",
-    "BarReceived",
-    "BaseClient",
-    "CacheRecord",
-    "ConnectionManager",
-    "ConnectionState",
-    "ConnectionStatus",
-    "HeartbeatReceived",
-    "InvalidMarketStateError",
-    "MarketDataAdapter",
-    "MarketDataCache",
-    "MarketDataEngine",
+    "HttpTransport",
     "MarketDataError",
-    "MarketDataEvent",
-    "MarketDataHealth",
-    "MarketDataProtocol",
-    "MarketDataState",
-    "MarketDataValidationError",
-    "MarketMetadata",
-    "MarketStatus",
     "OrderBook",
     "OrderBookLevel",
-    "OrderBookUpdated",
-    "ProviderCatalog",
-    "ProviderConfig",
-    "ProviderConnected",
-    "ProviderDisconnected",
-    "ProviderMetrics",
-    "ProviderRecovered",
-    "ProviderRegistered",
-    "ProviderRegistry",
     "Quote",
-    "QuoteReceived",
-    "Subscription",
-    "SubscriptionCreated",
-    "SubscriptionRemoved",
-    "SubscriptionStatus",
-    "SymbolMetadata",
-    "Timeframe",
+    "StaticTransport",
     "Trade",
-    "TradeReceived",
-    "cache_statistics",
-    "connection_status",
-    "market_health",
-    "provider_metrics",
-    "provider_summary",
-    "subscription_summary",
-    "validate_provider_registration",
+    "Transport",
+    "WebSocketConnection",
+    "WebSocketError",
+    "WebSocketTransport",
+    "connect_websocket",
 ]

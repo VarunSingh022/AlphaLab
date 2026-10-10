@@ -3,7 +3,8 @@
 This is the order as it exists *at a venue*, and it is the type every broker
 adapter -- single-broker or multi-broker -- speaks. Before v2.3
 ``alphalab.brokers.order`` defined a second, near-identical order with a
-different identity model; that module now re-exports this one.
+different identity model; that module then re-exported this one, and v3.13
+removed it (ledger API-001).
 
 Two identifiers, deliberately
 -----------------------------

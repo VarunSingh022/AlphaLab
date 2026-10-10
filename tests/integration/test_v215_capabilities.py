@@ -30,9 +30,8 @@ from typing import Any
 from alphalab.broker.account import BrokerAccount
 from alphalab.broker.reconciliation import ExternalOrderMap
 from alphalab.broker.state import BrokerState, ConnectionStatus
-from alphalab.broker.transport import HttpVenueTransport, VenueCredentials
-from alphalab.broker.venue import RestVenueBroker, VenueConfig
 from alphalab.core.enums import AssetType
+from alphalab.data.time import BarStamp
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import (
     InstrumentRegistry,
@@ -50,6 +49,7 @@ from alphalab.market.stream import StreamConfig, StreamingSource
 from alphalab.model_registry.artifact_store import FileArtifactStore, compute_digest
 from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.runtime.broker_routing import (
+    RoutingConfig,
     apply_broker_execution,
     broker_order_id_for,
     route_order,
@@ -63,6 +63,12 @@ from alphalab.strategy.protocol import BaseStrategy
 from tests.integration.harness import context_factory, pipeline_config, running_strategy_state
 from tests.integration.stream_server import StreamScript, quote, run_stream
 from tests.integration.venue_server import fill, record_fill, run_venue
+from tests.reference_adapter.transport import HttpVenueTransport, VenueCredentials
+from tests.reference_adapter.venue import RestVenueBroker, VenueConfig
+
+#: Where these tests route, and what a venue fill is denominated in. Named: a
+#: routing configuration has no default venue or currency (ledger API-003).
+ROUTING = RoutingConfig(venue="VENUE", currency="USD")
 
 _PROVIDER = "TESTVENUE"
 _SYMBOL = "ACME"
@@ -124,7 +130,11 @@ def _stream(url: str, registry: InstrumentRegistry) -> StreamingSource:
             url=url,
             symbols=[_SYMBOL, _OTHER],
             policy=NormalizationPolicy(
-                provider=_PROVIDER, identity=registry, venue="XNAS", currency="USD"
+                bar_stamp=BarStamp.INTERVAL_END,
+                provider=_PROVIDER,
+                identity=registry,
+                venue="XNAS",
+                currency="USD",
             ),
             liveness_timeout_seconds=3.0,
             reconnect_backoff_seconds=0.01,
@@ -216,12 +226,12 @@ def test_all_five_capabilities_compose_into_one_lifecycle(tmp_path: Path) -> Non
     with run_venue(credentials) as (venue_url, book, _script):
         broker = RestVenueBroker(
             HttpVenueTransport(venue_url, credentials, timeout_seconds=5.0),
-            VenueConfig(broker_name="VENUE"),
+            VenueConfig(currency="USD", broker_name="VENUE"),
         )
         connected, _ = broker.connect(_broker_state(), 10.0)
         assert connected.connection_status is ConnectionStatus.CONNECTED
 
-        routed = route_order(connected, broker, order, 11.0, ExternalOrderMap())
+        routed = route_order(connected, broker, order, 11.0, ExternalOrderMap(), config=ROUTING)
         assert routed.decision.routed
 
         client_id = broker_order_id_for(order)
@@ -231,7 +241,9 @@ def test_all_five_capabilities_compose_into_one_lifecycle(tmp_path: Path) -> Non
         _after, applied, _events = broker.poll_executions(routed.broker_state, 12.0)
 
     assert len(applied) == 1
-    pipeline, fills, trades = apply_broker_execution(state.pipeline, order, applied[0])
+    pipeline, fills, trades = apply_broker_execution(
+        state.pipeline, order, applied[0], config=ROUTING
+    )
 
     assert len(fills) == 1, "a canonical core.Fill"
     assert pipeline.portfolio.positions[_ACME.asset_id].quantity == Decimal("10")
@@ -290,7 +302,7 @@ def test_no_capability_introduced_a_parallel_lifecycle() -> None:
 
     broker = RestVenueBroker(
         HttpVenueTransport("http://127.0.0.1:1", VenueCredentials(_KEY, _SECRET)),
-        VenueConfig(),
+        VenueConfig(currency="USD"),
     )
     assert isinstance(broker, BrokerProtocol), "no second execution boundary"
 

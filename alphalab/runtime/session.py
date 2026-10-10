@@ -194,5 +194,8 @@ class TradingSession:
             )
             for record in source.records():
                 now = next(readings, None) if readings is not None else None
+                # The first record of an instant completes the one before it
+                # (ledger EXE-004); a regressing record completes nothing.
+                state = RunEngine.close_slice(state, context_factory, before=record.timestamp)
                 state, _ = RunEngine.advance(state, record, context_factory, now)
-            return state
+            return RunEngine.close_slice(state, context_factory)

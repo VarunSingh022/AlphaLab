@@ -8,12 +8,11 @@ from alphalab.crypto import (
     FundingRate,
     FundingRateHistory,
     InstrumentType,
+    MaintenanceBasis,
     annualized_funding_rate,
     compute_funding_payment,
     compute_liquidation_price,
     open_crypto_position,
-    parse_exchange_symbol,
-    to_exchange_symbol,
 )
 from alphalab.portfolio.types import PositionSide
 
@@ -57,17 +56,17 @@ def run_benchmark() -> None:
     start = time.perf_counter()
     for _ in range(N):
         compute_liquidation_price(
-            Decimal("50000"), PositionSide.LONG, Decimal("10"), Decimal("0.005")
+            Decimal("50000"),
+            PositionSide.LONG,
+            Decimal("10"),
+            Decimal("0.005"),
+            basis=MaintenanceBasis.MARK_NOTIONAL,
+            quantity=Decimal("1"),
+            fees=Decimal("20"),
+            funding=Decimal("-5"),
         )
     duration = time.perf_counter() - start
     print(f"  compute_liquidation_price: {duration:.4f}s total, {N / duration:.2f} ops/sec")
-
-    start = time.perf_counter()
-    for _ in range(N):
-        symbol = to_exchange_symbol("kraken", "BTC", "USD")
-        parse_exchange_symbol("kraken", symbol)
-    duration = time.perf_counter() - start
-    print(f"  symbol round-trip      : {duration:.4f}s total, {N / duration:.2f} ops/sec")
 
     start = time.perf_counter()
     for _ in range(N):

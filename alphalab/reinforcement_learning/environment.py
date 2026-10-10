@@ -47,7 +47,6 @@ from alphalab.portfolio.nav import NAVCalculator
 from alphalab.reinforcement_learning.action import Action, action_to_signed_quantity
 from alphalab.reinforcement_learning.exceptions import RLInputError
 from alphalab.risk.limits import (
-    DailyLossLimit,
     DrawdownLimit,
     ExposureLimit,
     LeverageLimit,
@@ -65,7 +64,7 @@ from alphalab.runtime.execution_pipeline import (
 from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView, StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,14 +143,15 @@ class TradingEnvConfig:
         strategy_id: Identifier for the RL agent's registered strategy.
         trade_size: Fixed quantity bought or sold on a BUY/SELL action.
         starting_cash: Initial cash deposited when the environment is created.
-        currency: Account and trading currency.
+        currency: Account and trading currency. Required: it defaulted to
+            ``"USD"`` until v3.10 (ledger API-003).
     """
 
     asset_id: str
     strategy_id: str
     trade_size: Decimal
     starting_cash: Decimal
-    currency: str = "USD"
+    currency: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +214,8 @@ def _default_pipeline_config(config: TradingEnvConfig) -> ExecutionPipelineConfi
         exposure=ExposureLimit(max_gross_exposure=headroom, max_net_exposure=headroom),
         leverage=LeverageLimit(max_leverage=Decimal("10")),
         margin=MarginLimit(max_margin_utilization=Decimal("1.0")),
-        daily_loss=DailyLossLimit(max_daily_loss=config.starting_cash),
+        # No daily loss limit: an episode has no trading day to measure one in.
+        daily_loss=None,
         drawdown=DrawdownLimit(max_drawdown_pct=Decimal("1.0")),
     )
     return ExecutionPipelineConfig(
@@ -244,7 +245,7 @@ def create_environment(config: TradingEnvConfig, timestamp: float) -> TradingEnv
         strategies={
             config.strategy_id: StrategyState(
                 strategy_id=config.strategy_id,
-                status=LifecycleState.RUNNING,
+                status=StrategyStatus.RUNNING,
                 instance=RLAgentStrategy(),
             )
         }

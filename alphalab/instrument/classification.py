@@ -54,10 +54,26 @@ operator declared a classification without saying when it takes effect, so as
 far as this registry knows it has always been in effect. That is the "absent,
 not fabricated" rule -- there is no epoch sentinel, because ``0.0`` would be a
 date nobody chose.
+
+Dimensions beyond sector (v3.12)
+--------------------------------
+Sector was the one dimension an instrument could be classified along. An
+institutional book is limited by more -- the country it is exposed to, the
+issuer whose default it bears, the industry, the rating -- and AlphaLab ships
+the taxonomy of none of them (ledger OFE-001). :class:`DimensionClassification` and
+:class:`DimensionHistory` are the same rules as the sector's, for a dimension
+the caller names: an append-only history per instrument and dimension, each act
+carrying its label, its source and its effective date. The dimension name is
+the caller's (:func:`normalize_dimension`); ``"sector"`` is reserved for the
+sector itself, which keeps its own path because its label is frozen onto every
+fill's trade record. :func:`~alphalab.instrument.registry.classify_dimension`
+writes one, and a risk limit can bound each bucket of any dimension, sector
+included (:class:`~alphalab.risk.limits.ClassificationLimit`).
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Final
@@ -67,9 +83,20 @@ from alphalab.instrument.record import normalize_sector_label
 
 __all__ = [
     "OPERATOR",
+    "SECTOR",
     "ClassificationHistory",
+    "DimensionClassification",
+    "DimensionHistory",
     "SectorClassification",
+    "normalize_dimension",
 ]
+
+#: The dimension ``InstrumentRecord.sector`` classifies along.
+SECTOR: Final = "sector"
+
+#: A dimension name: lowercase letters, digits, and ``_``, ``-`` or ``.`` after
+#: the first character -- an identifier a report and a limit can both quote.
+_DIMENSION: Final = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}")
 
 #: Source recorded when a caller classifies without naming one.
 #:
@@ -244,3 +271,115 @@ class ClassificationHistory:
         """A history over ``classifications``, in the order given."""
 
         return cls(tuple(classifications))
+
+
+def normalize_dimension(value: str) -> str:
+    """Normalize and validate a classification dimension's name.
+
+    Surrounding whitespace is stripped and the name lowercased, so
+    ``" Country"`` and ``"country"`` are one dimension. What remains must be
+    one to sixty-four lowercase letters, digits, ``_``, ``-`` or ``.``, starting
+    with a letter or digit.
+
+    Raises:
+        InstrumentInputError: If the value is not a string or not such a name.
+    """
+
+    if not isinstance(value, str):
+        raise InstrumentInputError(f"A dimension must be a string, got {type(value).__name__}.")
+    name = value.strip().lower()
+    if not _DIMENSION.fullmatch(name):
+        raise InstrumentInputError(
+            f"{value!r} is not a dimension name: one to sixty-four lowercase letters, digits, "
+            "'_', '-' or '.', starting with a letter or digit."
+        )
+    return name
+
+
+@dataclass(frozen=True, slots=True)
+class DimensionClassification:
+    """One act of classifying an instrument along a named dimension.
+
+    The rules :class:`SectorClassification` states, for any dimension: a label
+    validated as a sector label is (case preserved, printable, no control
+    characters), ``None`` to withdraw one, a source that is never blank, and an
+    effective date that is the caller's and never a clock's.
+
+    Raises:
+        InstrumentInputError: If the label, source or ``as_of`` is invalid.
+    """
+
+    label: str | None
+    source: str = OPERATOR
+    as_of: float | None = None
+
+    def __post_init__(self) -> None:
+        # The sector's rules, applied once rather than restated.
+        validated = SectorClassification(self.label, self.source, self.as_of)
+        object.__setattr__(self, "label", validated.sector)
+        object.__setattr__(self, "source", validated.source)
+        object.__setattr__(self, "as_of", validated.as_of)
+
+    def effective_at(self, timestamp: float) -> bool:
+        """Whether this is in effect at ``timestamp``; see :class:`SectorClassification`."""
+
+        return self.as_of is None or self.as_of <= timestamp
+
+
+@dataclass(frozen=True, slots=True)
+class DimensionHistory:
+    """Every classification one instrument has been given along one dimension.
+
+    Append-only and ordered by declaration, for the reasons
+    :class:`ClassificationHistory` gives.
+    """
+
+    entries: tuple[DimensionClassification, ...] = field(default_factory=tuple)
+
+    def __iter__(self) -> Iterator[DimensionClassification]:
+        return iter(self.entries)
+
+    def __len__(self) -> int:
+        return len(self.entries)
+
+    def __bool__(self) -> bool:
+        return bool(self.entries)
+
+    def append(self, classification: DimensionClassification) -> DimensionHistory:
+        """This history plus one more act. The original is unchanged."""
+
+        return DimensionHistory((*self.entries, classification))
+
+    @property
+    def current(self) -> DimensionClassification | None:
+        """The most recently declared classification, or ``None`` if never classified."""
+
+        return self.entries[-1] if self.entries else None
+
+    @property
+    def label(self) -> str | None:
+        """The label in effect now -- the last one declared -- or ``None``."""
+
+        entry = self.current
+        return None if entry is None else entry.label
+
+    def at(self, timestamp: float) -> DimensionClassification | None:
+        """The last declared classification effective at ``timestamp``, or ``None``."""
+
+        applicable = [entry for entry in self.entries if entry.effective_at(timestamp)]
+        return applicable[-1] if applicable else None
+
+    def label_at(self, timestamp: float) -> str | None:
+        """The label in effect at ``timestamp``, or ``None``."""
+
+        entry = self.at(timestamp)
+        return None if entry is None else entry.label
+
+    @property
+    def sources(self) -> tuple[str, ...]:
+        """Every distinct source that has classified along this dimension, first-seen order."""
+
+        seen: dict[str, None] = {}
+        for entry in self.entries:
+            seen.setdefault(entry.source, None)
+        return tuple(seen)

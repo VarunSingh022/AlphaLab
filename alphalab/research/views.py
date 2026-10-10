@@ -1,18 +1,20 @@
 """Pure queries exposing transparent Research State access."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from alphalab.research.bias import BiasReport
 from alphalab.research.capacity import CapacityReport
 from alphalab.research.diagnostics import DiagnosticReport
-from alphalab.research.research import ResearchScore
 from alphalab.research.state import ResearchState
 from alphalab.research.stress import StressReport
 
 
-def overall_score(state: ResearchState) -> ResearchScore | None:
-    """Returns the unified strategy grade."""
-    return state.score
+def research_metrics_of(state: ResearchState) -> Mapping[str, float]:
+    """Every measurement a completed evaluation made; empty before it completes.
+
+    Replaced ``overall_score`` in v3.12 (ledger RES-001): there is no grade.
+    """
+    return state.metrics
 
 
 def bias_report(state: ResearchState) -> BiasReport | None:
@@ -32,7 +34,7 @@ def diagnostic_report(state: ResearchState) -> DiagnosticReport | None:
 
 
 def warnings(state: ResearchState) -> Sequence[str]:
-    """Returns all critical structural warnings generated during research."""
+    """Returns every finding: each number that crossed a bound the policy stated."""
     if state.diagnostic_report:
         return state.diagnostic_report.warnings
     return ()

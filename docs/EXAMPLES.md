@@ -9,14 +9,17 @@ Each example focuses on a single subsystem while following the same engineering 
 Examples are intended to be read sequentially by new users and used as reference implementations by contributors.
 
 > Examples `01`–`10` were written for v1.0.0 and exercise the **standalone**
-> engine APIs. `11_unified_backtest.py` (v2.2) drives the integrated execution
+> engine APIs -- except `02` and `08`–`10`, rewritten in v3.11 against the
+> canonical path after the packages they demonstrated (`alphalab.studio`,
+> `alphalab.workbench`) left the library, and `10`, which until then printed
+> check marks for steps it never ran. `11_unified_backtest.py` (v2.2) drives the integrated execution
 > path end to end, `12_model_lifecycle.py` (v2.4) drives the model and strategy
 > lifecycle, `13_durable_run_state.py` (v2.13) stops a run, stores it, and
 > finishes it in a different process, and `14_multi_currency_settlement.py`
 > (v2.17) drives an FX feed into a run that settles two currencies and reports
 > in one. `05_broker_connection.py` was rewritten in v2.17 against the canonical
 > broker boundary, having used `alphalab.integrations` until that package was
-> removed. None are part of the automated test suite, though all sixty-five
+> removed. None are part of the automated test suite, though all sixty-nine
 > run as a release gate.
 > For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
@@ -31,15 +34,15 @@ The `examples/` directory contains:
 | File | Description |
 |------|-------------|
 | `01_research.py` | Research engine |
-| `02_backtest.py` | Strategy Studio backtest bookkeeping |
+| `02_backtest.py` | Your first backtest, through the canonical path with target quantities |
 | `03_replay.py` | Historical replay cursor |
-| `04_market_data.py` | Market data providers |
+| `04_market_data.py` | Provider wire bars → normalization → canonical market state |
 | `05_broker_connection.py` | The two broker boundaries: one venue, or a registry of many |
 | `06_portfolio_optimizer.py` | Portfolio construction |
 | `07_universal_data.py` | Universal Data Engine: state, versions and the catalogue |
-| `08_strategy_studio.py` | Strategy Studio orchestration |
-| `09_workbench.py` | Workbench workspace |
-| `10_complete_pipeline.py` | Multi-engine walkthrough |
+| `08_strategy_studio.py` | Rebalancing to target weights, with a declared lot size |
+| `09_workbench.py` | Cross-sectional decisions on complete instants (slices) |
+| `10_complete_pipeline.py` | Research to a traded book, end to end |
 | `11_unified_backtest.py` | Dataset → orders → fills → P&L → analytics, plus replay parity |
 | `12_model_lifecycle.py` | Research candidate → deployment → rollback |
 | `13_durable_run_state.py` | Stop a run, store it, continue it in another process |
@@ -109,13 +112,10 @@ Topics include
 
 # Market Data
 
-Examples demonstrate
-
-- Yahoo Finance
-- Polygon
-- Databento
-- Binance
-- NSE
+No example calls a vendor, and AlphaLab ships no vendor client (ADR-0045).
+`04_market_data.py` plays the part of a host application's provider: it
+returns start-stamped one-minute bars from `request_history`, and AlphaLab
+takes it from there.
 
 Provider output arrives as a **wire record** (`alphalab.data.feed` — `float`
 prices keyed by a provider symbol) and is lifted into the canonical domain model
@@ -130,7 +130,8 @@ not two copies of one thing — see ADR-0011.
 `05_broker_connection.py` shows the two boundaries and which is which:
 
 - `alphalab.broker` — **one** venue. `BrokerProtocol` is the canonical adapter
-  contract; `RestVenueBroker` and `PaperBroker` implement it, and
+  contract; `PaperBroker` implements it (an adapter that reaches a real venue
+  is the host application's — `tests/reference_adapter` shows one), and
   `runtime.broker_routing` and `LiveSession` speak it.
 - `alphalab.brokers` — **many** venues and many accounts.
   `BrokerConnectorProtocol` routes over a `BrokerConnectorState`, which is why
@@ -143,49 +144,24 @@ ADR-0034.
 
 ---
 
-# Strategy Studio
+# Targets, lots and complete instants (`08`, `09`)
 
-Examples demonstrate complete research workflows.
+Two examples kept the names of packages that left the library in v3.11 —
+`alphalab.studio` and `alphalab.workbench`, which held project management and
+UI state (ADR-0046) — so that links to them still resolve. Both were rewritten
+against the canonical path:
 
-Typical pipeline
+- `08_strategy_studio.py` — a rebalancer that states target **weights**
+  (ledger FEA-001): each strategy's own position kept by allocation, lot sizes
+  declared on the instrument, and rounding toward zero so a target is
+  approached and never overshot.
+- `09_workbench.py` — cross-sectional decisions on **complete instants**:
+  slices deliver every record of an instant once (EXE-004), subscriptions decide
+  what a strategy is dispatched (EXE-007), and a ranking never mixes two
+  instants.
 
-```
-
-Acquire Data
-
-↓
-
-Normalize Dataset
-
-↓
-
-Research
-
-↓
-
-Portfolio Optimization
-
-↓
-
-Replay
-
-↓
-
-Reporting
-
-```
-
----
-
-# Workbench
-
-Workbench examples illustrate
-
-- Projects
-- Sessions
-- Pipelines
-- Reports
-- Dashboards
+Projects, sessions, pipelines and dashboards are the host application's; the
+reporting package's dashboard layouts went the same way in v3.12 (ADR-0047).
 
 ---
 
@@ -365,10 +341,31 @@ every figure they print is the same on every machine.
 
 ---
 
+# The capabilities finished before v4 (v3.13)
+
+Examples `66`–`69` show what v3.13 implemented rather than leave for a later
+major version: American options and a volatility term structure, the cheapest
+split of an order with an urgency estimated from stated inputs, a run
+re-executed from its manifest, and cron timers. Each builds its inputs in memory
+— `68` reuses the strategy of `46`–`49` from `examples/_strategy_evidence.py` —
+and none fetches anything or reads a clock.
+
+| # | Shows |
+|---|---|
+| 66 | An American put on a Cox-Ross-Rubinstein lattice converging step by step to Hull's table, with its early-exercise premium over the European value; a call on which early exercise is worth nothing until a cash dividend falls just before expiry; Greeks from the lattice, and a lattice refused as too coarse to carry the rate; implied volatility inverted through the lattice an American quote was priced on, against the European formula that misreads the premium as volatility; volatility between two quoted expiries, linear in total variance, with an extrapolation and a calendar arbitrage refused |
+| 67 | One order split across three venues by the greedy sweep and by the optimal split — a per-trade fee paid on a remainder, a venue filled past its marginal cost — and a cost whose marginal falls refused as one no split can be called optimal for; an Almgren–Chriss urgency estimated from risk aversion, volatility and impact; iceberg tranches drawn around the displayed size from a seed, varied, bounded and the same again on a rerun |
+| 68 | A pip-compile lock read into the dependency manifest a fingerprint records, a hand-written file read as direct pins only, and a range refused; a backtest re-executed from its manifest and REPRODUCED; a cost the record keeps only by type DIVERGED, located by the first paths at which the two records part; another dataset and another lock reported as INPUTS_DIFFER with nothing run; an altered manifest refused |
+| 69 | A cron expression read on a stated zone's wall clock, and the same expression in another zone; the two day fields combined by Vixie cron's rule; a spring-forward gap skipped and a fall-back repeat fired once, the UTC instants beside them; expressions that never fire, step from a single value, use a shorthand or name an unknown zone, refused when written; a cron timer fired and rescheduled on the engine, fired once when the clock jumps past four of its instants, and timers that do not follow their schedule refused |
+
+`66` assumes `36`. `67` assumes `63` and `64`. `68` assumes `47`, and `69`
+assumes `32`.
+
+---
+
 # Additional engines
 
-The feature store, machine learning, cloud research, enterprise, and other
-engines added in v1.34.0–v2.0.0 do not yet have dedicated example scripts.
+The feature store, machine learning, cloud research and other engines added
+in v1.34.0–v2.0.0 do not yet have dedicated example scripts.
 Their usage is covered by the unit tests under `tests/unit/<package>/` and by
 the benchmarks under `benchmarks/`.
 
@@ -405,6 +402,11 @@ package's algorithms, routing and quality measurements have their first
 examples (`63`–`65`), and the **broker** boundary, which had `05` and `45`, gains
 two (`61`, `62`) for its capability model, normalized lifecycle, request
 identities and snapshot reconciliation.
+
+v3.13 added `66`–`69`. The **options** package, which had `36`, has two; the
+**execution** package gains one for the optimal split, urgency estimation and
+randomized tranches; **lifecycle** gains one for the rerun harness and the
+lock-file reader; and the **scheduler**, which had none, has its first.
 
 ---
 

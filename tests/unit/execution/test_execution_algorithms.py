@@ -557,7 +557,7 @@ def test_a_limit_parent_prices_every_child_and_a_market_one_none() -> None:
         (OrderType.LIMIT, None, "names no limit price"),
         (OrderType.MARKET, "10", "carry no limit"),
         (OrderType.STOP, None, "MARKET or LIMIT"),
-        (OrderType.LIMIT, "0", "not a price"),
+        (OrderType.LIMIT, "NaN", "not a price"),
     ],
 )
 def test_terms_refuse_what_cannot_be_sent(

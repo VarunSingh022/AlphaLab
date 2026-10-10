@@ -20,9 +20,6 @@ from typing import Any
 import pytest
 
 from alphalab.common.ids import id_scope
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import complete_run, log_metrics, start_run
 from alphalab.lifecycle import (
     LifecycleState,
@@ -38,7 +35,7 @@ from alphalab.lifecycle import (
     register_strategy,
     rollback_environment,
 )
-from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance
+from alphalab.lifecycle.governance import LIFECYCLE_PERMISSIONS, Governance, StaticPermissions
 from alphalab.lifecycle.snapshot import (
     LIFECYCLE_SNAPSHOT_SCHEMA,
     capture,
@@ -49,7 +46,7 @@ from alphalab.model_registry import ArtifactRef, ModelStage, promote
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.run_store import MemoryRunStateStore
 from alphalab.persistence.serializer import deserialize, serialize
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 
 # --------------------------------------------------------------------------- #
 # Governance (v2.16): every act that changes what is live names its principal
@@ -60,16 +57,8 @@ from alphalab.studio.strategy import StrategyDefinition
 #: that adding governance did not turn every existing test into a governance
 #: test.
 _ACTOR = "release-engineer"
-_ENTERPRISE = grant_role(
-    define_role(
-        register_principal(EnterpriseState(), _ACTOR, "Release Engineer", 0.0)[0],
-        "release",
-        LIFECYCLE_PERMISSIONS,
-    ),
-    _ACTOR,
-    "release",
-)
-GOVERNANCE = Governance(_ENTERPRISE, _ACTOR)
+_PERMISSIONS = StaticPermissions({_ACTOR: LIFECYCLE_PERMISSIONS})
+GOVERNANCE = Governance(_PERMISSIONS, _ACTOR)
 
 _SEED = 20250906
 POLICY = ValidationPolicy("prod-v1", (MetricThreshold("sharpe_ratio", minimum=1.0),))

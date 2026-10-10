@@ -40,11 +40,54 @@ jobs:
       - name: MyPy
         run: python -m mypy .
 
+      # Warnings are errors: a ResourceWarning (an unclosed socket or file) or
+      # a DeprecationWarning fails the run instead of scrolling past (TST-003).
       - name: Pytest
-        run: python -m pytest
+        run: python -m pytest -W error
+
+      - name: Examples
+        run: |
+          set -euo pipefail
+          for example in examples/[0-9]*.py; do
+            echo "::group::${example}"
+            python -W error "${example}"
+            echo "::endgroup::"
+          done
+
+      # One statement of what this build was checked to do -- determinism,
+      # parity, reproducibility, numerical references, the public API -- held
+      # to the committed certificate (ledger FEA-006). A change in what the
+      # engine computes fails here until it is re-certified and reviewed, and
+      # so does a change to the engine's source: the certificate names the
+      # source it certified (ledger REP-004).
+      - name: Release certification
+        run: python -W error docs/audit/scripts/certify_release.py --check
 
       - name: Build package
         run: python -m build
 
       - name: Validate distributions
         run: python -m twine check dist/*
+
+      # The suite runs against the source tree; this runs against what would be
+      # published. Each distribution goes into a fresh environment holding it
+      # and nothing else, and is exercised from outside the checkout.
+      - name: Install the wheel into a clean environment
+        run: |
+          set -euo pipefail
+          version="$(python -c 'import alphalab; print(alphalab.__version__)')"
+          python -m venv "${RUNNER_TEMP}/wheel-env"
+          "${RUNNER_TEMP}/wheel-env/bin/python" -m pip install dist/*.whl
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/wheel-env/bin/python" -W error \
+            "${GITHUB_WORKSPACE}/tests/installed_smoke.py" "${version}"
+
+      - name: Install the sdist into a clean environment
+        run: |
+          set -euo pipefail
+          version="$(python -c 'import alphalab; print(alphalab.__version__)')"
+          python -m venv "${RUNNER_TEMP}/sdist-env"
+          "${RUNNER_TEMP}/sdist-env/bin/python" -m pip install dist/*.tar.gz
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/sdist-env/bin/python" -W error \
+            "${GITHUB_WORKSPACE}/tests/installed_smoke.py" "${version}"

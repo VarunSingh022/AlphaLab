@@ -2,13 +2,10 @@
 
 import time
 from dataclasses import dataclass
-from typing import Protocol
 
+from alphalab.common.time import ClockProtocol
 
-class ClockProtocol(Protocol):
-    """Interface for obtaining the current time deterministically."""
-
-    def now(self) -> float: ...
+__all__ = ["BacktestClock", "ClockProtocol", "ClockState", "SystemClock", "VirtualClock"]
 
 
 @dataclass(frozen=True, slots=True)

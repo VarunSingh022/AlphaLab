@@ -32,6 +32,7 @@ def validate_job_submission(state: DistributedState, job: Job) -> None:
         or job.job_id in state.running_jobs
         or job.job_id in state.completed_jobs
         or job.job_id in state.failed_jobs
+        or job.job_id in state.cancelled_jobs
     ):
         raise DistributedValidationError(f"Duplicate Job ID detected: {job.job_id}")
 

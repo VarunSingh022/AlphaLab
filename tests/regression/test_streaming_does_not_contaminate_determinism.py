@@ -26,6 +26,7 @@ from decimal import Decimal
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.common.ids import DeterministicIdSource, id_scope, new_id, use_id_source
 from alphalab.core.enums import AssetType
+from alphalab.data.time import BarStamp
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instrument
 from alphalab.market.normalization import NormalizationPolicy
@@ -57,7 +58,13 @@ def _policy() -> NormalizationPolicy:
             aliases={_PROVIDER: "ACME"},
         ),
     )
-    return NormalizationPolicy(provider=_PROVIDER, identity=registry, venue="XNAS", currency="USD")
+    return NormalizationPolicy(
+        bar_stamp=BarStamp.INTERVAL_END,
+        provider=_PROVIDER,
+        identity=registry,
+        venue="XNAS",
+        currency="USD",
+    )
 
 
 def _stream_config() -> StreamConfig:
@@ -111,15 +118,15 @@ def test_constructing_a_streaming_source_draws_no_identifier() -> None:
 def test_constructing_a_venue_transport_and_broker_draws_no_identifier() -> None:
     """The same property for the execution transport."""
 
-    from alphalab.broker.transport import HttpVenueTransport, VenueCredentials
-    from alphalab.broker.venue import RestVenueBroker, VenueConfig
+    from tests.reference_adapter.transport import HttpVenueTransport, VenueCredentials
+    from tests.reference_adapter.venue import RestVenueBroker, VenueConfig
 
     source = DeterministicIdSource(_SEED)
     with use_id_source(source):
         before = source.draws
         credentials = VenueCredentials("KEY", "secret-for-this-test-only")
         transport = HttpVenueTransport("http://127.0.0.1:1", credentials)
-        broker = RestVenueBroker(transport, VenueConfig())
+        broker = RestVenueBroker(transport, VenueConfig(currency="USD"))
         _ = broker.config.broker_name
         after = source.draws
 
@@ -136,8 +143,8 @@ def test_a_seeded_backtest_is_byte_identical_with_the_live_modules_imported() ->
     loaded = [
         importlib.import_module(name)
         for name in (
-            "alphalab.broker.transport",
-            "alphalab.broker.venue",
+            "tests.reference_adapter.transport",
+            "tests.reference_adapter.venue",
             "alphalab.market.stream",
             "alphalab.marketdata.websocket",
         )

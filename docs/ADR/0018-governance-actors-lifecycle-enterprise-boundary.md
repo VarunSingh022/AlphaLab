@@ -10,6 +10,14 @@ present tense and its "deferred" framing — because it is the record of the
 decision, and the decision is what v2.16 built from rather than improvising one.
 Only this status block is current.
 
+**Amended by ADR-0046 (v3.11.0).** `alphalab.enterprise` was removed: identity,
+sessions and RBAC are the host application's (ledger BND-002, BDY-010). The
+permission check keeps this ADR's option (b) -- an explicit, required
+parameter -- but the parameter is now a `PermissionAuthority` the application
+supplies (or `StaticPermissions` in a research setting), and `EnterpriseState`,
+`Principal` and `EnterprisePermissionError` are gone. The actor is still a bare
+`str` on every record, as decided here.
+
 **What shipped, against what this ADR specified.** Every item was taken as
 written:
 

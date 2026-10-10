@@ -1,5 +1,6 @@
 """Deterministic constraint rules preventing illegal allocations."""
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -21,12 +22,48 @@ class WeightConstraints:
 
 @dataclass(frozen=True, slots=True)
 class RiskConstraints:
-    max_drawdown_limit: float = 1.0
-    max_volatility_limit: float = 1.0
-    max_tracking_error: float = 1.0
-    max_leverage: float = 1.0
-    max_turnover: float = 1.0
-    max_concentration: float = 1.0
+    """The limits :func:`~alphalab.portfolio_optimizer.validate_risk_constraints` checks.
+
+    Each is stated by the caller: there is no default, because a limit nobody
+    chose is a policy nobody chose. Until v3.13 the class also carried
+    ``max_tracking_error``, ``max_leverage`` and ``max_concentration``, each
+    defaulting to ``1.0`` and read by nothing -- configuration that looked like
+    a limit and was not one. They are removed: leverage and concentration are
+    limits *inside* a construction
+    (:class:`~alphalab.portfolio_optimizer.construction.ConstraintSet`'s
+    ``max_gross_exposure`` and ``max_abs_weight``), and nothing here measures a
+    tracking error.
+
+    Attributes:
+        max_drawdown_limit: The largest :attr:`PortfolioMetrics.max_drawdown`
+            allowed.
+        max_volatility_limit: The largest :attr:`PortfolioMetrics.volatility`
+            allowed.
+        max_turnover: The largest :attr:`PortfolioMetrics.turnover` allowed.
+
+    Raises:
+        PortfolioValidationError: If a limit is not a finite number at least
+            zero; a ``NaN`` limit would compare false with every figure and
+            never be breached.
+    """
+
+    max_drawdown_limit: float
+    max_volatility_limit: float
+    max_turnover: float
+
+    def __post_init__(self) -> None:
+        for name in ("max_drawdown_limit", "max_volatility_limit", "max_turnover"):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise PortfolioValidationError(
+                    f"RiskConstraints.{name} must be a finite number at least zero, got {value!r}."
+                )
+            object.__setattr__(self, name, float(value))
 
 
 #: How close the projection's sum must come to its target: the loop's own

@@ -41,7 +41,14 @@ from __future__ import annotations
 from dataclasses import replace
 
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
-from alphalab.backtesting.engine import advance, finalize, id_scope, id_source, initialize
+from alphalab.backtesting.engine import (
+    advance,
+    close_slice,
+    finalize,
+    id_scope,
+    id_source,
+    initialize,
+)
 from alphalab.backtesting.exceptions import UnsupportedRecordError
 from alphalab.backtesting.state import ReplayResult
 from alphalab.common.ids import use_id_source
@@ -133,9 +140,11 @@ class ReplayBacktest:
                     raise UnsupportedRecordError(
                         f"Replay yielded {type(record).__name__}, not a MarketRecord"
                     )
+                state = close_slice(state, context_factory, before=record.timestamp)
                 state, _ = advance(state, record, context_factory)
                 last = record
                 replayed += 1
+            state = close_slice(state, context_factory)
 
             return ReplayResult(
                 backtest=finalize(state),

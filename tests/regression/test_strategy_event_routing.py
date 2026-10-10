@@ -2,9 +2,9 @@
 
 Until v2.16 ``alphalab.strategy.dispatcher`` selected the market hooks with
 ``type(event).__name__ == "TickReceived"`` and three siblings. A bare class name
-is not a type. Three packages here define a ``TickReceived``, a
+is not a type. Three packages here defined a ``TickReceived``, a
 ``QuoteReceived`` or a ``TradeReceived``, and the comparison matched all of them:
-``alphalab.live.events.TickReceived`` carries ``provider_id`` / ``symbol`` /
+``alphalab.live.events.TickReceived`` carried ``provider_id`` / ``symbol`` /
 ``tick_type`` where the canonical event carries a ``tick``, so it was routed to
 ``on_tick``, the strategy read ``event.tick``, and the ``AttributeError`` was
 converted into a ``FAILED`` strategy -- blamed for a routing mistake the
@@ -58,7 +58,7 @@ from alphalab.strategy.context import (
 from alphalab.strategy.dispatcher import Dispatcher
 from alphalab.strategy.events import FillEvent, Intent, OrderEvent, TimerEvent
 from alphalab.strategy.protocol import BaseStrategy
-from alphalab.strategy.state import LifecycleState, StrategyState
+from alphalab.strategy.state import StrategyState, StrategyStatus
 
 ASSET = "ASSET-1"
 
@@ -121,7 +121,7 @@ class Recorder(BaseStrategy):
 
 
 def _running(recorder: Recorder) -> StrategyState:
-    return StrategyState(strategy_id="S1", instance=recorder, status=LifecycleState.RUNNING)
+    return StrategyState(strategy_id="S1", instance=recorder, status=StrategyStatus.RUNNING)
 
 
 def _tick() -> Tick:
@@ -202,7 +202,7 @@ def test_the_routing_table_covers_every_canonical_market_event() -> None:
 def test_a_foreign_event_sharing_a_canonical_name_is_not_routed() -> None:
     """The exact misroute the name comparison produced, from the live package."""
 
-    from alphalab.live.events import TickReceived as LiveTickReceived
+    from tests.regression._foreign_events import TickReceived as LiveTickReceived
 
     canonical: type = TickReceived
     assert LiveTickReceived is not canonical
@@ -217,16 +217,16 @@ def test_a_foreign_event_sharing_a_canonical_name_is_not_routed() -> None:
     after, intents, lifecycle = Dispatcher.dispatch_event(state, foreign, _context(), 1.0)
 
     assert recorder.calls == [], "a foreign class must not reach a market hook"
-    assert after.status is LifecycleState.RUNNING, "and must not fail the strategy"
+    assert after.status is StrategyStatus.RUNNING, "and must not fail the strategy"
     assert intents == ()
     assert lifecycle == ()
 
 
 def test_the_marketdata_events_that_collide_by_name_are_not_routed_either() -> None:
-    """`marketdata` is the second package whose event names collide."""
+    """`marketdata` was the second package whose event names collided."""
 
-    from alphalab.marketdata.events import QuoteReceived as WireQuoteReceived
-    from alphalab.marketdata.events import TradeReceived as WireTradeReceived
+    from tests.regression._foreign_events import QuoteReceived as WireQuoteReceived
+    from tests.regression._foreign_events import TradeReceived as WireTradeReceived
 
     canonical_quote: type = QuoteReceived
     canonical_trade: type = TradeReceived
@@ -240,7 +240,7 @@ def test_the_marketdata_events_that_collide_by_name_are_not_routed_either() -> N
         WireTradeReceived("e2", 1.0, "PROVIDER", ASSET),
     ):
         after, _, _ = Dispatcher.dispatch_event(state, foreign, _context(), 1.0)
-        assert after.status is LifecycleState.RUNNING
+        assert after.status is StrategyStatus.RUNNING
 
     assert recorder.calls == []
 
@@ -322,8 +322,8 @@ def test_routing_agrees_with_the_canonical_types_class_by_class() -> None:
 def test_the_module_is_part_of_the_match() -> None:
     """A bare name match is what misrouted the live event. Pin the module too."""
 
-    from alphalab.live.events import TickReceived as LiveTickReceived
     from alphalab.strategy.dispatcher import MARKET_EVENT_HOOKS, market_hook_for
+    from tests.regression._foreign_events import TickReceived as LiveTickReceived
 
     assert LiveTickReceived.__name__ in MARKET_EVENT_HOOKS
     assert market_hook_for(LiveTickReceived("e1", 1.0, "P", ASSET, "LAST")) is None

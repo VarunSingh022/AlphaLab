@@ -19,6 +19,7 @@ from alphalab.data.feed import OrderBook as WireOrderBook
 from alphalab.data.feed import OrderBookLevel as WireLevel
 from alphalab.data.feed import Quote as WireQuote
 from alphalab.data.feed import Trade as WireTrade
+from alphalab.data.time import BarStamp
 from alphalab.market.bar import TimeFrame
 from alphalab.market.engine import MarketEngine
 from alphalab.market.normalization import (
@@ -30,7 +31,9 @@ from alphalab.market.normalization import (
 )
 from alphalab.market.state import MarketState
 
-POLICY = NormalizationPolicy(venue="BENCH", currency="USD", timeframe=TimeFrame.M1)
+POLICY = NormalizationPolicy(
+    bar_stamp=BarStamp.INTERVAL_END, venue="BENCH", currency="USD", timeframe=TimeFrame.M1
+)
 N = 100_000
 BOOK_N = 20_000
 BOOK_DEPTH = 10

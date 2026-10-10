@@ -32,7 +32,7 @@ What it deliberately is not
 ---------------------------
 
 **Not a second strategy-definition authority.**
-:class:`~alphalab.studio.strategy.StrategyDefinition` remains the one record of
+:class:`~alphalab.strategy.definition.StrategyDefinition` remains the one record of
 what a strategy is, and this registry stores nothing from it: it maps an
 identity to a factory and holds no parameters, no author, no description. The
 identity it keys on is ``StrategyDefinition.strategy_id``, which is the identity
@@ -54,11 +54,11 @@ deterministically, which is what :func:`instances_for` exists for.
 The declaration it takes
 ------------------------
 
-:class:`StrategyDeclaration` is a structural protocol, not an import.
-``alphalab.strategy`` acquires no dependency on ``alphalab.studio``, and a
-``StrategyDefinition`` satisfies the protocol as it stands -- it has a
-``strategy_id`` and ``parameters`` and always has. Declaring the shape this
-registry needs, rather than importing a class it does not own, is the same
+:class:`StrategyDeclaration` is a structural protocol, not an import. A
+``StrategyDefinition`` -- in this package since v3.11 -- satisfies it as it
+stands: it has a ``strategy_id`` and ``parameters`` and always has. So does any
+caller's own record with those two attributes. Declaring the shape this
+registry needs, rather than the one class that happens to have it, is the same
 reasoning ADR-0016 decision 3 applies to the market vocabulary.
 """
 
@@ -70,6 +70,7 @@ from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.common.types import ParamValue
 from alphalab.strategy.exceptions import StrategyRuntimeError
 from alphalab.strategy.protocol import StrategyProtocol
 from alphalab.strategy.runtime import create_runtime, register_strategy
@@ -110,7 +111,7 @@ class UnknownStrategyError(StrategyRuntimeError):
 class StrategyDeclaration(Protocol):
     """What this registry needs in order to construct a strategy.
 
-    A structural protocol, so :class:`~alphalab.studio.strategy.StrategyDefinition`
+    A structural protocol, so :class:`~alphalab.strategy.definition.StrategyDefinition`
     satisfies it without this package importing it. See the module docstring.
     """
 
@@ -120,8 +121,12 @@ class StrategyDeclaration(Protocol):
         ...
 
     @property
-    def parameters(self) -> Mapping[str, float]:
-        """The parameter set this strategy was declared with."""
+    def parameters(self) -> Mapping[str, ParamValue]:
+        """The parameter set this strategy was declared with.
+
+        Each value a string, an integer, a float or a boolean since v3.11, as
+        :class:`~alphalab.strategy.definition.StrategyDefinition` declares them.
+        """
         ...
 
 
@@ -134,11 +139,14 @@ class StrategyFactory(Protocol):
 
     Both arguments are passed positionally and both are always passed: a factory
     that ignores its parameters is a decision its author can make, and one that
-    never receives them cannot.
+    never receives them cannot. The parameters are what was declared -- strings,
+    integers, floats and booleans -- and a factory that reads numbers only says
+    so with :meth:`~alphalab.strategy.definition.StrategyDefinition.numbers`'s
+    rule rather than by a type that no longer holds.
     """
 
     def __call__(
-        self, strategy_id: str, parameters: Mapping[str, float], /
+        self, strategy_id: str, parameters: Mapping[str, ParamValue], /
     ) -> StrategyProtocol: ...
 
 
@@ -285,7 +293,7 @@ class StrategyClassRegistry:
     def construct(
         self,
         strategy_id: str,
-        parameters: Mapping[str, float] = MappingProxyType({}),
+        parameters: Mapping[str, ParamValue] = MappingProxyType({}),
         *,
         runtime_id: str | None = None,
     ) -> StrategyProtocol:
@@ -330,7 +338,7 @@ class StrategyClassRegistry:
         """Build the strategy a declaration names, with the parameters it names.
 
         The join a lifecycle caller makes: a
-        :class:`~alphalab.studio.strategy.StrategyDefinition` -- which
+        :class:`~alphalab.strategy.definition.StrategyDefinition` -- which
         :attr:`~alphalab.lifecycle.execution.RunPlan.definition` hands back --
         satisfies :class:`StrategyDeclaration` as it stands.
         """
@@ -375,7 +383,7 @@ def runtime_for(
     only removes the hand-written loop from every caller.
 
     Every strategy is therefore left in
-    :attr:`~alphalab.strategy.state.LifecycleState.CREATED`, exactly as
+    :attr:`~alphalab.strategy.state.StrategyStatus.CREATED`, exactly as
     ``register_strategy`` leaves one, and a caller drives it to ``RUNNING``
     through :class:`~alphalab.strategy.supervisor.RuntimeSupervisor`.
     Transitioning here would put a second lifecycle authority in a registry --

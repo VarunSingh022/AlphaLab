@@ -35,6 +35,12 @@ table baked in here would be wrong within a year while looking authoritative.
 """
 
 from alphalab.conventions.daycount import DayCount, day_count_days, year_fraction
+from alphalab.conventions.economics import (
+    CASH_EQUITY,
+    InstrumentEconomics,
+    SettlementModel,
+    economics_from_primitives,
+)
 from alphalab.conventions.exceptions import (
     ConventionError,
     ConventionInputError,
@@ -61,6 +67,7 @@ from alphalab.conventions.tick import (
 )
 
 __all__ = [
+    "CASH_EQUITY",
     "MAX_SETTLEMENT_SEARCH_DAYS",
     "Compounding",
     "ContractNotional",
@@ -68,10 +75,12 @@ __all__ = [
     "ConventionInputError",
     "ConventionViolationError",
     "DayCount",
+    "InstrumentEconomics",
     "LotSpecification",
     "MarketConvention",
     "RoundingDirection",
     "SettlementBasis",
+    "SettlementModel",
     "SettlementRule",
     "TickBand",
     "TickSchedule",
@@ -81,6 +90,7 @@ __all__ = [
     "contract_notional",
     "day_count_days",
     "discount_factor",
+    "economics_from_primitives",
     "is_on_tick",
     "lots_in",
     "round_down_to_lot",

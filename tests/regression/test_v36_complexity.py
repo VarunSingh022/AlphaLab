@@ -26,7 +26,6 @@ can be large in practice:
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -39,7 +38,7 @@ from alphalab.data.dataset import Dataset
 from alphalab.data.ingestion import IngestionRequest
 from alphalab.data.source import SourceKind, raw_source_from_bytes
 from alphalab.data.symbols import DataAssetClass
-from alphalab.data.time import TimeFrequency
+from alphalab.data.time import BarStamp, TimeFrequency
 from alphalab.lifecycle import (
     CertificationEvidence,
     CodeIdentity,
@@ -65,6 +64,7 @@ from alphalab.lifecycle import (
 )
 from alphalab.runtime.run import ExecutionMode
 from tests.integration.harness import context_factory, running_strategy_state
+from tests.regression._timing import growth
 from tests.unit.lifecycle.evidence_harness import (
     ASSET_ID,
     CLEANING,
@@ -86,20 +86,10 @@ LINEAR_BOUND = 8.0
 START = datetime(2020, 1, 1, tzinfo=UTC)
 
 
-def _elapsed(work: Callable[[], object]) -> float:
-    """Best of three, so one scheduling hiccup does not fail the suite."""
-
-    return min(_once(work) for _ in range(3))
-
-
-def _once(work: Callable[[], object]) -> float:
-    start = time.perf_counter()
-    work()
-    return time.perf_counter() - start
-
-
 def _growth(small: Callable[[], object], large: Callable[[], object]) -> float:
-    return _elapsed(large) / max(_elapsed(small), 1e-4)
+    """Read with the one stabilized method every guard shares (tests/regression/_timing.py)."""
+
+    return growth(small, large)
 
 
 # --------------------------------------------------------------------------- #
@@ -177,6 +167,7 @@ def _dataset(days: int) -> Dataset:
             SourceKind.IN_MEMORY, "v36-complexity", csv_payload(rows), 1.0, "text/csv", "utf-8"
         ),
         frequency=TimeFrequency.DAILY,
+        bar_stamp=BarStamp.INTERVAL_END,
         asset_class=DataAssetClass.EQUITY,
         cleaning_policy=CLEANING,
         price_basis=PriceBasis.RAW,

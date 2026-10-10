@@ -35,6 +35,7 @@ from alphalab.execution.algorithms import (
     release_children,
     start_algorithm,
 )
+from alphalab.execution.costs import FREE
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.runtime.broker_routing import (
     ChildOrderBindings,
@@ -83,7 +84,7 @@ def _working(quantity: str = "10") -> tuple[ExecutionPipelineState, OMSOrder]:
 def _venue(connected: bool = True) -> BrokerState:
     state = BrokerEngine.initialize("VENUE", Decimal("1000000"), "USD")
     if connected:
-        state, _ = PaperBroker().connect(state, 1.0)
+        state, _ = PaperBroker(FREE).connect(state, 1.0)
     return state
 
 
@@ -142,13 +143,13 @@ def test_a_compatible_order_routes_and_no_check_changes_nothing() -> None:
     _, order = _working()
     checked = route_order(
         _venue(),
-        PaperBroker(),
+        PaperBroker(FREE),
         order,
         3.0,
         config=CONFIG,
         capability=_check(frozenset({OrderType.LIMIT})),
     )
-    unchecked = route_order(_venue(), PaperBroker(), order, 3.0, config=CONFIG)
+    unchecked = route_order(_venue(), PaperBroker(FREE), order, 3.0, config=CONFIG)
     assert checked.decision.routed and unchecked.decision.routed
     assert checked.order == unchecked.order
 
@@ -158,7 +159,7 @@ def test_an_incompatible_order_is_refused_before_anything_is_sent() -> None:
     venue = _venue()
     result = route_order(
         venue,
-        PaperBroker(),
+        PaperBroker(FREE),
         order,
         3.0,
         config=CONFIG,
@@ -176,7 +177,7 @@ def test_an_undetermined_check_refuses_too() -> None:
         replace(_check(frozenset({OrderType.LIMIT})).requirements, account_id="UNKNOWN"),
         _declaration(frozenset({OrderType.LIMIT})),
     )
-    result = route_order(_venue(), PaperBroker(), order, 3.0, config=CONFIG, capability=report)
+    result = route_order(_venue(), PaperBroker(FREE), order, 3.0, config=CONFIG, capability=report)
     assert result.decision.refusal is RoutingRefusal.CAPABILITY_MISMATCH
     assert "undetermined" in result.decision.reason
 
@@ -243,7 +244,7 @@ def _route(
 ) -> ChildRoutingResult:
     return route_child_order(
         venue,
-        PaperBroker(),
+        PaperBroker(FREE),
         order,
         child,
         4.0,
@@ -345,7 +346,7 @@ def test_the_bindings_rebuild_from_the_mirror_after_a_restart() -> None:
     for child in (first, second):
         routed = _route(venue, order, child, bindings=bindings)
         venue, bindings = routed.broker_state, routed.children
-    direct = route_order(venue, PaperBroker(), _working()[1], 6.0, config=CONFIG)
+    direct = route_order(venue, PaperBroker(FREE), _working()[1], 6.0, config=CONFIG)
     assert direct.decision.routed
     rebuilt = ChildOrderBindings.from_mirror(direct.broker_state)
     assert dict(rebuilt.to_parent) == dict(bindings.to_parent)

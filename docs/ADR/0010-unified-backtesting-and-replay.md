@@ -17,7 +17,9 @@ standalone library. That was accurate, and it left two things unbuilt:
 
 - **There was no backtest.** `examples/02_backtest.py` recorded metrics computed
   elsewhere into Strategy Studio; nothing in the codebase turned a dataset into
-  orders, fills and P&L. A caller wanting one had to write the loop.
+  orders, fills and P&L. A caller wanting one had to write the loop. (v3.11
+  rewrote that file as a real backtest through the path this ADR built, after
+  Strategy Studio left the library; ADR-0046.)
 - **Replay produced nothing.** `alphalab.replay` sequenced historical events,
   tracked progress and enforced chronological order. It never reached a
   strategy, an order or a portfolio, so "deterministic replay" meant only that

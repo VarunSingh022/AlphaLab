@@ -11,11 +11,11 @@ from alphalab.strategy import (
     FillEvent,
     Intent,
     InvalidTransitionError,
-    LifecycleState,
     RuntimeSupervisor,
     StrategyContext,
     StrategyEngine,
     StrategyProtocol,
+    StrategyStatus,
     active_strategies,
     create_runtime,
     failed_strategies,
@@ -97,16 +97,16 @@ def test_supervisor_valid_transitions() -> None:
     state = register_strategy(state, "S1", MockHealthyStrategy())
     strat = get_strategy(state, "S1")
     assert strat is not None
-    assert strat.status == LifecycleState.CREATED
+    assert strat.status == StrategyStatus.CREATED
 
     s1, _ = RuntimeSupervisor.configure(strat, {}, 1.0)
-    assert s1.status == LifecycleState.CONFIGURED
+    assert s1.status == StrategyStatus.CONFIGURED
 
     s2, _ = RuntimeSupervisor.initialize(s1, 2.0)
-    assert s2.status == LifecycleState.INITIALIZED
+    assert s2.status == StrategyStatus.INITIALIZED
 
-    s3, _ = RuntimeSupervisor.subscribe(s2, frozenset(), 3.0)
-    assert s3.status == LifecycleState.SUBSCRIBED
+    s3, _ = RuntimeSupervisor.subscribe(s2, frozenset({"*"}), 3.0)
+    assert s3.status == StrategyStatus.SUBSCRIBED
 
 
 def test_supervisor_invalid_transitions() -> None:

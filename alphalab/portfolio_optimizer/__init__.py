@@ -43,6 +43,7 @@ from alphalab.portfolio_optimizer.construction import (
     ExposureRange,
     FactorBound,
     GroupBound,
+    LinearCosts,
     MaximumDiversification,
     MeanVariance,
     MinimumVariance,
@@ -75,11 +76,8 @@ from alphalab.portfolio_optimizer.exceptions import (
     PortfolioValidationError,
 )
 from alphalab.portfolio_optimizer.exposure import PortfolioExposure
-from alphalab.portfolio_optimizer.metrics import (
-    PortfolioMetrics,
-    calculate_max_drawdown,
-    calculate_volatility,
-)
+from alphalab.portfolio_optimizer.lots import LotRounding, round_to_lots
+from alphalab.portfolio_optimizer.metrics import PortfolioMetrics, calculate_max_drawdown
 from alphalab.portfolio_optimizer.optimizer import (
     optimize_equal_weight,
     optimize_inverse_volatility,
@@ -140,6 +138,8 @@ __all__ = [
     "GroupBound",
     "InvalidPortfolioStateError",
     "InvestorView",
+    "LinearCosts",
+    "LotRounding",
     "MaximumDiversification",
     "MeanVariance",
     "MinimumVariance",
@@ -176,7 +176,6 @@ __all__ = [
     "apply_weight_constraints",
     "black_litterman",
     "calculate_max_drawdown",
-    "calculate_volatility",
     "check_schedule_rebalance",
     "check_threshold_rebalance",
     "construct",
@@ -188,6 +187,7 @@ __all__ = [
     "optimize_minimum_variance",
     "portfolio_metrics",
     "portfolio_summary",
+    "round_to_lots",
     "validate_portfolio_creation",
     "validate_portfolio_exists",
     "validate_risk_constraints",

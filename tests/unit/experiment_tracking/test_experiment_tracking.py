@@ -1,4 +1,4 @@
-"""Comprehensive tests for Experiment Tracking: the studio bridge, run lifecycle,
+"""Comprehensive tests for Experiment Tracking: run lifecycle,
 versioning/lineage, comparison, and a real deep_learning training integration."""
 
 from dataclasses import FrozenInstanceError
@@ -20,71 +20,9 @@ from alphalab.experiment_tracking import (
     log_metric,
     log_metrics,
     new_version,
-    record_experiment,
     start_run,
     version_number,
 )
-from alphalab.studio import StrategyStudioEngine
-from alphalab.studio.exceptions import StudioValidationError
-from alphalab.studio.project import Project
-from alphalab.studio.state import StrategyStudioState
-from alphalab.studio.views import experiment_summary
-
-# --------------------------------------------------------------------------- #
-# Studio bridge: closing the confirmed gap
-# --------------------------------------------------------------------------- #
-
-
-def _studio_with_project() -> StrategyStudioState:
-    state = StrategyStudioEngine.initialize("STUDIO-TEST")
-    project = Project(project_id="PROJ-1", name="Test Project", created_at=1000.0)
-    return StrategyStudioEngine.create_project(state, project, 1000.0)
-
-
-def test_experiment_summary_is_empty_before_any_recording() -> None:
-    """Confirms the gap this bridge closes: before record_experiment, the
-    pre-existing experiment_summary() reader has nothing to show."""
-    state = _studio_with_project()
-    assert experiment_summary(state) == ()
-
-
-def test_record_experiment_makes_experiment_summary_non_empty() -> None:
-    state = _studio_with_project()
-    new_state, experiment_id = record_experiment(
-        state, "PROJ-1", parameters={"l2_penalty": 1.0}, target_metric=0.95, timestamp=1001.0
-    )
-    summary = experiment_summary(new_state)
-    assert len(summary) == 1
-    assert summary[0].experiment_id == experiment_id
-    assert summary[0].target_metric == 0.95
-
-
-def test_record_experiment_stores_in_state_experiments() -> None:
-    state = _studio_with_project()
-    new_state, experiment_id = record_experiment(
-        state, "PROJ-1", parameters={"a": 1.0}, target_metric=0.5, timestamp=1001.0
-    )
-    assert experiment_id in new_state.experiments
-    assert new_state.experiments[experiment_id].project_id == "PROJ-1"
-
-
-def test_record_experiment_rejects_unknown_project() -> None:
-    state = _studio_with_project()
-    with pytest.raises(StudioValidationError):
-        record_experiment(state, "NONEXISTENT", parameters={}, target_metric=0.0, timestamp=1001.0)
-
-
-def test_record_experiment_emits_an_event() -> None:
-    state = _studio_with_project()
-    new_state, _ = record_experiment(
-        state, "PROJ-1", parameters={"a": 1.0}, target_metric=0.5, timestamp=1001.0
-    )
-    assert len(new_state.events) == len(state.events) + 1
-
-
-# --------------------------------------------------------------------------- #
-# Run lifecycle
-# --------------------------------------------------------------------------- #
 
 
 def test_start_run_creates_running_run() -> None:
@@ -103,7 +41,7 @@ def test_start_run_rejects_empty_name() -> None:
 
 
 def test_start_run_supports_mixed_type_parameters() -> None:
-    """The specific gap vs. studio.ExperimentResult, which is float-only."""
+    """Parameters are not only floats: a name, a flag and a count are kept as declared."""
     tracker = ExperimentTracker()
     tracker, run_id = start_run(
         tracker,

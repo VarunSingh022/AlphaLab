@@ -5,13 +5,12 @@ import pytest
 from alphalab.scheduler import (
     ClockProtocol,
     InvalidClockStateError,
+    ScheduledSession,
     SchedulerEngine,
     SchedulerValidationError,
     ScheduleType,
     SessionPhase,
     Timer,
-    TradingCalendar,
-    TradingSession,
     VirtualClock,
     active_sessions,
     current_time,
@@ -102,7 +101,7 @@ def test_invalid_clock_operations() -> None:
 
 def test_session_management() -> None:
     state = SchedulerEngine.initialize(1000.0)
-    session = TradingSession("SESS-1", 1000.0, 5000.0, SessionPhase.REGULAR_SESSION)
+    session = ScheduledSession("SESS-1", 1000.0, 5000.0, SessionPhase.REGULAR_SESSION)
 
     state = SchedulerEngine.start_session(state, session, 1000.0)
     assert len(active_sessions(state)) == 1
@@ -111,28 +110,12 @@ def test_session_management() -> None:
     assert len(active_sessions(state)) == 0
 
 
-def test_trading_calendar() -> None:
-    # 2024-01-06 is a Saturday
-    saturday_ts = 1704542400.0
-    assert TradingCalendar.is_weekend(saturday_ts) is True
-    assert TradingCalendar.is_trading_day(saturday_ts) is False
-
-    # 2024-01-08 is a Monday
-    monday_ts = 1704715200.0
-    assert TradingCalendar.is_weekend(monday_ts) is False
-    assert TradingCalendar.is_trading_day(monday_ts) is True
-
-    # Next session skips Sunday
-    next_sess = TradingCalendar.next_trading_session(saturday_ts)
-    assert TradingCalendar.is_weekend(next_sess) is False
-
-
 def test_clock_reset() -> None:
     state = SchedulerEngine.initialize(1000.0)
     state = SchedulerEngine.schedule_timer(
         state, Timer("T1", 1500.0, ScheduleType.ONE_SHOT), 1000.0
     )
-    session = TradingSession("S1", 1000.0, 5000.0, SessionPhase.REGULAR_SESSION)
+    session = ScheduledSession("S1", 1000.0, 5000.0, SessionPhase.REGULAR_SESSION)
     state = SchedulerEngine.start_session(state, session, 1000.0)
 
     # Force reset

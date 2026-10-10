@@ -231,6 +231,7 @@ def test_pnl_and_nav(
     nav = NAVCalculator.calculate(
         s3.cash,
         s3.positions,
+        "USD",
     )
 
     assert nav == Decimal("10500.00")
@@ -267,6 +268,7 @@ def test_margin(
         s2.cash,
         s2.positions,
         margin_rate=Decimal("0.50"),
+        base_currency="USD",
     )
 
     assert buying_power == Decimal("19000.00")

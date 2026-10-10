@@ -15,6 +15,9 @@ Performance reports and attribution, v3.3's risk decomposition, and since v3.8
 * :mod:`~alphalab.analytics.cross_strategy` -- return correlation with its basis,
   overlap of holdings, factor crowding within the portfolio, common exposures,
   capital concentration and shared capital pools.
+* :mod:`~alphalab.analytics.benchmark` (v3.11) -- active return, tracking error,
+  information ratio, beta, Jensen's alpha and capture ratios against a
+  benchmark, aligned on levels so both sides span the same periods.
 
 The package imports ``alphalab.common`` and ``alphalab.core`` and nothing else.
 """
@@ -30,6 +33,11 @@ from alphalab.analytics.attribution import (
     attribute,
     calculate_attribution,
     split_realized_pnl,
+)
+from alphalab.analytics.benchmark import (
+    BenchmarkBasis,
+    BenchmarkStatistics,
+    benchmark_statistics,
 )
 from alphalab.analytics.cross_strategy import (
     CapitalConcentration,
@@ -84,7 +92,7 @@ from alphalab.analytics.metrics import (
     sortino_ratio,
     value_at_risk,
 )
-from alphalab.analytics.report import PerformanceReport, ReturnSummary, RiskSummary
+from alphalab.analytics.report import PerformanceReport, Periodicity, ReturnSummary, RiskSummary
 from alphalab.analytics.returns import (
     annualized_volatility,
     arithmetic_return,
@@ -111,15 +119,22 @@ from alphalab.analytics.risk_budget import (
 from alphalab.analytics.risk_model import (
     CLASSIFICATION_SCHEME,
     COVARIANCE_SCHEME,
+    EXCHANGE_RATE_FACTOR_PREFIX,
     FACTOR_LOADINGS_SCHEME,
+    FACTOR_STRUCTURE_SCHEME,
     Classification,
     CorrelationMatrix,
     CovarianceMatrix,
     Definiteness,
     DefinitenessKind,
     FactorLoadings,
+    FactorRisk,
+    FactorStructure,
     RiskContributions,
+    currency_loadings,
     euler_decomposition,
+    factor_cholesky_pivots,
+    factor_risk,
     herfindahl_index,
     portfolio_factor_exposures,
 )
@@ -136,7 +151,9 @@ from alphalab.analytics.views import (
 __all__ = [
     "CLASSIFICATION_SCHEME",
     "COVARIANCE_SCHEME",
+    "EXCHANGE_RATE_FACTOR_PREFIX",
     "FACTOR_LOADINGS_SCHEME",
+    "FACTOR_STRUCTURE_SCHEME",
     "RISK_BUDGET_REPORT_SCHEME",
     "RISK_BUDGET_SCHEME",
     "AnalyticsEngine",
@@ -148,6 +165,8 @@ __all__ = [
     "AttributionMetrics",
     "AttributionReport",
     "Availability",
+    "BenchmarkBasis",
+    "BenchmarkStatistics",
     "BucketRisk",
     "BudgetBasis",
     "BudgetCheck",
@@ -173,10 +192,13 @@ __all__ = [
     "FactorCrowdingReport",
     "FactorExposureOverlap",
     "FactorLoadings",
+    "FactorRisk",
+    "FactorStructure",
     "LeverageMetrics",
     "LineRisk",
     "LiquidityRisk",
     "PerformanceReport",
+    "Periodicity",
     "PortfolioSnapshot",
     "PositionRisk",
     "ReportGenerated",
@@ -199,6 +221,7 @@ __all__ = [
     "annualized_volatility",
     "arithmetic_return",
     "attribute",
+    "benchmark_statistics",
     "cagr",
     "calculate_attribution",
     "calculate_drawdowns",
@@ -212,11 +235,14 @@ __all__ = [
     "conditional_var",
     "correlation_matrix",
     "covariance_matrix",
+    "currency_loadings",
     "decompose",
     "euler_decomposition",
     "evaluate_risk_budget",
+    "factor_cholesky_pivots",
     "factor_crowding",
     "factor_exposure",
+    "factor_risk",
     "geometric_return",
     "gross_weights",
     "herfindahl_index",

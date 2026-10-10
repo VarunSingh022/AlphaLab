@@ -25,7 +25,6 @@ Each of the four is one where the obvious implementation is quadratic:
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from decimal import Decimal
 
@@ -76,6 +75,7 @@ from alphalab.risk.limits import (
     PositionLimit,
     RiskLimits,
 )
+from tests.regression._timing import growth
 from tests.unit.lifecycle.test_reconciliation import base_pipeline
 
 #: A ratio above linear and well below quadratic. Quadrupling the input
@@ -83,20 +83,10 @@ from tests.unit.lifecycle.test_reconciliation import base_pipeline
 LINEAR_BOUND = 8.0
 
 
-def _elapsed(work: Callable[[], object]) -> float:
-    """Best of three, so one scheduling hiccup does not fail the suite."""
-
-    return min(_once(work) for _ in range(3))
-
-
-def _once(work: Callable[[], object]) -> float:
-    start = time.perf_counter()
-    work()
-    return time.perf_counter() - start
-
-
 def _growth(small: Callable[[], object], large: Callable[[], object]) -> float:
-    return _elapsed(large) / max(_elapsed(small), 1e-4)
+    """Read with the one stabilized method every guard shares (tests/regression/_timing.py)."""
+
+    return growth(small, large)
 
 
 # --------------------------------------------------------------------------- #
@@ -109,7 +99,7 @@ LIMITS = RiskLimits(
     exposure=ExposureLimit(Decimal("200000"), Decimal("150000")),
     leverage=LeverageLimit(Decimal("2")),
     margin=MarginLimit(Decimal("0.5")),
-    daily_loss=DailyLossLimit(Decimal("5000")),
+    daily_loss=DailyLossLimit(Decimal("5000"), "UTC"),
     drawdown=DrawdownLimit(Decimal("0.2")),
 )
 

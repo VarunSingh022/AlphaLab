@@ -34,6 +34,8 @@ from typing import Any
 
 import pytest
 
+from alphalab.common.types import ParamValue
+from alphalab.strategy import StrategyDefinition
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
 from alphalab.strategy.exceptions import StrategyRuntimeError
@@ -47,14 +49,13 @@ from alphalab.strategy.registry import (
     instances_for,
     runtime_for,
 )
-from alphalab.strategy.state import LifecycleState
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy.state import StrategyStatus
 
 
 class MomentumStrategy(BaseStrategy):
     """A real strategy: it emits an intent sized from its own parameters."""
 
-    def __init__(self, strategy_id: str, parameters: Mapping[str, float]) -> None:
+    def __init__(self, strategy_id: str, parameters: Mapping[str, ParamValue]) -> None:
         self.strategy_id = strategy_id
         self.parameters = dict(parameters)
 
@@ -195,7 +196,7 @@ def test_a_factory_that_returns_something_undispatchable_is_refused() -> None:
     class NotAStrategy:
         pass
 
-    def build_broken(strategy_id: str, parameters: Mapping[str, float], /) -> Any:
+    def build_broken(strategy_id: str, parameters: Mapping[str, ParamValue], /) -> Any:
         return NotAStrategy()
 
     registry = StrategyClassRegistry().register("broken", build_broken)
@@ -209,7 +210,7 @@ def test_a_factory_that_returns_something_undispatchable_is_refused() -> None:
 
 
 def test_a_factory_returning_none_is_refused_too() -> None:
-    def build_nothing(strategy_id: str, parameters: Mapping[str, float], /) -> Any:
+    def build_nothing(strategy_id: str, parameters: Mapping[str, ParamValue], /) -> Any:
         return None
 
     registry = StrategyClassRegistry().register("null", build_nothing)
@@ -265,7 +266,7 @@ def test_the_constructed_strategy_actually_runs() -> None:
     from alphalab.strategy.state import StrategyState
 
     strategy = _registry().construct("momentum-1", {"size": 4.0})
-    state = StrategyState("momentum-1", LifecycleState.RUNNING, strategy)
+    state = StrategyState("momentum-1", StrategyStatus.RUNNING, strategy)
     context = StrategyContext(
         portfolio=NoPortfolio(),
         market=NoMarket(),
@@ -310,7 +311,7 @@ def test_the_registry_is_not_a_second_strategy_definition() -> None:
 
 
 def test_a_strategy_definition_satisfies_the_declaration_without_being_imported() -> None:
-    """Structural, so ``alphalab.strategy`` acquires no dependency on studio.
+    """Structural: the registry needs a shape, not the one class that has it.
 
     Read from the *imports* rather than from the text: the registry's docstring
     explains the relationship it deliberately does not have, and a substring
@@ -321,7 +322,7 @@ def test_a_strategy_definition_satisfies_the_declaration_without_being_imported(
 
     from alphalab.strategy import registry as registry_module
 
-    assert "alphalab.studio" not in _imported_modules(registry_module)
+    assert "alphalab.strategy.definition" not in _imported_modules(registry_module)
 
 
 def test_the_strategy_package_still_imports_nothing_above_itself() -> None:
@@ -402,7 +403,7 @@ def test_a_runtime_is_built_from_declarations_without_a_hand_written_loop() -> N
     state = runtime_for(registry, declarations)
 
     assert set(state.strategies) == {"momentum-1", "mean-reversion-1"}
-    assert all(s.status is LifecycleState.CREATED for s in state.strategies.values())
+    assert all(s.status is StrategyStatus.CREATED for s in state.strategies.values())
 
     instance = state.strategies["momentum-1"].instance
     assert isinstance(instance, MomentumStrategy)

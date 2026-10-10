@@ -64,8 +64,8 @@ from typing import Any, Final
 from uuid import UUID
 
 from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.persistent_map import PersistentSet
-from alphalab.core.enums import OrderStatus, OrderType, Side
+from alphalab.common.persistent_map import PersistentMap, PersistentSet
+from alphalab.core.enums import OrderStatus, OrderType, Side, TimeInForce
 from alphalab.oms.book import OrderBook
 from alphalab.oms.events import (
     OMSEvent,
@@ -82,17 +82,19 @@ from alphalab.oms.exceptions import OMSError
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order
 from alphalab.oms.state import OMSState
-from alphalab.persistence.decode import require_schema_version
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
 
 __all__ = [
     "LEGACY_UNVERSIONED_V0_KEYS",
+    "OMS_SCHEMA_HISTORY",
     "OMS_SNAPSHOT_SCHEMA",
     "OMSEventRecord",
     "OMSSnapshot",
     "SnapshotDecodeError",
     "capture",
     "from_primitives",
+    "order_v1_to_v2",
     "restore",
 ]
 
@@ -109,7 +111,10 @@ class SnapshotDecodeError(OMSError):
 #: v2.6 gave for the portfolio and v2.8 for the lifecycle -- that constant also
 #: versions ``BaseEvent``, so bumping it would version every
 #: event in the system as a side effect of one subsystem's change.
-OMS_SNAPSHOT_SCHEMA: Final = 1
+#:
+#: Version 2 (v3.11) records each order's time in force, expiry and stop
+#: trigger (ledger EXE-003); see :func:`_v1_to_v2`.
+OMS_SNAPSHOT_SCHEMA: Final = 2
 
 _SUBSYSTEM: Final = "oms"
 
@@ -197,12 +202,18 @@ def restore(snapshot: OMSSnapshot) -> OMSState:
     for order in snapshot.orders:
         book = book.add(order)
 
+    working: dict[str, PersistentSet[OrderId]] = {}
+    for order_id in snapshot.active_orders:
+        asset_id = book.find(order_id).asset_id
+        working[asset_id] = working.get(asset_id, PersistentSet()).add(order_id)
+
     return OMSState(
         orders=book,
         active_orders=PersistentSet(snapshot.active_orders),
         completed_orders=PersistentSet(snapshot.completed_orders),
         history=AppendOnlyLog(record.event for record in snapshot.history),
         events=AppendOnlyLog(record.event for record in snapshot.events),
+        working_by_asset=PersistentMap(working),
     )
 
 
@@ -255,7 +266,28 @@ def _order(payload: Mapping[str, Any]) -> Order:
         created_at=float(_require(payload, "created_at")),
         updated_at=float(_require(payload, "updated_at")),
         metadata=dict(payload.get("metadata") or {}),
+        time_in_force=_time_in_force(_require(payload, "time_in_force")),
+        expire_at=_optional_instant(_require(payload, "expire_at"), "expire_at"),
+        triggered_at=_optional_instant(_require(payload, "triggered_at"), "triggered_at"),
     )
+
+
+def _time_in_force(value: Any) -> TimeInForce:
+    try:
+        return TimeInForce(value)
+    except ValueError:
+        raise SnapshotDecodeError(
+            f"time_in_force {value!r} is not a TimeInForce. Known: "
+            f"{sorted(member.value for member in TimeInForce)}"
+        ) from None
+
+
+def _optional_instant(value: Any, field_name: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise SnapshotDecodeError(f"{field_name} is not an instant: {value!r}")
+    return float(value)
 
 
 #: How to decode each event field that is not already a JSON primitive.
@@ -295,23 +327,88 @@ def _sequence(payload: Mapping[str, Any], key: str) -> Sequence[Any]:
     return value
 
 
-def _require_readable_shape(payload: Mapping[str, Any]) -> None:
-    """Refuse a payload this build cannot read, before any field is decoded.
+def order_v1_to_v2(order: Any) -> Any:
+    """A version-1 order payload as version 2 writes it; see :func:`_v1_to_v2`.
+
+    Public for the envelopes that embed OMS orders in records of their own --
+    the run envelope's steps -- so that they upgrade an order by this module's
+    rule rather than by a copy of it.
+    """
+
+    if not isinstance(order, Mapping):
+        return order
+    return {
+        **order,
+        "time_in_force": TimeInForce.DAY.value,
+        "expire_at": None,
+        "triggered_at": None,
+    }
+
+
+def _v1_record(record: Any) -> Any:
+    if not isinstance(record, Mapping):
+        return record
+    event = record.get("event")
+    if isinstance(event, Mapping) and "order" in event:
+        return {**record, "event": {**event, "order": order_v1_to_v2(event["order"])}}
+    return record
+
+
+def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record each order's lifetime, expiry and stop trigger, as a version-1 order had them.
+
+    A version-1 order recorded no lifetime: ``DAY`` is what every order was
+    placed and routed as, and a market order -- which every canonical-path
+    order was -- is worked once whatever its lifetime. It recorded no expiry
+    and no stop trigger because it had neither. Orders embedded in
+    ``OrderSubmitted`` events are carried the same way.
+    """
+
+    upgraded = dict(payload)
+    upgraded["orders"] = [order_v1_to_v2(order) for order in payload.get("orders", ())]
+    for log in ("history", "events"):
+        upgraded[log] = [_v1_record(record) for record in payload.get(log, ())]
+    return upgraded
+
+
+#: How every OMS payload a release has written is read by this one. See
+#: :mod:`alphalab.persistence.upgrade`. The unversioned pre-v2.9 shape is not a
+#: version and is recognised structurally, below; its content is version 1's.
+OMS_SCHEMA_HISTORY = SchemaHistory(
+    _SUBSYSTEM,
+    OMS_SNAPSHOT_SCHEMA,
+    (
+        SchemaStep(
+            1,
+            "version 2 records each order's time in force, expiry and stop trigger",
+            upgrade=_v1_to_v2,
+        ),
+    ),
+)
+
+
+def _readable(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The payload in the current schema, or the refusal that says why it cannot be.
 
     Exactly two shapes are readable, and they are recognised by two different
     questions rather than by one falling back to the other:
 
     * a payload that **declares** a version is checked against
-      ``OMS_SNAPSHOT_SCHEMA`` by the shared
-      :func:`~alphalab.persistence.decode.require_schema_version`, so an
-      unreadable, non-integer, zero or future version is refused by the same
-      rule the portfolio and lifecycle snapshots use;
+      :data:`OMS_SCHEMA_HISTORY`, so an unreadable, non-integer, zero or
+      future version is refused by the same rule every snapshot uses;
     * a payload that declares **no** version is readable only if its top-level
       keys are exactly :data:`LEGACY_UNVERSIONED_V0_KEYS`.
 
     Nothing here assigns a version to a payload that lacks one. The absence of
     ``schema_version`` is never treated as ``1``; it sends the payload to a
     structural test it either passes whole or fails. See ADR-0023.
+
+    A declared version is upgraded through :data:`OMS_SCHEMA_HISTORY`. The
+    legacy shape holds version 1's content -- the projection was stable from
+    v2.2 until version 1 declared it -- so it is carried through version 1's
+    step, without being assigned a version it never declared. Until v3.11 this
+    ran the upgrade and discarded its result, which no step made visible while
+    the history had none.
 
     Raises:
         SnapshotDecodeError: If the declared version is not readable, or the
@@ -320,16 +417,15 @@ def _require_readable_shape(payload: Mapping[str, Any]) -> None:
 
     if "schema_version" in payload:
         try:
-            require_schema_version(payload, OMS_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+            return OMS_SCHEMA_HISTORY.upgrade(payload)
         except StateDecodeError as exc:
             # The rule is shared; the error type is this module's, because
             # SnapshotDecodeError is what every OMS decode failure raises and
             # what callers catch.
             raise SnapshotDecodeError(str(exc)) from exc
-        return
 
     if frozenset(payload) == LEGACY_UNVERSIONED_V0_KEYS:
-        return
+        return _v1_to_v2(dict(payload))
 
     unexpected = sorted(frozenset(payload) - LEGACY_UNVERSIONED_V0_KEYS)
     absent = sorted(LEGACY_UNVERSIONED_V0_KEYS - frozenset(payload))
@@ -338,7 +434,7 @@ def _require_readable_shape(payload: Mapping[str, Any]) -> None:
         f"pre-v2.9 payload shape: it is missing {absent} and carries "
         f"{unexpected} that shape does not. An unversioned payload is read only "
         "when it matches that shape exactly; a missing schema_version is not "
-        f"read as version {OMS_SNAPSHOT_SCHEMA}."
+        "read as version 1 or as any other."
     )
 
 
@@ -355,7 +451,7 @@ def from_primitives(payload: Mapping[str, Any]) -> OMSSnapshot:
     if not isinstance(payload, Mapping):
         raise SnapshotDecodeError(f"Snapshot payload is not an object: {payload!r}")
 
-    _require_readable_shape(payload)
+    payload = _readable(payload)
 
     return OMSSnapshot(
         orders=tuple(_order(order) for order in _sequence(payload, "orders")),

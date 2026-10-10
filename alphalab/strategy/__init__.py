@@ -10,6 +10,7 @@ alike. ``AdaptiveStrategy`` hands that state to the run snapshot through
 ``alphalab.common``.
 """
 
+from alphalab.common.time import ClockProtocol
 from alphalab.strategy.adaptive import (
     ADAPTIVE_CONFIGURATION_SCHEME,
     ADAPTIVE_OBSERVATION_SCHEME,
@@ -43,7 +44,6 @@ from alphalab.strategy.adaptive_rules import (
 )
 from alphalab.strategy.adaptive_strategy import ADAPTIVE_STRATEGY_STATE_VERSION, AdaptiveStrategy
 from alphalab.strategy.context import (
-    ClockProtocol,
     HistoryAccessorProtocol,
     MarketViewProtocol,
     NoHistory,
@@ -59,13 +59,17 @@ from alphalab.strategy.context import (
     StrategyContext,
     UniverseProtocol,
 )
+from alphalab.strategy.definition import StrategyDefinition, numeric_parameters
 from alphalab.strategy.dispatcher import Dispatcher
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
     FillEvent,
     Intent,
+    IntentKind,
     LifecycleTransitioned,
+    ObservationReceived,
     OrderEvent,
+    SliceClosed,
     StrategyRuntimeEvent,
     TimerEvent,
 )
@@ -76,8 +80,17 @@ from alphalab.strategy.exceptions import (
     InvalidIntentError,
     InvalidTransitionError,
     StrategyRuntimeError,
+    StrategyValidationError,
 )
-from alphalab.strategy.protocol import BaseStrategy, StrategyProtocol, StrategyStateProtocol
+from alphalab.strategy.protocol import (
+    BaseStrategy,
+    ObservationStrategyProtocol,
+    SliceStrategyProtocol,
+    StrategyProtocol,
+    StrategyStateProtocol,
+    defines_on_observation,
+    defines_on_slice,
+)
 from alphalab.strategy.registry import (
     DuplicateStrategyError,
     StrategyClassRegistry,
@@ -89,7 +102,8 @@ from alphalab.strategy.registry import (
     runtime_for,
 )
 from alphalab.strategy.runtime import create_runtime, register_strategy
-from alphalab.strategy.state import LifecycleState, RuntimeState, StrategyState
+from alphalab.strategy.state import RuntimeState, StrategyState, StrategyStatus
+from alphalab.strategy.subscription import SUBSCRIBE_ALL, Subscriptions, Topic
 from alphalab.strategy.supervisor import RuntimeSupervisor
 from alphalab.strategy.validation import validate_intent
 from alphalab.strategy.views import active_strategies, failed_strategies, get_strategy
@@ -100,6 +114,7 @@ __all__ = [
     "ADAPTIVE_REPLAY_SCHEME",
     "ADAPTIVE_STATE_SCHEME",
     "ADAPTIVE_STRATEGY_STATE_VERSION",
+    "SUBSCRIBE_ALL",
     "AdaptationMode",
     "AdaptiveConfiguration",
     "AdaptiveDecision",
@@ -122,9 +137,9 @@ __all__ = [
     "HistoryAccessorProtocol",
     "HookExecutionError",
     "Intent",
+    "IntentKind",
     "InvalidIntentError",
     "InvalidTransitionError",
-    "LifecycleState",
     "LifecycleTransitioned",
     "MarketViewProtocol",
     "NoHistory",
@@ -133,6 +148,8 @@ __all__ = [
     "NoPortfolio",
     "NoRiskView",
     "NoUniverse",
+    "ObservationReceived",
+    "ObservationStrategyProtocol",
     "OrderEvent",
     "OrderFacadeProtocol",
     "PortfolioSnapshotProtocol",
@@ -141,10 +158,13 @@ __all__ = [
     "RuntimeState",
     "RuntimeSupervisor",
     "ScopedLoggerProtocol",
+    "SliceClosed",
+    "SliceStrategyProtocol",
     "StateValue",
     "StrategyClassRegistry",
     "StrategyContext",
     "StrategyDeclaration",
+    "StrategyDefinition",
     "StrategyEngine",
     "StrategyFactory",
     "StrategyProtocol",
@@ -153,7 +173,11 @@ __all__ = [
     "StrategyRuntimeEvent",
     "StrategyState",
     "StrategyStateProtocol",
+    "StrategyStatus",
+    "StrategyValidationError",
+    "Subscriptions",
     "TimerEvent",
+    "Topic",
     "TrailingZScoreRule",
     "TransitionKind",
     "UniverseProtocol",
@@ -164,10 +188,13 @@ __all__ = [
     "canonical_configuration_key",
     "checkpoint",
     "create_runtime",
+    "defines_on_observation",
+    "defines_on_slice",
     "failed_strategies",
     "get_strategy",
     "initial_state",
     "instances_for",
+    "numeric_parameters",
     "observation_stream",
     "register_strategy",
     "replay_updates",

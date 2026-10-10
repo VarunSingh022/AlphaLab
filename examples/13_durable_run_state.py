@@ -203,7 +203,7 @@ def build_config() -> RunConfig:
             exposure=ExposureLimit(limit, limit),
             leverage=LeverageLimit(Decimal("1000")),
             margin=MarginLimit(Decimal("1.00")),
-            daily_loss=DailyLossLimit(limit),
+            daily_loss=DailyLossLimit(limit, "UTC"),
             drawdown=DrawdownLimit(Decimal("1.00")),
         ),
     )

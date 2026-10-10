@@ -14,8 +14,14 @@ class SessionPhase(Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class TradingSession:
-    """Immutable representation of an active or scheduled trading session window."""
+class ScheduledSession:
+    """One dated session the scheduler tracks: its phase between two instants.
+
+    Named ``TradingSession`` until v3.13, the name of the runtime's session
+    driver (:class:`alphalab.runtime.TradingSession`); a venue's weekly
+    time-of-day window is :class:`alphalab.data.calendar.SessionWindow`, which
+    this is not -- it is one occurrence, in epoch seconds (ledger API-001).
+    """
 
     session_id: str
     start_time: float

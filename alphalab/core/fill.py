@@ -18,9 +18,14 @@ class Fill:
         asset_id: Asset executed by this fill.
         side: Executed direction.
         quantity: Positive filled quantity.
-        price: Positive execution price.
+        price: Execution price. Positive for every instrument but one whose
+            declared economics allow negative prices (ledger ACC-007), which
+            is the instrument's question and is answered where its economics
+            are known -- the execution pipeline's price gate and the
+            portfolio. Here it need only be a number.
         filled_at: Unix timestamp (seconds) the fill occurred.
-        commission: Non-negative execution commission.
+        commission: Signed execution commission: a negative one is a rebate,
+            which a venue pays a liquidity provider (v3.11, ACC-007).
     """
 
     fill_id: FillId
@@ -40,7 +45,7 @@ class Fill:
             raise DomainValidationError("side must be a Side")
         if self.quantity <= Decimal("0"):
             raise DomainValidationError("quantity must be positive")
-        if self.price <= Decimal("0"):
-            raise DomainValidationError("price must be positive")
-        if self.commission < Decimal("0"):
-            raise DomainValidationError("commission must be non-negative")
+        if not self.price.is_finite():
+            raise DomainValidationError("price must be a finite number")
+        if not self.commission.is_finite():
+            raise DomainValidationError("commission must be a finite number")

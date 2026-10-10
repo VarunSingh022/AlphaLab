@@ -19,6 +19,11 @@ Depends on **ADR-0019**, **ADR-0020** and **ADR-0028** for the currency rules,
 budgets it is not allowed to move, and **ADR-0016** for the layering the registry
 had to respect.
 
+**Amended by ADR-0046 (v3.11.0).** `alphalab.studio` was removed (ledger
+SCF-001); `StrategyDefinition` now lives in `alphalab.strategy.definition`,
+beside the class registry this ADR built, and its parameters are the registry's
+`ParamValue`s.
+
 ---
 
 # Context

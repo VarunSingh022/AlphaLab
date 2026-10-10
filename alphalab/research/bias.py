@@ -1,56 +1,65 @@
-"""Deterministic evaluation of research biases."""
+"""The facts a bias review of a finished run starts from.
+
+Look-ahead and survivorship cannot be read from a return series after the fact.
+Until v3.12 this module tried: it called a win rate above 95% on short trades
+"look-ahead", a volatility under 5% "survivorship", and turned both into risks
+and a score by constants nobody chose (ledger RES-001). AlphaLab prevents those
+biases where they arise instead -- point-in-time datasets read ``as_of`` an
+instant, delisting returns kept, purged and embargoed splits -- and this report
+carries what the run itself shows, for a reviewer to read.
+"""
 
 from dataclasses import dataclass
 
+from alphalab.research.metrics import calculate_volatility
 from alphalab.research.protocol import ResearchPayload
 
 
 @dataclass(frozen=True, slots=True)
 class BiasReport:
-    look_ahead_risk: float
-    survivorship_risk: float
-    overfitting_risk: float
-    sample_bias_risk: float
-    overall_bias_score: float
+    """What the run shows that bears on bias -- measured, not scored.
+
+    Attributes:
+        win_rate: The fraction of trades with a positive profit; ``None``
+            without trades.
+        mean_trade_duration_seconds: The mean holding time; ``None`` without
+            trades.
+        annualized_volatility: Of the returns, annualized with the payload's
+            periods; ``None`` with fewer than two returns.
+        parameter_count: How many parameters the configuration has.
+        trade_count: How many trades the run made.
+        observations: How many returns the run produced.
+        trades_per_parameter: ``trade_count / parameter_count``; ``None``
+            without parameters.
+    """
+
+    win_rate: float | None
+    mean_trade_duration_seconds: float | None
+    annualized_volatility: float | None
+    parameter_count: int
+    trade_count: int
+    observations: int
+    trades_per_parameter: float | None
 
 
 def detect_bias(payload: ResearchPayload) -> BiasReport:
-    """Evaluates the payload for statistical patterns indicative of bias."""
-    # Look-ahead proxy: Unrealistic win rates paired with short durations
-    win_rate = (
-        sum(1 for t in payload.trades if t.pnl > 0) / len(payload.trades) if payload.trades else 0
-    )
-    avg_duration = (
-        sum(t.duration_seconds for t in payload.trades) / len(payload.trades)
-        if payload.trades
-        else 0
-    )
+    """Measure the run's facts a bias review reads; see the module docstring."""
 
-    look_ahead = 1.0 if (win_rate > 0.95 and avg_duration < 3600) else (win_rate - 0.5) * 2.0
-    look_ahead = max(0.0, min(1.0, look_ahead))
-
-    # Survivorship proxy: Extremely low volatility in a broad market regime
-    from alphalab.research.metrics import calculate_volatility
-
-    vol = calculate_volatility(payload.returns)
-    survivorship = 1.0 if vol < 0.05 else max(0.0, 1.0 - (vol * 5.0))
-
-    # Overfitting: Ratio of parameters to trades
-    param_count = len(payload.parameters)
-    trade_count = len(payload.trades)
-    overfitting = min(1.0, (param_count * 100) / trade_count) if trade_count > 0 else 1.0
-
-    # Sample bias: Too few returns
-    sample_bias = (
-        1.0 if len(payload.returns) < 252 else max(0.0, 1.0 - (len(payload.returns) / 1000.0))
-    )
-
-    score = 100.0 - ((look_ahead + survivorship + overfitting + sample_bias) / 4.0) * 100.0
-
+    trades = payload.trades
+    count = len(trades)
+    parameters = len(payload.parameters)
     return BiasReport(
-        look_ahead_risk=round(look_ahead, 4),
-        survivorship_risk=round(survivorship, 4),
-        overfitting_risk=round(overfitting, 4),
-        sample_bias_risk=round(sample_bias, 4),
-        overall_bias_score=round(score, 2),
+        win_rate=sum(1 for t in trades if t.pnl > 0) / count if count else None,
+        mean_trade_duration_seconds=(
+            sum(t.duration_seconds for t in trades) / count if count else None
+        ),
+        annualized_volatility=(
+            calculate_volatility(payload.returns, payload.periods_per_year)
+            if len(payload.returns) >= 2
+            else None
+        ),
+        parameter_count=parameters,
+        trade_count=count,
+        observations=len(payload.returns),
+        trades_per_parameter=count / parameters if parameters else None,
     )

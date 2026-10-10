@@ -235,8 +235,14 @@ KIND_REQUIREMENTS: Final[Mapping[FeatureKind, KindRequirement]] = MappingProxyTy
         FeatureKind.ROLLING_MAX: KindRequirement(_TS, True, 1, window_offset=-1),
         FeatureKind.ROLLING_SUM: KindRequirement(_TS, True, 1, window_offset=-1),
         FeatureKind.EXPONENTIAL_MEAN: KindRequirement(_TS, True, 2, window_offset=-1),
+        # ``periods_per_year`` is required since v3.10: it defaulted to 252, which
+        # annualized an intraday series as if its periods were days (API-003).
         FeatureKind.REALIZED_VOLATILITY: KindRequirement(
-            _TS, True, 2, permitted_parameters=("periods_per_year",)
+            _TS,
+            True,
+            2,
+            required_parameters=("periods_per_year",),
+            permitted_parameters=("periods_per_year",),
         ),
         FeatureKind.MOMENTUM: KindRequirement(_TS, True, 1, permitted_parameters=("skip_periods",)),
         FeatureKind.MEAN_REVERSION: KindRequirement(_TS, True, 2, window_offset=-1),

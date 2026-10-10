@@ -1,7 +1,7 @@
 """Market conventions: settlement, ticks, lots, multipliers, day counts and rates."""
 
 from datetime import date, time
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -396,3 +396,51 @@ def test_compounding_and_discounting_are_reciprocal() -> None:
 def test_a_rate_that_destroys_the_growth_factor_is_refused() -> None:
     with pytest.raises(ConventionInputError, match="no real power"):
         compound_factor(-3.0, 1.0, Compounding.SEMI_ANNUAL)
+
+
+# --------------------------------------------------------------------------- #
+# NUM-013: lot arithmetic is exact whatever the caller's context
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("precision", [3, 5, 9, 28])
+def test_rounding_down_to_a_lot_never_rounds_up_in_a_low_precision_context(
+    precision: int,
+) -> None:
+    one = LotSpecification.single_units()
+    with localcontext() as context:
+        context.prec = precision
+        # Until v3.11 the division rounded before the floor: 12345.9 / 1 at a
+        # precision of 5 is 12346, and the "rounded down" quantity came back
+        # larger than the one asked for.
+        assert round_down_to_lot(Decimal("12345.9"), one) == Decimal("12345")
+        assert round_down_to_lot(Decimal("-12345.9"), one) == Decimal("-12345")
+        assert one.admits(Decimal("123456789"))
+        assert lots_in(Decimal("123456700"), LotSpecification(Decimal("100"), Decimal("100"))) == (
+            Decimal("1234567")
+        )
+
+
+def test_rounding_down_is_exact_beyond_the_default_precision() -> None:
+    one = LotSpecification.single_units()
+
+    # 31 nines: a 28-digit division rounds this to 1.
+    assert round_down_to_lot(Decimal("0." + "9" * 31), one) == Decimal("0")
+    fine = LotSpecification(Decimal("0.00001"), Decimal("0.00001"))
+    assert round_down_to_lot(Decimal("0.00012345"), fine) == Decimal("0.00012")
+    # The representation is the lot's, as it always was.
+    assert (
+        str(
+            round_down_to_lot(Decimal("2.5E+3"), LotSpecification(Decimal("1E+2"), Decimal("1E+2")))
+        )
+        == "2.5E+3"
+    )
+
+
+def test_a_quantity_too_long_to_count_in_lots_exactly_is_refused() -> None:
+    fine = LotSpecification(Decimal("0.00001"), Decimal("0.00001"))
+
+    with pytest.raises(ConventionViolationError, match="exactly"):
+        round_down_to_lot(Decimal("1E+40"), fine)
+    with pytest.raises(ConventionViolationError, match="exactly"):
+        fine.admits(Decimal("1E+40"))

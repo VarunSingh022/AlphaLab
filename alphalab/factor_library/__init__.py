@@ -77,11 +77,18 @@ from alphalab.factor_library.exceptions import (
     FactorLibraryError,
 )
 from alphalab.factor_library.exposure import ExposureReport, factor_exposure
-from alphalab.factor_library.forward_returns import ForwardReturnPanel, forward_returns
+from alphalab.factor_library.forward_returns import (
+    DELISTING_SET_SCHEME,
+    DelistingReturn,
+    ForwardReturnPanel,
+    delisting_set_id,
+    forward_returns,
+)
 from alphalab.factor_library.fundamentals import (
     SnapshotSpecification,
     fundamental_frame,
     fundamental_snapshot_as_of,
+    share_count_changes,
 )
 from alphalab.factor_library.ic import InformationCoefficient, information_coefficient
 from alphalab.factor_library.inputs import FundamentalSnapshot, PriceSeries
@@ -102,8 +109,10 @@ from alphalab.factor_library.liquidity import compute_liquidity
 from alphalab.factor_library.loadings import loadings_from_panels
 from alphalab.factor_library.momentum import compute_momentum
 from alphalab.factor_library.neutralization import (
+    MAXIMUM_EXPOSURE_CONDITION,
     NeutralizationReport,
     neutralize_beta,
+    neutralize_exposures,
     neutralize_group,
     neutralize_mean,
 )
@@ -141,6 +150,7 @@ from alphalab.factor_library.value import compute_value
 from alphalab.factor_library.volatility import compute_volatility
 
 __all__ = [
+    "DELISTING_SET_SCHEME",
     "FACTOR_CATALOG",
     "FEATURE_KEY_SCHEME",
     "FEATURE_SERIES_KEY_SCHEME",
@@ -148,10 +158,12 @@ __all__ = [
     "FIELD_READERS",
     "KIND_REQUIREMENTS",
     "KNOWLEDGE_FRAME_SCHEME",
+    "MAXIMUM_EXPOSURE_CONDITION",
     "MULTIPLICATIVE_CLASSES",
     "RATIO_KINDS",
     "Applicability",
     "DecayProfile",
+    "DelistingReturn",
     "ExposureReport",
     "FactorCategory",
     "FactorComputationError",
@@ -200,6 +212,7 @@ __all__ = [
     "compute_time_series",
     "compute_value",
     "compute_volatility",
+    "delisting_set_id",
     "derive_feature_version",
     "derive_frame_id",
     "derive_series_id",
@@ -216,6 +229,7 @@ __all__ = [
     "information_coefficient",
     "loadings_from_panels",
     "neutralize_beta",
+    "neutralize_exposures",
     "neutralize_group",
     "neutralize_mean",
     "observation_frame",
@@ -226,6 +240,7 @@ __all__ = [
     "rank_panel",
     "require_applicable",
     "sample_knowledge",
+    "share_count_changes",
     "to_factor_results",
     "weights_from_buckets",
 ]

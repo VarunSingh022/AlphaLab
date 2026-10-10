@@ -31,11 +31,6 @@ import pytest
 
 from alphalab.broker.account import BrokerAccount
 from alphalab.broker.state import BrokerState, ConnectionStatus
-from alphalab.broker.transport import HttpVenueTransport, VenueCredentials
-from alphalab.broker.venue import RestVenueBroker, VenueConfig
-from alphalab.enterprise.identity import register_principal
-from alphalab.enterprise.models import EnterpriseState
-from alphalab.enterprise.rbac import define_role, grant_role
 from alphalab.experiment_tracking import complete_run, log_metrics, start_run
 from alphalab.lifecycle import (
     LIFECYCLE_PERMISSIONS,
@@ -44,6 +39,7 @@ from alphalab.lifecycle import (
     LifecycleState,
     LifecycleTransitionError,
     MetricThreshold,
+    StaticPermissions,
     StrategyVersionRef,
     ValidationMethod,
     ValidationPolicy,
@@ -64,7 +60,7 @@ from alphalab.runtime.broker_routing import RoutingConfig
 from alphalab.runtime.execution_pipeline import ExecutionRouting
 from alphalab.runtime.live import LiveSession, live_health
 from alphalab.runtime.run import ExecutionMode, RunConfig
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 from tests.integration.harness import (
     ScriptedStrategy,
     context_factory,
@@ -73,6 +69,8 @@ from tests.integration.harness import (
     running_strategy_state,
 )
 from tests.integration.venue_server import fill, record_fill, run_venue
+from tests.reference_adapter.transport import HttpVenueTransport, VenueCredentials
+from tests.reference_adapter.venue import RestVenueBroker, VenueConfig
 
 _KEY = "TESTKEY-0001"
 _SECRET = "test-signing-secret-not-a-real-credential"
@@ -89,20 +87,15 @@ METRICS = {"sharpe_ratio": 1.4, "max_drawdown": 0.1}
 # --------------------------------------------------------------------------- #
 
 
-def _enterprise() -> EnterpriseState:
-    state = EnterpriseState()
-    state, _ = register_principal(state, "releaser", "Release Engineer", 0.0)
-    state, _ = register_principal(state, "approver", "Head of Trading", 0.0)
-    state = define_role(state, "release", LIFECYCLE_PERMISSIONS - {PERMISSION_APPROVE})
-    state = define_role(state, "approve", {PERMISSION_APPROVE})
-    state = grant_role(state, "releaser", "release")
-    return grant_role(state, "approver", "approve")
-
-
-ENTERPRISE = _enterprise()
+PERMISSIONS = StaticPermissions(
+    {
+        "releaser": LIFECYCLE_PERMISSIONS - {PERMISSION_APPROVE},
+        "approver": frozenset({PERMISSION_APPROVE}),
+    }
+)
 #: Deploying to ``live`` requires an approval from someone other than the deployer.
-RELEASER = Governance(ENTERPRISE, "releaser", frozenset({_ENVIRONMENT}))
-APPROVER = Governance(ENTERPRISE, "approver")
+RELEASER = Governance(PERMISSIONS, "releaser", frozenset({_ENVIRONMENT}))
+APPROVER = Governance(PERMISSIONS, "approver")
 
 
 # --------------------------------------------------------------------------- #
@@ -166,7 +159,7 @@ def _deployed() -> tuple[LifecycleState, StrategyVersionRef]:
 def _broker(base_url: str) -> RestVenueBroker:
     return RestVenueBroker(
         HttpVenueTransport(base_url, VenueCredentials(_KEY, _SECRET)),
-        VenueConfig(broker_name="TESTVENUE", account_id="ACC-LIVE"),
+        VenueConfig(currency="USD", broker_name="TESTVENUE", account_id="ACC-LIVE"),
     )
 
 
@@ -366,7 +359,8 @@ def test_the_join_builds_no_state_and_starts_nothing() -> None:
 
 
 def test_the_run_state_still_carries_no_deployment_reference() -> None:
-    """ADR-0030 decision 2 fixes ``RunState`` at eight fields."""
+    """ADR-0030 decision 2 fixed ``RunState`` at eight fields; ADR-0046 adds the slice
+    cursor, and v3.12 the observation cursor (OFE-009)."""
 
     from dataclasses import fields
 
@@ -375,4 +369,4 @@ def test_the_run_state_still_carries_no_deployment_reference() -> None:
     names = {f.name for f in fields(RunState)}
     assert "deployment" not in names
     assert "environment" not in names
-    assert len(names) == 8
+    assert len(names) == 11  # the slice cursor (v3.11), the observation cursor (v3.12)

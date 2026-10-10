@@ -1,4 +1,10 @@
-"""Top-level Engine Facade orchestrating Institutional Research."""
+"""Top-level Engine Facade orchestrating the evaluation of a finished run.
+
+Restated over the v3.2 methodology in v3.12 (ledger RES-001): every report is a
+measurement, every bound is the caller's :class:`ResearchPolicy`, every finding
+names its number and its bound, and nothing grades the strategy. See
+:mod:`alphalab.research.research`.
+"""
 
 from dataclasses import replace
 
@@ -10,16 +16,16 @@ from alphalab.research.cross_validation import walk_forward_analysis
 from alphalab.research.diagnostics import generate_diagnostics
 from alphalab.research.events import (
     AnalysisCompleted,
-    BiasDetected,
     DiagnosticsGenerated,
     ResearchCompleted,
+    ResearchEvent,
     ResearchStarted,
 )
 from alphalab.research.exceptions import InvalidResearchStateError
 from alphalab.research.montecarlo import monte_carlo_simulation
 from alphalab.research.protocol import ResearchPayload
 from alphalab.research.regime import analyze_regimes
-from alphalab.research.research import compute_overall_score
+from alphalab.research.research import ResearchPolicy, research_metrics
 from alphalab.research.sensitivity import parameter_robustness
 from alphalab.research.state import ResearchState
 from alphalab.research.stress import apply_stress_tests
@@ -45,63 +51,87 @@ class ResearchEngine:
 
     @staticmethod
     def run_full_research(
-        state: ResearchState, payload: ResearchPayload, timestamp: float
+        state: ResearchState,
+        payload: ResearchPayload,
+        policy: ResearchPolicy,
+        timestamp: float,
+        seed: int,
     ) -> ResearchState:
-        """Executes the entire research pipeline deterministically."""
+        """Executes the entire evaluation deterministically.
+
+        ``seed`` drives the Monte Carlo and bootstrap resampling. It is required:
+        until v3.10 both defaulted to 42, so every study resampled the same way
+        whether or not anyone had chosen to (ledger DET-004). ``policy`` is
+        required for the same reason since v3.12: every bound and shock in it
+        was a literal here before (ledger RES-001).
+        """
         validate_payload(payload)
         if state.completed:
             raise InvalidResearchStateError("Research already completed.")
 
-        # 1. Execute Analyses
         bias = detect_bias(payload)
-        cv = walk_forward_analysis(payload)
-        mc = monte_carlo_simulation(payload)
-        boot = bootstrap_statistics(payload)
-        robust = parameter_robustness(payload)
+        walk_forward = walk_forward_analysis(payload, policy.walk_forward_windows)
+        monte_carlo = monte_carlo_simulation(payload, seed, policy.ruin_drawdown)
+        bootstrap = bootstrap_statistics(payload, seed)
+        robustness = parameter_robustness(payload)
         regime = analyze_regimes(payload)
-        cap = estimate_capacity(payload)
-        stress = apply_stress_tests(payload)
-        diag = generate_diagnostics(payload)
+        capacity = estimate_capacity(payload)
+        stress = apply_stress_tests(
+            payload, policy.shock_return, policy.gain_multiplier, policy.loss_multiplier
+        )
+        diagnostics = generate_diagnostics(
+            payload,
+            policy.minimum_trades,
+            policy.maximum_trade_share,
+            policy.worst_period_return,
+        )
+        metrics = research_metrics(
+            payload,
+            bias,
+            walk_forward,
+            monte_carlo,
+            bootstrap,
+            robustness,
+            regime,
+            capacity,
+            stress,
+        )
 
-        # 2. Score
-        score = compute_overall_score(bias, boot, robust, cap, cv, regime, stress)
-
-        # 3. Events
-        evts = [
-            BiasDetected(
+        events: list[ResearchEvent] = [
+            AnalysisCompleted(ResearchEngine._create_id(), timestamp, state.research_id, name)
+            for name in ("Walk-Forward", "Monte-Carlo", "Bootstrap", "Stress")
+        ]
+        events.append(
+            DiagnosticsGenerated(
                 ResearchEngine._create_id(),
                 timestamp,
                 state.research_id,
-                "Look-Ahead",
-                bias.look_ahead_risk,
-            ),
-            AnalysisCompleted(
-                ResearchEngine._create_id(), timestamp, state.research_id, "Walk-Forward"
-            ),
-            AnalysisCompleted(
-                ResearchEngine._create_id(), timestamp, state.research_id, "Monte-Carlo"
-            ),
-            DiagnosticsGenerated(
-                ResearchEngine._create_id(), timestamp, state.research_id, len(diag.warnings)
-            ),
+                len(diagnostics.warnings),
+            )
+        )
+        events.append(
             ResearchCompleted(
-                ResearchEngine._create_id(), timestamp, state.research_id, score.overall_score
-            ),
-        ]
+                ResearchEngine._create_id(),
+                timestamp,
+                state.research_id,
+                len(metrics),
+                len(diagnostics.warnings),
+            )
+        )
 
-        # 4. Assemble Immutable State
         return replace(
             state,
             completed=True,
             bias_report=bias,
-            walk_forward_report=cv,
-            monte_carlo_report=mc,
-            bootstrap_report=boot,
-            robustness_report=robust,
+            walk_forward_report=walk_forward,
+            monte_carlo_report=monte_carlo,
+            bootstrap_report=bootstrap,
+            robustness_report=robustness,
             regime_report=regime,
-            capacity_report=cap,
+            capacity_report=capacity,
             stress_report=stress,
-            diagnostic_report=diag,
-            score=score,
-            events=(*state.events, *evts),
+            diagnostic_report=diagnostics,
+            policy=policy,
+            metrics=metrics,
+            events=(*state.events, *events),
         )

@@ -8,16 +8,23 @@ Before v2.3 five market-data surfaces coexisted:
 * ``alphalab.live.message``      -- provider-tagged wire messages
 * ``alphalab.feed.normalization``-- raw dicts lifted into ``alphalab.market``
 
-v2.3 keeps the ones that answer different questions and collapses the ones that
+v2.3 kept the ones that answer different questions and collapsed the ones that
 did not. These tests assert *identity*, not similarity: two dataclasses can have
 identical fields and still be different types, and that is exactly the failure
 mode being guarded against.
+
+v3.10 removed the last two outright (ledger SCF-002). ``alphalab.live`` had no
+consumer, and ``alphalab.feed.normalization`` was a second normalization
+authority with silent financial defaults -- ``currency="USD"`` whatever the
+instrument, the provider symbol taken as the ``asset_id``, and an unknown
+timeframe read as one minute. :mod:`alphalab.market.normalization` is the one
+boundary from wire to canonical, and it defaults none of those.
 """
 
+import importlib.util
 from decimal import Decimal
 
 from alphalab.data import feed as wire
-from alphalab.live import message as live_message
 from alphalab.market import bar as market_bar
 from alphalab.market import quote as market_quote
 from alphalab.marketdata import feed as marketdata_feed
@@ -30,11 +37,6 @@ def test_marketdata_wire_records_are_the_data_wire_records() -> None:
     assert marketdata_feed.Bar is wire.Bar
     assert marketdata_feed.OrderBook is wire.OrderBook
     assert marketdata_feed.OrderBookLevel is wire.OrderBookLevel
-
-
-def test_live_book_level_is_the_shared_wire_level() -> None:
-    """The one live message shape that carried no provider tag was a duplicate."""
-    assert live_message.OrderBookLevel is wire.OrderBookLevel
 
 
 def test_the_public_marketdata_api_still_exposes_the_same_names() -> None:
@@ -136,14 +138,12 @@ def test_the_canonical_record_is_defined_in_the_market_package() -> None:
     assert CanonicalRecord.__module__ == "alphalab.market.record"
 
 
-def test_the_dict_normalizers_still_produce_canonical_domain_records() -> None:
-    """`alphalab.feed` predates v2.3 and still lifts raw dicts into the same types."""
-    from alphalab.feed.normalization import RawPayload, normalize_quote
+def test_the_second_normalization_authority_is_gone() -> None:
+    """One boundary lifts wire records into the canonical model, not two.
 
-    quote = normalize_quote(
-        RawPayload(
-            "QUOTE", {"symbol": "AAPL", "ts": 1.0, "bid": 1, "ask": 2, "bid_size": 1, "ask_size": 1}
-        ),
-        "XNAS",
-    )
-    assert type(quote) is market_quote.Quote
+    ``alphalab.feed`` and ``alphalab.live`` were removed in v3.10 rather than
+    fixed: the canonical boundary already did their job without their defaults.
+    Reintroducing either is a decision for an ADR, not an accident of a merge.
+    """
+    assert importlib.util.find_spec("alphalab.feed") is None
+    assert importlib.util.find_spec("alphalab.live") is None

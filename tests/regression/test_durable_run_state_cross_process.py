@@ -520,6 +520,9 @@ def test_each_class_one_subtree_is_identical(crossing: dict[str, Any], subtree: 
         "source_id",
         "steps",
         "skipped",
+        "last_slice_at",
+        "observations_delivered",
+        "last_observation",
     ],
 )
 def test_each_run_bookkeeping_field_is_identical(crossing: dict[str, Any], field: str) -> None:
@@ -659,11 +662,11 @@ def test_the_child_read_a_state_written_by_a_process_that_had_exited(
 def test_the_crossing_moved_no_schema(crossing: dict[str, Any]) -> None:
     continued = deserialize(crossing["continued"])
 
-    assert continued["schema_version"] == 1, "RUN_SNAPSHOT_SCHEMA"
-    assert continued["pipeline"]["schema_version"] == 3, "PIPELINE_SNAPSHOT_SCHEMA"
-    assert continued["pipeline"]["oms"]["schema_version"] == 1
-    assert continued["pipeline"]["portfolio"]["schema_version"] == 3
-    assert continued["pipeline"]["allocation"]["schema_version"] == 1
+    assert continued["schema_version"] == 4, "RUN_SNAPSHOT_SCHEMA (v3.12)"
+    assert continued["pipeline"]["schema_version"] == 7, "PIPELINE_SNAPSHOT_SCHEMA (v3.13)"
+    assert continued["pipeline"]["oms"]["schema_version"] == 2  # v3.11: order terms
+    assert continued["pipeline"]["portfolio"]["schema_version"] == 5  # v3.11: economics
+    assert continued["pipeline"]["allocation"]["schema_version"] == 3  # v3.12: ceilings
 
 
 def test_the_payload_carries_no_run_identity(crossing: dict[str, Any]) -> None:

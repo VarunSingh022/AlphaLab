@@ -6,6 +6,7 @@ from alphalab.distributed.engine import DistributedEngine
 from alphalab.distributed.events import (
     DistributedEvent,
     JobAssigned,
+    JobCancelled,
     JobCompleted,
     JobFailed,
     JobStarted,
@@ -33,6 +34,7 @@ from alphalab.distributed.validation import (
 )
 from alphalab.distributed.views import (
     active_workers,
+    cancelled_jobs,
     cluster_statistics,
     completed_jobs,
     failed_jobs,
@@ -53,6 +55,7 @@ __all__ = [
     "InvalidNodeStateError",
     "Job",
     "JobAssigned",
+    "JobCancelled",
     "JobCompleted",
     "JobCoordinator",
     "JobFailed",
@@ -69,6 +72,7 @@ __all__ = [
     "WorkerRemoved",
     "WorkerStatus",
     "active_workers",
+    "cancelled_jobs",
     "cluster_statistics",
     "completed_jobs",
     "failed_jobs",

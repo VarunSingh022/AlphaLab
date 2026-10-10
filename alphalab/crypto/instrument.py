@@ -76,6 +76,8 @@ def open_crypto_position(
     quantity: Decimal,
     price: Decimal,
     timestamp: float,
+    *,
+    minor_units: int | None = None,
 ) -> Position:
     """Opens a new crypto position using the unmodified portfolio Position model.
 
@@ -83,13 +85,20 @@ def open_crypto_position(
     positive to go long, negative to go short. For PERPETUAL instruments, `price`
     should be the entry mark price -- see `alphalab.crypto.perpetual` for ongoing
     mark-to-market, which must continue to use mark price, not last trade price.
+
+    ``minor_units`` is the number of decimals of the position's currency's minor
+    unit, passed to :class:`~alphalab.portfolio.position.Position`. ``None`` means
+    ISO 4217's figure; a currency outside ISO 4217 (a stablecoin, a crypto asset)
+    must state it, or reading the position's market value or P&L is refused --
+    AlphaLab does not know how many decimals a venue carries it at.
     """
     return Position(
         asset_id=crypto_symbol(instrument),
         quantity=quantity,
         average_cost=price,
         market_price=price,
-        realized_pnl=Decimal("0.00"),
+        realized_pnl=Decimal("0"),
         currency=instrument.quote_asset,
         last_updated=timestamp,
+        minor_units=minor_units,
     )

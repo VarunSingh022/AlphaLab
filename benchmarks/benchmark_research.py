@@ -2,7 +2,7 @@
 
 import time
 
-from alphalab.research import ResearchEngine, ResearchPayload, TradePayload
+from alphalab.research import ResearchEngine, ResearchPayload, ResearchPolicy, TradePayload
 
 
 def run_benchmark() -> None:
@@ -17,14 +17,24 @@ def run_benchmark() -> None:
     )
 
     payload = ResearchPayload(
-        "BENCH-STRAT", returns, trades, {"period": 20.0}, regimes, 10_000_000.0
+        "BENCH-STRAT", returns, trades, {"period": 20.0}, regimes, 10_000_000.0, 252, 0.0
+    )
+    policy = ResearchPolicy(
+        walk_forward_windows=5,
+        ruin_drawdown=0.20,
+        minimum_trades=50,
+        maximum_trade_share=0.30,
+        worst_period_return=-0.10,
+        shock_return=-0.10,
+        gain_multiplier=0.5,
+        loss_multiplier=2.0,
     )
     states = [ResearchEngine.initialize(f"R-{i}", "BENCH-STRAT", 1000.0) for i in range(N)]
 
     start = time.perf_counter()
 
     for i in range(N):
-        ResearchEngine.run_full_research(states[i], payload, 1001.0 + i)
+        ResearchEngine.run_full_research(states[i], payload, policy, 1001.0 + i, seed=42)
 
     duration = time.perf_counter() - start
     ops_sec = N / duration

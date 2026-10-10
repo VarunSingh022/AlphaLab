@@ -245,7 +245,7 @@ def main() -> None:
         scope=FeatureScope.CROSS_SECTIONAL,
     )
     panel = compute_panel(rank, knowledge.frame)
-    returns = forward_returns(align_prices(closes, knowledge), 1)
+    returns = forward_returns(align_prices(closes, knowledge), 1, lag=0, delistings=())
     ic = information_coefficient(panel, returns, minimum_assets=5)
     print(
         f"rank IC {ic.mean_rank:+.4f} over {ic.instants_measured} instants "

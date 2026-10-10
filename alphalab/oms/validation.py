@@ -30,8 +30,10 @@ def validate_order(order: Order, current_timestamp: float) -> None:
     if order.filled_quantity > order.quantity:
         raise OrderValidationError("Filled quantity cannot exceed total quantity.")
 
-    if order.average_fill_price < Decimal("0"):
-        raise OrderValidationError("Average fill price cannot be negative.")
+    # Its sign is the instrument's question since v3.11 (ACC-007): a contract
+    # that trades below zero fills below zero.
+    if not order.average_fill_price.is_finite():
+        raise OrderValidationError("Average fill price must be a finite number.")
 
     if order.updated_at < order.created_at:
         raise OrderValidationError("Timestamps cannot move backwards (updated_at < created_at).")

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from alphalab.allocation.budget import CapitalBudget
+from alphalab.allocation.ceilings import StrategyCapital
 from alphalab.allocation.events import AllocationEvent
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
@@ -42,3 +43,19 @@ class AllocationState:
     contributions: PersistentMap[str, tuple[StrategyContribution, ...]] = field(
         default_factory=PersistentMap
     )
+    #: Each strategy's own signed position per asset: its share of every fill of
+    #: an order it contributed to, divided by contribution exactly as realized
+    #: P&L is. What a target intent is measured against (ledger FEA-001).
+    #: ``None`` when the run's positions were never recorded -- a run upgraded
+    #: from before v3.11 -- in which case a target intent is refused rather than
+    #: measured against a guess.
+    strategy_positions: PersistentMap[str, PersistentMap[str, Decimal]] | None = field(
+        default_factory=PersistentMap
+    )
+    #: Each ceilinged strategy's committed capital -- its positions at cost and
+    #: its working orders' reservations -- in the budget's currency (ledger
+    #: OFE-003). Kept only for a strategy whose budget is enforced as a ceiling
+    #: (:meth:`~alphalab.allocation.budget.CapitalBudget.strategy_ceiling`), so
+    #: empty for every run that enforces none. See
+    #: :mod:`alphalab.allocation.ceilings`.
+    strategy_capital: PersistentMap[str, StrategyCapital] = field(default_factory=PersistentMap)

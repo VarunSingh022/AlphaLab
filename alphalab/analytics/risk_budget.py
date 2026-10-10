@@ -57,10 +57,12 @@ The covariance must describe returns **measured in that reporting currency** --
 a euro stock's dollar return includes the euro's move -- and a covariance in
 another currency is refused rather than mixed. So the ``CURRENCY`` dimension is
 the risk carried by holdings *denominated in* each currency, measured in the
-reporting currency. It is not the risk of exchange-rate moves alone, which
-would need exchange-rate return series as factors; and a currency bucket's
-:attr:`BucketRisk.native_exposure` is reported in that currency, apart from its
-translated value.
+reporting currency. It is not the risk of exchange-rate moves alone: that is
+measured by putting the exchange rates' returns in as factors
+(:func:`~alphalab.analytics.risk_model.currency_loadings`, v3.13) and dividing
+the volatility among them (:func:`~alphalab.analytics.risk_model.factor_risk`).
+A currency bucket's :attr:`BucketRisk.native_exposure` is reported in that
+currency, apart from its translated value.
 
 Tolerance, stated
 -----------------
@@ -87,6 +89,7 @@ from alphalab.analytics.risk_model import (
     RiskContributions,
     euler_decomposition,
 )
+from alphalab.common.arithmetic import canonical_text
 
 __all__ = [
     "RISK_BUDGET_REPORT_SCHEME",
@@ -106,7 +109,9 @@ __all__ = [
 ]
 
 RISK_BUDGET_SCHEME: Final = "alphalab.risk_budget.v1"
-RISK_BUDGET_REPORT_SCHEME: Final = "alphalab.risk_budget_report.v1"
+#: Version 2 (v3.11, ledger DET-006): the capital and every line value --
+#: ``Decimal`` amounts -- render by value.
+RISK_BUDGET_REPORT_SCHEME: Final = "alphalab.risk_budget_report.v2"
 
 #: Money divided into a weight, in an explicit context rather than the thread's.
 _CONTEXT: Final = Context(prec=28, rounding=ROUND_HALF_EVEN)
@@ -500,11 +505,11 @@ class RiskBudgetReport:
                 f"budget={self.budget_id}",
                 f"covariance={self.covariance_id}",
                 f"currency={self.reporting_currency!r}",
-                f"capital={self.capital}",
+                f"capital={canonical_text(self.capital)}",
                 f"volatility={self.volatility!r}",
                 *(
                     f"line={line.strategy_id!r}|{line.asset_id!r}|{line.currency!r}|"
-                    f"{line.native_value}|{line.value}"
+                    f"{canonical_text(line.native_value)}|{canonical_text(line.value)}"
                     for line in self.lines
                 ),
                 *(

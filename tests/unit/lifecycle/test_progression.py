@@ -31,7 +31,7 @@ from alphalab.lifecycle import (
 )
 from alphalab.lifecycle.strategy_version import StrategyVersion
 from alphalab.model_registry import ModelStage
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 
 REF = StrategyVersionRef("momentum", 3)
 

@@ -1,7 +1,6 @@
 """Pure functional Market Data engine."""
 
-from dataclasses import replace
-
+from alphalab.common.evolve import evolve
 from alphalab.common.ids import new_id
 from alphalab.market.bar import Bar
 from alphalab.market.events import (
@@ -52,7 +51,7 @@ class MarketEngine:
             tick=tick,
         )
 
-        return replace(
+        return evolve(
             state,
             latest_ticks=state.latest_ticks.set(tick.asset_id, tick),
             history=state.history.append(event),
@@ -70,7 +69,7 @@ class MarketEngine:
             quote=quote,
         )
 
-        return replace(
+        return evolve(
             state,
             latest_quotes=state.latest_quotes.set(quote.asset_id, quote),
             history=state.history.append(event),
@@ -88,9 +87,9 @@ class MarketEngine:
             bar=bar,
         )
 
-        return replace(
+        return evolve(
             state,
-            latest_bars=state.latest_bars.set(f"{bar.asset_id}_{bar.timeframe.value}", bar),
+            latest_bars=state.latest_bars.set(f"{bar.asset_id}_{bar.timeframe.code}", bar),
             history=state.history.append(event),
             events=state.events.append(event),
         )
@@ -113,7 +112,7 @@ class MarketEngine:
             snapshot=book,
         )
 
-        return replace(
+        return evolve(
             state,
             latest_books=state.latest_books.set(book.asset_id, book),
             history=state.history.append(event),
@@ -131,7 +130,7 @@ class MarketEngine:
             snapshot=snapshot,
         )
 
-        return replace(
+        return evolve(
             state,
             latest_books=state.latest_books.set(snapshot.asset_id, snapshot),
             history=state.history.append(event),

@@ -9,6 +9,7 @@ import pytest
 
 from alphalab.cloud_research import (
     CloudResearchInputError,
+    collect_sweep,
     initialize_cluster,
     resolve_task,
     run_cluster_cycle,
@@ -310,3 +311,43 @@ def test_full_sweep_executes_and_produces_distinct_real_results() -> None:
     r_squared_values = {result.results[job_id]["r_squared"] for job_id in job_ids}
     assert len(r_squared_values) == 2  # genuinely different results, not duplicated
     assert max(r_squared_values) == pytest.approx(1.0)  # the unregularized fit is exact
+
+
+def test_a_finished_sweep_is_counted_as_the_research_authority_counts_a_search() -> None:
+    """v3.12 (ledger SCF-003): the cluster runs the candidates; ``parameter_sweep`` counts them."""
+
+    grid = {"l2_penalty": (0.0, 10.0)}
+    state = initialize_cluster("cluster-1", num_workers=2, capacity_per_worker=4, timestamp=0.0)
+    state, job_ids = submit_parameter_sweep(
+        state,
+        JobType.OPTIMIZATION,
+        "alphalab.cloud_research.example_tasks.train_and_evaluate_linear_model",
+        param_grid=grid,
+        base_kwargs={"x": [[1.0], [2.0], [3.0], [4.0]], "y": [2.0, 4.0, 6.0, 8.0]},
+        priority=1,
+        timestamp=1.0,
+    )
+
+    with pytest.raises(CloudResearchInputError, match="no result yet"):
+        collect_sweep(state, grid, job_ids, "r_squared", lambda result: result["r_squared"])
+
+    with ProcessPoolExecutor(max_workers=2) as executor:
+        done = run_cluster_cycle(state, executor, timestamp=2.0)
+    sweep = collect_sweep(done, grid, job_ids, "r_squared", lambda result: result["r_squared"])
+
+    assert sweep.trials == 2
+    assert tuple(sweep.scores) == ("l2_penalty=0.0", "l2_penalty=10.0")
+    assert sweep.best == "l2_penalty=0.0"
+    assert sweep.best_score == pytest.approx(1.0)
+    with pytest.raises(CloudResearchInputError, match="job ids for a space"):
+        collect_sweep(done, grid, job_ids[:1], "r_squared", lambda result: result["r_squared"])
+
+
+def test_a_sweep_space_enumerates_axes_by_name_and_refuses_what_is_not_a_value() -> None:
+    from alphalab.cloud_research import sweep_space
+
+    space = sweep_space({"b": (1, 2), "a": (10,)})
+
+    assert space.rendered == ("a=10,b=1", "a=10,b=2")
+    with pytest.raises(CloudResearchInputError, match="finite"):
+        sweep_space({"a": (float("inf"),)})

@@ -13,6 +13,8 @@ which ties together the four quantities v2.1 keeps separate.
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
+
 from alphalab.execution.commission import FixedCommission, PerShareCommission
 from alphalab.execution.fill import FillStatus
 from alphalab.execution.simulator import ExecutionSimulator
@@ -356,21 +358,46 @@ def test_a_later_quote_makes_the_previously_unpriced_asset_tradeable() -> None:
     assert traded.state.portfolio.positions[asset].quantity == Decimal("10.000000")
 
 
-def test_a_non_positive_mark_is_ignored_and_leaves_the_previous_mark_standing() -> None:
+def test_a_non_positive_mark_is_refused_and_leaves_the_previous_mark_standing() -> None:
+    """Refused, not silently ignored (ledger ACC-007).
+
+    Until v3.11 the portfolio skipped a non-positive mark without a word, and
+    the position went on carrying a price nothing said was stale. The pipeline
+    now refuses the event -- the instrument declares no negative prices -- and
+    a run records the record as skipped, with the reason.
+    """
+
+    from alphalab.market.exceptions import MarketValidationError
+    from alphalab.market.record import MarketRecord
+    from alphalab.runtime.run import ExecutionMode, RunConfig, RunEngine
+
     state, asset = _start({2.0: Decimal("10")})
 
     entry = ExecutionPipeline.process_quote(
         state, quote(asset, 2.0, Decimal("100.00")), context_factory
     )
-    zero_quote = ExecutionPipeline.process_quote(
-        entry.state, quote(asset, 3.0, Decimal("0.00")), context_factory
+    with pytest.raises(MarketValidationError, match="must be positive"):
+        ExecutionPipeline.process_quote(
+            entry.state, quote(asset, 3.0, Decimal("0.00")), context_factory
+        )
+
+    run = RunEngine.initialize(
+        RunConfig(pipeline=state.config, mode=ExecutionMode.BACKTEST, start_timestamp=1.0),
+        state.strategy,
+    )
+    run, _ = RunEngine.advance(
+        run, MarketRecord("DS", 2.0, quote(asset, 2.0, Decimal("100.00"))), context_factory
+    )
+    skipped, result = RunEngine.advance(
+        run, MarketRecord("DS", 3.0, quote(asset, 3.0, Decimal("0.00"))), context_factory
     )
 
-    position = zero_quote.state.portfolio.positions[asset]
+    assert result is None
+    (entry_skipped,) = skipped.skipped
+    assert "must be positive" in entry_skipped.reason
+    position = skipped.pipeline.portfolio.positions[asset]
     assert position.market_price == Decimal("100.0000")
     assert position.unrealized_pnl == Decimal("0.00")
-    assert zero_quote.valuation is not None
-    assert zero_quote.valuation.equity == START_CASH
 
 
 # ---------------------------------------------------------------------------

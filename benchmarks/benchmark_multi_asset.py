@@ -59,6 +59,7 @@ from alphalab.options import (
     occ_symbol,
     surface_from_chain,
 )
+from alphalab.options.carry import dividend_yield
 from alphalab.portfolio.contracts import ContractHolding, contract_exposures
 from alphalab.portfolio.fx import FxRate, FxRates
 from alphalab.portfolio.fx_research import ForwardTerms, covered_forward_rate
@@ -161,7 +162,9 @@ def _option_chain(strikes: int):  # type: ignore[no-untyped-def]
         for i in range(strikes)
     )
     prices = {
-        occ_symbol(c): Decimal(str(black_scholes_value(c, 150.0, 0.25, 0.04, 1.0)))
+        occ_symbol(c): Decimal(
+            str(black_scholes_value(c, 150.0, 0.25, 0.04, 1.0, carry=dividend_yield(0.0)))
+        )
         for c in contracts
     }
     return OptionChain("UND", 0.0, contracts), prices
@@ -202,7 +205,9 @@ _BOND = Bond(
 )
 _SETTLEMENT = date(2025, 1, 15)
 _OPTION = OptionContract("UND", Decimal("150"), YEAR, OptionType.CALL, ExerciseStyle.EUROPEAN, 100)
-_PRICE = Decimal(str(black_scholes_value(_OPTION, 150.0, 0.25, 0.04, 1.0)))
+_PRICE = Decimal(
+    str(black_scholes_value(_OPTION, 150.0, 0.25, 0.04, 1.0, carry=dividend_yield(0.0)))
+)
 _VENUE = VenueSpecification(
     "binance",
     8,
@@ -222,12 +227,16 @@ def run_benchmark() -> None:
     print("Per-call throughput:")
     _timed(
         "black_scholes_greeks",
-        lambda: black_scholes_greeks(_OPTION, Decimal("150"), 0.25, 0.04, 0.0),
+        lambda: black_scholes_greeks(
+            _OPTION, Decimal("150"), 0.25, 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
         50_000,
     )
     _timed(
         "implied_volatility",
-        lambda: implied_volatility(_OPTION, _PRICE, Decimal("150"), 0.04, 0.0),
+        lambda: implied_volatility(
+            _OPTION, _PRICE, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        ),
         5_000,
     )
     _timed("clean_price (20 flows)", lambda: clean_price(_BOND, 0.05, _SETTLEMENT), 20_000)
@@ -293,7 +302,9 @@ def run_benchmark() -> None:
 
     def surface_work(strikes: int):  # type: ignore[no-untyped-def]
         chain, prices = _option_chain(strikes)
-        return lambda: surface_from_chain(chain, prices, Decimal("150"), 0.04, 0.0)
+        return lambda: surface_from_chain(
+            chain, prices, Decimal("150"), 0.04, 0.0, carry=dividend_yield(0.0)
+        )
 
     _scaling("surface_from_chain, strikes", (50, 500, 5_000), surface_work)
 

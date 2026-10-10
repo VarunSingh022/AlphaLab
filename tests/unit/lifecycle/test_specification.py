@@ -12,6 +12,7 @@ import pytest
 
 from alphalab.core.enums import AssetType, OrderType, TimeInForce
 from alphalab.data.exceptions import DataValidationError
+from alphalab.data.time import BarStamp
 from alphalab.lifecycle import (
     DEPLOYMENT_SPECIFICATION_SCHEME,
     BrokerCapabilities,
@@ -46,7 +47,7 @@ from alphalab.risk.limits import (
     PositionLimit,
     RiskLimits,
 )
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 
 REF = StrategyVersionRef("momentum", 2)
 PARAMETERS = {"fast": 10.0, "slow": 30.0}
@@ -69,7 +70,7 @@ def limits(
         exposure=ExposureLimit(Decimal(gross), Decimal(net)),
         leverage=LeverageLimit(Decimal(leverage)),
         margin=MarginLimit(Decimal("0.5")),
-        daily_loss=DailyLossLimit(Decimal("5000")),
+        daily_loss=DailyLossLimit(Decimal("5000"), "UTC"),
         drawdown=DrawdownLimit(Decimal("0.2")),
     )
 
@@ -334,6 +335,7 @@ class TestDatasetLineage:
                 SourceKind.IN_MEMORY, "spec-prices", b"", 0.0, "text/csv", "utf-8"
             ),
             frequency=TimeFrequency.DAILY,
+            bar_stamp=BarStamp.INTERVAL_END,
             asset_class=DataAssetClass.EQUITY,
             cleaning_policy=CleaningPolicy(
                 duplicates=DuplicatePolicy.KEEP_FIRST,

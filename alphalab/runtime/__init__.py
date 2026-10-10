@@ -43,6 +43,7 @@ any more. ``EventDispatcher``, ``RuntimeEngine``, ``RuntimeSupervisor``,
 package; the canonical names beside them are unchanged.
 """
 
+from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.broker_routing import (
     ChildOrderBindings,
     ChildRoutingResult,
@@ -55,8 +56,21 @@ from alphalab.runtime.broker_routing import (
     execution_report_from_broker,
     route_child_order,
     route_order,
+    venue_order_type,
 )
-from alphalab.runtime.exceptions import AlphaLabRuntimeError, RuntimeValidationError
+from alphalab.runtime.calendars import VenueCalendars
+from alphalab.runtime.checkpoint import (
+    CHECKPOINT_SCHEMA,
+    CheckpointMark,
+    checkpoint,
+    read_checkpoints,
+    restore_checkpoints,
+)
+from alphalab.runtime.exceptions import (
+    AlphaLabRuntimeError,
+    HistoryNotRetainedError,
+    RuntimeValidationError,
+)
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipeline,
     ExecutionPipelineConfig,
@@ -66,6 +80,7 @@ from alphalab.runtime.execution_pipeline import (
     SettlementRefusal,
     UnpricedAsset,
     UnpricedReason,
+    wants_slices,
 )
 from alphalab.runtime.live import (
     LiveRunState,
@@ -75,6 +90,7 @@ from alphalab.runtime.live import (
     SettledExecution,
     live_health,
 )
+from alphalab.runtime.retention import RetentionPolicy
 from alphalab.runtime.run import (
     ExecutionMode,
     RunConfig,
@@ -82,22 +98,29 @@ from alphalab.runtime.run import (
     RunState,
     RunStep,
     SkippedRecord,
+    StrategyFailedError,
+    StrategyFailure,
 )
 from alphalab.runtime.session import TradingSession
 
 __all__ = [
+    "CHECKPOINT_SCHEMA",
     "AlphaLabRuntimeError",
+    "CheckpointMark",
     "ChildOrderBindings",
     "ChildRoutingResult",
+    "ExecutionAssumptions",
     "ExecutionMode",
     "ExecutionPipeline",
     "ExecutionPipelineConfig",
     "ExecutionPipelineResult",
     "ExecutionPipelineState",
     "ExecutionRouting",
+    "HistoryNotRetainedError",
     "LiveRunState",
     "LiveSession",
     "LiveStep",
+    "RetentionPolicy",
     "RoutedOrder",
     "RoutingConfig",
     "RoutingDecision",
@@ -111,13 +134,22 @@ __all__ = [
     "SettledExecution",
     "SettlementRefusal",
     "SkippedRecord",
+    "StrategyFailedError",
+    "StrategyFailure",
     "TradingSession",
     "UnpricedAsset",
     "UnpricedReason",
+    "VenueCalendars",
     "apply_broker_execution",
+    "checkpoint",
     "child_broker_order_id",
+    "execution_assumptions",
     "execution_report_from_broker",
     "live_health",
+    "read_checkpoints",
+    "restore_checkpoints",
     "route_child_order",
     "route_order",
+    "venue_order_type",
+    "wants_slices",
 ]

@@ -7,7 +7,7 @@ from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.order import BrokerOrder
 from alphalab.broker.position import BrokerPosition
 from alphalab.brokers.connection import BrokerConnection
-from alphalab.brokers.events import BrokerEvent
+from alphalab.brokers.events import BrokerConnectorEvent
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
 
@@ -52,5 +52,5 @@ class BrokerConnectorState:
     orders: PersistentMap[str, BrokerOrder] = field(default_factory=PersistentMap)
     executions: PersistentMap[str, BrokerExecution] = field(default_factory=PersistentMap)
     statistics: BrokerStatistics = field(default_factory=BrokerStatistics)
-    events: AppendOnlyLog[BrokerEvent] = field(default_factory=AppendOnlyLog)
+    events: AppendOnlyLog[BrokerConnectorEvent] = field(default_factory=AppendOnlyLog)
     metadata: PersistentMap[str, str] = field(default_factory=PersistentMap)

@@ -41,7 +41,7 @@ from itertools import pairwise
 
 from alphalab.data.csv_source import RawRow, RawTable
 from alphalab.data.exceptions import DataValidationError
-from alphalab.data.feed import Bar, CanonicalRecord, Quote
+from alphalab.data.feed import Bar, CanonicalRecord, Quote, Trade, TradeAggressor
 from alphalab.data.schema import FieldRole, RecordType, SchemaDetection
 from alphalab.data.time import DateOnlyPolicy, TimeFrequency, parse_timestamp
 
@@ -51,6 +51,7 @@ __all__ = [
     "Severity",
     "ValidationFinding",
     "coerce_row",
+    "duplicate_key",
     "validate_records",
 ]
 
@@ -114,6 +115,19 @@ class FindingKind(Enum):
     #: restatement published before the period closed. Raised by the v3.7
     #: point-in-time ingestion in :mod:`alphalab.api`, never by a price row.
     INCONSISTENT_RECORD = auto()
+
+    #: A trade print's size was zero or negative: nothing traded (v3.12).
+    NON_POSITIVE_SIZE = auto()
+
+    #: Two prints carry one venue identifier (v3.12).
+    DUPLICATE_TRADE_ID = auto()
+
+    #: Identical prints at one instant, with no identifier to tell two trades
+    #: from a repeated row. Reported, and both kept (v3.12).
+    INDISTINGUISHABLE_PRINTS = auto()
+
+    #: A coded field held a value its declaration names no meaning for (v3.12).
+    UNKNOWN_CODE = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +253,27 @@ def coerce_row(
     else:
         symbol = default_symbol.strip()
 
+    trade_id = ""
+    aggressor: TradeAggressor | None = None
+    if record_type is RecordType.TRADE:
+        trade_id = (read(FieldRole.TRADE_ID) or "").strip()
+        code = (read(FieldRole.AGGRESSOR) or "").strip()
+        if code:
+            aggressor = detection.aggressor_codes.get(code)
+            if aggressor is None:
+                findings.append(
+                    ValidationFinding(
+                        FindingKind.UNKNOWN_CODE,
+                        Severity.ERROR,
+                        row.line_number,
+                        detection.column_for(FieldRole.AGGRESSOR),
+                        f"{code!r} is not one of the declared aggressor codes "
+                        f"{sorted(detection.aggressor_codes)}; reading it as either side "
+                        "would be a guess",
+                    )
+                )
+                return None, tuple(findings)
+
     numbers: dict[FieldRole, float] = {}
     required = _numeric_roles(record_type, required_only=True)
     optional = _numeric_roles(record_type, required_only=False)
@@ -297,6 +332,15 @@ def coerce_row(
             close=numbers[FieldRole.CLOSE],
             volume=numbers.get(FieldRole.VOLUME, 0.0),
         )
+    elif record_type is RecordType.TRADE:
+        record = Trade(
+            symbol=symbol,
+            timestamp=timestamp,
+            price=numbers[FieldRole.PRICE],
+            size=numbers[FieldRole.SIZE],
+            trade_id=trade_id,
+            aggressor=aggressor,
+        )
     else:
         record = Quote(
             symbol=symbol,
@@ -315,6 +359,8 @@ def _numeric_roles(record_type: RecordType, required_only: bool) -> tuple[FieldR
         if required_only:
             return (FieldRole.OPEN, FieldRole.HIGH, FieldRole.LOW, FieldRole.CLOSE)
         return (FieldRole.VOLUME, FieldRole.TRADE_COUNT)
+    if record_type is RecordType.TRADE:
+        return (FieldRole.PRICE, FieldRole.SIZE) if required_only else ()
     if required_only:
         return (FieldRole.BID, FieldRole.ASK)
     return (FieldRole.BID_SIZE, FieldRole.ASK_SIZE)
@@ -336,14 +382,24 @@ def validate_records(
     """
 
     findings: list[ValidationFinding] = []
-    seen: set[tuple[str, float]] = set()
+    seen: set[tuple[object, ...]] = set()
+    prints: set[Trade] = set()
     previous: dict[str, float] = {}
 
     for record in records:
-        key = (record.symbol, record.timestamp)
-        if key in seen:
+        key = duplicate_key(record)
+        if key is not None and key in seen:
             findings.append(
                 ValidationFinding(
+                    FindingKind.DUPLICATE_TRADE_ID,
+                    Severity.ERROR,
+                    None,
+                    None,
+                    f"{record.symbol} has more than one print identified as {key[-1]!r}, and "
+                    "nothing in the data says which is correct",
+                )
+                if isinstance(record, Trade)
+                else ValidationFinding(
                     FindingKind.DUPLICATE_TIMESTAMP,
                     Severity.ERROR,
                     None,
@@ -352,7 +408,22 @@ def validate_records(
                     "nothing in the data says which is correct",
                 )
             )
-        seen.add(key)
+        if key is not None:
+            seen.add(key)
+        elif isinstance(record, Trade):
+            if record in prints:
+                findings.append(
+                    ValidationFinding(
+                        FindingKind.INDISTINGUISHABLE_PRINTS,
+                        Severity.WARNING,
+                        None,
+                        None,
+                        f"{record.symbol} has identical prints of {record.size!r} at "
+                        f"{record.price!r} at {record.timestamp!r} and no trade identifier; two "
+                        "trades and a repeated row read the same, so both are kept",
+                    )
+                )
+            prints.add(record)
 
         last = previous.get(record.symbol)
         if last is not None and record.timestamp < last:
@@ -375,10 +446,48 @@ def validate_records(
     return tuple(findings)
 
 
+def duplicate_key(record: CanonicalRecord) -> tuple[object, ...] | None:
+    """What makes two records one record twice -- the package's single definition.
+
+    One instrument at one instant, for a bar, a quote and every other record;
+    for a trade print, one venue identifier (v3.12). Many prints share an
+    instant, so an instant identifies none of them, and a print with no
+    identifier has no key at all: nothing in it tells a second trade of the same
+    size at the same price from a repeated row, so it is never a duplicate.
+    :mod:`alphalab.data.cleaning` resolves duplicates by this key and
+    :func:`validate_records` reports them by it.
+    """
+
+    if isinstance(record, Trade):
+        return None if not record.trade_id else (record.symbol, "trade", record.trade_id)
+    return (record.symbol, record.timestamp)
+
+
 def _validate_one(record: CanonicalRecord) -> list[ValidationFinding]:
     """Per-record checks that need no neighbours."""
 
     findings: list[ValidationFinding] = []
+    if isinstance(record, Trade):
+        if record.price <= 0.0:
+            findings.append(
+                ValidationFinding(
+                    FindingKind.NON_POSITIVE_PRICE,
+                    Severity.ERROR,
+                    None,
+                    "price",
+                    f"{record.symbol} at {record.timestamp!r} printed at {record.price!r}",
+                )
+            )
+        if record.size <= 0.0:
+            findings.append(
+                ValidationFinding(
+                    FindingKind.NON_POSITIVE_SIZE,
+                    Severity.ERROR,
+                    None,
+                    "size",
+                    f"{record.symbol} at {record.timestamp!r} printed a size of {record.size!r}",
+                )
+            )
     if isinstance(record, Bar):
         prices = {
             "open": record.open,

@@ -81,6 +81,7 @@ from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.state import RiskState
+from alphalab.runtime.exceptions import HistoryNotRetainedError
 
 __all__ = [
     "HistoryView",
@@ -507,6 +508,18 @@ class HistoryView:
     Nothing is indexed per asset. An index would be a second structure for the
     market engine to keep true, paid for on every publish by every run, to speed
     up a call many strategies never make.
+
+    A bounded window (v3.12)
+    ------------------------
+    A run whose :class:`~alphalab.runtime.retention.RetentionPolicy` bounds
+    market history gives this view a :attr:`window`: it reads only the newest
+    ``window`` events, however many the log holds at that moment, so what a
+    strategy sees does not depend on when the log was last trimmed. An answer
+    that would need an event outside the window -- ``limit`` matches not found
+    within it, or no ``limit`` at all, while older events exist -- is refused
+    with :class:`~alphalab.runtime.exceptions.HistoryNotRetainedError` rather
+    than shortened: a short answer would read as "not enough history yet"
+    (ledger PRF-004).
     """
 
     _market: MarketState
@@ -514,6 +527,23 @@ class HistoryView:
     #: dispatched. Nothing at or before it is hidden; nothing after it is
     #: reachable.
     as_of: float
+    #: How many of the newest market events this view reads, or ``None`` for
+    #: every one the run kept -- the policy's ``market_history``.
+    window: int | None = None
+
+    @property
+    def visible(self) -> int:
+        """How many market events this view can read: its window, or the whole log."""
+
+        size = len(self._market.history)
+        return size if self.window is None else min(self.window, size)
+
+    @property
+    def complete(self) -> bool:
+        """Whether this view reaches the run's first event -- nothing older was dropped."""
+
+        history = self._market.history
+        return history.dropped == 0 and self.visible == len(history)
 
     def _collect[T: Quote | Bar | Tick](
         self, pick: Callable[[MarketEvent], T | None], asset_id: str, limit: int | None
@@ -528,7 +558,11 @@ class HistoryView:
         """
 
         collected: list[T] = []
+        remaining = self.visible
         for event in reversed(self._market.history):
+            if remaining == 0:
+                break
+            remaining -= 1
             payload = pick(event)
             if payload is None or payload.asset_id != asset_id:
                 continue
@@ -540,6 +574,17 @@ class HistoryView:
             collected.append(payload)
             if limit is not None and len(collected) >= limit:
                 break
+        if (limit is None or len(collected) < limit) and not self.complete:
+            history = self._market.history
+            wanted = "every one" if limit is None else f"{limit}"
+            raise HistoryNotRetainedError(
+                f"Asked for {wanted} of {asset_id!r}'s history and found {len(collected)} in "
+                f"the {self.visible} newest market events this run keeps; "
+                f"{history.dropped + len(history) - self.visible} older events are outside "
+                "the retention window (RetentionPolicy.market_history). A shorter answer would "
+                "read as too little history, so none is given: ask for what the window holds, "
+                "or keep more."
+            )
         collected.reverse()
         return tuple(collected)
 
@@ -576,7 +621,11 @@ class HistoryView:
         yet" without asking for the events themselves.
         """
 
-        return sum(1 for event in self._market.history if event.timestamp <= self.as_of)
+        visible = self.visible
+        history = self._market.history
+        return sum(
+            1 for event in history[len(history) - visible :] if event.timestamp <= self.as_of
+        )
 
     def __bool__(self) -> bool:
         return len(self) > 0

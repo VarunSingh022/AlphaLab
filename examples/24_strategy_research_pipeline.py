@@ -90,7 +90,13 @@ SUBJECT = "strategy://research-panel-momentum@1"
 FEATURES = (
     FeatureDefinition("mom_20", FeatureKind.MOMENTUM, FeatureField.CLOSE, window=20),
     FeatureDefinition("rev_10", FeatureKind.MEAN_REVERSION, FeatureField.CLOSE, window=10),
-    FeatureDefinition("vol_20", FeatureKind.REALIZED_VOLATILITY, FeatureField.CLOSE, window=20),
+    FeatureDefinition(
+        "vol_20",
+        FeatureKind.REALIZED_VOLATILITY,
+        FeatureField.CLOSE,
+        window=20,
+        parameters={"periods_per_year": 252.0},
+    ),
 )
 
 
@@ -115,6 +121,7 @@ def main() -> None:
         splits="walk_forward(mode=ROLLING,train=60,validation=20,test=20,step=20)",
         seed=SEED,
         notes="v3.2 complete pipeline example",
+        implementation_lag=0,
     )
 
     print()
@@ -141,7 +148,7 @@ def main() -> None:
     print()
     print("Step 02 - The dataset cannot be switched")
     try:
-        run_study(replace(study, dataset_version="OTHER-PANEL@deadbeef"), dataset)
+        run_study(replace(study, dataset_version="OTHER-PANEL@deadbeef"), dataset, delistings=())
     except ResearchValidationError as error:
         print(f"  {str(error)[:70]}...")
     print("  The study names its data and run_study compares rather than trusts.")
@@ -153,7 +160,9 @@ def main() -> None:
     # Step 03 : Run it
     # ------------------------------------------------------------------
 
-    result = run_study(study, dataset, buckets=5, minimum_assets=5, produced_at=PRODUCED_AT)
+    result = run_study(
+        study, dataset, buckets=5, minimum_assets=5, produced_at=PRODUCED_AT, delistings=()
+    )
 
     print()
     print("Step 03 - The result")
@@ -185,7 +194,7 @@ def main() -> None:
     # Step 04 : Reproducibility
     # ------------------------------------------------------------------
 
-    again = run_study(study, dataset, produced_at=PRODUCED_AT + 999_999.0)
+    again = run_study(study, dataset, produced_at=PRODUCED_AT + 999_999.0, delistings=())
 
     print()
     print("Step 04 - Reproducibility")
@@ -213,7 +222,7 @@ def main() -> None:
 
     panels = study_panels(study, dataset)
     signal = panels[FEATURES[0].feature_version]
-    realized = forward_returns(frame, horizon)
+    realized = forward_returns(frame, horizon, lag=0, delistings=())
 
     print()
     print("Step 05 - Validation")
@@ -380,7 +389,7 @@ def main() -> None:
     # The lineage, end to end
     # ------------------------------------------------------------------
 
-    decay = factor_decay(signal, frame, [1, 5, 20], minimum_assets=5)
+    decay = factor_decay(signal, frame, [1, 5, 20], minimum_assets=5, lag=0, delistings=())
 
     print()
     print("=" * 74)

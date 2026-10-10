@@ -19,7 +19,7 @@ inherent, honest property of real parallel execution, not a defect.
 """
 
 from collections.abc import Mapping
-from concurrent.futures import Executor, as_completed
+from concurrent.futures import Executor
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -123,12 +123,15 @@ def run_cluster_cycle(
     for job in newly_assigned:
         current = DistributedEngine.start_job(current, job.job_id, timestamp)
 
-    futures = {executor.submit(run_task, job.payload): job.job_id for job in newly_assigned}
+    submitted = [(job.job_id, executor.submit(run_task, job.payload)) for job in newly_assigned]
     new_results = dict(state.results)
 
-    for future in as_completed(futures):
-        job_id = futures[future]
-        outcome = future.result()
+    # Every outcome is collected first and applied in submission order. Until
+    # v3.10 they were applied as the executor finished them, so the results
+    # mapping, the distributed event log and the seeded identifiers those events
+    # mint all depended on the operating system's scheduling (ledger DET-001).
+    outcomes = [(job_id, future.result()) for job_id, future in submitted]
+    for job_id, outcome in outcomes:
         if outcome.get("success"):
             new_results[job_id] = outcome["result"]
             current = DistributedEngine.complete_job(current, job_id, timestamp)

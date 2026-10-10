@@ -16,6 +16,12 @@ neither re-implements anything on the far side of it:
   :class:`~alphalab.factor_library.knowledge.KnowledgeFrame`, so cross-sectional
   fundamental factors are computed by the v3.2 feature engine like any other.
 
+And one from the data layer into it: :func:`share_count_changes` reads the
+corporate-action authority's split records (:class:`alphalab.data.feed.Split`)
+as the :class:`~alphalab.alt_data.fundamentals.ShareCountChange` values a
+per-share figure is restated with (v3.12, ledger OFE-011). This package is where
+the two meet, because ``alphalab.alt_data`` imports nothing but ``common``.
+
 The style factors' ``timestamp`` argument remains a label, as it always was:
 ``compute_momentum`` stamps a result at the instant it is told. Point-in-time
 correctness therefore belongs to whatever *produces* the input, and a snapshot
@@ -25,7 +31,7 @@ the label and the knowledge agree.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -33,11 +39,13 @@ from alphalab.alt_data.exceptions import AltDataInputError
 from alphalab.alt_data.fundamentals import (
     FundamentalInput,
     FundamentalObservation,
+    ShareCountChange,
     aggregate_timeline,
     currency_of_per_share_unit,
     fundamental_inputs_as_of,
 )
 from alphalab.alt_data.observation_set import ObservationView, VintagePolicy
+from alphalab.data.feed import Split
 from alphalab.factor_library.exceptions import FactorInputError
 from alphalab.factor_library.inputs import FundamentalSnapshot
 from alphalab.factor_library.knowledge import (
@@ -52,6 +60,7 @@ __all__ = [
     "SnapshotSpecification",
     "fundamental_frame",
     "fundamental_snapshot_as_of",
+    "share_count_changes",
 ]
 
 
@@ -204,4 +213,39 @@ def fundamental_frame(
         subjects,
         max_age_seconds,
         policy,
+    )
+
+
+def share_count_changes(
+    splits: Sequence[Split], *, source: str, subjects: Mapping[str, str] | None = None
+) -> tuple[ShareCountChange, ...]:
+    """The data layer's split records as share count changes a fundamental is restated by.
+
+    Each :class:`~alphalab.data.feed.Split` takes effect at its ``timestamp``
+    -- the ex-date, as :func:`~alphalab.data.corporate_actions.apply_adjustments`
+    reads it -- with its ``ratio`` read exactly as written (``repr`` of the
+    float, so ``1.5`` is ``Decimal("1.5")`` and not its binary expansion). A
+    split record says when it took effect and not when it was announced, so the
+    change is taken to be known from its effective instant.
+
+    Args:
+        splits: The corporate-action authority's split records.
+        source: Where they came from, recorded on each change.
+        subjects: Symbol to the subject key the fundamentals use, where the two
+            differ; a symbol absent from it is its own subject.
+
+    Raises:
+        AltDataInputError: If a record cannot be a share count change -- a
+            ratio that is not positive, or is one.
+    """
+
+    named = {} if subjects is None else subjects
+    return tuple(
+        ShareCountChange(
+            subject=named.get(split.symbol, split.symbol),
+            effective_at=split.timestamp,
+            ratio=Decimal(repr(split.ratio)),
+            source=source,
+        )
+        for split in sorted(splits, key=lambda split: (split.timestamp, split.symbol))
     )

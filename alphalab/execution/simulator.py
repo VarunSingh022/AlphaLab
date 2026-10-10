@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from alphalab.common.ids import new_id
+from alphalab.core.enums import Side
 from alphalab.execution.commission import CommissionModel, FixedCommission
 from alphalab.execution.costs import (
     CostContext,
@@ -38,6 +39,7 @@ from alphalab.execution.costs import (
     ExecutionCosts,
     NoFee,
     NoImpact,
+    NoSlippage,
     NoSpread,
     NoTax,
 )
@@ -65,12 +67,34 @@ class ExecutionSimulator:
         cost_model: The full six-role itemization. ``None`` means "the two
             models above and no other cost", which is what every pre-v3.3
             simulator meant.
+        maker_commission_model: What a resting fill -- one that provided
+            liquidity -- is charged instead of the commission role, or ``None``
+            for the same commission a taker pays. A negative rate is a rebate,
+            which a venue pays its liquidity providers (v3.11, ledger ACC-007).
     """
 
     commission_model: CommissionModel = DEFAULT_COMMISSION
     slippage_model: SlippageModel = DEFAULT_SLIPPAGE
     latency_model: LatencyModel = DEFAULT_LATENCY
     cost_model: ExecutionCostModel | None = field(default=None)
+    maker_commission_model: CommissionModel | None = None
+
+    @property
+    def is_frictionless(self) -> bool:
+        """Whether every cost role charges nothing by construction.
+
+        True for :data:`~alphalab.execution.costs.FREE` and for the default
+        simulator, whose two legacy roles are fixed charges of zero -- a run
+        that states no costs pays none (ledger EXE-002). It says which
+        configuration was chosen, not what a fill happened to be charged: a
+        percentage model at a zero rate charges nothing too, and is reported as
+        the model it is.
+        """
+
+        maker = self.maker_commission_model
+        return all(_charges_nothing(role) for role in astuple_shallow(self.costs)) and (
+            maker is None or _charges_nothing(maker)
+        )
 
     @property
     def costs(self) -> ExecutionCostModel:
@@ -90,6 +114,30 @@ class ExecutionSimulator:
             commission_model=self.commission_model,
             fee_model=NoFee(),
             tax_model=NoTax(),
+        )
+
+    @property
+    def passive_costs(self) -> ExecutionCostModel:
+        """What a *resting* fill is priced by: the cash charges and no price concession.
+
+        A limit order that rested and was filled at its own price did not cross
+        the spread, walk the book or move the market; it was the liquidity. Its
+        spread, slippage and impact are therefore nothing, and its commission,
+        fees and tax are what the configuration charges -- the commission being
+        :attr:`maker_commission_model` when one is set, which may be a rebate
+        (ACC-007). Since v3.11 (ledger EXE-003), for fills :func:`simulate_fill`
+        is told are passive.
+        """
+
+        costs = self.costs
+        maker = self.maker_commission_model
+        return ExecutionCostModel(
+            spread_model=NoSpread(),
+            slippage_model=NoSlippage(),
+            impact_model=NoImpact(),
+            commission_model=costs.commission_model if maker is None else maker,
+            fee_model=costs.fee_model,
+            tax_model=costs.tax_model,
         )
 
     def context(
@@ -120,6 +168,7 @@ class ExecutionSimulator:
             bid=bid,
             ask=ask,
             available_liquidity=available_liquidity,
+            minor_units=instruction.minor_units,
         )
 
     def simulate_costs(
@@ -131,8 +180,13 @@ class ExecutionSimulator:
         bid: Decimal | None = None,
         ask: Decimal | None = None,
         available_liquidity: Decimal | None = None,
+        *,
+        passive: bool = False,
     ) -> ExecutionCosts:
         """Itemize what this fill costs, without producing a report.
+
+        ``passive`` itemizes a resting fill -- see :attr:`passive_costs`; a
+        report says which a fill was by its ``liquidity_flag``.
 
         The breakdown behind :attr:`~alphalab.execution.report.ExecutionReport.slippage`
         and :attr:`~alphalab.execution.report.ExecutionReport.commission`. Pure,
@@ -140,7 +194,8 @@ class ExecutionSimulator:
         was priced with.
         """
 
-        return self.costs.quote(
+        model = self.passive_costs if passive else self.costs
+        return model.quote(
             self.context(
                 instruction, fill_quantity, market_price, timestamp, bid, ask, available_liquidity
             )
@@ -156,6 +211,8 @@ class ExecutionSimulator:
         bid: Decimal | None = None,
         ask: Decimal | None = None,
         available_liquidity: Decimal | None = None,
+        *,
+        passive: bool = False,
     ) -> ExecutionReport:
         """Simulates a fill deterministically.
 
@@ -164,13 +221,20 @@ class ExecutionSimulator:
         They reach the cost model and nothing else: a cost role that needs one
         of them refuses when it is absent rather than substituting a figure, so
         a feed without sizes cannot silently produce an impact charge.
+
+        ``passive`` prices a resting order's fill at ``market_price`` itself --
+        its limit, or better -- charging only commission, fees and tax (see
+        :attr:`passive_costs`), and flags it ``MAKER``. Otherwise the fill takes
+        liquidity and is flagged ``TAKER``, as every simulated fill was before
+        v3.11.
         """
 
         context = self.context(
             instruction, fill_quantity, market_price, timestamp, bid, ask, available_liquidity
         )
-        costs = self.costs.quote(context)
-        fill_price = self.costs.fill_price(context, costs)
+        model = self.passive_costs if passive else self.costs
+        costs = model.quote(context)
+        fill_price = model.fill_price(context, costs)
 
         if status in (FillStatus.FULL_FILL, FillStatus.PARTIAL_FILL):
             validate_execution_parameters(
@@ -193,8 +257,37 @@ class ExecutionSimulator:
             commission=costs.cash_charged,
             # The per-unit concession, which is already inside fill_price.
             slippage=costs.price_concession,
-            liquidity_flag="TAKER",
+            liquidity_flag="MAKER" if passive else "TAKER",
             venue=instruction.venue,
             currency=instruction.currency,
             status=status,
         )
+
+
+def astuple_shallow(costs: ExecutionCostModel) -> tuple[object, ...]:
+    """The six roles of a cost model, in declaration order."""
+
+    return (
+        costs.spread_model,
+        costs.slippage_model,
+        costs.impact_model,
+        costs.commission_model,
+        costs.fee_model,
+        costs.tax_model,
+    )
+
+
+def _charges_nothing(role: object) -> bool:
+    """Whether a cost role is a no-cost member, or a fixed charge of zero."""
+
+    if isinstance(role, NoSpread | NoSlippage | NoImpact | NoFee | NoTax):
+        return True
+    # A fixed charge is asked for what it charges: one unit at a price of one.
+    if isinstance(role, FixedCommission):
+        return role.calculate(_ONE, _ONE) == 0
+    if isinstance(role, FixedSlippage):
+        return role.calculate(_ONE, _ONE, Side.BUY) == 0
+    return False
+
+
+_ONE = Decimal(1)

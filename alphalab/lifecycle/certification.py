@@ -762,18 +762,10 @@ _RISK_METHOD = (
 
 _RISK_LIMITS_NOT_OBSERVED = (
     _RUN_CONFIGURATION_UNOBSERVED,
-    "Order-size, position and margin limits are enforced at order time; they are covered "
-    "here through the gate's decisions, not re-observed between orders.",
-    "A refusal is reported as the gate recorded it and is not re-judged here. The gate's "
-    "position check adds the asset's notional exposure (RiskState.exposure.asset_exposure, "
-    "a market value) to the order's quantity before comparing with "
-    "PositionLimit.max_quantity, so a PositionLimit refusal can reflect that check's units "
-    "rather than the strategy's position (ADR-0041).",
-    "max_daily_loss is not assessed: the execution path does not maintain "
-    "RiskState.daily_loss, so the daily-loss check reads zero and a run record carries no "
-    "per-day loss to observe.",
-    "max_net_exposure is not assessed: no pre-trade check reads it and AlphaLab defines no "
-    "sign convention for it, so a comparison here would be an interpretation nobody chose.",
+    "Order-size, position, margin, net-exposure and daily-loss limits are enforced at order "
+    "time, on the book each order would leave (v3.10); they are covered here through the "
+    "gate's decisions, not re-observed between orders.",
+    "A refusal is reported as the gate recorded it and is not re-judged here.",
     "Limits are observed at recorded snapshots -- one per processed record, and one at "
     "funding -- not between them.",
 )
@@ -782,7 +774,7 @@ _LEVERAGE_METHOD = (
     "The declared cap is RiskLimits.leverage.max_leverage. At every portfolio snapshot a "
     "supplied run recorded, leverage is read exactly as the pre-trade gate reads it -- "
     "RiskState.current_leverage: gross exposure (long plus the magnitude of short market "
-    "value) over net asset value, to four decimal places -- and the peak is compared with the "
+    "value) over net asset value, exactly -- and the peak is compared with the "
     "cap. The unit is a multiple of net asset value."
 )
 
@@ -798,7 +790,12 @@ def _declared_risk(specification: DeploymentSpecification) -> dict[str, str]:
         "declared.exposure.max_net_exposure": str(risk.exposure.max_net_exposure),
         "declared.leverage.max_leverage": str(risk.leverage.max_leverage),
         "declared.margin.max_margin_utilization": str(risk.margin.max_margin_utilization),
-        "declared.daily_loss.max_daily_loss": str(risk.daily_loss.max_daily_loss),
+        "declared.daily_loss": (
+            "none"
+            if risk.daily_loss is None
+            else f"{risk.daily_loss.max_daily_loss} per trading day in "
+            f"{risk.daily_loss.zone} from {risk.daily_loss.day_start.isoformat()}"
+        ),
         "declared.drawdown.max_drawdown_pct": str(risk.drawdown.max_drawdown_pct),
     }
 

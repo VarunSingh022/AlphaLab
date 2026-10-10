@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from decimal import Decimal
+from dataclasses import dataclass
+from decimal import ROUND_HALF_EVEN, Decimal
 
-from alphalab.portfolio.money import (
-    CURRENCY_QUANT,
-    PRICE_QUANT,
-    SHARE_QUANT,
-    ZERO_MONEY,
-    notional,
-    to_money,
-    to_price,
-    to_quantity,
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context, plain
+from alphalab.common.currency_units import (
+    MAX_MINOR_UNITS,
+    MINOR_UNIT_QUANTA,
+    STANDARD_CURRENCY_UNITS,
 )
+from alphalab.conventions.economics import InstrumentEconomics
+from alphalab.portfolio.exceptions import PortfolioError
+from alphalab.portfolio.money import ZERO_MONEY
 from alphalab.portfolio.types import PositionSide
 
-__all__ = ["CURRENCY_QUANT", "PRICE_QUANT", "SHARE_QUANT", "Position"]
+__all__ = ["Position"]
 
 
 class _KeepOpenedAt:
@@ -31,6 +30,8 @@ class _KeepOpenedAt:
 
 #: The one instance of that sentinel.
 _KEEP_OPENED_AT = _KeepOpenedAt()
+
+_ONE = Decimal("1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,10 +52,24 @@ class Position:
     never an independently rounded recomputation from ``average_cost``. See
     :mod:`alphalab.portfolio.money`.
 
-    ``average_cost`` remains the reported per-unit cost, derived from the basis.
-    When a ``Position`` is constructed without an explicit ``cost_basis`` (as
-    external callers and fixtures do), the basis is taken to be
-    ``average_cost * |quantity|`` rounded to money.
+    ``average_cost`` remains the reported per-unit cost, derived from the basis
+    by exact division in the accounting context -- it is a reported figure, never
+    rounded to a price grid. When a ``Position`` is constructed without an
+    explicit ``cost_basis`` (as external callers and fixtures do), the basis is
+    taken to be ``average_cost * |quantity|`` rounded to money.
+
+    ``minor_units`` is the number of decimals of the position's currency, which
+    is what "rounded to money" means for it. The portfolio engine records it when
+    it opens a position, from the account's
+    :class:`~alphalab.common.currency_units.CurrencyUnits`. ``None`` -- what a
+    hand-constructed position carries -- means ISO 4217's figure for
+    ``currency``; a currency outside ISO 4217 must state it, and reading a money
+    figure of one that did not raises
+    :class:`~alphalab.common.currency_units.UnknownCurrencyUnitsError`.
+
+    Prices and quantities are exact: ``market_price`` and ``quantity`` are what
+    the venue or the market reported, never quantized (see
+    :mod:`alphalab.portfolio.money`, rule 3).
 
     ``opened_at`` is when the *current* exposure began, and is state rather than
     something derived from the event log. A reversal emits ``PositionReduced``,
@@ -67,6 +82,17 @@ class Position:
     opened at that instant. A closed position leaves ``positions`` entirely, so
     its ``opened_at`` goes with it. ``None`` means unrecorded, which is what a
     hand-constructed position reports. See ADR-0015 decision 6.
+
+    ``economics`` is what one unit of the instrument is worth and how it settles
+    (ledger ACC-005): its multiplier scales every money figure -- the cash a
+    fill moves, the basis, the market value -- and ``quantity`` stays the count
+    of contracts the venue reported. ``None`` is a fully paid unit with a
+    multiplier of one, which is what every position was before v3.11 and what a
+    hand-constructed position still is. A position whose gains settle as cash
+    at every mark (a future, a perpetual) moves no notional when it trades: its
+    ``average_cost`` is the price it was last settled at, what it adds to equity
+    beyond that cash is its :attr:`carrying_value`, and its
+    :attr:`market_value` is its notional exposure.
     """
 
     asset_id: str
@@ -78,6 +104,53 @@ class Position:
     last_updated: float
     cost_basis: Decimal | None = None
     opened_at: float | None = None
+    minor_units: int | None = None
+    economics: InstrumentEconomics | None = None
+
+    def __post_init__(self) -> None:
+        units = self.minor_units
+        if units is not None and (
+            isinstance(units, bool)
+            or not isinstance(units, int)
+            or not 0 <= units <= MAX_MINOR_UNITS
+        ):
+            raise PortfolioError(
+                f"minor_units must be an integer between 0 and {MAX_MINOR_UNITS}, got {units!r}."
+            )
+        if self.economics is not None and not isinstance(self.economics, InstrumentEconomics):
+            raise PortfolioError(
+                f"economics must be InstrumentEconomics, got {type(self.economics).__name__}."
+            )
+
+    @property
+    def multiplier(self) -> Decimal:
+        """Value per unit of price per unit of quantity; one for a fully paid unit."""
+
+        return _ONE if self.economics is None else self.economics.multiplier
+
+    @property
+    def pays_notional(self) -> bool:
+        """Whether a trade in this position exchanges its value for cash (ledger ACC-005)."""
+
+        return self.economics is None or self.economics.settlement.pays_notional
+
+    def _scaled(self, amount: Decimal) -> Decimal:
+        """``amount`` per unit, times the multiplier -- untouched for a multiplier of one."""
+
+        if self.economics is None or self.economics.multiplier == _ONE:
+            return amount
+        return ACCOUNTING_CONTEXT.multiply(amount, self.economics.multiplier)
+
+    def _money(self, amount: Decimal) -> Decimal:
+        """``amount`` rounded half-even to this position's currency's minor unit."""
+
+        if self.minor_units is None:
+            return STANDARD_CURRENCY_UNITS.round(amount, self.currency)
+        return amount.quantize(
+            MINOR_UNIT_QUANTA[self.minor_units],
+            rounding=ROUND_HALF_EVEN,
+            context=ACCOUNTING_CONTEXT,
+        )
 
     @property
     def side(self) -> PositionSide:
@@ -95,11 +168,35 @@ class Position:
 
         if self.cost_basis is not None:
             return self.cost_basis
-        return notional(self.quantity, self.average_cost)
+        return self._money(
+            self._scaled(ACCOUNTING_CONTEXT.multiply(abs(self.quantity), self.average_cost))
+        )
 
     @property
     def market_value(self) -> Decimal:
-        return to_money(self.quantity * self.market_price)
+        """Signed ``quantity * market_price * multiplier``, rounded once to money.
+
+        The position's value in the instrument's currency -- its notional
+        exposure, which is what risk and exposure read. What it adds to equity
+        is :attr:`carrying_value`, which is the same figure for a fully paid
+        position and not for one that settles as cash.
+        """
+
+        return self._money(
+            self._scaled(ACCOUNTING_CONTEXT.multiply(self.quantity, self.market_price))
+        )
+
+    @property
+    def carrying_value(self) -> Decimal:
+        """What the position adds to equity beyond cash (ledger ACC-005).
+
+        Its market value when it was paid for in full -- a share, an option's
+        premium. For a position whose gains settle as cash at every mark, only
+        what has moved since it was last settled: its unrealized P&L, which is
+        nil once the portfolio has marked it, because the mark paid it.
+        """
+
+        return self.market_value if self.pays_notional else self.unrealized_pnl
 
     @property
     def unrealized_pnl(self) -> Decimal:
@@ -109,26 +206,91 @@ class Position:
         rounding is applied or needed.
         """
 
+        return self.valuation()[1]
+
+    def valuation(self) -> tuple[Decimal, Decimal]:
+        """``(market_value, unrealized_pnl)``, the market value computed once.
+
+        What a book keeping both totals reads on every change (ledger
+        PRF-006): the two properties each price the position, and together they
+        priced it twice.
+        """
+
+        value = self.market_value
         if self.quantity == 0:
-            return ZERO_MONEY
-
-        if self.side is PositionSide.LONG:
-            return self.market_value - self.basis
-
+            return value, ZERO_MONEY
+        if self.quantity > 0:
+            return value, value - self.basis
         # Short: market_value is negative, basis is the credit received.
-        return self.market_value + self.basis
+        return value, value + self.basis
 
     def update_market_price(
         self,
         price: Decimal,
         timestamp: float,
     ) -> Position:
+        """This position marked at ``price`` as of ``timestamp``.
 
-        return replace(
-            self,
-            market_price=to_price(price),
-            last_updated=timestamp,
+        Built field by field rather than through ``dataclasses.replace``, which
+        introspects the class on every call: this runs once per marked position
+        per market event.
+        """
+
+        return Position(
+            self.asset_id,
+            self.quantity,
+            self.average_cost,
+            price,
+            self.realized_pnl,
+            self.currency,
+            timestamp,
+            self.cost_basis,
+            self.opened_at,
+            self.minor_units,
+            self.economics,
         )
+
+    @in_accounting_context
+    def split(self, ratio: Decimal, timestamp: float) -> Position:
+        """This position after a split of ``ratio`` units for each unit held (ACC-006).
+
+        Its value does not move: the quantity is multiplied, the basis is kept
+        exactly, and the average cost and the mark are divided -- so the market
+        value, the unrealized P&L and every realized figure are what they were.
+        """
+
+        return self._rebased(
+            self.quantity * ratio,
+            self.basis,
+            self.realized_pnl,
+            self.market_price / ratio,
+            timestamp,
+        )
+
+    @in_accounting_context
+    def settle(self, price: Decimal, timestamp: float) -> tuple[Position, Decimal]:
+        """This position marked at ``price``, and the cash the mark settles (ledger ACC-005).
+
+        A fully paid position is only re-marked, and settles nothing. One whose
+        gains settle as cash pays the move since it was last settled --
+        ``quantity * (price - average_cost) * multiplier``, rounded once to money
+        -- and is settled at ``price`` from then on. The amount is realized P&L:
+        it has become cash.
+        """
+
+        if self.pays_notional or self.quantity == 0:
+            return self.update_market_price(price, timestamp), ZERO_MONEY
+        amount = self._money(
+            self._scaled(ACCOUNTING_CONTEXT.multiply(self.quantity, price - self.average_cost))
+        )
+        settled = self._rebased(
+            self.quantity,
+            self._money(self._scaled(ACCOUNTING_CONTEXT.multiply(abs(self.quantity), price))),
+            self.realized_pnl + amount,
+            price,
+            timestamp,
+        )
+        return settled, amount
 
     def _rebased(
         self,
@@ -147,18 +309,28 @@ class Position:
         reversal.
         """
 
-        average = to_price(basis / abs(quantity)) if quantity != 0 else Decimal("0")
-        return replace(
-            self,
-            quantity=quantity,
-            average_cost=average,
-            cost_basis=basis,
-            realized_pnl=realized_total,
-            market_price=price,
-            last_updated=timestamp,
-            opened_at=self.opened_at if isinstance(opened_at, _KeepOpenedAt) else opened_at,
+        average = (
+            plain(ACCOUNTING_CONTEXT.divide(basis, self._scaled(abs(quantity))))
+            if quantity != 0
+            else Decimal("0")
+        )
+        # Field by field rather than through ``dataclasses.replace``, which
+        # introspects the class on every call: this runs on every fill (PRF-006).
+        return Position(
+            self.asset_id,
+            quantity,
+            average,
+            price,
+            realized_total,
+            self.currency,
+            timestamp,
+            basis,
+            self.opened_at if isinstance(opened_at, _KeepOpenedAt) else opened_at,
+            self.minor_units,
+            self.economics,
         )
 
+    @in_accounting_context
     def apply_fill(
         self,
         quantity: Decimal,
@@ -177,13 +349,13 @@ class Position:
         this fill, so the two can never disagree.
         """
 
-        quantity = to_quantity(quantity)
-        price = to_price(price)
-
         if quantity == 0:
             return (self, ZERO_MONEY)
 
-        total = notional(quantity, price)
+        if not self.pays_notional:
+            return self._apply_settled(quantity, price, timestamp)
+
+        total = self._money(self._scaled(abs(quantity) * price))
 
         if self.side is PositionSide.FLAT:
             # Exposure begins now.
@@ -198,6 +370,36 @@ class Position:
             return self._apply_long(quantity, price, total, timestamp)
 
         return self._apply_short(quantity, price, total, timestamp)
+
+    # ---------------------------------------------------------------------
+    # Positions whose gains settle as cash (futures, perpetuals)
+    # ---------------------------------------------------------------------
+
+    def _apply_settled(
+        self, quantity: Decimal, price: Decimal, timestamp: float
+    ) -> tuple[Position, Decimal]:
+        """A fill of a position that moves no notional: settle it, then resize it.
+
+        The whole open position is first settled at the fill price -- what the
+        next mark would have paid -- so every leg, the one closing and the one
+        staying open, is then carried at one price, and resizing moves no cash.
+        What the settlement paid is the fill's realized P&L.
+        """
+
+        settled, amount = self.settle(price, timestamp)
+        opened = settled.quantity == 0
+        remaining = settled.quantity + quantity
+        reverses = not opened and remaining != 0 and (remaining > 0) != (settled.quantity > 0)
+        basis = self._money(self._scaled(ACCOUNTING_CONTEXT.multiply(abs(remaining), price)))
+        position = settled._rebased(
+            remaining,
+            basis if remaining != 0 else ZERO_MONEY,
+            settled.realized_pnl,
+            price,
+            timestamp,
+            opened_at=timestamp if opened or reverses else _KEEP_OPENED_AT,
+        )
+        return position, amount
 
     # ---------------------------------------------------------------------
     # Long Position Logic
@@ -227,7 +429,7 @@ class Position:
         if quantity > 0:
             return (
                 self._rebased(
-                    to_quantity(self.quantity + quantity),
+                    self.quantity + quantity,
                     basis + total,
                     self.realized_pnl,
                     price,
@@ -245,14 +447,14 @@ class Position:
         if sell_quantity < self.quantity:
             # Relieve a proportional slice of the basis; the remainder is what
             # is left over, by subtraction, so the two always sum to `basis`.
-            relieved = to_money(basis * sell_quantity / self.quantity)
+            relieved = self._money(basis * sell_quantity / self.quantity)
             realized = total - relieved
 
             return (
                 self._rebased(
-                    to_quantity(self.quantity - sell_quantity),
+                    self.quantity - sell_quantity,
                     basis - relieved,
-                    to_money(self.realized_pnl + realized),
+                    self.realized_pnl + realized,
                     price,
                     timestamp,
                 ),
@@ -270,7 +472,7 @@ class Position:
                 self._rebased(
                     Decimal("0"),
                     ZERO_MONEY,
-                    to_money(self.realized_pnl + realized),
+                    self.realized_pnl + realized,
                     price,
                     timestamp,
                 ),
@@ -284,15 +486,15 @@ class Position:
         # `total` exactly -- that is the cash the ledger moves -- so the opening
         # leg is derived by subtraction rather than rounded independently.
 
-        closing_proceeds = notional(self.quantity, price)
+        closing_proceeds = self._money(self._scaled(abs(self.quantity) * price))
         realized = closing_proceeds - basis
-        short_quantity = to_quantity(sell_quantity - self.quantity)
+        short_quantity = sell_quantity - self.quantity
 
         return (
             self._rebased(
                 -short_quantity,
                 total - closing_proceeds,
-                to_money(self.realized_pnl + realized),
+                self.realized_pnl + realized,
                 price,
                 timestamp,
                 # The long closed and a short opened, in one fill. Carrying the
@@ -331,7 +533,7 @@ class Position:
         if quantity < 0:
             return (
                 self._rebased(
-                    -to_quantity(current_short + abs(quantity)),
+                    -(current_short + abs(quantity)),
                     basis + total,
                     self.realized_pnl,
                     price,
@@ -347,14 +549,14 @@ class Position:
         # ---------------------------------------------------------
 
         if buy_quantity < current_short:
-            relieved = to_money(basis * buy_quantity / current_short)
+            relieved = self._money(basis * buy_quantity / current_short)
             realized = relieved - total
 
             return (
                 self._rebased(
-                    to_quantity(self.quantity + buy_quantity),
+                    self.quantity + buy_quantity,
                     basis - relieved,
-                    to_money(self.realized_pnl + realized),
+                    self.realized_pnl + realized,
                     price,
                     timestamp,
                 ),
@@ -372,7 +574,7 @@ class Position:
                 self._rebased(
                     Decimal("0"),
                     ZERO_MONEY,
-                    to_money(self.realized_pnl + realized),
+                    self.realized_pnl + realized,
                     price,
                     timestamp,
                 ),
@@ -383,15 +585,15 @@ class Position:
         # Reverse Short -> Long
         # ---------------------------------------------------------
 
-        closing_cost = notional(current_short, price)
+        closing_cost = self._money(self._scaled(current_short * price))
         realized = basis - closing_cost
-        long_quantity = to_quantity(buy_quantity - current_short)
+        long_quantity = buy_quantity - current_short
 
         return (
             self._rebased(
                 long_quantity,
                 total - closing_cost,
-                to_money(self.realized_pnl + realized),
+                self.realized_pnl + realized,
                 price,
                 timestamp,
                 opened_at=timestamp,

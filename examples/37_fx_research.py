@@ -222,10 +222,10 @@ def main() -> None:
 
     print()
     for ratio in ("0", "0.5", "1", "1.2"):
-        hedged = hedge_notional(exposures.of("EUR"), Decimal(ratio))
+        hedged = hedge_notional(exposures.of("EUR"), Decimal(ratio), "EUR")
         print(f"  hedge ratio {ratio:>4} -> sell {hedged} EUR forward")
     try:
-        hedge_notional(exposures.of("EUR"), Decimal("-1"))
+        hedge_notional(exposures.of("EUR"), Decimal("-1"), "EUR")
         print("  NOT REFUSED")
     except PortfolioError as error:
         print(f"  hedge ratio   -1 -> {str(error)[:56]}")

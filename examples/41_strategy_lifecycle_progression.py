@@ -29,7 +29,7 @@ AlphaLab already had two state machines with "lifecycle" in their name and
 neither answers this question. `ModelStage` asks whether a *registered artifact*
 may be promoted -- and research, backtest and validation are all `NONE` to it,
 paper and live are both `PRODUCTION`, and there is no member for paused at all.
-`strategy.state.LifecycleState` asks whether an *instance inside a session* is
+`strategy.state.StrategyStatus` asks whether an *instance inside a session* is
 running, which a deployed version does and stops doing many times without
 anything else changing.
 
@@ -61,13 +61,13 @@ from alphalab.lifecycle import (
 )
 from alphalab.lifecycle.strategy_version import StrategyVersion
 from alphalab.model_registry import ModelStage
-from alphalab.studio.strategy import StrategyDefinition
+from alphalab.strategy import StrategyDefinition
 
 REFERENCE = StrategyVersionRef("momentum", 4)
 
-#: Who moved the strategy, at each step. A real caller passes an
-#: ``enterprise.Principal.principal_id``; ``""`` would be honest for a move no
-#: principal requested, and is what the record carries when none is given.
+#: Who moved the strategy, at each step. A real caller passes its identity
+#: system's actor identifier; ``""`` would be honest for a move no actor
+#: requested, and is what the record carries when none is given.
 RESEARCHER = "quant-7"
 OPERATOR = "ops-2"
 

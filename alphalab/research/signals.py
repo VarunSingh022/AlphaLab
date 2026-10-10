@@ -53,7 +53,11 @@ from dataclasses import dataclass
 
 from alphalab.common.exceptions import AlphaLabValidationError
 from alphalab.common.statistics import TieBreak, bucket_index, mean, median, rank_correlation
-from alphalab.factor_library.forward_returns import ForwardReturnPanel, forward_returns
+from alphalab.factor_library.forward_returns import (
+    DelistingReturn,
+    ForwardReturnPanel,
+    forward_returns,
+)
 from alphalab.factor_library.ic import InformationCoefficient, information_coefficient
 from alphalab.factor_library.observations import ObservationFrame
 from alphalab.factor_library.panel import FactorTransform, FeaturePanel
@@ -96,6 +100,7 @@ class SignalDiagnostics:
         signal_lineage: The signal's feature version and transform chain.
         dataset_version: The data behind it, or ``None``.
         horizon: The forward horizon in periods.
+        lag: The implementation lag the forward returns were measured at.
         label: Which conditioning slice this is, or ``""`` for the whole
             sample. Set by :func:`conditional_diagnostics`.
         observations: Asset-instant pairs with both a signal and a realized
@@ -116,6 +121,7 @@ class SignalDiagnostics:
     signal_lineage: str
     dataset_version: str | None
     horizon: int
+    lag: int
     label: str
     observations: int
     instants: int
@@ -138,7 +144,7 @@ class SignalDiagnostics:
         rank = "-" if self.rank_ic.mean_rank is None else f"{self.rank_ic.mean_rank:+.4f}"
         spread = "-" if self.spread is None else f"{self.spread:+.4%}"
         return (
-            f"{slice_name}h={self.horizon}: rank_ic={rank} spread={spread} "
+            f"{slice_name}h={self.horizon} lag={self.lag}: rank_ic={rank} spread={spread} "
             f"n={self.observations} over {self.instants} instant(s)"
         )
 
@@ -250,6 +256,7 @@ def signal_diagnostics(
         signal_lineage=signal.lineage,
         dataset_version=signal.dataset_version,
         horizon=returns.horizon,
+        lag=returns.lag,
         label=label,
         observations=observations,
         instants=contributing,
@@ -284,6 +291,9 @@ def signal_horizons(
     horizons: Sequence[int],
     buckets: int = 5,
     minimum_assets: int = 5,
+    *,
+    lag: int,
+    delistings: Sequence[DelistingReturn],
 ) -> dict[int, SignalDiagnostics]:
     """Run the full diagnostic at each of several forward horizons.
 
@@ -291,6 +301,8 @@ def signal_horizons(
     :func:`~alphalab.factor_library.decay.factor_decay` answers the narrower IC
     version of the same question. Both are offered: decay is cheaper and is
     what a factor sweep wants, this is what a single signal's write-up wants.
+    ``lag`` and ``delistings`` are
+    :func:`~alphalab.factor_library.forward_returns.forward_returns`'s.
 
     Raises:
         ResearchValidationError: If ``horizons`` is empty or repeats a value.
@@ -305,7 +317,10 @@ def signal_horizons(
 
     return {
         horizon: signal_diagnostics(
-            signal, forward_returns(prices, horizon), buckets, minimum_assets
+            signal,
+            forward_returns(prices, horizon, lag=lag, delistings=delistings),
+            buckets,
+            minimum_assets,
         )
         for horizon in sorted(horizons)
     }

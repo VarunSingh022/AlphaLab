@@ -25,10 +25,10 @@ from dataclasses import replace
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import new_id
-from alphalab.distributed.events import JobSubmitted
+from alphalab.distributed.events import JobCancelled, JobSubmitted
 from alphalab.distributed.job import Job, JobStatus
 from alphalab.distributed.state import DistributedState
-from alphalab.distributed.validation import validate_job_submission
+from alphalab.distributed.validation import validate_job_submission, validate_job_transition
 
 
 def queue_key(job: Job) -> tuple[int, float]:
@@ -85,29 +85,55 @@ class JobQueue:
 
     @staticmethod
     def cancel(state: DistributedState, job_id: str, timestamp: float) -> DistributedState:
-        """Removes a job from the queue and marks it cancelled."""
-        target_job = next((j for j in state.queued_jobs if j.job_id == job_id), None)
-        if not target_job:
-            return state
+        """Withdraws a job that has not started, recording that it was cancelled.
 
-        new_queue = AppendOnlyLog(j for j in state.queued_jobs if j.job_id != job_id)
+        A queued job leaves the queue; a job assigned to a worker and not yet
+        running frees the worker's slot. A running job cannot be cancelled --
+        it runs to completion or fails (:func:`validate_job_transition`) -- and
+        an unknown or finished job is left as it is. Either way a cancellation
+        is recorded among the cancelled jobs with a :class:`JobCancelled` event:
+        until v3.12 it was stored among the failures and recorded nothing
+        (ledger SCF-003).
+        """
+        target_job = None
+        if job_id in state.queued_ids:
+            target_job = next((j for j in state.queued_jobs if j.job_id == job_id), None)
+        if target_job is not None:
+            state = replace(
+                state,
+                queued_jobs=AppendOnlyLog(j for j in state.queued_jobs if j.job_id != job_id),
+                queued_ids=state.queued_ids.discard(job_id),
+            )
+        elif job_id in state.running_jobs:
+            target_job = state.running_jobs[job_id]
+            validate_job_transition(target_job, JobStatus.CANCELLED)
+            workers = state.workers
+            if target_job.worker_id and target_job.worker_id in workers:
+                worker = workers[target_job.worker_id]
+                workers = workers.set(
+                    target_job.worker_id,
+                    replace(
+                        worker,
+                        running_jobs=tuple(j for j in worker.running_jobs if j != job_id),
+                    ),
+                )
+            state = replace(state, running_jobs=state.running_jobs.delete(job_id), workers=workers)
+        else:
+            return state
 
         cancelled_job = replace(
             target_job,
             status=JobStatus.CANCELLED,
             completed_timestamp=timestamp,
         )
-
-        new_stats = replace(
-            state.statistics, total_jobs_cancelled=state.statistics.total_jobs_cancelled + 1
-        )
-
+        event = JobCancelled(str(new_id()), timestamp, job_id, target_job.worker_id or "UNASSIGNED")
         return replace(
             state,
-            queued_jobs=new_queue,
-            queued_ids=state.queued_ids.discard(job_id),
-            failed_jobs=state.failed_jobs.set(job_id, cancelled_job),
-            statistics=new_stats,
+            cancelled_jobs=state.cancelled_jobs.set(job_id, cancelled_job),
+            statistics=replace(
+                state.statistics, total_jobs_cancelled=state.statistics.total_jobs_cancelled + 1
+            ),
+            events=state.events.append(event),
         )
 
     @staticmethod

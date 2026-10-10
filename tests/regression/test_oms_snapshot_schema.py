@@ -83,7 +83,11 @@ def _state() -> OMSState:
     return OMSEngine.fill(state, done, Decimal("10"), Decimal("99.9950"), 4.0)
 
 
-def schema_v1(state: OMSState | None = None) -> dict[str, Any]:
+#: The fields version 2 (v3.11) added to every order payload.
+_V2_ORDER_FIELDS = ("time_in_force", "expire_at", "triggered_at")
+
+
+def current(state: OMSState | None = None) -> dict[str, Any]:
     """What this build writes: the five projected fields plus a declared version.
 
     Takes the state rather than building one, because every ``_state()`` call
@@ -94,6 +98,23 @@ def schema_v1(state: OMSState | None = None) -> dict[str, Any]:
     return dict(deserialize(serialize(capture(state if state is not None else _state()))))
 
 
+def _v1_order(order: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in order.items() if key not in _V2_ORDER_FIELDS}
+
+
+def schema_v1(state: OMSState | None = None) -> dict[str, Any]:
+    """What v2.9-v3.10 wrote: the same projection, orders without their v3.11 fields."""
+
+    payload = current(state)
+    payload["orders"] = [_v1_order(order) for order in payload["orders"]]
+    for log in ("history", "events"):
+        for record in payload[log]:
+            if "order" in record["event"]:
+                record["event"]["order"] = _v1_order(record["event"]["order"])
+    payload["schema_version"] = 1
+    return payload
+
+
 def legacy_unversioned_v0(state: OMSState | None = None) -> dict[str, Any]:
     """What v2.2-v2.8 wrote: exactly the five projected fields, and nothing else."""
 
@@ -102,10 +123,10 @@ def legacy_unversioned_v0(state: OMSState | None = None) -> dict[str, Any]:
     return payload
 
 
-def schema_v2_or_future(version: int = 2) -> dict[str, Any]:
+def schema_v2_or_future(version: int = 3) -> dict[str, Any]:
     """A payload from a build newer than this one."""
 
-    payload = schema_v1()
+    payload = current()
     payload["schema_version"] = version
     return payload
 
@@ -123,17 +144,17 @@ def malformed_unversioned() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_constant_is_one() -> None:
-    """The first *declared* shape, not the first shape: no field was added."""
+def test_the_schema_constant_is_two() -> None:
+    """Version 1 was the first *declared* shape; version 2 (v3.11) added order terms."""
 
-    assert OMS_SNAPSHOT_SCHEMA == 1
+    assert OMS_SNAPSHOT_SCHEMA == 2
 
 
 def test_the_oms_constant_is_not_an_alias_of_the_shared_default() -> None:
     """It must be independently settable, or the next bump versions every event.
 
-    The OMS version is 1 and so is ``DEFAULT_SCHEMA_VERSION``, so an inequality
-    proves nothing -- the same problem the v2.8 lifecycle guard hit. What must
+    The OMS version was 1 and so is ``DEFAULT_SCHEMA_VERSION``, so an inequality
+    proved nothing -- the same problem the v2.8 lifecycle guard hit. What must
     not exist is the *dependency*, so that is what is asserted: no import, and
     no assignment from it.
     """
@@ -146,14 +167,26 @@ def test_the_oms_constant_is_not_an_alias_of_the_shared_default() -> None:
 
     assert OMSSnapshot.__dataclass_fields__["schema_version"].default is OMS_SNAPSHOT_SCHEMA
     assert not hasattr(oms_snapshot, "DEFAULT_SCHEMA_VERSION")
-    assert "OMS_SNAPSHOT_SCHEMA: Final = 1" in source
+    assert "OMS_SNAPSHOT_SCHEMA: Final = 2" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
     assert "import DEFAULT_SCHEMA_VERSION" not in source
 
 
 def test_capture_declares_the_version() -> None:
     assert capture(_state()).schema_version == OMS_SNAPSHOT_SCHEMA
-    assert schema_v1()["schema_version"] == 1
+    assert current()["schema_version"] == 2
+
+
+def test_a_version_one_order_is_a_day_order_with_no_expiry_or_trigger() -> None:
+    """What a version-1 order was: nothing it recorded is changed, nothing is guessed."""
+
+    state = _state()
+    upgraded = restore(from_primitives(schema_v1(state)))
+
+    for order in upgraded.orders.orders():
+        assert order.time_in_force.value == "day"
+        assert (order.expire_at, order.triggered_at) == (None, None)
+    assert upgraded == state
 
 
 def test_a_version_one_payload_round_trips() -> None:
@@ -267,7 +300,7 @@ def test_a_legacy_shaped_payload_with_a_malformed_value_is_still_refused() -> No
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("version", [2, 3, 99])
+@pytest.mark.parametrize("version", [3, 4, 99])
 def test_a_future_version_is_refused_naming_the_version(version: int) -> None:
     with pytest.raises(SnapshotDecodeError, match=f"declares schema version {version}"):
         from_primitives(schema_v2_or_future(version))
@@ -359,8 +392,8 @@ def test_other_subsystems_keep_their_own_schema_rules() -> None:
     from alphalab.lifecycle.snapshot import LIFECYCLE_SNAPSHOT_SCHEMA
     from alphalab.portfolio.snapshot import PORTFOLIO_SNAPSHOT_SCHEMA
 
-    assert OMS_SNAPSHOT_SCHEMA == 1
-    assert PORTFOLIO_SNAPSHOT_SCHEMA == 3
+    assert OMS_SNAPSHOT_SCHEMA == 2  # v3.11: order terms, upgraded from 1
+    assert PORTFOLIO_SNAPSHOT_SCHEMA == 5  # v3.11: economics, upgraded from 4 and 3
     assert LIFECYCLE_SNAPSHOT_SCHEMA == 2
 
 

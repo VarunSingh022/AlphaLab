@@ -1,6 +1,6 @@
 """Global immutable state container for the Portfolio Engine.
 
-The eight keyed indexes and the event log use the canonical containers from
+The seven keyed indexes and the event log use the canonical containers from
 :mod:`alphalab.common`, for the reason v2.1 and v2.2 introduced them. Until
 v2.17 every mutator rebuilt a whole ``dict`` and a whole ``tuple`` per
 transition, so ``N`` transitions copied ``O(N^2)`` entries -- ADR-0032 category C
@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.portfolio_optimizer.allocation import CapitalAllocation
-from alphalab.portfolio_optimizer.constraints import RiskConstraints, WeightConstraints
+from alphalab.portfolio_optimizer.constraints import WeightConstraints
 from alphalab.portfolio_optimizer.costs import TransactionCostEstimate
 from alphalab.portfolio_optimizer.events import PortfolioEvent
 from alphalab.portfolio_optimizer.exposure import PortfolioExposure
@@ -36,7 +36,6 @@ class PortfolioEngineState:
     portfolios: PersistentMap[str, Portfolio] = field(default_factory=PersistentMap)
     weights: PersistentMap[str, TargetWeights] = field(default_factory=PersistentMap)
     constraints: PersistentMap[str, WeightConstraints] = field(default_factory=PersistentMap)
-    risk_limits: PersistentMap[str, RiskConstraints] = field(default_factory=PersistentMap)
     metrics: PersistentMap[str, PortfolioMetrics] = field(default_factory=PersistentMap)
     exposures: PersistentMap[str, PortfolioExposure] = field(default_factory=PersistentMap)
     allocations: PersistentMap[str, CapitalAllocation] = field(default_factory=PersistentMap)

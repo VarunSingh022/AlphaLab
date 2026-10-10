@@ -18,16 +18,19 @@ Measured before the fix: 0.0165s / 0.0513s / 0.1740s at N=2000/4000/8000
 
 The structural assertion is the real guard; the timing one is a coarse backstop
 with a wide tolerance, there to catch a return to quadratic scaling rather than
-to police constant factors.
+to police constant factors. It reads time with the one stabilized method every
+guard shares (tests/regression/_timing.py): until v3.10 it read the wall clock
+once per size and measured 12x for a 4x input beside a concurrent type check
+(ledger TST-001).
 """
 
-import time
 from dataclasses import dataclass
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.replay.engine import ReplayEngine
 from alphalab.replay.session import ReplaySession
 from alphalab.replay.state import ReplayState
+from tests.regression._timing import CLOCK, timings
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,10 +48,10 @@ def _running(count: int) -> ReplayState:
 
 def _drive(count: int) -> float:
     state = _running(count)
-    start = time.perf_counter()
+    start = CLOCK()
     for index in range(count):
         state = ReplayEngine.step_one_event(state, float(index + 1)).state
-    return time.perf_counter() - start
+    return CLOCK() - start
 
 
 # --- structural: the property the fix rests on -------------------------------
@@ -105,8 +108,7 @@ def test_every_record_still_records_exactly_one_advance() -> None:
 def test_stepping_stays_linear_in_the_records_already_replayed() -> None:
     """Quadratic over a 4x workload is ~16x; linear is ~4x."""
 
-    small = _drive(2_000)
-    large = _drive(8_000)
+    small, large = timings(_drive, 2_000, 8_000)
 
     assert large < small * 8.0, (
         f"Replaying 8,000 records took {large:.3f}s against {small:.3f}s for 2,000; "

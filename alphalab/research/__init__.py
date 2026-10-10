@@ -4,7 +4,11 @@ Two layers, and they consume different things.
 
 * **Run evaluation** (v2) -- ``ResearchEngine`` and the reports it compiles,
   which read a *completed run's* returns, trades and parameters through
-  ``ResearchPayload`` and score them. Nothing there knows about a dataset.
+  ``ResearchPayload`` and measure them against the bounds a ``ResearchPolicy``
+  states. Nothing there knows about a dataset. Until v3.12 it also *scored*
+  them -- a blended grade from constants nobody chose -- and annualized every
+  series as daily; it now reports measurements and findings only, with the
+  periods and the rate declared (ledger RES-001).
 * **Study methodology** (v3.2) -- features, forward returns, signal
   diagnostics, walk-forward and cross-validation splits with purging and
   embargo, robustness perturbations and overfitting diagnostics. These run
@@ -51,7 +55,6 @@ from alphalab.research.event_study import (
 )
 from alphalab.research.events import (
     AnalysisCompleted,
-    BiasDetected,
     DiagnosticsGenerated,
     ResearchCompleted,
     ResearchEvent,
@@ -69,6 +72,12 @@ from alphalab.research.metrics import (
     calculate_volatility,
 )
 from alphalab.research.montecarlo import MonteCarloReport, monte_carlo_simulation
+from alphalab.research.multiple_testing import (
+    Correction,
+    ErrorRate,
+    MultipleTestingResult,
+    correct_p_values,
+)
 from alphalab.research.overfitting import (
     OverfittingPolicy,
     OverfittingReport,
@@ -123,8 +132,16 @@ from alphalab.research.regimes import (
     regime_profile,
     regime_series_from_features,
 )
-from alphalab.research.research import ResearchScore, compute_overall_score
+from alphalab.research.research import ResearchPolicy, research_metrics
 from alphalab.research.sensitivity import RobustnessReport, parameter_robustness
+from alphalab.research.sharpe_inference import (
+    DeflatedSharpe,
+    SharpeInference,
+    deflated_sharpe_ratio,
+    expected_maximum_sharpe,
+    per_period_sharpe,
+    probabilistic_sharpe_ratio,
+)
 from alphalab.research.signals import (
     QuantileBucket,
     SignalDiagnostics,
@@ -157,11 +174,21 @@ from alphalab.research.views import (
     bias_report,
     capacity_report,
     diagnostic_report,
-    overall_score,
+    research_metrics_of,
     stress_report,
     warnings,
 )
 from alphalab.research.walk_forward import WindowMode, walk_forward_splits
+from alphalab.research.walk_forward_optimization import (
+    WALK_FORWARD_DESIGN_SCHEME,
+    FoldSelection,
+    ParameterSpace,
+    Refit,
+    WalkForwardDesign,
+    WalkForwardObjective,
+    WalkForwardOptimization,
+    walk_forward_optimize,
+)
 
 __all__ = [
     "EVENT_STUDY_SCHEME",
@@ -169,31 +196,38 @@ __all__ = [
     "REGIME_SERIES_SCHEME",
     "RESULT_KEY_SCHEME",
     "STUDY_KEY_SCHEME",
+    "WALK_FORWARD_DESIGN_SCHEME",
     "AbnormalReturnModel",
     "AnalysisCompleted",
-    "BiasDetected",
     "BiasReport",
     "BootstrapReport",
     "CVMethod",
     "CapacityReport",
     "CompositeRule",
+    "Correction",
+    "DeflatedSharpe",
     "DiagnosticReport",
     "DiagnosticsGenerated",
+    "ErrorRate",
     "EventOutcome",
     "EventStudyDefinition",
     "EventStudyResult",
     "EventWindow",
     "ExcludedEvent",
+    "FoldSelection",
     "InvalidResearchStateError",
     "MonteCarloReport",
+    "MultipleTestingResult",
     "OverfittingPolicy",
     "OverfittingReport",
+    "ParameterSpace",
     "Perturbation",
     "PerturbationKind",
     "PerturbationRun",
     "PurgePolicy",
     "PurgeResult",
     "QuantileBucket",
+    "Refit",
     "RegimeCell",
     "RegimeDefinition",
     "RegimeProfile",
@@ -209,13 +243,14 @@ __all__ = [
     "ResearchError",
     "ResearchEvent",
     "ResearchPayload",
+    "ResearchPolicy",
     "ResearchProtocol",
-    "ResearchScore",
     "ResearchStarted",
     "ResearchState",
     "ResearchStudy",
     "ResearchValidationError",
     "RobustnessReport",
+    "SharpeInference",
     "SignalDiagnostics",
     "SplitInterval",
     "SplitReport",
@@ -228,6 +263,9 @@ __all__ = [
     "TradePayload",
     "TrailingQuantileRule",
     "TransitionFrequency",
+    "WalkForwardDesign",
+    "WalkForwardObjective",
+    "WalkForwardOptimization",
     "WalkForwardReport",
     "WindowMode",
     "analyze_regimes",
@@ -249,9 +287,10 @@ __all__ = [
     "canonical_study_key",
     "capacity_report",
     "classify_regimes",
-    "compute_overall_score",
     "conditional_diagnostics",
+    "correct_p_values",
     "cross_validation_splits",
+    "deflated_sharpe_ratio",
     "delay_signal",
     "derive_result_id",
     "derive_study_id",
@@ -261,20 +300,24 @@ __all__ = [
     "estimate_capacity",
     "event_study",
     "event_study_metrics",
+    "expected_maximum_sharpe",
     "generate_diagnostics",
     "initial_regime_state",
     "label_ends_from_horizon",
     "monte_carlo_orders",
     "monte_carlo_simulation",
-    "overall_score",
     "parameter_robustness",
     "parameter_sweep",
+    "per_period_sharpe",
     "period_stability",
     "perturb_observations",
     "perturb_signal",
+    "probabilistic_sharpe_ratio",
     "regime_profile",
     "regime_series_from_features",
     "require_chronological",
+    "research_metrics",
+    "research_metrics_of",
     "sample_by",
     "sample_degradation",
     "shift_parameter",
@@ -284,6 +327,7 @@ __all__ = [
     "symbol_stability",
     "validate_payload",
     "walk_forward_analysis",
+    "walk_forward_optimize",
     "walk_forward_splits",
     "warnings",
 ]

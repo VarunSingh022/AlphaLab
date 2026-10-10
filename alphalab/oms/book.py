@@ -46,13 +46,12 @@ class OrderBook:
         held and looked up exactly as any other.
         """
         by_asset = self._by_asset.set(
-            order.asset_id,
-            self._by_asset.get(order.asset_id, PersistentSet()).add(order.order_id),
+            order.asset_id, _with(self._by_asset.get(order.asset_id), order.order_id)
         )
         by_strategy = (
             self._by_strategy.set(
                 order.strategy_id,
-                self._by_strategy.get(order.strategy_id, PersistentSet()).add(order.order_id),
+                _with(self._by_strategy.get(order.strategy_id), order.order_id),
             )
             if order.strategy_id
             else self._by_strategy
@@ -159,3 +158,9 @@ class OrderBook:
         """
 
         return tuple(self.orders())
+
+
+def _with(members: PersistentSet[OrderId] | None, order_id: OrderId) -> PersistentSet[OrderId]:
+    """``members`` with ``order_id``; a new one-member set when there is none yet."""
+
+    return PersistentSet((order_id,)) if members is None else members.add(order_id)

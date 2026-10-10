@@ -24,6 +24,16 @@ holds (ADR-0035). A book that settled only in USD writes ``{"USD": "40.00"}``
 where it used to write ``"40.00"``; a book that settled in two writes both, and
 neither is summed into the other by a payload that cannot say what it is in.
 
+Minor units, and what version 4 carries
+---------------------------------------
+
+v3.10 books each currency at its own minor unit (see
+:mod:`alphalab.common.currency_units`), so version 4 records the units in force:
+``account.currency_units`` holds the currencies the account declared outside
+ISO 4217, and each position its ``minor_units``. Version 3 is **upgraded**, not
+refused -- see :data:`PORTFOLIO_SCHEMA_HISTORY` for the step and the one case
+it refuses.
+
 Round trip
 ----------
 :func:`capture` and :func:`restore` are inverses in memory. Across JSON, decode
@@ -47,20 +57,25 @@ from decimal import Decimal
 from typing import Any
 
 from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.currency_units import ISO_4217_MINOR_UNITS, CurrencyUnits
+from alphalab.common.exceptions import AlphaLabValidationError
+from alphalab.conventions.economics import InstrumentEconomics, economics_from_primitives
+from alphalab.conventions.exceptions import ConventionInputError
 from alphalab.persistence.decode import (
     as_bool,
     as_decimal,
     as_decimal_mapping,
     as_float,
+    as_int,
     as_mapping,
     as_named_enum,
     as_optional_decimal,
     as_sequence,
     as_str,
     require,
-    require_schema_version,
 )
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.upgrade import SchemaHistory, SchemaStep, SchemaUpgradeRefused
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.amounts import CurrencyAmounts
 from alphalab.portfolio.cash import CashLedger
@@ -68,6 +83,7 @@ from alphalab.portfolio.engine import PortfolioState
 from alphalab.portfolio.events import (
     CashConverted,
     CashDeposited,
+    CashFlowBooked,
     CashWithdrawn,
     MarketValueUpdated,
     PortfolioEvent,
@@ -76,6 +92,8 @@ from alphalab.portfolio.events import (
     PositionIncreased,
     PositionOpened,
     PositionReduced,
+    PositionSplit,
+    VariationSettled,
 )
 from alphalab.portfolio.ledger import TransactionLedger
 from alphalab.portfolio.position import Position
@@ -83,6 +101,7 @@ from alphalab.portfolio.transaction import Transaction
 from alphalab.portfolio.types import TransactionType
 
 __all__ = [
+    "PORTFOLIO_SCHEMA_HISTORY",
     "PORTFOLIO_SNAPSHOT_SCHEMA",
     "PortfolioEventRecord",
     "PortfolioSnapshot",
@@ -118,7 +137,20 @@ __all__ = [
 #: silent misread"; refusing is the decision that cannot misread. A v2 payload
 #: is still readable by a v2.16 build, which is where a caller who needs those
 #: numbers converts them deliberately.
-PORTFOLIO_SNAPSHOT_SCHEMA = 3
+#:
+#: Version 4 (v3.10) records the minor units money is booked at:
+#: ``account.currency_units`` and each position's ``minor_units`` -- and which
+#: positions a fill priced since the market last did (``pending_marks``), so a
+#: resumed run marks exactly what an uninterrupted one would. Version 3 is
+#: upgraded by :data:`PORTFOLIO_SCHEMA_HISTORY`; versions 1 and 2 are still
+#: refused, for the reasons above, which that history states as its refusals.
+#:
+#: Version 5 (v3.11) records the economics each position is booked by -- its
+#: multiplier and how it settles (ledger ACC-005) -- and reads the events a
+#: variation settlement, a cash flow and a split write (ACC-005, ACC-006). A
+#: version-4 position was booked as a fully paid unit of one, which is what
+#: ``economics: null`` says, so version 4 is upgraded with exactly that.
+PORTFOLIO_SNAPSHOT_SCHEMA = 5
 
 _SUBSYSTEM = "portfolio"
 
@@ -135,6 +167,10 @@ _EVENT_TYPES: Mapping[str, type[PortfolioEvent]] = {
         PositionClosed,
         MarketValueUpdated,
         PortfolioValuationUpdated,
+        # v3.11 (ACC-005, ACC-006).
+        VariationSettled,
+        CashFlowBooked,
+        PositionSplit,
     )
 }
 
@@ -155,6 +191,8 @@ _EVENT_FIELD_DECODERS: Mapping[str, Any] = {
     "rate": as_decimal,
     "rate_as_of": as_float,
     "rate_derived": as_bool,
+    # PositionSplit (v3.11): units after for each unit before.
+    "ratio": as_decimal,
 }
 
 
@@ -178,6 +216,8 @@ class PortfolioSnapshot:
     events: tuple[PortfolioEventRecord, ...]
     realized_pnl: Mapping[str, Decimal]
     commission_paid: Mapping[str, Decimal]
+    #: Sorted; see :attr:`~alphalab.portfolio.engine.PortfolioState.pending_marks`.
+    pending_marks: tuple[str, ...]
     schema_version: int = PORTFOLIO_SNAPSHOT_SCHEMA
 
 
@@ -203,6 +243,7 @@ def capture(state: PortfolioState) -> PortfolioSnapshot:
         events=tuple(PortfolioEventRecord(type(e).__name__, e) for e in state.events),
         realized_pnl=dict(state.realized_pnl),
         commission_paid=dict(state.commission_paid),
+        pending_marks=state.pending_marks,
     )
 
 
@@ -227,6 +268,7 @@ def restore(snapshot: PortfolioSnapshot) -> PortfolioState:
         events=AppendOnlyLog(record.event for record in snapshot.events),
         realized_pnl=CurrencyAmounts(dict(snapshot.realized_pnl)),
         commission_paid=CurrencyAmounts(dict(snapshot.commission_paid)),
+        pending_marks=snapshot.pending_marks,
     )
 
 
@@ -244,6 +286,9 @@ def _account(value: Any) -> Account:
         created_at=as_float(require(payload, "created_at"), "account.created_at"),
         status=as_str(require(payload, "status"), "account.status"),
         metadata=dict(as_mapping(require(payload, "metadata"), "account.metadata")),
+        currency_units=_currency_units(
+            require(payload, "currency_units"), "account.currency_units"
+        ),
     )
 
 
@@ -260,7 +305,28 @@ def _position(value: Any, index: int) -> Position:
         last_updated=as_float(require(payload, "last_updated"), f"{where}.last_updated"),
         cost_basis=as_optional_decimal(require(payload, "cost_basis"), f"{where}.cost_basis"),
         opened_at=_optional_float(require(payload, "opened_at"), f"{where}.opened_at"),
+        minor_units=_optional_int(require(payload, "minor_units"), f"{where}.minor_units"),
+        economics=_economics(require(payload, "economics"), f"{where}.economics"),
     )
+
+
+def _economics(value: Any, where: str) -> InstrumentEconomics | None:
+    """The economics a position is booked by, or ``None`` for a fully paid unit of one."""
+
+    if value is None:
+        return None
+    try:
+        return economics_from_primitives(value, where)
+    except ConventionInputError as exc:
+        raise StateDecodeError(f"{where} are not an instrument's economics: {exc}") from exc
+
+
+def _optional_int(value: Any, field_name: str) -> int | None:
+    """An integer, or ``None`` for a hand-built position that left it to ISO 4217."""
+
+    if value is None:
+        return None
+    return as_int(value, field_name)
 
 
 def _optional_float(value: Any, field_name: str) -> float | None:
@@ -316,25 +382,204 @@ def _indexed(payload: Mapping[str, Any], key: str) -> Sequence[Any]:
     return as_sequence(require(payload, key), key)
 
 
+def _whole_minor_units(amount: Any, units: int) -> bool:
+    try:
+        value = Decimal(str(amount))
+    except ArithmeticError:
+        return False
+    return value.is_finite() and value == value.quantize(Decimal(1).scaleb(-units))
+
+
+def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record the minor units a version-3 book was kept at.
+
+    Version 3 rounded every currency to ``0.01``. That is exact for every ISO
+    currency with two or more decimals, so their amounts carry over unchanged
+    and each position records ISO's figure. A currency outside ISO 4217 was
+    booked at a cent by the v3 writer, so the upgraded account **declares** it
+    with two decimals -- what the payload already meant, not a guess. A
+    currency ISO gives fewer than two decimals (JPY, KRW, CLP, ...) is exact at
+    its own unit only if every amount the book holds in it is a whole number of
+    that unit; a book that holds fractional yen is refused, because no v3.10
+    book can represent it and rounding it here would change recorded money.
+    """
+
+    account = as_mapping(payload.get("account"), "account")
+    declared = declared_units_of_v3_book(payload)
+
+    def at_unit(currency: str, amount: Any) -> Any:
+        # Whole amounts in a currency with fewer than two decimals are restated
+        # at that currency's own exponent ("150.00" JPY becomes "150"): the
+        # same number, without the two decimals the currency does not have.
+        standard = ISO_4217_MINOR_UNITS.get(currency)
+        if amount is None or standard is None or standard >= 2:
+            return amount
+        return str(Decimal(str(amount)).quantize(Decimal(1).scaleb(-standard)))
+
+    upgraded = dict(payload)
+    upgraded["account"] = {**account, "currency_units": declared}
+    for key in ("balances", "reserved", "realized_pnl", "commission_paid"):
+        upgraded[key] = {
+            currency: at_unit(currency, amount) for currency, amount in payload[key].items()
+        }
+    upgraded["positions"] = [
+        {
+            **position,
+            "cost_basis": at_unit(position["currency"], position["cost_basis"]),
+            "realized_pnl": at_unit(position["currency"], position["realized_pnl"]),
+            "minor_units": declared.get(
+                position["currency"], ISO_4217_MINOR_UNITS.get(position["currency"])
+            ),
+        }
+        for position in payload.get("positions", [])
+    ]
+    # v3.9 re-marked every held position on every market event, so every one is
+    # pending: the resumed run's next event re-marks them all, as v3.9's would.
+    upgraded["pending_marks"] = sorted(
+        {str(position["asset_id"]) for position in payload.get("positions", [])}
+    )
+    return upgraded
+
+
+def declared_units_of_v3_book(payload: Mapping[str, Any]) -> dict[str, int]:
+    """The currency units a version-3 portfolio payload was kept at, or refuse.
+
+    Shared with the pipeline snapshot's upgrade, whose configuration names the
+    same account and must declare the same units. See :func:`_v3_to_v4`.
+
+    Raises:
+        SchemaUpgradeRefused: If the book holds amounts no v3.10 book can
+            represent, or a currency code this build cannot name.
+    """
+
+    currencies: dict[str, list[tuple[str, Any]]] = {}
+
+    def note(currency: Any, where: str, amount: Any) -> None:
+        currencies.setdefault(as_str(currency, where), []).append((where, amount))
+
+    for key in ("balances", "reserved", "realized_pnl", "commission_paid"):
+        for currency, amount in as_mapping(payload.get(key, {}), key).items():
+            note(currency, f"{key}[{currency}]", amount)
+    for index, position in enumerate(as_sequence(payload.get("positions", []), "positions")):
+        entry = as_mapping(position, f"positions[{index}]")
+        held_in = entry.get("currency")
+        note(held_in, f"positions[{index}].cost_basis", entry.get("cost_basis"))
+        note(held_in, f"positions[{index}].realized_pnl", entry.get("realized_pnl"))
+
+    declared: dict[str, int] = {}
+    for currency, amounts in sorted(currencies.items()):
+        standard = ISO_4217_MINOR_UNITS.get(currency)
+        if standard is None:
+            declared[currency] = 2
+            continue
+        if standard >= 2:
+            continue
+        inexact = [
+            where
+            for where, amount in amounts
+            if amount is not None and not _whole_minor_units(amount, standard)
+        ]
+        if inexact:
+            raise SchemaUpgradeRefused(
+                f"This version-3 portfolio holds {currency} amounts that are not whole "
+                f"{currency} minor units ({', '.join(inexact)}). ISO 4217 gives {currency} "
+                f"{standard} decimal places; a v3.10 book is kept at that unit, and rounding "
+                "these here would change recorded money. Read the payload with v3.9, or "
+                "re-run from the source data."
+            )
+    try:
+        CurrencyUnits(declared)
+    except AlphaLabValidationError as exc:
+        raise SchemaUpgradeRefused(
+            f"This version-3 portfolio settles a currency this build cannot name: {exc}"
+        ) from exc
+    return declared
+
+
+def _v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
+    """A version-4 position was booked as a fully paid unit of one: ``economics: null``."""
+
+    positions = [
+        {**position, "economics": None} if isinstance(position, dict) else position
+        for position in payload.get("positions", ())
+    ]
+    return {**payload, "positions": positions}
+
+
+#: How every portfolio payload a release has written is read by this one.
+PORTFOLIO_SCHEMA_HISTORY = SchemaHistory(
+    subsystem=_SUBSYSTEM,
+    current=PORTFOLIO_SNAPSHOT_SCHEMA,
+    steps=(
+        SchemaStep(
+            1,
+            "version 2 recorded each position's opened_at",
+            refusal=(
+                "a version-1 payload does not record when a position opened, and its "
+                "last_updated is the last mark -- no honest holding period can be derived. "
+                "Read it with v2.5."
+            ),
+        ),
+        SchemaStep(
+            2,
+            "version 3 recorded realized P&L and commission per currency",
+            refusal=(
+                "a version-2 payload records realized P&L as a bare number in no currency, "
+                "and choosing one for it would be a guess about money. Read it with v2.16."
+            ),
+        ),
+        SchemaStep(
+            3,
+            "version 4 records the minor units money is booked at, and the pending marks",
+            upgrade=_v3_to_v4,
+        ),
+        SchemaStep(
+            4,
+            "version 5 records the economics each position is booked by",
+            upgrade=_v4_to_v5,
+        ),
+    ),
+)
+
+
+def _currency_units(value: Any, where: str) -> CurrencyUnits:
+    payload = as_mapping(value, where)
+    try:
+        return CurrencyUnits(
+            {
+                as_str(currency, f"{where} key"): as_int(units, f"{where}[{currency}]")
+                for currency, units in payload.items()
+            }
+        )
+    except AlphaLabValidationError as exc:
+        raise StateDecodeError(f"{where} is not a valid set of currency units: {exc}") from exc
+
+
 def from_primitives(payload: Mapping[str, Any]) -> PortfolioSnapshot:
     """Decode a JSON-decoded snapshot payload back into :class:`PortfolioSnapshot`.
+
+    A payload written by an earlier release is first brought to the current
+    version by :data:`PORTFOLIO_SCHEMA_HISTORY`.
 
     Raises:
         StateDecodeError: If the payload is not an object, declares a schema
             version this build does not read, is missing a field, or holds a
             value of the wrong type. The message names the field.
+        SchemaUpgradeRefused: If it declares an earlier version no honest
+            upgrade exists from.
     """
 
     payload = as_mapping(payload, "portfolio snapshot")
-    require_schema_version(payload, PORTFOLIO_SNAPSHOT_SCHEMA, _SUBSYSTEM)
+    payload = PORTFOLIO_SCHEMA_HISTORY.upgrade(payload)
+    positions = tuple(
+        _position(item, index) for index, item in enumerate(_indexed(payload, "positions"))
+    )
 
     return PortfolioSnapshot(
         account=_account(require(payload, "account")),
         balances=as_decimal_mapping(require(payload, "balances"), "balances"),
         reserved=as_decimal_mapping(require(payload, "reserved"), "reserved"),
-        positions=tuple(
-            _position(item, index) for index, item in enumerate(_indexed(payload, "positions"))
-        ),
+        positions=positions,
         transactions=tuple(
             _transaction(item, index)
             for index, item in enumerate(_indexed(payload, "transactions"))
@@ -342,5 +587,24 @@ def from_primitives(payload: Mapping[str, Any]) -> PortfolioSnapshot:
         events=tuple(_event(item, index) for index, item in enumerate(_indexed(payload, "events"))),
         realized_pnl=as_decimal_mapping(require(payload, "realized_pnl"), "realized_pnl"),
         commission_paid=as_decimal_mapping(require(payload, "commission_paid"), "commission_paid"),
+        pending_marks=_pending_marks(payload, positions),
         schema_version=PORTFOLIO_SNAPSHOT_SCHEMA,
     )
+
+
+def _pending_marks(payload: Mapping[str, Any], positions: tuple[Position, ...]) -> tuple[str, ...]:
+    """The fill-priced positions awaiting a market mark: held ones, each once, sorted."""
+
+    marks = tuple(
+        as_str(item, f"pending_marks[{index}]")
+        for index, item in enumerate(
+            as_sequence(require(payload, "pending_marks"), "pending_marks")
+        )
+    )
+    held = {position.asset_id for position in positions}
+    if list(marks) != sorted(set(marks)) or not held.issuperset(marks):
+        raise StateDecodeError(
+            "pending_marks must list held positions, each once and sorted; got "
+            f"{list(marks)} against positions {sorted(held)}."
+        )
+    return marks

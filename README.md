@@ -7,9 +7,9 @@
 **Deterministic • Event-Driven • Immutable • Fully Typed • Production-Oriented**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-3.9.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-3.11.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-7387%20Passing-success)]()
+[![Tests](https://img.shields.io/badge/Tests-8215%20Passing-success)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
 
@@ -28,8 +28,8 @@ It is a library, not a running application: there is no server, daemon, schedule
 AlphaLab ships three kinds of package:
 
 - **The integrated execution path.** `alphalab.runtime.ExecutionPipeline` is the one spine that wires several domain engines together — market data → strategy → allocation → risk → OMS → execution simulator → portfolio → analytics — as a chain of pure functions over one immutable `ExecutionPipelineState`. `alphalab.runtime.run.RunEngine` owns the *run* over it, and four interchangeable drivers feed it: `TradingSession`, `BacktestEngine`, `ReplayBacktest` and `LiveSession`. Because all four call the same step, a backtest, a replay, a paper run and a live run of one dataset produce identical orders, fills and P&L wherever the venue is the same.
-- **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, the deployment manager, `studio`'s strategy definitions, `enterprise`'s RBAC and `research`/`backtesting`'s reports into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. Every act that changes what is live names its principal. As of v2.16 it is **joined** to the execution path: `run_plan` resolves what an environment has live and `authorize_run` refuses a run that would serve anything else. As of v2.17 `alphalab.strategy.registry` supplies the other half of that join — the identity a deployment names, mapped to the code a run executes. As of v3.5 the same package carries past the deployment record into the thing a deployment becomes: a strategy's progression from research to live money, the specification of what it needs to run as it was researched, structured runtime health from supplied observations, an expected/paper/live comparison, and deterministic reconciliation against a normalized broker state. As of v3.6 it also makes a strategy version evaluable by somebody else: an immutable fingerprint of its code, dependencies, parameters, research configuration and engine; a manifest from which a result can be recreated; machine-verifiable certification properties, each with its evidence; and a portability check against declared environment capabilities.
-- **Standalone engine libraries.** The remaining packages (portfolio optimizer, reporting, feature store, ML / deep learning / RL, options / futures / crypto / macro, cloud research, cluster scheduler, workbench, and the rest) are independent, deterministic, individually tested libraries reached by neither path. They share the engineering model and are **not** fused into a single runtime. That is a decision, not a gap — see ADR-0009. The factor library (since v3.2) and alternative data (since v3.7) are no longer on that list: `research` imports both, so the lifecycle path reaches them.
+- **The lifecycle path.** `alphalab.lifecycle` composes experiment tracking, the model registry, the deployment manager, strategy definitions (`alphalab.strategy.definition`), governance against a permission authority the host application supplies, and `research`/`backtesting`'s reports into one flow: research candidate → experiment run → validation evidence → model version → strategy version → promotion → deployment → rollback. Every act that changes what is live names its principal. As of v2.16 it is **joined** to the execution path: `run_plan` resolves what an environment has live and `authorize_run` refuses a run that would serve anything else. As of v2.17 `alphalab.strategy.registry` supplies the other half of that join — the identity a deployment names, mapped to the code a run executes. As of v3.5 the same package carries past the deployment record into the thing a deployment becomes: a strategy's progression from research to live money, the specification of what it needs to run as it was researched, structured runtime health from supplied observations, an expected/paper/live comparison, and deterministic reconciliation against a normalized broker state. As of v3.6 it also makes a strategy version evaluable by somebody else: an immutable fingerprint of its code, dependencies, parameters, research configuration and engine; a manifest from which a result can be recreated; machine-verifiable certification properties, each with its evidence; and a portability check against declared environment capabilities.
+- **Standalone engine libraries.** The remaining packages (portfolio optimizer, reporting, feature store, ML / deep learning / RL, options / futures / crypto / macro, cloud research, cluster scheduler, and the rest) are independent, deterministic, individually tested libraries reached by neither path. They share the engineering model and are **not** fused into a single runtime. That is a decision, not a gap — see ADR-0009. The factor library (since v3.2) and alternative data (since v3.7) are no longer on that list: `research` imports both, so the lifecycle path reaches them.
 
 The framework is designed for researchers, quantitative developers, students, and engineering teams building reproducible trading infrastructure.
 
@@ -37,22 +37,250 @@ The framework is designed for researchers, quantitative developers, students, an
 
 # Release Status
 
-**Current Release:** **v3.9.0 — the universal execution contract: broker capabilities, a normalized execution lifecycle, execution algorithms, smart routing and execution analytics, on the v3.0 frozen architecture**
+**Current Release:** **v3.13.0 — the final pre-v4 release: American options and a volatility term structure, the optimal split of an order, an urgency estimated rather than assumed and the shortfall its model expects, a rerun that says where it diverged, cron timers, an exact liquidation price, exchange-rate risk as factors, checkpoints that no longer grow with a run's orders — and the freeze: one name for one contract, the public API and every persisted name recorded as data and held by tests, and a certificate of what the build was checked to do**
 
 | Metric | Status |
 |---------|--------|
 | Python | 3.12+ |
-| Version | 3.9.0 |
+| Version | 3.13.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **7387 Passing, 0 skipped, 0 warnings** |
-| Static Typing | **Strict MyPy** (1183 source files, repository-wide) |
+| Tests | **9,041 Passing, 0 skipped, 0 warnings** |
+| Static Typing | **Strict MyPy** (1,152 source files, repository-wide) |
 | Linting | **Ruff Clean** |
-| Benchmarks | **59 / 59 Passing** |
-| Examples | **65 / 65 Passing** |
+| Benchmarks | **53 / 53 Passing** |
+| Examples | **69 / 69 Passing** |
 | Package Build | ✅ Passing |
 | Wheel Validation | ✅ Passing |
 | Source Distribution | ✅ Passing |
+| Release Certification | ✅ 11 / 11 checks ([certificate](docs/audit/RELEASE_CERTIFICATION.md)) |
 | License | MIT |
+
+## What v3.13.0 is
+
+The last of four releases the **pre-v4 audit** plans before the v4.0 freeze, and
+the one that leaves nothing required for later. Every item the ledger assigned
+to v3.13 is closed, and so are the four it had assigned to v4.0 itself — the
+shared names, the public API manifest, the persisted names and release
+certification. Every boundary and limitation the ledger holds was re-read
+against the code and kept with its reason, and a fresh audit found twenty-three
+more things, each fixed, implemented, replaced or stated. ADR-0048.
+
+**Options that can be exercised early.** An American option is priced on a
+Cox–Ross–Rubinstein lattice with discrete cash dividends, its step count part
+of the model's stated assumptions; Hull's table for an American put is
+reproduced to the third decimal. Implied volatility inverts through the lattice
+an American quote was priced on, and a surface is read between expiries,
+linearly in total variance, only when asked to by name.
+
+**Execution that costs what it says.** The optimal split finds the cheapest
+allocation of an order across venues when each venue's cost is a fixed charge
+plus a convex function of quantity — every cost model AlphaLab ships — and
+refuses a cost it cannot call optimal. An Almgren–Chriss urgency is estimated
+from risk aversion, volatility and impact; the same model gives a schedule's
+expected shortfall and its variance, and a measured shortfall is read beside
+them. Iceberg tranches vary, from a seed, and reproduce.
+
+**Reproducibility that is demonstrated.** A run is re-executed from its
+manifest — other inputs are refused before anything runs — and a divergence is
+located by the first paths at which the two records part. A lock file is read
+into the dependencies a fingerprint records, resolving nothing.
+
+**Risk, timers, margin, persistence.** Exchange rates enter a factor model as
+factors, and every factor's share of a book's volatility is measured; a box
+uncertainty set takes a book that may short. A factor model is a covariance in
+its own right, stated by its structure: construction over 10,000 assets no
+longer writes 100 million values out first (0.12 s and 6 MB to state the
+model, 1.85 s to construct over it; 4,000 assets written out took 29 s and
+1.3 GB before the first step). Cron timers read a stated zone's wall clock
+across daylight saving. The liquidation price is solved for a stated
+maintenance basis, with fees and funding. Checkpoint segments carry only the
+orders that changed.
+
+**The freeze.** 52 public names bound to two different objects at 3.12.0 are
+31, each kept for a recorded reason; the rest were renamed without aliases,
+merged or removed. The public API is recorded as data per release, and a test
+requires every removed or changed name in the CHANGELOG. Every persisted enum
+name is pinned. Every limitation and deferral an ADR states is held to a closed
+ledger entry. A release certificate — determinism, parity, reproducibility,
+published numerical references, the API — is generated by a script CI runs,
+and holds the engine source it certified.
+
+**This release breaks things on purpose**: v3.13 renames rather than aliases,
+and each break is listed, with what to do instead, in the
+[CHANGELOG](CHANGELOG.md)'s migration table.
+
+---
+
+## What v3.12.0 is
+
+The third of four releases the **pre-v4 audit** plans before the v4.0 freeze.
+v3.10 made the canonical path correct and v3.11 gave it what a strategy needs;
+v3.12 hardens it and builds what the audit deferred here. Every item the ledger
+assigns to v3.12 is closed, each pinned by the tests its entry names, and the
+five defects building, stressing and auditing it found are fixed — four had
+shipped. Two packages leave the library: `plugins`, whose `execute()` was a
+placeholder, and `optimizer`, a second parameter search beside the research
+authority's; the reporting dashboards go with them. ADR-0047.
+
+**Right at the edges of the range.** R² of a constant series is undefined, not
+zero; the normal CDF keeps its precision deep in the lower tail, so far
+out-of-the-money options price and invert; least squares runs by Householder QR
+and refuses an ill-conditioned or rank-deficient design; theta uses the year
+the price uses.
+
+**Durable, and restored as captured.** A rename is flushed with its directory;
+an allocation snapshot keeps its budget's currency (it had been dropped since
+v2.17). Every payload v3.11.0 wrote is frozen as a fixture and read by the
+suite. A run can bound the history it keeps — a strategy asking for more is
+refused rather than answered short — and checkpoint incrementally, as a base
+and a chain of segments verified link by link.
+
+**Capital, classification and information on the path.** Simulated DAY orders
+expire at their venue's last close; a strategy's capital can be capped; any
+classification dimension — issuer, country, rating — can bound a bucket's
+gross or share, counting working orders, reduce-only; a point-in-time
+observation reaches a strategy at the instant it became knowable.
+
+**Scale, measured.** A stress program runs 10,000 assets under classification
+limits, 1,000 strategies with ceilings and 100 venues' calendars, accounts and
+session timers. It found two costs that grew faster than the work, both fixed:
+a classification limit summed its bucket for every order, and every event asked
+every strategy whether it subscribed. Construction on a factor-model covariance
+is solved in O(n k²) per step: 10,000 assets in 1.6 s, where the dense solver
+took 135 s at 800 — the solve alone: through the public API the covariance was
+first written out, O(n²), until v3.13 stated it by its structure (PRF-013). Side by side with v3.9.0 on one machine, the OMS benchmark
+takes 0.87x its time, a one-asset backtest 1.15x, replay 1.10x and the pipeline
+1.03x, within the budget v3.11 set; against v3.11.0, 0.98x to 1.07x.
+
+**Multi-account, prints, sequence models.** One book reconciles against every
+account it is spread across; trade prints are read from declared columns with
+their venue identifiers and aggressor sides; LSTMs and attention train by
+backpropagation checked against central differences; the v1 research engine
+reports measurements instead of 0–100 scores, with every bound stated.
+
+**This release breaks things on purpose**: each break is listed, with what to
+do instead, in the [CHANGELOG](CHANGELOG.md)'s migration table.
+
+---
+
+## What v3.11.0 is
+
+The second of four releases the **pre-v4 audit** plans before the v4.0 freeze
+([master audit](docs/audit/PRE_V4_MASTER_AUDIT.md); the plan of record is the
+[completion ledger](docs/audit/PRE_V4_COMPLETION_LEDGER.yaml)). v3.10 made the
+canonical path correct; v3.11 gives it what a strategy needs before its API is
+frozen. Every item the ledger assigns to v3.11 is closed, each pinned by the
+tests its entry names, and the nine defects building and auditing them found
+are fixed — seven had shipped. ADR-0046.
+
+**Instruments that are not shares.** An instrument declares its economics —
+multiplier, settlement (fully paid, futures variation margin, option premium,
+perpetual), lot, minimum notional, whether its price may go negative. A
+future's gain settles in cash at every mark; nothing assumes a multiplier; an
+undeclared future is refused. Dividends, interest, fees, funding and splits
+reach positions through the path, and a venue's rebate is a negative
+commission.
+
+**Orders with terms; positions as targets.** Limit, stop and stop-limit
+orders, IOC, FOK, GTD, DAY, on-open and on-close, resting across events and
+filled as makers or takers. A strategy may state the position it wants — a
+quantity or a weight — measured against its *own* position and rounded toward
+zero onto the lot, so it is approached and never overshot; a sale commits no
+budget, so a fully invested book can rotate.
+
+**Complete instants, and a strategy that hears back.** Subscriptions are
+enforced; a slice delivers every asset of an instant at once; `on_start`,
+`on_stop` and fill and order feedback are delivered by the path.
+
+**Research that cannot leak.** Forward returns enter after a declared
+implementation lag, delisted names keep their final return, and walk-forward
+optimization selects on validation and reports on test without ever handing
+the selection a test instant. Holm, Benjamini-Hochberg and -Yekutieli
+corrections, the deflated Sharpe ratio, Newey-West IC inference, multivariate
+neutralization and benchmark-relative statistics.
+
+**Construction that answers in quantities.** Ledoit-Wolf, EWMA and
+factor-model covariances; mean-variance that pays for trading, solved exactly;
+weights rounded to whole lots toward zero, with what rounding left out
+reported.
+
+**The application's packages leave the library.** Identity and RBAC
+(`enterprise`), UI state (`workbench`), project management (`studio`) and venue
+credentials are the host's; a strategy's definition moved to
+`alphalab.strategy`, permissions to a `PermissionAuthority` the application
+supplies.
+
+**Every run entry point computes exactly; a run costs what its length does.**
+Every public entry of the pipeline, the run and the live session is pinned to
+the accounting context — a caller's low precision had changed booked
+quantities. A slice of an append-only log copied the whole log, so a run had
+been quadratic in its length since v2.1; it is linear again. Measured side by
+side with v3.9.0, the OMS benchmark now takes 0.83x its time, a one-asset
+backtest 1.05x and the execution pipeline 1.01x; the portfolio-engine
+micro-benchmark, which does exact per-currency accounting on every fill, 1.69x.
+Every one is faster than v3.10's.
+
+**This release breaks things on purpose**: each break is listed, with what to
+do instead, in the [CHANGELOG](CHANGELOG.md)'s migration table.
+
+---
+
+## What v3.10.0 is
+
+The first of four releases the **pre-v4 audit** plans before the v4.0 freeze
+([master audit](docs/audit/PRE_V4_MASTER_AUDIT.md); the item-by-item plan of
+record is the [completion ledger](docs/audit/PRE_V4_COMPLETION_LEDGER.yaml)).
+v3.1–v3.9 each added a capability; v3.10 adds almost none. It corrects the
+canonical path where the audit found it computing numbers a user reads first
+wrongly, removes code that contradicts the library's boundary, and makes
+persisted state upgradeable — so that what is frozen at v4 is correct, not
+merely stable. Every item the ledger assigns to v3.10 is closed, each pinned by
+the tests its ledger entry names. ADR-0045.
+
+**Risk on the projected book.** Every pre-trade check reads one projection of
+the book after the order, counting working orders. Buying power is charged only
+for what grows a position, so a fully invested account can sell; a trade that
+reduces exposure is never refused by the limit it reduces; a drawdown or
+daily-loss breach refuses only what grows exposure. The daily loss limit is
+maintained — it never fired before — in the IANA zone its trading day is kept
+in, and the net exposure limit is enforced.
+
+**Money exact at each currency's minor unit.** ISO 4217's table (JPY 0, KWD 3)
+plus the units a book declares for what ISO 4217 does not list; prices and
+quantities kept exactly as given; money rounded once, half to even, in one
+pinned decimal context.
+
+**Analytics that say what they assumed.** One equity point per instant;
+annualization declared or observed, never assumed, and recorded; undefined
+statistics are `None`; trade statistics count the fills that realized P&L.
+
+**Execution realism, stated.** `FillTiming.NEXT_EVENT` fills an order at its
+asset's next event; every run and result carries `ExecutionAssumptions`,
+listing what is optimistic about it; strategy failures are reported, and a run
+can halt on one.
+
+**Linear in the universe; bars stamped at their close.** A market event
+re-marks what it priced and what a fill priced, reading exact per-currency
+totals — 0.85–1.24× the per-record cost across an 8× universe, and on a
+single-currency book exactly what re-marking every position gives. The price
+is a higher constant: a one-asset backtest takes about 1.4× as long as in
+v3.9, and a 10-asset one already runs faster (PRF-006, planned for v3.11 and delivered there). A
+bar is stamped at the end of its interval, and a source must say which end it
+stamps.
+
+**Upgradeable state; no vendor code; no silent defaults.** Every snapshot
+subsystem upgrades older payloads through explicit, pure steps that refuse
+rather than invent. The vendor market-data clients (four were stubs), the
+`feed` and `live` packages and exchange symbol quirks are removed — a provider
+is the host application's, and AlphaLab asks one method of it. The last `"USD"`
+configuration defaults are gone, and the defaults sweep that had missed them is
+tightened.
+
+**This release breaks things on purpose**: each break replaces a silent wrong
+answer with a correct one or a refusal that names what to supply. The
+[CHANGELOG](CHANGELOG.md) has the full list and a migration table.
+
+---
 
 ## What v3.9.0 is
 
@@ -771,21 +999,28 @@ in [`docs/ADR/`](docs/ADR). In outline:
 | **v3.7.0** | Advanced quant research: one point-in-time statement of when information became knowable, canonical events, alternative data with source identity and versioned sets, point-in-time fundamentals, knowledge frames with a checked price join, event studies anchored where news could be traded, regime detection from declared rules, and adaptive strategies whose learned state replays exactly and reaches the run record (ADR-0042) |
 | **v3.8.0** | Advanced portfolio and risk: one risk model with stated currency, period and definiteness; constrained construction — minimum variance, mean-variance, maximum diversification, risk parity, robust, Black–Litterman, factor-neutral — by one certified solver that names conflicts; risk budgets along five dimensions; multi-strategy books with provenance across currencies; cross-strategy correlation, overlap and crowding; and capital allocation across strategies, markets, brokers, accounts and currencies (ADR-0043) |
 | **v3.9.0** | The universal execution contract: broker capabilities declared at venue, market and account level and checked three-valued; one order-transition table read by the OMS and the venue boundary, with every venue report given one outcome and cancels and amendments given identities; TWAP, VWAP, participation, slicing and iceberg-like algorithms whose children stay their parent's; route selection from supplied venue evidence, explained; implementation shortfall, slippage, fill quality, latency, rejection rate and venue quality; and snapshot reconciliation (ADR-0044) |
+| **v3.10.0** | The first pre-v4 release: risk judged on the projected book, never refusing a reduction; money exact at each currency's minor unit; analytics per instant with declared or observed annualization; next-event fills and recorded execution assumptions; a canonical path linear in the universe; bars stamped at their close; upgradeable snapshots; vendor code and silent defaults removed (ADR-0045) |
+| **v3.12.0** | The third pre-v4 release: numerics right at the edges of their range; durable writes and exact restores; exchange calendars inside simulation; strategy capital ceilings; classification limits along any dimension; external information on the execution path; retention and incremental checkpoints; an evidence store; multi-account reconciliation; declared trade prints; LSTM and attention backpropagation; factor-structured construction; a stress program at 10,000 assets, 1,000 strategies and 100 venues (ADR-0047) |
+| **v3.13.0** | The final pre-v4 release: American options on a lattice and a volatility term structure; the optimal split; an estimated urgency, the shortfall its model expects and seeded iceberg tranches; a rerun from a manifest and a lock-file reader; cron timers; an exact liquidation price; exchange-rate risk as factors; a box set on a book that may short; checkpoint segments that carry only what changed; one name for one contract, the public API and persisted names as data, every ADR limitation held to the ledger, and a release certificate (ADR-0048) |
+| **v3.11.0** | The second pre-v4 release: instrument economics, corporate actions and negative prices; order terms and resting orders; target positions; slices, subscriptions and feedback; leak-proof research, walk-forward optimization and multiple-testing corrections; construction with costs and lots; `studio`, `workbench`, `enterprise` and venue credentials moved to the application; every run entry point pinned; v3.10's performance cost paid back (ADR-0046) |
 
-> **What connectivity means here.** `alphalab.broker.transport.HttpVenueTransport`
-> signs and sends orders over authenticated HTTP, `alphalab.broker.venue.RestVenueBroker`
-> is a full `BrokerProtocol` over it, `alphalab.market.stream.StreamingSource`
-> consumes a push feed through an RFC 6455 WebSocket client, and
-> `alphalab.runtime.live.LiveSession` drives the settle/advance/route cycle. All of
-> it is exercised end to end over real sockets against local servers that verify
-> signatures, timestamp windows, idempotency keys and WebSocket accept tokens.
+> **What connectivity means here.** `alphalab.broker.BrokerProtocol` and the
+> normalized venue events are the contract a venue adapter implements;
+> `alphalab.broker.PaperBroker` is one in memory; `alphalab.market.stream.StreamingSource`
+> consumes a push feed through an RFC 6455 WebSocket client; and
+> `alphalab.runtime.live.LiveSession` drives the settle/advance/route cycle.
+> Since v3.11 the library holds no venue credentials and signs no requests: an
+> adapter that authenticates to a venue belongs to the host application.
+> `tests/reference_adapter` keeps the signed-REST adapter that used to ship
+> (`alphalab.broker.transport` / `alphalab.broker.venue`) as a worked example, and
+> the tests drive it end to end over real sockets against local servers that
+> verify signatures, timestamp windows and idempotency keys.
 >
-> What is **not** here: verification against any commercial venue — this
-> environment has no network egress and holds no vendor credentials — and any
-> named vendor's request shapes. Read the transports as written-to-protocol and
-> unverified-against-a-vendor, which is what their own docstrings say. See
-> `docs/ADR/0012-broker-boundary-and-environment-parity.md` and
-> `docs/ADR/0031-real-transport-streaming-artifacts-and-the-completed-boundaries.md`.
+> What is **not** here: verification against any commercial venue, and any named
+> vendor's request shapes. See
+> `docs/ADR/0012-broker-boundary-and-environment-parity.md`,
+> `docs/ADR/0031-real-transport-streaming-artifacts-and-the-completed-boundaries.md`
+> and `docs/ADR/0046-the-pre-v4-capability-release-instruments-orders-targets-slices-construction-and-the-application-boundary.md`.
 >
 > **A deployment is a lifecycle fact, not an operation on a machine.** It records
 > that an environment *should* be running a strategy version. It starts no
@@ -882,19 +1117,32 @@ would turn every typo into a new instrument.
 
 ```python
 from alphalab.core.enums import AssetType
+from alphalab.data.time import BarStamp
 from alphalab.instrument import InstrumentRecord, InstrumentRegistry, register_instrument
+from alphalab.market.bar import TimeFrame
 from alphalab.market.normalization import NormalizationPolicy
 
 instruments = register_instrument(
     InstrumentRegistry(),
     InstrumentRecord(
-        "BTCUSDT", AssetType.CRYPTO, "BINANCE", "USDT", aliases={"binance": "BTCUSDT"}
+        "BTCUSDT", AssetType.CRYPTO, "BINANCE", "USDT", aliases={"my-provider": "BTCUSDT"}
     ),
 )
 policy = NormalizationPolicy(
-    venue="BINANCE", currency="USDT", identity=instruments, provider="binance"
+    venue="BINANCE",
+    currency="USDT",
+    timeframe=TimeFrame.M1,
+    identity=instruments,
+    provider="my-provider",
+    bar_stamp=BarStamp.INTERVAL_START,  # this provider stamps a bar when it opens
 )
 ```
+
+The policy states everything a wire record cannot: its currency (a quote or
+trade is refused without one), its timeframe (a bar is refused without one),
+whose symbols these are, and which end of its interval a bar's timestamp
+names — a start-stamped bar is moved to its end, the instant its close is
+known, and an undeclared one is refused (ADR-0045).
 
 **A production provider → execution path requires `InstrumentRegistry`-backed
 resolution.** An unregistered `(provider, symbol)` is refused at the boundary
@@ -904,8 +1152,7 @@ first fill.
 The second mode, `UnresolvedIdentity`, keeps the wire → canonical lift testable
 without a registry. **It is not a production execution configuration**: it yields
 provider symbols, which `core.Fill` and `core.Trade` refuse, and
-`ProviderHistorySource.of` rejects it before calling the provider. `DEFAULT_POLICY`
-uses this mode and is therefore a testing default. See ADR-0016.
+`ProviderHistorySource.of` rejects it before calling the provider. See ADR-0016.
 
 The registry is read a second time on the **fill** path: `ExecutionPipeline` asks
 it what sector the filled asset is classified as and freezes that answer onto the
@@ -943,15 +1190,15 @@ Everything below is importable, deterministic, and independently tested, but is
 | Area | Packages |
 |---|---|
 | Reporting | `reporting` |
-| Portfolio construction | `portfolio_optimizer`, `optimizer` |
+| Portfolio construction | `portfolio_optimizer` |
 | Feature registry | `feature_store` |
 | Learning | `ml`, `deep_learning`, `reinforcement_learning` |
 | Asset classes | `options`, `futures`, `crypto`, `macro` |
 | Market conventions | `conventions` — a leaf over `common`, imported *by* `data`-side and `portfolio`-side packages rather than reached from a run |
 | Scale-out | `cloud_research`, `cluster_scheduler`, `distributed` |
-| Workflow | `workbench`, `research_assistant` |
-| Provider surfaces | `live`, `feed`, `brokers` |
-| Infrastructure | `plugins`, `scheduler` |
+| Workflow | `research_assistant` |
+| Provider surfaces | `brokers` |
+| Infrastructure | `scheduler` — deterministic timers, session boundaries from a `MarketCalendar` |
 
 Several packages that are often described as standalone are **not**, and the
 import graph is the authority:
@@ -962,7 +1209,7 @@ import graph is the authority:
   `market`; `broker` is reached through `runtime.broker_routing`; `persistence`
   supplies the codec spine and the `RunStateStore` every snapshot owner writes
   through.
-- `research`, `studio`, `enterprise`, `experiment_tracking`, `model_registry`,
+- `research`, `experiment_tracking`, `model_registry`,
   `deployment_manager` and `backtesting` are imported by `alphalab.lifecycle`.
 - `factor_library` (since v3.2) and `alt_data` (since v3.7) are imported by
   `research`, so the lifecycle path reaches them. `alt_data` imports
@@ -1001,15 +1248,15 @@ The recommended way to learn the framework is through the curated examples.
 | Example | File | Description |
 |---------|------|-------------|
 | 01 | `01_research.py` | Research engine |
-| 02 | `02_backtest.py` | Strategy Studio backtest bookkeeping |
+| 02 | `02_backtest.py` | Your first backtest: a CSV through the canonical path, the strategy stating target quantities |
 | 03 | `03_replay.py` | Historical replay cursor |
-| 04 | `04_market_data.py` | Market-data providers |
+| 04 | `04_market_data.py` | Provider wire bars → normalization → canonical market state |
 | 05 | `05_broker_connection.py` | The two broker boundaries: one venue, or a registry of many |
 | 06 | `06_portfolio_optimizer.py` | Portfolio construction |
 | 07 | `07_universal_data.py` | Universal Data Engine: state, versions and the catalogue |
-| 08 | `08_strategy_studio.py` | Strategy Studio orchestration |
-| 09 | `09_workbench.py` | Workbench workspace |
-| 10 | `10_complete_pipeline.py` | Multi-engine walkthrough |
+| 08 | `08_strategy_studio.py` | Rebalancing to target weights, with a lot size declared on the instrument |
+| 09 | `09_workbench.py` | Cross-sectional decisions on complete instants (slices), and a cash-account rotation |
+| 10 | `10_complete_pipeline.py` | Research to a traded book: walk-forward optimization, construction with costs and lots, out-of-sample trading, benchmark statistics |
 | 11 | `11_unified_backtest.py` | Dataset → orders → fills → P&L → analytics, plus replay parity |
 | 12 | `12_model_lifecycle.py` | Research candidate → model → strategy version → deploy → rollback |
 | 13 | `13_durable_run_state.py` | Stop a run, store it, continue it in another process |
@@ -1065,6 +1312,10 @@ The recommended way to learn the framework is through the curated examples.
 | 63 | `63_execution_algorithms.py` | TWAP and VWAP with a stated urgency, an incomplete profile refused or planned on time, top-up releases, participation of observed volume, slicing and an iceberg-like tranche |
 | 64 | `64_smart_routing.py` | A route chosen from supplied venue evidence with every venue explained; all-in cost against quoted price; a re-priced split; stale, look-ahead and foreign quotes; INFEASIBLE against INSUFFICIENT_EVIDENCE |
 | 65 | `65_execution_analytics.py` | Strategy → order → VWAP → capability check → normalized venue reports → reconciliation → implementation shortfall, slippage, latency, rejections and venue quality, in two currencies |
+| 66 | `66_american_options.py` | An American put on a lattice converging to Hull's table; early exercise on a call made worth something by a dividend; lattice Greeks; implied volatility through the lattice; a volatility term structure linear in total variance |
+| 67 | `67_optimal_split_and_urgency.py` | The greedy sweep against the optimal split across three venues; a falling marginal cost refused; an urgency estimated from stated inputs; iceberg tranches varied from a seed and reproduced |
+| 68 | `68_rerun_from_a_manifest.py` | A lock file read into a dependency manifest; a backtest re-executed from its manifest — REPRODUCED, DIVERGED and located, INPUTS_DIFFER with nothing run |
+| 69 | `69_cron_timers.py` | Cron expressions on a stated zone's wall clock across both daylight-saving transitions; refusals when written; a cron timer fired and rescheduled on the engine |
 
 Run any example:
 
@@ -1081,10 +1332,11 @@ path, `25`–`30` (v3.3) institutional backtesting, `31`–`40` (v3.4) global
 markets, `41`–`45` (v3.5) strategy execution, `46`–`49` (v3.6) strategy
 evaluation, `50`–`55` (v3.7) point-in-time research and adaptive strategies,
 `56`–`60` (v3.8) portfolio construction, risk budgets, multi-strategy books,
-cross-strategy risk and capital allocation, and `61`–`65` (v3.9) the execution
+cross-strategy risk and capital allocation, `61`–`65` (v3.9) the execution
 contract — capabilities, the normalized lifecycle, algorithms, routing and
-execution analytics.
-None are part of the automated test suite, though all sixty-five run as a
+execution analytics — and `66`–`69` (v3.13) American options, the optimal
+split, reruns from a manifest and cron timers.
+None are part of the automated test suite, though all sixty-nine run as a
 release gate; `17`–`24` all ingest the same committed panel in
 `examples/data/research_panel.csv` so their numbers are comparable with each
 other.
@@ -1144,8 +1396,6 @@ alphalab/
 │   lifecycle/     Research → model → strategy version → promotion → deployment,
 │                  and the v3.6 fingerprints, manifests, certification, portability
 │   experiment_tracking/  model_registry/  deployment_manager/
-│   studio/        Strategy definitions and project orchestration
-│   enterprise/    RBAC, principals, audit log (governance reads it)
 │   research/      Run evaluation, the v3.2 study methodology, and v3.7
 │                  event studies and regime detection
 │   factor_library/  The computation engine: features, factors, diagnostics,
@@ -1158,8 +1408,8 @@ alphalab/
 │   alt_data/      Point-in-time external information — observations, events,
 │                  fundamentals, versioned sets, sessions. A leaf over common
 │                  (ADR-0042)
-│   marketdata/    Provider clients, transport, WebSocket
-│   feed/  live/   Standalone provider-surface engines
+│   marketdata/    HTTP transport, RFC 6455 WebSocket client, wire records
+│                  (the vendor clients were removed in v3.10, BND-001)
 │
 ├── Broker surfaces
 │   broker/        The canonical single-venue boundary (BrokerProtocol), and the
@@ -1168,7 +1418,7 @@ alphalab/
 │   brokers/       The many-venue connector framework (BrokerConnectorProtocol)
 │
 └── Standalone engines
-    reporting/  optimizer/
+    reporting/
     portfolio_optimizer/  Construction: v1 closed forms, and v3.8 constrained
                    construction and Black–Litterman over the analytics risk
                    model (ADR-0043)
@@ -1176,19 +1426,20 @@ alphalab/
     ml/  deep_learning/  reinforcement_learning/
     options/  futures/  crypto/  macro/
     cloud_research/  cluster_scheduler/  distributed/
-    workbench/  research_assistant/  plugins/  scheduler/
+    research_assistant/  scheduler/
     scenario/       Price, volatility, FX and liquidity shocks (ADR-0038)
 ```
 
-All 50 top-level packages are accounted for above.
+All 43 top-level packages are accounted for above. (v3.11 removed `studio`,
+`workbench` and `enterprise`; v3.12 removed `plugins` and `optimizer`.)
 
 Additional directories:
 
 ```text
 docs/          Documentation and ADRs
-examples/      65 runnable examples
-benchmarks/    59 performance benchmarks
-tests/         7387 tests — unit, integration, regression
+examples/      69 runnable examples
+benchmarks/    53 performance benchmarks
+tests/         9041 tests — unit, integration, regression
 configs/       Reference configuration files
 ```
 
@@ -1198,22 +1449,40 @@ configs/       Reference configuration files
 
 AlphaLab is continuously validated through automated tooling.
 
-- ✅ **7387 passing tests** (4123 unit, 398 integration, 2866 regression) — **0 skipped, 0 warnings**
-- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1183 source files)
+- ✅ **9,041 passing tests** (4,806 unit, 649 integration, 3,586 regression) — **0 skipped, 0 warnings**
+- ✅ Strict MyPy type checking, repository-wide exactly as CI runs it (`python -m mypy .`, 1,152 source files)
 - ✅ Ruff linting and formatting
-- ✅ 59 / 59 benchmarks, 65 / 65 examples
-- ✅ Source distribution, wheel and `twine check` validation
+- ✅ 53 / 53 benchmarks, 69 / 69 examples
+- ✅ A defect-injection harness (`docs/audit/scripts/mutation_v3_13.py`): 184
+  mutations — v3.12's 126 and 58 of v3.13's own behaviour — each against the
+  whole suite; on the release tree 183 are caught, and the one survivor, X17,
+  is an equivalent mutant: no input distinguishes it from the rule
+- ✅ A stress program (`docs/audit/scripts/stress_v3_13.py`): v3.12's 10,000
+  assets, 1,000 strategies and 100 venues re-run, construction over a
+  10,000-asset factor structure, the optimal split and the lattice at their
+  ceilings, per-order memory and checkpoint segments
+- ✅ A release certificate (`docs/audit/RELEASE_CERTIFICATION.md`, checked in
+  CI by `certify_release.py --check`): eleven checks — determinism, parity,
+  reproducibility, published numerical references and the public API — of
+  the engine source it names, which `--check` holds to the build
+- ✅ Source distribution, wheel and `twine check` validation, and each
+  distribution installed into a clean environment and exercised from outside
+  the checkout (`tests/installed_smoke.py`)
 
 Neither the zero skips nor the zero warnings can be satisfied by configuration:
 `tests/regression/test_the_suite_reports_nothing_deferred.py` reads the collected
-items rather than the summary line, and spawns a **fresh interpreter** with
-`-W error::DeprecationWarning` to import every module in the package tree.
+items rather than the summary line, refuses any `skipif` it does not list (it
+lists none — the suite skips nothing whoever runs it, root included), and spawns
+a **fresh interpreter** with `-W error::DeprecationWarning` to import every
+module in the package tree. CI runs the suite with `-W error`, so a
+`ResourceWarning` fails it too.
 
 ---
 
 # What is deliberate, what is external, what is optional
 
-The v3.0 audit classified everything that remains. Nothing below is a defect.
+The v3.0 audit classified everything that remains, and the pre-v4 audit
+re-examined each classification (ADR-0045). Nothing below is a defect.
 
 ## Deliberate design — pinned by regression tests
 
@@ -1226,20 +1495,22 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   `data.feed.OrderBook` is a venue depth snapshot. They share no operation.
 - **Two `PortfolioEngine`s** — `portfolio` does accounting, `portfolio_optimizer`
   does construction. Only the accounting one is reachable from the execution path.
-- **`optimizer` vs `portfolio_optimizer`** — two searches over two different
-  subjects.
+- **Parameter search and portfolio construction** — `research.parameter_sweep`
+  searches parameters, `portfolio_optimizer` sets weights. Until v3.12 a second
+  package, `optimizer`, searched parameters too; it was removed (SCF-003).
 - **`broker` vs `brokers`** — one venue versus many venues and many accounts.
-  The connector package routes the canonical types under its historical names;
-  the identities are asserted.
+  The connector package routes the canonical types under their canonical names
+  (since v3.13; its historical aliases were removed, API-001); the identities
+  are asserted.
 - **A wire record and a domain record** — `data.feed` is `float`/`symbol`,
   `alphalab.market` is `Decimal`/`asset_id`. They sit on opposite sides of an
   explicit conversion (ADR-0011).
 - **Three things called a venue** — listing exchange, market-data attribution and
   execution venue. None derives from another (ADR-0019).
-- **Three calendar-shaped things** — `MarketCalendar` answers sessions,
-  `scheduler.TradingCalendar` answers "should a job fire today", and v3.4's two
-  one-method protocols are neither. There is one calendar with holidays,
-  sessions and a timezone (ADR-0039).
+- **One calendar** — `MarketCalendar` answers sessions, with holidays and a
+  timezone (ADR-0039); v3.4's two one-method protocols are not calendars. The
+  scheduler's own `TradingCalendar`, which decided weekends in UTC, was removed
+  in v3.10 (ADR-0045).
 - **Three margins** — an account calculation, a liquidation *price*, and a
   clearing house's *published* figure. None can produce either of the others.
 - **Two exposures** — `ExposureEngine` reads `Position.market_value` and means
@@ -1343,7 +1614,38 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   volume profiles, printed volume and benchmark prices, and the adapter that
   translates its messages into `VenueEvent`s are the application's.
 
-## Optional future evolution — deliberately not built
+## Planned before v4 — the pre-v4 ledger
+
+Until v3.10 this section listed "optional future evolution". The pre-v4 audit
+found that several of those items are required for a complete v4, and
+re-classified every one; each below is a ledger item with a release
+(`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`).
+
+- **v3.11** — *done* (ADR-0046): estimated shrinkage, EWMA and factor-model
+  covariance (OFE-002); neutralization against several continuous exposures
+  (OFE-004); the deflated Sharpe ratio and multiple-testing corrections beyond
+  Bonferroni (OFE-005); a t-statistic on an information coefficient (OFE-006);
+  pipeline-driven `on_fill` / `on_order` / `on_timer` (OFE-014); a venue
+  sequence number and persisted child bindings and request ledger (OFE-021,
+  OFE-022).
+- **v3.12** — *done* (ADR-0047): exchange calendars inside simulation
+  (EXE-010); classification dimensions beyond sector and limits on their
+  buckets (OFE-001); per-strategy capital ceilings on the execution path
+  (OFE-003); execution-path delivery of external information (OFE-009);
+  streaming observation sets, split-adjusted and converted fundamentals
+  (OFE-011); a durable evidence store (OFE-016); health over a window
+  (OFE-017); book-to-mirror reconciliation across brokers (OFE-023); the
+  optimizer's super-linear pending trials, gone with the optimizer (OFE-013).
+- **v3.13** — *done* (ADR-0048): a lock-file reader (OFE-019); a rerun
+  harness (OFE-020); an optimal split, estimated urgency and randomized iceberg
+  tranches (OFE-024, OFE-025) — and, from the ledger's v4.0.0 column, the shared
+  names, the public API manifest, the persisted-name contract and release
+  certification (API-001, API-002, PER-004, FEA-006).
+
+Nothing is assigned to a later release: every item is delivered or kept as a
+boundary or a stated limitation, with its reason.
+
+## Deliberate boundaries — kept at v4
 
 - A depth hook on `StrategyProtocol`. `BookUpdated` and `SnapshotCreated` reach
   no hook; delivering a snapshot to `on_quote` would hand existing strategies a
@@ -1356,35 +1658,19 @@ in `tests/regression/test_shared_names_stay_distinct.py` and
   environments.
 - A single integrated runtime spanning *all* engines. Reporting, the feature
   store, the factor library and the rest remain standalone by design (ADR-0009).
-- Execution-path delivery of external information. An adaptive strategy on the
-  execution path learns from the market events it is dispatched; external
-  information reaches adaptive state through a research replay and a trained
-  checkpoint. Delivering observations as execution-path events would change the
-  canonical spine and its snapshots (ADR-0042).
 - Statistical regime models (hidden Markov, Markov switching). v3.7's regimes
-  are declared rules; an estimated model needs an identity for its fit.
-- Richer construction (ADR-0043): covariance estimators beyond the sample
-  (an estimated shrinkage intensity, EWMA, a factor-model covariance),
-  cardinality and lot-size constraints, transaction costs in the objective,
-  CVaR or drawdown objectives, multi-period construction, and exchange-rate
-  return factors for a pure currency-risk dimension. Each is a decision of its
-  own; v3.8's solvers are exact and pure Python, and cubic in the universe.
-- Per-strategy sub-ledgers inside the accounting engine, and per-strategy
-  capital ceilings enforced on the execution path. A multi-strategy book is
-  assembled from each strategy's own state, and an account's `CapitalBudget`
-  enforces its total; a strategy's amount in it is what weight-based sizing
-  reads (ADR-0015 §1).
-- Richer execution (ADR-0044): a venue sequence number on orders, so
-  amendments, positions and balances can be ordered by it (it would change
-  `BROKER_SNAPSHOT_SCHEMA`; a snapshot reconciliation is the check today);
-  persisting child bindings and the request ledger; a book-to-mirror
-  reconciliation across several brokers' accounts; an optimal split under fixed
-  fees or non-linear impact; urgency estimated from risk aversion, volatility and
-  impact; randomized iceberg tranches.
-- One measured trade left in place: `OptimizerState.pending_trials` stays
-  super-linear because the fix was implemented, measured at **+3.9%** on the
-  execution pipeline, and refused on that evidence. It is in a standalone package
-  with no in-repo consumer.
+  are declared rules; an estimated model needs an identity for its fit (OFE-010).
+- Per-strategy sub-ledgers inside the accounting engine. A multi-strategy book
+  is assembled from each strategy's own state; the contribution ledger answers
+  attribution without a second book of record (OFE-015).
+- A half-life fitted to a decay profile, and derived alignment for a
+  comparison: each would report a fit or a pairing as a measurement (OFE-007,
+  OFE-018).
+- Process supervision, hot reload, hook timeouts and a threading model: the
+  host application's (OFE-026).
+- **Persisted state is no longer frozen at its writer's schema**: the roadmap's
+  "no migration framework" boundary was replaced in v3.10 by explicit, tested
+  schema upgrades (ADR-0045).
 
 The full list, with the reasoning behind each, is in
 [`nowandfuture.md`](nowandfuture.md) and `ROADMAP.md`.
@@ -1415,7 +1701,7 @@ See `LICENSE` for details.
 
 <div align="center">
 
-**AlphaLab v3.9.0**
+**AlphaLab v3.11.0**
 
 Building deterministic infrastructure for quantitative research.
 

@@ -4,7 +4,14 @@ from collections.abc import Iterable
 from typing import Any, Protocol, runtime_checkable
 
 from alphalab.strategy.context import StrategyContext
-from alphalab.strategy.events import FillEvent, Intent, OrderEvent, TimerEvent
+from alphalab.strategy.events import (
+    FillEvent,
+    Intent,
+    ObservationReceived,
+    OrderEvent,
+    SliceClosed,
+    TimerEvent,
+)
 
 
 @runtime_checkable
@@ -24,15 +31,35 @@ class StrategyProtocol(Protocol):
     """
 
     def on_start(self, context: StrategyContext) -> None:
-        """Declarative setup and warmup; runs before subscription."""
+        """Setup and warmup, once, immediately before the first event it receives.
+
+        Delivered by :class:`~alphalab.strategy.engine.StrategyEngine` when a
+        running strategy is first dispatched an event it subscribed to, with that
+        event's context -- so it sees what the run has seen, and nothing later.
+        Raising fails the strategy before the event reaches it. Delivered once:
+        a restored run records that it was (``StrategyState.started``). Until
+        v3.11 nothing called it (ledger EXE-005).
+        """
         ...
 
     def on_stop(self, context: StrategyContext) -> None:
-        """Notification of graceful shutdown; no Intents may be emitted."""
+        """Notification that the strategy is being stopped; no intents.
+
+        Delivered by
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.stop_strategies`
+        after :meth:`on_shutdown`, immediately before the strategy moves to
+        ``STOPPED``.
+        """
         ...
 
     def on_shutdown(self, context: StrategyContext) -> Iterable[Intent]:
-        """Final flattening/cancel intent emission during shutdown."""
+        """Final intents -- flattening, typically -- as the strategy is stopped.
+
+        Delivered by
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.stop_strategies`
+        before :meth:`on_stop`. Its intents go through allocation, risk and the
+        OMS like any others, as of the run's last instant.
+        """
         ...
 
     def on_tick(self, context: StrategyContext, event: Any) -> Iterable[Intent]:
@@ -68,6 +95,39 @@ class StrategyProtocol(Protocol):
 
     def on_timer(self, context: StrategyContext, event: TimerEvent) -> Iterable[Intent]:
         """React to a Scheduler timer."""
+        ...
+
+
+@runtime_checkable
+class SliceStrategyProtocol(Protocol):
+    """The hook a cross-sectional strategy adds: an instant, complete (ledger EXE-004).
+
+    Separate from :class:`StrategyProtocol`, as :class:`StrategyStateProtocol`
+    is, so that every strategy written against the ten hooks keeps satisfying it
+    unchanged. A strategy defining ``on_slice`` and subscribed to ``slices`` (or
+    ``*``) is called after every record sharing an instant has been published;
+    one without it is not called.
+    """
+
+    def on_slice(self, context: StrategyContext, event: SliceClosed) -> Iterable[Intent]:
+        """React to a completed instant: every record at ``event.timestamp`` is in."""
+        ...
+
+
+class ObservationStrategyProtocol(Protocol):
+    """The hook a strategy adds to act on external information (ledger OFE-009).
+
+    Separate from :class:`StrategyProtocol`, as :class:`SliceStrategyProtocol`
+    is, so every strategy written against the ten hooks keeps satisfying it. A
+    strategy defining ``on_observation`` and subscribed to ``observations`` (or
+    ``observations:<subject>``, or ``*``) is called when a point-in-time record
+    becomes knowable; one without it is not called.
+    """
+
+    def on_observation(
+        self, context: StrategyContext, event: ObservationReceived
+    ) -> Iterable[Intent]:
+        """React to a record that has just become knowable."""
         ...
 
 
@@ -181,3 +241,37 @@ class BaseStrategy:
 
     def on_timer(self, context: StrategyContext, event: TimerEvent) -> Iterable[Intent]:
         return ()
+
+    def on_slice(self, context: StrategyContext, event: SliceClosed) -> Iterable[Intent]:
+        return ()
+
+    def on_observation(
+        self, context: StrategyContext, event: ObservationReceived
+    ) -> Iterable[Intent]:
+        return ()
+
+
+def defines_on_observation(strategy: object) -> bool:
+    """Whether ``strategy`` has an ``on_observation`` of its own (ledger OFE-009).
+
+    :class:`BaseStrategy`'s answers nothing, so an observation reaches only a
+    strategy that says what it does with one, and a run whose strategies define
+    none delivers observations without building a context for any of them.
+    """
+
+    hook = getattr(type(strategy), "on_observation", None)
+    return hook is not None and hook is not BaseStrategy.on_observation
+
+
+def defines_on_slice(strategy: object) -> bool:
+    """Whether ``strategy`` has an ``on_slice`` of its own (ledger EXE-004).
+
+    :class:`BaseStrategy`'s answers nothing, so a strategy inheriting it
+    unchanged has nothing to be called for: a run none of whose strategies
+    defines the hook closes its slices without building a context or
+    dispatching anything -- and without changing its state, so such a run is
+    exactly what it was before slices existed.
+    """
+
+    hook = getattr(type(strategy), "on_slice", None)
+    return hook is not None and hook is not BaseStrategy.on_slice

@@ -2,17 +2,12 @@
 
 Experiment history, metrics, parameters, and versioning.
 
-`alphalab.studio` already defines `ExperimentResult`, a `StrategyStudioState.experiments`
-field, and an `experiment_summary()` reader -- but grepping the whole package for
-"experiments[" turns up zero writes anywhere. `studio_bridge.record_experiment` is
-the missing write path, completing that gap using `ExperimentResult` exactly as
-already defined, not replacing it.
-
-Beyond that: `ExperimentResult` supports only float parameters and a single final
-metric, with no history and no versioning. `ExperimentRun`/`ExperimentTracker`
-provide multi-metric history tracking (a full sequence of logged values per metric,
-not just the latest -- training loss per epoch, reward per episode), mixed-type
-parameters, and lineage tracking for re-runs of the same logical experiment.
+`ExperimentRun`/`ExperimentTracker` provide multi-metric history tracking (a full
+sequence of logged values per metric, not just the latest -- training loss per
+epoch, reward per episode), mixed-type parameters, and lineage tracking for
+re-runs of the same logical experiment. (Until v3.11 a `studio_bridge` wrote a
+single-metric record into Strategy Studio's state; Studio is removed, and this
+tracker is the one experiment record.)
 """
 
 from alphalab.experiment_tracking.comparison import (
@@ -25,7 +20,6 @@ from alphalab.experiment_tracking.exceptions import (
     ExperimentTrackingError,
     ExperimentTrackingInputError,
 )
-from alphalab.experiment_tracking.studio_bridge import ExperimentRecorded, record_experiment
 from alphalab.experiment_tracking.tracker import (
     ExperimentRun,
     ExperimentTracker,
@@ -40,7 +34,6 @@ from alphalab.experiment_tracking.tracker import (
 from alphalab.experiment_tracking.versioning import lineage, new_version, version_number
 
 __all__ = [
-    "ExperimentRecorded",
     "ExperimentRun",
     "ExperimentTracker",
     "ExperimentTrackingError",
@@ -57,7 +50,6 @@ __all__ = [
     "log_metric",
     "log_metrics",
     "new_version",
-    "record_experiment",
     "start_run",
     "version_number",
 ]

@@ -100,13 +100,16 @@ If all commands complete successfully, your environment is correctly configured.
 ```
 AlphaLab/
 
-alphalab/     framework source (50 packages)
-benchmarks/   59 performance benchmarks
+alphalab/     framework source, one package per subsystem
+benchmarks/   performance benchmarks, each judging its own ceiling
 configs/      reference configuration files
-docs/         technical documentation and 44 ADRs
-examples/     65 runnable examples
-tests/        7387 tests — unit, integration, regression
+docs/         technical documentation and the ADRs
+examples/     runnable examples, one subsystem each
+tests/        unit, integration and regression tests
 ```
+
+The counts are in `README.md`'s status table, which the release checklist
+updates; this overview gave counts from 2.x until v3.13.
 
 ### alphalab/
 
@@ -159,7 +162,7 @@ Three kinds of package:
   deployment and back, and refuses a run that would serve a version the
   deployment ledger does not name.
 - **Standalone engines** — `portfolio_optimizer`, the learning and asset-class
-  engines, `workbench`, `reporting`, and the rest. Each is deterministic and
+  engines, `reporting`, and the rest. Each is deterministic and
   individually tested, and they are deliberately not chained together (ADR-0009).
 
 ```
@@ -218,12 +221,15 @@ portfolio/      cash, positions, P&L, FX
 market/         canonical market model and normalization
 instrument/     canonical instrument identity
 lifecycle/      research candidate → deployment → rollback
-research/       research workflows and scores
+research/       research workflows, measurements and the parameter search
 portfolio_optimizer/  portfolio construction
-data/  marketdata/    wire records and provider clients
+data/  marketdata/    wire records, the HTTP and WebSocket transports
 broker/  brokers/     one venue, and many
-studio/  workbench/   orchestration and presentation
 ```
+
+Presentation, orchestration, identity and credentials are the host
+application's: `studio`, `workbench` and `enterprise` left the library in v3.11
+(ADR-0046).
 
 Each package owns one business capability. The complete list, with which of the
 two paths reaches each, is in `../README.md`.
@@ -336,8 +342,9 @@ Examples include
 - Portfolio Optimizer
 - Market Data
 - The two broker boundaries
-- Strategy Studio
-- Workbench
+- Target weights on a lot grid, and decisions on complete instants
+  (examples 08–09, which until v3.11 demonstrated the Strategy Studio and the
+  Workbench, both now the host application's)
 - The unified backtest, the lifecycle, durable run state and multi-currency
   settlement (examples 11–14)
 - Universal data ingestion and research from a canonical dataset
@@ -424,8 +431,7 @@ After completing this guide, consider exploring
   `alphalab.lifecycle`
 - Durable run state — `examples/13_durable_run_state.py`
 - Multi-currency settlement and the FX feed — `examples/14_multi_currency_settlement.py`
-- The standalone engines — Research, Universal Data, Portfolio Optimizer,
-  Strategy Studio, Workbench
+- The standalone engines — Research, Universal Data, Portfolio Optimizer
 
 `../nowandfuture.md` is the long-form reference for who owns what, which
 invariants are frozen, and what must not be changed casually.
@@ -438,8 +444,8 @@ Congratulations!
 
 You have successfully set up AlphaLab and are ready to begin building quantitative research workflows.
 
-The advanced capabilities — machine learning, distributed research, cloud
-execution and enterprise governance — all ship as standalone packages today; their
+The advanced capabilities — machine learning, distributed research and cloud
+execution — ship as standalone packages; their
 usage is covered by the unit tests under `tests/unit/<package>/` and the
 benchmarks under `benchmarks/`.
 

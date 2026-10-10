@@ -263,14 +263,29 @@ def test_v39_added_no_package_edge() -> None:
     assert _package_edges("common") == set()
     assert _package_edges("execution") == {"common", "core"}
     assert _package_edges("analytics") == {"common", "core"}
-    assert _package_edges("broker") == {"common", "core", "persistence"}
+    # v3.11 (BRK-008): the paper venue charges the execution cost model, the one
+    # cost authority; execution sits below broker, so no cycle is introduced.
+    assert _package_edges("broker") == {"common", "core", "execution", "persistence"}
     assert _package_edges("oms") == {"common", "core", "persistence"}
-    assert _package_edges("allocation") == {"common", "core", "persistence", "strategy"}
+    # v3.11 (FEA-001): the lot grid a target is rounded to lives in conventions.
+    assert _package_edges("allocation") == {
+        "common",
+        "conventions",
+        "core",
+        "persistence",
+        "strategy",
+    }
 
 
 def test_v39_added_no_package() -> None:
+    """v3.9 added none; v3.10 removed ``feed`` and ``live`` (ledger SCF-002); v3.11
+    removed ``enterprise``, ``studio`` and ``workbench`` (BND-002, SCF-001, BND-003);
+    v3.12 removed ``plugins`` and ``optimizer`` (SCF-003)."""
+
     packages = sorted(p.name for p in PACKAGE.iterdir() if (p / "__init__.py").exists())
-    assert len(packages) == 50
+    removed = {"feed", "live", "enterprise", "studio", "workbench", "plugins", "optimizer"}
+    assert removed.isdisjoint(packages)
+    assert len(packages) == 43
 
 
 # --------------------------------------------------------------------------- #

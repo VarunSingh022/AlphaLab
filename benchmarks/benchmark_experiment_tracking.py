@@ -8,11 +8,8 @@ from alphalab.experiment_tracking import (
     complete_run,
     log_metric,
     new_version,
-    record_experiment,
     start_run,
 )
-from alphalab.studio import StrategyStudioEngine
-from alphalab.studio.project import Project
 
 
 def run_benchmark() -> None:
@@ -48,25 +45,6 @@ def run_benchmark() -> None:
     duration = time.perf_counter() - start
     print(
         f"  best_run ({len(tracker.runs)} runs): {duration:.4f}s, {N_QUERY / duration:.2f} ops/sec"
-    )
-
-    studio_state = StrategyStudioEngine.initialize("BENCH-STUDIO")
-    project = Project(project_id="P1", name="Bench Project", created_at=0.0)
-    studio_state = StrategyStudioEngine.create_project(studio_state, project, 0.0)
-
-    N_RECORD = 5_000
-    start = time.perf_counter()
-    for i in range(N_RECORD):
-        studio_state, _ = record_experiment(
-            studio_state,
-            "P1",
-            parameters={"x": float(i)},
-            target_metric=float(i) / 100,
-            timestamp=float(i),
-        )
-    duration = time.perf_counter() - start
-    print(
-        f"  record_experiment (studio bridge)  : {duration:.4f}s, {N_RECORD / duration:.2f} ops/sec"
     )
 
 

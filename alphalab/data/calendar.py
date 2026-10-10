@@ -23,15 +23,15 @@ Australia -- is expressible, including lunch breaks (two windows in a day),
 overnight sessions (a window whose close is earlier than its open), half days
 (a date with its own windows) and markets that never close.
 
-Not the scheduler's calendar
-----------------------------
+The one calendar
+----------------
 
-:class:`alphalab.scheduler.calendar.TradingCalendar` answers a different
-question -- "should a job fire today?" -- over UTC weekends and an optional
-holiday hook. It knows nothing about venues, sessions or local time, and it is
-not what decides whether a market was open when a bar printed.
-``tests/regression/test_shared_names_stay_distinct.py`` holds the reason the
-two must not be merged.
+Until v3.10 the scheduler kept a second, ``alphalab.scheduler.calendar.TradingCalendar``,
+which decided weekends in UTC with Saturday and Sunday hard-coded and aligned
+sessions to UTC midnight -- wrong for every market whose week or day is not
+UTC's, from Riyadh's Friday-Saturday weekend to Tokyo's session. It was removed
+(ledger DAT-006): a question about when a market is open, or when a job tied to
+one should fire, is answered here, in the market's own zone.
 """
 
 from __future__ import annotations
@@ -273,6 +273,28 @@ class MarketCalendar:
                 if start <= timestamp < end:
                     return end
         return None
+
+    def day_order_expiry(self, timestamp: float) -> float | None:
+        """When a day order placed at ``timestamp`` expires: its trading day's last close.
+
+        A day order is good for the trading day it is placed in, or -- placed
+        while the market is shut -- for the next one, as a venue queues it. It
+        expires at that day's *last* close, which is not :meth:`next_close`: a
+        market with a lunch break closes its morning window at noon, and an
+        order placed at ten is still working after lunch. An overnight session
+        belongs to the day it opened (:meth:`trading_day_of`), so its order
+        expires when that session ends the next morning.
+
+        ``None`` when no session starts within :data:`MAX_SESSION_SEARCH_DAYS`
+        -- the order has no day to be good for.
+        """
+
+        opens = self.next_open(timestamp)
+        if opens is None:
+            return None
+        day = self.trading_day_of(opens)
+        bounds = None if day is None else self.session_bounds(day)
+        return None if bounds is None else bounds[1]
 
     def session_windows_on(self, day: date) -> tuple[tuple[float, float], ...]:
         """Every window traded on a local date, as absolute ``(open, close)``

@@ -193,7 +193,11 @@ def factor_loadings() -> FactorLoadings:
     )
     volatility = compute_panel(
         FeatureDefinition(
-            "volatility_20d", FeatureKind.REALIZED_VOLATILITY, FeatureField.CLOSE, window=20
+            "volatility_20d",
+            FeatureKind.REALIZED_VOLATILITY,
+            FeatureField.CLOSE,
+            window=20,
+            parameters={"periods_per_year": 252.0},
         ),
         frame,
     )

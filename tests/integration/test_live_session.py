@@ -6,8 +6,8 @@ itself -- "a live session driven by this module still produces working orders
 and stops".
 
 Every test here drives :class:`~alphalab.runtime.live.LiveSession` through
-:class:`~alphalab.broker.venue.RestVenueBroker` over
-:class:`~alphalab.broker.transport.HttpVenueTransport` into the real HTTP venue
+:class:`~tests.reference_adapter.venue.RestVenueBroker` over
+:class:`~tests.reference_adapter.transport.HttpVenueTransport` into the real HTTP venue
 in ``tests/integration/venue_server.py``, which verifies the HMAC signature, the
 timestamp window and the idempotency key. Nothing here stubs a transport and
 nothing returns a canned ``accepted``.
@@ -39,8 +39,6 @@ from alphalab.broker.snapshot import capture as capture_broker
 from alphalab.broker.snapshot import from_primitives as broker_from_primitives
 from alphalab.broker.snapshot import restore as restore_broker
 from alphalab.broker.state import BrokerState, ConnectionStatus
-from alphalab.broker.transport import HttpVenueTransport, VenueCredentials
-from alphalab.broker.venue import RestVenueBroker, VenueConfig
 from alphalab.persistence import deserialize, serialize
 from alphalab.runtime.broker_routing import RoutingConfig, RoutingRefusal
 from alphalab.runtime.execution_pipeline import ExecutionRouting
@@ -54,6 +52,8 @@ from tests.integration.harness import (
     running_strategy_state,
 )
 from tests.integration.venue_server import fill, record_fill, run_venue
+from tests.reference_adapter.transport import HttpVenueTransport, VenueCredentials
+from tests.reference_adapter.venue import RestVenueBroker, VenueConfig
 
 _KEY = "TESTKEY-0001"
 _SECRET = "test-signing-secret-not-a-real-credential"
@@ -68,7 +68,7 @@ def _credentials() -> VenueCredentials:
 def _broker(base_url: str) -> RestVenueBroker:
     return RestVenueBroker(
         HttpVenueTransport(base_url, _credentials()),
-        VenueConfig(broker_name="TESTVENUE", account_id="ACC-LIVE"),
+        VenueConfig(currency="USD", broker_name="TESTVENUE", account_id="ACC-LIVE"),
     )
 
 
@@ -129,7 +129,10 @@ def test_a_live_session_refuses_any_mode_but_live() -> None:
         config = RunConfig(pipeline=pipeline_config(_STRATEGY), mode=mode, start_timestamp=1.0)
         with pytest.raises(RuntimeValidationError, match=r"ExecutionMode\.LIVE"):
             LiveSession.initialize(
-                config, running_strategy_state(_STRATEGY, _strategy()), _broker_state()
+                config,
+                running_strategy_state(_STRATEGY, _strategy()),
+                _broker_state(),
+                RoutingConfig(venue="TESTVENUE", currency="USD"),
             )
 
 
@@ -358,6 +361,9 @@ def test_the_live_state_holds_no_accounting_of_its_own() -> None:
     from dataclasses import fields
 
     names = {f.name for f in fields(LiveRunState)}
+    # v3.11 added the algorithm bindings and the request ledger (BRK-003), and
+    # the orders held for an algorithm (LIV-001): identities and what was asked
+    # or decided, not amounts.
     assert names == {
         "run",
         "broker",
@@ -366,6 +372,9 @@ def test_the_live_state_holds_no_accounting_of_its_own() -> None:
         "routing",
         "routed",
         "settled",
+        "children",
+        "requests",
+        "held",
     }
     # No cursor, no cash, no positions, no orders of its own.
     for forbidden in ("processed", "cash", "positions", "orders", "steps", "pipeline"):
@@ -373,7 +382,12 @@ def test_the_live_state_holds_no_accounting_of_its_own() -> None:
 
 
 def test_the_run_state_gained_no_broker_fields() -> None:
-    """ADR-0030 decision 2 fixes ``RunState`` at eight fields. Pinned."""
+    """ADR-0030 decision 2 fixed ``RunState`` at eight fields; ADR-0046 adds a ninth.
+
+    The slice cursor (ledger EXE-004) is continuation state, as the record cursor
+    is, and ADR-0030's own performance budget is why it is here and not on the
+    pipeline state. v3.12 adds the observation cursor (OFE-009) on the same
+    terms: how many were delivered and the last one's place. Pinned."""
 
     from dataclasses import fields
 
@@ -388,6 +402,9 @@ def test_the_run_state_gained_no_broker_fields() -> None:
         "source_id",
         "steps",
         "skipped",
+        "last_slice_at",
+        "observations_delivered",
+        "last_observation",
     }
 
 
@@ -396,7 +413,9 @@ def test_the_run_snapshot_schema_did_not_move() -> None:
 
     from alphalab.runtime.run_snapshot import RUN_SNAPSHOT_SCHEMA
 
-    assert RUN_SNAPSHOT_SCHEMA == 1
+    # Moved to 2 by v3.10's analytics basis, to 3 by v3.11's order terms and to 4
+    # by v3.12's observation cursor, not by the live driver.
+    assert RUN_SNAPSHOT_SCHEMA == 4
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +458,11 @@ def test_a_restored_run_does_not_re_send_orders_the_venue_already_holds() -> Non
         payload = serialize(capture_broker(state.broker, state.mapping, state.reconciliation))
         broker_state, mapping, log = restore_broker(broker_from_primitives(deserialize(payload)))
         resumed = LiveRunState(
-            run=state.run, broker=broker_state, mapping=mapping, reconciliation=log
+            run=state.run,
+            broker=broker_state,
+            routing=state.routing,
+            mapping=mapping,
+            reconciliation=log,
         )
 
         resumed, routed, _ = LiveSession.route_working_orders(resumed, broker, 3.0)
@@ -460,7 +483,9 @@ def test_losing_the_mapping_is_what_duplicates_an_order() -> None:
         assert len(book.orders) == 1
 
         # A restart that kept the run and forgot the venue binding.
-        amnesiac = LiveRunState(run=state.run, broker=state.broker, mapping=ExternalOrderMap())
+        amnesiac = LiveRunState(
+            run=state.run, broker=state.broker, routing=state.routing, mapping=ExternalOrderMap()
+        )
         assert len(amnesiac.unrouted_orders) == 1, (
             "without the mapping the run believes its order was never sent"
         )

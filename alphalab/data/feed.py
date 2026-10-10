@@ -23,6 +23,7 @@ alternative data) also live here because they share ``CanonicalRecord``'s
 """
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 __all__ = [
     "AlternativeDataRecord",
@@ -37,6 +38,7 @@ __all__ = [
     "Quote",
     "Split",
     "Trade",
+    "TradeAggressor",
 ]
 
 
@@ -58,12 +60,40 @@ class Quote(CanonicalRecord):
     ask_size: float
 
 
+class TradeAggressor(StrEnum):
+    """Which side of a print crossed the spread to make it, as the venue says.
+
+    Only ever *reported*. A print's direction is not inferred here -- not by a
+    tick rule, not by comparing it with a quote -- because every such rule is a
+    model, and a model's guess stored in the field a venue's flag goes in would
+    be indistinguishable from the flag.
+    """
+
+    #: A buyer took the offer.
+    BUYER = "BUYER"
+
+    #: A seller hit the bid.
+    SELLER = "SELLER"
+
+
 @dataclass(frozen=True, slots=True)
 class Trade(CanonicalRecord):
-    """A single execution print as reported by a provider."""
+    """A single execution print as reported by a provider.
+
+    Attributes:
+        price: The price the print went off at.
+        size: How much traded.
+        trade_id: The venue's identifier for the print, or ``""`` when the
+            source carries none. Since v3.12 (ledger FEA-004): it is what tells
+            a repeated row from two prints of the same size at the same instant.
+        aggressor: Which side crossed the spread, when the source reports it;
+            ``None`` when it does not. Since v3.12.
+    """
 
     price: float
     size: float
+    trade_id: str = ""
+    aggressor: TradeAggressor | None = None
 
 
 @dataclass(frozen=True, slots=True)

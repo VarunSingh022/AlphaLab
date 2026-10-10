@@ -9,7 +9,7 @@ neither answers this question:
                                                      shared by model versions and strategy
                                                      versions because it is the same question
                                                      about a different artifact.
-:class:`alphalab.strategy.state.LifecycleState`      Is this *instance inside a session*
+:class:`alphalab.strategy.state.StrategyStatus`      Is this *instance inside a session*
                                                      running? ``CREATED`` through ``DISPOSED``.
                                                      A deployed version starts and stops many
                                                      times without anything else changing.

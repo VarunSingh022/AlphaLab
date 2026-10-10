@@ -15,6 +15,21 @@ class AllocationValidationError(AllocationError):
     pass
 
 
+class SizingRefusedError(AllocationValidationError):
+    """A sizing model cannot size an intent from what it was given.
+
+    Raised for an intent whose instrument has no positive price, or -- for
+    :class:`~alphalab.allocation.sizing.VolatilityTargetSizing` -- no positive
+    volatility. Until v3.10 the models returned a quantity of zero instead, or
+    sized against an assumed volatility of 1%, and the intent vanished without a
+    record or was sized from a number nobody supplied (ledger ALC-003).
+    :meth:`~alphalab.allocation.engine.AllocationEngine.allocate` records each
+    refusal as an ``AllocationRejected`` naming the intent, and sizes the rest.
+    """
+
+    pass
+
+
 class BudgetExceededError(AllocationError):
     """Exported, and raised nowhere.
 

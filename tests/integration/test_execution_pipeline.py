@@ -93,7 +93,7 @@ def _risk_limits(max_quantity: Decimal = Decimal("1000")) -> RiskLimits:
         exposure=ExposureLimit(Decimal("2000000"), Decimal("2000000")),
         leverage=LeverageLimit(Decimal("10.0")),
         margin=MarginLimit(Decimal("1.00")),
-        daily_loss=DailyLossLimit(Decimal("1000000")),
+        daily_loss=DailyLossLimit(Decimal("1000000"), "UTC"),
         drawdown=DrawdownLimit(Decimal("1.00")),
     )
 
