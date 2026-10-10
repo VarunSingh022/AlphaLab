@@ -30,7 +30,7 @@ v3.12 hardened it. v3.13 closes every item the ledger
 (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) assigned to it, and the four it had
 assigned to v4 — the shared names, the public API manifest, the persisted names
 and release certification — so that nothing required is left for later. A
-fresh audit of the whole tree found twenty-one more things, among them two
+fresh audit of the whole tree found twenty-two more things, among them two
 capabilities three ADRs had deferred and the ledger had never recorded; each is
 fixed, implemented, replaced or stated here, and none is deferred. ADR-0048 records the
 decisions. Ledger IDs are given in brackets.
@@ -402,6 +402,11 @@ write the matrix out on each read.
 * **BND-006**: the WebSocket client's two stated omissions, `permessage-deflate`
   and the server side, are recorded as kept; a frame that sets a reserved bit is
   refused, which is what makes the first safe.
+* **TST-016** (v3.13's own rules): the defect-injection harness found seven
+  that no test pinned — a rerun over other bytes under the recorded version, or
+  on another engine source; the rerun's limit of ten differences; fees in the
+  mark-notional liquidation price; and checkpoint segments over an order entry
+  replaced, lost or reordered since the last link. Each is pinned now.
 * **DOC-006** and **TST-014** (gaps of method): nothing checked that a release's
   migration table named every changed API, or that the tests the ledger cites
   exist — 3.12 found both by hand. Both are tests now; the second caught two

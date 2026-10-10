@@ -62,7 +62,7 @@ the one that leaves nothing required for later. Every item the ledger assigned
 to v3.13 is closed, and so are the four it had assigned to v4.0 itself — the
 shared names, the public API manifest, the persisted names and release
 certification. Every boundary and limitation the ledger holds was re-read
-against the code and kept with its reason, and a fresh audit found twenty-one
+against the code and kept with its reason, and a fresh audit found twenty-two
 more things, each fixed, implemented, replaced or stated. ADR-0048.
 
 **Options that can be exercised early.** An American option is priced on a

@@ -46,7 +46,7 @@ OFE-025), the rerun harness (REP-003, OFE-020) and the lock-file reader
 FEA-006. Its remaining boundary entries were `not_started` because nothing had
 re-read them since the audit.
 
-The fresh audit of the whole tree found twenty-one more, each recorded in the
+The fresh audit of the whole tree found twenty-two more, each recorded in the
 ledger. Five are defects that shipped: the broker codec read a qualified enum
 name by its member alone (PER-007, since 2.16); the liquidation price assumed
 one venue's maintenance convention (NUM-014, since 1.38); importing the
@@ -58,8 +58,8 @@ the one-asset paths' cost against 3.11 (PRF-012); and the public path to the
 factor-structured solver, which had to write a factor model out as a dense
 matrix first — O(n²), 34 s and 1.3 GB at 4,000 assets — so that the
 10,000-asset solve v3.12 published was reachable only through an internal
-function (PRF-013). Five are documentation and method (DOC-005, DOC-006,
-DOC-007, DOC-008, TST-014). And one is the inventory
+function (PRF-013). Six are documentation and method (DOC-005, DOC-006,
+DOC-007, DOC-008, TST-014, TST-016). And one is the inventory
 itself (TST-015): the pre-v4 audit had read ROADMAP's boundaries and optional
 list, not the "Known limitations" and "DEFERRED" lists of ADR-0042, ADR-0043
 and ADR-0044. Of their 52 items, 23 had no ledger entry — two deferred
@@ -226,7 +226,7 @@ matrix keeps the identity and the result 3.12 gave it.
 
 # Consequences
 
-* The ledger's 215 entries are each implemented or kept with a reason; none is
+* The ledger's 216 entries are each implemented or kept with a reason; none is
   assigned to a later release.
 * A run configured as in 3.12 behaves as in 3.12, except where 3.12 was wrong,
   each listed in the CHANGELOG — among them the liquidation price, the broker
