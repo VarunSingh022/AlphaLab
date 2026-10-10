@@ -134,7 +134,9 @@ def test_a_large_factor_model_is_solved_through_its_structure() -> None:
     assert fast_problem.covariance.covariance_id == slow_problem.covariance.covariance_id
     assert fast_problem.problem_id != slow_problem.problem_id
     assert fast.diagnostics.max_violation <= SETTINGS.feasibility_tolerance
-    factors = fast_problem.covariance.factors
+    matrix = fast_problem.covariance
+    assert isinstance(matrix, CovarianceMatrix)
+    factors = matrix.factors
     assert factors is not None
     evidence = factors.definiteness()
     assert evidence is not None
@@ -304,7 +306,9 @@ def test_the_volatility_reported_is_the_covariances_own() -> None:
     fast, _, fast_problem, _ = _both(120, lambda covariance: MinimumVariance(), _long_only(0.05))
 
     assert fast.weights is not None and fast.diagnostics.volatility is not None
-    rows = fast_problem.covariance.values
+    matrix = fast_problem.covariance
+    assert isinstance(matrix, CovarianceMatrix)
+    rows = matrix.values
     weights = [fast.weights[asset] for asset in fast_problem.covariance.assets]
     variance = math.fsum(
         weights[i] * rows[i][j] * weights[j] for i in range(len(rows)) for j in range(len(rows))

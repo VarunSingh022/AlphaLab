@@ -66,8 +66,10 @@ def _never_written_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(FactorStructure, "_write_out", refuse)
 
 
-def _long_only(cap: float, **extra: float) -> ConstraintSet:
-    return ConstraintSet(ExposureRange.exactly(1.0), WeightBounds(0.0, cap), **extra)
+def _long_only(cap: float, *, max_volatility: float | None = None) -> ConstraintSet:
+    return ConstraintSet(
+        ExposureRange.exactly(1.0), WeightBounds(0.0, cap), max_volatility=max_volatility
+    )
 
 
 def test_a_matrix_problem_keeps_the_identity_v3_12_gave_it() -> None:

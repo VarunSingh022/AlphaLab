@@ -352,6 +352,7 @@ write the matrix out on each read.
 | relied on `PortfolioEngine.optimize` clipping a portfolio with no configured constraints | configure them: `apply_constraints(state, portfolio_id, WeightConstraints(), ts)` clips as before |
 | caught the refusal of a `BoxUncertainty` on a book that may short | nothing: it is solved |
 | passed a `CovarianceMatrix` to `ConstructionProblem`, `euler_decomposition` or `factor_risk` | nothing: each also takes a `FactorStructure`, which a large universe should state its factor model as |
+| read a matrix's own attributes (`values`, `factors`) from `ConstructionProblem.covariance` | narrow it first (`isinstance(..., CovarianceMatrix)`): it may be a `FactorStructure`, whose dense matrix `matrix()` writes out |
 | read `FactorStructure.implied` or `rows()` more than once | keep what one read returns: each read writes `B F B' + D` out again |
 
 ## Found during this release
@@ -422,7 +423,26 @@ status's name and nothing else.
 
 ## Examples
 
-@@GATE@@
+All sixty-nine examples run as a release gate under `-W error`, four of them
+new: `66` prices American options on the lattice against Hull's table; `67`
+compares the greedy sweep with the optimal split, estimates an urgency and
+draws reproducible iceberg tranches; `68` reruns a run from its manifest —
+reproduced, diverged with the paths at which the records part, and refused for
+other inputs; `69` schedules cron timers across daylight saving. 65 print
+byte-identical output under two hash seeds; the other four (`12`, `13`, `45`,
+`48`) differ only in a random run or order id, a process id or CPU time, as in
+3.12.
+
+Compared with 3.12.0's output, 56 of the 65 examples both releases have print
+what they printed. Nine differ: `12`, `13`, `45` and `48` only as between any
+two runs; `15` and `46` only in the engine version they print; `47` and `55`
+in result and manifest identities — a pipeline snapshot names the strategy
+status's class `StrategyStatus` now (pipeline schema 7), which a result's
+identity renders, and a manifest records the engine's source; and `38` prints
+the liquidation price for each maintenance basis, with the position's fees and
+funding (48,345.00 on the entry notional and 48,286.43 on the mark for a 5x
+long, where 3.12 printed 48,300.000 for every venue) [NUM-014]. With identities
+masked, no other price, quantity, P&L or statistic moved.
 
 ## Still open
 
