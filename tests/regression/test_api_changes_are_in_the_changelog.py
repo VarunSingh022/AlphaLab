@@ -17,6 +17,7 @@ required either: they break nobody.
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -51,10 +52,30 @@ def _previous() -> dict[str, Any]:
     return loaded
 
 
-def _seen_by_a_caller(description: str) -> str:
-    """A binding as a caller sees it: its kind, its own name and its signature."""
+def _canonical() -> Any:
+    """The generator's own ``canonical``: one spelling of a signature on every interpreter."""
 
-    match = _DESCRIPTION.match(description)
+    spec = importlib.util.spec_from_file_location(
+        "generate_public_api_changes", ROOT / "docs" / "api" / "generate_public_api.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.canonical
+
+
+_CANONICAL = _canonical()
+
+
+def _seen_by_a_caller(description: str) -> str:
+    """A binding as a caller sees it: its kind, its own name and its signature.
+
+    Brought to the generator's canonical spelling first (v4.1): a history file
+    recorded on CPython 3.12 spells ``Optional[X]`` where this build writes
+    ``X | None``, and the two are one signature.
+    """
+
+    match = _DESCRIPTION.match(_CANONICAL(description))
     if match is None:
         return description
     return f"{match['kind']} {match['path'].rsplit('.', 1)[-1]}{match['rest'] or ''}"

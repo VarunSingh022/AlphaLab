@@ -69,10 +69,71 @@ def test_ci_runs_every_example() -> None:
 
 
 def test_ci_installs_what_it_built_into_clean_environments() -> None:
-    for distribution in ("dist/*.whl", "dist/*.tar.gz"):
-        assert f"pip install {distribution}" in CI
-    assert CI.count("tests/installed_smoke.py") == 2
+    """Each built artifact, alone, in a fresh environment, smoke-tested from outside (TST-003).
+
+    Since v4.1 through the very command ``release.yml`` runs on a published tag
+    -- ``release_preflight.py distributions dist``, with its relative ``dist`` --
+    rather than through steps of CI's own, so the path that failed v4.0.0's
+    post-release validation runs on every push (``tests/regression/test_release_paths.py``
+    installs real artifacts through it).
+    """
+
+    assert "python -m build" in CI and "twine check --strict dist/*" in CI
+    assert "release_preflight.py distributions dist \\\n" in CI
+    script = (ROOT / "docs" / "audit" / "scripts" / "release_preflight.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'SMOKE = ROOT / "tests" / "installed_smoke.py"' in script
+    for step in ('"-m", "venv"', '"pip", "install", "--no-cache-dir", str(artifact)'):
+        assert step in script, step
+    assert "for name in artifact_names(version):" in script
     assert (ROOT / "tests" / "installed_smoke.py").is_file()
+
+
+#: Every interpreter the package declares, as its classifiers name them.
+_CLASSIFIED = sorted(
+    entry.rsplit(" :: ", 1)[1]
+    for entry in tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
+        "classifiers"
+    ]
+    if re.fullmatch(r"Programming Language :: Python :: 3\.\d+", entry)
+)
+
+
+def _matrix(text: str, axis: str) -> list[str]:
+    """The values one matrix axis lists: the items directly under its key, and no further."""
+
+    values = []
+    for line in text.split(f"        {axis}:\n", 1)[1].splitlines():
+        item = re.fullmatch(r"          - (\S+)", line)
+        if item is None:
+            break
+        values.append(item.group(1).strip('"'))
+    return values
+
+
+def test_every_declared_interpreter_is_a_required_gate_on_every_supported_system() -> None:
+    """LIM-007 (v4.1): CPython 3.12, 3.13 and 3.14, on Linux and macOS, each cell required."""
+
+    assert _CLASSIFIED == ["3.12", "3.13", "3.14"]
+    assert _matrix(CI, "python-version") == _CLASSIFIED
+    assert _matrix(CI, "os") == ["ubuntu-latest", "macos-latest"]
+    assert "python-version: ${{ matrix.python-version }}" in CI
+    assert "runs-on: ${{ matrix.os }}" in CI
+    for workflow in ("benchmarks.yml", "release.yml"):
+        text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+        assert _matrix(text, "python-version") == _CLASSIFIED, workflow
+
+
+def test_no_gate_is_allowed_to_fail() -> None:
+    """A failing cell fails the workflow; and one cell failing does not hide the others."""
+
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        for allowance in ("continue-on-error", "allow-failure", "allow_failure", "|| true"):
+            assert allowance not in text, f"{path.name} allows a failure: {allowance}"
+        if "matrix:" in text:
+            assert "fail-fast: false" in text, path.name
 
 
 def test_every_benchmark_runs_on_a_schedule() -> None:

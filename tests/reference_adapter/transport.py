@@ -383,8 +383,12 @@ class HttpVenueTransport:
         except urllib.error.HTTPError as exc:
             # A status the venue chose to return. Not a transport failure: the
             # body usually says why the order was refused, and the adapter reads
-            # it. `HTTPError` is itself a readable response object.
-            return VenueResponse(int(exc.code), exc.read())
+            # it. `HTTPError` is itself a readable response object -- and an open
+            # one, holding the body's stream, so it is closed here once read. Left
+            # to the collector, CPython 3.14 reports it as a ResourceWarning
+            # ("Implicitly cleaning up <HTTPError 401>"), which -W error fails.
+            with exc:
+                return VenueResponse(int(exc.code), exc.read())
         except OSError as exc:
             # `URLError` and `TimeoutError` are both `OSError`, so this one clause
             # covers a refused connection, a DNS failure and a timeout alike. What

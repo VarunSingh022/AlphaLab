@@ -6,6 +6,8 @@ Usage, from the repository root::
     python docs/audit/scripts/release_preflight.py distributions DIST --version 4.0.0 \\
         [--record PATH] [--python PYTHON]
     python docs/audit/scripts/release_preflight.py codeql SARIF_DIR
+    python docs/audit/scripts/release_preflight.py package-version
+    python docs/audit/scripts/release_preflight.py approval --sha SHA --version V --repo OWNER/REPO
 
 ``.github/workflows/preflight.yml`` runs all three against a candidate commit
 before a release is published, and ``release.yml`` runs the first two again on
@@ -40,6 +42,24 @@ beside a local build -- so a hosted run and a local one check the same things.
     Reads the SARIF a CodeQL analysis wrote and fails on any result whose level
     is ``error`` or whose security severity is high or critical (7.0 or more),
     printing every result either way.
+
+``approval`` (v4.1)
+    Run by ``release.yml`` on a published tag: a successful Release Preflight run
+    must have validated the tagged commit's source -- that commit, or one with an
+    identical tree -- as the tag's version, which the run's kept artifact
+    ``alphalab-<version>-<commit>`` records. A tag placed on any other commit is
+    refused, naming what was considered.
+
+Paths (v4.1)
+    Every path given -- ``DIST``, ``--record``, ``--python`` -- may be relative to
+    the directory the command runs in, and each is resolved to an absolute path,
+    and checked to exist, **before** anything changes directory. Until v4.1 the
+    artifact path reached ``pip`` as given -- ``dist/alphalab-4.0.0.tar.gz`` --
+    after the install had moved into its isolated ``outside`` directory, where
+    no such file exists, so validating the published v4.0.0 release failed with
+    ``No such file or directory`` although the artifact was there. A path that
+    names nothing is now refused by name, and an artifact is installed only if
+    it is one of this release's two, inside ``DIST``.
 """
 
 from __future__ import annotations
@@ -47,20 +67,25 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import re
 import runpy
+import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
 import zipfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from email.parser import HeaderParser
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
+
+#: What runs inside each fresh environment, from outside the source tree.
+SMOKE = ROOT / "tests" / "installed_smoke.py"
 
 #: A failure a check names; the command collects them and exits 1 if any.
 Problems = list[str]
@@ -129,6 +154,67 @@ def version_problems(expected: str | None, root: Path = ROOT) -> Problems:
     if not (root / "docs" / "api" / "history" / f"{version}.json").is_file():
         problems.append(f"docs/api/history/{version}.json is missing")
     return problems
+
+
+class PathRefused(ValueError):
+    """A path given to the preflight does not name what it must; nothing was run."""
+
+
+def existing_directory(path: Path, what: str) -> Path:
+    """``path``, absolute and with every link resolved, if it is an existing directory.
+
+    Resolved against the directory the command runs in *now*, before anything
+    changes directory -- which is the whole of the v4.0.0 defect this guards.
+
+    Raises:
+        PathRefused: If nothing is there, or something other than a directory is.
+    """
+
+    try:
+        found = path.resolve(strict=True)
+    except OSError:
+        raise PathRefused(
+            f"{what} {str(path)!r} does not exist (looked for {Path.cwd() / path})"
+        ) from None
+    if not found.is_dir():
+        raise PathRefused(f"{what} {str(path)!r} is not a directory ({found})")
+    return found
+
+
+def writable_file(path: Path, what: str) -> Path:
+    """``path`` made absolute, if its directory exists; the file itself may not yet.
+
+    Raises:
+        PathRefused: If the directory it would be written into does not exist.
+    """
+
+    absolute = Path.cwd() / path if not path.is_absolute() else path
+    parent = existing_directory(absolute.parent, f"the directory of {what}")
+    return parent / absolute.name
+
+
+def interpreter(python: str) -> str:
+    """The absolute path of the interpreter ``python`` names: a path, or a command on ``PATH``.
+
+    Raises:
+        PathRefused: If it names no file, or no command on ``PATH``.
+    """
+
+    if os.sep in python or (os.altsep is not None and os.altsep in python):
+        candidate = Path(python)
+        try:
+            found = candidate.resolve(strict=True)
+        except OSError:
+            raise PathRefused(
+                f"the interpreter {python!r} does not exist (looked for {Path.cwd() / candidate})"
+            ) from None
+        if not found.is_file():
+            raise PathRefused(f"the interpreter {python!r} is not a file ({found})")
+        return str(found)
+    located = shutil.which(python)
+    if located is None:
+        raise PathRefused(f"the interpreter {python!r} is not a command on PATH")
+    return str(Path(located).absolute())
 
 
 def artifact_names(version: str) -> tuple[str, str]:
@@ -214,16 +300,73 @@ def write_checksums(dist: Path, version: str) -> Path:
     return path
 
 
+#: Variables that decide where an interpreter finds its modules. A fresh
+#: environment's interpreter must import what was installed into it and nothing
+#: else, so none of these reaches it (v4.1): with ``PYTHONPATH`` naming a checkout
+#: -- as any harness that runs the suite against a copy sets it -- the "installed"
+#: package checked was the checkout's, which passes whenever its version matches.
+_IMPORT_VARIABLES = frozenset(
+    {
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONSAFEPATH",
+        "PYTHONSTARTUP",
+        "PYTHONUSERBASE",
+        "PYTHONPLATLIBDIR",
+        "PYTHONEXECUTABLE",
+        "__PYVENV_LAUNCHER__",
+    }
+)
+
+
+def isolated_environment() -> dict[str, str]:
+    """This process's environment, without what would change where an interpreter imports from."""
+
+    return {name: value for name, value in os.environ.items() if name not in _IMPORT_VARIABLES}
+
+
 def _run(command: Sequence[str], cwd: Path) -> tuple[int, str]:
-    done = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False)
+    done = subprocess.run(
+        command,
+        cwd=cwd,
+        env=isolated_environment(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     return done.returncode, (done.stdout + done.stderr).strip()
 
 
-def install_and_smoke(artifact: Path, version: str, python: str) -> tuple[Problems, list[str]]:
-    """Install ``artifact`` alone into a fresh environment and run the installed smoke test."""
+def install_and_smoke(
+    artifact: Path, version: str, python: str, smoke: Path | None = None
+) -> tuple[Problems, list[str]]:
+    """Install ``artifact`` alone into a fresh environment and run the installed smoke test.
+
+    ``artifact`` may be relative to the directory this runs in: it is resolved
+    here, before the install moves into its isolated directory, and installed
+    only if it exists and is one of this release's two artifacts -- so ``pip``
+    is never handed a path that names nothing from where it runs, and never one
+    that names something else. ``smoke`` is the script run inside the
+    environment (:data:`SMOKE`, the installed smoke test, unless a test passes
+    its own).
+    """
 
     problems: Problems = []
     log: list[str] = []
+    try:
+        artifact = artifact.resolve(strict=True)
+    except OSError:
+        return [
+            f"{artifact}: no such artifact (looked for {Path.cwd() / artifact}); nothing was "
+            "installed"
+        ], log
+    if not artifact.is_file() or artifact.name not in artifact_names(version):
+        return [
+            f"{artifact}: not one of alphalab {version}'s artifacts "
+            f"{list(artifact_names(version))}; nothing was installed"
+        ], log
+    script = (SMOKE if smoke is None else smoke).resolve(strict=True)
+    python = interpreter(python)
     with tempfile.TemporaryDirectory(prefix="alphalab-preflight-") as scratch:
         work = Path(scratch)
         environment, outside = work / "env", work / "outside"
@@ -231,21 +374,18 @@ def install_and_smoke(artifact: Path, version: str, python: str) -> tuple[Proble
         code, output = _run([python, "-m", "venv", str(environment)], work)
         if code != 0:
             return [f"{artifact.name}: could not create a virtual environment: {output}"], log
-        interpreter = str(
+        environment_python = str(
             environment / ("Scripts" if sys.platform == "win32" else "bin") / "python"
         )
         steps = (
-            ("install", [interpreter, "-m", "pip", "install", "--no-cache-dir", str(artifact)]),
-            ("installed", [interpreter, "-m", "pip", "list", "--format=freeze"]),
+            (
+                "install",
+                [environment_python, "-m", "pip", "install", "--no-cache-dir", str(artifact)],
+            ),
+            ("installed", [environment_python, "-m", "pip", "list", "--format=freeze"]),
             (
                 "smoke",
-                [
-                    interpreter,
-                    "-W",
-                    "error",
-                    str(ROOT / "tests" / "installed_smoke.py"),
-                    version,
-                ],
+                [environment_python, "-W", "error", str(script), version],
             ),
         )
         for label, command in steps:
@@ -288,7 +428,25 @@ def _record(path: Path, version: str, dist: Path, lines: Sequence[str], problems
     path.write_text(text, encoding="utf-8")
 
 
-def distributions(dist: Path, version: str, record: Path | None, python: str) -> Problems:
+def distributions(
+    dist: Path, version: str, record: Path | None, python: str, smoke: Path | None = None
+) -> Problems:
+    """Check, hash, install and smoke-test this release's two artifacts in ``dist``.
+
+    Every path is resolved and checked here, first, so a relative ``dist`` --
+    ``release.yml`` passes ``dist`` -- means the same thing to every step after.
+
+    Raises:
+        PathRefused: If ``dist`` is not an existing directory, ``record``'s
+            directory does not exist, or ``python`` names no interpreter.
+    """
+
+    if _VERSION.fullmatch(version) is None:
+        # It becomes part of every artifact's file name.
+        return [f"the version {version!r} is not MAJOR.MINOR.PATCH"]
+    dist = existing_directory(dist, "the distribution directory")
+    record = None if record is None else writable_file(record, "the verification record")
+    python = interpreter(python)
     problems = name_problems(dist, version)
     if problems:
         return problems
@@ -301,13 +459,131 @@ def distributions(dist: Path, version: str, record: Path | None, python: str) ->
         f"checksums written: {checksums.name}",
     ]
     for name in artifact_names(version):
-        found, log = install_and_smoke(dist / name, version, python)
+        found, log = install_and_smoke(dist / name, version, python, smoke)
         problems += found
         lines += log
     if record is not None:
         _record(record, version, dist, lines, problems)
     for line in lines:
         print(line)
+    return problems
+
+
+_SHA = re.compile(r"[0-9a-f]{40}")
+
+#: The workflow whose passing run approves a commit for release.
+PREFLIGHT_WORKFLOW = ".github/workflows/preflight.yml"
+
+
+def preflight_artifact(version: str, sha: str) -> str:
+    """The name of the artifact a passing preflight keeps for ``version`` at ``sha``.
+
+    ``preflight.yml`` names its upload so; it is the run's own record of which
+    version it validated at which commit, and what :func:`approval_problems`
+    reads.
+    """
+
+    return f"alphalab-{version}-{sha}"
+
+
+def approval_problems(
+    sha: str,
+    version: str,
+    runs: Sequence[Mapping[str, Any]],
+    tree_of: Callable[[str], str | None],
+    artifacts_of: Callable[[int], Sequence[str]],
+) -> tuple[Problems, list[str]]:
+    """Whether a passing release preflight validated this source as this version (v4.1).
+
+    ``sha`` is the published tag's commit. It is approved by a successful run
+    of :data:`PREFLIGHT_WORKFLOW` whose commit is ``sha`` -- or whose commit has
+    the same tree, so a merge that changed no file is the source the preflight
+    validated -- and that kept :func:`preflight_artifact` for ``version`` at its
+    commit. A tag on any other commit, or a preflight that validated another
+    version or failed, approves nothing.
+
+    Returns:
+        The problems (empty when approved) and what was considered.
+    """
+
+    if _SHA.fullmatch(sha) is None:
+        return [f"the tagged commit {sha!r} is not a commit"], []
+    tree = tree_of(sha)
+    if tree is None:
+        return [f"the tagged commit {sha} is not in this repository"], []
+    considered: list[str] = []
+    for run in runs:
+        head = str(run.get("head_sha", ""))
+        where = f"preflight run {run.get('id')} at {head[:12]}"
+        if run.get("conclusion") != "success" or not str(run.get("path", "")).endswith(
+            PREFLIGHT_WORKFLOW
+        ):
+            continue
+        if head != sha and (_SHA.fullmatch(head) is None or tree_of(head) != tree):
+            continue
+        names = artifacts_of(int(run["id"]))
+        how = "the tagged commit" if head == sha else f"a commit with the same tree {tree[:12]}"
+        if preflight_artifact(version, head) in names:
+            return [], [
+                *considered,
+                f"approved: {where}, {how}, kept {preflight_artifact(version, head)}",
+            ]
+        considered.append(f"{where} ({how}) validated {sorted(names)}, not {version}")
+    return [
+        f"no successful Release Preflight validated alphalab {version} at {sha} or at a commit "
+        f"with its tree {tree}; run the preflight on the commit to be tagged, then tag it"
+    ], considered
+
+
+def _gh_json_lines(arguments: Sequence[str]) -> list[Any]:
+    done = subprocess.run(["gh", *arguments], capture_output=True, text=True, check=True)
+    return [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
+
+
+def _git_tree(commit: str) -> str | None:
+    done = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{commit}^{{tree}}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode != 0:
+        return None
+    return done.stdout.strip() or None
+
+
+def approval(sha: str, version: str, repo: str) -> Problems:
+    """:func:`approval_problems` against the repository's own runs, through ``gh`` and ``git``."""
+
+    runs = _gh_json_lines(
+        [
+            "api",
+            "--paginate",
+            f"repos/{repo}/actions/workflows/preflight.yml/runs?status=success&per_page=100",
+            "--jq",
+            ".workflow_runs[] | {id, head_sha, conclusion, path}",
+        ]
+    )
+
+    def artifacts_of(run_id: int) -> list[str]:
+        return [
+            str(name)
+            for name in _gh_json_lines(
+                [
+                    "api",
+                    "--paginate",
+                    f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
+                    "--jq",
+                    ".artifacts[].name | tojson",
+                ]
+            )
+        ]
+
+    problems, considered = approval_problems(sha, version, runs, _git_tree, artifacts_of)
+    print(f"successful preflight runs: {len(runs)}")
+    for line in considered:
+        print(f"  {line}")
     return problems
 
 
@@ -361,10 +637,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     dist.add_argument("--version", required=True)
     dist.add_argument("--record", type=Path)
     dist.add_argument("--python", default=sys.executable, help="interpreter to create venvs with")
+    commands.add_parser(
+        "package-version", help="print the version alphalab/common/_version.py declares"
+    )
+    approve = commands.add_parser(
+        "approval", help="a passing release preflight validated the tagged commit's source"
+    )
+    approve.add_argument("--sha", required=True, help="the published tag's commit")
+    approve.add_argument("--version", required=True, help="the version the tag names")
+    approve.add_argument("--repo", required=True, help="OWNER/REPO, whose runs are read")
     codeql = commands.add_parser("codeql", help="gate on a CodeQL analysis's SARIF")
     codeql.add_argument("sarif_dir", type=Path)
     arguments = parser.parse_args(argv)
 
+    if arguments.command == "package-version":
+        print(package_version())
+        return 0
     if arguments.command == "version":
         if arguments.tag is not None:
             try:
@@ -379,10 +667,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not problems:
             named = f" (tag {arguments.tag})" if arguments.tag else ""
             print(f"release identity: {expected}{named}, the package's version, everywhere")
+    elif arguments.command == "approval":
+        problems = approval(arguments.sha, arguments.version, arguments.repo)
+        if not problems:
+            print(f"release approval: {arguments.version} at {arguments.sha}")
     elif arguments.command == "distributions":
-        problems = distributions(
-            arguments.dist, arguments.version, arguments.record, arguments.python
-        )
+        try:
+            problems = distributions(
+                arguments.dist, arguments.version, arguments.record, arguments.python
+            )
+        except PathRefused as refused:
+            problems = [str(refused)]
     else:
         problems, seen = codeql_problems(arguments.sarif_dir)
         print(f"CodeQL results: {len(seen)}")

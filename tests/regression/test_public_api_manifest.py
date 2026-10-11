@@ -152,3 +152,31 @@ def test_the_documented_modules_are_the_ones_the_documents_name() -> None:
     documented = set(_generator().DOCUMENTED_MODULES)
     assert documented == tabulated | {"alphalab.api"}
     assert documented <= set(RECORDED["packages"])
+
+
+@pytest.mark.parametrize(
+    ("printed", "canonical"),
+    [
+        # What CPython 3.12 and 3.13 print, and what 3.14 prints, for one signature.
+        ("(value: Optional[ValueT] = None)", "(value: ValueT | None = None)"),
+        ("(value: ValueT | None = None)", "(value: ValueT | None = None)"),
+        ("(m: Mapping[str, typing.Any] | None)", "(m: Mapping[str, Any] | None)"),
+        ("(m: Mapping[str, Any] | None)", "(m: Mapping[str, Any] | None)"),
+        ("(x: typing.Union[int, str, None])", "(x: int | str | None)"),
+        ("(c: Optional[Callable[[Union[A, B]], C]])", "(c: Callable[[A | B], C] | None)"),
+        # Names that only contain the words are left alone.
+        ("(a: MyOptional[int], b: Anything, t: typing.AnyStr)", None),
+    ],
+)
+def test_one_signature_has_one_description_on_every_interpreter(
+    printed: str, canonical: str | None
+) -> None:
+    """CPython 3.14 prints unions as PEP 604 does and ``Any`` unqualified (v4.1, LIM-007).
+
+    Until v4.1 the manifest held 3.12's text, and on 3.14 three unchanged
+    signatures (``Result``, ``Trade``, ``Timer``) failed it -- and so did the
+    installed smoke test. Measured for v4.1: every one of the manifest's names
+    describes identically on CPython 3.12, 3.13 and 3.14 once canonical.
+    """
+
+    assert _generator().canonical(printed) == (printed if canonical is None else canonical)

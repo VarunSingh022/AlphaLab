@@ -15,7 +15,9 @@ Since v4.0 it also checks what an application depending on the release relies
 on (``docs/INTEGRATION.md``): ``pip check`` finds nothing broken, the
 distribution declares no runtime requirement, every name the public-API
 manifest records is present with the binding it records, and the examples run
-with every socket operation refused -- the engine needs no network.
+with every socket operation refused -- the engine needs no network. Since v4.1
+it runs ``tests/consumer_contract.py`` too: the contract an application such as
+iluvtrade builds on, exercised through public names against the artifact.
 
 Not collected by pytest (the name does not start with ``test_``): against the
 source tree it would prove nothing.
@@ -136,7 +138,12 @@ def main(expected_version: str) -> None:
     # (v4.0) with the network refused: an audit hook stays for the process.
     sys.addaudithook(_refuse_the_network)
     sys.path.insert(0, str(SOURCE_TREE / "examples"))
-    for name in ("11_unified_backtest.py", "70_build_a_strategy.py"):
+    # (v4.1) and the replay paused, kept in a file store, restored and resumed.
+    for name in (
+        "11_unified_backtest.py",
+        "70_build_a_strategy.py",
+        "71_pause_and_resume_a_replay.py",
+    ):
         # Loaded as a module, registered first: a dataclass with postponed
         # annotations looks its module up in sys.modules while it is built.
         spec = importlib.util.spec_from_file_location(
@@ -150,10 +157,23 @@ def main(expected_version: str) -> None:
         assert callable(run)
         run()
 
+    # (v4.1) The engine contract an application relies on (docs/INTEGRATION.md),
+    # through public names, against this installed artifact -- a replay paused in
+    # one process and resumed in another included.
+    spec = importlib.util.spec_from_file_location(
+        "consumer_contract", SOURCE_TREE / "tests" / "consumer_contract.py"
+    )
+    assert spec is not None and spec.loader is not None
+    contract = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = contract
+    spec.loader.exec_module(contract)
+    contract.main(expected_version)
+
     print(
         f"installed alphalab {installed} at {location.parent}: pip check clean, no runtime "
         f"requirement, {len(imported)} modules, {public} public names as the manifest records, "
-        "py.typed present, examples 11 and 70 ran with the network refused"
+        "py.typed present, examples 11, 70 and 71 and the consumer contract ran with the "
+        "network refused"
     )
 
 

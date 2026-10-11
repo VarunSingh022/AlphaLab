@@ -2,7 +2,6 @@
 
 from collections.abc import Iterable
 from decimal import Decimal
-from typing import Any
 
 import pytest
 
@@ -14,7 +13,6 @@ from alphalab.strategy import (
     RuntimeSupervisor,
     StrategyContext,
     StrategyEngine,
-    StrategyProtocol,
     StrategyStatus,
     active_strategies,
     create_runtime,
@@ -22,42 +20,10 @@ from alphalab.strategy import (
     get_strategy,
     register_strategy,
 )
-from alphalab.strategy.context import NoMarket, NoOrders, NoPortfolio, NoRiskView
-
-
-class DummyClock:
-    def now(self) -> float:
-        return 0.0
-
-
-class DummyLogger:
-    def debug(self, msg: str) -> None:
-        pass
-
-    def info(self, msg: str) -> None:
-        pass
-
-    def warning(self, msg: str) -> None:
-        pass
-
-    def error(self, msg: str) -> None:
-        pass
-
-
-class DummyContextBuilder:
-    def __init__(self) -> None:
-        pass
-
-    def build(self, strategy_id: str) -> StrategyContext:
-        return StrategyContext(
-            portfolio=NoPortfolio(),
-            market=NoMarket(),
-            clock=DummyClock(),
-            logger=DummyLogger(),
-            risk_view=NoRiskView(),
-            config=None,
-            orders=NoOrders(),
-        )
+from tests.unit.strategy.support import (
+    DummyContextBuilder,
+    setup_running_strategy,
+)
 
 
 class MockHealthyStrategy(BaseStrategy):
@@ -73,23 +39,6 @@ class MockCrashingStrategy(BaseStrategy):
 class MockBadIntentStrategy(BaseStrategy):
     def on_fill(self, context: StrategyContext, event: FillEvent) -> Iterable[Intent]:
         return [Intent("S3", "", Decimal("10"))]  # Empty instrument triggers validation failure
-
-
-def setup_running_strategy(strat_id: str, instance: StrategyProtocol) -> Any:
-    state = create_runtime()
-    state = register_strategy(state, strat_id, instance)
-    strat = get_strategy(state, strat_id)
-    assert strat is not None
-
-    # Push through lifecycle to RUNNING
-    s1, _ = RuntimeSupervisor.configure(strat, {"opt": 1}, 1.0)
-    s2, _ = RuntimeSupervisor.initialize(s1, 2.0)
-    s3, _ = RuntimeSupervisor.subscribe(s2, frozenset({"fills"}), 3.0)
-    s4, _ = RuntimeSupervisor.start(s3, 4.0)
-
-    new_strats = dict(state.strategies)
-    new_strats[strat_id] = s4
-    return type(state)(strategies=new_strats, events=state.events)
 
 
 def test_supervisor_valid_transitions() -> None:
