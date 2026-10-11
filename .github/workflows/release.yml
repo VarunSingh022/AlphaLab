@@ -3,7 +3,14 @@ name: Release Validation
 # Runs only once a release is published, on its tag -- too late to stop a bad
 # one. The same checks, and the CI gates, run before publication in
 # .github/workflows/preflight.yml; this repeats the release-specific ones on
-# what was actually tagged.
+# what was actually tagged, and (v4.1) refuses a tag whose source no passing
+# preflight validated.
+#
+# v4.0.0's run of this workflow failed after the tag existed: the verifier
+# handed pip a relative artifact path after moving into an isolated directory.
+# The fix is in docs/audit/scripts/release_preflight.py, which every CI run now
+# exercises with this same relative `dist` (ci.yml); the v4.0.0 tag and its
+# record are left as they are.
 
 on:
   release:
@@ -13,24 +20,30 @@ permissions:
   contents: read
 
 jobs:
-  release:
-    name: Validate Release
+  approval:
+    name: The tag, its commit and its approval
     runs-on: ubuntu-latest
+    permissions:
+      # Read the preflight's runs and artifacts; nothing is written.
+      actions: read
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      sha: ${{ steps.commit.outputs.sha }}
 
     steps:
-      - name: Checkout repository
+      - name: Check out the tagged commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          # Every branch's history, so a preflight run's commit can be found
+          # and its tree compared with the tag's.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
 
       # The tag must be v<MAJOR>.<MINOR>.<PATCH> and name the package's version;
       # only once it has been checked is the leading v dropped to get the version.
@@ -43,6 +56,64 @@ jobs:
           python docs/audit/scripts/release_preflight.py version --tag "${TAG}"
           echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
 
+      # One commit: the tag's, the checkout's and the event's.
+      - name: The commit checked out is the tagged one
+        id: commit
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tagged="$(git rev-parse --verify "refs/tags/${TAG}^{commit}")"
+          head="$(git rev-parse --verify HEAD)"
+          if [ "${tagged}" != "${head}" ] || [ "${head}" != "${RUN_SHA}" ]; then
+            echo "::error::The tag ${TAG} is ${tagged}, the checkout is ${head} and the event's commit is ${RUN_SHA}; they must be one commit. Nothing was validated."
+            exit 1
+          fi
+          echo "sha=${head}" >> "${GITHUB_OUTPUT}"
+
+      # A passing Release Preflight must have validated this source as this
+      # version: the tagged commit, or one with the same tree.
+      - name: A release preflight approved this source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.commit.outputs.sha }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          python docs/audit/scripts/release_preflight.py approval \
+            --sha "${SHA}" --version "${VERSION}" --repo "${REPO}"
+
+  validate:
+    name: Validate Release (Python ${{ matrix.python-version }})
+    needs: approval
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.12"
+          - "3.13"
+          - "3.14"
+
+    steps:
+      - name: Check out the approved commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.approval.outputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
       - name: Build package
         run: python -m build
 
@@ -51,7 +122,7 @@ jobs:
 
       - name: Check, hash, install and smoke-test each artifact
         env:
-          VERSION: ${{ steps.tag.outputs.version }}
+          VERSION: ${{ needs.approval.outputs.version }}
         run: |
           set -euo pipefail
           python docs/audit/scripts/release_preflight.py distributions dist \

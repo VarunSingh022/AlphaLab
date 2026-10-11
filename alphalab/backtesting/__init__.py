@@ -13,7 +13,10 @@ Two drivers, one loop:
   through :mod:`alphalab.replay`'s cursor.
 
 Both hand every record to :meth:`~alphalab.runtime.run.RunEngine.advance`, so
-they share order, fill and accounting semantics by construction.
+they share order, fill and accounting semantics by construction. Both stop and
+continue durably: a backtest through the run snapshot, and since v4.1 a replay
+through :class:`~alphalab.backtesting.replay.PausedReplay` and
+:mod:`alphalab.backtesting.replay_snapshot` (ledger FUT-001).
 
 As of v2.14 neither owns run state. A run is a
 :class:`~alphalab.runtime.run.RunState` configured by a
@@ -42,7 +45,12 @@ from alphalab.backtesting.exceptions import (
     DatasetValidationError,
     UnsupportedRecordError,
 )
-from alphalab.backtesting.replay import ReplayBacktest, session_for
+from alphalab.backtesting.replay import (
+    PausedReplay,
+    ReplayBacktest,
+    ReplayProgress,
+    session_for,
+)
 from alphalab.backtesting.state import BacktestResult, ReplayResult
 from alphalab.backtesting.views import (
     commission_paid,
@@ -81,7 +89,9 @@ __all__ = [
     "MarketDataset",
     "MarketInput",
     "MarketRecord",
+    "PausedReplay",
     "ReplayBacktest",
+    "ReplayProgress",
     "ReplayResult",
     "RunConfig",
     "RunState",

@@ -11,7 +11,7 @@ from alphalab.strategy import (
     StrategyContext,
     StrategyEngine,
 )
-from tests.unit.strategy.test_strategy import DummyContextBuilder, setup_running_strategy
+from tests.unit.strategy.support import DummyContextBuilder, setup_running_strategy
 
 
 class FastStrategy(BaseStrategy):

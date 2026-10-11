@@ -182,7 +182,7 @@ asserts that no second portfolio model exists anywhere in the package. See
 # Durability: snapshots and schemas
 
 A state is durable when it has **one** snapshot owner, **one** schema constant,
-and a typed decoder that refuses what it does not understand. Ten do (v4.0):
+and a typed decoder that refuses what it does not understand. Eleven do (v4.1):
 
 | State | Snapshot module | Schema constant | Value |
 | --- | --- | --- | --- |
@@ -196,6 +196,13 @@ and a typed decoder that refuses what it does not understand. Ten do (v4.0):
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 1 |
+
+`PausedReplay` (v4.1, ledger FUT-001) is a replay stopped between two records:
+its envelope nests the run snapshot unchanged and adds the replay cursor and the
+position of the cursor's own identifier stream. Its `restore` also takes the
+dataset back -- the replay's input, recorded by id, length, the ids at the
+boundary and a digest of every record, and refused when it differs.
 
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
@@ -250,8 +257,24 @@ serializable projection, `from_primitives(payload)` → typed snapshot,
   ledger PER-008, PER-009). A payload v3.13 or earlier wrote checks by type alone, as it
   always did. The instrument registry is compared by nothing (ADR-0027), and a
   strategy's durable state is what it declares through `StrategyStateProtocol`;
-  the value its `configure` received is persisted as JSON reads it, so a
-  `Decimal` there reads back as a string (ledger LIM-004).
+  the value its `configure` received is persisted as JSON reads it (ledger
+  LIM-004), which v4.1 states as a contract, held row by row through the real
+  restore path by `tests/regression/test_strategy_configuration_contract.py`:
+
+  | A configured value of type | Reads back after a restore as |
+  | --- | --- |
+  | `None`, `bool`, `int`, `str`, a finite `float`, and lists and `str`-keyed mappings of these, at any depth | itself, exactly (the sign of a zero included) |
+  | `Decimal` | its exact text -- `Decimal("10.00")` as `"10.00"`, `Decimal("1E+3")` as `"1E+3"` -- which `Decimal(text)` rebuilds exactly |
+  | `tuple` | a `list` |
+  | a mapping with a non-`str` key | a mapping with the key's JSON text (`1` as `"1"`, `True` as `"true"`) |
+  | `StrEnum` member / plain `Enum` member | its value / `"ClassName.MEMBER"` |
+  | `UUID` | its text |
+  | dataclass | a mapping of its fields |
+  | `set`, `frozenset`, a `NaN` or infinite `float`, any other object | refused at capture: `SerializationError` naming the type |
+
+  `restore(capture(s)) == s` therefore holds for a strategy configured with
+  values of the first row, and the run's identities are the same before and
+  after a restore either way. A typed form is FUT-002 (a 5.0 decision).
 - **Derived indexes are rebuilt, not stored.** The order book's asset and strategy
   indexes and the instrument registry's provider index are reconstructed by
   replaying the records. One fact, one home.

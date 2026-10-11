@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v4.0)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v4.1)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v4.0)
+# Implementation Status (v4.1)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -30,6 +30,15 @@ audit read the rest of this document and found the same defect class throughout
 its target-architecture half — see the v3.0.0 entry in `CHANGELOG.md` for the
 full list. The release checklist now has to touch `README.md`, this section and
 `docs/README.md` together.)*
+
+**v4.1** moved no boundary and no existing schema. The replay driver
+(`alphalab.backtesting.replay`) pauses between two records and resumes, and the
+paused replay is a durable state of its own -- `PausedReplay`, captured by
+`alphalab.backtesting.replay_snapshot` in an envelope around the unchanged run
+snapshot (FUT-001). Exactly one function still derives an identifier source from
+a stream position, now `RunEngine.id_source_at`, through which both the run's
+stream and the replay cursor's continue. A declared retention bounds the
+cursor's lifecycle log as it bounds every audit trail (PER-010).
 
 **v3.1 (ADR-0036)** added the universal data-ingestion path inside
 `alphalab.data` — source provenance, CSV reading, schema detection, structured
@@ -179,7 +188,8 @@ input; a whole-unit run fills in whole units; `alphalab.strategy` gains
 and the snapshot modules now included -- is held stable from here
 (`docs/api/PUBLIC_API.md`). Every deferral the v2.0.0 to v3.13.0 history
 states is classified in `docs/audit/V4_HISTORICAL_INVENTORY.md`, and one --
-replay resumability -- is accepted future work (ROADMAP, FUT-001) (ADR-0049).
+replay resumability -- was accepted future work (FUT-001) (ADR-0049), which v4.1
+delivered (ADR-0050).
 **v3.0.0 adds no capability**: it freezes the architecture described here and makes the
 documentation match it.
 
@@ -677,6 +687,7 @@ owning module, its own schema constant and its own typed decoder:
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 2` | v2.16 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA = 2` | v2.16 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA = 1` | v2.17 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA = 1` | v4.1 |
 
 Three envelopes carry a payload and version only what they add: the run-state
 store's (`persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, v2.14), an
@@ -5307,8 +5318,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v4.0.0
-Status: Implementation Status (v4.0) describes what is built and is authoritative.
+Version: v4.1.0
+Status: Implementation Status (v4.1) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```

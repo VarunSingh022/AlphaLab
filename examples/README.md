@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all seventy are executed as a
+paths far more thoroughly under `tests/` — but all seventy-one are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -88,6 +88,7 @@ API.
 | 68 | `68_rerun_from_a_manifest.py` | A lock file read into the dependency manifest a fingerprint records; a backtest re-executed from its manifest: REPRODUCED; another cost INPUTS_DIFFER, the simulator's configuration now recorded; a strategy trading parameters its declaration does not state DIVERGED, with the first paths where the records part; another dataset or lock INPUTS_DIFFER with nothing run |
 | 69 | `69_cron_timers.py` | Cron expressions on a stated zone's wall clock: the day-field rule, a spring-forward gap and a fall-back repeat with their UTC instants, refusals when written, and a cron timer fired and rescheduled on the engine |
 | 70 | `70_build_a_strategy.py` | **Build your first strategy** (v4.0): labelled synthetic closes ingested under a refusing policy, a moving-average crossover written against the strategy protocol and started with `start_strategy`, every fill and the cash checked against arithmetic done by hand, a flat series that never trades, a run stopped halfway and continued to a byte-identical result, and five refusals |
+| 71 | `71_pause_and_resume_a_replay.py` | **Pause a replay, keep it, resume it** (v4.1): a replay paused between two records, captured and kept in a file store, restored with freshly built objects as a new process would, and resumed to the same `result_id` as the uninterrupted replay; paused every five records through a payload each time, to the same result; another dataset, another commission and bytes altered in the store each refused |
 
 ## Reading order
 
@@ -151,6 +152,9 @@ implemented rather than leave for a later major version.
 strategy: it builds one from data to a reproduced result through the public API
 alone, with every number checked by hand, and `docs/GETTING_STARTED.md` walks
 through it step by step.
+
+`71` is v4.1's: read it after `70` and `13` if a long replay must survive a pause
+or a restart (ledger FUT-001).
 
 `05_broker_connection.py` was rewritten in v2.17 against the canonical broker
 boundary, having used `alphalab.integrations` until that package was removed

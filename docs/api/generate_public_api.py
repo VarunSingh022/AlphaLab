@@ -48,6 +48,7 @@ MANIFEST = ROOT / "docs" / "api" / "public_api.json"
 DOCUMENTED_MODULES: tuple[str, ...] = (
     "alphalab.allocation.snapshot",
     "alphalab.api",
+    "alphalab.backtesting.replay_snapshot",
     "alphalab.broker.snapshot",
     "alphalab.instrument.snapshot",
     "alphalab.lifecycle.snapshot",
@@ -63,6 +64,64 @@ DOCUMENTED_MODULES: tuple[str, ...] = (
 #: An object's default ``repr`` carries its address, which differs every run.
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+>")
 
+#: ``typing``'s spellings of a union, which CPython 3.14 no longer prints (v4.1).
+_UNION = re.compile(r"(?<![\w.])(?:typing\.)?(Optional|Union)\[")
+_ANY = re.compile(r"(?<![\w.])typing\.Any(?!\w)")
+
+
+def _closing(text: str, opening: int) -> int:
+    """The index of the bracket that closes the one at ``opening``."""
+
+    depth = 0
+    for index in range(opening, len(text)):
+        if text[index] in "[(":
+            depth += 1
+        elif text[index] in "])":
+            depth -= 1
+            if depth == 0:
+                return index
+    raise ValueError(f"unbalanced brackets in {text!r}")
+
+
+def _arguments(text: str) -> list[str]:
+    """``text`` split at its top-level commas."""
+
+    parts, depth, start = [], 0, 0
+    for index, character in enumerate(text):
+        if character in "[(":
+            depth += 1
+        elif character in "])":
+            depth -= 1
+        elif character == "," and depth == 0:
+            parts.append(text[start:index].strip())
+            start = index + 1
+    parts.append(text[start:].strip())
+    return parts
+
+
+def canonical(text: str) -> str:
+    """``text`` with every union written as PEP 604 writes it, and ``Any`` unqualified (v4.1).
+
+    The manifest records signatures as text, and the text an interpreter prints
+    for one annotation is not the same everywhere: CPython 3.12 and 3.13 print
+    ``Optional[X]`` and ``typing.Any`` where 3.14 prints ``X | None`` and
+    ``Any``. A manifest generated on one interpreter therefore failed on
+    another for a signature that had not changed -- and so did the installed
+    smoke test, which holds an installed package to the manifest. Both spellings
+    are brought to 3.14's, so one binding has one description on every
+    supported interpreter, and a recorded one is compared in the same form.
+    """
+
+    text = _ANY.sub("Any", text)
+    while (match := _UNION.search(text)) is not None:
+        opening = match.end() - 1
+        closing = _closing(text, opening)
+        members = [canonical(member) for member in _arguments(text[opening + 1 : closing])]
+        if match.group(1) == "Optional":
+            members.append("None")
+        text = f"{text[: match.start()]}{' | '.join(members)}{text[closing + 1 :]}"
+    return text
+
 
 def _signature(value: Any) -> str:
     """The call signature as text, or ``""`` when Python cannot state one."""
@@ -71,7 +130,7 @@ def _signature(value: Any) -> str:
         text = str(inspect.signature(value))
     except (TypeError, ValueError):
         return ""
-    return _ADDRESS.sub(">", text)
+    return canonical(_ADDRESS.sub(">", text))
 
 
 def describe(value: Any) -> str:
@@ -87,7 +146,7 @@ def describe(value: Any) -> str:
     if isinstance(value, typing.NewType):
         return f"newtype {value.__module__}.{value.__name__}"
     if isinstance(value, typing.TypeAliasType | types.GenericAlias | types.UnionType):
-        return f"alias {value}"
+        return f"alias {canonical(str(value))}"
     if inspect.isclass(value) and issubclass(value, enum.Enum):
         return f"enum {value.__module__}.{value.__qualname__}[{', '.join(value.__members__)}]"
     if inspect.isclass(value):

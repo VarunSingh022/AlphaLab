@@ -1105,7 +1105,9 @@ def test_v38_added_no_snapshot_owner_and_no_schema_constant() -> None:
 
     # v3.12 added two durable formats, deliberately, each versioned like every
     # other: the evidence store's envelope (ledger OFE-016, BDY-008) and the
-    # checkpoint chain's envelope around a run snapshot (ledger PRF-004).
+    # checkpoint chain's envelope around a run snapshot (ledger PRF-004). v4.1
+    # added one more, as deliberately: a paused replay's envelope around a run
+    # snapshot (ledger FUT-001).
     assert constants == [
         "ALLOCATION_SNAPSHOT_SCHEMA",
         "BROKER_SNAPSHOT_SCHEMA",
@@ -1118,6 +1120,7 @@ def test_v38_added_no_snapshot_owner_and_no_schema_constant() -> None:
         "OMS_SNAPSHOT_SCHEMA",
         "PIPELINE_SNAPSHOT_SCHEMA",
         "PORTFOLIO_SNAPSHOT_SCHEMA",
+        "REPLAY_SNAPSHOT_SCHEMA",
         "RUN_SNAPSHOT_SCHEMA",
         "RUN_STATE_ENVELOPE_SCHEMA",
     ]

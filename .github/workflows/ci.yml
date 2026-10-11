@@ -22,8 +22,22 @@ permissions:
 
 jobs:
   quality:
-    name: Quality Gates (Python 3.12)
-    runs-on: ubuntu-latest
+    # Every supported interpreter on both supported operating systems (v4.1,
+    # ledger LIM-007): CPython 3.12, 3.13 and 3.14, on Linux and macOS. Each
+    # cell is a required gate: no cell may fail, and none is allowed to.
+    # fail-fast is off so that one failing cell does not hide the others.
+    name: Quality Gates (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+        python-version:
+          - "3.12"
+          - "3.13"
+          - "3.14"
 
     steps:
       - name: Check out repository
@@ -34,7 +48,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: "pip"
 
       - name: Install dependencies
@@ -70,7 +84,8 @@ jobs:
       # to the committed certificate (ledger FEA-006). A change in what the
       # engine computes fails here until it is re-certified and reviewed, and
       # so does a change to the engine's source: the certificate names the
-      # source it certified (ledger REP-004).
+      # source it certified (ledger REP-004). Run on every interpreter and
+      # both systems, so a figure that moves with the host is found (LIM-005).
       - name: Release certification
         run: python -W error docs/audit/scripts/certify_release.py --check
 
@@ -82,24 +97,14 @@ jobs:
         run: python -m twine check --strict dist/*
 
       # The suite runs against the source tree; this runs against what would be
-      # published. Each distribution goes into a fresh environment holding it
-      # and nothing else, and is exercised from outside the checkout.
-      - name: Install the wheel into a clean environment
+      # published, with the command release.yml runs on a published tag --
+      # including its relative `dist`, the form that failed v4.0.0's post-release
+      # validation (v4.1). Each artifact goes alone into a fresh environment and
+      # tests/installed_smoke.py checks it from outside the checkout.
+      - name: Verify the distributions as release validation does
         run: |
           set -euo pipefail
-          version="$(python -c 'import alphalab; print(alphalab.__version__)')"
-          python -m venv "${RUNNER_TEMP}/wheel-env"
-          "${RUNNER_TEMP}/wheel-env/bin/python" -m pip install dist/*.whl
-          cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/wheel-env/bin/python" -W error \
-            "${GITHUB_WORKSPACE}/tests/installed_smoke.py" "${version}"
-
-      - name: Install the sdist into a clean environment
-        run: |
-          set -euo pipefail
-          version="$(python -c 'import alphalab; print(alphalab.__version__)')"
-          python -m venv "${RUNNER_TEMP}/sdist-env"
-          "${RUNNER_TEMP}/sdist-env/bin/python" -m pip install dist/*.tar.gz
-          cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/sdist-env/bin/python" -W error \
-            "${GITHUB_WORKSPACE}/tests/installed_smoke.py" "${version}"
+          version="$(python docs/audit/scripts/release_preflight.py package-version)"
+          python docs/audit/scripts/release_preflight.py distributions dist \
+            --version "${version}" --record "dist/VERIFICATION-${version}.txt"
+          cat "dist/VERIFICATION-${version}.txt"

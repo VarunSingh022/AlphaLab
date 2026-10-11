@@ -6,6 +6,12 @@ name: Benchmarks
 # A benchmark that raises, or warns, fails the job; timings are printed, not
 # gated, because shared runners are too noisy to gate on. The complexity guards
 # in tests/regression gate scaling on every push instead.
+#
+# Run on every supported interpreter (v4.1, ledger LIM-007). The job installs
+# the development extra because a benchmark may share a helper with the tests;
+# tests/regression/test_workflow_environments.py holds every benchmark's
+# imports to what this job installs, so a job that installs too little fails
+# in the suite rather than on its first hosted run, as v4.0.0's did.
 
 on:
   schedule:
@@ -26,9 +32,16 @@ permissions:
 
 jobs:
   benchmarks:
-    name: Benchmarks (Python 3.12)
+    name: Benchmarks (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.12"
+          - "3.13"
+          - "3.14"
 
     steps:
       - name: Check out repository
@@ -39,7 +52,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: "pip"
 
       - name: Install the package

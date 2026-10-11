@@ -14,6 +14,7 @@ that field is ``init=False``. See ADR-0027.
 """
 
 import inspect
+import sys
 from dataclasses import replace
 
 import pytest
@@ -219,9 +220,15 @@ def test_the_classification_api_offers_no_identity_parameter(field_name: str) ->
 
 
 def test_dataclasses_replace_refuses_to_set_the_derived_identifier() -> None:
-    """Pinned as a guarantee rather than left as an accident of ``init=False``."""
+    """Pinned as a guarantee rather than left as an accident of ``init=False``.
 
-    with pytest.raises(ValueError, match="init=False"):
+    CPython 3.13 changed the refusal's type from ``ValueError`` to ``TypeError``
+    (``dataclasses.replace`` on an ``init=False`` field); the refusal itself is
+    the guarantee, and each interpreter's exact type is held.
+    """
+
+    refusal = ValueError if sys.version_info < (3, 13) else TypeError
+    with pytest.raises(refusal, match="init=False"):
         replace(_apple(), asset_id="anything")
 
 

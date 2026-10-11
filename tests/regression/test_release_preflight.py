@@ -60,7 +60,7 @@ def _job(name: str) -> str:
 
 
 #: The candidate branch a push may validate: named once in the trigger, once in the guard.
-CANDIDATE_BRANCH = "work/v4.0.0-qa-hardening"
+CANDIDATE_BRANCH = "work/v4.1.0-release-hardening"
 
 
 def _triggers() -> str:
@@ -403,7 +403,9 @@ def test_every_release_gate_runs_before_publication() -> None:
         "examples/[0-9]*.py",
         "certify_release.py --check",
         "twine check --strict dist/*",
-        "tests/installed_smoke.py",
+        # Each artifact installed alone and smoke-tested (tests/installed_smoke.py),
+        # by the command release.yml runs (v4.1).
+        "release_preflight.py distributions dist",
     ):
         assert gate in CI, gate
 
@@ -440,17 +442,258 @@ def test_untrusted_inputs_reach_shell_only_through_the_environment() -> None:
         assert "${{" not in script, script[:200]
 
 
+def _release_job(name: str) -> str:
+    start = RELEASE.index(f"\n  {name}:\n")
+    following = re.search(r"\n  [a-z]+:\n", RELEASE[start + 1 :])
+    return RELEASE[start : start + 1 + following.start()] if following else RELEASE[start:]
+
+
 def test_publication_still_rechecks_what_was_tagged() -> None:
     assert "types: [published]" in RELEASE
     assert 'release_preflight.py version --tag "${TAG}"' in RELEASE
     assert "TAG: ${{ github.event.release.tag_name }}" in RELEASE
-    assert "twine check --strict dist/*" in RELEASE
-    assert "release_preflight.py distributions dist" in RELEASE
+    validate = _release_job("validate")
+    assert "twine check --strict dist/*" in validate
+    assert "release_preflight.py distributions dist" in validate
     # The version is the validated tag's, handed on; nothing strips a v unchecked.
-    assert "VERSION: ${{ steps.tag.outputs.version }}" in RELEASE
+    approval = _release_job("approval")
+    assert "version: ${{ steps.tag.outputs.version }}" in approval
+    assert "VERSION: ${{ needs.approval.outputs.version }}" in validate
     assert RELEASE.count("${TAG#v}") == 1
-    tag_step = RELEASE[RELEASE.index("id: tag") : RELEASE.index("- name: Build package")]
+    tag_step = RELEASE[RELEASE.index("id: tag") : RELEASE.index("id: commit")]
     assert tag_step.index("version --tag") < tag_step.index("${TAG#v}")
+
+
+def test_release_validation_needs_the_approval_and_builds_only_the_approved_commit() -> None:
+    """v4.1: a tag is validated only once its commit and its approval are established."""
+
+    validate = _release_job("validate")
+    assert "needs: approval" in validate
+    assert _checkout_refs(validate) == ["${{ needs.approval.outputs.sha }}"]
+    approval = _release_job("approval")
+    assert _checkout_refs(approval) == ["${{ github.event.release.tag_name }}"]
+    assert "fetch-depth: 0" in approval
+    assert "sha: ${{ steps.commit.outputs.sha }}" in approval
+    commit = approval[approval.index("id: commit") : approval.index("- name: A release preflight")]
+    assert "RUN_SHA: ${{ github.sha }}" in commit
+    gate = approval[approval.index("- name: A release preflight") :]
+    assert "release_preflight.py approval" in gate
+    for variable in (
+        "SHA: ${{ steps.commit.outputs.sha }}",
+        "VERSION: ${{ steps.tag.outputs.version }}",
+    ):
+        assert variable in gate, variable
+
+
+def test_release_validation_reads_and_writes_nothing_it_need_not() -> None:
+    assert "permissions:\n  contents: read\n" in RELEASE
+    granted = re.findall(r"^\s+([a-z-]+): write$", RELEASE, re.MULTILINE)
+    assert granted == [], granted
+    assert re.findall(r"^\s+([a-z-]+): read$", _release_job("approval"), re.M) == [
+        "actions",
+        "contents",
+    ]
+    for forbidden in ("gh release", "git push", "git tag ", "twine upload", "secrets."):
+        assert forbidden not in RELEASE, forbidden
+
+
+def test_ci_runs_the_distributions_command_release_validation_runs() -> None:
+    """The v4.0.0 failure was in a command only release.yml ran; CI now runs it too (v4.1)."""
+
+    def command(text: str) -> str:
+        found = re.search(r"release_preflight\.py distributions dist \\\n\s+(.+)\n", text)
+        assert found is not None
+        return found.group(1).replace("version", "VERSION").replace("${VERSION}", "V")
+
+    assert command(CI) == command(RELEASE)
+    assert command(CI) == '--VERSION "V" --record "dist/VERIFICATION-V.txt"'
+
+
+def _git(repository: Path, *arguments: str) -> str:
+    done = subprocess.run(
+        ["git", *arguments],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.invalid",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.invalid",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+        },
+    )
+    return done.stdout.strip()
+
+
+@pytest.mark.parametrize(
+    ("tag_on", "run_sha", "passes"),
+    [
+        ("head", "head", True),
+        ("first", "head", False),  # the tag names another commit than the checkout
+        ("head", "first", False),  # the event names another commit than the tag
+    ],
+)
+def test_the_tag_the_checkout_and_the_event_are_one_commit(
+    tag_on: str, run_sha: str, passes: bool, tmp_path: Path
+) -> None:
+    """``release.yml``'s commit step, run in a repository built here."""
+
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    _git(repository, "init", "-q")
+    (repository / "a").write_text("1", encoding="utf-8")
+    _git(repository, "add", "a")
+    _git(repository, "commit", "-q", "-m", "first")
+    first = _git(repository, "rev-parse", "HEAD")
+    (repository / "a").write_text("2", encoding="utf-8")
+    _git(repository, "commit", "-q", "-am", "second")
+    head = _git(repository, "rev-parse", "HEAD")
+    commits = {"head": head, "first": first}
+    _git(repository, "tag", "v9.9.9", commits[tag_on])
+
+    script, fixed = _step(RELEASE, "commit")
+    done, written = _run_step(
+        script,
+        {**fixed, "TAG": "v9.9.9", "RUN_SHA": commits[run_sha], "PATH": os.environ["PATH"]},
+        repository,
+        tmp_path,
+    )
+    if passes:
+        assert done.returncode == 0, done.stdout + done.stderr
+        assert written == f"sha={head}"
+    else:
+        assert done.returncode != 0 and written == ""
+        assert "they must be one commit. Nothing was validated." in done.stdout
+
+
+_TAGGED, _OTHER, _TREE = "1" * 40, "2" * 40, "f" * 40
+
+
+def _approval(
+    runs: list[dict[str, object]],
+    artifacts: dict[int, list[str]],
+    trees: dict[str, str] | None = None,
+    sha: str = _TAGGED,
+    version: str = "9.9.9",
+) -> tuple[list[str], list[str]]:
+    known = {_TAGGED: _TREE, **(trees or {})}
+    problems, considered = _script().approval_problems(
+        sha, version, runs, known.get, lambda run: artifacts.get(run, [])
+    )
+    return list(problems), list(considered)
+
+
+def _run(
+    identifier: int, head: str, conclusion: str = "success", path: str = ""
+) -> dict[str, object]:
+    return {
+        "id": identifier,
+        "head_sha": head,
+        "conclusion": conclusion,
+        "path": path or ".github/workflows/preflight.yml",
+    }
+
+
+def test_a_passing_preflight_of_the_tagged_commit_approves_it() -> None:
+    problems, considered = _approval([_run(7, _TAGGED)], {7: [f"alphalab-9.9.9-{_TAGGED}"]})
+
+    assert problems == []
+    assert (
+        considered[-1].startswith("approved: preflight run 7")
+        and "the tagged commit" in considered[-1]
+    )
+
+
+def test_a_merge_that_changed_no_file_is_the_source_the_preflight_validated() -> None:
+    problems, considered = _approval(
+        [_run(8, _OTHER)], {8: [f"alphalab-9.9.9-{_OTHER}"]}, trees={_OTHER: _TREE}
+    )
+
+    assert problems == [] and "same tree" in considered[-1]
+
+
+_UNAPPROVED = f"no successful Release Preflight validated alphalab 9.9.9 at {_TAGGED}"
+
+
+@pytest.mark.parametrize(
+    ("runs", "artifacts", "trees", "sha", "refusal"),
+    [
+        pytest.param([], {}, {}, _TAGGED, _UNAPPROVED, id="no-preflight-at-all"),
+        pytest.param(
+            [_run(1, _TAGGED, conclusion="failure")],
+            {1: [f"alphalab-9.9.9-{_TAGGED}"]},
+            {},
+            _TAGGED,
+            _UNAPPROVED,
+            id="a-failed-preflight",
+        ),
+        pytest.param(
+            [_run(2, _TAGGED, path=".github/workflows/ci.yml")],
+            {2: [f"alphalab-9.9.9-{_TAGGED}"]},
+            {},
+            _TAGGED,
+            _UNAPPROVED,
+            id="another-workflow",
+        ),
+        pytest.param(
+            [_run(3, _TAGGED)],
+            {3: [f"alphalab-9.9.8-{_TAGGED}"]},
+            {},
+            _TAGGED,
+            _UNAPPROVED,
+            id="another-version",
+        ),
+        pytest.param(
+            [_run(4, _OTHER)],
+            {4: [f"alphalab-9.9.9-{_OTHER}"]},
+            {_OTHER: "e" * 40},
+            _TAGGED,
+            _UNAPPROVED,
+            id="another-source",
+        ),
+        pytest.param([_run(5, _TAGGED)], {5: []}, {}, _TAGGED, _UNAPPROVED, id="no-artifact-kept"),
+        pytest.param(
+            [_run(6, _TAGGED)],
+            {6: [f"alphalab-9.9.9-{_TAGGED}"]},
+            {},
+            "abc",
+            "the tagged commit 'abc' is not a commit",
+            id="not-a-commit",
+        ),
+        pytest.param(
+            [_run(9, _OTHER)],
+            {9: [f"alphalab-9.9.9-{_OTHER}"]},
+            {},
+            _OTHER,
+            f"the tagged commit {_OTHER} is not in this repository",
+            id="unknown-commit",
+        ),
+    ],
+)
+def test_a_tag_no_passing_preflight_validated_is_refused(
+    runs: list[dict[str, object]],
+    artifacts: dict[int, list[str]],
+    trees: dict[str, str],
+    sha: str,
+    refusal: str,
+) -> None:
+    problems, _ = _approval(runs, artifacts, trees, sha=sha)
+
+    assert len(problems) == 1 and problems[0].startswith(refusal), problems
+
+
+def test_the_preflight_keeps_the_artifact_the_approval_reads() -> None:
+    upload = _job("distributions")
+    assert (
+        "name: alphalab-${{ needs.candidate.outputs.version }}-${{ needs.candidate.outputs.sha }}"
+        in upload
+    )
+    assert _script().preflight_artifact("9.9.9", _TAGGED) == f"alphalab-9.9.9-{_TAGGED}"
+    assert "retention-days: 90" in upload
 
 
 @pytest.mark.parametrize(
@@ -546,13 +789,13 @@ def test_the_candidate_s_release_is_the_one_the_push_branch_names() -> None:
 @pytest.mark.parametrize(
     ("event", "dispatched", "tree_version", "outcome"),
     [
-        ("push", "", "4.0.1", "but 4.0.0 was expected"),
-        ("pull_request", "", "4.0.1", "but 4.0.0 was expected"),
-        ("push", "", "4.0.0", "version=4.0.0"),
-        ("pull_request", "", "4.0.0", "version=4.0.0"),
-        ("workflow_dispatch", "4.0.1", "4.0.1", "version=4.0.1"),
-        ("workflow_dispatch", "4.0.0", "4.0.1", "but 4.0.0 was expected"),
-        ("workflow_dispatch", "v4.0.0", "4.0.0", "is not MAJOR.MINOR.PATCH"),
+        ("push", "", "4.1.1", "but 4.1.0 was expected"),
+        ("pull_request", "", "4.1.1", "but 4.1.0 was expected"),
+        ("push", "", "4.1.0", "version=4.1.0"),
+        ("pull_request", "", "4.1.0", "version=4.1.0"),
+        ("workflow_dispatch", "4.1.1", "4.1.1", "version=4.1.1"),
+        ("workflow_dispatch", "4.1.0", "4.1.1", "but 4.1.0 was expected"),
+        ("workflow_dispatch", "v4.1.0", "4.1.0", "is not MAJOR.MINOR.PATCH"),
     ],
 )
 def test_push_and_pull_request_runs_require_the_release_and_a_manual_run_names_its_own(
@@ -560,8 +803,8 @@ def test_push_and_pull_request_runs_require_the_release_and_a_manual_run_names_i
 ) -> None:
     """The identity step's own script, in a tree whose every reference says ``tree_version``.
 
-    A push or a labelled pull request must find 4.0.0 (RELEASE_VERSION); a tree
-    that says 4.0.1 throughout fails though it agrees with itself. A manual run
+    A push or a labelled pull request must find 4.1.0 (RELEASE_VERSION); a tree
+    that says 4.1.1 throughout fails though it agrees with itself. A manual run
     keeps its own ``expected_version``, which the tree must match.
     """
 

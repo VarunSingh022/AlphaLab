@@ -591,6 +591,7 @@ _DECODERS = {
     "broker": "alphalab.broker.snapshot",
     "run": "alphalab.runtime.run_snapshot",
     "live": "alphalab.runtime.live_snapshot",
+    "replay": "alphalab.backtesting.replay_snapshot",
 }
 #: The payloads a release wrote that an upgrade refuses, and the reason it gives.
 _REFUSED = {"v3.9.0/portfolio_fractional_yen.json": "JPY amounts that are not whole"}

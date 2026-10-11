@@ -1,8 +1,8 @@
 # AlphaLab Roadmap
 
 What AlphaLab has delivered, what it deliberately does not do, what it depends
-on from outside, what it states as a limitation, and the one piece of work
-accepted for later. The release-by-release record is `CHANGELOG.md`; the
+on from outside, what it states as a limitation, and the work accepted for
+later. The release-by-release record is `CHANGELOG.md`; the
 decisions are `docs/ADR/`; the plan of record for every finding since the pre-v4
 audit is `docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`.
 
@@ -14,6 +14,15 @@ evidence (`docs/audit/V4_HISTORICAL_INVENTORY.md`) -- the canonical path was
 re-audited by somebody who had not written it, and four defects it found were
 fixed, each with a test that fails without the fix (ADR-0049,
 `docs/audit/V4_RELEASE_AUDIT.md`).
+
+**v4.1.0** is the first minor release on that contract, and is additive: a
+replay pauses between two records and resumes -- in the same process or a new
+one -- to exactly the result it would have had (FUT-001); CPython 3.13 and 3.14
+join 3.12 as supported interpreters, on Linux and macOS (LIM-007); a run's
+recorded figures no longer depend on the host's `libm` (LIM-005); and the
+release verification that failed after v4.0.0 was published is fixed at its root
+and exercised on every push (PKG-002). `docs/audit/V4_1_RELEASE_AUDIT.md` records
+the evidence.
 
 | Class | Meaning |
 | --- | --- |
@@ -125,7 +134,30 @@ names what the release established and the ADR that records the decision.
 - **A strategy, built by an outsider's route** (DOC-009): a getting-started guide,
   `examples/70_build_a_strategy.py` checked against arithmetic done by hand, and
   `start_strategy` / `context_factory` in `alphalab.strategy`.
-- **Accepted future work**, tracked: replay resumability (FUT-001), below.
+- **Accepted future work**, tracked: replay resumability (FUT-001), delivered in
+  v4.1.0.
+
+## v4.1.0
+
+- **A replay that pauses and resumes** (FUT-001): `ReplayBacktest.run(...,
+  pause_when=...)` stops at a boundary between two records and returns a
+  `PausedReplay`; `alphalab.backtesting.replay_snapshot` captures it in a new
+  envelope (`REPLAY_SNAPSHOT_SCHEMA = 1`) around the unchanged run snapshot, and
+  restores it against the dataset -- refusing any other -- and freshly built
+  objects; `ReplayBacktest.resume` continues it to a result byte-identical to the
+  uninterrupted replay's, in a new process too. `examples/71_pause_and_resume_a_replay.py`.
+- **Release verification fixed at its root** (PKG-002): every path the verifier
+  is given is resolved before anything changes directory; CI runs the exact
+  command release validation runs, and release validation refuses a tag no
+  passing preflight approved (TST-020).
+- **CPython 3.12, 3.13 and 3.14 on Linux and macOS** (LIM-007), each a required
+  CI cell; three defects the new interpreters exposed were fixed (API-008,
+  TST-021, TST-022).
+- **One run, one identity, on any host** (LIM-005, REP-005): the one
+  host-dependent operation in a run's record -- `math.pow` in CAGR -- is now a
+  correctly rounded power computed the same way everywhere.
+- **The contract an application builds on, checked against the artifact**:
+  `tests/consumer_contract.py` runs inside every installed wheel and sdist.
 
 # Deliberate boundaries
 
@@ -428,27 +460,35 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   every median within 0.99x-1.00x of 3.13.0 (`docs/audit/V4_RELEASE_AUDIT.md`).
 - **The measured operating envelope** (LIM-006): 10,000 assets, 1,000
   strategies, 100 venues, 20,000-record checkpoint chains and construction at
-  10,000 assets are measured (`docs/audit/V4_RELEASE_AUDIT.md`); beyond them is
-  extrapolation. A run is single-threaded by design; parallelism is one run per
-  process, which the host owns.
-- **A strategy's configuration is persisted as JSON reads it** (LIM-004): a
-  `Decimal` in `configure`'s value reads back as a string. Nothing on the
-  execution path reads it; durable strategy state goes through
-  `StrategyStateProtocol`, which round-trips exactly.
-- **Certified identities are per host class** (LIM-005): an analytics float
-  computed through another `libm` can differ in its last bit, and so can an
-  identity over it. The certificate records the host, and `--check` on another
-  host names every check whose evidence moved.
+  10,000 assets are measured (`docs/audit/V4_RELEASE_AUDIT.md`), and since v4.1
+  a paused replay's checkpoint: a flat 3.2 KB and about 0.15 ms of capture a
+  record replayed with every history kept, and falling to under 300 bytes a
+  record at 32,000 records with a retention policy (`docs/audit/V4_1_RELEASE_AUDIT.md`).
+  Beyond the measured sizes is extrapolation. A run is single-threaded by design;
+  parallelism is one run per process, which the host owns.
+- **A strategy's configuration is read back as JSON reads it** (LIM-004): a
+  `Decimal` in `configure`'s value reads back as its exact text, a tuple as a
+  list, a non-string mapping key as its text, an enum, `UUID` or dataclass as its
+  projection; a set, a non-finite float or another object is refused at capture.
+  v4.1 states that as a tested contract (`docs/STATE_MODEL.md`). Nothing on the
+  execution path reads the value, and a run's identities are the same before and
+  after a restore; durable strategy state goes through `StrategyStateProtocol`,
+  which round-trips exactly. A lossless typed form is FUT-002, below.
+- **Transcendental functions in the standalone engines** (LIM-005): since v4.1 a
+  run's record -- and so its `result_id` -- is host-independent: money is
+  `Decimal`, and every float a run records comes from `+ - * /`, `sqrt`, `fsum`
+  or a correctly rounded power (REP-005). Options pricing, rates conventions,
+  the EWMA risk model and FX research call the host's `libm` (`exp`, `log`,
+  `pow`), which may round differently in the last bit on another host; their
+  figures enter no run record, and the certificate records them rounded.
 - **Time** (DAT-007, DAT-008): local-time computation depends on the host's IANA
   time-zone database, and instants are float Unix seconds (about 0.24
   microseconds of resolution today).
 - **Persisted enum names** (PER-004): a plain enum persists by its class and
   member names, which are therefore part of the format, pinned by a test.
-- **Tested on CPython 3.12 only** (LIM-007): `requires-python` is `>=3.12`, and
-  neither CI nor the 4.0.0 verification has run another interpreter. *Target
-  v4.1; done when* CI's matrix runs CPython 3.13 and 3.14, every release gate
-  (`ruff`, `mypy .`, `pytest -W error`, every example, the certificate's
-  `--check`) passes on each, and their classifiers are added.
+- **Linux and macOS** (BDY-027): the supported systems, each a required CI cell
+  under CPython 3.12, 3.13 and 3.14 (LIM-007, closed in v4.1). Windows has never
+  run a gate and is not claimed; adding it is the maintainer's decision.
 - **The release ADRs' limitations** (LIM-001, LIM-002, LIM-003): each re-read
   against the code and kept with its reason -- among them maximum diversification
   without a turnover limit, risk parity's exact long-only budgets, and a VWAP's
@@ -462,22 +502,25 @@ Accepted for a later release, each with what it is not yet, what happens in the
 meantime and what closes it. `tests/regression/test_nothing_is_left_for_later.py`
 holds this list to the ledger: an entry may be left for later only here.
 
-## FUT-001 — a resumable replay (target v4.1)
+## FUT-002 — a strategy configuration that reads back typed (target v5.0, pending the maintainer's decision)
 
-- **Limitation.** `ReplayBacktest` cannot be snapshotted and resumed: the replay
-  cursor (`ReplayState`) and its second identifier stream have no snapshot
-  (deferred by ADR-0029 and ADR-0030).
-- **Interim behaviour.** A replay is a pure function of its dataset and seed, so
-  an interrupted one restarts and produces the same result. A `BacktestEngine`
-  run over the same dataset produces the same orders, fills and P&L
-  (`tests/integration/test_backtest_replay_parity.py`) and *is* resumable through
-  the run snapshot, byte for byte (`examples/70_build_a_strategy.py`).
-- **Acceptance criteria.** A `ReplayState` snapshot and the cursor stream's
-  `IdStreamPosition` captured with the run; `ReplayBacktest.resume`; a
-  cross-process test that an interrupted replay, continued, equals the
-  uninterrupted one byte for byte; the ledger entry closed.
-- **Dependencies.** None outside `alphalab.replay` and
-  `alphalab.backtesting.replay`. Additive: no existing schema moves.
+- **Limitation.** `restore(capture(s)) == s` does not hold for a strategy whose
+  `configure` value holds a `Decimal`, a tuple, a non-string mapping key, an
+  enum, a `UUID` or a dataclass: each reads back in the converted form
+  `docs/STATE_MODEL.md` states (LIM-004).
+- **Interim behaviour.** The conversion is exact and tested
+  (`tests/regression/test_strategy_configuration_contract.py`); nothing on the
+  execution path reads the value; identities are unaffected. Keep durable
+  strategy parameters in `StrategyStateProtocol` state, which round-trips
+  exactly, or configure with JSON-native values.
+- **Why not in 4.x.** A typed form changes the pipeline payload and so every
+  run's `result_id`, which `docs/api/PUBLIC_API.md`'s stability policy does not
+  let a minor release do. Taking it in 5.0, or as a stated 4.x exception, is the
+  maintainer's decision.
+- **Acceptance criteria.** `restore(capture(s)) == s` for every value the
+  contract converts; every earlier payload read as it reads today; a migration
+  row for the identity change; the ledger entry closed.
+- **Dependencies.** A pipeline schema step, and frozen v4.x payloads.
 
 ---
 

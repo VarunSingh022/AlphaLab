@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v4.0.0.**
+**A long-term project reference, written at v3.0.0 and updated at v4.1.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,12 +42,12 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **4.0.0** |
+| Version | **4.1.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **v4.0.0 freezes the universal engine contract (ADR-0049): the architecture frozen at v3.0.0, v3.1.0 through v3.9.0 additive to it, v3.10.0 through v3.13.0 the four pre-v4 releases, and v4.0 the release that read the whole history, re-audited the canonical path and holds the public API stable until 5.0. One item is accepted future work, with acceptance criteria (FUT-001, `ROADMAP.md`).** |
+| Status | **v4.0.0 freezes the universal engine contract (ADR-0049): the architecture frozen at v3.0.0, v3.1.0 through v3.9.0 additive to it, v3.10.0 through v3.13.0 the four pre-v4 releases, and v4.0 the release that read the whole history, re-audited the canonical path and holds the public API stable until 5.0. v4.1.0, the first minor release on that contract, delivered the one item v4.0 accepted as future work -- a replay that pauses and resumes (FUT-001) -- and added CPython 3.13 and 3.14. One item is accepted future work, for the maintainer's decision (FUT-002, `ROADMAP.md`).** |
 
 ---
 
@@ -76,7 +76,7 @@ no boundary (ADR-0049).
   with it the surfaces the guides teach -- `alphalab.api` and each durable
   state's snapshot module, which the manifest had left out (API-007).
 - **Future work**, tracked rather than deferred in prose: a resumable replay
-  (FUT-001).
+  (FUT-001) -- delivered in v4.1.0.
 
 ## v3.13.0 — the final pre-v4 release
 
@@ -1133,8 +1133,8 @@ refuses a mismatch rather than rescaling.
 
 # 9. State, snapshots and durability
 
-Ten durable states. Each has **one** snapshot owner, **one** schema constant and
-**one** typed decoder.
+Eleven durable states (v4.1). Each has **one** snapshot owner, **one** schema
+constant and **one** typed decoder.
 
 | State | Snapshot module | Constant | Value |
 | --- | --- | --- | --- |
@@ -1148,6 +1148,7 @@ Ten durable states. Each has **one** snapshot owner, **one** schema constant and
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 1 |
 
 Plus `persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, which versions what
 the *store* records about a payload and nothing inside it, and the envelopes of
@@ -1395,7 +1396,7 @@ retry-on-older-protocol fallback exists.
 ruff check .                              # lint
 ruff format --check .                     # format
 mypy .                                    # strict, 1,170 source files (what CI runs)
-pytest -q -W error                        # 9,325 tests, 0 skipped, 0 warnings (what CI runs)
+pytest -q -W error                        # 9,672 tests, 0 skipped, 0 warnings (what CI runs)
 git diff --check
 python -m build && twine check --strict dist/*
 for f in examples/[0-9]*.py; do python -W error "$f"; done    # 70
@@ -1405,9 +1406,12 @@ python -W error docs/audit/scripts/certify_release.py --check # the release cert
 
 `make check` runs the first four. Since v3.10 CI also installs the wheel and
 the sdist, each into a fresh environment, and runs `tests/installed_smoke.py`
-against them from outside the checkout; the benchmarks run weekly.
+against them from outside the checkout; the benchmarks run weekly. Since v4.1
+CI runs every gate on CPython 3.12, 3.13 and 3.14, on Linux and macOS, and
+verifies the built artifacts with the command release validation runs.
 
-**9,325 tests** at v4.0.0 — 4,858 unit, 658 integration, 3,809 regression. The
+**9,672 tests** at v4.1.0 — 4,858 unit, 658 integration, 4,156 regression (9,325 at
+v4.0.0). The
 regression suite is nearly as large as the unit suite, deliberately: most of its
 files pin a *decision* rather than a behaviour, so a future "simplification" has
 to break an assertion and read a reason first.
@@ -1955,8 +1959,8 @@ every item was delivered by v3.13 or is kept, with its reason.** In short:
   `marketdata`'s provider engine in v3.10 (OFE-012).
 - **v4.0**: the history this list did not cover -- the v2-era ADRs' non-goals and
   the CHANGELOG's deferral sections -- is classified in
-  `docs/audit/V4_HISTORICAL_INVENTORY.md`, and one item from it is accepted
-  future work: a resumable replay (FUT-001, `ROADMAP.md`).
+  `docs/audit/V4_HISTORICAL_INVENTORY.md`, and one item from it was accepted
+  future work: a resumable replay (FUT-001), delivered in v4.1.0.
 
 ---
 

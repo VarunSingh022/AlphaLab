@@ -83,6 +83,8 @@ NAMED: dict[str, tuple[str, ...]] = {
         "NOT_REGISTERED",
         "REGISTERED_BUT_UNPRICED",
     ),
+    # v4.1 (ledger FUT-001): a paused replay's cursor is written with its status.
+    "alphalab.replay.state.ReplayStatus": ("READY", "RUNNING", "PAUSED", "STOPPED", "COMPLETED"),
     "alphalab.runtime.run.ExecutionMode": ("BACKTEST", "REPLAY", "PAPER", "LIVE"),
     "alphalab.strategy.state.StrategyStatus": (
         "CREATED",
@@ -131,6 +133,13 @@ VALUES: dict[str, tuple[str, ...]] = {
 
 #: Every persisted event log's tag table: the class names its decoder resolves.
 EVENT_TAGS: dict[str, tuple[str, ...]] = {
+    # v4.1 (ledger FUT-001): the lifecycle log of a paused replay's cursor.
+    "alphalab.backtesting.replay_snapshot._EVENTS": (
+        "ReplayAdvanced",
+        "ReplayPaused",
+        "ReplayResumed",
+        "ReplayStarted",
+    ),
     "alphalab.runtime.snapshot._MARKET_EVENTS": (
         "BarClosed",
         "BookUpdated",

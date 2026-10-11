@@ -6,12 +6,12 @@ name: Release Preflight
 # CodeQL and benchmark gates, while there is still nothing to take back.
 #
 # Which commit it validates, and how it refuses to validate the wrong one:
-#   * A push to the v4.0.0 candidate branch, work/v4.0.0-qa-hardening: the
+#   * A push to the v4.1.0 candidate branch, work/v4.1.0-release-hardening: the
 #     commit pushed, and only that -- the run's commit must be the pushed tip
 #     (github.event.after), the ref must be that branch, and a deletion is
 #     refused: when a branch is deleted GitHub reports the DEFAULT branch's
 #     commit for the run, which is how a push trigger could validate `main`.
-#     This route needs nothing on `main`. Retarget or remove it after v4.0.0.
+#     This route needs nothing on `main`. Retarget or remove it after v4.1.0.
 #   * Run manually ("Run workflow"): the commit of the branch or tag chosen under
 #     "Use workflow from". The `candidate` input must repeat that name, so a run
 #     left on `main` by mistake fails in its first step instead of validating
@@ -34,13 +34,13 @@ on:
         required: true
         type: string
       expected_version:
-        description: "The version this release will be, e.g. 4.0.0 (its tag is v<version>)"
+        description: "The version this release will be, e.g. 4.1.0 (its tag is v<version>)"
         required: true
         type: string
   # The candidate branch alone; never main. The guard below names it again.
   push:
     branches:
-      - work/v4.0.0-qa-hardening
+      - work/v4.1.0-release-hardening
   pull_request:
     branches:
       - main
@@ -78,7 +78,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           RUN_SHA: ${{ github.sha }}
           # The branch on.push.branches names; a test holds the two together.
-          PUSH_BRANCH: work/v4.0.0-qa-hardening
+          PUSH_BRANCH: work/v4.1.0-release-hardening
           PUSHED_SHA: ${{ github.event.after }}
           PUSH_DELETED: ${{ github.event.deleted }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -138,7 +138,7 @@ jobs:
           python-version: "3.12"
 
       # The candidate must BE the release, not merely agree with itself: a tree
-      # whose every reference says 4.0.1 fails here. A manual run names the
+      # whose every reference says 4.1.1 fails here. A manual run names the
       # release in expected_version; a push or a labelled pull request is the
       # candidate branch's release, RELEASE_VERSION (a test holds it to the
       # package's version and to the push branch's name).
@@ -147,7 +147,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           DISPATCHED_VERSION: ${{ inputs.expected_version }}
-          RELEASE_VERSION: "4.0.0"
+          RELEASE_VERSION: "4.1.0"
         run: |
           set -euo pipefail
           if [ "${EVENT}" = "workflow_dispatch" ]; then
@@ -262,7 +262,10 @@ jobs:
           name: alphalab-${{ needs.candidate.outputs.version }}-${{ needs.candidate.outputs.sha }}
           path: ${{ runner.temp }}/dist/
           if-no-files-found: error
-          retention-days: 30
+          # release.yml reads this artifact's name -- alphalab-<version>-<commit>
+          # -- as the preflight's record of what it approved (v4.1), so it is
+          # kept as long as GitHub keeps one: tag within 90 days of the run.
+          retention-days: 90
 
   verdict:
     name: Release preflight verdict

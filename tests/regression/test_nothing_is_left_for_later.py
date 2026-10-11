@@ -91,7 +91,8 @@ def test_accepted_future_work_is_stated_and_on_the_roadmap() -> None:
     assert "\n# Future work" in roadmap, "ROADMAP has no Future work section"
     future = roadmap.split("\n# Future work", 1)[1].split("\n# ", 1)[0]
     accepted = [(i, s) for i, s, _ in _entries() if s.startswith("accepted as future work (")]
-    assert accepted, "a guard on the guard: v4.0 accepts FUT-001"
+    # v4.0 accepted FUT-001, which v4.1 delivered; v4.1 accepts FUT-002.
+    assert accepted, "a guard on the guard: v4.1 accepts FUT-002"
     for identifier, _ in accepted:
         entry = text.split(f'\n  - id: "{identifier}"', 1)[1].split('\n  - id: "', 1)[0]
         change = re.search(r'\n    required_change: "([^"]*)"', entry)

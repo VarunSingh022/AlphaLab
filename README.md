@@ -7,7 +7,7 @@
 **Deterministic • Immutable • Fully typed • Zero runtime dependencies**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-4.0.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-4.1.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
@@ -45,16 +45,16 @@ It exists to answer the questions that decide whether a backtest means anything:
 
 # Release Status
 
-**Current Release:** **v4.0.0 — the universal engine contract, frozen: the v2.0–v3.13 history read and classified, the canonical path re-audited and four defects fixed, a strategy built end to end through the public API, and the public API held stable from here**
+**Current Release:** **v4.1.0 — a replay that pauses and resumes durably to the identical result, CPython 3.12 to 3.14 on Linux and macOS, run identities that no longer depend on the host, and release verification fixed at its root -- additive on the v4.0 contract**
 
 | Metric | Status |
 |---------|--------|
-| Python | 3.12+ |
-| Version | 4.0.0 |
+| Python | CPython 3.12, 3.13, 3.14 (Linux, macOS) |
+| Version | 4.1.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **9,325 passing, 0 skipped, 0 warnings** |
+| Tests | **9,672 passing, 0 skipped, 0 warnings** (each of CPython 3.12, 3.13, 3.14) |
 | Static typing | **Strict mypy**, repository-wide |
-| Examples | **70 / 70** |
+| Examples | **71 / 71** |
 | Release certificate | [11 / 11 checks](docs/audit/RELEASE_CERTIFICATION.md) |
 | License | MIT |
 
@@ -213,7 +213,7 @@ P&L, and reproducing the run. The other 69 examples cover one capability each
 | [`docs/ADR/`](docs/ADR) | The architectural decision records |
 | [`ROADMAP.md`](ROADMAP.md) | Boundaries, external dependencies, limitations and future work |
 | [`nowandfuture.md`](nowandfuture.md) | The long-form reference: ownership, invariants, what must not change casually |
-| [`docs/audit/`](docs/audit) | The pre-v4 and v4.0 audits, the completion ledger, the historical inventory and the release certificate |
+| [`docs/audit/`](docs/audit) | The pre-v4, v4.0 and v4.1 audits, the completion ledger, the historical inventory, the release certificate and the release runbook |
 
 ---
 
@@ -246,12 +246,16 @@ python docs/audit/scripts/certify_release.py --check
   fresh interpreter with deprecation warnings as errors; CI runs the suite
   itself with `-W error`.
 - Every example runs under `-W error`; the benchmarks run weekly.
-- A defect-injection harness (`docs/audit/scripts/mutation_v4_0.py`) runs each
+- A defect-injection harness (`docs/audit/scripts/mutation_v4_1.py`) runs each
   of its mutations against the whole suite, and a stress program
-  (`docs/audit/scripts/stress_v4_0.py`) measures the canonical path at scale;
-  their results are in [`docs/audit/V4_RELEASE_AUDIT.md`](docs/audit/V4_RELEASE_AUDIT.md).
+  (`docs/audit/scripts/stress_v4_1.py`) measures the canonical path and a paused
+  replay at scale; their results are in
+  [`docs/audit/V4_1_RELEASE_AUDIT.md`](docs/audit/V4_1_RELEASE_AUDIT.md) (and, for
+  v4.0, [`docs/audit/V4_RELEASE_AUDIT.md`](docs/audit/V4_RELEASE_AUDIT.md)).
 - Each built distribution is installed into a clean environment and exercised
-  from outside the checkout (`tests/installed_smoke.py`).
+  from outside the checkout (`tests/installed_smoke.py`), the consumer contract
+  an application relies on included (`tests/consumer_contract.py`), on CPython
+  3.12, 3.13 and 3.14 on Linux and macOS.
 - Before a release is published, **Release Preflight**
   ([`.github/workflows/preflight.yml`](.github/workflows/preflight.yml)) runs
   every gate above, CodeQL and the benchmarks against the exact candidate

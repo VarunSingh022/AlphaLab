@@ -4,12 +4,50 @@ Each function returns ``None`` where its statistic is undefined, rather than
 ``0.0``: a total return over a non-positive starting capital, a CAGR over no
 elapsed time, an average of no returns, a volatility of fewer than two. See
 :mod:`alphalab.analytics.metrics` for why.
+
+One power, rounded once (v4.1, ledger LIM-005)
+----------------------------------------------
+A CAGR and a geometric return raise a ratio to a fractional power. Until v4.1
+that was ``math.pow``, which is the host's ``libm``, and IEEE 754 does not
+require ``pow`` to be correctly rounded: measured on macOS arm64, it differed
+from the correctly rounded power in the last bit for 409 of 300,000 inputs. A
+run compiles a CAGR into its report, the report into its record, and the record
+into its ``result_id`` -- so one run could carry one identity on a developer's
+Mac and another on a Linux server. :func:`_power` computes the power to sixty
+significant digits in :mod:`decimal`, which is the same software on every host,
+and rounds that once to a double: the correctly rounded value, everywhere. It
+is the only fractional power a run's record holds; every other float a run
+records comes from ``+ - * /``, ``sqrt`` and ``fsum``, which IEEE 754 and
+CPython define exactly.
 """
 
 import math
-from decimal import Decimal
+from decimal import Context, Decimal, Overflow
 
 from alphalab.common.statistics import sample_variance
+
+#: Sixty digits, with room for any exponent a double's power can reach: rounding
+#: a result held to sixty digits to a double's fifty-three bits is the correct
+#: rounding of the exact power except where the exact value lies within about
+#: 1e-44 of a midpoint between two doubles.
+_POWER = Context(prec=60, Emax=1_000_000, Emin=-1_000_000)
+
+
+def _power(base: float, exponent: float) -> float:
+    """``base ** exponent`` for a non-negative ``base``, correctly rounded, on every host.
+
+    Raises:
+        OverflowError: If the power is beyond the largest double, as
+            ``math.pow`` raises.
+    """
+
+    try:
+        result = float(_POWER.power(Decimal(base), Decimal(exponent)))
+    except Overflow:
+        result = math.inf
+    if math.isinf(result):
+        raise OverflowError(f"{base!r} ** {exponent!r} is beyond the largest double")
+    return result
 
 
 def total_return(start_value: Decimal, end_value: Decimal) -> float | None:
@@ -33,7 +71,7 @@ def cagr(start_value: Decimal, end_value: Decimal, years: float) -> float | None
     if end_value <= Decimal("0"):
         return -1.0
     try:
-        return float(math.pow(float(end_value / start_value), 1.0 / years)) - 1.0
+        return _power(float(end_value / start_value), 1.0 / years) - 1.0
     except OverflowError:
         # Compounding a gain over a span of seconds is a number no float holds:
         # not representable, and therefore not reported.
@@ -64,7 +102,7 @@ def geometric_return(returns: tuple[float, ...]) -> float | None:
 
     if product < 0.0:
         return None
-    return math.pow(product, 1.0 / len(returns)) - 1.0
+    return _power(product, 1.0 / len(returns)) - 1.0
 
 
 def annualized_volatility(returns: tuple[float, ...], periods: float) -> float | None:

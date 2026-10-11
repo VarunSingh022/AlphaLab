@@ -245,9 +245,11 @@ def test_a_live_session_is_byte_identical_under_any_ambient_context(
 #: so a check can tell that decorator from any other ``functools.wraps``.
 _PINNED = in_accounting_context(lambda: None).__code__
 
-#: Entry points that do no arithmetic: publishing a record stores it, and
-#: resuming returns the identifier scope a restored run continues in.
-_NOTHING_TO_PIN = frozenset({"publish_record", "resume"})
+#: Entry points that do no arithmetic: publishing a record stores it,
+#: resuming returns the identifier scope a restored run continues in, and
+#: ``id_source_at`` (v4.1) the identifier source that scope -- or a replay
+#: cursor's -- continues from.
+_NOTHING_TO_PIN = frozenset({"id_source_at", "publish_record", "resume"})
 
 
 @pytest.mark.parametrize("engine", [ExecutionPipeline, RunEngine, LiveSession])
