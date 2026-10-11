@@ -106,6 +106,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum, auto
 from pathlib import Path
+from typing import overload
 
 from alphalab.alt_data.exceptions import AltDataInputError
 from alphalab.alt_data.fundamentals import FiscalPeriod, FundamentalObservation, StatementType
@@ -119,7 +120,7 @@ from alphalab.analytics.engine import AnalyticsEngine
 from alphalab.analytics.risk_model import Classification
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.engine import BacktestEngine
-from alphalab.backtesting.replay import ReplayBacktest
+from alphalab.backtesting.replay import PausedReplay, ReplayBacktest, ReplayProgress
 from alphalab.backtesting.state import BacktestResult, ReplayResult
 from alphalab.common.exceptions import AlphaLabValidationError
 from alphalab.common.point_in_time import PointInTimeStamp
@@ -226,6 +227,7 @@ __all__ = [
     "observe",
     "option_contract_from_spec",
     "replay",
+    "resume_replay",
     "run_study",
     "sector_classification",
     "select",
@@ -520,18 +522,82 @@ def backtest(
     )
 
 
+@overload
 def replay(
     config: RunConfig,
     dataset: Dataset,
     strategy_state: StrategyRuntimeState,
     context_factory: ContextFactory,
     policy: NormalizationPolicy,
-) -> ReplayResult:
-    """Replay a canonical dataset through the execution path, with the same identity."""
+) -> ReplayResult: ...
 
+
+@overload
+def replay(
+    config: RunConfig,
+    dataset: Dataset,
+    strategy_state: StrategyRuntimeState,
+    context_factory: ContextFactory,
+    policy: NormalizationPolicy,
+    *,
+    pause_when: Callable[[ReplayProgress], bool],
+) -> ReplayResult | PausedReplay: ...
+
+
+def replay(
+    config: RunConfig,
+    dataset: Dataset,
+    strategy_state: StrategyRuntimeState,
+    context_factory: ContextFactory,
+    policy: NormalizationPolicy,
+    *,
+    pause_when: Callable[[ReplayProgress], bool] | None = None,
+) -> ReplayResult | PausedReplay:
+    """Replay a canonical dataset through the execution path, with the same identity.
+
+    With ``pause_when`` (v4.1, ledger FUT-001) the replay may pause between two
+    records and return a :class:`~alphalab.backtesting.replay.PausedReplay`,
+    which :mod:`alphalab.backtesting.replay_snapshot` captures and restores --
+    restoring takes back ``to_market_dataset(dataset, policy)`` -- and
+    :func:`resume_replay` continues. See
+    :meth:`~alphalab.backtesting.replay.ReplayBacktest.run`.
+    """
+
+    market = to_market_dataset(dataset, policy)
+    if pause_when is None:
+        return ReplayBacktest.run(config, market, strategy_state, context_factory)
     return ReplayBacktest.run(
-        config, to_market_dataset(dataset, policy), strategy_state, context_factory
+        config, market, strategy_state, context_factory, pause_when=pause_when
     )
+
+
+@overload
+def resume_replay(paused: PausedReplay, context_factory: ContextFactory) -> ReplayResult: ...
+
+
+@overload
+def resume_replay(
+    paused: PausedReplay,
+    context_factory: ContextFactory,
+    *,
+    pause_when: Callable[[ReplayProgress], bool],
+) -> ReplayResult | PausedReplay: ...
+
+
+def resume_replay(
+    paused: PausedReplay,
+    context_factory: ContextFactory,
+    *,
+    pause_when: Callable[[ReplayProgress], bool] | None = None,
+) -> ReplayResult | PausedReplay:
+    """Continue a paused replay; its result equals the uninterrupted replay's (FUT-001).
+
+    See :meth:`~alphalab.backtesting.replay.ReplayBacktest.resume`.
+    """
+
+    if pause_when is None:
+        return ReplayBacktest.resume(paused, context_factory)
+    return ReplayBacktest.resume(paused, context_factory, pause_when=pause_when)
 
 
 # --------------------------------------------------------------------------- #

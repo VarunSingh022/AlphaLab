@@ -36,9 +36,11 @@ CONSTANTS: dict[str, str] = {
     "RUN_STATE_ENVELOPE_SCHEMA": "alphalab.persistence.run_state",
     "CHECKPOINT_SCHEMA": "alphalab.runtime.checkpoint",
     "EVIDENCE_SCHEMA": "alphalab.model_registry.evidence",
+    # v4.1 (ledger FUT-001): a paused replay, the envelope around a run snapshot.
+    "REPLAY_SNAPSHOT_SCHEMA": "alphalab.backtesting.replay_snapshot",
 }
 
-#: The ten durable states' constants: every table must list each of them.
+#: The eleven durable states' constants: every table must list each of them.
 SNAPSHOT_CONSTANTS = tuple(name for name in CONSTANTS if name.endswith("_SNAPSHOT_SCHEMA"))
 
 DOCUMENTS = ("docs/ARCHITECTURE.md", "docs/STATE_MODEL.md", "nowandfuture.md")

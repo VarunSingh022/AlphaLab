@@ -49,7 +49,7 @@ against its own timestamp, under which no record is ever stale.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -60,7 +60,7 @@ from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import in_accounting_context
 from alphalab.common.evolve import evolve
-from alphalab.common.ids import id_source_for, require_seed, use_id_source
+from alphalab.common.ids import IdStreamPosition, id_source_for, require_seed, use_id_source
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.policy import FillPolicy, ImmediateFill
 from alphalab.execution.report import ExecutionReport
@@ -573,7 +573,24 @@ class RunEngine:
         records resumes at record N+1; nothing is replayed.
         """
 
-        return use_id_source(id_source_for(state.pipeline.id_position))
+        return use_id_source(RunEngine.id_source_at(state.pipeline.id_position))
+
+    @staticmethod
+    def id_source_at(position: IdStreamPosition) -> Callable[[], str] | None:
+        """An identifier source whose stream has already reached ``position``.
+
+        **The only function in AlphaLab that derives an identifier source from a
+        stream position** (ADR-0030). :meth:`resume` continues a run's stream
+        through it, and since v4.1 the replay driver continues its cursor's
+        second stream through it as well (ledger FUT-001): two streams, one
+        definition of what continuing one means.
+
+        Returns ``None`` for an unseeded position, which
+        :func:`~alphalab.common.ids.use_id_source` reads as ``uuid4`` -- the
+        stream ran on ``uuid4`` and continues on it.
+        """
+
+        return id_source_for(position)
 
     @staticmethod
     @in_accounting_context

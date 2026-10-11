@@ -152,6 +152,11 @@ def test_exactly_one_function_derives_an_id_source_from_a_stream_position() -> N
     Two owners of one determinism contract is a contract that can drift. There
     is now one, and a second would fail here rather than in a run somebody
     compares months later.
+
+    Since v4.1 (ledger FUT-001) a replay continues two streams -- the run's and
+    its cursor's -- and the one call lives in ``RunEngine.id_source_at``, which
+    ``RunEngine.resume`` and the replay driver both go through. Still one site,
+    still in ``RunEngine``; and nothing else reaches ``id_source_for``.
     """
 
     def calls(source: str) -> int:
@@ -169,15 +174,25 @@ def test_exactly_one_function_derives_an_id_source_from_a_stream_position() -> N
         if path.name != "ids.py" and calls(source)
     ]
 
-    assert sites == [("alphalab/runtime/run.py", 1)], "one call, in RunEngine.resume"
-    assert "id_source_for" in RunEngine.resume.__code__.co_names
+    assert sites == [("alphalab/runtime/run.py", 1)], "one call, in RunEngine.id_source_at"
+    assert "id_source_for" in RunEngine.id_source_at.__code__.co_names
+    resume = RunEngine.resume.__code__.co_names
+    assert "id_source_at" in resume and "id_source_for" not in resume
+    owners = [
+        name
+        for name, member in vars(RunEngine).items()
+        if isinstance(member, staticmethod) and "id_source_for" in member.__func__.__code__.co_names
+    ]
+    assert owners == ["id_source_at"]
 
 
 def test_every_driver_resume_delegates_rather_than_reimplementing() -> None:
-    for resume in (TradingSession.resume, BacktestEngine.resume):
+    for resume in (TradingSession.resume, BacktestEngine.resume, ReplayBacktest.resume):
         names = resume.__code__.co_names
         assert "RunEngine" in names and "resume" in names
         assert "id_source_for" not in names
+    # The replay continues its cursor's stream through the same owner.
+    assert "id_source_at" in ReplayBacktest.resume.__code__.co_names
 
 
 # --------------------------------------------------------------------------- #
