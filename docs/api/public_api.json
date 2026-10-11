@@ -1,5 +1,5 @@
 {
-  "release": "4.0.0",
+  "release": "4.1.0",
   "rule": "One name, one contract: a name two packages export is the same object in both, or it is listed under shared_names with the reason the two are deliberately different.",
   "packages": {
     "alphalab": {
@@ -339,7 +339,8 @@
       "observation_source": "function alphalab.api.observation_source(raw: 'RawSource', source_id: 'str', version: 'str | None', quality: 'DataProvenance | None' = None) -> 'ObservationSource'",
       "observe": "function alphalab.api.observe(dataset: 'Dataset', source_field: 'FeatureField') -> 'ObservationFrame'",
       "option_contract_from_spec": "function alphalab.api.option_contract_from_spec(spec: 'OptionSpec') -> 'OptionContract'",
-      "replay": "function alphalab.api.replay(config: 'RunConfig', dataset: 'Dataset', strategy_state: 'StrategyRuntimeState', context_factory: 'ContextFactory', policy: 'NormalizationPolicy') -> 'ReplayResult'",
+      "replay": "function alphalab.api.replay(config: 'RunConfig', dataset: 'Dataset', strategy_state: 'StrategyRuntimeState', context_factory: 'ContextFactory', policy: 'NormalizationPolicy', *, pause_when: 'Callable[[ReplayProgress], bool] | None' = None) -> 'ReplayResult | PausedReplay'",
+      "resume_replay": "function alphalab.api.resume_replay(paused: 'PausedReplay', context_factory: 'ContextFactory', *, pause_when: 'Callable[[ReplayProgress], bool] | None' = None) -> 'ReplayResult | PausedReplay'",
       "run_study": "function alphalab.api.run_study(study: 'ResearchStudy', dataset: 'Dataset', price_field: 'FeatureField' = <FeatureField.CLOSE: 4>, buckets: 'int' = 5, minimum_assets: 'int' = 5, produced_at: 'float' = 0.0, *, delistings: 'Sequence[DelistingReturn]') -> 'StudyResult'",
       "sector_classification": "function alphalab.api.sector_classification(registry: 'InstrumentRegistry', asset_ids: 'Sequence[str]', as_of: 'float | None') -> 'Classification'",
       "select": "function alphalab.api.select(dataset: 'Dataset', request: 'DataRequest') -> 'DataSelection'",
@@ -361,7 +362,9 @@
       "MarketDataset": "class alphalab.backtesting.dataset.MarketDataset(dataset_id: 'str', records: 'tuple[MarketRecord, ...]') -> None",
       "MarketInput": "alias alphalab.market.quote.Quote | alphalab.market.bar.Bar | alphalab.market.tick.Tick",
       "MarketRecord": "class alphalab.market.record.MarketRecord(event_id: 'str', timestamp: 'float', payload: 'MarketInput') -> None",
+      "PausedReplay": "class alphalab.backtesting.replay.PausedReplay(run: 'RunState', cursor: 'ReplayState', cursor_position: 'IdStreamPosition') -> None",
       "ReplayBacktest": "class alphalab.backtesting.replay.ReplayBacktest()",
+      "ReplayProgress": "class alphalab.backtesting.replay.ReplayProgress(records_replayed: 'int', records_total: 'int', next_timestamp: 'float') -> None",
       "ReplayResult": "class alphalab.backtesting.state.ReplayResult(backtest: 'BacktestResult', replay_status: 'str', records_replayed: 'int', last_record: 'MarketRecord | None') -> None",
       "RunConfig": "class alphalab.runtime.run.RunConfig(pipeline: 'ExecutionPipelineConfig', mode: 'ExecutionMode', fill_policy: 'FillPolicy' = <factory>, seed: 'int | None' = None, start_timestamp: 'float' = 0.0, ordering: 'OrderingGuarantee' = <OrderingGuarantee.CHRONOLOGICAL: 1>, max_market_data_age_seconds: 'float | None' = None, years_elapsed: 'float | None' = None, risk_free_rate: 'float' = 0.0, compile_analytics: 'bool' = True, periods_per_year: 'float | None' = None, halt_on_strategy_failure: 'bool' = False) -> None",
       "RunState": "class alphalab.runtime.run.RunState(config: 'RunConfig', pipeline: 'ExecutionPipelineState', processed: 'int' = 0, current_timestamp: 'float' = 0.0, last_record_timestamp: 'float | None' = None, source_id: 'str | None' = None, steps: 'AppendOnlyLog[RunStep]' = <factory>, skipped: 'AppendOnlyLog[SkippedRecord]' = <factory>, last_slice_at: 'float | None' = None, observations_delivered: 'int' = 0, last_observation: 'tuple[float, str] | None' = None) -> None",
@@ -388,6 +391,16 @@
       "submitted_orders": "function alphalab.backtesting.views.submitted_orders(result: alphalab.backtesting.state.BacktestResult) -> collections.abc.Sequence[alphalab.oms.order.Order]",
       "unrealized_pnl": "function alphalab.backtesting.views.unrealized_pnl(result: alphalab.backtesting.state.BacktestResult) -> decimal.Decimal",
       "validate_dataset": "function alphalab.backtesting.dataset.validate_dataset(dataset: 'MarketDataset') -> 'None'"
+    },
+    "alphalab.backtesting.replay_snapshot": {
+      "REPLAY_SCHEMA_HISTORY": "value alphalab.persistence.upgrade.SchemaHistory",
+      "REPLAY_SNAPSHOT_SCHEMA": "value builtins.int",
+      "ReplayEventRecord": "class alphalab.backtesting.replay_snapshot.ReplayEventRecord(event_type: 'str', event: 'ReplaySystemEvent') -> None",
+      "ReplaySnapshot": "class alphalab.backtesting.replay_snapshot.ReplaySnapshot(run: 'RunSnapshot', session: 'ReplaySession', status: 'ReplayStatus', current_index: 'int', current_timestamp: 'float', real_start_time: 'float', real_current_time: 'float', events: 'tuple[ReplayEventRecord, ...]', cursor_position: 'IdStreamPosition', records_total: 'int', dataset_digest: 'str', last_event_id: 'str | None', next_event_id: 'str', events_dropped: 'int' = 0, schema_version: 'int' = 1) -> None",
+      "capture": "function alphalab.backtesting.replay_snapshot.capture(paused: 'PausedReplay') -> 'ReplaySnapshot'",
+      "dataset_digest": "function alphalab.backtesting.replay_snapshot.dataset_digest(dataset: 'MarketDataset') -> 'str'",
+      "from_primitives": "function alphalab.backtesting.replay_snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'ReplaySnapshot'",
+      "restore": "function alphalab.backtesting.replay_snapshot.restore(snapshot: 'ReplaySnapshot', objects: 'RunObjects', dataset: 'MarketDataset') -> 'PausedReplay'"
     },
     "alphalab.broker": {
       "ANY_LISTING_VENUE": "value builtins.str",
@@ -533,14 +546,14 @@
     "alphalab.cloud_research": {
       "CloudResearchError": "class alphalab.cloud_research.exceptions.CloudResearchError",
       "CloudResearchInputError": "class alphalab.cloud_research.exceptions.CloudResearchInputError",
-      "CloudResearchState": "class alphalab.cloud_research.cluster.CloudResearchState(distributed: alphalab.distributed.state.DistributedState, results: collections.abc.Mapping[str, typing.Any] = <factory>) -> None",
-      "collect_sweep": "function alphalab.cloud_research.sweep.collect_sweep(state: alphalab.cloud_research.cluster.CloudResearchState, param_grid: alphalab.research.walk_forward_optimization.ParameterSpace | collections.abc.Mapping[str, collections.abc.Sequence[ParamValue]], job_ids: collections.abc.Sequence[str], metric: str, score: collections.abc.Callable[[typing.Any], float], *, higher_is_better: bool = True) -> alphalab.research.overfitting.SweepResult",
+      "CloudResearchState": "class alphalab.cloud_research.cluster.CloudResearchState(distributed: alphalab.distributed.state.DistributedState, results: collections.abc.Mapping[str, Any] = <factory>) -> None",
+      "collect_sweep": "function alphalab.cloud_research.sweep.collect_sweep(state: alphalab.cloud_research.cluster.CloudResearchState, param_grid: alphalab.research.walk_forward_optimization.ParameterSpace | collections.abc.Mapping[str, collections.abc.Sequence[ParamValue]], job_ids: collections.abc.Sequence[str], metric: str, score: collections.abc.Callable[[Any], float], *, higher_is_better: bool = True) -> alphalab.research.overfitting.SweepResult",
       "initialize_cluster": "function alphalab.cloud_research.cluster.initialize_cluster(cluster_id: str, num_workers: int, capacity_per_worker: int, timestamp: float) -> alphalab.cloud_research.cluster.CloudResearchState",
-      "resolve_task": "function alphalab.cloud_research.task.resolve_task(task_path: str) -> collections.abc.Callable[..., typing.Any]",
+      "resolve_task": "function alphalab.cloud_research.task.resolve_task(task_path: str) -> collections.abc.Callable[..., Any]",
       "run_cluster_cycle": "function alphalab.cloud_research.cluster.run_cluster_cycle(state: alphalab.cloud_research.cluster.CloudResearchState, executor: concurrent.futures._base.Executor, timestamp: float) -> alphalab.cloud_research.cluster.CloudResearchState",
-      "run_task": "function alphalab.cloud_research.task.run_task(payload: collections.abc.Mapping[str, typing.Any]) -> dict[str, typing.Any]",
-      "submit_parameter_sweep": "function alphalab.cloud_research.sweep.submit_parameter_sweep(state: alphalab.cloud_research.cluster.CloudResearchState, job_type: alphalab.distributed.job.JobType, task_path: str, param_grid: alphalab.research.walk_forward_optimization.ParameterSpace | collections.abc.Mapping[str, collections.abc.Sequence[ParamValue]], base_kwargs: collections.abc.Mapping[str, typing.Any], priority: int, timestamp: float) -> tuple[alphalab.cloud_research.cluster.CloudResearchState, tuple[str, ...]]",
-      "submit_research_job": "function alphalab.cloud_research.cluster.submit_research_job(state: alphalab.cloud_research.cluster.CloudResearchState, job_type: alphalab.distributed.job.JobType, task_path: str, kwargs: collections.abc.Mapping[str, typing.Any], priority: int, timestamp: float) -> tuple[alphalab.cloud_research.cluster.CloudResearchState, str]",
+      "run_task": "function alphalab.cloud_research.task.run_task(payload: collections.abc.Mapping[str, Any]) -> dict[str, Any]",
+      "submit_parameter_sweep": "function alphalab.cloud_research.sweep.submit_parameter_sweep(state: alphalab.cloud_research.cluster.CloudResearchState, job_type: alphalab.distributed.job.JobType, task_path: str, param_grid: alphalab.research.walk_forward_optimization.ParameterSpace | collections.abc.Mapping[str, collections.abc.Sequence[ParamValue]], base_kwargs: collections.abc.Mapping[str, Any], priority: int, timestamp: float) -> tuple[alphalab.cloud_research.cluster.CloudResearchState, tuple[str, ...]]",
+      "submit_research_job": "function alphalab.cloud_research.cluster.submit_research_job(state: alphalab.cloud_research.cluster.CloudResearchState, job_type: alphalab.distributed.job.JobType, task_path: str, kwargs: collections.abc.Mapping[str, Any], priority: int, timestamp: float) -> tuple[alphalab.cloud_research.cluster.CloudResearchState, str]",
       "sweep_space": "function alphalab.cloud_research.sweep.sweep_space(param_grid: alphalab.research.walk_forward_optimization.ParameterSpace | collections.abc.Mapping[str, collections.abc.Sequence[ParamValue]]) -> alphalab.research.walk_forward_optimization.ParameterSpace"
     },
     "alphalab.cluster_scheduler": {
@@ -580,7 +593,7 @@
       "PointInTimeStamp": "class alphalab.common.point_in_time.PointInTimeStamp(observed_at: 'float', available_at: 'float | None', basis: 'AvailabilityBasis', effective_at: 'float | None' = None, ingested_at: 'float | None' = None, rule: 'str' = '') -> None",
       "RankMethod": "enum alphalab.common.statistics.RankMethod[AVERAGE, MIN, MAX, ORDINAL]",
       "RateRecord": "class alphalab.common.currency.RateRecord(*args, **kwargs)",
-      "Result": "class alphalab.common.results.Result(ok: bool, value: Optional[ValueT] = None, error: str | None = None) -> None",
+      "Result": "class alphalab.common.results.Result(ok: bool, value: ValueT | None = None, error: str | None = None) -> None",
       "StampedRecord": "class alphalab.common.point_in_time.StampedRecord(*args, **kwargs)",
       "TieBreak": "enum alphalab.common.statistics.TieBreak[LOW, HIGH, SPREAD]",
       "TimeInForce": "enum alphalab.common.order_terms.TimeInForce[DAY, GTC, IOC, FOK, GTD, OPG, CLS]",
@@ -588,7 +601,7 @@
       "__version__": "value builtins.str",
       "bucket_index": "function alphalab.common.statistics.bucket_index(values: 'Sequence[float]', buckets: 'int', tie_break: 'TieBreak' = <TieBreak.LOW: 1>) -> 'tuple[int, ...]'",
       "copy_metadata": "function alphalab.common.metadata.copy_metadata(metadata: MetadataMapping) -> dict[str, MetadataValue]",
-      "dataclass_to_dict": "function alphalab.common.serialization.dataclass_to_dict(instance: object) -> dict[str, typing.Any]",
+      "dataclass_to_dict": "function alphalab.common.serialization.dataclass_to_dict(instance: object) -> dict[str, Any]",
       "ensure_timezone_aware": "function alphalab.common.time.ensure_timezone_aware(value: datetime.datetime, field_name: str = 'timestamp') -> datetime.datetime",
       "generic_known_as_of": "function alphalab.common.point_in_time.known_as_of(records: 'tuple[T, ...]', as_of: 'float') -> 'T | None'",
       "id_scope": "function alphalab.common.ids.id_scope(seed: int | None) -> contextlib.AbstractContextManager[None]",
@@ -698,7 +711,7 @@
       "Support": "enum alphalab.core.capabilities.Support[SUPPORTED, UNSUPPORTED, UNDECLARED]",
       "TERMINAL_ORDER_STATUSES": "value builtins.frozenset",
       "TimeInForce": "enum alphalab.common.order_terms.TimeInForce[DAY, GTC, IOC, FOK, GTD, OPG, CLS]",
-      "Trade": "class alphalab.core.trade.Trade(trade_id: alphalab.core.ids.TradeId, asset_id: alphalab.core.ids.AssetId, side: alphalab.core.enums.Side, quantity: decimal.Decimal, average_price: decimal.Decimal, fill_ids: tuple[alphalab.core.ids.FillId, ...], executed_at: float, order_id: Optional[alphalab.core.ids.OrderId] = None) -> None",
+      "Trade": "class alphalab.core.trade.Trade(trade_id: alphalab.core.ids.TradeId, asset_id: alphalab.core.ids.AssetId, side: alphalab.core.enums.Side, quantity: decimal.Decimal, average_price: decimal.Decimal, fill_ids: tuple[alphalab.core.ids.FillId, ...], executed_at: float, order_id: alphalab.core.ids.OrderId | None = None) -> None",
       "TradeId": "newtype alphalab.core.ids.TradeId",
       "VENUE_FEATURES": "value builtins.frozenset",
       "WORKING_ORDER_STATUSES": "value builtins.frozenset",
@@ -879,7 +892,7 @@
       "metadata_view": "function alphalab.data.views.metadata_view(state: alphalab.data.state.UniversalDataState, dataset_id: str) -> alphalab.data.metadata.DatasetMetadata | None",
       "normalize_prices": "function alphalab.data.normalization.normalize_prices(bars: tuple[alphalab.data.feed.Bar, ...], factor: float) -> tuple[alphalab.data.feed.Bar, ...]",
       "parse_and_load": "function alphalab.data.ingestion.parse_and_load(metadata: 'DatasetMetadata', raw_rows: 'Sequence[Mapping[str, Any]]') -> 'Dataset'",
-      "parse_raw_rows": "function alphalab.data.parser.parse_raw_rows(symbol: str, raw_rows: collections.abc.Sequence[collections.abc.Mapping[str, typing.Any]]) -> tuple[alphalab.data.feed.Bar, ...]",
+      "parse_raw_rows": "function alphalab.data.parser.parse_raw_rows(symbol: str, raw_rows: collections.abc.Sequence[collections.abc.Mapping[str, Any]]) -> tuple[alphalab.data.feed.Bar, ...]",
       "parse_timestamp": "function alphalab.data.time.parse_timestamp(value: 'str', timestamp_format: 'TimestampFormat', timezone_name: 'str | None', date_policy: 'DateOnlyPolicy | None') -> 'float'",
       "quality_report": "function alphalab.data.views.quality_report(state: alphalab.data.state.UniversalDataState, dataset_id: str) -> alphalab.data.quality.QualityReport | None",
       "raw_source_from_bytes": "function alphalab.data.source.raw_source_from_bytes(kind: 'SourceKind', location: 'str', payload: 'bytes', retrieved_at: 'float', media_type: 'str', encoding: 'str | None' = None, attributes: 'MetadataMapping | None' = None) -> 'RawSource'",
@@ -988,7 +1001,7 @@
       "DistributedValidationError": "class alphalab.distributed.exceptions.DistributedValidationError",
       "InvalidJobStateError": "class alphalab.distributed.exceptions.InvalidJobStateError",
       "InvalidNodeStateError": "class alphalab.distributed.exceptions.InvalidNodeStateError",
-      "Job": "class alphalab.distributed.job.Job(job_id: str, job_type: alphalab.distributed.job.JobType, status: alphalab.distributed.job.JobStatus, priority: int, created_timestamp: float, started_timestamp: float = 0.0, completed_timestamp: float = 0.0, worker_id: str | None = None, payload: collections.abc.Mapping[str, typing.Any] = <factory>, metadata: collections.abc.Mapping[str, str] = <factory>) -> None",
+      "Job": "class alphalab.distributed.job.Job(job_id: str, job_type: alphalab.distributed.job.JobType, status: alphalab.distributed.job.JobStatus, priority: int, created_timestamp: float, started_timestamp: float = 0.0, completed_timestamp: float = 0.0, worker_id: str | None = None, payload: collections.abc.Mapping[str, Any] = <factory>, metadata: collections.abc.Mapping[str, str] = <factory>) -> None",
       "JobAssigned": "class alphalab.distributed.events.JobAssigned(event_id: str, timestamp: float, job_id: str, worker_id: str) -> None",
       "JobCancelled": "class alphalab.distributed.events.JobCancelled(event_id: str, timestamp: float, job_id: str, worker_id: str) -> None",
       "JobCompleted": "class alphalab.distributed.events.JobCompleted(event_id: str, timestamp: float, job_id: str, worker_id: str, execution_time: float) -> None",
@@ -1993,7 +2006,7 @@
       "serialize": "function alphalab.persistence.serializer.serialize(obj: Any) -> str"
     },
     "alphalab.portfolio": {
-      "Account": "class alphalab.portfolio.account.Account(account_id: str, base_currency: str, name: str, created_at: float, status: str = 'ACTIVE', metadata: collections.abc.Mapping[str, typing.Any] = <factory>, currency_units: alphalab.common.currency_units.CurrencyUnits = CurrencyUnits({})) -> None",
+      "Account": "class alphalab.portfolio.account.Account(account_id: str, base_currency: str, name: str, created_at: float, status: str = 'ACTIVE', metadata: collections.abc.Mapping[str, Any] = <factory>, currency_units: alphalab.common.currency_units.CurrencyUnits = CurrencyUnits({})) -> None",
       "BOOK_VALUATION_SCHEME": "value builtins.str",
       "BookValuation": "class alphalab.portfolio.multi_strategy.BookValuation(portfolio_id: 'str', book_id: 'str', reporting_currency: 'str', as_of: 'float', lines: 'tuple[HoldingValuation, ...]', strategies: 'tuple[StrategyValuation, ...]', instruments: 'tuple[InstrumentValuation, ...]', exposure_by_currency: 'CurrencyAmounts', reporting_exposure_by_currency: 'Mapping[str, Decimal]', long_exposure: 'Decimal', short_exposure: 'Decimal', net_exposure: 'Decimal', gross_exposure: 'Decimal', cash: 'Decimal', unassigned_cash: 'Decimal', nav: 'Decimal', conversions: 'tuple[FxConversion, ...]') -> None",
       "CashDeposited": "class alphalab.portfolio.events.CashDeposited(timestamp: float, account_id: str, amount: decimal.Decimal, currency: str) -> None",
@@ -2043,7 +2056,7 @@
       "StaleRateError": "class alphalab.portfolio.fx.StaleRateError",
       "StrategySleeve": "class alphalab.portfolio.multi_strategy.StrategySleeve(strategy_id: 'str', positions: 'Mapping[str, Position]', cash: 'CurrencyAmounts', realized_pnl: 'CurrencyAmounts', commission_paid: 'CurrencyAmounts') -> None",
       "StrategyValuation": "class alphalab.portfolio.multi_strategy.StrategyValuation(strategy_id: 'str', positions: 'int', long_exposure: 'Decimal', short_exposure: 'Decimal', net_exposure: 'Decimal', gross_exposure: 'Decimal', cash: 'Decimal', nav: 'Decimal', unrealized_pnl: 'Decimal', realized_pnl: 'CurrencyAmounts', reporting_realized_pnl: 'Decimal', commission_paid: 'CurrencyAmounts', reporting_commission_paid: 'Decimal') -> None",
-      "Transaction": "class alphalab.portfolio.transaction.Transaction(transaction_id: str, timestamp: float, account_id: str, type: alphalab.portfolio.types.TransactionType, asset_id: str, quantity: decimal.Decimal, price: decimal.Decimal, commission: decimal.Decimal, currency: str, metadata: collections.abc.Mapping[str, typing.Any] = <factory>) -> None",
+      "Transaction": "class alphalab.portfolio.transaction.Transaction(transaction_id: str, timestamp: float, account_id: str, type: alphalab.portfolio.types.TransactionType, asset_id: str, quantity: decimal.Decimal, price: decimal.Decimal, commission: decimal.Decimal, currency: str, metadata: collections.abc.Mapping[str, Any] = <factory>) -> None",
       "TransactionLedger": "class alphalab.portfolio.ledger.TransactionLedger(transactions: alphalab.common.append_log.AppendOnlyLog[alphalab.portfolio.transaction.Transaction] = <factory>) -> None",
       "TransactionType": "enum alphalab.portfolio.types.TransactionType[BUY, SELL, DIVIDEND, DEPOSIT, WITHDRAWAL, FEE, INTEREST, TRANSFER, VARIATION_MARGIN, FUNDING]",
       "VariationSettled": "class alphalab.portfolio.events.VariationSettled(timestamp: float, account_id: str, asset_id: str, price: decimal.Decimal, amount: decimal.Decimal, currency: str) -> None",
@@ -2178,7 +2191,7 @@
       "RLError": "class alphalab.reinforcement_learning.exceptions.RLError",
       "RLInputError": "class alphalab.reinforcement_learning.exceptions.RLInputError",
       "State": "alias tuple[str, str]",
-      "StepResult": "class alphalab.reinforcement_learning.environment.StepResult(state: alphalab.reinforcement_learning.environment.TradingEnvState, reward: decimal.Decimal, done: bool, info: collections.abc.Mapping[str, typing.Any]) -> None",
+      "StepResult": "class alphalab.reinforcement_learning.environment.StepResult(state: alphalab.reinforcement_learning.environment.TradingEnvState, reward: decimal.Decimal, done: bool, info: collections.abc.Mapping[str, Any]) -> None",
       "TradingEnvConfig": "class alphalab.reinforcement_learning.environment.TradingEnvConfig(asset_id: str, strategy_id: str, trade_size: decimal.Decimal, starting_cash: decimal.Decimal, currency: str) -> None",
       "TradingEnvState": "class alphalab.reinforcement_learning.environment.TradingEnvState(config: alphalab.reinforcement_learning.environment.TradingEnvConfig, pipeline: alphalab.runtime.execution_pipeline.ExecutionPipelineState, equity: decimal.Decimal, step_count: int) -> None",
       "Trajectory": "class alphalab.reinforcement_learning.policy.Trajectory(states: tuple[tuple[float, ...], ...], actions: tuple[int, ...], rewards: tuple[float, ...]) -> None",
@@ -2616,7 +2629,7 @@
       "SessionPhase": "enum alphalab.scheduler.session.SessionPhase[PRE_MARKET, REGULAR_SESSION, POST_MARKET, CLOSED]",
       "SessionStarted": "class alphalab.scheduler.events.SessionStarted(event_id: str, timestamp: float, session_id: str, phase: str) -> None",
       "SystemClock": "class alphalab.scheduler.clock.SystemClock()",
-      "Timer": "class alphalab.scheduler.timer.Timer(timer_id: str, target_timestamp: float, schedule_type: alphalab.scheduler.schedule.ScheduleType, interval: float | None = None, cron: alphalab.scheduler.cron.CronSchedule | None = None, metadata: collections.abc.Mapping[str, typing.Any] | None = None, calendar: alphalab.data.calendar.MarketCalendar | None = None) -> None",
+      "Timer": "class alphalab.scheduler.timer.Timer(timer_id: str, target_timestamp: float, schedule_type: alphalab.scheduler.schedule.ScheduleType, interval: float | None = None, cron: alphalab.scheduler.cron.CronSchedule | None = None, metadata: collections.abc.Mapping[str, Any] | None = None, calendar: alphalab.data.calendar.MarketCalendar | None = None) -> None",
       "TimerCancelled": "class alphalab.scheduler.events.TimerCancelled(event_id: str, timestamp: float, timer_id: str) -> None",
       "TimerScheduled": "class alphalab.scheduler.events.TimerScheduled(event_id: str, timestamp: float, timer_id: str, trigger_time: float, schedule_type: str) -> None",
       "TimerTriggered": "class alphalab.scheduler.events.TimerTriggered(event_id: str, timestamp: float, timer_id: str) -> None",
@@ -2873,7 +2886,7 @@
     },
     "Trade": {
       "bound_to": [
-        "class alphalab.core.trade.Trade(trade_id: alphalab.core.ids.TradeId, asset_id: alphalab.core.ids.AssetId, side: alphalab.core.enums.Side, quantity: decimal.Decimal, average_price: decimal.Decimal, fill_ids: tuple[alphalab.core.ids.FillId, ...], executed_at: float, order_id: Optional[alphalab.core.ids.OrderId] = None) -> None",
+        "class alphalab.core.trade.Trade(trade_id: alphalab.core.ids.TradeId, asset_id: alphalab.core.ids.AssetId, side: alphalab.core.enums.Side, quantity: decimal.Decimal, average_price: decimal.Decimal, fill_ids: tuple[alphalab.core.ids.FillId, ...], executed_at: float, order_id: alphalab.core.ids.OrderId | None = None) -> None",
         "class alphalab.data.feed.Trade(symbol: str, timestamp: float, price: float, size: float, trade_id: str = '', aggressor: alphalab.data.feed.TradeAggressor | None = None) -> None"
       ],
       "reason": "Two different trades: core.trade.Trade is an execution AlphaLab's own order made, as the accounting records it; data.feed.Trade is a print a provider reported on the tape, anyone's."
@@ -2888,6 +2901,7 @@
     "capture": {
       "bound_to": [
         "function alphalab.allocation.snapshot.capture(state: 'AllocationState') -> 'AllocationSnapshot'",
+        "function alphalab.backtesting.replay_snapshot.capture(paused: 'PausedReplay') -> 'ReplaySnapshot'",
         "function alphalab.broker.snapshot.capture(state: 'BrokerState', mapping: 'ExternalOrderMap | None' = None, log: 'ReconciliationLog | None' = None) -> 'BrokerSnapshot'",
         "function alphalab.instrument.snapshot.capture(registry: 'InstrumentRegistry') -> 'InstrumentRegistrySnapshot'",
         "function alphalab.lifecycle.snapshot.capture(state: 'LifecycleState') -> 'LifecycleSnapshot'",
@@ -2931,6 +2945,7 @@
     "from_primitives": {
       "bound_to": [
         "function alphalab.allocation.snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'AllocationSnapshot'",
+        "function alphalab.backtesting.replay_snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'ReplaySnapshot'",
         "function alphalab.broker.snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'BrokerSnapshot'",
         "function alphalab.instrument.snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'InstrumentRegistrySnapshot'",
         "function alphalab.lifecycle.snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'LifecycleSnapshot'",
@@ -2960,6 +2975,7 @@
     "restore": {
       "bound_to": [
         "function alphalab.allocation.snapshot.restore(snapshot: 'AllocationSnapshot') -> 'AllocationState'",
+        "function alphalab.backtesting.replay_snapshot.restore(snapshot: 'ReplaySnapshot', objects: 'RunObjects', dataset: 'MarketDataset') -> 'PausedReplay'",
         "function alphalab.broker.snapshot.restore(snapshot: 'BrokerSnapshot') -> 'tuple[BrokerState, ExternalOrderMap, ReconciliationLog]'",
         "function alphalab.instrument.snapshot.restore(snapshot: 'InstrumentRegistrySnapshot') -> 'InstrumentRegistry'",
         "function alphalab.lifecycle.snapshot.restore(snapshot: 'LifecycleSnapshot', models: 'Mapping[str, object]') -> 'LifecycleState'",

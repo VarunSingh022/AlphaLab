@@ -1,8 +1,8 @@
 {
-  "release": "4.0.0",
+  "release": "4.1.0",
   "build": {
-    "engine": "alphalab 4.0.0",
-    "source_digest": "4cd92508fec0ff498a61a9dfd6e5741116722d75fc1d137a53c526dd315b479d",
+    "engine": "alphalab 4.1.0",
+    "source_digest": "188f514ee065496fcac686e611ca974e5e62f71129fa7d13fd9fb86f66221c84",
     "tz_database": "2024a"
   },
   "environment": {
@@ -80,13 +80,14 @@
     },
     {
       "id": "REP-3",
-      "claim": "Every payload v3.9.0, v3.11.0, v3.12.0 and v3.13.0 wrote is read by this build, or refused for the reason its upgrade documents.",
+      "claim": "Every payload v3.9.0, v3.11.0, v3.12.0, v3.13.0 and v4.1.0 wrote is read by this build, or refused for the reason its upgrade documents.",
       "passed": true,
       "evidence": {
         "read_v3.9.0": 9,
         "read_v3.11.0": 11,
         "read_v3.12.0": 11,
         "read_v3.13.0": 11,
+        "read_v4.1.0": 1,
         "refused_as_documented": 1,
         "upgrade_warnings": 6
       }
@@ -132,10 +133,10 @@
       "claim": "The build's public API is the one docs/api/public_api.json records for this release.",
       "passed": true,
       "evidence": {
-        "manifest_digest": "6bcf75ebc5c0e8a3965dfad52bab2f440342b419e5abaf336655400826bc2fb8",
+        "manifest_digest": "9f240d57df5666e02fc9f8c9d9e37bef2aaf1600bcac518543e83373c11d8090",
         "packages": 44,
-        "documented_modules": 11,
-        "exports": 2617,
+        "documented_modules": 12,
+        "exports": 2628,
         "shared_names": 35
       }
     }

@@ -21,7 +21,7 @@ Examples are intended to be read sequentially by new users and used as reference
 > broker boundary, having used `alphalab.integrations` until that package was
 > removed. `70_build_a_strategy.py` (v4.0) builds a strategy from data to a
 > reproduced result and is checked line by line by an end-to-end test. None of
-> the others are part of the automated test suite, though all seventy run as a
+> the others are part of the automated test suite, though all seventy-one run as a
 > release gate.
 > For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
@@ -52,6 +52,7 @@ The `examples/` directory contains:
 | `15_data_ingestion.py` | A **deliberately broken CSV** through detection, validation, an explicit cleaning policy and a quality report, out as a versioned canonical dataset |
 | `16_research_from_dataset.py` | Research access by dataset version, point-in-time selection, and a backtest that names the exact bytes it read |
 | `70_build_a_strategy.py` | **Build your first strategy**: data → strategy → run → fills checked by hand → a stopped run continued to the same result → refusals |
+| `71_pause_and_resume_a_replay.py` | **Pause a replay, keep it, resume it** (v4.1): a replay paused between records, kept in a file store, restored with fresh objects and resumed to the uninterrupted `result_id` |
 
 ---
 
@@ -377,6 +378,15 @@ result. It assumes nothing; read it first if you are here to write a strategy.
 
 `docs/GETTING_STARTED.md` walks through it in five steps;
 `tests/integration/test_strategy_building_end_to_end.py` holds it to its output.
+
+# Pausing and resuming a replay (v4.1)
+
+| # | Shows |
+|---|---|
+| 71 | Thirty labelled synthetic closes replayed through a crossover whose memory is its declared state; the replay paused after thirteen records, captured by `alphalab.backtesting.replay_snapshot` and kept in a `FileRunStateStore`; restored with the dataset and freshly built objects -- what a new process holds -- and resumed by `alphalab.api.resume_replay` to the uninterrupted replay's `result_id`; the same replay paused every five records, each time through a payload, to the same result; and three refusals -- another dataset, another commission, bytes altered in the store |
+
+`docs/INTEGRATION.md` states the contract it exercises; the installed smoke test
+runs it from every built wheel and sdist.
 
 ---
 

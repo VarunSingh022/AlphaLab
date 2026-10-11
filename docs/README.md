@@ -81,7 +81,7 @@ Reference
 | Document | Description |
 |-----------|-------------|
 | `../ROADMAP.md` | What is delivered, what is a deliberate boundary, what is external, what is a stated limitation, and the future work accepted for later |
-| `audit/` | The pre-v4 audit and completion ledger, the v4.0 release audit, the historical inventory and the release certificate |
+| `audit/` | The pre-v4 audit and completion ledger, the v4.0 and v4.1 release audits, the historical inventory, the release certificate and the release runbook (`audit/RELEASE_RUNBOOK.md`) |
 | `../CHANGELOG.md` | Version history and release notes. Each entry is scoped to its own release |
 | `../nowandfuture.md` | The long-form project reference: ownership, invariants, and what must not change casually |
 | `VISION.md` | Long-term goals and project philosophy |
@@ -313,12 +313,21 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v4.0.0
+v4.1.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 -- twelve releases that shipped
 without updating it -- and the v2.17 audit corrected it. Since v3.13
 `tests/regression/test_version_markers_agree.py` holds it to the package.)*
+
+**v4.1.0 -- the first minor release on the v4.0 contract, and additive.** A
+replay pauses between two records and resumes -- in a new process too -- to the
+result it would have had, byte for byte (`../examples/71_pause_and_resume_a_replay.py`,
+FUT-001); CPython 3.12, 3.13 and 3.14 are supported on Linux and macOS; a run's
+recorded figures and its `result_id` no longer depend on the host's maths
+library; the release verification that failed after v4.0.0 was published is
+fixed at its root; and the contract an application builds on is checked against
+every built artifact (`INTEGRATION.md`). The audit is `audit/V4_1_RELEASE_AUDIT.md`.
 
 **v4.0.0 -- the freeze of the universal engine contract.** The v2.0.0 to v3.13.0
 history read and every deferral, non-goal, limitation and open question in it

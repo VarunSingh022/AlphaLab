@@ -125,6 +125,12 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ("0049", "The operating envelope is measured, not unbounded"): "LIM-006",
     ("0049", "Only CPython 3.12 is tested"): "LIM-007",
     ("0049", "a resumable replay"): "FUT-001",
+    # ADR-0050, v4.1: pause and resume, three interpreters, release verification.
+    ("0050", "A strategy's configuration reads back by a stated contract"): "LIM-004",
+    ("0050", "The standalone engines use the host's libm"): "LIM-005",
+    ("0050", "A paused replay's checkpoint is a whole capture"): "LIM-006",
+    ("0050", "Windows is untested"): "BDY-027",
+    ("0050", "a strategy configuration that reads back typed"): "FUT-002",
 }
 
 

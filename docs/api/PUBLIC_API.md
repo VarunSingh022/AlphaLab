@@ -23,7 +23,7 @@ durability table.
 | [`generate_public_api.py`](generate_public_api.py) | Writes the manifest from the package. Keeps the reasons already written; leaves a new shared name's reason empty |
 | `tests/regression/test_public_api_manifest.py` | Fails on any export added, removed or rebound, on a shared name without a reason, and on a manifest for another release |
 
-At v4.0.0 the manifest records 44 packages and 11 documented modules, 2,617 exports and 35 shared names
+At v4.1.0 the manifest records 44 packages and 12 documented modules, 2,628 exports and 35 shared names
 (`test_public_api_manifest.py` holds this sentence to the manifest).
 
 ## Stability from v4.0
@@ -65,6 +65,26 @@ caller obtains from `capture` or `from_primitives`, not builds. With them come
 four names exported as different objects there and in a package, each now with
 its reason: `capture`, `from_primitives`, `validate_dataset` and
 `PortfolioSnapshot` (and `restore`, already listed, now in eleven places).
+
+v4.1, against v4.0.0's manifest (`history/4.0.0.json`), adds and changes only
+what the policy above allows, and removes nothing (ledger FUT-001, API-008):
+
+* **Added**: `alphalab.api.resume_replay`; `alphalab.backtesting.PausedReplay`
+  and `ReplayProgress`; and a documented module,
+  `alphalab.backtesting.replay_snapshot` (`REPLAY_SCHEMA_HISTORY`,
+  `REPLAY_SNAPSHOT_SCHEMA`, `ReplayEventRecord`, `ReplaySnapshot`, `capture`,
+  `dataset_digest`, `from_primitives`, `restore`) -- the durable form of a paused
+  replay, in `docs/STATE_MODEL.md`'s durability table.
+* **Changed**: `alphalab.api.replay` gained a keyword-only `pause_when=None`,
+  with no effect unless given; called without it, it is typed and behaves as
+  before. `ReplayBacktest.run` gained the same parameter and `ReplayBacktest`
+  the method `resume`, and `RunEngine` the method `id_source_at`.
+* **Spelling only**: the generator now writes every union as PEP 604 does and
+  `Any` unqualified, so fourteen recorded signatures (`Result`, `Trade`,
+  `Timer` among them) read differently in the file and identically to a
+  caller; CPython 3.14 prints them so, and one signature must read one way on
+  every supported interpreter. The comparison with an earlier release's
+  manifest reads both sides the same way.
 
 ## Changing the public API
 

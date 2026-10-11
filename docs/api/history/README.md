@@ -11,6 +11,8 @@ two of them can be compared entry by entry.
 | `3.13.0.json` | v3.13.0 | `docs/api/public_api.json` as released: 44 packages, 2,479 exports, 31 shared names, each with its reason. v4.0.0's CHANGELOG is checked against it. |
 | `4.0.0.json` | v4.0.0 | `docs/api/public_api.json` as released: 44 packages and 11 documented modules (`alphalab.api` and the snapshot modules, recorded from v4.0, ledger API-007), 2,617 exports, 35 shared names. Against 3.13.0: four names added to `alphalab.strategy` (`start_strategy`, `context_factory`, `FixedClock`, `DiscardingLogger`), the documented modules' existing names recorded, none removed or rebound. The next release's CHANGELOG is checked against it. |
 
+| `4.1.0.json` | v4.1.0 | `docs/api/public_api.json` as released: 44 packages and 12 documented modules (`alphalab.backtesting.replay_snapshot` added), 2,628 exports, 35 shared names. Against 4.0.0: `alphalab.api.resume_replay`, `alphalab.backtesting.PausedReplay` and `ReplayProgress` and the eight names of `replay_snapshot` added; `alphalab.api.replay` given a keyword-only `pause_when`; none removed. Written by the v4.1 generator, which spells every union as PEP 604 does and `Any` unqualified (API-008): the earlier files keep the spelling of the interpreter that wrote them, and the comparison reads both sides canonically. |
+
 `tests/regression/test_api_changes_are_in_the_changelog.py` compares the current
 manifest with the newest file here older than the current release, and requires
 every name removed or changed since then to be named in this release's

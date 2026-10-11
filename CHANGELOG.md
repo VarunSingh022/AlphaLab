@@ -14,6 +14,216 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [4.1.0] - 2026-10-11
+
+**A replay that pauses and resumes to the identical result, CPython 3.12 to 3.14
+on Linux and macOS, run identities that do not depend on the host, and the
+release verification that failed after v4.0.0 was published fixed at its root --
+additive on the v4.0 contract.**
+
+v4.1 is the first minor release under `docs/api/PUBLIC_API.md`'s stability
+policy: against v4.0.0's manifest it adds names, gives one function a
+keyword-only parameter with no effect unless given, and removes and re-signs
+nothing; no existing schema moves. `docs/audit/V4_1_RELEASE_AUDIT.md` records
+what was examined, found, fixed and measured. Ledger IDs are given in brackets.
+
+## Added
+
+* **A replay pauses between two records and resumes** [FUT-001]. Until v4.1 a
+  replay's cursor and the cursor's own identifier stream had no snapshot
+  (ADR-0029, ADR-0030), so an interrupted replay restarted from its dataset.
+  `ReplayBacktest.run(..., pause_when=...)` -- and `alphalab.api.replay(...,
+  pause_when=...)` -- asks `pause_when(ReplayProgress)` at every boundary before
+  a record is taken and, when it answers true, returns a `PausedReplay`: the run
+  exactly as it stood, not finalized; the cursor, `PAUSED`; and where the
+  cursor's stream had reached. `alphalab.backtesting.replay_snapshot` captures
+  it in a new envelope, `REPLAY_SNAPSHOT_SCHEMA = 1`, around the run snapshot as
+  `run_snapshot.capture` writes it -- so neither the run's schema (5) nor the
+  pipeline's (8) moves, and an older run payload nested in it is upgraded by the
+  run's own history. `replay_snapshot.restore(snapshot, objects, dataset)`
+  rebuilds it against the dataset -- recorded by id, length, span, the records
+  either side of the pause and a SHA-256 of every record, and refused by name
+  when any differs -- and the live objects, configured as the run recorded them.
+  `ReplayBacktest.resume` and `alphalab.api.resume_replay` continue it: the run's
+  stream through `RunEngine.resume` and the cursor's through
+  `RunEngine.id_source_at` -- still the one function that derives a source from
+  a position -- so nothing is minted twice, and both loops are one function, so
+  the resumed replay takes the steps the uninterrupted one takes. A resumed
+  replay's result equals the uninterrupted replay's byte for byte, `result_id`
+  included, at every boundary of the test workload -- inside an instant, before
+  the first record, before the last -- in this process, in a fresh interpreter,
+  and after a process that died mid-run is resumed from its last stored
+  checkpoint (`tests/regression/test_replay_pause_and_resume.py`, 135 tests).
+  `examples/71_pause_and_resume_a_replay.py`; the first payload is frozen under
+  `tests/fixtures/snapshots/v4.1.0`.
+* **The consumer contract, checked against every built artifact.**
+  `tests/consumer_contract.py` exercises, through public names only, what
+  `docs/INTEGRATION.md` says an application may rely on -- strategy lifecycle,
+  backtest/replay agreement, accounting, the pre-trade risk boundary, pause and
+  resume, refusals, older payloads, and a replay paused in one process and
+  resumed in another. `tests/installed_smoke.py` runs it inside each installed
+  wheel and sdist, and a regression test runs it against the tree.
+* **CPython 3.13 and 3.14** [LIM-007]: in CI's matrix with 3.12, on Linux and
+  macOS, every cell required; in the benchmark and release-validation jobs; and
+  in the classifiers.
+* `docs/audit/scripts/stress_v4_1.py` (a paused replay's checkpoint at scale),
+  `docs/audit/scripts/generate_v4_1_0_snapshot_fixtures.py`, and an operator
+  runbook for tagging and publishing, `docs/audit/RELEASE_RUNBOOK.md`.
+
+## Fixed
+
+* **Release validation failed after v4.0.0 was published** [PKG-002, high]:
+  `release.yml` ran `release_preflight.py distributions dist`, and the script
+  handed `pip` `dist/alphalab-4.0.0.tar.gz` as given, after moving into the
+  isolated `outside` directory where no such file exists. Every path the
+  verifier is given -- the distribution directory, the record, the interpreter
+  -- is now resolved to an absolute path and checked before anything changes
+  directory; an artifact is installed only if it exists and is one of the
+  release's two; a missing path is refused by name. Tests install a real wheel
+  and sdist through the script from relative paths with spaces, outside the
+  source tree; with the fix reverted four of them fail with v4.0.0's exact
+  error. Every CI run now executes the command release validation executes,
+  relative `dist` included. The `v4.0.0` tag and its failed run are left as
+  they are.
+* **The verifier could check the wrong code** [PKG-003]: it ran each fresh
+  environment's interpreter with the caller's whole environment, so a
+  `PYTHONPATH` naming a checkout made the installed smoke check import the
+  checkout instead of the artifact just installed -- passing, had the versions
+  matched. The variables that decide where an interpreter imports from no longer
+  reach it. Found by the mutation harness's own baseline, which sets
+  `PYTHONPATH`; CI sets none.
+* **A run's report could differ in its last bits between hosts** [REP-005,
+  LIM-005]: CAGR and the geometric return used `math.pow`, which IEEE 754 does
+  not require to be correctly rounded; on macOS arm64 it differed from the
+  correctly rounded power for 409 of 300,000 inputs, so a run's `result_id` could
+  differ between a Mac and a Linux server. The power is now computed to sixty
+  digits in `decimal` -- the same software everywhere -- and rounded once. No
+  certified figure moved on the development host; a test holds the report path
+  free of any other host-dependent function.
+* **A declared retention did not reach a replay's cursor log** [PER-010]: one
+  `ReplayAdvanced` per record was kept whatever the run's `RetentionPolicy`
+  said. Its `audit_events` bound now applies, and the replay envelope records
+  how many events were dropped.
+* **The public-API manifest read differently on CPython 3.14** [API-008]: 3.14
+  prints `Optional[X]` as `X | None` and `typing.Any` as `Any`, so three
+  unchanged signatures failed the manifest test, and would have failed the
+  installed smoke test. Signatures are written in that canonical spelling now;
+  2,628 of 2,628 names describe identically on 3.12, 3.13 and 3.14.
+* **Release validation did not tie the tag to the approved commit** [TST-020]:
+  it now establishes that the tag, the checkout and the event name one commit,
+  and that a successful Release Preflight validated that source -- the commit,
+  or one with an identical tree -- as the tag's version, read from the
+  preflight's kept artifact (now kept 90 days); it then builds only that commit.
+* **The benchmark job's environment was unguarded** [TST-019]: v4.0.0's first
+  hosted benchmark run failed because a benchmark imported a test module (and
+  so `pytest`); the dev extra was installed after it. The helpers moved to
+  `tests/unit/strategy/support.py`, and a test holds every benchmark's imports
+  to what `benchmarks.yml` installs.
+* **Test support leaked an HTTP error body on CPython 3.14** [TST-021], and a
+  test pinned the exception type CPython 3.13 changed for `dataclasses.replace`
+  on an `init=False` field [TST-022]; each fixed, the guarantee unchanged.
+
+## Changed
+
+* **A strategy's configuration is read back by a stated contract** [LIM-004]:
+  `docs/STATE_MODEL.md` now tabulates, type by type, what a `configure` value
+  reads back as after a restore, and 37 tests hold every row through the real
+  capture-restore path. The format is unchanged: a typed form would move every
+  run's `result_id`, which a minor release may not do, so it is FUT-002, for the
+  maintainer's decision.
+* **The operating systems are stated** [BDY-027]: Linux and macOS, each tested;
+  Windows untested and not claimed.
+* **Documented commands are held to running as pasted** [DOC-011]: every shell
+  block in every tracked Markdown file -- indented ones included -- is refused if
+  it holds an angle-bracket placeholder or a broken continuation, or if `bash -n`
+  cannot parse it.
+* Release Preflight's push route names the v4.1.0 candidate branch,
+  `work/v4.1.0-release-hardening`, and release `4.1.0`.
+
+## Migrating from 4.0
+
+| What | Before | Now | What to do |
+| --- | --- | --- | --- |
+| `alphalab.api.replay`, `ReplayBacktest.run` | No pause | A keyword-only `pause_when`; without it, unchanged | None |
+| A replay with a `RetentionPolicy` setting `audit_events` | The cursor kept every lifecycle event | It keeps the bound | None; the cursor's log is in no result |
+| CAGR and the geometric return | `math.pow`, the host's rounding | The correctly rounded power | None; where a host's `pow` was not correctly rounded the figure moves in its last bits, and so does that run's `result_id` |
+| `docs/api/public_api.json` signatures | `Optional[X]`, `typing.Any` | `X \| None`, `Any` | None; the same signatures |
+
+No public name was removed, renamed or re-signed incompatibly
+(`tests/regression/test_api_changes_are_in_the_changelog.py`); `replay` in
+`alphalab.api` gained the keyword-only `pause_when` above.
+
+## Found during this release
+
+* **The post-publication validation of v4.0.0 failed** (PKG-002), and the cause
+  was a test gap as much as a defect: no test had ever installed an artifact
+  through the verifier. The new tests install real ones.
+* **Two of v4.0.0's release commands failed before they ran** (DOC-011): a
+  placeholder written as a command, and a malformed continuation.
+* **LIM-004 contradicts the state model's stated contract**,
+  `restore(capture(s)) == s`, for a configuration holding a `Decimal` or a
+  tuple; the decision on a typed form is the maintainer's (FUT-002).
+* **The only host-dependent operation in a run's record** was found by tracing
+  every float a run records (REP-005).
+* **CPython 3.13 and 3.14 exposed three defects** (API-008, TST-021, TST-022);
+  every example passed on all three, and the certificate's figures were
+  identical.
+* **The replay's cursor log escaped retention** (PER-010), found by measuring a
+  paused replay's checkpoint by its parts.
+* **The verifier could import a checkout in place of the artifact** (PKG-003),
+  found when the mutation harness's unmutated baseline -- which sets
+  `PYTHONPATH` to its copy -- failed three of the new path tests.
+
+## Release gates
+
+Run locally on macOS 26.6.2 arm64, in a clean mirror of the candidate, with a
+fresh environment per interpreter holding the `[dev]` extras as `ci.yml`
+installs them. **Hosted CI has not run on this candidate**; it runs when the
+branch is pushed (`docs/audit/RELEASE_RUNBOOK.md`).
+
+* On each of **CPython 3.12.15, 3.13.16 and 3.14.8**: `ruff check .` and
+  `ruff format --check .` clean (1,283 files); `mypy .`, strict, no issues in
+  1,186 files; `pytest -W error` **9,672 passed** -- 4,858 unit, 658 integration
+  and 4,156 regression -- none skipped, no warnings (4.0.0: 9,325); every example
+  under `-W error` with `PYTHONHASHSEED` 0 and 4242, **71 of 71** under each, 67
+  byte-identical across the seeds and the interpreters and the other four
+  printing a random id, a process id or CPU time, as in 4.0; `certify_release.py
+  --check` 11 of 11; every benchmark under `-W error`, **53 of 53**.
+* `docs/audit/scripts/stress_v4_1.py`: every scenario passed, the paused replay's
+  included (`docs/audit/V4_1_RELEASE_AUDIT.md`, sections 6 and 9).
+* The certificate, regenerated: DET-1, DET-2, PAR-1, PAR-2, NUM-1 to NUM-3, REP-1
+  and REP-2 evidence identical to 4.0.0's; API-1 records the grown manifest and
+  REP-3 reads the v4.1.0 payload.
+* Against the `v4.0.0` tag's 70 examples: 61 byte-identical; `15` prints its
+  tree's path, `46`, `47`, `55` and `68` record the engine's version and source
+  digest, and the usual four print random ids.
+* actionlint 1.7.12 with ShellCheck 0.11.0: 0 findings in five workflows.
+* `docs/audit/scripts/mutation_v4_1.py`: 236 mutations, each applying exactly
+  once. v4.1's 35 and the 6 inherited ones on files v4.1 changed, run one at a
+  time against the whole suite: **41 of 41 caught**, each by a failing test. The
+  first attempt's unmutated baseline found PKG-003 (audit, section 11).
+* Built artifacts, `twine check --strict`, and each installed alone and checked
+  from outside the checkout by release validation's own command under all three
+  interpreters: recorded beside the artifacts, not here -- this file ships in the
+  sdist whose hash they record.
+
+## Still open
+
+Nothing is open. What remains is stated, each with its ledger entry
+(`ROADMAP.md`):
+
+* **Future work** [FUT-002]: a strategy configuration that reads back typed,
+  targeted at 5.0 pending the maintainer's decision, with its interim behaviour
+  and acceptance criteria.
+* **Known limitations**: per-order memory (PRF-011), the one-asset path's cost
+  (PRF-012), the measured operating envelope (LIM-006), a strategy configuration
+  read back as JSON reads it (LIM-004), the standalone engines' transcendental
+  functions (LIM-005), time-zone database and float-second instants (DAT-007,
+  DAT-008), persisted enum names (PER-004), the release ADRs' limitations
+  (LIM-001 to LIM-003), and the supported operating systems (BDY-027).
+
+---
+
 # [4.0.0] - 2026-10-11
 
 **The universal engine contract, frozen: the history from v2.0.0 to v3.13.0

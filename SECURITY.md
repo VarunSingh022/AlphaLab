@@ -14,9 +14,10 @@ Security is an important part of building reliable quantitative research and tra
 | 3.x | ❌ No |
 | < 3.0.0 | ❌ No |
 
-Only the latest stable release receives security updates. Until v4.0.0 this
-table still marked 3.x as the supported line; a test now holds it to the
-package's major version.
+Only the latest stable release receives security updates.
+
+The table marked 3.x as the supported line until the 4.0.0 release corrected it;
+a test now holds it to the package's major version.
 
 ---
 
