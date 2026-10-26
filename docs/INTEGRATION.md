@@ -82,7 +82,7 @@ deployment reproducible, and is what this release recommends.
 
 **The public API.** Every name in `docs/api/public_api.json`: each package's
 `__all__`, and the `__all__` of `alphalab.api` and of each durable state's
-snapshot module -- 2,678 names. `tests/regression/test_public_api_manifest.py`
+snapshot module -- 2,683 names. `tests/regression/test_public_api_manifest.py`
 fails on any name added, removed or re-signed without the manifest changing,
 and each release's CHANGELOG names every removal or rebinding. Since v4.1 one
 signature reads the same on every supported interpreter (API-008). A name with a
@@ -157,9 +157,11 @@ reads back after a restore as `docs/STATE_MODEL.md` states, row by row (LIM-004)
 JSON natives exactly; a `Decimal` as its exact text (rebuild it with `Decimal`),
 a tuple as a list, a non-string key as its text, an enum, `UUID` or dataclass as
 its projection; a set, a non-finite float or any other object is refused at
-capture. Keep a strategy's durable parameters and memory in
-`StrategyStateProtocol` state, which round-trips exactly. A typed form is
-FUT-002, a 5.0 decision.
+capture. A strategy whose class declares `configuration_type` -- a dataclass,
+say, with `Decimal`, tuple and enum fields -- is configured only with a value of
+that type and reads it back exactly, as that type (FUT-002,
+`alphalab.strategy.configuration`). Keep a strategy's durable memory in
+`StrategyStateProtocol` state, which round-trips exactly.
 
 **What the application owns.** The process and its scheduling, broker and data
 adapters, credentials, persistence locations, the decision when to pause, and
@@ -171,8 +173,8 @@ between threads -- but running several runs concurrently in one process is
 ## What this release does not provide
 
 A vendor adapter or credential of any kind, a running service, incremental
-checkpoints of a paused replay (each is a whole capture), a strategy
-configuration that reads back typed (FUT-002), testing on Windows or on any
+checkpoints of a paused replay (each is a whole capture), a configuration that
+reads back typed without declaring its type (LIM-004), testing on Windows or on any
 implementation but CPython, and concurrency within one process. `ROADMAP.md`
 lists each boundary and limitation with its reason.
 

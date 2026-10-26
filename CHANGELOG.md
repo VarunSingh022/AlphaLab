@@ -22,7 +22,8 @@ driver, contracts that expire, are exercised, assigned and delivered by their
 declared terms in any market a calendar describes, bonds that pay coupons and
 redeem, orders worked in children by execution algorithms over historical bars,
 resting limit orders that fill only once a declared queue model puts them at the
-front of their price level, a paused replay that keeps all of it durably -- and a
+front of their price level, a strategy configuration read back as its declared
+type, a paused replay that keeps all of it durably -- and a
 source-derived audit of what
 AlphaLab supports from research to production.**
 
@@ -129,6 +130,20 @@ IDs are in brackets.
   `QUEUE_BOOK_SCHEMA = 1`; `replay_snapshot.restore(..., queue=)`), and
   `manifest_for_run` records the model as `ReproducibilityManifest.queue_model`.
   Refused beside an execution plan and on a run that routes to a venue.
+* **A strategy configuration read back as its declared type** [FUT-002].
+  `alphalab.strategy.configuration`: a strategy class that sets
+  `configuration_type` -- a dataclass, say, with `Decimal`, tuple, enum, `UUID`
+  and typed-mapping fields -- is configured only with a value of that type
+  (`RuntimeSupervisor.configure` raises `StrategyConfigurationError`, naming the
+  field), and a restore reads the recorded value back as that type, equal and of
+  the same types at every depth: dataclasses through their own constructors, so
+  defaults fill a field an older payload lacks and `__post_init__` constraints
+  hold. A type whose values cannot be read back -- a set, a `datetime`, a union
+  of two non-`None` types, a mapping keyed by `Decimal` -- is refused at
+  configure; a recorded value not of the declared type is refused at restore
+  (`StateDecodeError`). The payload is what the encoder always wrote, so no
+  schema, `result_id`, `configuration_id` or manifest moves; a strategy that
+  declares nothing reads back as JSON reads it (LIM-004), as before.
 * **The macro engine's series as observations** [FUT-008].
   `alphalab.api.observations_from_indicator`.
 * **`LiveSession.deliver_observation`** [OFE-027].
@@ -167,13 +182,14 @@ IDs are in brackets.
 | `alphalab.backtesting.BacktestEngine.run` | keyword-only `schedule`, `execution` and `queue` |
 | `alphalab.backtesting.replay_snapshot.restore` | `schedule`, empty by default, and `execution` and `queue`, `None` by default; `ReplaySnapshot.schedule_digest`, `algorithms` and `queue` |
 | `alphalab.runtime.RunEngine.advance`, `ExecutionPipeline.process_record`, `process_market_event` | keyword-only `queue`, `None` by default; `ExecutionPipelineResult.queue`, appended last, `None` by default |
+| `alphalab.strategy.supervisor.RuntimeSupervisor.configure` | raises `StrategyConfigurationError` for a value not of the type its strategy's class declares as `configuration_type`; unchanged for a class that declares none |
 | `alphalab.runtime.ExecutionAssumptions`, `execution_assumptions` | field `queue_model` and trailing parameter `queue_model`, `None` by default; property `passive_fills`; `settings()` adds `execution.queue_model` only when a model is declared |
 | `alphalab.runtime.execution_pipeline.ExecutionRouting` | member `ALGORITHMIC`; `ExecutionMode.works_children` |
 | `alphalab.core.enums.AssetType` | members `BOND` and `INDEX` |
 | `alphalab.instrument.record.InstrumentRecord` | fields `last_trade_at` and `terms`, `None` by default; `InstrumentRegistry.expiring`, a derived index |
 | `alphalab.lifecycle.manifest_for_run`, `canonical_manifest_key`, `derive_manifest_id` | keyword or trailing `schedule` / `schedule_digest` (`None`) and `dataset_parts` (empty) by default, `execution` / `execution_plan_id` and `queue_model` (`None`); `ReproducibilityManifest.schedule_digest`, `dataset_parts`, `execution_plan_id` and `queue_model` |
 | `alphalab.portfolio.engine.PortfolioEngine.apply_fill` | keyword-only `final_settlement`, `False` by default |
-| `alphalab.execution.queue` (`PriceTimeQueue`, `QueueBook`, `QueueModel`, `QueueObservation`, `QueuePosition`, `QueueTurn`) and `alphalab.backtesting.queueing` (`QUEUE_BOOK_SCHEMA`, `QueueModelError`, `capture_queue`, `queue_from_primitives`, `queued_result`, `queued_run`); `alphalab.backtesting.QueuedResult`; `alphalab.backtesting.schedule` (with `ScheduledExercise`, `ScheduledAssignment`, `ScheduledExpiry` and `RunSchedule.of(exercises=, assignments=, expiries=)`), `alphalab.backtesting.algorithmic` and `alphalab.instrument.terms` and their names; `alphalab.portfolio.Exercise`, `Assignment`, `OptionExpiry`; `RunEngine.exercise`, `assign`, `expire_option`; `ExecutionPipeline.exercise`, `assign`, `expire_option`; `AllocationEngine.shares_of`, `apply_lifecycle`; `alphalab.runtime.session_close`, `settles_at`; `AlgorithmicResult`, `ExecutionPipeline.work_child`, `ChildTurn`; `alphalab.portfolio.ContractSettlement`; `alphalab.api.CombinedDataset`, `CombinedProvenance`, `CombinedSourceBytes`, `combine_datasets`, `combined_market_dataset`, `observations_from_indicator`, `bond_schedule`; `RunEngine.fund`, `RunEngine.settle_contract`, `ExecutionPipeline.settle_contract`, `AllocationEngine.settle_asset`, `LiveSession.deliver_observation`, `held_past_expiry` | added |
+| `alphalab.strategy.configuration` (`CONFIGURATION_ATTRIBUTE`, `StrategyConfigurationError`, `declared_configuration`, `decode_configuration`, `require_configuration`), also exported by `alphalab.strategy`; `alphalab.execution.queue` (`PriceTimeQueue`, `QueueBook`, `QueueModel`, `QueueObservation`, `QueuePosition`, `QueueTurn`) and `alphalab.backtesting.queueing` (`QUEUE_BOOK_SCHEMA`, `QueueModelError`, `capture_queue`, `queue_from_primitives`, `queued_result`, `queued_run`); `alphalab.backtesting.QueuedResult`; `alphalab.backtesting.schedule` (with `ScheduledExercise`, `ScheduledAssignment`, `ScheduledExpiry` and `RunSchedule.of(exercises=, assignments=, expiries=)`), `alphalab.backtesting.algorithmic` and `alphalab.instrument.terms` and their names; `alphalab.portfolio.Exercise`, `Assignment`, `OptionExpiry`; `RunEngine.exercise`, `assign`, `expire_option`; `ExecutionPipeline.exercise`, `assign`, `expire_option`; `AllocationEngine.shares_of`, `apply_lifecycle`; `alphalab.runtime.session_close`, `settles_at`; `AlgorithmicResult`, `ExecutionPipeline.work_child`, `ChildTurn`; `alphalab.portfolio.ContractSettlement`; `alphalab.api.CombinedDataset`, `CombinedProvenance`, `CombinedSourceBytes`, `combine_datasets`, `combined_market_dataset`, `observations_from_indicator`, `bond_schedule`; `RunEngine.fund`, `RunEngine.settle_contract`, `ExecutionPipeline.settle_contract`, `AllocationEngine.settle_asset`, `LiveSession.deliver_observation`, `held_past_expiry` | added |
 
 ## Accepted as future work
 
@@ -181,7 +197,9 @@ FUT-014 (a strategy-facing exercise instruction), FUT-015 (settlement-date
 accounting), FUT-016 (richer contract terms) and FUT-017 (margin and forced
 liquidation), each with its limitation, interim behaviour and acceptance criteria
 on `ROADMAP.md`. FUT-009, FUT-011 and FUT-013, accepted by the audit and the
-continuation, were delivered by the candidate's last three milestones; FUT-011's
+continuation, and FUT-002, accepted by v4.1, were delivered by the candidate's
+last four milestones -- FUT-002 by declaration, so an undeclared configuration
+keeps the stated reading (LIM-004); FUT-011's
 model is price-time priority over displayed liquidity, and what it does not
 model -- pro-rata books, hidden liquidity, a fill probability -- is stated on
 the ledger entry.

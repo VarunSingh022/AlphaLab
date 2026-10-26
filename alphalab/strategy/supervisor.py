@@ -4,6 +4,7 @@ from dataclasses import replace
 from typing import Any
 
 from alphalab.common.ids import new_id
+from alphalab.strategy.configuration import declared_configuration, require_configuration
 from alphalab.strategy.events import LifecycleTransitioned
 from alphalab.strategy.exceptions import InvalidTransitionError
 from alphalab.strategy.state import StrategyState, StrategyStatus
@@ -37,8 +38,25 @@ class RuntimeSupervisor:
     def configure(
         state: StrategyState, config: Any, timestamp: float
     ) -> tuple[StrategyState, LifecycleTransitioned]:
+        """Record what the strategy is configured with.
+
+        A strategy whose class declares ``configuration_type`` (v4.1.1, ledger
+        FUT-002) is configured only with a value of that type, so that a
+        restore reads it back exactly -- see
+        :mod:`alphalab.strategy.configuration`. Refused before anything moves.
+
+        Raises:
+            InvalidTransitionError: If the strategy cannot be configured from
+                its status.
+            StrategyConfigurationError: If ``config`` is not of the declared
+                type, or the type cannot be declared.
+        """
+
         if state.status not in {StrategyStatus.CREATED, StrategyStatus.FAILED}:
             raise InvalidTransitionError(f"Cannot configure from {state.status.name}")
+        declared = declared_configuration(state.instance)
+        if declared is not None:
+            require_configuration(config, declared, f"{state.strategy_id} config")
 
         new_state = replace(state, status=StrategyStatus.CONFIGURED, config=config, last_error=None)
         event = RuntimeSupervisor._create_transition_event(

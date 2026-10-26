@@ -198,6 +198,13 @@ names what the release established and the ADR that records the decision.
   run's manifest, kept by a paused replay. Price-time priority over displayed
   liquidity only: pro-rata books, hidden liquidity and a fill probability are
   other models of the same protocol.
+- **A strategy configuration that reads back typed** (FUT-002): a strategy class
+  declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
+  only with a value of that type and reads it back as that type after a restore
+  -- `Decimal`, tuples, enums, `UUID`, typed mapping keys, dataclasses rebuilt
+  through their constructors with their defaults and constraints -- with the
+  payload, and so every run's identity, unchanged. An undeclared configuration
+  reads back as JSON reads it (LIM-004), as before.
 
 # Deliberate boundaries
 
@@ -513,7 +520,9 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   v4.1 states that as a tested contract (`docs/STATE_MODEL.md`). Nothing on the
   execution path reads the value, and a run's identities are the same before and
   after a restore; durable strategy state goes through `StrategyStateProtocol`,
-  which round-trips exactly. A lossless typed form is FUT-002, below.
+  which round-trips exactly. Since the v4.2.0 candidate a strategy that declares
+  its configuration's type reads it back typed (FUT-002, above); one that
+  declares nothing reads back as stated here.
 - **Transcendental functions in the standalone engines** (LIM-005): since v4.1 a
   run's record -- and so its `result_id` -- is host-independent: money is
   `Decimal`, and every float a run records comes from `+ - * /`, `sqrt`, `fsum`
@@ -541,26 +550,6 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
 Accepted for a later release, each with what it is not yet, what happens in the
 meantime and what closes it. `tests/regression/test_nothing_is_left_for_later.py`
 holds this list to the ledger: an entry may be left for later only here.
-
-## FUT-002 — a strategy configuration that reads back typed (target v5.0, pending the maintainer's decision)
-
-- **Limitation.** `restore(capture(s)) == s` does not hold for a strategy whose
-  `configure` value holds a `Decimal`, a tuple, a non-string mapping key, an
-  enum, a `UUID` or a dataclass: each reads back in the converted form
-  `docs/STATE_MODEL.md` states (LIM-004).
-- **Interim behaviour.** The conversion is exact and tested
-  (`tests/regression/test_strategy_configuration_contract.py`); nothing on the
-  execution path reads the value; identities are unaffected. Keep durable
-  strategy parameters in `StrategyStateProtocol` state, which round-trips
-  exactly, or configure with JSON-native values.
-- **Why not in 4.x.** A typed form changes the pipeline payload and so every
-  run's `result_id`, which `docs/api/PUBLIC_API.md`'s stability policy does not
-  let a minor release do. Taking it in 5.0, or as a stated 4.x exception, is the
-  maintainer's decision.
-- **Acceptance criteria.** `restore(capture(s)) == s` for every value the
-  contract converts; every earlier payload read as it reads today; a migration
-  row for the identity change; the ledger entry closed.
-- **Dependencies.** A pipeline schema step, and frozen v4.x payloads.
 
 The entries below were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its

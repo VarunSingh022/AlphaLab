@@ -9,7 +9,8 @@ FUT-003 to FUT-012; its continuation delivered FUT-003 to FUT-008, FUT-010 and
 FUT-012 and raised FUT-013, the FUT-009 milestone delivered FUT-009, and the
 FUT-013 milestone delivered FUT-013 and raised FUT-014 to FUT-017, and the
 FUT-011 milestone delivered FUT-011, so what is open is FUT-014 to FUT-017
-(FUT-002 predates the audit). Rows below are as of the FUT-011 milestone.
+(FUT-002, which predates the audit, was delivered by declaration in the
+FUT-002 milestone). Rows below are as of the FUT-011 milestone.
 
 ## Classes
 

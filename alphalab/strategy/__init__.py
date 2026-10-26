@@ -43,6 +43,13 @@ from alphalab.strategy.adaptive_rules import (
     TrailingZScoreRule,
 )
 from alphalab.strategy.adaptive_strategy import ADAPTIVE_STRATEGY_STATE_VERSION, AdaptiveStrategy
+from alphalab.strategy.configuration import (
+    CONFIGURATION_ATTRIBUTE,
+    StrategyConfigurationError,
+    declared_configuration,
+    decode_configuration,
+    require_configuration,
+)
 from alphalab.strategy.context import (
     DiscardingLogger,
     FixedClock,
@@ -117,6 +124,7 @@ __all__ = [
     "ADAPTIVE_REPLAY_SCHEME",
     "ADAPTIVE_STATE_SCHEME",
     "ADAPTIVE_STRATEGY_STATE_VERSION",
+    "CONFIGURATION_ATTRIBUTE",
     "SUBSCRIBE_ALL",
     "AdaptationMode",
     "AdaptiveConfiguration",
@@ -167,6 +175,7 @@ __all__ = [
     "SliceStrategyProtocol",
     "StateValue",
     "StrategyClassRegistry",
+    "StrategyConfigurationError",
     "StrategyContext",
     "StrategyDeclaration",
     "StrategyDefinition",
@@ -194,6 +203,8 @@ __all__ = [
     "checkpoint",
     "context_factory",
     "create_runtime",
+    "declared_configuration",
+    "decode_configuration",
     "defines_on_observation",
     "defines_on_slice",
     "failed_strategies",
@@ -204,6 +215,7 @@ __all__ = [
     "observation_stream",
     "register_strategy",
     "replay_updates",
+    "require_configuration",
     "restore",
     "runtime_for",
     "start_strategy",

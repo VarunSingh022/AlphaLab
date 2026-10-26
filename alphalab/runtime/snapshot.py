@@ -210,6 +210,11 @@ from alphalab.runtime.execution_pipeline import (
     _require_one_account_currency,
 )
 from alphalab.runtime.retention import RetentionPolicy
+from alphalab.strategy.configuration import (
+    StrategyConfigurationError,
+    declared_configuration,
+    decode_configuration,
+)
 from alphalab.strategy.events import (
     FillEvent,
     LifecycleTransitioned,
@@ -1457,6 +1462,27 @@ def _restore_state(record: StrategyRecord, instance: object) -> None:
         ) from exc
 
 
+def _restore_configuration(record: StrategyRecord, instance: object) -> Any:
+    """The strategy's configuration, as its declared type when it declares one (FUT-002).
+
+    The payload holds what the encoder wrote, as it always has; a strategy whose
+    class declares ``configuration_type`` reads it back as that type -- see
+    :mod:`alphalab.strategy.configuration` -- and one that declares nothing
+    reads it back as JSON reads it (LIM-004).
+    """
+
+    declared = declared_configuration(instance)
+    if declared is None:
+        return record.config
+    try:
+        return decode_configuration(record.config, declared, f"{record.strategy_id} config")
+    except StrategyConfigurationError as refused:
+        raise StateDecodeError(
+            f"The configuration recorded for strategy {record.strategy_id!r} is not of the "
+            f"type its class declares: {refused}"
+        ) from refused
+
+
 def _restore_strategies(
     records: tuple[StrategyRecord, ...],
     events: tuple[StrategyEventRecord, ...],
@@ -1476,7 +1502,7 @@ def _restore_strategies(
             strategy_id=record.strategy_id,
             status=record.status,
             instance=instance,
-            config=record.config,
+            config=_restore_configuration(record, instance),
             subscriptions=frozenset(record.subscriptions),
             last_error=record.last_error,
             started=record.started,

@@ -22,6 +22,10 @@ stability policy does not let a minor release do. Nothing on the execution path
 reads the value (a strategy's parameters are its constructor's, its durable
 state goes through ``StrategyStateProtocol``, which is exact), and a run's
 ``configuration_id`` is the same before and after a restore (held below).
+Since the v4.2.0 candidate (FUT-002) a strategy that declares its
+configuration's type reads it back typed from this same payload --
+``test_typed_strategy_configuration.py`` -- and one that declares nothing reads
+back as held here.
 """
 
 from __future__ import annotations

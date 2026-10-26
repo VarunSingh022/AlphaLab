@@ -159,7 +159,7 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (5) | persistence codec. |
 | (6) | every driver; FileRunStateStore. |
 | (7) | B, Re (pause/resume, v4.1), P, L. |
-| (8) | **VERIFIED**. A strategy configuration's `Decimal`/tuple reads back as JSON reads it: **LIMITATION** LIM-004 / future FUT-002. |
+| (8) | **VERIFIED**. A strategy that declares its configuration's type reads it back typed (v4.2.0 candidate, FUT-002); an undeclared configuration's `Decimal`/tuple reads back as JSON reads it: **LIMITATION** LIM-004. |
 | (9) | `tests/regression/test_durable_run_continuation.py`, `test_replay_pause_and_resume.py` (135), `test_restore_requires_the_captured_configuration.py`; v4.1.1: example 72 stopped at **every** record boundary, stored, restored with a registry-built instance and continued to the identical `result_id` (`test_multi_asset_composition.py::test_a_backtest_stored_at_any_record_and_continued_is_the_same_result`). |
 | (10) | A strategy that does not declare its state continues only conditionally (documented in ADR-0025). |
 | (11) | none. |

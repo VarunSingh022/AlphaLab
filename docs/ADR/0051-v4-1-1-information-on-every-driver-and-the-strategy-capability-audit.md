@@ -9,7 +9,8 @@ the engine-owned gaps the audit found (decisions 7-12), then the FUT-009
 milestone, execution algorithms on the historical drivers (decision 13), then
 the FUT-013 milestone, a derivative's lifecycle declared and carried out
 (decision 14), then the FUT-011 milestone, a queue model for resting limit
-orders (decision 15). The release number is the
+orders (decision 15), then the FUT-002 milestone, a strategy configuration read
+back as its declared type (decision 16). The release number is the
 maintainer's decision: the candidate adds public names, keyword-only parameters,
 an enum member and two schema steps (instrument 3 to 4, replay 1 to 2, each
 reading every earlier payload), which `docs/api/PUBLIC_API.md`'s policy and
@@ -217,6 +218,21 @@ allocates pro rata is another model of the protocol, not a parameter of this
 one; refused beside an execution plan, whose children it would not see, and on
 a run that routes to a venue.
 
+**16. A strategy declares its configuration's type, and reads it back as that
+type (FUT-002).** ADR-0050 decision 6 left a typed configuration to 5.0 because
+a typed *payload* moves every `result_id`. The type need not be in the payload:
+it is in the strategy's class, which a restore is handed back. A class setting
+`configuration_type` (`alphalab.strategy.configuration`) is configured only with
+a value of that type -- checked strictly, so that nothing reads back as another
+type -- and restore reads the recorded form, the one the encoder has always
+written, back as that type: a `Decimal` from its exact text, tuples, enum
+members, `UUID`s, typed keys, and dataclasses through their own constructors,
+so a field added since a payload was written reads back at its default and
+`__post_init__` constraints hold on the way back. A type whose values cannot be
+read back is refused at configure; a recorded value not of the declared type is
+refused at restore, naming the strategy and the field. No schema moves, no
+identity moves, and a strategy that declares nothing reads back as before.
+
 ---
 
 # Consequences
@@ -254,9 +270,12 @@ a run that routes to a venue.
   hidden and iceberg liquidity, self-trade prevention and keep-priority amends
   are not modelled; the run's own resting orders are not in the feed, so each is
   queued against the market's queue independently; no fill probability is drawn.
+- **An undeclared configuration reads back as JSON reads it**: the typed form is
+  the declaration's, since reading a configuration typed without one would need
+  type tags in the payload, which moves every run's identity.
 
 Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
-FUT-009, FUT-011, FUT-014, FUT-015, FUT-016, FUT-017).
+FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017).
 
 **Deferred** — to v4.3 and later, pending the maintainer's decision: a strategy-facing exercise instruction; settlement-date accounting; richer contract terms; margin and forced liquidation.
 
@@ -287,6 +306,11 @@ FUT-009, FUT-011, FUT-014, FUT-015, FUT-016, FUT-017).
   `result_id` -- the configuration is part of the recorded run -- for a
   capability most runs do not use (decision 15). The book is threaded as the FX
   table is and persisted where the execution plan's is.
+* **Type tags in a configuration's payload.** Self-describing, and readable
+  without the strategy's class -- and a change to every run's record and
+  `result_id`, including runs whose configuration is JSON-native, which this
+  release does not make (decision 16). The class that is handed back on restore
+  already knows the type.
 * **A fill probability drawn per event.** A seeded draw would be reproducible,
   but a probability is a calibration of a venue's flow the engine does not have;
   the shipped model is deterministic and conservative, and a probabilistic one

@@ -292,7 +292,12 @@ serializable projection, `from_primitives(payload)` → typed snapshot,
 
   `restore(capture(s)) == s` therefore holds for a strategy configured with
   values of the first row, and the run's identities are the same before and
-  after a restore either way. A typed form is FUT-002 (a 5.0 decision).
+  after a restore either way. Since the v4.2.0 candidate (ledger FUT-002) it
+  holds for every row but the last when the strategy's class declares the
+  configuration's type (`configuration_type`; `alphalab.strategy.configuration`):
+  `configure` refuses a value not of that type, and restore reads the recorded
+  form back as it -- the payload is the one this table describes, so no schema
+  or identity moves (`tests/regression/test_typed_strategy_configuration.py`).
 - **Derived indexes are rebuilt, not stored.** The order book's asset and strategy
   indexes and the instrument registry's provider index are reconstructed by
   replaying the records. One fact, one home.
