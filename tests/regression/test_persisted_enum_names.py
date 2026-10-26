@@ -77,7 +77,11 @@ NAMED: dict[str, tuple[str, ...]] = {
         "VARIATION_MARGIN",
         "FUNDING",
     ),
-    "alphalab.runtime.execution_pipeline.ExecutionRouting": ("SIMULATED", "EXTERNAL"),
+    "alphalab.runtime.execution_pipeline.ExecutionRouting": (
+        "SIMULATED",
+        "EXTERNAL",
+        "ALGORITHMIC",
+    ),
     "alphalab.runtime.execution_pipeline.UnpricedReason": (
         "NO_PRICE_OBSERVED",
         "NOT_REGISTERED",
@@ -113,7 +117,18 @@ VALUES: dict[str, tuple[str, ...]] = {
         "at_the_opening",
         "at_the_close",
     ),
-    "alphalab.core.enums.AssetType": ("equity", "future", "option", "forex", "crypto", "cash"),
+    # v4.1.1 added "bond" (ledger FUT-010) and "index" (FUT-013), last, so no
+    # written value moved.
+    "alphalab.core.enums.AssetType": (
+        "equity",
+        "future",
+        "option",
+        "forex",
+        "crypto",
+        "cash",
+        "bond",
+        "index",
+    ),
     "alphalab.core.enums.OrderStatus": (
         "new",
         "pending",

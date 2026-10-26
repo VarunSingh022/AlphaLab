@@ -131,6 +131,23 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ("0050", "A paused replay's checkpoint is a whole capture"): "LIM-006",
     ("0050", "Windows is untested"): "BDY-027",
     ("0050", "a strategy configuration that reads back typed"): "FUT-002",
+    # ADR-0051, the v4.1.1 candidate: information on every driver, the capability audit.
+    ("0051", "A bond's accrued interest is carried by its price"): "FUT-010",
+    ("0051", "A feature evaluated inside a strategy recomputes its window"): "FUT-006",
+    ("0051", "A run's record names its last delivery, not its schedule"): "FUT-005",
+    ("0051", "A child's fill reaches its strategy through the portfolio, not `on_fill`"): "FUT-009",
+    ("0051", "Participation that completes after its window is refused"): "FUT-009",
+    ("0051", "A child is checked against the venue's declaration, not by risk again"): "FUT-009",
+    ("0051", "An algorithm is assigned per asset, not per strategy"): "FUT-009",
+    ("0051", "a queue-position and fill-probability model"): "FUT-011",
+    ("0051", "A strategy cannot instruct an exercise from its hooks"): "FUT-014",
+    ("0051", "Cash and deliverables move at the event's instant"): "FUT-015",
+    ("0051", "One deliverable, in the consideration's currency, American or European"): "FUT-016",
+    ("0051", "A delivery the book cannot cover stops the run"): "FUT-017",
+    ("0051", "a strategy-facing exercise instruction"): "FUT-014",
+    ("0051", "settlement-date accounting"): "FUT-015",
+    ("0051", "richer contract terms"): "FUT-016",
+    ("0051", "margin and forced liquidation"): "FUT-017",
 }
 
 

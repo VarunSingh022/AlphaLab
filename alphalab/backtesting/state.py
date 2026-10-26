@@ -6,12 +6,17 @@ Neither type here holds state of its own. A run's state is
 drivers report once that state is finished. Storing a second copy of a fact the
 run already carries is how a result comes to disagree with the run it describes
 -- which is exactly what happened to ``dataset_id`` before v2.14, and why every
-attribute below reads through.
+attribute below reads through. A run given an execution plan (v4.1.1, ledger
+FUT-009) returns an :class:`AlgorithmicResult`: the same projection, and beside
+it the plan's :class:`~alphalab.backtesting.algorithmic.AlgorithmBook` -- driver
+state the run does not hold, as a schedule's cursor is not, so it is no second
+copy of anything, and the run's record and ``result_id`` are what they were.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from alphalab.analytics.engine import PortfolioSnapshot
 from alphalab.analytics.report import PerformanceReport
@@ -25,7 +30,10 @@ from alphalab.runtime.assumptions import ExecutionAssumptions
 from alphalab.runtime.execution_pipeline import ExecutionPipelineState, UnpricedAsset
 from alphalab.runtime.run import RunConfig, RunState, RunStep, StrategyFailure
 
-__all__ = ["BacktestResult", "ReplayResult"]
+if TYPE_CHECKING:
+    from alphalab.backtesting.algorithmic import AlgorithmBook
+
+__all__ = ["AlgorithmicResult", "BacktestResult", "ReplayResult"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +192,21 @@ class BacktestResult:
 
 
 @dataclass(frozen=True, slots=True)
+class AlgorithmicResult(BacktestResult):
+    """A finished run whose orders an execution plan worked in children (v4.1.1, FUT-009).
+
+    Everything :class:`BacktestResult` reads, through the run, and the book the
+    run does not hold.
+
+    Attributes:
+        algorithms: Every parent the plan's algorithms worked, work, or refused,
+            with their children and every child fill.
+    """
+
+    algorithms: AlgorithmBook
+
+
+@dataclass(frozen=True, slots=True)
 class ReplayResult:
     """A replay run: the backtest result plus the replay cursor it was driven by."""
 
@@ -201,6 +224,13 @@ class ReplayResult:
         """
 
         return self.backtest.dataset_id
+
+    @property
+    def algorithms(self) -> AlgorithmBook | None:
+        """The execution plan's book, for a replay given one (v4.1.1); ``None`` otherwise."""
+
+        backtest = self.backtest
+        return backtest.algorithms if isinstance(backtest, AlgorithmicResult) else None
 
     @property
     def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:

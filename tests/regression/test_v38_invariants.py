@@ -1107,8 +1107,11 @@ def test_v38_added_no_snapshot_owner_and_no_schema_constant() -> None:
     # other: the evidence store's envelope (ledger OFE-016, BDY-008) and the
     # checkpoint chain's envelope around a run snapshot (ledger PRF-004). v4.1
     # added one more, as deliberately: a paused replay's envelope around a run
-    # snapshot (ledger FUT-001).
+    # snapshot (ledger FUT-001). v4.1.1 added an execution plan's algorithm book,
+    # carried in a paused replay and stored beside a continued backtest's run
+    # (ledger FUT-009).
     assert constants == [
+        "ALGORITHM_BOOK_SCHEMA",
         "ALLOCATION_SNAPSHOT_SCHEMA",
         "BROKER_SNAPSHOT_SCHEMA",
         "CHECKPOINT_SCHEMA",

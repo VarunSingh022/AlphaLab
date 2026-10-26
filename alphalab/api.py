@@ -100,13 +100,15 @@ instrument with no sector is refused, never bucketed.
 
 from __future__ import annotations
 
+import hashlib
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from enum import Enum, auto
 from pathlib import Path
-from typing import overload
+from typing import Any, overload
 
 from alphalab.alt_data.exceptions import AltDataInputError
 from alphalab.alt_data.fundamentals import FiscalPeriod, FundamentalObservation, StatementType
@@ -116,18 +118,27 @@ from alphalab.alt_data.observation_set import ObservationSet, SetRecord, build_o
 from alphalab.alt_data.provenance import DataProvenance
 from alphalab.alt_data.sessions import SessionCalendar, place_in_session
 from alphalab.alt_data.source import ObservationSource
+from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.analytics.engine import AnalyticsEngine
 from alphalab.analytics.risk_model import Classification
+from alphalab.backtesting.algorithmic import ExecutionPlan
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.engine import BacktestEngine
 from alphalab.backtesting.replay import PausedReplay, ReplayBacktest, ReplayProgress
-from alphalab.backtesting.state import BacktestResult, ReplayResult
+from alphalab.backtesting.schedule import (
+    EMPTY_SCHEDULE,
+    RunSchedule,
+    ScheduledDistribution,
+    ScheduledSettlement,
+)
+from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, ReplayResult
 from alphalab.common.exceptions import AlphaLabValidationError
 from alphalab.common.point_in_time import PointInTimeStamp
 from alphalab.conventions.lot import LotSpecification
 from alphalab.conventions.market import MarketConvention
 from alphalab.conventions.settlement import SettlementRule
 from alphalab.conventions.tick import TickSchedule
+from alphalab.core.enums import AssetType
 from alphalab.data.assets import EquitySpec, FutureSpec, OptionSpec
 from alphalab.data.cleaning import CleaningPolicy, clean_records
 from alphalab.data.corporate_actions import PriceBasis
@@ -170,12 +181,16 @@ from alphalab.factor_library.forward_returns import (
 from alphalab.factor_library.observations import ObservationFrame, observations_from_dataset
 from alphalab.factor_library.panel import FeaturePanel
 from alphalab.futures.contract import FutureContract
+from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import (
     InstrumentRegistry,
     classification_history,
     get_instrument,
     sector_as_of,
 )
+from alphalab.macro.bond import Bond
+from alphalab.macro.bond import cash_flows as macro_cash_flows
+from alphalab.macro.indicator import IndicatorMetadata, IndicatorObservation
 from alphalab.market.normalization import (
     NormalizationPolicy,
     normalize_wire_bar,
@@ -184,6 +199,7 @@ from alphalab.market.normalization import (
 )
 from alphalab.market.record import MarketInput
 from alphalab.options.contract import OptionContract
+from alphalab.portfolio.corporate_actions import CashFlowKind, ContractSettlement
 from alphalab.research.engine import ResearchEngine
 from alphalab.research.exceptions import ResearchValidationError
 from alphalab.research.signals import SignalDiagnostics, signal_diagnostics
@@ -199,6 +215,9 @@ __all__ = [
     "AvailabilityFromColumn",
     "AvailabilityNotDeclared",
     "AvailabilityRule",
+    "CombinedDataset",
+    "CombinedProvenance",
+    "CombinedSourceBytes",
     "DataRequest",
     "DataSelection",
     "EventColumns",
@@ -211,7 +230,10 @@ __all__ = [
     "TimestampReading",
     "WireTimestamp",
     "backtest",
+    "bond_schedule",
     "clean_dataset",
+    "combine_datasets",
+    "combined_market_dataset",
     "convention_from_spec",
     "currency_classification",
     "future_contract_from_spec",
@@ -224,6 +246,7 @@ __all__ = [
     "lift_wire_records",
     "normalize_records",
     "observation_source",
+    "observations_from_indicator",
     "observe",
     "option_contract_from_spec",
     "replay",
@@ -504,21 +527,244 @@ def to_market_dataset(dataset: Dataset, policy: NormalizationPolicy) -> MarketDa
     return MarketDataset.of(version, sorted(inputs, key=lambda item: item.timestamp))
 
 
+# --------------------------------------------------------------------------- #
+# Several datasets, one run (v4.1.1)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class CombinedSourceBytes:
+    """How many source bytes the parts of a combined dataset recorded, in all.
+
+    What a reproducibility manifest checks is not zero: a combined dataset of
+    parts that each recorded their bytes records them all.
+    """
+
+    byte_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class CombinedProvenance:
+    """The identity of several canonical datasets read by one run (v4.1.1).
+
+    Derived, never chosen, exactly as a single dataset's version is: from the
+    parts' own derived versions and content hashes, **in the order given**,
+    because that order is the order records sharing an instant are read in.
+
+    Attributes:
+        dataset_version: ``"combined-"`` and the SHA-256 of every part's
+            version, one per line, in order.
+        content_hash: The SHA-256 of every part's content hash, in order.
+        source: Every part's recorded source bytes, counted together.
+        parts: Each part's ``(dataset_version, content_hash)``, in order -- the
+            exact datasets a rerun must be given back.
+    """
+
+    dataset_version: str
+    content_hash: str
+    source: CombinedSourceBytes
+    parts: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CombinedDataset:
+    """Several canonical datasets, each with the policy that normalizes it, as one input.
+
+    A strategy that trades an equity and a futures contract, or reads two
+    providers, reads datasets that are each one series kind from one source --
+    :class:`~alphalab.data.ingestion.IngestionRequest` declares one asset class
+    and one source per dataset -- and until v4.1.1 a run could name only one of
+    them: :func:`to_market_dataset` takes one, and a hand-merged
+    :class:`~alphalab.backtesting.dataset.MarketDataset` carried whatever id its
+    author typed. This keeps every part's provenance and derives the run's
+    dataset identity from them (:class:`CombinedProvenance`), so
+    :func:`~alphalab.lifecycle.reproducibility.manifest_for_run` can check a
+    run against it as it checks a single dataset.
+
+    Build one with :func:`combine_datasets`; read its records with
+    :func:`combined_market_dataset`.
+
+    Attributes:
+        parts: ``(dataset, policy)`` pairs, in the order records sharing an
+            instant are read.
+    """
+
+    parts: tuple[tuple[Dataset, NormalizationPolicy], ...]
+
+    def require_provenance(self) -> CombinedProvenance:
+        """The combined identity, derived from every part's provenance.
+
+        Raises:
+            DataValidationError: If a part records no provenance.
+        """
+
+        identities = tuple(
+            (provenance.dataset_version, provenance.content_hash)
+            for provenance in (dataset.require_provenance() for dataset, _ in self.parts)
+        )
+        versions = "\n".join(version for version, _ in identities)
+        hashes = "\n".join(content for _, content in identities)
+        return CombinedProvenance(
+            dataset_version="combined-" + hashlib.sha256(versions.encode("utf-8")).hexdigest(),
+            content_hash=hashlib.sha256(hashes.encode("utf-8")).hexdigest(),
+            source=CombinedSourceBytes(
+                sum(dataset.require_provenance().source.byte_count for dataset, _ in self.parts)
+            ),
+            parts=identities,
+        )
+
+    @property
+    def dataset_version(self) -> str:
+        """The combined dataset's derived version, the id a run over it records."""
+
+        return self.require_provenance().dataset_version
+
+
+def combine_datasets(
+    parts: Sequence[tuple[Dataset, NormalizationPolicy]],
+) -> CombinedDataset:
+    """Read several canonical datasets as one run's input, keeping each one's identity.
+
+    Raises:
+        DataValidationError: If fewer than two parts are given -- one dataset is
+            :func:`to_market_dataset`'s, with its own version -- if a part
+            records no provenance, or if one dataset is given twice.
+    """
+
+    if len(parts) < 2:
+        raise DataValidationError(
+            f"A combined dataset joins two or more datasets; {len(parts)} given. A single "
+            "dataset is read by to_market_dataset, under its own version."
+        )
+    seen: set[str] = set()
+    for dataset, _ in parts:
+        version = dataset.require_provenance().dataset_version
+        if version in seen:
+            raise DataValidationError(
+                f"Dataset {version} is given twice. Reading it twice would publish every "
+                "one of its records twice."
+            )
+        seen.add(version)
+    return CombinedDataset(tuple(parts))
+
+
+def combined_market_dataset(combined: CombinedDataset) -> MarketDataset:
+    """Every part's records as one ordered stream, under the combined version.
+
+    Records are ordered by timestamp, then by part in the order given, then by
+    their order within the part -- so the stream is the same on every host and
+    asynchronous series keep their own instants: nothing is filled, aligned or
+    carried forward to a common clock.
+
+    Raises:
+        DataValidationError: If two parts carry the same kind of record for the
+            same asset at the same instant. Two providers' prices for one
+            instrument at one instant are two answers to one question, and the
+            market engine would take whichever came second as current; choose
+            one source, or clean the overlap out of a part.
+    """
+
+    version = combined.require_provenance().dataset_version
+    keyed: list[tuple[float, int, int, MarketInput]] = []
+    owner: dict[tuple[str, str, float], str] = {}
+    for part, (dataset, policy) in enumerate(combined.parts):
+        name = dataset.require_provenance().dataset_version
+        for index, item in enumerate(normalize_records(dataset.records, policy)):
+            key = (type(item).__name__, item.asset_id, item.timestamp)
+            if key in owner and owner[key] != name:
+                raise DataValidationError(
+                    f"Datasets {owner[key]} and {name} both carry a {key[0]} for asset "
+                    f"{item.asset_id} at {item.timestamp!r}. A run reads one price per "
+                    "instrument per instant; choose one source for it."
+                )
+            owner[key] = name
+            keyed.append((item.timestamp, part, index, item))
+    keyed.sort(key=lambda entry: entry[:3])
+    return MarketDataset.of(version, [item for *_, item in keyed])
+
+
+@overload
 def backtest(
     config: RunConfig,
     dataset: Dataset,
     strategy_state: StrategyRuntimeState,
     context_factory: ContextFactory,
     policy: NormalizationPolicy,
+    *,
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: None = None,
+) -> BacktestResult: ...
+
+
+@overload
+def backtest(
+    config: RunConfig,
+    dataset: Dataset,
+    strategy_state: StrategyRuntimeState,
+    context_factory: ContextFactory,
+    policy: NormalizationPolicy,
+    *,
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: ExecutionPlan,
+) -> AlgorithmicResult: ...
+
+
+@overload
+def backtest(
+    config: RunConfig,
+    dataset: Dataset,
+    strategy_state: StrategyRuntimeState,
+    context_factory: ContextFactory,
+    policy: NormalizationPolicy,
+    *,
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: ExecutionPlan | None,
+) -> BacktestResult: ...
+
+
+def backtest(
+    config: RunConfig,
+    dataset: Dataset,
+    strategy_state: StrategyRuntimeState,
+    context_factory: ContextFactory,
+    policy: NormalizationPolicy,
+    *,
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: ExecutionPlan | None = None,
 ) -> BacktestResult:
     """Run a backtest over a canonical dataset, carrying its identity into the result.
 
     ``result.dataset_id`` is the dataset's derived version, so the run names the
     exact data it consumed.
+
+    ``observations`` (v4.1.1) -- a
+    :class:`~alphalab.alt_data.streaming.DeliverySchedule` from
+    :func:`~alphalab.alt_data.streaming.delivery_schedule`, several chained, or
+    any deliveries -- reach strategies defining ``on_observation`` at each
+    record's knowledge instant, as :meth:`BacktestEngine.run
+    <alphalab.backtesting.engine.BacktestEngine.run>` delivers them. Until
+    v4.1.1 this function took none, so an application could not hand external
+    information to a run without leaving this module. ``schedule`` (v4.1.1)
+    carries every other timed input -- rates, funding, cash flows, splits,
+    timers, contract settlements; see :mod:`alphalab.backtesting.schedule`.
+    ``execution`` (v4.1.1, ledger FUT-009) works every order in children by an
+    execution algorithm, and the result is then an
+    :class:`~alphalab.backtesting.AlgorithmicResult` carrying the book; see
+    :mod:`alphalab.backtesting.algorithmic`.
     """
 
     return BacktestEngine.run(
-        config, to_market_dataset(dataset, policy), strategy_state, context_factory
+        config,
+        to_market_dataset(dataset, policy),
+        strategy_state,
+        context_factory,
+        observations,
+        schedule=schedule,
+        execution=execution,
     )
 
 
@@ -529,6 +775,10 @@ def replay(
     strategy_state: StrategyRuntimeState,
     context_factory: ContextFactory,
     policy: NormalizationPolicy,
+    *,
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: ExecutionPlan | None = None,
 ) -> ReplayResult: ...
 
 
@@ -541,6 +791,9 @@ def replay(
     policy: NormalizationPolicy,
     *,
     pause_when: Callable[[ReplayProgress], bool],
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: ExecutionPlan | None = None,
 ) -> ReplayResult | PausedReplay: ...
 
 
@@ -552,6 +805,9 @@ def replay(
     policy: NormalizationPolicy,
     *,
     pause_when: Callable[[ReplayProgress], bool] | None = None,
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: ExecutionPlan | None = None,
 ) -> ReplayResult | PausedReplay:
     """Replay a canonical dataset through the execution path, with the same identity.
 
@@ -561,13 +817,35 @@ def replay(
     restoring takes back ``to_market_dataset(dataset, policy)`` -- and
     :func:`resume_replay` continues. See
     :meth:`~alphalab.backtesting.replay.ReplayBacktest.run`.
+
+    ``observations`` and ``schedule`` (v4.1.1) are applied as :func:`backtest`
+    applies them, so the replay equals the backtest; a paused replay's payload
+    records the schedule's digest, and restoring it takes the schedule back
+    (ledger FUT-003). ``execution`` (v4.1.1, ledger FUT-009) works every order
+    in children, as :func:`backtest` does; restoring a paused replay takes the
+    plan back.
     """
 
     market = to_market_dataset(dataset, policy)
     if pause_when is None:
-        return ReplayBacktest.run(config, market, strategy_state, context_factory)
+        return ReplayBacktest.run(
+            config,
+            market,
+            strategy_state,
+            context_factory,
+            observations=observations,
+            schedule=schedule,
+            execution=execution,
+        )
     return ReplayBacktest.run(
-        config, market, strategy_state, context_factory, pause_when=pause_when
+        config,
+        market,
+        strategy_state,
+        context_factory,
+        pause_when=pause_when,
+        observations=observations,
+        schedule=schedule,
+        execution=execution,
     )
 
 
@@ -1323,6 +1601,136 @@ def _ingest[T: SetRecord](
             f"including {reasons[:3]}."
         )
     return PointInTimeIngestion(build_observation_set(name, records, source), tuple(rejected))
+
+
+def observations_from_indicator(
+    metadata: IndicatorMetadata,
+    releases: Sequence[IndicatorObservation],
+    source: ObservationSource,
+    *,
+    name: str | None = None,
+) -> ObservationSet[ExternalObservation]:
+    """The macro engine's releases of one indicator as a point-in-time set (v4.1.1, FUT-008).
+
+    :mod:`alphalab.macro` keeps a release's reference period and release date
+    apart, and marks a revision; a strategy reads external information as
+    :class:`~alphalab.alt_data.observation.ExternalObservation`. This lifts one
+    into the other without re-ingesting: each release becomes an observation
+    of ``metadata.indicator_id`` -- lowercased, the observation vocabulary's
+    spelling -- about ``metadata.country``, in
+    ``metadata.units``, observed at its reference period and available at its
+    release date, with the period named by its reference instant and the vintage
+    numbered by release order -- the first release of a period is revision 0, the
+    next 1, and so on. The consensus estimate does not travel: a surprise is a
+    second series, which the caller derives with :func:`alphalab.macro.surprise`.
+
+    Raises:
+        DataValidationError: If a release belongs to another indicator, if two
+            releases of one period share a release date, or if the
+            ``is_revision`` flags contradict the release order -- a period's
+            first release marked a revision, or a later one not.
+        AltDataInputError: If the indicator id, lowercased, or the country is
+            not a label the observation vocabulary accepts.
+    """
+
+    by_period: dict[float, list[IndicatorObservation]] = {}
+    for release in releases:
+        if release.indicator_id != metadata.indicator_id:
+            raise DataValidationError(
+                f"A release of {release.indicator_id!r} is not one of {metadata.indicator_id!r}."
+            )
+        by_period.setdefault(release.reference_period, []).append(release)
+    records: list[ExternalObservation] = []
+    for period, vintages in sorted(by_period.items()):
+        ordered = sorted(vintages, key=lambda release: release.release_date)
+        for revision, release in enumerate(ordered):
+            if revision and release.release_date == ordered[revision - 1].release_date:
+                raise DataValidationError(
+                    f"{metadata.indicator_id} for {period!r} has two releases at "
+                    f"{release.release_date!r}; which one revises the other is undefined."
+                )
+            if release.is_revision != (revision > 0):
+                raise DataValidationError(
+                    f"{metadata.indicator_id} for {period!r}: the release at "
+                    f"{release.release_date!r} is release {revision} of its period and is "
+                    f"marked is_revision={release.is_revision}."
+                )
+            records.append(
+                ExternalObservation(
+                    category="economic",
+                    subject=metadata.country,
+                    metric=metadata.indicator_id.lower(),
+                    value=release.value,
+                    unit=metadata.units,
+                    stamp=PointInTimeStamp.declared(period, release.release_date),
+                    source=source,
+                    period=ReferencePeriod(period, period, f"{metadata.indicator_id}@{period!r}"),
+                    revision=revision,
+                )
+            )
+    if not records:
+        raise DataValidationError(f"No release of {metadata.indicator_id} was given.")
+    return build_observation_set(name or metadata.indicator_id, records, source)
+
+
+def bond_schedule(
+    bond: Bond,
+    instrument: InstrumentRecord,
+    at: Callable[[date], float],
+    *,
+    redemption_price: Decimal,
+) -> RunSchedule:
+    """A bond's coupons and its redemption, as the inputs a run applies (v4.1.1, FUT-010).
+
+    Each coupon of :func:`alphalab.macro.bond.cash_flows` becomes a
+    :class:`~alphalab.backtesting.schedule.ScheduledDistribution` of
+    ``bond.coupon_amount`` per unit held -- the bond's face is one unit's face --
+    entitling whoever holds at ``at(payment_date)``; the principal is repaid by
+    a :class:`~alphalab.backtesting.schedule.ScheduledSettlement` at
+    ``at(maturity)``, closing every position at ``redemption_price`` -- the price
+    par is quoted at under the instrument's multiplier (``100`` for a bond quoted
+    per hundred of face whose multiplier is ``face / 100``). ``at`` says what
+    instant a date's flow is fixed at; nothing here assumes a time of day.
+
+    Accrued interest is not booked separately: a run trading the bond at full
+    (dirty) prices carries the accrual in the price, and the coupon is then the
+    cash the accrual became. Trading clean prices would leave the accrual out.
+
+    Raises:
+        DataValidationError: If ``instrument`` is not a bond, declares no last
+            trading instant, or stops trading after maturity, or if its currency
+            is not the bond's.
+    """
+
+    if instrument.asset_type is not AssetType.BOND:
+        raise DataValidationError(f"{instrument.symbol} is a {instrument.asset_type.value}.")
+    maturity = at(bond.maturity)
+    if instrument.last_trade_at is None or instrument.last_trade_at > maturity:
+        raise DataValidationError(
+            f"{instrument.symbol} must stop trading by its maturity, {maturity!r}; it declares "
+            f"{instrument.last_trade_at!r}."
+        )
+    if instrument.currency != bond.currency:
+        raise DataValidationError(
+            f"{instrument.symbol} trades in {instrument.currency} and the bond pays in "
+            f"{bond.currency}."
+        )
+    coupons = tuple(
+        ScheduledDistribution(
+            instrument.asset_id,
+            bond.coupon_amount,
+            bond.currency,
+            at(flow.payment_date),
+            kind=CashFlowKind.INTEREST,
+            reference=f"coupon {flow.payment_date.isoformat()}",
+        )
+        for flow in macro_cash_flows(bond)
+        if bond.coupon_amount > 0
+    )
+    redemption = ScheduledSettlement(
+        ContractSettlement(instrument.asset_id, redemption_price, "redemption"), maturity
+    )
+    return RunSchedule.of(distributions=coupons, settlements=(redemption,))
 
 
 def ingest_observations(

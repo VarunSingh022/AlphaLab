@@ -373,7 +373,8 @@ def test_capture_is_pure_and_repeatable() -> None:
         first, second = capture(paused), capture(paused)
         assert current_id_position() == before, "capture draws no identifier"
     assert first == second and serialize(first) == serialize(second)
-    assert first.schema_version == REPLAY_SNAPSHOT_SCHEMA == 1
+    # v4.1.1 moved it to 2: the schedule's digest (ledger FUT-003).
+    assert first.schema_version == REPLAY_SNAPSHOT_SCHEMA == 2
 
 
 def test_restoring_one_payload_twice_gives_two_equal_continuations() -> None:
@@ -625,7 +626,7 @@ def test_a_truncated_payload_is_refused_as_json() -> None:
     [
         (None, "missing 'schema_version'"),
         (0, "declares schema version 0"),
-        (2, "declares schema version 2"),
+        (3, "declares schema version 3"),
         ("1", "not an integer"),
         (True, "not an integer"),
     ],
@@ -913,7 +914,13 @@ def test_the_frozen_v4_1_0_payload_reads_and_resumes() -> None:
 
 
 def test_the_frozen_payload_is_what_this_build_writes() -> None:
-    assert json.loads(FIXTURE.read_text(encoding="utf-8")) == _payload(_paused(11))
+    """Byte for byte, but for the one step schema 2 declares (v4.1.1, ledgers FUT-003 and
+    FUT-009): the version, the digest of a schedule and the algorithm book of an
+    execution plan, neither of which a v4.1.0 replay could have had."""
+
+    frozen = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    upgraded = {**frozen, "schema_version": 2, "schedule_digest": None, "algorithms": None}
+    assert upgraded == _payload(_paused(11))
 
 
 def test_the_snapshot_covers_every_cursor_field() -> None:
@@ -928,6 +935,15 @@ def test_the_snapshot_covers_every_cursor_field() -> None:
         "run",
         "cursor",
         "cursor_position",
+        # v4.1.1: carried as its digest (schema 2), the schedule itself supplied
+        # back on restore and held to it, as the dataset is (ledger FUT-003;
+        # test_heterogeneous_inputs_on_every_driver.py
+        # ::test_a_payload_resumed_with_another_schedule_or_none_is_refused).
+        "schedule",
+        # v4.1.1: carried whole (schema 2), the plan supplied back and held to it
+        # (ledger FUT-009; test_algorithms_on_the_historical_path.py
+        # ::test_a_replay_paused_with_children_working_resumes_from_its_payload).
+        "algorithms",
     }
 
 

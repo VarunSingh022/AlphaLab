@@ -53,6 +53,11 @@ def economics_for(
         return declared
     if asset_type in _FULLY_PAID:
         return CASH_EQUITY
+    if asset_type is AssetType.INDEX:
+        # A level, not a holding: one point is one unit of the price it is quoted
+        # in, which is what an index level is. Nothing is paid for it -- it is
+        # never traded -- so this is its value, not an assumed settlement.
+        return CASH_EQUITY
     raise InstrumentInputError(
         f"{name} is a {asset_type.value}, and declares no economics: its multiplier and "
         "settlement cannot be assumed, so it cannot be booked. Declare InstrumentEconomics "

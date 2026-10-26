@@ -18,8 +18,12 @@ from .contracts import SettlementExposure as SettlementExposure
 from .contracts import contract_exposures as contract_exposures
 from .contracts import holding_notional as holding_notional
 from .contracts import settlement_exposures as settlement_exposures
+from .corporate_actions import Assignment as Assignment
 from .corporate_actions import CashFlow as CashFlow
 from .corporate_actions import CashFlowKind as CashFlowKind
+from .corporate_actions import ContractSettlement as ContractSettlement
+from .corporate_actions import Exercise as Exercise
+from .corporate_actions import OptionExpiry as OptionExpiry
 from .corporate_actions import Split as Split
 from .engine import PortfolioEngine as PortfolioEngine
 from .engine import PortfolioState as PortfolioState
@@ -120,6 +124,7 @@ __all__ = [
     "MULTI_STRATEGY_BOOK_SCHEME",
     "NO_RATES",
     "Account",
+    "Assignment",
     "BookValuation",
     "CashDeposited",
     "CashFlow",
@@ -129,8 +134,10 @@ __all__ = [
     "CashWithdrawn",
     "ContractExposure",
     "ContractHolding",
+    "ContractSettlement",
     "CurrencyAttribution",
     "CurrencyAttributionReport",
+    "Exercise",
     "ExposureEngine",
     "ForwardTerms",
     "FutureDatedRateError",
@@ -148,6 +155,7 @@ __all__ = [
     "MixedCurrencyValuationError",
     "MultiStrategyBook",
     "NAVCalculator",
+    "OptionExpiry",
     "PnLEngine",
     "PortfolioEngine",
     "PortfolioEvent",

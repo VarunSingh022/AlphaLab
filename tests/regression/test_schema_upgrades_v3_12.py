@@ -82,7 +82,6 @@ def _upgraded_run(payload: dict[str, Any]) -> dict[str, Any]:
         ("oms.json", "alphalab.oms.snapshot"),
         ("allocation.json", "alphalab.allocation.snapshot"),
         ("allocation_eur.json", "alphalab.allocation.snapshot"),
-        ("instrument.json", "alphalab.instrument.snapshot"),
         ("lifecycle.json", "alphalab.lifecycle.snapshot"),
         ("fx_feed.json", "alphalab.portfolio.fx_feed"),
         ("broker.json", "alphalab.broker.snapshot"),
@@ -217,3 +216,26 @@ def test_the_old_name_is_not_a_second_dialect_of_version_7() -> None:
         StateDecodeError, match=r"is not a StrategyStatus: 'LifecycleState\.RUNNING'"
     ):
         from_primitives(payload)
+
+
+def test_the_v3_12_instrument_registry_reads_with_no_contract_expiring() -> None:
+    """The one v3.12 subsystem payload v4.1.1 moves (schema 3 to 4, ledger FUT-012).
+
+    Read, it is the registry it was; written again, it is the same payload with
+    two fields more on every record -- no last trading instant and no contract
+    terms, which nothing before v4.1.1 could declare -- and the new version.
+    """
+
+    from alphalab.instrument.snapshot import from_primitives, restore
+
+    payload = _load("instrument.json")
+    snapshot = from_primitives(payload)
+    expected = {
+        **payload,
+        "schema_version": 4,
+        "instruments": [
+            {**entry, "last_trade_at": None, "terms": None} for entry in payload["instruments"]
+        ],
+    }
+    assert deserialize(serialize(snapshot)) == expected
+    assert all(record.last_trade_at is None for record in restore(snapshot).instruments.values())

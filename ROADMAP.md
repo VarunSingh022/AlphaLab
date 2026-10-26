@@ -159,6 +159,37 @@ names what the release established and the ADR that records the decision.
 - **The contract an application builds on, checked against the artifact**:
   `tests/consumer_contract.py` runs inside every installed wheel and sdist.
 
+## v4.2.0 candidate (the v4.1.1 future-readiness program; release number pending)
+
+- **One schedule for every timed input** (FUT-004): `alphalab.backtesting.schedule`
+  -- rates, funding, cash flows, per-unit dividends and coupons, perpetual funding
+  rates, splits, timers and contract settlements -- applied by `BacktestEngine.run`,
+  `ReplayBacktest.run` and the facade at each input's instant.
+- **External information on every driver** (OFE-027) and **several datasets in
+  one run** (OFE-028).
+- **A paused replay with information outstanding, kept durably** (FUT-003):
+  replay schema 2.
+- **Contract expiry and cash settlement** (FUT-012) and **bonds** (FUT-010):
+  `InstrumentRecord.last_trade_at`, `ContractSettlement`, `AssetType.BOND`,
+  `alphalab.api.bond_schedule`.
+- **The schedule in a run's manifest** (FUT-005), **the macro engine's series as
+  observations** (FUT-008), and **features and a fitted model on the execution
+  path, evidenced** (FUT-006, FUT-007; examples 72 and 73).
+- **`context.market.bar` returns the bar** (KD-005; broken since v2.10).
+- **Execution algorithms on the historical drivers** (FUT-009):
+  `alphalab.backtesting.algorithmic.ExecutionPlan` on `BacktestEngine.run`,
+  `ReplayBacktest.run` and the facade -- each parent held by the OMS and worked in
+  children at its asset's events, every child filled by the run's own fill policy
+  and cost model and settled on the parent; TWAP, VWAP, slicing, iceberg and
+  participation (example 74).
+- **A derivative's whole lifecycle, declared** (FUT-013): `InstrumentRecord.terms`
+  -- `OptionTerms` (American or European, cash or physical, a deliverable in any
+  quantity, an automatic-exercise rule) and `FutureTerms` (cash or physical
+  delivery) -- carried out by `Exercise`, `Assignment` and `OptionExpiry` on the
+  run's schedule through the portfolio's fill authority; `AssetType.INDEX`;
+  lifecycle instants from a declared market calendar (`session_close`,
+  `settles_at`); example 75.
+
 # Deliberate boundaries
 
 Not built, on purpose. Each has a reason, and most have a regression test that a
@@ -521,6 +552,63 @@ holds this list to the ledger: an entry may be left for later only here.
   contract converts; every earlier payload read as it reads today; a migration
   row for the identity change; the ledger entry closed.
 - **Dependencies.** A pipeline schema step, and frozen v4.x payloads.
+
+The entries below were proposed by the v4.1.1 future-readiness audit
+(`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
+horizon, is the maintainer's decision. The candidate itself delivered the rest
+of what the audit proposed (section *v4.2.0 candidate*, above).
+
+## FUT-011 — a queue-position and fill-probability model (target v5.0)
+
+- **Limitation.** A resting limit order fills by the simulator's rule.
+- **Interim behaviour.** Treat passive fills as optimistic in any conclusion.
+- **Acceptance criteria.** A declared queue model decides passive fills and is
+  named in the result's execution assumptions. **Dependencies.** depth data;
+  BDY-003.
+
+## FUT-014 — a strategy that instructs an exercise from its hooks (target v4.3)
+
+- **Limitation.** An exercise is a scheduled input or a `RunEngine` call; no
+  strategy hook returns one.
+- **Interim behaviour.** State the exercise policy as a function over
+  point-in-time data and schedule its instructions (example 75); the engine
+  checks each against the contract's window and the book.
+- **Acceptance criteria.** A hook's exercise instruction applies at its event's
+  instant after the instant's records, refused as a scheduled one is, identical
+  in backtest and replay and across a pause. **Dependencies.** the derivative lifecycle, delivered in the v4.2.0 candidate.
+
+## FUT-015 — settlement-date accounting (target v5.0)
+
+- **Limitation.** Cash and positions move at a fill's or a lifecycle event's
+  instant; the portfolio keeps no unsettled-cash or pending-delivery ledger,
+  though `settles_at` computes a market's T+n instant.
+- **Interim behaviour.** Schedule a lifecycle event at `settles_at`'s instant to
+  model its lag; treat buying power as optimistic.
+- **Acceptance criteria.** Fills and deliveries pend until their declared
+  settlement date by the market's calendar, buying power excludes unsettled
+  cash, and every earlier payload reads as settled. **Dependencies.** a
+  portfolio schema step.
+
+## FUT-016 — richer contract terms: baskets, cash in lieu, quanto, Bermudan (target v4.3)
+
+- **Limitation.** One deliverable instrument, the consideration in its currency,
+  American or European exercise; anything else is refused. A corporate action on
+  the deliverable does not adjust a contract's terms; the caller re-declares it.
+- **Interim behaviour.** Close such a contract before its last trading instant.
+- **Acceptance criteria.** A deliverable list with a cash component, a declared
+  consideration currency with its FX timing, and declared exercise dates each
+  settle through the portfolio's fill authority, attributed, and round-trip; a
+  split or merger adjusts the contracts on its deliverable by a declared rule.
+  **Dependencies.** the derivative lifecycle, delivered in the v4.2.0 candidate.
+
+## FUT-017 — margin, collateral and forced liquidation (target v5.0)
+
+- **Limitation.** An assignment or delivery the book cannot cover stops the run
+  with the shortfall named; nothing calls margin or liquidates.
+- **Interim behaviour.** Hold the cash or inventory a delivery needs.
+- **Acceptance criteria.** A declared margin model, a margin event on a
+  shortfall and a declared liquidation policy, recorded and replayable.
+  **Dependencies.** FUT-015.
 
 ---
 

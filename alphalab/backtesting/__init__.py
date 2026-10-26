@@ -25,6 +25,15 @@ As of v2.14 neither owns run state. A run is a
 ``BacktestStep`` is :class:`~alphalab.runtime.run.RunStep`. See ADR-0030.
 """
 
+from alphalab.backtesting.algorithmic import (
+    AlgorithmAssignment,
+    AlgorithmBook,
+    ChildFill,
+    ExecutionPlan,
+    ExecutionPlanError,
+    FinishedParent,
+    VenueCheck,
+)
 from alphalab.backtesting.dataset import (
     MarketDataset,
     MarketInput,
@@ -51,7 +60,22 @@ from alphalab.backtesting.replay import (
     ReplayProgress,
     session_for,
 )
-from alphalab.backtesting.state import BacktestResult, ReplayResult
+from alphalab.backtesting.schedule import (
+    EMPTY_SCHEDULE,
+    Funding,
+    RunSchedule,
+    ScheduleCursor,
+    ScheduledAssignment,
+    ScheduledCashFlow,
+    ScheduledDistribution,
+    ScheduledExercise,
+    ScheduledExpiry,
+    ScheduledFundingRate,
+    ScheduledSettlement,
+    ScheduledSplit,
+    ScheduleValidationError,
+)
+from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, ReplayResult
 from alphalab.backtesting.views import (
     commission_paid,
     equity_values,
@@ -76,13 +100,22 @@ from alphalab.runtime.execution_pipeline import UnpricedAsset, UnpricedReason
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState, RunStep
 
 __all__ = [
+    "EMPTY_SCHEDULE",
+    "AlgorithmAssignment",
+    "AlgorithmBook",
+    "AlgorithmicResult",
     "BacktestEngine",
     "BacktestError",
     "BacktestResult",
+    "ChildFill",
     "DatasetValidationError",
     "ExecutionMode",
+    "ExecutionPlan",
+    "ExecutionPlanError",
     "FillDecision",
     "FillPolicy",
+    "FinishedParent",
+    "Funding",
     "ImmediateFill",
     "LiquidityCappedFill",
     "LiquidityContext",
@@ -94,12 +127,24 @@ __all__ = [
     "ReplayProgress",
     "ReplayResult",
     "RunConfig",
+    "RunSchedule",
     "RunState",
     "RunStep",
+    "ScheduleCursor",
+    "ScheduleValidationError",
+    "ScheduledAssignment",
+    "ScheduledCashFlow",
+    "ScheduledDistribution",
+    "ScheduledExercise",
+    "ScheduledExpiry",
+    "ScheduledFundingRate",
+    "ScheduledSettlement",
+    "ScheduledSplit",
     "StaticFill",
     "UnpricedAsset",
     "UnpricedReason",
     "UnsupportedRecordError",
+    "VenueCheck",
     "advance",
     "commission_paid",
     "equity_values",

@@ -100,8 +100,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 from uuid import UUID
 
+from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.broker.events import BrokerEvent
 from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.protocol import BrokerProtocol
@@ -638,6 +640,37 @@ class LiveSession:
         """
 
         current = evolve(state, run=RunEngine.close_slice(state.run, context_factory, rates))
+        if not route:
+            return current, (), ()
+        return LiveSession.route_working_orders(current, broker, now)
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_observation(
+        state: LiveRunState,
+        delivery: ObservationDelivery[Any],
+        broker: BrokerProtocol,
+        context_factory: ContextFactory,
+        now: float,
+        rates: FxRates = NO_RATES,
+        *,
+        route: bool = True,
+    ) -> tuple[LiveRunState, tuple[RoutedOrder, ...], tuple[BrokerEvent, ...]]:
+        """Deliver a record that has arrived, and send what the strategies ask for (v4.1.1).
+
+        :meth:`~alphalab.runtime.run.RunEngine.deliver_observation` with the
+        session's clock ``now``: a record that arrives after it became knowable
+        is delivered when it arrived, never earlier, and one delivered before is
+        not delivered again -- across a restart too, since the run's observation
+        cursor is in its snapshot (ledger OFE-009). Then
+        :meth:`route_working_orders` at ``now``, as :meth:`close_slice` does.
+        Until v4.1.1 a live host reached into ``state.run`` to deliver one and
+        had no session call that routed what it produced. ``route=False`` leaves
+        the routing to the caller, as for :meth:`advance`.
+        """
+
+        run = RunEngine.deliver_observation(state.run, delivery, context_factory, rates, now=now)
+        current = evolve(state, run=run)
         if not route:
             return current, (), ()
         return LiveSession.route_working_orders(current, broker, now)

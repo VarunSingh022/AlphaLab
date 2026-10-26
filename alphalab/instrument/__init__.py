@@ -112,6 +112,13 @@ from alphalab.instrument.registry import (
     register_instruments,
     sector_as_of,
 )
+from alphalab.instrument.terms import (
+    AutomaticExercise,
+    ContractTerms,
+    Deliverable,
+    FutureTerms,
+    OptionTerms,
+)
 
 __all__ = [
     "ALPHALAB_INSTRUMENT_NAMESPACE",
@@ -119,16 +126,21 @@ __all__ = [
     "INSTRUMENT_KEY_SCHEME",
     "OPERATOR",
     "SECTOR",
+    "AutomaticExercise",
     "ClassificationHistory",
+    "ContractTerms",
     "DatedAlias",
+    "Deliverable",
     "DimensionClassification",
     "DimensionHistory",
+    "FutureTerms",
     "InstrumentEconomics",
     "InstrumentError",
     "InstrumentInputError",
     "InstrumentRecord",
     "InstrumentRegistrationError",
     "InstrumentRegistry",
+    "OptionTerms",
     "SectorClassification",
     "SettlementModel",
     "canonical_instrument_key",

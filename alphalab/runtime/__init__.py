@@ -58,7 +58,7 @@ from alphalab.runtime.broker_routing import (
     route_order,
     venue_order_type,
 )
-from alphalab.runtime.calendars import VenueCalendars
+from alphalab.runtime.calendars import VenueCalendars, session_close, settles_at
 from alphalab.runtime.checkpoint import (
     CHECKPOINT_SCHEMA,
     CheckpointMark,
@@ -150,6 +150,8 @@ __all__ = [
     "restore_checkpoints",
     "route_child_order",
     "route_order",
+    "session_close",
+    "settles_at",
     "venue_order_type",
     "wants_slices",
 ]

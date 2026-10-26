@@ -17,9 +17,12 @@ from decimal import Decimal
 
 import pytest
 
+from alphalab.api import backtest
+from alphalab.backtesting import AlgorithmAssignment, AlgorithmicResult, ExecutionPlan
 from alphalab.data.dataset import Dataset
 from alphalab.data.exceptions import DataValidationError
 from alphalab.data.time import BarStamp
+from alphalab.execution.algorithms import TWAP, Urgency
 from alphalab.factor_library.definition import FeatureDefinition, FeatureField, FeatureKind
 from alphalab.lifecycle import (
     NO_DEPENDENCIES,
@@ -46,16 +49,22 @@ from alphalab.lifecycle import (
 )
 from alphalab.research.study import ResearchStudy, StudyResult, build_result
 from alphalab.runtime.run import ExecutionMode
+from tests.integration.harness import context_factory, running_strategy_state
 from tests.unit.lifecycle.evidence_harness import (
+    ASSET_ID,
     BUILD,
     CODE,
     ENGINE,
+    NORMALIZATION,
+    PLAN,
     SEED,
     STRATEGY_ID,
     SYMBOL,
+    BarStrategy,
     fingerprint,
     ingest,
     run_backtest,
+    run_config,
 )
 
 # --------------------------------------------------------------------------- #
@@ -566,3 +575,67 @@ def test_no_dependencies_declared_exactly_is_complete(dataset: Dataset) -> None:
     )
 
     assert manifest_gaps(manifest) == ()
+
+
+# --------------------------------------------------------------------------- #
+# A run whose orders an execution plan worked in children (v4.1.1, FUT-009)
+# --------------------------------------------------------------------------- #
+
+WINDOW_PLAN = ExecutionPlan(
+    AlgorithmAssignment(TWAP(2, Urgency.neutral()), 3 * 86_400.0, Decimal("1"))
+)
+
+
+def _algorithmic(dataset: Dataset, plan: ExecutionPlan = WINDOW_PLAN) -> AlgorithmicResult:
+    return backtest(
+        run_config(STRATEGY_ID, SEED),
+        dataset,
+        running_strategy_state(STRATEGY_ID, BarStrategy(STRATEGY_ID, ASSET_ID, PLAN)),
+        context_factory,
+        NORMALIZATION,
+        execution=plan,
+    )
+
+
+def test_a_manifest_names_the_plan_that_worked_the_runs_orders(dataset: Dataset) -> None:
+    result = _algorithmic(dataset)
+    assert result.algorithms is not None and result.algorithms.fills
+    manifest = manifest_for_run(
+        result, dataset, fingerprint(), ENGINE, build=BUILD, execution=WINDOW_PLAN
+    )
+    assert manifest.execution_plan_id == WINDOW_PLAN.plan_id
+    assert verify_manifest(manifest)
+    assert not verify_manifest(replace(manifest, execution_plan_id="0" * 64))
+    assert any(
+        WINDOW_PLAN.plan_id in requirement.detail for requirement in external_requirements(manifest)
+    )
+    # The plan's line enters the identity only when there is a plan.
+    plain = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
+    assert plain.execution_plan_id is None
+    assert "inputs.execution_plan" not in canonical_manifest_key(
+        plain.kind,
+        plain.result_id,
+        plain.dataset_version,
+        plain.dataset_content_hash,
+        plain.configuration_id,
+        plain.seed,
+        plain.seed_role,
+        plain.engine,
+        plain.fingerprint.fingerprint if plain.fingerprint else None,
+        plain.build,
+    )
+
+
+def test_a_manifest_refuses_a_plan_the_run_was_not_worked_by(dataset: Dataset) -> None:
+    result = _algorithmic(dataset)
+    with pytest.raises(LifecycleInputError, match="no execution plan was given"):
+        manifest_for_run(result, dataset, fingerprint(), ENGINE, build=BUILD)
+    other = ExecutionPlan(
+        AlgorithmAssignment(TWAP(3, Urgency.neutral()), 3 * 86_400.0, Decimal("1"))
+    )
+    with pytest.raises(LifecycleInputError, match="worked by plan"):
+        manifest_for_run(result, dataset, fingerprint(), ENGINE, build=BUILD, execution=other)
+    with pytest.raises(LifecycleInputError, match="filled its orders whole"):
+        manifest_for_run(
+            run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD, execution=other
+        )

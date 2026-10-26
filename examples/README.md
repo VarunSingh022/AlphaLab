@@ -8,7 +8,7 @@ python examples/01_research.py
 ```
 
 They are **not** part of the automated test suite — the suite covers the same
-paths far more thoroughly under `tests/` — but all seventy-one are executed as a
+paths far more thoroughly under `tests/` — but all seventy-five are executed as a
 release gate, and a change that breaks one is a change that breaks a documented
 API.
 
@@ -89,6 +89,10 @@ API.
 | 69 | `69_cron_timers.py` | Cron expressions on a stated zone's wall clock: the day-field rule, a spring-forward gap and a fall-back repeat with their UTC instants, refusals when written, and a cron timer fired and rescheduled on the engine |
 | 70 | `70_build_a_strategy.py` | **Build your first strategy** (v4.0): labelled synthetic closes ingested under a refusing policy, a moving-average crossover written against the strategy protocol and started with `start_strategy`, every fill and the cash checked against arithmetic done by hand, a flat series that never trades, a run stopped halfway and continued to a byte-identical result, and five refusals |
 | 71 | `71_pause_and_resume_a_replay.py` | **Pause a replay, keep it, resume it** (v4.1): a replay paused between two records, captured and kept in a file store, restored with freshly built objects as a new process would, and resumed to the same `result_id` as the uninterrupted replay; paused every five records through a payload each time, to the same result; another dataset, another commission and bytes altered in the store each refused |
+| 72 | `72_compose_a_multi_asset_strategy.py` | **Compose a multi-asset strategy** (v4.1.1 acceptance scenario): an equity and an index future from two vendor files read as one combined dataset; social-media posts and a CPI series with a revision, each delivered when it became available -- a post collected two weeks late, a revision, a release after the data, an undated post, a repeated and an unreadable row; a researcher-written strategy combining momentum, sentiment and inflation into a position and a futures hedge, at the next open, with costs and a refusing risk gate; its manifest; the same run replayed, paused and resumed, and stored and continued; and a counterfactual showing nothing moves before the late values were knowable |
+| 73 | `73_train_and_trade_a_model.py` | **Train a model on the past and trade it forward** (v4.1.1): two features defined once and computed by the study path; a linear model fitted only on samples whose label was knowable before a boundary; the same definitions evaluated inside the strategy, equal to the study's at every instant; the fitted coefficients as the strategy's declared parameters and state; trading from the boundary on; a counterfactual on every later price that changes neither the model nor an earlier decision |
+| 74 | `74_evaluate_an_execution_algorithm.py` | **Evaluate an execution algorithm in a backtest** (v4.1.1): one decision executed whole and by TWAP, VWAP, participation and iceberg over the same minute bars; every child through the run's liquidity cap, spread, impact and commission, settled on one parent order; implementation shortfall for each; the replay paused with a child working and resumed from JSON |
+| 75 | `75_exercise_assign_and_deliver.py` | **Exercise, assign and deliver** (v4.1.1): an option's whole life on a declared market's calendar -- an American physical call exercised early before a dividend, a European cash-settled index put settled at expiry, the shares delivered against the strike, refusals, and the run replayed and resumed |
 
 ## Reading order
 

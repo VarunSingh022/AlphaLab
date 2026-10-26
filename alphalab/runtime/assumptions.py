@@ -94,7 +94,8 @@ class ExecutionAssumptions:
     Attributes:
         routing: Where accepted orders executed. Under ``EXTERNAL`` routing
             nothing was simulated, and the fields below describe a model no
-            order went through.
+            order went through. Under ``ALGORITHMIC`` routing (v4.1.1) each
+            order's children were simulated by them.
         fill_timing: When a simulated order filled.
         fill_policy: The fill policy, described.
         costs: The cost model every simulated fill was priced by, described --
@@ -117,9 +118,9 @@ class ExecutionAssumptions:
 
     @property
     def simulated(self) -> bool:
-        """Whether a simulator executed the run's orders."""
+        """Whether a simulator executed the run's orders, whole or in children."""
 
-        return self.routing.name == "SIMULATED"
+        return self.routing.name in ("SIMULATED", "ALGORITHMIC")
 
     @property
     def optimistic(self) -> tuple[str, ...]:

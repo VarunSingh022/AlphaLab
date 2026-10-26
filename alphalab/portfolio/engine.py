@@ -348,6 +348,7 @@ class PortfolioEngine:
         currency: str,
         *,
         economics: InstrumentEconomics | None = None,
+        final_settlement: bool = False,
     ) -> PortfolioState:
         """Apply one signed fill (BUY > 0, SELL < 0) to the portfolio.
 
@@ -379,7 +380,10 @@ class PortfolioEngine:
 
         ``commission`` is signed since v3.11 (ledger ACC-007): a negative one is
         a rebate, which a venue pays a liquidity provider. And a price need only
-        be one the economics admit: positive, unless they allow otherwise.
+        be one the economics admit: positive, unless they allow otherwise --
+        or, for a contract's ``final_settlement`` (v4.1.1, FUT-012), zero too:
+        an option that expires worthless is closed at nothing, which no trade
+        could have been.
 
         Raises:
             InvalidTransactionError: If the price is not one the economics
@@ -402,7 +406,10 @@ class PortfolioEngine:
         # a fully paid unit of one is recorded as no declaration at all, which
         # is what it was before v3.11.
         declared = None if economics is None or economics.is_cash_equity else economics
-        if not (declared or CASH_EQUITY).admits_price(price):
+        admitted = (declared or CASH_EQUITY).admits_price(price) or (
+            final_settlement and price == 0
+        )
+        if not admitted:
             raise InvalidTransactionError(
                 f"A fill of {asset_id} at {price} is refused: its price must be positive, "
                 "unless its economics declare that it may not be (ACC-007)."

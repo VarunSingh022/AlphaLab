@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import decimal
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from enum import Enum, auto
 from types import MappingProxyType
@@ -30,14 +30,17 @@ from alphalab.common.evolve import evolve
 from alphalab.common.ids import IdStreamPosition, current_id_position
 from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.common.persistent_map import PersistentMap
-from alphalab.conventions.economics import InstrumentEconomics
+from alphalab.conventions.economics import InstrumentEconomics, SettlementModel
 from alphalab.conventions.lot import LotSpecification
 from alphalab.core.contribution import StrategyContribution, split_by_contribution
+from alphalab.core.enums import AssetType
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
 from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS
+from alphalab.execution.algorithms import ChildOrder
+from alphalab.execution.algorithms import _apportion as _largest_remainder
 from alphalab.execution.engine import ExecutionEngine
 from alphalab.execution.fill import FillStatus, OrderInstruction
 from alphalab.execution.policy import (
@@ -52,7 +55,9 @@ from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
 from alphalab.instrument.economics import economics_for
 from alphalab.instrument.exceptions import InstrumentInputError
+from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
+from alphalab.instrument.terms import Deliverable, FutureTerms, OptionTerms
 from alphalab.market.bar import Bar, IntervalUnit, TimeFrame
 from alphalab.market.engine import MarketEngine
 from alphalab.market.events import (
@@ -73,9 +78,18 @@ from alphalab.oms.order import Order as OMSOrder
 from alphalab.oms.state import OMSState
 from alphalab.oms.status import OrderStatus, OrderType
 from alphalab.oms.status import Side as OMSSide
+from alphalab.options.enums import OptionType
+from alphalab.options.expiration import SettlementStyle
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.book import BookGroups, BookMarketValues, PositionBook
-from alphalab.portfolio.corporate_actions import CashFlow, Split
+from alphalab.portfolio.corporate_actions import (
+    Assignment,
+    CashFlow,
+    ContractSettlement,
+    Exercise,
+    OptionExpiry,
+    Split,
+)
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
 from alphalab.portfolio.fx import NO_RATES, FxConversion, FxRates
@@ -161,6 +175,17 @@ class ExecutionRouting(Enum):
     #: the order is still live and that capital is still committed. Fills come
     #: back later through :mod:`alphalab.runtime.broker_routing`. Live only.
     EXTERNAL = auto()
+
+    #: The order is the parent an execution algorithm works in children, in a
+    #: historical run (v4.1.1, ledger FUT-009). It is accepted and left working,
+    #: holding its reservation and its contributions, and the pipeline never
+    #: simulates it whole: each child is simulated by
+    #: :meth:`ExecutionPipeline.work_child` against the run's own fill policy,
+    #: simulator and cost model, and its fill settles on the parent. Terms an
+    #: algorithm cannot work -- a stop, an auction, an immediate order -- are
+    #: refused before an order exists. Backtest and replay only; see
+    #: :mod:`alphalab.backtesting.algorithmic`.
+    ALGORITHMIC = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,6 +418,31 @@ class SettlementRefusal:
     settlement_currency: str
     detail: str
     timestamp: float
+
+
+@dataclass(frozen=True, slots=True)
+class ChildTurn:
+    """What one execution-algorithm child did at one market event (v4.1.1, ledger FUT-009).
+
+    Attributes:
+        state: The pipeline after the child's fill, if any, settled on its parent.
+        reports: The execution reports the fill produced -- each against the
+            **parent** order, as a venue fill of a routed child is.
+        fills: The canonical fills.
+        trades: The canonical trades.
+        filled: What the child filled at this event.
+        outcome: ``None`` while the child works on; ``FILLED`` once it has filled
+            in full; ``CANCELLED`` for a market child's unfilled remainder, which
+            is withdrawn after its one attempt, as a market order's is;
+            ``REJECTED`` or ``EXPIRED`` when the fill policy decided so.
+    """
+
+    state: ExecutionPipelineState
+    reports: tuple[ExecutionReport, ...]
+    fills: tuple[CoreFill, ...]
+    trades: tuple[CoreTrade, ...]
+    filled: Decimal
+    outcome: OrderStatus | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1288,6 +1338,127 @@ class ExecutionPipeline:
 
     @staticmethod
     @in_accounting_context
+    def work_child(
+        state: ExecutionPipelineState,
+        child: ChildOrder,
+        working: Decimal,
+        event: MarketEvent,
+        policy: FillPolicy,
+        rates: FxRates = NO_RATES,
+        *,
+        arriving: bool,
+    ) -> ChildTurn:
+        """One execution-algorithm child's turn at ``event``, its fill settled on the parent.
+
+        The historical counterpart of routing a child to a venue (v4.1.1, ledger
+        FUT-009). The parent is the OMS order the algorithm works under
+        :attr:`ExecutionRouting.ALGORITHMIC`; the child is not an order of its
+        own. The **fill policy** decides what the child's ``working`` quantity
+        gets from the liquidity ``event`` showed -- so a liquidity cap applies to
+        each child -- and the **simulator** prices it by the run's cost model.
+        The fill is then applied to the parent by the path every simulated and
+        venue fill takes: the OMS records a partial fill (or the fill that
+        completes the parent), the portfolio books it, the allocation
+        reservation is consumed, and the trade record carries the parent's
+        contributions, so attribution splits by the strategies that asked.
+
+        The child's terms are the order's: a ``MARKET`` child has one attempt at
+        the event's price and what it does not fill is withdrawn (``CANCELLED``);
+        a ``LIMIT`` child meets the market as a taker on its first turn
+        (``arriving``) when the cost model prices taking it within its limit,
+        and otherwise rests and fills at its limit, as a maker, when the market
+        trades through it -- the rules :func:`_work_order` applies to an order.
+        Nothing here reads a later event: ``event`` is the one the child is
+        worked at, and the caller decides which events a child may see.
+
+        Raises:
+            RuntimeValidationError: If the run does not route algorithmically;
+                ``event`` is not of the child's asset or carries no price; the
+                parent is unknown, finished, or not the child's; or ``working``
+                is not positive or exceeds what the parent has left unfilled --
+                the over-execution the parent's quantity forbids.
+        """
+
+        if state.config.routing is not ExecutionRouting.ALGORITHMIC:
+            raise RuntimeValidationError(
+                f"Children are worked by the pipeline only under ALGORITHMIC routing; this run "
+                f"routes {state.config.routing.name}."
+            )
+        priced = _market_price(event)
+        if priced is None or priced[0] != child.asset_id:
+            raise RuntimeValidationError(
+                f"Child {child.child_id} trades {child.asset_id}; the event prices "
+                f"{'nothing' if priced is None else priced[0]}."
+            )
+        parent_id = OrderId(UUID(child.parent_order_id))
+        if not state.oms.orders.contains(parent_id):
+            raise RuntimeValidationError(f"Child {child.child_id} names an unknown parent.")
+        parent = state.oms.orders.find(parent_id)
+        if not parent.is_open or parent.asset_id != child.asset_id or parent.side != child.side:
+            raise RuntimeValidationError(
+                f"Child {child.child_id} cannot work parent {child.parent_order_id}: it is "
+                f"{parent.status} on {parent.asset_id} {parent.side}."
+            )
+        if working <= Decimal("0") or working > parent.remaining_quantity:
+            raise RuntimeValidationError(
+                f"Child {child.child_id} would work {working} with parent "
+                f"{child.parent_order_id} {parent.remaining_quantity} short of filled."
+            )
+
+        # The child as the policy and the cost model see it: the parent's
+        # identity, side and asset, the child's quantity, order type and limit.
+        view = replace(
+            parent,
+            order_type=child.order_type,
+            limit_price=child.limit_price,
+            remaining_quantity=working,
+            time_in_force=TimeInForce.GTC,
+        )
+        market = priced[1]
+        price: Decimal | None = market
+        passive = False
+        if child.order_type is OrderType.LIMIT:
+            if arriving and _within_limit(view, _taker_price(state, view, event, market)):
+                price = market
+            else:
+                price = _resting_fill_price(view, event)
+                passive = True
+        if price is None:
+            return ChildTurn(state, (), (), (), Decimal("0"), None)
+
+        decision = _decide_fill(policy, view, event, price, _whole_units(state))
+        if decision.status is FillStatus.REJECTED:
+            return ChildTurn(state, (), (), (), Decimal("0"), OrderStatus.REJECTED)
+        if decision.status is FillStatus.EXPIRED:
+            return ChildTurn(state, (), (), (), Decimal("0"), OrderStatus.EXPIRED)
+        unfilled = OrderStatus.CANCELLED if child.order_type is OrderType.MARKET else None
+        if decision.status is FillStatus.NO_FILL:
+            return ChildTurn(state, (), (), (), Decimal("0"), unfilled)
+
+        quantity = working if decision.quantity is None else min(decision.quantity, working)
+        # Status against the parent, as a venue fill's is: a fill completes the
+        # parent only when it leaves nothing of the parent unfilled.
+        status = (
+            FillStatus.FULL_FILL
+            if quantity >= parent.remaining_quantity
+            else FillStatus.PARTIAL_FILL
+        )
+        current, reports = _execute_order(
+            state, parent, FillDecision(status, quantity), event, price=price, passive=passive
+        )
+        current, fills, trades = _apply_reports(current, parent, reports, rates)
+        outcome = OrderStatus.FILLED if quantity == working else unfilled
+        return ChildTurn(
+            evolve(current, id_position=current_id_position()),
+            reports,
+            fills,
+            trades,
+            quantity,
+            outcome,
+        )
+
+    @staticmethod
+    @in_accounting_context
     def process_timer(
         state: ExecutionPipelineState,
         timer: TimerEvent,
@@ -1579,6 +1750,359 @@ class ExecutionPipeline:
 
     @staticmethod
     @in_accounting_context
+    def settle_contract(
+        state: ExecutionPipelineState,
+        settlement: ContractSettlement,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Close every position in an expired contract at its final settlement price (FUT-012).
+
+        The contract must be one the run's registry declares, with a last
+        trading instant at or before ``timestamp``, and a future or an option
+        -- what settles at expiry -- or a bond, redeemed at maturity at the
+        price ``settlement`` states (v4.1.1, FUT-010). Then, as at a split, an order still working
+        in it is cancelled and what it held freed (refused under external
+        routing, where the venue reports what became of its orders); the
+        position is closed at the settlement price with no commission, by the
+        portfolio's one fill authority, so a future realizes its last variation
+        and an option pays its intrinsic value times its multiplier; each
+        strategy's share closes with it; a trade record attributes the realized
+        P&L to the strategies that held it; the run is marked at the price; and
+        risk is resynced and an equity point recorded.
+
+        Settling a contract the run holds no position in only marks it.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event
+                the pipeline processed; the contract is not declared, declares
+                no last trading instant, has not expired by ``timestamp``, or is
+                not a future or an option; the price is one its economics do not
+                admit; or orders are working in it under external routing.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A contract settlement")
+        asset_id = settlement.asset_id
+        registry = state.config.instruments
+        record = None if registry is None else registry.record_for(asset_id)
+        if record is None:
+            raise RuntimeValidationError(
+                f"{asset_id} is not declared in this run's instrument registry, so nothing "
+                "says it expires or how it settles; a settlement for it is refused."
+            )
+        named = f"{record.symbol} on {record.exchange}"
+        if record.last_trade_at is None:
+            raise RuntimeValidationError(
+                f"{named} declares no last trading instant: it does not expire, so it is not "
+                "settled. Declare InstrumentRecord.last_trade_at for a contract that expires."
+            )
+        if timestamp < record.last_trade_at:
+            raise RuntimeValidationError(
+                f"{named} trades until {record.last_trade_at!r}; a settlement at {timestamp!r} "
+                "would close positions while the contract still trades."
+            )
+        economics = economics_for(record.asset_type, record.economics, named)
+        redeemed = record.asset_type is AssetType.BOND
+        if economics.settlement not in _EXPIRING and not redeemed:
+            raise RuntimeValidationError(
+                f"{named} settles as {economics.settlement.value}: only a future or an option "
+                "is settled at expiry, and a bond redeemed at maturity."
+            )
+        price = settlement.price
+        if price < 0 and not economics.allows_negative_prices:
+            raise RuntimeValidationError(
+                f"{named} is settled at {price}, which its economics do not admit."
+            )
+        if isinstance(record.terms, OptionTerms):
+            raise RuntimeValidationError(
+                f"{named} declares its option terms, so its expiry is resolved from them: give "
+                "an OptionExpiry with the underlying's settlement value, not a ContractSettlement "
+                "at a price the caller computed."
+            )
+        delivery = (
+            record.terms.deliverable
+            if isinstance(record.terms, FutureTerms)
+            and record.terms.settlement is SettlementStyle.PHYSICAL
+            else None
+        )
+
+        working = state.oms.working_orders_for(asset_id)
+        current = state
+        if working:
+            if state.config.routing is ExecutionRouting.EXTERNAL:
+                raise RuntimeValidationError(
+                    f"{len(working)} order(s) are working in {named} at the venue. The venue "
+                    "reports what became of them at expiry; settle the contract once they are "
+                    "resolved."
+                )
+            for order_id in working:
+                current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
+
+        portfolio = current.portfolio
+        position = portfolio.positions.get(asset_id)
+        signed_shares = AllocationEngine.shares_of(current.allocation, asset_id)
+        if delivery is not None and position is not None and position.quantity != 0:
+            # Checked before anything moves: a delivery the book cannot take is
+            # refused whole, not half-applied.
+            _require_deliverable(
+                current,
+                record,
+                delivery,
+                delivery.units * position.quantity,
+                price,
+                economics.multiplier,
+            )
+        allocation, shares = AllocationEngine.settle_asset(current.allocation, asset_id)
+        current = evolve(
+            current,
+            allocation=allocation,
+            market_prices=_market_prices_with_event(current.market_prices, (asset_id, price)),
+        )
+        record_of_settlement: TradeRecord | None = None
+        if position is not None and position.quantity != 0:
+            before = len(portfolio.events)
+            opened_at = position.opened_at
+            portfolio = PortfolioEngine.apply_fill(
+                portfolio,
+                asset_id,
+                -position.quantity,
+                price,
+                Decimal("0"),
+                timestamp,
+                position.currency,
+                economics=economics,
+                final_settlement=True,
+            )
+            realized = Decimal("0.00")
+            for event in portfolio.events[before:]:
+                if isinstance(event, PositionReduced | PositionClosed):
+                    realized = event.realized_pnl
+                    break
+            record_of_settlement = TradeRecord(
+                # Derived, not drawn from the run's identifier stream.
+                trade_id=f"SETTLEMENT-{asset_id}-{timestamp!r}",
+                asset_id=asset_id,
+                sector_id=_sector_for(current, asset_id),
+                realized_pnl=realized,
+                notional_value=ACCOUNTING_CONTEXT.multiply(position.quantity.copy_abs(), price),
+                holding_period_seconds=None if opened_at is None else timestamp - opened_at,
+                contributions=shares,
+            )
+        if record_of_settlement is not None:
+            current = evolve(
+                current, trade_records=current.trade_records.append(record_of_settlement)
+            )
+        if delivery is not None and position is not None and position.quantity != 0:
+            # A physically settled future: the long takes the deliverable and
+            # pays the final price for it, the short delivers and receives it.
+            current = _deliver(
+                evolve(current, portfolio=portfolio),
+                record,
+                delivery,
+                {sid: delivery.units * held for sid, held in signed_shares},
+                delivery.units * position.quantity,
+                price,
+                economics.multiplier,
+                timestamp,
+                rates,
+                f"DELIVERY-{asset_id}-{timestamp!r}",
+            )
+            portfolio = current.portfolio
+        return _after_book_change(current, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def exercise(
+        state: ExecutionPipelineState,
+        exercise: Exercise,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Exercise ``exercise.contracts`` of a long option at ``timestamp`` (v4.1.1, FUT-013).
+
+        The option's :class:`~alphalab.instrument.terms.OptionTerms` decide what
+        happens: inside its exercise window -- any instant to expiry for an
+        American contract, from the last trading instant to expiry for a European
+        one -- a cash-settled contract pays its intrinsic value against the
+        settlement value the instruction carries, and a physically settled one
+        delivers its deliverable against the strike: a call takes it and pays
+        ``strike x multiplier`` a contract, a put delivers it and receives that.
+        Every movement goes through the portfolio's one fill authority, the
+        exercised contracts closed at what they pay (nothing, when they deliver),
+        and each strategy's share of the position closes and receives its share
+        of the delivery. The engine carries out the instruction; whether
+        exercising was wise is the holder's question.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event;
+                the option is undeclared or declares no terms; the instant is
+                outside its exercise window; the book is not long that many
+                contracts; orders work in it; a cash-settled exercise carries no
+                settlement value or a physical one carries one; or the delivery
+                cannot be taken -- see :meth:`expire_option`.
+        """
+
+        record, terms, economics, named = _declared_option(state, exercise.asset_id, timestamp)
+        _require_in_window(record, terms, timestamp, named, "exercised")
+        _require_no_working_orders(state, exercise.asset_id, named, "exercised")
+        held = _held(state, exercise.asset_id)
+        if held < exercise.contracts:
+            raise RuntimeValidationError(
+                f"{exercise.contracts} contracts of {named} cannot be exercised: the book is "
+                f"{held} of them, and only a long position is exercised."
+            )
+        return _resolve_option(
+            state,
+            record,
+            terms,
+            economics,
+            exercise.contracts,
+            exercise.underlying_value,
+            timestamp,
+            rates,
+            f"EXERCISE-{exercise.asset_id}-{timestamp!r}-{exercise.reference}",
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def assign(
+        state: ExecutionPipelineState,
+        assignment: Assignment,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Assign ``assignment.contracts`` of a short option at ``timestamp`` (v4.1.1, FUT-013).
+
+        The mirror of :meth:`exercise`, from the writer's side: a cash-settled
+        contract pays out its intrinsic value; a physically settled call
+        delivers the deliverable and receives the strike, a put takes it and
+        pays the strike. Assignment is an input, never drawn -- see
+        :class:`~alphalab.portfolio.corporate_actions.Assignment`.
+
+        Raises:
+            RuntimeValidationError: As :meth:`exercise`, with "short" for "long".
+        """
+
+        record, terms, economics, named = _declared_option(state, assignment.asset_id, timestamp)
+        _require_in_window(record, terms, timestamp, named, "assigned")
+        _require_no_working_orders(state, assignment.asset_id, named, "assigned")
+        held = _held(state, assignment.asset_id)
+        if -held < assignment.contracts:
+            raise RuntimeValidationError(
+                f"{assignment.contracts} contracts of {named} cannot be assigned: the book is "
+                f"{held} of them, and only a short position is assigned."
+            )
+        return _resolve_option(
+            state,
+            record,
+            terms,
+            economics,
+            -assignment.contracts,
+            assignment.underlying_value,
+            timestamp,
+            rates,
+            f"ASSIGNMENT-{assignment.asset_id}-{timestamp!r}-{assignment.reference}",
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def expire_option(
+        state: ExecutionPipelineState,
+        expiry: OptionExpiry,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Resolve every open position in an option at its expiry (v4.1.1, FUT-013).
+
+        At or after the contract's ``expires_at``, against the underlying's
+        settlement value: orders still working in it are cancelled, as at a
+        settlement; then, if its automatic-exercise rule exercises at that value,
+        a long position is exercised and a short one assigned -- in cash or by
+        delivery, by its terms -- and otherwise the position is closed at
+        nothing. A contract with no rule exercises nothing it was not instructed
+        to. The option is marked at its intrinsic value.
+
+        A delivery the book cannot take is refused rather than booked: a
+        deliverable the registry does not declare, or one priced in another
+        currency than the strike; a delivery leaving the book short when the
+        run does not allow shorting; or a payment leaving the cash it is paid
+        in below zero -- no financing of a delivery is modelled.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event or
+                before the contract expires; the option is undeclared or declares
+                no terms; orders work in it under external routing; or the
+                delivery cannot be taken.
+        """
+
+        record, terms, economics, named = _declared_option(state, expiry.asset_id, timestamp)
+        if timestamp < terms.expires_at:
+            raise RuntimeValidationError(
+                f"{named} expires at {terms.expires_at!r}; an expiry at {timestamp!r} would "
+                "resolve it while it can still be exercised."
+            )
+        current = state
+        working = state.oms.working_orders_for(expiry.asset_id)
+        if working:
+            if state.config.routing is ExecutionRouting.EXTERNAL:
+                raise RuntimeValidationError(
+                    f"{len(working)} order(s) are working in {named} at the venue; resolve them "
+                    "before its expiry is."
+                )
+            for order_id in working:
+                current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
+        intrinsic = terms.intrinsic(
+            expiry.underlying_value,
+            economics.multiplier,
+            _deliverable_multiplier(state, record, terms.deliverable),
+        )
+        current = evolve(
+            current,
+            market_prices=_market_prices_with_event(
+                current.market_prices, (expiry.asset_id, intrinsic)
+            ),
+        )
+        held = _held(current, expiry.asset_id)
+        if held == 0:
+            return current
+        rule = terms.automatic_exercise
+        if rule is not None and rule.exercises(intrinsic):
+            return _resolve_option(
+                current,
+                record,
+                terms,
+                economics,
+                held,
+                expiry.underlying_value if terms.settlement is SettlementStyle.CASH else None,
+                timestamp,
+                rates,
+                f"EXPIRY-{expiry.asset_id}-{timestamp!r}",
+            )
+        # Not exercised: the contract expires and is worth nothing.
+        shares = _strategy_parts(
+            AllocationEngine.shares_of(current.allocation, expiry.asset_id), held
+        )
+        current = evolve(
+            current,
+            allocation=AllocationEngine.apply_lifecycle(
+                current.allocation, expiry.asset_id, shares
+            ),
+        )
+        current = _lifecycle_fill(
+            current,
+            expiry.asset_id,
+            -held,
+            Decimal("0"),
+            timestamp,
+            record.currency,
+            economics,
+            shares,
+            f"EXPIRY-{expiry.asset_id}-{timestamp!r}",
+        )
+        return _after_book_change(current, current.portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
     def compile_analytics(
         state: ExecutionPipelineState,
         timestamp: float,
@@ -1735,10 +2259,11 @@ def _route_requests(
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
         current, order = _submit_and_accept_order(current, request, instant)
-        if current.config.routing is ExecutionRouting.EXTERNAL:
-            # The order is now working and belongs to whoever routes it. No
-            # fill is invented, the order is not closed out, and its
-            # reservation stays held -- the capital is still committed.
+        if current.config.routing is not ExecutionRouting.SIMULATED:
+            # The order is now working and belongs to whoever routes it -- the
+            # venue, or the execution algorithm working it in children. No fill
+            # is invented, the order is not closed out, and its reservation
+            # stays held -- the capital is still committed.
             orders.append(order)
             continue
         if rest or current.config.fill_timing is FillTiming.NEXT_EVENT:
@@ -1882,6 +2407,416 @@ def _instrument_grid(
     return lots, minimums, multipliers
 
 
+def _expired_at(state: ExecutionPipelineState, asset_id: str) -> float | None:
+    """The last trading instant ``asset_id``'s record declares, or ``None`` (FUT-012).
+
+    Read from the registry's index of expiring instruments, so a run whose
+    registry declares none -- every run before v4.1.1 -- pays one emptiness test.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.expiring:
+        return None
+    return registry.expiring.get(asset_id)
+
+
+def held_past_expiry(state: ExecutionPipelineState, at: float) -> tuple[str, ...]:
+    """Every contract the book still holds whose last trading instant is before ``at`` (FUT-012).
+
+    What a :class:`~alphalab.portfolio.corporate_actions.ContractSettlement`
+    should have closed. Sorted, so the answer does not depend on the order the
+    positions were opened in.
+    """
+
+    return tuple(
+        sorted(
+            asset_id
+            for asset_id, position in state.portfolio.positions.items()
+            if position.quantity != 0
+            and (expired := _expired_at(state, asset_id)) is not None
+            and expired < at
+        )
+    )
+
+
+def _declared(state: ExecutionPipelineState, asset_id: str) -> InstrumentRecord | None:
+    """An instrument's declaration, for a lifecycle event: a contract or its deliverable.
+
+    The one keyed read a lifecycle event takes, once per contract or deliverable
+    it names -- never per record.
+    """
+
+    registry = state.config.instruments
+    return None if registry is None else registry.record_for(asset_id)
+
+
+def _declared_option(
+    state: ExecutionPipelineState, asset_id: str, timestamp: float
+) -> tuple[InstrumentRecord, OptionTerms, InstrumentEconomics, str]:
+    """The option's record, terms and economics, or a refusal naming what is missing."""
+
+    _require_not_before_last_event(state, timestamp, "An option's exercise, assignment or expiry")
+    record = _declared(state, asset_id)
+    if record is None:
+        raise RuntimeValidationError(
+            f"{asset_id} is not declared in this run's instrument registry, so nothing says "
+            "what exercising it does."
+        )
+    named = f"{record.symbol} on {record.exchange}"
+    terms = record.terms
+    if not isinstance(terms, OptionTerms):
+        raise RuntimeValidationError(
+            f"{named} declares no OptionTerms, so nothing says what exercising it delivers or "
+            "pays. Declare its terms, or settle it with a ContractSettlement at a stated price."
+        )
+    economics = economics_for(record.asset_type, record.economics, named)
+    return record, terms, economics, named
+
+
+def _require_in_window(
+    record: InstrumentRecord, terms: OptionTerms, timestamp: float, named: str, done: str
+) -> None:
+    assert record.last_trade_at is not None  # terms are declared only with one
+    start, end = terms.exercise_window(record.last_trade_at)
+    if not start <= timestamp <= end:
+        raise RuntimeValidationError(
+            f"{named} is {terms.exercise_style.name}: it may be {done} from {start!r} to "
+            f"{end!r}, and not at {timestamp!r}."
+        )
+
+
+def _require_no_working_orders(
+    state: ExecutionPipelineState, asset_id: str, named: str, done: str
+) -> None:
+    working = state.oms.working_orders_for(asset_id)
+    if working:
+        raise RuntimeValidationError(
+            f"{len(working)} order(s) are working in {named}; contracts are not {done} while "
+            "orders may still trade the position. Resolve them first."
+        )
+
+
+def _held(state: ExecutionPipelineState, asset_id: str) -> Decimal:
+    position = state.portfolio.positions.get(asset_id)
+    return Decimal("0") if position is None else position.quantity
+
+
+def _strategy_parts(
+    shares: tuple[tuple[str, Decimal], ...], closing: Decimal
+) -> dict[str, Decimal]:
+    """Each strategy's part of ``closing`` contracts, from its own signed share.
+
+    The whole position is each share as it stands. Part of it is apportioned in
+    proportion to the shares -- whole contracts by largest remainder, ties to the
+    earlier strategy, when every share is whole -- and is refused when the
+    strategies hold opposite sides: which side a part of a netted book belongs to
+    is not something the book can say.
+    """
+
+    if not shares:
+        return {}
+    total = sum((held for _, held in shares), Decimal("0"))
+    if closing == total:
+        return dict(shares)
+    if any((held > 0) != (closing > 0) for _, held in shares):
+        raise RuntimeValidationError(
+            "Part of a position whose strategies hold opposite sides cannot be attributed to "
+            "them; exercise or assign the whole position."
+        )
+    ctx = ACCOUNTING_CONTEXT
+    if all(held == held.to_integral_value() for _, held in shares):
+        # Whole contracts, by the one largest-remainder rule the algorithms
+        # package apportions a schedule by.
+        units = _largest_remainder(int(closing.copy_abs()), [held.copy_abs() for _, held in shares])
+        sign = Decimal("1") if closing > 0 else Decimal("-1")
+        return {sid: sign * Decimal(part) for (sid, _), part in zip(shares, units, strict=True)}
+    parts = {sid: ctx.divide(ctx.multiply(closing, held), total) for sid, held in shares[:-1]}
+    parts[shares[-1][0]] = ctx.subtract(closing, sum(parts.values(), Decimal("0")))
+    return parts
+
+
+def _contributions(parts: Mapping[str, Decimal]) -> tuple[StrategyContribution, ...]:
+    return tuple(StrategyContribution(sid, part.copy_abs()) for sid, part in parts.items() if part)
+
+
+def _lifecycle_fill(
+    state: ExecutionPipelineState,
+    asset_id: str,
+    quantity: Decimal,
+    price: Decimal,
+    timestamp: float,
+    currency: str,
+    economics: InstrumentEconomics,
+    parts: Mapping[str, Decimal],
+    trade_id: str,
+) -> ExecutionPipelineState:
+    """Book ``quantity`` of ``asset_id`` at ``price`` through the portfolio's fill authority.
+
+    No commission: a lifecycle event is not a trade the venue charges for as one.
+    The trade record carries the realized P&L and the strategies it belongs to,
+    and its identifier is derived, never drawn from the run's stream.
+    """
+
+    portfolio = state.portfolio
+    before = len(portfolio.events)
+    opened_at = _opened_at(portfolio, asset_id)
+    portfolio = PortfolioEngine.apply_fill(
+        portfolio,
+        asset_id,
+        quantity,
+        price,
+        Decimal("0"),
+        timestamp,
+        currency,
+        economics=economics,
+        final_settlement=True,
+    )
+    realized = Decimal("0.00")
+    for event in portfolio.events[before:]:
+        if isinstance(event, PositionReduced | PositionClosed):
+            realized = event.realized_pnl
+            break
+    record = TradeRecord(
+        trade_id=trade_id,
+        asset_id=asset_id,
+        sector_id=_sector_for(state, asset_id),
+        realized_pnl=realized,
+        notional_value=ACCOUNTING_CONTEXT.multiply(quantity.copy_abs(), price),
+        holding_period_seconds=None if opened_at is None else timestamp - opened_at,
+        contributions=_contributions(parts),
+    )
+    return evolve(state, portfolio=portfolio, trade_records=state.trade_records.append(record))
+
+
+def _deliverable_multiplier(
+    state: ExecutionPipelineState, contract: InstrumentRecord, deliverable: Deliverable
+) -> Decimal:
+    """What one quoted unit of the deliverable is worth per unit of its price.
+
+    Read from the deliverable's own declaration -- a cash-settled index option
+    names its index as an instrument too -- so a contract on a future or on an
+    instrument with a multiplier of its own is valued by it, not by an assumed one.
+    """
+
+    underlying = _declared(state, deliverable.asset_id)
+    if underlying is None:
+        raise RuntimeValidationError(
+            f"{contract.symbol} on {contract.exchange} settles against "
+            f"{deliverable.asset_id}, which the run's registry does not declare; what one unit "
+            "of it is worth is that declaration's to say."
+        )
+    named = f"{underlying.symbol} on {underlying.exchange}"
+    return economics_for(underlying.asset_type, underlying.economics, named).multiplier
+
+
+def _require_deliverable(
+    state: ExecutionPipelineState,
+    contract: InstrumentRecord,
+    deliverable: Deliverable,
+    units: Decimal,
+    price: Decimal,
+    multiplier: Decimal,
+) -> tuple[InstrumentRecord, InstrumentEconomics, Decimal]:
+    """The deliverable's record, its economics and the price per unit it moves at -- or a refusal.
+
+    ``units`` is signed: positive is taken in, negative delivered away. ``price``
+    is per unit of the contract's price, so ``price x multiplier`` is one
+    contract's consideration, and the unit price is that over the deliverable
+    units and the deliverable's own multiplier.
+    """
+
+    named = f"{contract.symbol} on {contract.exchange}"
+    underlying = _declared(state, deliverable.asset_id)
+    if underlying is None:
+        raise RuntimeValidationError(
+            f"{named} delivers {deliverable.asset_id}, which the run's registry does not "
+            "declare; nothing can be delivered that the book cannot name."
+        )
+    if underlying.currency != contract.currency:
+        raise RuntimeValidationError(
+            f"{named} is paid for in {contract.currency} and delivers {underlying.symbol}, "
+            f"priced in {underlying.currency}; a delivery whose consideration and deliverable "
+            "are in two currencies is not modelled."
+        )
+    economics = economics_for(
+        underlying.asset_type, underlying.economics, f"{underlying.symbol} on {underlying.exchange}"
+    )
+    ctx = ACCOUNTING_CONTEXT
+    per_contract_units = deliverable.units
+    unit_price = ctx.divide(
+        ctx.multiply(price, multiplier), ctx.multiply(per_contract_units, economics.multiplier)
+    )
+    if not economics.admits_price(unit_price):
+        raise RuntimeValidationError(
+            f"{named} would deliver {underlying.symbol} at {unit_price}, which its economics do "
+            "not admit."
+        )
+    held = _held(state, deliverable.asset_id)
+    if (
+        units < 0
+        and ctx.add(held, units) < 0
+        and not state.config.allocation_constraints.allow_shorting
+    ):
+        raise RuntimeValidationError(
+            f"{named} must deliver {-units} {underlying.symbol} and the book holds {held}; the "
+            "run does not allow a short position, and none is created to make the delivery."
+        )
+    if units > 0 and economics.settlement.pays_notional:
+        cost = ctx.multiply(ctx.multiply(units, unit_price), economics.multiplier)
+        cash = state.portfolio.cash.balance(underlying.currency)
+        if cash < cost:
+            raise RuntimeValidationError(
+                f"{named} takes delivery of {units} {underlying.symbol} for {cost} "
+                f"{underlying.currency}, and the book holds {cash}; no financing of a delivery "
+                "is modelled."
+            )
+    return underlying, economics, unit_price
+
+
+def _deliver(
+    state: ExecutionPipelineState,
+    contract: InstrumentRecord,
+    deliverable: Deliverable,
+    parts: Mapping[str, Decimal],
+    units: Decimal,
+    price: Decimal,
+    multiplier: Decimal,
+    timestamp: float,
+    rates: FxRates,
+    trade_id: str,
+) -> ExecutionPipelineState:
+    """Move ``units`` of the deliverable against ``price`` per unit of the contract's price."""
+
+    underlying, economics, unit_price = _require_deliverable(
+        state, contract, deliverable, units, price, multiplier
+    )
+    current = _lifecycle_fill(
+        state,
+        deliverable.asset_id,
+        units,
+        unit_price,
+        timestamp,
+        underlying.currency,
+        economics,
+        parts,
+        trade_id,
+    )
+    budget_value = _in_budget_currency(
+        current,
+        ACCOUNTING_CONTEXT.multiply(unit_price, economics.multiplier),
+        underlying.currency,
+        rates,
+        timestamp,
+    )
+    current = evolve(
+        current,
+        allocation=AllocationEngine.apply_lifecycle(
+            current.allocation, deliverable.asset_id, {}, deliverable.asset_id, parts, budget_value
+        ),
+    )
+    # The delivered position is worth the market's price for it, when the run has
+    # one, not the price it was delivered at.
+    if deliverable.asset_id in current.market_prices:
+        current = evolve(
+            current,
+            portfolio=PortfolioEngine.mark_changed(
+                current.portfolio, current.market_prices, timestamp, deliverable.asset_id
+            ),
+        )
+    return current
+
+
+def _resolve_option(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord,
+    terms: OptionTerms,
+    economics: InstrumentEconomics,
+    closing: Decimal,
+    underlying_value: Decimal | None,
+    timestamp: float,
+    rates: FxRates,
+    trade_id: str,
+) -> ExecutionPipelineState:
+    """Exercise (``closing`` > 0) or assign (< 0) contracts by the option's terms."""
+
+    named = f"{record.symbol} on {record.exchange}"
+    asset_id = record.asset_id
+    parts = _strategy_parts(AllocationEngine.shares_of(state.allocation, asset_id), closing)
+    cash_settled = terms.settlement is SettlementStyle.CASH
+    if cash_settled and underlying_value is None:
+        raise RuntimeValidationError(
+            f"{named} is cash-settled: its exercise pays the intrinsic value against the "
+            "underlying's settlement value, which was not supplied."
+        )
+    if not cash_settled and underlying_value is not None:
+        raise RuntimeValidationError(
+            f"{named} is physically settled: the deliverable moves against the strike, and a "
+            "settlement value would be read by nothing."
+        )
+    direction = Decimal("1") if terms.option_type is OptionType.CALL else Decimal("-1")
+    delivered_units = ACCOUNTING_CONTEXT.multiply(
+        ACCOUNTING_CONTEXT.multiply(direction, terms.deliverable.units), closing
+    )
+    if not cash_settled:
+        # Refused before anything moves.
+        _require_deliverable(
+            state, record, terms.deliverable, delivered_units, terms.strike, economics.multiplier
+        )
+    current = evolve(
+        state, allocation=AllocationEngine.apply_lifecycle(state.allocation, asset_id, parts)
+    )
+    if cash_settled:
+        assert underlying_value is not None
+        paid = terms.intrinsic(
+            underlying_value,
+            economics.multiplier,
+            _deliverable_multiplier(current, record, terms.deliverable),
+        )
+        current = _lifecycle_fill(
+            current,
+            asset_id,
+            -closing,
+            paid,
+            timestamp,
+            record.currency,
+            economics,
+            parts,
+            trade_id,
+        )
+    else:
+        # The contracts are surrendered for nothing; the deliverable moves
+        # against the strike.
+        current = _lifecycle_fill(
+            current,
+            asset_id,
+            -closing,
+            Decimal("0"),
+            timestamp,
+            record.currency,
+            economics,
+            parts,
+            trade_id,
+        )
+        current = _deliver(
+            current,
+            record,
+            terms.deliverable,
+            {
+                sid: ACCOUNTING_CONTEXT.multiply(
+                    ACCOUNTING_CONTEXT.multiply(direction, terms.deliverable.units), part
+                )
+                for sid, part in parts.items()
+            },
+            delivered_units,
+            terms.strike,
+            economics.multiplier,
+            timestamp,
+            rates,
+            f"DELIVERY-{trade_id}",
+        )
+    return _after_book_change(current, current.portfolio, timestamp, rates)
+
+
 def _economics_of(state: ExecutionPipelineState, asset_id: str) -> InstrumentEconomics | None:
     """The economics ``asset_id`` is booked by: what its record declares (ledger ACC-005).
 
@@ -1958,6 +2893,9 @@ def _working_shares(
                     shares[key] = ACCOUNTING_CONTEXT.add(shares.get(key, Decimal("0")), share)
     return shares
 
+
+#: The settlement models of what expires: futures and options (FUT-012).
+_EXPIRING: Final = frozenset({SettlementModel.FUTURES_VARIATION, SettlementModel.OPTION_PREMIUM})
 
 _NO_LOTS: Mapping[str, LotSpecification] = MappingProxyType({})
 _NO_MINIMUMS: Mapping[str, Decimal] = MappingProxyType({})
@@ -2351,8 +3289,12 @@ def _terms_refusal(
             f"The order would be placed at {instant!r}, and its terms expire it at "
             f"{terms.expire_at!r}."
         )
-    if state.config.routing is not ExecutionRouting.SIMULATED:
+    if state.config.routing is ExecutionRouting.EXTERNAL:
         return None
+    if state.config.routing is ExecutionRouting.ALGORITHMIC:
+        unworkable = _algorithmic_terms_refusal(terms)
+        if unworkable is not None:
+            return unworkable
     if _needs_session_close(terms):
         _, refusal = _day_order_close(state, request.asset_id, instant)
         if refusal is not None:
@@ -2361,6 +3303,30 @@ def _terms_refusal(
         return (
             f"An auction order fills at a daily bar's open or close, and this run has published "
             f"no daily bar for {request.asset_id}."
+        )
+    return None
+
+
+def _algorithmic_terms_refusal(terms: OrderTerms) -> str | None:
+    """Why an execution algorithm cannot work a parent on these terms, or ``None``.
+
+    An algorithm's children are market or limit orders
+    (:class:`~alphalab.execution.algorithms.AlgorithmTerms`), sent over a window:
+    a stop has no trigger to slice, an auction is one price at one instant, and an
+    immediate order ends at its first attempt, which a window contradicts.
+    Refused before an order exists, so nothing is held and nothing is filled
+    whole in its place.
+    """
+
+    if terms.order_type not in (OrderType.MARKET, OrderType.LIMIT):
+        return (
+            f"An execution algorithm works MARKET or LIMIT parents in children, not "
+            f"{terms.order_type}; the order was not placed."
+        )
+    if terms.is_auction or terms.is_immediate:
+        return (
+            f"An execution algorithm works a parent over a window, and a "
+            f"{terms.time_in_force} order is one attempt; the order was not placed."
         )
     return None
 
@@ -3215,7 +4181,9 @@ def _submit_and_accept_order(
     state: ExecutionPipelineState, request: OrderRequest, timestamp: float
 ) -> tuple[ExecutionPipelineState, OMSOrder]:
     expire_at = request.terms.expire_at
-    if state.config.routing is ExecutionRouting.SIMULATED and _needs_session_close(request.terms):
+    if state.config.routing is not ExecutionRouting.EXTERNAL and _needs_session_close(
+        request.terms
+    ):
         # _terms_refusal already refused the order when this has no answer.
         expire_at, _ = _day_order_close(state, request.asset_id, timestamp)
     submitted_order = _oms_order(request, expire_at)
@@ -3739,6 +4707,32 @@ def _settlement_refusal(
         return None
     currency = record.currency
     named = f"{record.symbol} on {record.exchange}"
+    if record.asset_type is AssetType.INDEX:
+        # v4.1.1 (FUT-013): an index is a value contracts settle against.
+        return SettlementRefusal(
+            asset_id=asset_id,
+            instrument_currency=currency,
+            settlement_currency=settlement,
+            detail=(
+                f"{named} is an index: a reference value, not something held. Trade a "
+                "contract on it; the request was dropped before it reached the OMS."
+            ),
+            timestamp=timestamp,
+        )
+    if record.last_trade_at is not None and timestamp > record.last_trade_at:
+        # v4.1.1 (FUT-012): an expired contract trades no more, here or anywhere.
+        return SettlementRefusal(
+            asset_id=asset_id,
+            instrument_currency=currency,
+            settlement_currency=settlement,
+            detail=(
+                f"{named} stopped trading at {record.last_trade_at!r} and the request is at "
+                f"{timestamp!r}: an expired contract is not traded. The request was dropped "
+                "before it reached the OMS; a position still held is closed by its "
+                "ContractSettlement."
+            ),
+            timestamp=timestamp,
+        )
     if currency in permitted:
         # Since v3.11 a request must also be one the book can be kept by: a
         # future or an option declaring no economics has a multiplier and a
@@ -3909,6 +4903,13 @@ def price_refusal(state: ExecutionPipelineState, payload: object) -> str | None:
         asset_id, mark, shown = payload.asset_id, payload.price, (payload.price,)
     else:
         return None
+    expired = _expired_at(state, asset_id)
+    if expired is not None and payload.timestamp > expired:
+        return (
+            f"{asset_id} stopped trading at {expired!r} and this record is at "
+            f"{payload.timestamp!r}: an expired contract has no price to mark or trade on "
+            "(FUT-012), so the record is refused."
+        )
     if mark > 0 and all(price >= 0 for price in shown):
         return None
     economics = _economics_of(state, asset_id)

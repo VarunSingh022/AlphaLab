@@ -86,6 +86,7 @@ from alphalab.instrument.registry import (
     register_dated_alias,
     register_instrument,
 )
+from alphalab.instrument.terms import ContractTerms, terms_from_primitives, terms_to_primitives
 from alphalab.persistence.decode import (
     as_float,
     as_mapping,
@@ -123,8 +124,10 @@ __all__ = [
 #: economics (ledger ACC-005); see the module docstring. Version 3 (v3.12)
 #: carries each instrument's classifications along every dimension but sector
 #: (ledger OFE-001); the index of each dimension's buckets is rebuilt, not
-#: carried.
-INSTRUMENT_SNAPSHOT_SCHEMA: Final = 3
+#: carried. Version 4 (v4.1.1) carries each instrument's last trading instant
+#: (ledger FUT-012) and its contract terms (FUT-013); every earlier record
+#: declared neither.
+INSTRUMENT_SNAPSHOT_SCHEMA: Final = 4
 
 _SUBSYSTEM: Final = "instrument"
 
@@ -189,6 +192,10 @@ class InstrumentRegistryRecord:
     #: Dimension -> every classification along it, oldest first; sorted by
     #: dimension so a payload does not depend on the order they were declared in.
     dimensions: Mapping[str, tuple[DimensionRecord, ...]] = field(default_factory=dict)
+    last_trade_at: float | None = None
+    #: The contract's terms as :func:`~alphalab.instrument.terms.terms_to_primitives`
+    #: writes them, or ``None``.
+    terms: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +279,8 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
                     for dimension, histories in sorted(registry.dimensions.items())
                     if asset_id in histories
                 },
+                last_trade_at=record.last_trade_at,
+                terms=terms_to_primitives(record.terms),
             )
         )
     return InstrumentRegistrySnapshot(
@@ -321,6 +330,8 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
                 aliases=dict(entry.aliases),
                 dated_aliases=tuple(_dated(item) for item in entry.dated_aliases),
                 economics=entry.economics,
+                last_trade_at=entry.last_trade_at,
+                terms=_terms(entry.terms, f"{entry.symbol}.terms"),
             )
             if record.asset_id in registry.instruments:
                 raise StateDecodeError(
@@ -470,7 +481,26 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
         ),
         economics=_economics(require(payload, "economics"), f"{where}.economics"),
         dimensions=_dimensions(require(payload, "dimensions"), f"{where}.dimensions"),
+        last_trade_at=_optional_instant(
+            require(payload, "last_trade_at"), f"{where}.last_trade_at"
+        ),
+        terms=_optional_mapping(require(payload, "terms"), f"{where}.terms"),
     )
+
+
+def _optional_mapping(value: Any, where: str) -> Mapping[str, Any] | None:
+    return None if value is None else as_mapping(value, where)
+
+
+def _terms(value: Mapping[str, Any] | None, where: str) -> ContractTerms | None:
+    try:
+        return terms_from_primitives(value, where)
+    except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
+
+
+def _optional_instant(value: Any, where: str) -> float | None:
+    return None if value is None else as_float(value, where)
 
 
 def _economics(value: Any, where: str) -> InstrumentEconomics | None:
@@ -522,6 +552,21 @@ def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
+    """A version-3 instrument declared no last trading instant and no contract terms.
+
+    Nothing before v4.1.1 could declare either (ledgers FUT-012, FUT-013), so
+    every record reads as one that does not expire -- what the payload says.
+    """
+
+    return {
+        **payload,
+        "instruments": [
+            {**entry, "last_trade_at": None, "terms": None} for entry in payload["instruments"]
+        ],
+    }
+
+
 INSTRUMENT_SCHEMA_HISTORY = SchemaHistory(
     _SUBSYSTEM,
     INSTRUMENT_SNAPSHOT_SCHEMA,
@@ -537,6 +582,12 @@ INSTRUMENT_SCHEMA_HISTORY = SchemaHistory(
             "version 3 carries each instrument's classifications along dimensions other "
             "than sector; no earlier registry had any",
             upgrade=_v2_to_v3,
+        ),
+        SchemaStep(
+            3,
+            "version 4 carries each instrument's last trading instant and contract terms; "
+            "no earlier registry declared either",
+            upgrade=_v3_to_v4,
         ),
     ),
 )

@@ -49,6 +49,7 @@ Reference
 | Document | Description |
 |-----------|-------------|
 | `GETTING_STARTED.md` | Installation, the repository, and building, checking and reproducing a first strategy |
+| `COMPOSING_STRATEGIES.md` | Writing a strategy over several assets, datasets, external information and models: the contracts, the time guarantees and the boundaries (v4.1.1) |
 | `EXAMPLES.md` | End-to-end examples covering research, backtesting, portfolio optimization, and production workflows |
 | `api/PUBLIC_API.md` | The public API, its manifest, and the stability policy from v4.0 |
 | `INTEGRATION.md` | Depending on AlphaLab from an application: how to install a release, the tested Python, and what an application may rely on |

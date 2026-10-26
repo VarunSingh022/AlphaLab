@@ -82,7 +82,7 @@ deployment reproducible, and is what this release recommends.
 
 **The public API.** Every name in `docs/api/public_api.json`: each package's
 `__all__`, and the `__all__` of `alphalab.api` and of each durable state's
-snapshot module -- 2,628 names. `tests/regression/test_public_api_manifest.py`
+snapshot module -- 2,667 names. `tests/regression/test_public_api_manifest.py`
 fails on any name added, removed or re-signed without the manifest changing,
 and each release's CHANGELOG names every removal or rebinding. Since v4.1 one
 signature reads the same on every supported interpreter (API-008). A name with a

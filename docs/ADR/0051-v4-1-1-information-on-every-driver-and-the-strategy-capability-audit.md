@@ -1,0 +1,269 @@
+# ADR-0051: v4.1.1 — Information on Every Driver, Several Datasets in One Run, and the Strategy Capability Audit
+
+## Status
+
+**Accepted and implemented in the v4.1.1 candidate** (branch
+`work/v4.1.1-future-readiness`, uncommitted), in two milestones: the audit and
+information on every driver (decisions 1-6), then the continuation that closed
+the engine-owned gaps the audit found (decisions 7-12), then the FUT-009
+milestone, execution algorithms on the historical drivers (decision 13), then
+the FUT-013 milestone, a derivative's lifecycle declared and carried out
+(decision 14). The release number is the
+maintainer's decision: the candidate adds public names, keyword-only parameters,
+an enum member and two schema steps (instrument 3 to 4, replay 1 to 2, each
+reading every earlier payload), which `docs/api/PUBLIC_API.md`'s policy and
+semantic versioning make a **minor** release (v4.2.0), not a patch; the ledger
+records the entries under `v4.2.0`, the recommendation. It adds **no package**
+and no package edge but `alphalab.api -> alphalab.macro`; no run, pipeline or
+portfolio schema moves, and no v4.1 run identity moves.
+
+---
+
+# Context
+
+The brief for v4.1.1 asked whether a researcher can devise a strategy AlphaLab's
+authors did not anticipate -- combining assets, datasets, sentiment, macro
+releases, features and models -- validate it honestly and carry it towards
+production, and asked for the answer from source, tests and executed runs. The
+audit (`docs/audit/STRATEGY_CAPABILITY_MATRIX.md`,
+`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`) found the strategy
+contract open -- a registry maps an identity to any factory, and no list of
+strategy kinds exists -- and point-in-time information on the execution path
+since v3.12 (OFE-009); and it found four places where composition stopped:
+
+1. Only the backtest driver delivered information. A replay of the same records
+   took none, so the replay of a strategy acting on news was another run; the
+   application facade took none; the live driver had no call for it.
+2. A run named one dataset, and a dataset is one series kind from one source. A
+   two-venue or two-provider run carried an id its author typed.
+3. `context.market.bar(asset_id)` had returned `None` for every asset since
+   v2.10 (KD-005), so a strategy reading bars through its context saw none.
+4. The reinforcement-learning package still reported a fixed accounting defect
+   as live (DOC-012).
+
+---
+
+# Decisions
+
+**1. One merge rule, every historical driver.** The rule `BacktestEngine.run`
+has applied since v3.12 -- an observation at its knowledge instant, after every
+record of that instant and before its slice closes; one known after the data
+never -- becomes three public functions in `alphalab.backtesting.engine`
+(`pending_observations`, `deliver_known_before`, `deliver_remaining`), and
+`BacktestEngine.run` and `ReplayBacktest.run` both call them. A caller stepping
+a run by hand calls them too, and `pending_observations` given a restored run's
+cursor hands a continuation exactly the deliveries it has not made.
+
+**2. A paused replay carries what it has still to deliver -- in process.**
+`PausedReplay.observations` (defaulted, so every existing construction is
+unchanged) holds the outstanding deliveries, checked to be after the run's
+cursor and in order. Replay schema 1 records the cursor and not the schedule,
+so `replay_snapshot.capture` **refuses** a paused replay with deliveries
+outstanding that its data reaches, rather than write a payload that would
+resume without them; deliveries known only after the last record are never
+made by any replay of it, and do not refuse. The durable form is a schema step,
+accepted as FUT-003.
+
+**3. The facade and the live driver say it too.** `alphalab.api.backtest` and
+`replay` take keyword-only `observations`; `LiveSession.deliver_observation`
+delivers at the session's clock (never before the record was knowable) and
+routes what the strategies asked for, as `LiveSession.close_slice` does.
+
+**4. Several datasets, one derived identity.** `alphalab.api.CombinedDataset`
+keeps each part's provenance; its version is derived from the parts' versions
+and content hashes **in the order given**, because that order breaks ties
+between records sharing an instant. Records are merged by time, part and
+position; nothing is aligned, filled or carried forward; one instrument's price
+from two parts at one instant is refused. It satisfies the manifest's
+`VersionedDataset` protocol, so `manifest_for_run` checks a run against it.
+
+**5. A context's bar is the bar the market holds.** `MarketView.bar` finds the
+asset's bars by their key and returns the latest, the longer interval on a tie
+(KD-005).
+
+**6. The acceptance scenario is an example, and a test holds it.**
+`examples/72_compose_a_multi_asset_strategy.py` -- an equity and an index future
+from two files, social-media posts and a CPI series with revisions, a
+researcher-written strategy, costs, a refusing risk gate, a manifest -- is held
+by `tests/integration/test_multi_asset_composition.py` to eleven properties,
+including a counterfactual (late values changed; nothing before their
+availability moves) and a control that leaks and is caught.
+
+---
+
+**7. One schedule for every timed input.** `alphalab.backtesting.schedule`
+replaces decision 1's three observation functions (never released) with a
+`RunSchedule` -- observations, rates, funding, cash flows, per-unit
+distributions, perpetual funding rates, splits, timers and contract settlements
+-- and one `ScheduleCursor` both historical drivers and a hand loop take. Each
+entry is placed *before* the records of its instant (what the world is at the
+instant: a rate, a funding, a cash flow, a split) or *after* them (what happens
+at it: an observation, a timer, a settlement), ordered by
+`(instant, place, kind, identity)`. Two entries naming one thing at one instant
+are refused. What has been applied is a function of the last record a run was
+handed, so a continuation needs only the schedule back, never a counter.
+
+**8. Per-unit distributions and funding rates.** A schedule is written before
+the run, so it cannot know a position's size; a dividend or coupon is declared
+per unit and a funding rate as a rate, and the run books what the position held
+at the instant earns or owes, at the run's own mark.
+
+**9. A paused replay keeps its schedule durably.** Replay schema 2 records the
+schedule's digest; `restore` takes the schedule back and refuses another or none.
+Decision 2's refusal is withdrawn.
+
+**10. Contracts expire.** `InstrumentRecord.last_trade_at` (outside the identity
+key; instrument schema 4) declares the last trading instant, read through a
+registry index so a registry with none costs the per-record path nothing. After
+it the instrument's records are skipped and its requests refused before an order
+exists; `ContractSettlement` closes every position at the exchange's final price
+through the portfolio's one fill authority (`final_settlement=True` admits a
+zero, so an option can expire worthless), cancels working orders, attributes the
+settlement, and a run that ends holding an expired contract is refused.
+Physical delivery and early exercise are not modelled; settling before the last
+trading instant is refused.
+
+**11. Bonds.** `AssetType.BOND` declares its economics like a future and its
+maturity as its last trading instant; `alphalab.api.bond_schedule` turns a
+`macro.bond.Bond` into per-unit coupons and a redemption settlement. Accrual is
+carried by trading full prices.
+
+**12. Lineage and research outputs.** `manifest_for_run(..., schedule=)` checks
+the schedule against the run's deliveries and records its digest, rendered into
+the identity only when given; a run over a combined dataset records each part,
+checked to derive the combined identity, so a rerun is told which datasets to
+supply and in what order. `alphalab.api.observations_from_indicator` lifts
+the macro engine's releases. Example 73 evidences a study's features and a
+fitted model on the execution path.
+
+**13. Execution algorithms on the historical drivers (FUT-009).** An
+`ExecutionPlan` routes a backtest or replay
+`ExecutionRouting.ALGORITHMIC`, a new member: the pipeline accepts and holds
+every parent -- risk judges it whole, allocation reserves it, the OMS keeps one
+order -- refuses stop, auction and immediate terms before an order exists, and
+never simulates a parent whole. The algorithms' state is **driver state**, an
+`AlgorithmBook` beside the run, as the schedule's cursor is: putting it on
+`RunState` or the pipeline config would move every run's record and
+`result_id`, which a minor release may not. Nor is it a field of
+`BacktestResult`, which stores only the run so that nothing on it can disagree
+with the run (pinned by `test_run_runtime_boundary.py`): a run given a plan
+returns an `AlgorithmicResult`, the same projection with the book beside it. At each event of a parent's asset,
+after the run's step, the book adopts new parents, expires children past their
+slice, gives working children their turn, releases what the algorithm's rule
+says is due, and ends a finished parent through `apply_terminal_outcome`. A turn
+is `ExecutionPipeline.work_child`: the fill policy decides what the child's
+quantity gets from the event's liquidity, the simulator prices it by the run's
+cost model, and the report -- against the parent, with the parent-relative
+status a venue fill has -- goes through the path every fill takes. Under
+`NEXT_EVENT` a child trades only at a **later instant** than it was released,
+stricter than an order's "next event", because a second record at the same
+instant is the same moment. The completion criterion the audit wrote, equal to
+the `PaperBroker` route fill for fill, is restated: a paper venue sees no market
+data and fills a market child at the parent's reference price, so equality in
+price would require the backtest to ignore each child's own bar; the backtest
+releases the same children, by id, quantity and instant, as `route_child_order`
+sends a `PaperBroker`, and prices them at their bars. The book persists in replay
+schema 2 (unreleased, so no further step), its plan supplied back and held to it
+by `plan_id`, and the manifest records the plan's id when given.
+
+**14. A derivative's lifecycle is declared by the contract and carried out by
+the run (FUT-013).** `InstrumentRecord.terms` -- outside the identity key, like
+`economics` -- declares `OptionTerms` or `FutureTerms`: the option type, strike,
+exercise style and window, cash or physical settlement, one `Deliverable` in any
+quantity per contract, and the clearing house's `AutomaticExercise` threshold or
+none. Nothing is inferred from a market's name, country or currency, and there
+is no list of supported markets: a market is its declared `MarketCalendar`
+(zone, sessions, holidays) and `SettlementRule`, and
+`alphalab.runtime.calendars.session_close` / `settles_at` turn those into a
+lifecycle's instants, so a market whose conventions differ needs different
+declarations, not different code (four synthetic profiles are tested, one a
+Sunday-to-Thursday market with a lunch break). `Exercise`, `Assignment` and
+`OptionExpiry` are inputs on the run's schedule -- after the instant's records,
+exercise before assignment before expiry before settlement, so an instruction
+for the expiry instant applies before the expiry resolves the rest -- and
+`RunEngine` operations. Every movement goes through the portfolio's one fill
+authority: a cash-settled contract closes at its intrinsic value per unit of
+price, `max(S x units x m_deliverable / m - K, 0)`, against a supplied
+settlement value; a physical one is surrendered at nothing while the deliverable
+moves against `strike x multiplier` and is marked at the market's price; a
+physical future delivers at its final price after its last variation. The
+allocation ledger closes each strategy's share and books its share of the
+delivery. Assignment before expiry is an input, never drawn: which written
+contracts are assigned is not knowable from prices; at expiry the contract's
+declared rule exercises longs and assigns shorts. An index is a new
+`AssetType`, a reference value cash options settle against, never traded. What
+cannot be represented or covered is refused before anything moves.
+
+---
+
+# Consequences
+
+**Known limitations**
+
+- **A bond's accrued interest is carried by its price**: a run trading clean
+  prices books no accrual; trade full prices.
+- **A feature evaluated inside a strategy recomputes its window**: equal to the
+  study's, and linear in the history per evaluation.
+- **A run's record names its last delivery, not its schedule**: the schedule is
+  identified by the manifest, when the producer passes it.
+
+- **A child's fill reaches its strategy through the portfolio, not `on_fill`**:
+  as a venue fill does on the live path; the strategy sees it in its next
+  context.
+- **Participation that completes after its window is refused**: no child
+  outlives its window in a historical run, so `COMPLETE_AT_END` has nowhere to
+  trade.
+- **A child is checked against the venue's declaration, not by risk again**:
+  risk judged the parent, whose quantity bounds every child.
+- **An algorithm is assigned per asset, not per strategy**: a netted parent
+  holds several strategies, and one parent is worked one way.
+- **A strategy cannot instruct an exercise from its hooks**: exercise is a
+  scheduled input or a run operation, so a decision taken from data is a stated
+  policy over published prices.
+- **Cash and deliverables move at the event's instant**: a market's T+n lag is
+  modelled by scheduling the event at `settles_at`'s instant; no unsettled-cash
+  ledger is kept.
+- **One deliverable, in the consideration's currency, American or European**:
+  baskets, cash in lieu, quanto and Bermudan contracts are refused.
+- **A delivery the book cannot cover stops the run**: no margin call, collateral
+  or forced liquidation is modelled.
+
+Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
+FUT-009, FUT-014, FUT-015, FUT-016, FUT-017).
+
+**Deferred** — to v4.3 and later, pending the maintainer's decision: a queue-position and fill-probability model; a strategy-facing exercise instruction; settlement-date accounting; richer contract terms; margin and forced liquidation.
+
+---
+
+# Alternatives considered
+
+* **Recording the observation sets on `RunState`.** The honest place for them,
+  and the reason it was not taken: a new field moves every run's `result_id`,
+  including runs that read no observations, which the v4 policy reserves for a
+  schema step and a migration row (FUT-005).
+* **Recording consumption counters in the replay payload.** Unnecessary:
+  what a run has applied follows from the last record it was handed, so the
+  payload carries only the schedule's digest (decision 7).
+* **Auto-settling an expired contract at its last mark.** A default price for
+  a settlement nobody published; refused instead (decision 10).
+* **Each child an OMS order of its own.** Every child would be judged by risk,
+  reserve capital and carry contributions separately, so one decision would be
+  booked as many and a cancelled child would release what its parent still
+  committed. The live path settles children on the parent for the same reason
+  (decision 13).
+* **Inferring a contract's terms from its market.** "American and physical"
+  is one market's equity-option convention and wrong for its index options and
+  for most of the world's; terms are declared or the event is refused
+  (decision 14).
+* **Drawing assignments.** A probabilistic assignment model is a research
+  assumption with a random state, not an engine fact; assignment before expiry
+  is a supplied input (decision 14).
+* **Filling an order the algorithm cannot work whole, with a note.** A backtest
+  that substitutes an immediate fill reports an execution nobody asked for; an
+  unworkable parent is rejected, with the reason, instead.
+* **Aligning combined datasets to a common clock.** Forward-filling an
+  asynchronous series is the look-ahead and staleness error the point-in-time
+  work exists to prevent; the run's slices already say when an instant is
+  complete.
+* **Calling it v4.1.1.** The brief asked for that number and also forbade
+  mislabelling a feature release as a patch; the additive public API decides it.

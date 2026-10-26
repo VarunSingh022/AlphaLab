@@ -821,12 +821,12 @@ all. (v3.10 removed `feed` and `live`; v3.11 `studio`, `workbench` and
 | `instrument` | Canonical instrument identity, the registry, classification and its provenance |
 | `common` | Version, `BaseEvent`, deterministic serialization, the seeded identifier source, `AppendOnlyLog` / `PersistentMap` / `PersistentSet`, TLS policy, and the point-in-time core: `known_as_of`, and since v3.7 `PointInTimeStamp`, `AvailabilityBasis`, `VisibilityRule` and `PointInTimeIndex`. Since v3.9 the currency-conversion protocols (`common.currency`), moved down from `allocation.capital`. Since v3.10 the one version declaration (`common._version`), each currency's minor unit (`common.currency_units`) and the pinned accounting context (`common.arithmetic`) |
 | `persistence` | The codec spine (`serialize`, typed `decode`, exceptions), `RunStateStore`, and since v3.10 versioned schema upgrades (`persistence.upgrade`) |
-| `backtesting` | The dataset type and the two drivers over it. Since v3.12 a backtest merges point-in-time observations (`alt_data`) with its records |
+| `backtesting` | The dataset type and the two drivers over it. Since v3.12 a backtest merges point-in-time observations (`alt_data`) with its records; since the v4.1.1 candidate a replay does too, by the same public functions (OFE-027) |
 | `replay` | The deterministic replay cursor, clock and session lifecycle |
 | `broker` | **One** venue: `BrokerProtocol`, the canonical broker vocabulary, reconciliation, `PaperBroker` (the HMAC transport and `RestVenueBroker` left in v3.11 with their credentials, BRK-007). Since v3.9 also normalized venue events and their application to the mirror (`broker.lifecycle`), cancel and amend request identities (`broker.requests`) and snapshot reconciliation; it re-exports the capability model |
 | `data` | The canonical **wire** record, and the Universal Data Engine: source provenance, delimited reading, schema detection, timestamps and frequency, validation findings, cleaning policy, quality reporting, asset-class semantics, market calendars, corporate-action basis, and the derived dataset version. Its only outward edges are `common` and `options` (one leaf enum), which is what keeps the package graph acyclic |
 | `marketdata` | The HTTP and WebSocket transports and the wire records it re-exports from `data.feed` (`Timeframe` was removed in v3.11: the interval is `market.bar.TimeFrame`). Until v3.10 also vendor clients (four of five were stubs) and a v1 provider engine, removed: a provider is the host application's |
-| `api` | **The top of the graph** (v3.1). The application-facing Python API joining the data layer to the execution path: `ingest_csv`, `select`, `to_market_dataset`, `backtest`, `replay`. Since v3.7 also point-in-time ingestion of observations, events and fundamentals with an explicit availability rule, and the lifting of single-timestamp wire records. Since v3.8 sector and currency classifications read from the instrument registry. Nothing imports it, which is what lets it depend on both `data` and `market` without closing a cycle |
+| `api` | **The top of the graph** (v3.1). The application-facing Python API joining the data layer to the execution path: `ingest_csv`, `select`, `to_market_dataset`, `backtest`, `replay`. Since v3.7 also point-in-time ingestion of observations, events and fundamentals with an explicit availability rule, and the lifting of single-timestamp wire records. Since v3.8 sector and currency classifications read from the instrument registry. Since the v4.1.1 candidate several datasets read by one run under one derived identity (`combine_datasets`, OFE-028), and `observations` on `backtest` and `replay`. Nothing imports it, which is what lets it depend on both `data` and `market` without closing a cycle |
 
 ## The lifecycle path
 
@@ -1144,11 +1144,11 @@ constant and **one** typed decoder.
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
 | `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 8 |
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 5 |
-| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 3 |
+| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 4 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
-| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 1 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 2 |
 
 Plus `persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, which versions what
 the *store* records about a payload and nothing inside it, and the envelopes of

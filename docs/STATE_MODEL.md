@@ -192,17 +192,30 @@ and a typed decoder that refuses what it does not understand. Eleven do (v4.1):
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
 | `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 8 |
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 5 |
-| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 3 |
+| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 4 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
-| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 1 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 2 |
+
+`InstrumentRegistry` schema 4 (v4.1.1) carries each instrument's last trading
+instant (FUT-012) and its contract terms (FUT-013) -- `OptionTerms` or
+`FutureTerms`, enum members by name and amounts as text -- read back through
+the record's own validation, so a payload stating terms a contract cannot have
+is refused. Neither enters the identity key: every `asset_id` is what it was.
 
 `PausedReplay` (v4.1, ledger FUT-001) is a replay stopped between two records:
 its envelope nests the run snapshot unchanged and adds the replay cursor and the
 position of the cursor's own identifier stream. Its `restore` also takes the
 dataset back -- the replay's input, recorded by id, length, the ids at the
-boundary and a digest of every record, and refused when it differs.
+boundary and a digest of every record, and refused when it differs. Since
+v4.1.1 (schema 2) it also records its schedule's digest and, for a replay given
+an execution plan (ledger FUT-009), the plan's algorithm book, written by
+`backtesting.algorithmic.capture_book` (`ALGORITHM_BOOK_SCHEMA = 1`): every
+parent's algorithm with its children, and every child fill. The plan is taken
+back by `restore` and held to the book by its `plan_id`, and each algorithm run
+is rebuilt and checked against its recorded identity. The book is driver state,
+not part of `RunState`, so no run's record or `result_id` moved.
 
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
