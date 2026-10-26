@@ -424,6 +424,11 @@ class ReproducibilityManifest:
             of the plan whose algorithms worked the run's orders in children
             (v4.1.1, ledger FUT-009), or ``None`` for a run that filled them
             whole. Rendered into the identity only when present.
+        queue_model: The queue model that governed the run's resting limit
+            orders, described (v4.1.1, ledger FUT-011), or ``None`` for a run
+            that declared none. Rendered into the identity only when present:
+            the run's configuration does not carry it, so without it two runs
+            whose passive fills were decided differently would share one.
     """
 
     manifest_id: str
@@ -441,6 +446,7 @@ class ReproducibilityManifest:
     schedule_digest: str | None = None
     dataset_parts: tuple[tuple[str, str], ...] = ()
     execution_plan_id: str | None = None
+    queue_model: str | None = None
 
     @property
     def evidence_kind(self) -> str:
@@ -498,6 +504,7 @@ def canonical_manifest_key(
     schedule_digest: str | None = None,
     dataset_parts: tuple[tuple[str, str], ...] = (),
     execution_plan_id: str | None = None,
+    queue_model: str | None = None,
 ) -> str:
     """Render the canonical key a manifest's identity is derived from.
 
@@ -534,6 +541,8 @@ def canonical_manifest_key(
     )
     if execution_plan_id is not None:
         lines.append(f"inputs.execution_plan={execution_plan_id!r}")
+    if queue_model is not None:
+        lines.append(f"inputs.queue_model={queue_model!r}")
     return "\n".join(lines)
 
 
@@ -551,6 +560,7 @@ def derive_manifest_id(
     schedule_digest: str | None = None,
     dataset_parts: tuple[tuple[str, str], ...] = (),
     execution_plan_id: str | None = None,
+    queue_model: str | None = None,
 ) -> str:
     """SHA-256 over :func:`canonical_manifest_key`. Derived, never minted."""
 
@@ -569,6 +579,7 @@ def derive_manifest_id(
             schedule_digest,
             dataset_parts,
             execution_plan_id,
+            queue_model,
         )
     )
 
@@ -587,6 +598,7 @@ def _manifest(
     schedule_digest: str | None = None,
     dataset_parts: tuple[tuple[str, str], ...] = (),
     execution_plan_id: str | None = None,
+    queue_model: str | None = None,
 ) -> ReproducibilityManifest:
     configuration_id = _sha256(configuration)
     return ReproducibilityManifest(
@@ -604,6 +616,7 @@ def _manifest(
             schedule_digest,
             dataset_parts,
             execution_plan_id,
+            queue_model,
         ),
         kind=kind,
         result_id=result_id,
@@ -619,6 +632,7 @@ def _manifest(
         schedule_digest=schedule_digest,
         dataset_parts=dataset_parts,
         execution_plan_id=execution_plan_id,
+        queue_model=queue_model,
     )
 
 
@@ -788,6 +802,8 @@ def manifest_for_run(
         schedule_digest=None if schedule is None or not schedule else schedule.digest,
         dataset_parts=_parts_of(provenance),
         execution_plan_id=None if execution is None else execution.plan_id,
+        # Read off the result, which names the model it ran under (FUT-011).
+        queue_model=result.execution_assumptions.queue_model,
     )
 
 
@@ -956,6 +972,7 @@ def verify_manifest(manifest: ReproducibilityManifest) -> bool:
         manifest.schedule_digest,
         manifest.dataset_parts,
         manifest.execution_plan_id,
+        manifest.queue_model,
     )
 
 
@@ -1128,6 +1145,16 @@ def external_requirements(manifest: ReproducibilityManifest) -> tuple[ExternalRe
                     recreatable=True,
                 )
             )
+        if manifest.queue_model is not None:
+            requirements.append(
+                ExternalRequirement(
+                    ExternalInput.AUXILIARY_DATA,
+                    f"the queue model {manifest.queue_model} that decided which resting "
+                    "limit orders reached the front of their price level, supplied exactly "
+                    "as it was",
+                    recreatable=True,
+                )
+            )
         if manifest.mode is ExecutionMode.LIVE:
             requirements.append(
                 ExternalRequirement(
@@ -1257,6 +1284,7 @@ def _input_differences(
         ("schedule", repr(original.schedule_digest), repr(rerun.schedule_digest)),
         ("dataset parts", repr(original.dataset_parts), repr(rerun.dataset_parts)),
         ("execution plan", repr(original.execution_plan_id), repr(rerun.execution_plan_id)),
+        ("queue model", repr(original.queue_model), repr(rerun.queue_model)),
     ):
         if before != after:
             differences.append(f"{label}: {before} -> {after}")

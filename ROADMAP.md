@@ -189,6 +189,15 @@ names what the release established and the ADR that records the decision.
   run's schedule through the portfolio's fill authority; `AssetType.INDEX`;
   lifecycle instants from a declared market calendar (`session_close`,
   `settles_at`); example 75.
+- **A queue model for resting limit orders** (the audit's queue-position
+  proposal): `alphalab.execution.queue.PriceTimeQueue` on `BacktestEngine.run`,
+  `ReplayBacktest.run` and the facade (`queue=`) -- each resting limit order keeps
+  its place at its price level from the quote, the signed prints and the bar's
+  range, and fills only as far as reached the front, through the run's own fill
+  policy, costs and books; named in the result's execution assumptions and the
+  run's manifest, kept by a paused replay. Price-time priority over displayed
+  liquidity only: pro-rata books, hidden liquidity and a fill probability are
+  other models of the same protocol.
 
 # Deliberate boundaries
 
@@ -557,14 +566,6 @@ The entries below were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
 horizon, is the maintainer's decision. The candidate itself delivered the rest
 of what the audit proposed (section *v4.2.0 candidate*, above).
-
-## FUT-011 — a queue-position and fill-probability model (target v5.0)
-
-- **Limitation.** A resting limit order fills by the simulator's rule.
-- **Interim behaviour.** Treat passive fills as optimistic in any conclusion.
-- **Acceptance criteria.** A declared queue model decides passive fills and is
-  named in the result's execution assumptions. **Dependencies.** depth data;
-  BDY-003.
 
 ## FUT-014 — a strategy that instructs an exercise from its hooks (target v4.3)
 

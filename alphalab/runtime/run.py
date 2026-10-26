@@ -63,6 +63,7 @@ from alphalab.common.evolve import evolve
 from alphalab.common.ids import IdStreamPosition, id_source_for, require_seed, use_id_source
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.policy import FillPolicy, ImmediateFill
+from alphalab.execution.queue import QueueBook
 from alphalab.execution.report import ExecutionReport
 from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.normalization import is_stale
@@ -480,6 +481,8 @@ class RunEngine:
         context_factory: ContextFactory,
         now: float | None = None,
         rates: FxRates = NO_RATES,
+        *,
+        queue: QueueBook | None = None,
     ) -> tuple[RunState, ExecutionPipelineResult | None]:
         """Move one record through the execution path, and record what it did.
 
@@ -503,6 +506,14 @@ class RunEngine:
         under which no record is ever stale -- the right answer for a historical
         run. A live or paper run passes its real clock.
 
+        ``queue`` (v4.1.1, ledger FUT-011) is the run's queue book, for a
+        simulated run whose resting limit orders a queue model governs; the
+        book after the step is :attr:`ExecutionPipelineResult.queue
+        <alphalab.runtime.execution_pipeline.ExecutionPipelineResult.queue>`,
+        and a skipped record leaves it as it was. It is the driver's to carry,
+        as an execution plan's book is, so a run without one records exactly
+        what it did before.
+
         Returns the next state and the pipeline result, or ``None`` when the
         record was skipped -- because it was stale, or because its timestamp went
         backwards and the run tolerates that.
@@ -513,8 +524,16 @@ class RunEngine:
                 the portfolio at a price the market has already moved past, and
                 the market engine's ``latest_*`` index would silently take the
                 older quote as current. See ADR-0014.
+            RuntimeValidationError: If a queue book is given to a run that does
+                not simulate its orders: a venue, or an execution plan's
+                children, are filled elsewhere, and no queue governs them.
         """
 
+        if queue is not None and state.config.pipeline.routing is not ExecutionRouting.SIMULATED:
+            raise RuntimeValidationError(
+                f"A queue model governs simulated resting orders; this run routes "
+                f"{state.config.pipeline.routing.name}, so none would be governed by it."
+            )
         clock = record.timestamp if now is None else now
         limit = state.config.max_market_data_age_seconds
         if limit is not None and is_stale(record.timestamp, clock, limit):
@@ -542,7 +561,7 @@ class RunEngine:
             )
 
         result = ExecutionPipeline.process_record(
-            state.pipeline, record, context_factory, state.config.fill_policy, rates
+            state.pipeline, record, context_factory, state.config.fill_policy, rates, queue=queue
         )
         step = RunStep(
             index=state.processed,

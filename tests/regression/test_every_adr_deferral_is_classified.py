@@ -139,7 +139,9 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ("0051", "Participation that completes after its window is refused"): "FUT-009",
     ("0051", "A child is checked against the venue's declaration, not by risk again"): "FUT-009",
     ("0051", "An algorithm is assigned per asset, not per strategy"): "FUT-009",
-    ("0051", "a queue-position and fill-probability model"): "FUT-011",
+    # FUT-011 delivered a queue model in the candidate; ADR-0051 now states what
+    # it does not model, which the ledger entry states too.
+    ("0051", "The queue model reads the displayed top of the book"): "FUT-011",
     ("0051", "A strategy cannot instruct an exercise from its hooks"): "FUT-014",
     ("0051", "Cash and deliverables move at the event's instant"): "FUT-015",
     ("0051", "One deliverable, in the consideration's currency, American or European"): "FUT-016",

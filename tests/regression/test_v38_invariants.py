@@ -1109,7 +1109,7 @@ def test_v38_added_no_snapshot_owner_and_no_schema_constant() -> None:
     # added one more, as deliberately: a paused replay's envelope around a run
     # snapshot (ledger FUT-001). v4.1.1 added an execution plan's algorithm book,
     # carried in a paused replay and stored beside a continued backtest's run
-    # (ledger FUT-009).
+    # (ledger FUT-009), and a queue model's book on the same terms (ledger FUT-011).
     assert constants == [
         "ALGORITHM_BOOK_SCHEMA",
         "ALLOCATION_SNAPSHOT_SCHEMA",
@@ -1123,6 +1123,7 @@ def test_v38_added_no_snapshot_owner_and_no_schema_constant() -> None:
         "OMS_SNAPSHOT_SCHEMA",
         "PIPELINE_SNAPSHOT_SCHEMA",
         "PORTFOLIO_SNAPSHOT_SCHEMA",
+        "QUEUE_BOOK_SCHEMA",
         "REPLAY_SNAPSHOT_SCHEMA",
         "RUN_SNAPSHOT_SCHEMA",
         "RUN_STATE_ENVELOPE_SCHEMA",

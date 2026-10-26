@@ -20,7 +20,9 @@ milestone** put execution algorithms on the historical drivers (FUT-009).
 **The FUT-013 milestone** made a derivative's lifecycle -- exercise, assignment,
 expiry, delivery -- the contract's declared terms, carried out by the run in any
 market a calendar describes, and named the gaps it found (FUT-014 to FUT-017).
-Accepted as future work: FUT-011 and FUT-014 to FUT-017, with FUT-002 from v4.1. Every figure below was read from a command's own
+**The FUT-011 milestone** made a resting limit order's passive fills depend on a
+declared queue model. Accepted as future work: FUT-014 to FUT-017, with FUT-002
+from v4.1. Every figure below was read from a command's own
 output in the session that produced it.
 
 ---
@@ -40,19 +42,22 @@ filled by the run's own liquidity cap and cost model and settled on one parent
 order; declare an option's or a future's terms -- American or European, cash or
 physical, its deliverable, its exercise rule -- and have the run exercise,
 assign and deliver it through the portfolio's own accounting, on instants a
-declared market calendar gives; and reproduce, replay, pause durably, store and
+declared market calendar gives; govern resting limit orders by a declared
+queue model, so a passive order fills only once what was displayed ahead of it
+has traded or left; and reproduce, replay, pause durably, store and
 continue every such run to the identical result. The acceptance scenario proves the time semantics against a fixture
 built to leak, including a control that does leak and is caught.
 
 It is **not** a claim that every strategy family is production-ready, nor that
 any market's rules are supported: AlphaLab ships none, and supports a market when
 its calendar and contracts are declared (matrix 2.27). Engine gaps remain, each
-on the ROADMAP with acceptance criteria: a queue model (FUT-011), a
+on the ROADMAP with acceptance criteria: a
 strategy-facing exercise instruction (FUT-014), settlement-date accounting
 (FUT-015), contract terms beyond one deliverable and two exercise styles
 (FUT-016), and margin and forced liquidation (FUT-017); a backtest also
 simulates one venue, so routing between venues is evaluated only on the live
-and paper path. Real venues and
+and paper path, and the queue model reads the displayed top of the book, not
+depth beyond it, and draws no fill probability. Real venues and
 data are, as before, the host's. "Future-ready" is therefore claimed only for
 what sections 6 and 7 evidence.
 
@@ -229,18 +234,22 @@ with that reason, as `rates` already was.
 | FUT-006, FUT-007 | example 73: features from the study's own definitions, a linear model fitted on purged labels before a boundary, carried as declared parameters and state, traded after | `tests/integration/test_model_on_the_execution_path.py` (12) |
 | FUT-009 | `alphalab.backtesting.algorithmic`: `ExecutionPlan` (per-asset `AlgorithmAssignment`s, an optional `VenueCheck`) on `BacktestEngine.run`, `ReplayBacktest.run` and the facade; `ExecutionRouting.ALGORITHMIC` holds every parent in the OMS and refuses stop, auction and immediate terms; `ExecutionPipeline.work_child` fills each child by the run's fill policy and cost model and settles it on the parent; the `AlgorithmBook` on the result, in replay schema 2, and the plan's id in the manifest | `tests/integration/test_algorithms_on_the_historical_path.py` (57), `test_execution_algorithm_example.py` (4), two manifest tests; example 74; `benchmarks/benchmark_algorithmic_execution.py` |
 | FUT-013 | `alphalab.instrument.terms`: `OptionTerms` and `FutureTerms` on `InstrumentRecord.terms` (instrument schema 4, outside the identity key); `Exercise`, `Assignment`, `OptionExpiry` on the schedule and as run operations, through the portfolio's fill authority and each strategy's share; physical futures delivered at their final price; `AssetType.INDEX`; `session_close`, `settles_at` | `tests/integration/test_option_lifecycle.py` (58), `test_lifecycle_conventions.py` (9), `test_lifecycle_example.py` (4); example 75 |
+| FUT-011 | `alphalab.execution.queue`: `QueueModel`, `PriceTimeQueue` (price-time priority over displayed liquidity), `QueuePosition`, `QueueTurn`, `QueueObservation`, `QueueBook`; `queue=` on `BacktestEngine.run`, `ReplayBacktest.run` and the facade; `QueuedResult` and `ExecutionAssumptions.queue_model` / `passive_fills`; the book threaded through `RunEngine.advance` and the pipeline step as a parameter (no pipeline, run or config schema moves, no `result_id` moves); `alphalab.backtesting.queueing` (`QUEUE_BOOK_SCHEMA = 1`) carried by a paused replay (schema 2) and held to its model on restore; `ReproducibilityManifest.queue_model` | `tests/integration/test_queue_model.py` (32: every rule of the model, fills against the same run without it, partial fills, depletion short of the front, bars, the fill policy within the queue, whole units, expiry, a split, a triggered stop-limit, taking orders untouched, an unknown queue, replay parity, a pause at every boundary resumed, refusals, an unchanged record); `tests/unit/lifecycle/test_reproducibility.py` (the manifest) |
 
 **Guards extended, none weakened.** The replay snapshot's field pin names
 `PausedReplay.schedule`; the schema-upgrade suites pin instrument schema 4 and
 replay schema 2 with an upgrade test each, the v4.1.0 payloads frozen in
 `tests/fixtures` still restoring through them; the persisted-enum pin adds
 `bond` and `ALGORITHMIC`, the replay field pin `PausedReplay.algorithms`; the
-schema-constant guard knows `ALGORITHM_BOOK_SCHEMA`; the ADR-deferral classifier
-covers ADR-0051's entries.
+schema-constant guard knows `ALGORITHM_BOOK_SCHEMA` and `QUEUE_BOOK_SCHEMA`; the
+replay field pin names `PausedReplay.queue` and the frozen v4.1.0 replay payload
+upgrades with `queue: null`; the result-field-order pin keeps
+`settlement_refusals` where it was, with `queue` appended after it; the
+ADR-deferral classifier covers ADR-0051's entries.
 
 **Mutation evidence.** Each guard named here was shown to fail against the
 defect it guards, in a scratch copy of the package imported ahead of the
-checkout (`-o pythonpath= --import-mode=append`): in the audit, the replay merging observations *after* closing the slice fails the backtest-replay parity test (after the workload was strengthened so a reading's size depends on the slices seen -- the first version did not distinguish the two orders, which this check found), and v4.1.0's `MarketView.bar` fails four bar tests and four acceptance tests; in the continuation, four mutants, each caught by the test written for it -- a cursor that counts the inputs after a record's instant as applied (`test_scheduled_inputs.py::test_a_replay_paused_anywhere_through_a_payload_keeps_every_input`), a restore that ignores the schedule's digest (`test_heterogeneous_inputs_on_every_driver.py::test_a_payload_resumed_with_another_schedule_or_none_is_refused`), a settlement that leaves orders working (`test_contract_expiry.py::test_an_order_still_working_at_settlement_is_cancelled`), and a manifest that trusts a dataset's stated parts (`test_multi_asset_composition.py::test_a_dataset_stating_parts_it_was_not_derived_from_is_refused`); in the FUT-009 milestone, eight mutants, each caught by `test_algorithms_on_the_historical_path.py` -- a child allowed to work more than its parent has left, a child trading at its release instant, a child outliving its slice, a parent ended without its reservation released, a child fill reported as completing the parent, algorithmic orders filled whole, a book trusting an altered payload, and the capability check skipped. Two of the eight survived the first test file -- the release-instant rule needed two records at one instant, and filling whole showed only under `SAME_EVENT` -- and the tests that catch them were added. In the FUT-013 milestone, twelve mutants, each caught by the lifecycle tests -- a European option exercised early, a put paying the call's payoff, a delivery financed or shorted silently, the exercise threshold ignored, a physical option closed at its intrinsic value (booking it twice), the deliverable's multiplier assumed one, partial-exercise ties given to the later strategy, delivered shares left at the strike, an index made tradable, the registry dropping terms, an exercise beyond the position; the delivered-shares mutant survived the first test, which read the mark only after later prices had re-marked the shares, and the test now reads the equity point at the delivery itself.
+checkout (`-o pythonpath= --import-mode=append`): in the audit, the replay merging observations *after* closing the slice fails the backtest-replay parity test (after the workload was strengthened so a reading's size depends on the slices seen -- the first version did not distinguish the two orders, which this check found), and v4.1.0's `MarketView.bar` fails four bar tests and four acceptance tests; in the continuation, four mutants, each caught by the test written for it -- a cursor that counts the inputs after a record's instant as applied (`test_scheduled_inputs.py::test_a_replay_paused_anywhere_through_a_payload_keeps_every_input`), a restore that ignores the schedule's digest (`test_heterogeneous_inputs_on_every_driver.py::test_a_payload_resumed_with_another_schedule_or_none_is_refused`), a settlement that leaves orders working (`test_contract_expiry.py::test_an_order_still_working_at_settlement_is_cancelled`), and a manifest that trusts a dataset's stated parts (`test_multi_asset_composition.py::test_a_dataset_stating_parts_it_was_not_derived_from_is_refused`); in the FUT-009 milestone, eight mutants, each caught by `test_algorithms_on_the_historical_path.py` -- a child allowed to work more than its parent has left, a child trading at its release instant, a child outliving its slice, a parent ended without its reservation released, a child fill reported as completing the parent, algorithmic orders filled whole, a book trusting an altered payload, and the capability check skipped. Two of the eight survived the first test file -- the release-instant rule needed two records at one instant, and filling whole showed only under `SAME_EVENT` -- and the tests that catch them were added. In the FUT-013 milestone, twelve mutants, each caught by the lifecycle tests -- a European option exercised early, a put paying the call's payoff, a delivery financed or shorted silently, the exercise threshold ignored, a physical option closed at its intrinsic value (booking it twice), the deliverable's multiplier assumed one, partial-exercise ties given to the later strategy, delivered shares left at the strike, an index made tradable, the registry dropping terms, an exercise beyond the position; the delivered-shares mutant survived the first test, which read the mark only after later prices had re-marked the shares, and the test now reads the equity point at the delivery itself. In the FUT-011 milestone, fifteen mutants, each caught by `test_queue_model.py` -- prints that leave the queue unconsumed, prints by the order's own side consuming it, a displayed size adding to the queue, a vacated level keeping it, a touch filling behind the queue, a join at the best price put at the front, the queue's cap ignored, its refusal ignored, no join at placement, the book never pruned during the run, a pause not pruned, a triggered stop-limit never joining, whole units not floored, a pause dropping the book, a restore ignoring the model; three survived the first test file -- the cap made the refusal look redundant, and two pruning layers each hid the other -- and the tests that catch them were added.
 
 ---
 
@@ -298,24 +307,26 @@ well designed, or that any of it behaves the same against a real venue.
 
 ### 8.1 Commands and results on the final tree
 
-Run in the checkout's dev venv (CPython 3.12.4) unless stated.
+Run in the checkout's dev venv (CPython 3.12.4) unless stated; the figures are
+the FUT-011 milestone's, on the tree it committed.
 
 | Gate | Command | Result |
 | --- | --- | --- |
 | Lint | `python -m ruff check .` | All checks passed |
-| Format | `python -m ruff format --check .` | 1,310 files already formatted |
-| Types | `python -m mypy .` | no issues in 1,208 source files |
-| Tests | `python -m pytest -W error` | **10,020 passed, 3 failed** -- exactly the three version-keyed guards of section 8.2 (one of them the dev venv's stale metadata); 0 skipped |
+| Format | `python -m ruff format --check .` | 1,313 files already formatted |
+| Types | `python -m mypy .` | no issues in 1,211 source files |
+| Tests | `python -m pytest -W error` | **10,053 passed, 3 failed** -- exactly the three version-keyed guards of section 8.2 (one of them the dev venv's stale metadata); 0 skipped |
 | Examples | every `examples/[0-9]*.py` under `python -W error` | all 75 exit 0 |
-| Certification | `python -W error docs/audit/scripts/certify_release.py --check` | 11 checks passed, matching the re-certified certificate (only the source digest, the host string and the API manifest's digest and export count moved; no determinism, parity, reproducibility or numerical figure) |
-| Public API | `python docs/api/generate_public_api.py`, then the manifest tests | 2,667 exports, 35 shared names (2,628 at v4.1.0); additions and defaulted keywords or fields only, none removed or re-signed incompatibly (CHANGELOG `[Unreleased]` lists each) |
-| Fresh 3.12 | the suite in a fresh venv from a clean mirror | CPython 3.12.4: **10,021 passed, 2 failed** (the two version-keyed guards; the metadata test passes) |
-| CPython 3.13 | the suite on 3.13.17 (python-build-standalone, scratch) | CPython 3.13.17: **10,021 passed, 2 failed** (the same two) |
-| CPython 3.14 | the suite on 3.14.9 | CPython 3.14.9: **10,021 passed, 2 failed** (the same two) |
+| Certification | `python -W error docs/audit/scripts/certify_release.py --check` | 11 checks passed, matching the re-certified certificate (only the source digest and the API manifest's digest and export count moved; no determinism, parity, reproducibility or numerical figure, and no `result_id`) |
+| Public API | `python docs/api/generate_public_api.py`, then the manifest tests | 2,678 exports, 35 shared names (2,628 at v4.1.0); additions and defaulted keywords or fields only, none removed or re-signed incompatibly (CHANGELOG `[Unreleased]` lists each) |
+| Fresh 3.12 | the suite in a fresh venv from a clean mirror | CPython 3.12.4: **10,054 passed, 2 failed** (the two version-keyed guards; the metadata test passes) |
+| CPython 3.13 | the suite on 3.13.17 (python-build-standalone, scratch) | CPython 3.13.17: **10,054 passed, 2 failed** (the same two) |
+| CPython 3.14 | the suite on 3.14.9 | CPython 3.14.9: **10,054 passed, 2 failed** (the same two) |
 | Build | `python -m build` in the clean mirror | `alphalab-4.1.0.tar.gz` and `alphalab-4.1.0-py3-none-any.whl` (labelled 4.1.0 until the version is set; kept in the scratchpad, `dist/` untouched) |
 | Distributions | `python -m twine check --strict dist/*` | both PASSED |
-| Installed artifacts | `python docs/audit/scripts/release_preflight.py distributions dist --version 4.1.0 --record dist/VERIFICATION-4.1.0.txt` (each artifact alone in a fresh environment, smoke-tested from outside the tree, examples 11 and 70 to 75 with the network refused) | **PASSED**: each artifact installed alone, `pip check` clean, 609 modules, 2,667 public names as the manifest records, examples 11 and 70 to 75 and the consumer contract run with the network refused; wheel `af0a86b8...6d36d`, sdist `73ba43f5...1a1` |
-| Benchmarks | `benchmarks/benchmark_{backtesting,replay_engine,runtime,execution_pipeline,strategy_runtime}.py` under `-W error`, on this tree and on `git archive v4.1.0`, one after the other on one host; `benchmark_algorithmic_execution.py` on this tree | no regression on the final tree: judged backtest scaling 4.04x against v4.1.0's 4.03x, replay 1.03x the backtest on both, run layer +2.10% against +2.33% over the bare step, pipeline 4.04x against 4.05x, dispatch 273,635 against 274,714 hooks/s (within run-to-run noise); every parity line identical. `benchmark_algorithmic_execution.py`: judged 4.00x for a 4x workload, working orders in children 1.51x the run filling them whole (ceilings 6.0x and 4.0x) |
+| Installed artifacts | `python docs/audit/scripts/release_preflight.py distributions dist --version 4.1.0 --record dist/VERIFICATION-4.1.0.txt` (each artifact alone in a fresh environment, smoke-tested from outside the tree, examples 11 and 70 to 75 with the network refused) | **PASSED**: each artifact installed alone, `pip check` clean, 611 modules, 2,678 public names as the manifest records, examples 11 and 70 to 75 and the consumer contract run with the network refused; wheel `f88dfe1b...6b79`, sdist `b3cb9fec...a354` |
+| Benchmarks | `benchmarks/benchmark_{backtesting,replay_engine,runtime,execution_pipeline,strategy_runtime}.py` under `-W error`, on this tree and on `git archive v4.1.0`, one after the other on one host | no regression on the final tree: judged backtest scaling 3.98x against v4.1.0's 4.03x, replay 1.02x the backtest against 1.03x, run layer +2.56% against +2.07% over the bare step (within the run-to-run spread the earlier milestones measured, +2.10% to +2.33%), pipeline 3.99x against 4.01x; every parity line identical. A queue model, measured on its own: a run resting about 150 orders at every one of 6,000 quote and print events costs 7.42 s with `PriceTimeQueue` against 6.84 s without (median of five; 149 fills each) |
+| Mutation | the FUT-011 rules, each broken in a scratch copy | 15 of 15 caught by `tests/integration/test_queue_model.py` |
 | Whitespace | `git diff --check` | clean |
 
 ### 8.2 The three guards that wait for the version
@@ -336,9 +347,13 @@ depends on it. The version was not changed to make them pass.
 
 ### 8.3 What was not run
 
-No hosted CI: Linux was not exercised (the branch is not pushed), nor CodeQL,
-the preflight workflow or release validation; this stays outstanding until the
-maintainer pushes. Windows remains untested (BDY-027).
+Hosted CI ran on the commit before the FUT-011 milestone (`dc508e9`, draft PR
+#18): on Ubuntu and macOS under CPython 3.12, 3.13 and 3.14, ruff, format and
+mypy passed and pytest reported **10,021 passed, 2 failed** in each of the six
+jobs -- the two version-keyed guards of section 8.2 -- so the jobs' later steps
+(examples, certification, build, distribution checks) did not run there; CodeQL
+passed. The FUT-011 commit's own hosted run is recorded on the PR, not here.
+Windows remains untested (BDY-027).
 
 ---
 
@@ -346,6 +361,7 @@ maintainer pushes. Windows remains untested (BDY-027).
 
 **Recommendation: release this candidate as v4.2.0.** It adds a public module
 (`alphalab.backtesting.schedule`) and modules (`alphalab.backtesting.algorithmic`,
+`alphalab.backtesting.queueing`, `alphalab.execution.queue`,
 `alphalab.instrument.terms`), names in `alphalab.api`, `alphalab.portfolio`,
 `alphalab.instrument`, `alphalab.runtime` and `alphalab.backtesting`, three
 persisted enum members (`AssetType.BOND`, `AssetType.INDEX`,
@@ -382,7 +398,6 @@ check them):
 | --- | --- | --- | --- |
 | FUT-014 | a strategy hook that instructs an exercise | v4.3 | a strategy-contract addition |
 | FUT-016 | baskets, cash in lieu, quanto, Bermudan exercise | v4.3 | further declared terms |
-| FUT-011 | a queue-position and fill-probability model | v5.0 | new capability; needs depth data (BDY-003) |
 | FUT-015 | settlement-date (T+n) accounting | v5.0 | a portfolio schema step |
 | FUT-017 | margin, collateral and forced liquidation | v5.0 | new capability; depends on FUT-015 |
 | FUT-002 | a lossless typed form of a strategy configuration | v5.0 | a pipeline schema step (predates this audit) |
@@ -396,7 +411,7 @@ behaviour stated.
 checklist is applied; (2) the branch is pushed and hosted CI runs; (3) FUT-014,
 which lets a strategy's own hooks take the exercise decisions FUT-013 now carries
 out, on the same lifecycle path; (4) FUT-016, the contract terms the lifecycle
-refuses today; (5) FUT-011; (6) FUT-015 then FUT-017, which change the
+refuses today; (5) FUT-015 then FUT-017, which change the
 portfolio's payload and belong with a major release or a stated exception.
 
 **External (unchanged):** venue and data-vendor adapters, credentials, market
@@ -412,9 +427,12 @@ models, hosted isolation of user-supplied strategy code.
   cannot be right, not that it is the exchange's. A bond traded at clean prices
   books no accrual. An exercise's or expiry's settlement value is the host's,
   applied at the instant its event states. A delivery the book cannot cover
-  stops the run. A limit child fills by the simulator's resting rule, with no
-  queue model (FUT-011), so passive execution in a backtest is optimistic; a
-  child's fill reaches its strategy through the portfolio, not `on_fill`.
+  stops the run. A run's resting limit orders fill by the simulator's touch rule
+  unless a queue model is given; `PriceTimeQueue` reads the displayed top of the
+  book and signed prints, so depth beyond it, hidden liquidity and pro-rata
+  books are not modelled, and an execution plan's limit children are not
+  governed by it; a child's fill reaches its strategy through the portfolio,
+  not `on_fill`.
 * *Numerical.* Unchanged: certified identities per host class for the
   standalone engines (LIM-005); the construction solver is cubic (PRF-005).
 * *Performance.* `MarketView.bar` is linear in the latest-bar index per call; a

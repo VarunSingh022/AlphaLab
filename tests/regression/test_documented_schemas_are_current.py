@@ -41,6 +41,9 @@ CONSTANTS: dict[str, str] = {
     # v4.1.1 (ledger FUT-009): an execution plan's algorithm book, carried inside
     # a paused replay's payload rather than as a durable state of its own.
     "ALGORITHM_BOOK_SCHEMA": "alphalab.backtesting.algorithmic",
+    # v4.1.1 (ledger FUT-011): a queue model's book, carried inside a paused
+    # replay's payload on the same terms.
+    "QUEUE_BOOK_SCHEMA": "alphalab.backtesting.queueing",
 }
 
 #: The eleven durable states' constants: every table must list each of them.

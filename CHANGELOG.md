@@ -21,7 +21,9 @@ releases and fitted models -- every timed input applied at its instant on every
 driver, contracts that expire, are exercised, assigned and delivered by their
 declared terms in any market a calendar describes, bonds that pay coupons and
 redeem, orders worked in children by execution algorithms over historical bars,
-a paused replay that keeps all of it durably -- and a source-derived audit of what
+resting limit orders that fill only once a declared queue model puts them at the
+front of their price level, a paused replay that keeps all of it durably -- and a
+source-derived audit of what
 AlphaLab supports from research to production.**
 
 Additive on the v4.1 contract: against v4.1.0's manifest it adds names, gives
@@ -29,8 +31,8 @@ existing functions keyword-only parameters with no effect unless given, adds
 `AssetType.BOND`, `AssetType.INDEX` and `ExecutionRouting.ALGORITHMIC`, and
 removes or re-signs nothing incompatibly. Two schemas step,
 each reading every earlier payload: instrument 3 -> 4 (a last trading instant
-and contract terms) and replay 1 -> 2 (the schedule's digest and an execution
-plan's book). No run, pipeline or portfolio schema
+and contract terms) and replay 1 -> 2 (the schedule's digest, an execution
+plan's book and a queue model's book). No run, pipeline or portfolio schema
 moves, and a run of v4.1.0's inputs has the identity it had. Because it adds
 public API it is a minor release under `docs/api/PUBLIC_API.md`'s policy -- see
 `docs/audit/FUTURE_READINESS_V4_1_1.md`. ADR-0051 records the decisions; ledger
@@ -103,6 +105,30 @@ IDs are in brackets.
   a reference value never traded. `alphalab.runtime.session_close` and
   `settles_at` read a lifecycle's instants from a declared market calendar and
   settlement rule.
+* **A queue model for resting limit orders** [FUT-011].
+  `alphalab.execution.queue`: a `QueueModel` keeps each resting limit order's
+  `QueuePosition` -- the quantity ahead of it at its limit -- from what each
+  event showed (`QueueObservation`: the quote, the print and its reported
+  aggressor, the bar's range), and answers each turn with a `QueueTurn`: the
+  new position and what of the order may fill. `PriceTimeQueue` models
+  price-time priority over displayed liquidity: an order joins behind what was
+  shown at its price, or at the front inside the spread; prints at the limit by
+  the other side consume the queue first; a shrinking displayed level bounds
+  it; the market trading through the limit clears it; a touch fills only an
+  order at the front; an unsigned print counts only with
+  `count_unsigned_trades`. Given to `BacktestEngine.run(..., queue=)`,
+  `ReplayBacktest.run(..., queue=)` or `alphalab.api.backtest`/`replay`, it
+  bounds which passive fills happen -- the fill policy, simulator, costs, OMS,
+  portfolio and attribution are the run's own -- and the result is a
+  `QueuedResult` whose `execution_assumptions.queue_model` names it
+  (`ExecutionAssumptions.passive_fills` states how passive fills were decided,
+  with or without one). The `QueueBook` is driver state threaded through
+  `RunEngine.advance(..., queue=)` and `ExecutionPipeline.process_record` /
+  `process_market_event(..., queue=)`, so no run's record or `result_id`
+  moves; a paused replay keeps it (`alphalab.backtesting.queueing`,
+  `QUEUE_BOOK_SCHEMA = 1`; `replay_snapshot.restore(..., queue=)`), and
+  `manifest_for_run` records the model as `ReproducibilityManifest.queue_model`.
+  Refused beside an execution plan and on a run that routes to a venue.
 * **The macro engine's series as observations** [FUT-008].
   `alphalab.api.observations_from_indicator`.
 * **`LiveSession.deliver_observation`** [OFE-027].
@@ -133,27 +159,32 @@ IDs are in brackets.
 
 | Name | Change |
 | --- | --- |
-| `alphalab.api.backtest` | keyword-only `observations`, `schedule` and `execution`, empty or `None` by default: no effect unless given |
-| `alphalab.api.replay` | keyword-only `observations`, `schedule` and `execution` |
-| `alphalab.backtesting.PausedReplay` | fields `schedule`, empty by default, and `algorithms`, `None` by default |
-| `alphalab.backtesting.ReplayResult` | property `algorithms` |
-| `alphalab.backtesting.ReplayBacktest.run` | keyword-only `observations`, `schedule` and `execution` |
-| `alphalab.backtesting.BacktestEngine.run` | keyword-only `schedule` and `execution` |
-| `alphalab.backtesting.replay_snapshot.restore` | `schedule`, empty by default, and `execution`, `None` by default; `ReplaySnapshot.schedule_digest` and `algorithms` |
+| `alphalab.api.backtest` | keyword-only `observations`, `schedule`, `execution` and `queue`, empty or `None` by default: no effect unless given |
+| `alphalab.api.replay` | keyword-only `observations`, `schedule`, `execution` and `queue` |
+| `alphalab.backtesting.PausedReplay` | fields `schedule`, empty by default, and `algorithms` and `queue`, `None` by default |
+| `alphalab.backtesting.ReplayResult` | properties `algorithms` and `queue` |
+| `alphalab.backtesting.ReplayBacktest.run` | keyword-only `observations`, `schedule`, `execution` and `queue` |
+| `alphalab.backtesting.BacktestEngine.run` | keyword-only `schedule`, `execution` and `queue` |
+| `alphalab.backtesting.replay_snapshot.restore` | `schedule`, empty by default, and `execution` and `queue`, `None` by default; `ReplaySnapshot.schedule_digest`, `algorithms` and `queue` |
+| `alphalab.runtime.RunEngine.advance`, `ExecutionPipeline.process_record`, `process_market_event` | keyword-only `queue`, `None` by default; `ExecutionPipelineResult.queue`, appended last, `None` by default |
+| `alphalab.runtime.ExecutionAssumptions`, `execution_assumptions` | field `queue_model` and trailing parameter `queue_model`, `None` by default; property `passive_fills`; `settings()` adds `execution.queue_model` only when a model is declared |
 | `alphalab.runtime.execution_pipeline.ExecutionRouting` | member `ALGORITHMIC`; `ExecutionMode.works_children` |
 | `alphalab.core.enums.AssetType` | members `BOND` and `INDEX` |
 | `alphalab.instrument.record.InstrumentRecord` | fields `last_trade_at` and `terms`, `None` by default; `InstrumentRegistry.expiring`, a derived index |
-| `alphalab.lifecycle.manifest_for_run`, `canonical_manifest_key`, `derive_manifest_id` | keyword or trailing `schedule` / `schedule_digest` (`None`) and `dataset_parts` (empty) by default, and `execution` / `execution_plan_id` (`None`); `ReproducibilityManifest.schedule_digest`, `dataset_parts` and `execution_plan_id` |
+| `alphalab.lifecycle.manifest_for_run`, `canonical_manifest_key`, `derive_manifest_id` | keyword or trailing `schedule` / `schedule_digest` (`None`) and `dataset_parts` (empty) by default, `execution` / `execution_plan_id` and `queue_model` (`None`); `ReproducibilityManifest.schedule_digest`, `dataset_parts`, `execution_plan_id` and `queue_model` |
 | `alphalab.portfolio.engine.PortfolioEngine.apply_fill` | keyword-only `final_settlement`, `False` by default |
-| `alphalab.backtesting.schedule` (with `ScheduledExercise`, `ScheduledAssignment`, `ScheduledExpiry` and `RunSchedule.of(exercises=, assignments=, expiries=)`), `alphalab.backtesting.algorithmic` and `alphalab.instrument.terms` and their names; `alphalab.portfolio.Exercise`, `Assignment`, `OptionExpiry`; `RunEngine.exercise`, `assign`, `expire_option`; `ExecutionPipeline.exercise`, `assign`, `expire_option`; `AllocationEngine.shares_of`, `apply_lifecycle`; `alphalab.runtime.session_close`, `settles_at`; `AlgorithmicResult`, `ExecutionPipeline.work_child`, `ChildTurn`; `alphalab.portfolio.ContractSettlement`; `alphalab.api.CombinedDataset`, `CombinedProvenance`, `CombinedSourceBytes`, `combine_datasets`, `combined_market_dataset`, `observations_from_indicator`, `bond_schedule`; `RunEngine.fund`, `RunEngine.settle_contract`, `ExecutionPipeline.settle_contract`, `AllocationEngine.settle_asset`, `LiveSession.deliver_observation`, `held_past_expiry` | added |
+| `alphalab.execution.queue` (`PriceTimeQueue`, `QueueBook`, `QueueModel`, `QueueObservation`, `QueuePosition`, `QueueTurn`) and `alphalab.backtesting.queueing` (`QUEUE_BOOK_SCHEMA`, `QueueModelError`, `capture_queue`, `queue_from_primitives`, `queued_result`, `queued_run`); `alphalab.backtesting.QueuedResult`; `alphalab.backtesting.schedule` (with `ScheduledExercise`, `ScheduledAssignment`, `ScheduledExpiry` and `RunSchedule.of(exercises=, assignments=, expiries=)`), `alphalab.backtesting.algorithmic` and `alphalab.instrument.terms` and their names; `alphalab.portfolio.Exercise`, `Assignment`, `OptionExpiry`; `RunEngine.exercise`, `assign`, `expire_option`; `ExecutionPipeline.exercise`, `assign`, `expire_option`; `AllocationEngine.shares_of`, `apply_lifecycle`; `alphalab.runtime.session_close`, `settles_at`; `AlgorithmicResult`, `ExecutionPipeline.work_child`, `ChildTurn`; `alphalab.portfolio.ContractSettlement`; `alphalab.api.CombinedDataset`, `CombinedProvenance`, `CombinedSourceBytes`, `combine_datasets`, `combined_market_dataset`, `observations_from_indicator`, `bond_schedule`; `RunEngine.fund`, `RunEngine.settle_contract`, `ExecutionPipeline.settle_contract`, `AllocationEngine.settle_asset`, `LiveSession.deliver_observation`, `held_past_expiry` | added |
 
 ## Accepted as future work
 
-FUT-011 (a queue model), FUT-014 (a strategy-facing exercise instruction),
-FUT-015 (settlement-date accounting), FUT-016 (richer contract terms) and FUT-017
-(margin and forced liquidation), each with its limitation, interim behaviour and
-acceptance criteria on `ROADMAP.md`. FUT-009 and FUT-013, accepted by the audit
-and the continuation, were delivered by the candidate's last two milestones.
+FUT-014 (a strategy-facing exercise instruction), FUT-015 (settlement-date
+accounting), FUT-016 (richer contract terms) and FUT-017 (margin and forced
+liquidation), each with its limitation, interim behaviour and acceptance criteria
+on `ROADMAP.md`. FUT-009, FUT-011 and FUT-013, accepted by the audit and the
+continuation, were delivered by the candidate's last three milestones; FUT-011's
+model is price-time priority over displayed liquidity, and what it does not
+model -- pro-rata books, hidden liquidity, a fill probability -- is stated on
+the ledger entry.
 
 ---
 

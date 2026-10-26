@@ -23,6 +23,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from alphalab.execution.policy import FillPolicy, FillTiming, ImmediateFill
+from alphalab.execution.queue import QueueModel
 
 if TYPE_CHECKING:
     from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig, ExecutionRouting
@@ -106,6 +107,10 @@ class ExecutionAssumptions:
             (:attr:`~alphalab.execution.simulator.ExecutionSimulator.is_frictionless`).
         unlimited_liquidity: Whether every order filled in full
             (:class:`~alphalab.execution.policy.ImmediateFill`).
+        queue_model: The queue model that decided which resting limit orders
+            had reached the front of their price level, described, or ``None``
+            when the run declared none (v4.1.1, ledger FUT-011) -- see
+            :attr:`passive_fills`.
     """
 
     routing: ExecutionRouting
@@ -115,6 +120,7 @@ class ExecutionAssumptions:
     latency: str
     frictionless: bool
     unlimited_liquidity: bool
+    queue_model: str | None = None
 
     @property
     def simulated(self) -> bool:
@@ -139,6 +145,29 @@ class ExecutionAssumptions:
             found.append("liquidity is unlimited: every order fills in full (ImmediateFill)")
         return tuple(found)
 
+    @property
+    def passive_fills(self) -> str:
+        """How a resting limit order's fills were decided, in a sentence (FUT-011).
+
+        Not one of :attr:`optimistic`, which names what makes *every* simulated
+        fill optimistic: this bears only on orders that rested at a limit, and
+        a run that placed none is not made optimistic by it. Read it beside the
+        figures of any run that did -- a market maker's, or one working passive
+        orders.
+        """
+
+        if not self.simulated:
+            return "resting orders were filled by their venue, not simulated"
+        if self.queue_model is None:
+            return (
+                "a resting limit order filled when the market reached its limit, with no "
+                "queue ahead of it -- optimistic for passive orders (no queue model)"
+            )
+        return (
+            "a resting limit order filled only once its queue model put it at the front "
+            f"of its price level: {self.queue_model}"
+        )
+
     def settings(self) -> Mapping[str, str]:
         """The assumptions as research settings, keyed ``execution.*``.
 
@@ -147,21 +176,26 @@ class ExecutionAssumptions:
         its evidence was measured under, not only the code.
         """
 
-        return MappingProxyType(
-            {
-                "execution.routing": self.routing.name,
-                "execution.fill_timing": self.fill_timing.value,
-                "execution.fill_policy": self.fill_policy,
-                "execution.costs": self.costs,
-                "execution.latency": self.latency,
-            }
-        )
+        settings = {
+            "execution.routing": self.routing.name,
+            "execution.fill_timing": self.fill_timing.value,
+            "execution.fill_policy": self.fill_policy,
+            "execution.costs": self.costs,
+            "execution.latency": self.latency,
+        }
+        if self.queue_model is not None:
+            # Present only when declared, so a run without one is identified
+            # exactly as it was before queue models existed.
+            settings["execution.queue_model"] = self.queue_model
+        return MappingProxyType(settings)
 
 
 def execution_assumptions(
-    pipeline: ExecutionPipelineConfig, fill_policy: FillPolicy
+    pipeline: ExecutionPipelineConfig,
+    fill_policy: FillPolicy,
+    queue_model: QueueModel | None = None,
 ) -> ExecutionAssumptions:
-    """What a pipeline configured this way, with this fill policy, assumes."""
+    """What a pipeline configured this way, with this fill policy and queue model, assumes."""
 
     simulator = pipeline.simulator
     costs = describe(simulator.costs)
@@ -178,4 +212,5 @@ def execution_assumptions(
         latency=describe(simulator.latency_model),
         frictionless=simulator.is_frictionless,
         unlimited_liquidity=isinstance(fill_policy, ImmediateFill),
+        queue_model=None if queue_model is None else describe(queue_model),
     )

@@ -54,6 +54,7 @@ from alphalab.backtesting.exceptions import (
     DatasetValidationError,
     UnsupportedRecordError,
 )
+from alphalab.backtesting.queueing import QueueModelError
 from alphalab.backtesting.replay import (
     PausedReplay,
     ReplayBacktest,
@@ -75,7 +76,7 @@ from alphalab.backtesting.schedule import (
     ScheduledSplit,
     ScheduleValidationError,
 )
-from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, ReplayResult
+from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult, ReplayResult
 from alphalab.backtesting.views import (
     commission_paid,
     equity_values,
@@ -96,6 +97,7 @@ from alphalab.execution.policy import (
     LiquidityContext,
     StaticFill,
 )
+from alphalab.execution.queue import PriceTimeQueue, QueueBook, QueueModel
 from alphalab.runtime.execution_pipeline import UnpricedAsset, UnpricedReason
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState, RunStep
 
@@ -123,6 +125,11 @@ __all__ = [
     "MarketInput",
     "MarketRecord",
     "PausedReplay",
+    "PriceTimeQueue",
+    "QueueBook",
+    "QueueModel",
+    "QueueModelError",
+    "QueuedResult",
     "ReplayBacktest",
     "ReplayProgress",
     "ReplayResult",

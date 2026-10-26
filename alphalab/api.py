@@ -131,7 +131,7 @@ from alphalab.backtesting.schedule import (
     ScheduledDistribution,
     ScheduledSettlement,
 )
-from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, ReplayResult
+from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult, ReplayResult
 from alphalab.common.exceptions import AlphaLabValidationError
 from alphalab.common.point_in_time import PointInTimeStamp
 from alphalab.conventions.lot import LotSpecification
@@ -171,6 +171,7 @@ from alphalab.data.validation import (
     ValidationFinding,
     validate_records,
 )
+from alphalab.execution.queue import QueueModel
 from alphalab.factor_library.compute import compute_panel
 from alphalab.factor_library.definition import FeatureField
 from alphalab.factor_library.forward_returns import (
@@ -694,6 +695,7 @@ def backtest(
     observations: Iterable[ObservationDelivery[Any]] = (),
     schedule: RunSchedule = EMPTY_SCHEDULE,
     execution: None = None,
+    queue: None = None,
 ) -> BacktestResult: ...
 
 
@@ -708,6 +710,7 @@ def backtest(
     observations: Iterable[ObservationDelivery[Any]] = (),
     schedule: RunSchedule = EMPTY_SCHEDULE,
     execution: ExecutionPlan,
+    queue: None = None,
 ) -> AlgorithmicResult: ...
 
 
@@ -721,7 +724,23 @@ def backtest(
     *,
     observations: Iterable[ObservationDelivery[Any]] = (),
     schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: None = None,
+    queue: QueueModel,
+) -> QueuedResult: ...
+
+
+@overload
+def backtest(
+    config: RunConfig,
+    dataset: Dataset,
+    strategy_state: StrategyRuntimeState,
+    context_factory: ContextFactory,
+    policy: NormalizationPolicy,
+    *,
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    schedule: RunSchedule = EMPTY_SCHEDULE,
     execution: ExecutionPlan | None,
+    queue: QueueModel | None = None,
 ) -> BacktestResult: ...
 
 
@@ -735,6 +754,7 @@ def backtest(
     observations: Iterable[ObservationDelivery[Any]] = (),
     schedule: RunSchedule = EMPTY_SCHEDULE,
     execution: ExecutionPlan | None = None,
+    queue: QueueModel | None = None,
 ) -> BacktestResult:
     """Run a backtest over a canonical dataset, carrying its identity into the result.
 
@@ -754,7 +774,10 @@ def backtest(
     ``execution`` (v4.1.1, ledger FUT-009) works every order in children by an
     execution algorithm, and the result is then an
     :class:`~alphalab.backtesting.AlgorithmicResult` carrying the book; see
-    :mod:`alphalab.backtesting.algorithmic`.
+    :mod:`alphalab.backtesting.algorithmic`. ``queue`` (v4.1.1, ledger
+    FUT-011) governs resting limit orders by a queue model, and the result is
+    then a :class:`~alphalab.backtesting.QueuedResult` naming it; see
+    :mod:`alphalab.backtesting.queueing`.
     """
 
     return BacktestEngine.run(
@@ -765,6 +788,7 @@ def backtest(
         observations,
         schedule=schedule,
         execution=execution,
+        queue=queue,
     )
 
 
@@ -779,6 +803,7 @@ def replay(
     observations: Iterable[ObservationDelivery[Any]] = (),
     schedule: RunSchedule = EMPTY_SCHEDULE,
     execution: ExecutionPlan | None = None,
+    queue: QueueModel | None = None,
 ) -> ReplayResult: ...
 
 
@@ -794,6 +819,7 @@ def replay(
     observations: Iterable[ObservationDelivery[Any]] = (),
     schedule: RunSchedule = EMPTY_SCHEDULE,
     execution: ExecutionPlan | None = None,
+    queue: QueueModel | None = None,
 ) -> ReplayResult | PausedReplay: ...
 
 
@@ -808,6 +834,7 @@ def replay(
     observations: Iterable[ObservationDelivery[Any]] = (),
     schedule: RunSchedule = EMPTY_SCHEDULE,
     execution: ExecutionPlan | None = None,
+    queue: QueueModel | None = None,
 ) -> ReplayResult | PausedReplay:
     """Replay a canonical dataset through the execution path, with the same identity.
 
@@ -823,7 +850,9 @@ def replay(
     records the schedule's digest, and restoring it takes the schedule back
     (ledger FUT-003). ``execution`` (v4.1.1, ledger FUT-009) works every order
     in children, as :func:`backtest` does; restoring a paused replay takes the
-    plan back.
+    plan back. ``queue`` (v4.1.1, ledger FUT-011) governs resting limit orders
+    by a queue model, as :func:`backtest` does; restoring a paused replay takes
+    the model back.
     """
 
     market = to_market_dataset(dataset, policy)
@@ -836,6 +865,7 @@ def replay(
             observations=observations,
             schedule=schedule,
             execution=execution,
+            queue=queue,
         )
     return ReplayBacktest.run(
         config,
@@ -846,6 +876,7 @@ def replay(
         observations=observations,
         schedule=schedule,
         execution=execution,
+        queue=queue,
     )
 
 

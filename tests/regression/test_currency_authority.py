@@ -633,13 +633,19 @@ def test_settlement_refusals_are_not_persisted() -> None:
 
 
 def test_the_result_field_is_appended_last() -> None:
-    """So positional construction of an ``ExecutionPipelineResult`` keeps working."""
+    """So positional construction of an ``ExecutionPipelineResult`` keeps working.
+
+    ``settlement_refusals`` was appended last (ADR-0028); the one field added
+    after it since, ``queue`` (v4.1.1, ledger FUT-011), was appended after it in
+    turn, with a default, so every positional construction written before it
+    still means what it meant.
+    """
 
     from dataclasses import fields
 
     names = [f.name for f in fields(ExecutionPipelineResult)]
 
-    assert names[-1] == "settlement_refusals"
+    assert names[-2:] == ["settlement_refusals", "queue"]
     assert names.index("unpriced_requests") < names.index("valuation")
 
 

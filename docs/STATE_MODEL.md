@@ -215,7 +215,12 @@ an execution plan (ledger FUT-009), the plan's algorithm book, written by
 parent's algorithm with its children, and every child fill. The plan is taken
 back by `restore` and held to the book by its `plan_id`, and each algorithm run
 is rebuilt and checked against its recorded identity. The book is driver state,
-not part of `RunState`, so no run's record or `result_id` moved.
+not part of `RunState`, so no run's record or `result_id` moved. For a replay
+given a queue model (ledger FUT-011) it records the queue book on the same
+terms, written by `backtesting.queueing.capture_queue` (`QUEUE_BOOK_SCHEMA = 1`):
+the model's type and configuration, and each resting limit order's limit and
+the quantity ahead of it. The model is taken back by `restore` and refused when
+its type or configuration differs.
 
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an

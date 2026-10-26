@@ -258,8 +258,9 @@ identity.
 * A backtest simulates one venue and one cost model: choosing between venues
   (`alphalab.execution.routing.select_route`) is evaluated on the live and paper
   path, not historically.
-* Depth updates reach no strategy hook (BDY-003); passive fills have no queue
-  model (FUT-011).
+* Depth updates reach no strategy hook (BDY-003). Passive fills are decided by
+  a queue model only when one is given (`queue=PriceTimeQueue()`, FUT-011); it
+  reads the top of the book and signed prints, and draws no fill probability.
 
 See [`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`](audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md)
 for what each strategy family needs and where it stands.

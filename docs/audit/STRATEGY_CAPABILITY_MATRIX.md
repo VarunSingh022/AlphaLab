@@ -244,7 +244,7 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (5) | common, core. |
 | (6) | runtime, broker, backtesting, lifecycle. |
 | (7) | B, Re, P (simulated venue). |
-| (8) | **VERIFIED**. No queue-position or fill-probability model: **MISSING** (section 2.18). |
+| (8) | **VERIFIED**. A declared queue model decides passive fills on both historical drivers (v4.2.0 candidate, FUT-011): **VERIFIED** for price-time priority over displayed liquidity (`PriceTimeQueue`); a fill-probability model: not shipped (section 2.18). |
 | (9) | `tests/integration/test_v33_capabilities.py`, `tests/regression/test_v33_invariants.py`; v4.1.1: example 72 runs with `NEXT_EVENT` timing, a 10% participation cap and a six-role cost model, and `execution_assumptions.optimistic == ()`. |
 | (10) | Defaults are optimistic and are *stated*, not hidden (`result.execution_assumptions`). |
 | (11) | none. |
@@ -263,7 +263,7 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (7) | B, Re, L (and paper through `PaperBroker`). Paper over a source (`TradingSession`) routes to its broker, not to an algorithm book. |
 | (8) | **VERIFIED** on the live path and, since the FUT-009 milestone, on both historical drivers (was **PARTIAL**: a backtest filled every order whole). Each parent is one OMS order, held under `ALGORITHMIC` routing -- risk judged it whole, allocation reserved it -- and worked in children at its asset's events; each child is filled by the run's own fill policy and cost model (`work_child`) and settled on the parent through the canonical report path, so the OMS, portfolio, reservation and attributed trade records see one order. TWAP, VWAP, slicing, iceberg and participation (`LEAVE_UNFILLED`) are evidenced; participation with `COMPLETE_AT_END` is refused by the plan. |
 | (9) | `tests/integration/test_algorithms_on_the_historical_path.py` (57: quantities reconcile, nothing overfills, partial fills and catch-up, no liquidity, rejection, a venue declaration refusing a child, a split cancelling the parent, incomplete at the data's end, both fill timings, no look-ahead in price or volume, costs per fill, attribution of a netted parent, replay parity, a replay paused at every boundary resumed from its payload, the same children the live route sends a `PaperBroker`); `tests/integration/test_execution_algorithm_example.py`; `examples/74_evaluate_an_execution_algorithm.py`; `test_v39_capabilities.py` for the live path. Eight mutants of the guards, each caught. |
-| (10) | Passive (limit) children fill by the simulator's resting rule, with no queue model (FUT-011). A child's fill reaches its strategy through the portfolio, not `on_fill`, as a venue fill does live. A `PaperBroker` fills a market child at the parent's reference price, so the backtest equals the paper route child for child, not price for price (ADR-0051 decision 13). |
+| (10) | Passive (limit) children fill by the simulator's resting rule: a queue model governs a run's own orders, not an execution plan's children, and is refused beside a plan (FUT-011). A child's fill reaches its strategy through the portfolio, not `on_fill`, as a venue fill does live. A `PaperBroker` fills a market child at the parent's reference price, so the backtest equals the paper route child for child, not price for price (ADR-0051 decision 13). |
 | (11) | Done (FUT-009). |
 | (12) | Met: an algorithm's children are evaluated by `BacktestEngine` and `ReplayBacktest` with the run's own fills, child for child the ones the live route sends. |
 
@@ -497,10 +497,10 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (4) | `alphalab.market`. |
 | (5)-(6) | market. |
 | (7) | Depth reaches market state; **not** a strategy hook (BOUNDARY BDY-003). Quotes and trades do. |
-| (8) | Quote/trade-driven strategies (spread, imbalance from top of book, inventory via positions): supported through `on_quote`/`on_trade`. Depth-driven strategies: **BOUNDARY** BDY-003. Queue position and fill probability: **MISSING**. Latency-sensitive trading: **BOUNDARY** (single-threaded, host-driven; LIM-006). |
+| (8) | Quote/trade-driven strategies (spread, imbalance from top of book, inventory via positions): supported through `on_quote`/`on_trade`. Depth-driven strategies: **BOUNDARY** BDY-003. Queue position: **VERIFIED** with a declared `PriceTimeQueue` (FUT-011) -- top of book and signed prints, not depth beyond it; fill probability: not modelled. Latency-sensitive trading: **BOUNDARY** (single-threaded, host-driven; LIM-006). |
 | (9) | `tests/integration/test_trade_prints.py`, `test_streaming_session.py`. |
-| (10) | A market-making backtest fills resting limits by the simulator's rule, not a queue model -- optimistic, and stated by `execution_assumptions`. |
-| (11) | FUT-011 (queue/fill-probability model: new engine capability). |
+| (10) | Without a queue model a market-making backtest fills resting limits when the market reaches them -- optimistic, and stated by `execution_assumptions.passive_fills`; with one, only what reached the front of the level fills, and the model is named on the result and the manifest (`tests/integration/test_queue_model.py`). |
+| (11) | none (FUT-011 delivered); pro-rata books, depth-driven queues and a fill probability would be further queue models. |
 | (12) | -- |
 
 ### 2.23 Reproducibility, lineage and research-result identity

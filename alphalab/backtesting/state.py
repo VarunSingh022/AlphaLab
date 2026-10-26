@@ -10,7 +10,10 @@ attribute below reads through. A run given an execution plan (v4.1.1, ledger
 FUT-009) returns an :class:`AlgorithmicResult`: the same projection, and beside
 it the plan's :class:`~alphalab.backtesting.algorithmic.AlgorithmBook` -- driver
 state the run does not hold, as a schedule's cursor is not, so it is no second
-copy of anything, and the run's record and ``result_id`` are what they were.
+copy of anything, and the run's record and ``result_id`` are what they were. A
+run given a queue model (v4.1.1, ledger FUT-011) returns a :class:`QueuedResult`
+on the same terms, carrying its
+:class:`~alphalab.execution.queue.QueueBook`.
 """
 
 from __future__ import annotations
@@ -22,18 +25,19 @@ from alphalab.analytics.engine import PortfolioSnapshot
 from alphalab.analytics.report import PerformanceReport
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.trade import Trade as CoreTrade
+from alphalab.execution.queue import QueueBook
 from alphalab.market.record import MarketRecord
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.fx import NO_RATES, FxRates
 from alphalab.portfolio.valuation import PortfolioValuation, PortfolioValuationSnapshot
-from alphalab.runtime.assumptions import ExecutionAssumptions
+from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.execution_pipeline import ExecutionPipelineState, UnpricedAsset
 from alphalab.runtime.run import RunConfig, RunState, RunStep, StrategyFailure
 
 if TYPE_CHECKING:
     from alphalab.backtesting.algorithmic import AlgorithmBook
 
-__all__ = ["AlgorithmicResult", "BacktestResult", "ReplayResult"]
+__all__ = ["AlgorithmicResult", "BacktestResult", "QueuedResult", "ReplayResult"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +211,29 @@ class AlgorithmicResult(BacktestResult):
 
 
 @dataclass(frozen=True, slots=True)
+class QueuedResult(BacktestResult):
+    """A finished run whose resting limit orders a queue model governed (v4.1.1, FUT-011).
+
+    Everything :class:`BacktestResult` reads, through the run, and the queue
+    book the run does not hold. Its :attr:`execution_assumptions` name the
+    queue model, which is what a run's figures were measured under.
+
+    Attributes:
+        queue: The queue model, and the position of every limit order still
+            resting when the data ended.
+    """
+
+    queue: QueueBook
+
+    @property
+    def execution_assumptions(self) -> ExecutionAssumptions:
+        """How the run modelled execution, its queue model included."""
+
+        config = self.run.config
+        return execution_assumptions(config.pipeline, config.fill_policy, self.queue.model)
+
+
+@dataclass(frozen=True, slots=True)
 class ReplayResult:
     """A replay run: the backtest result plus the replay cursor it was driven by."""
 
@@ -231,6 +258,13 @@ class ReplayResult:
 
         backtest = self.backtest
         return backtest.algorithms if isinstance(backtest, AlgorithmicResult) else None
+
+    @property
+    def queue(self) -> QueueBook | None:
+        """The queue book, for a replay given a queue model (v4.1.1); ``None`` otherwise."""
+
+        backtest = self.backtest
+        return backtest.queue if isinstance(backtest, QueuedResult) else None
 
     @property
     def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:

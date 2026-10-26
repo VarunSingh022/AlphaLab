@@ -8,7 +8,8 @@ information on every driver (decisions 1-6), then the continuation that closed
 the engine-owned gaps the audit found (decisions 7-12), then the FUT-009
 milestone, execution algorithms on the historical drivers (decision 13), then
 the FUT-013 milestone, a derivative's lifecycle declared and carried out
-(decision 14). The release number is the
+(decision 14), then the FUT-011 milestone, a queue model for resting limit
+orders (decision 15). The release number is the
 maintainer's decision: the candidate adds public names, keyword-only parameters,
 an enum member and two schema steps (instrument 3 to 4, replay 1 to 2, each
 reading every earlier payload), which `docs/api/PUBLIC_API.md`'s policy and
@@ -194,6 +195,28 @@ declared rule exercises longs and assigns shorts. An index is a new
 `AssetType`, a reference value cash options settle against, never traded. What
 cannot be represented or covered is refused before anything moves.
 
+**15. A queue model decides which resting limit orders reached the front
+(FUT-011).** A `QueueModel` (`alphalab.execution.queue`) given to either
+historical driver, or the facade, as `queue=` keeps each resting limit order's
+`QueuePosition` -- its limit and the quantity ahead of it, or unknown -- and at
+each later event of its asset, before the strategy decides there, advances it
+from what that event alone showed and says what of the order may fill. The run's
+fill policy decides within that; the simulator prices the fill as a maker; the
+OMS, portfolio, reservation and attribution settle it as every fill. The
+position book is a parameter of the step, as the FX table is, and driver state,
+as an execution plan's book is: a field on the pipeline state, the run state or
+the run configuration would move every run's `result_id`, including runs that
+declare no model, which this release does not do. So the result is a
+`QueuedResult` naming the model in its execution assumptions, the manifest
+records it beside the configuration, and a paused replay carries the book.
+`PriceTimeQueue` is the one model shipped: price-time priority over displayed
+liquidity, every rule conservative with respect to what the feed showed -- a
+displayed size bounds the queue and never adds to it, an unsigned print counts
+only when declared to, a touch fills only an order at the front. A venue that
+allocates pro rata is another model of the protocol, not a parameter of this
+one; refused beside an execution plan, whose children it would not see, and on
+a run that routes to a venue.
+
 ---
 
 # Consequences
@@ -227,11 +250,15 @@ cannot be represented or covered is refused before anything moves.
   baskets, cash in lieu, quanto and Bermudan contracts are refused.
 - **A delivery the book cannot cover stops the run**: no margin call, collateral
   or forced liquidation is modelled.
+- **The queue model reads the displayed top of the book**: depth beyond it,
+  hidden and iceberg liquidity, self-trade prevention and keep-priority amends
+  are not modelled; the run's own resting orders are not in the feed, so each is
+  queued against the market's queue independently; no fill probability is drawn.
 
 Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
-FUT-009, FUT-014, FUT-015, FUT-016, FUT-017).
+FUT-009, FUT-011, FUT-014, FUT-015, FUT-016, FUT-017).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: a queue-position and fill-probability model; a strategy-facing exercise instruction; settlement-date accounting; richer contract terms; margin and forced liquidation.
+**Deferred** — to v4.3 and later, pending the maintainer's decision: a strategy-facing exercise instruction; settlement-date accounting; richer contract terms; margin and forced liquidation.
 
 ---
 
@@ -255,6 +282,15 @@ FUT-009, FUT-014, FUT-015, FUT-016, FUT-017).
   is one market's equity-option convention and wrong for its index options and
   for most of the world's; terms are declared or the event is refused
   (decision 14).
+* **A queue position on the pipeline state, or the model on the run
+  configuration.** Each is where the fact lives, and each moves every run's
+  `result_id` -- the configuration is part of the recorded run -- for a
+  capability most runs do not use (decision 15). The book is threaded as the FX
+  table is and persisted where the execution plan's is.
+* **A fill probability drawn per event.** A seeded draw would be reproducible,
+  but a probability is a calibration of a venue's flow the engine does not have;
+  the shipped model is deterministic and conservative, and a probabilistic one
+  is another implementation of the same protocol.
 * **Drawing assignments.** A probabilistic assignment model is a research
   assumption with a random state, not an engine fact; assignment before expiry
   is a supplied input (decision 14).

@@ -914,12 +914,19 @@ def test_the_frozen_v4_1_0_payload_reads_and_resumes() -> None:
 
 
 def test_the_frozen_payload_is_what_this_build_writes() -> None:
-    """Byte for byte, but for the one step schema 2 declares (v4.1.1, ledgers FUT-003 and
-    FUT-009): the version, the digest of a schedule and the algorithm book of an
-    execution plan, neither of which a v4.1.0 replay could have had."""
+    """Byte for byte, but for the one step schema 2 declares (v4.1.1, ledgers FUT-003,
+    FUT-009 and FUT-011): the version, the digest of a schedule, the algorithm book of
+    an execution plan and the queue book of a queue model, none of which a v4.1.0
+    replay could have had."""
 
     frozen = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    upgraded = {**frozen, "schema_version": 2, "schedule_digest": None, "algorithms": None}
+    upgraded = {
+        **frozen,
+        "schema_version": 2,
+        "schedule_digest": None,
+        "algorithms": None,
+        "queue": None,
+    }
     assert upgraded == _payload(_paused(11))
 
 
@@ -944,6 +951,10 @@ def test_the_snapshot_covers_every_cursor_field() -> None:
         # (ledger FUT-009; test_algorithms_on_the_historical_path.py
         # ::test_a_replay_paused_with_children_working_resumes_from_its_payload).
         "algorithms",
+        # v4.1.1: carried whole (schema 2), the queue model supplied back and held
+        # to it (ledger FUT-011; test_queue_model.py
+        # ::test_a_replay_paused_anywhere_resumes_to_the_same_queue_and_result).
+        "queue",
     }
 
 

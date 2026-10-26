@@ -7,9 +7,9 @@ component-level evidence is [`STRATEGY_CAPABILITY_MATRIX.md`](STRATEGY_CAPABILIT
 gap is a ledger entry and a ROADMAP "Future work" item. The audit raised
 FUT-003 to FUT-012; its continuation delivered FUT-003 to FUT-008, FUT-010 and
 FUT-012 and raised FUT-013, the FUT-009 milestone delivered FUT-009, and the
-FUT-013 milestone delivered FUT-013 and raised FUT-014 to FUT-017, so what is
-open is FUT-011 and FUT-014 to FUT-017 (FUT-002 predates the audit). Rows below
-are as of the FUT-013 milestone.
+FUT-013 milestone delivered FUT-013 and raised FUT-014 to FUT-017, and the
+FUT-011 milestone delivered FUT-011, so what is open is FUT-014 to FUT-017
+(FUT-002 predates the audit). Rows below are as of the FUT-011 milestone.
 
 ## Classes
 
@@ -95,9 +95,9 @@ adapter over real HTTP (matrix 2.24). This is not repeated in each row.
 
 | Family | Class | Evidence / what is missing |
 | --- | --- | --- |
-| Market making, inventory control | **D** for honest evaluation | Quotes, resting limits, positions and costs are on the path; passive fills have no queue model, so results are optimistic (FUT-011). |
+| Market making, inventory control | **C** | Quotes, resting limits, positions and costs are on the path; a declared queue model (`PriceTimeQueue`, FUT-011) fills a resting order only once the displayed queue ahead of it has traded or left, so passive fills are no longer optimistic by construction. Depth beyond the top of the book and pro-rata books are not modelled. |
 | Order-flow imbalance, liquidity, spread signals | **A** from top of book and trade prints (`on_quote`, `on_trade`; `test_trade_prints.py`); depth-driven signals are a boundary (BDY-003). |
-| Queue-aware execution, fill probability | **D** | FUT-011. |
+| Queue-aware execution, fill probability | **A** for queue position, **C** for fill probability | A resting limit order's place in a price-time queue decides its passive fills on both drivers, replay and pause included (`test_queue_model.py`, FUT-011). A fill-probability model is a model the researcher supplies: `QueueModel` is a protocol, and AlphaLab ships only the deterministic price-time one. |
 | Slicing: TWAP, VWAP, participation, slicing, iceberg | **A** | On the live and paper path (`test_v39_capabilities.py`) and, since the FUT-009 milestone, on both historical drivers: each child filled by the run's fill policy and cost model and settled on one parent order, its implementation shortfall measurable (`test_algorithms_on_the_historical_path.py`, example 74). Participation that completes after its window is refused. |
 | Smart order routing across venues | **A** on the live and paper path (`select_route`, `test_v39_capabilities.py`); **D** historically -- a run simulates one venue and one cost model, so a choice between venues is not evaluated in a backtest. |
 | Latency-sensitive strategies | **E** | The engine is single-threaded and driven by its host (LIM-006); co-location, kernel-bypass feeds and venue latency are infrastructure no library can guarantee. |
@@ -136,8 +136,8 @@ that the seams hold: example 72 combines a price signal (1), a macro regime
 (3), social sentiment (4), a futures hedge (5), a researcher-defined algorithm
 (7) and position sizing with a risk gate (8), through one run, one replay and
 one continuation, with the time semantics of each input preserved. What breaks
-a combination today is one of the named gaps -- FUT-011 (a queue model),
-FUT-016 (contract terms beyond one deliverable) or FUT-017 (margin) -- and never
+a combination today is one of the named gaps -- FUT-016 (contract terms beyond
+one deliverable) or FUT-017 (margin) -- and never
 a missing strategy template; how its
 orders are executed is now part of what a backtest measures (FUT-009). Example 72 now carries every timed input
 on one schedule, and its replay pauses through a payload.
@@ -146,7 +146,6 @@ on one schedule, and its replay pauses through a payload.
 
 | Work | Families it moves | Release class |
 | --- | --- | --- |
-| FUT-011 queue model | market making, passive execution | minor, large |
 | FUT-014 a strategy-facing exercise instruction | early-exercise and volatility strategies deciding inside the run | minor |
 | FUT-016 richer contract terms | adjusted contracts after mergers, quanto options, Bermudan contracts | minor |
 | FUT-015 / FUT-017 settlement-date accounting, margin | cash-constrained and short-option strategies, physically delivered commodities | major or a stated exception (payload steps) |

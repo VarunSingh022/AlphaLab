@@ -18,7 +18,13 @@ from decimal import Decimal
 import pytest
 
 from alphalab.api import backtest
-from alphalab.backtesting import AlgorithmAssignment, AlgorithmicResult, ExecutionPlan
+from alphalab.backtesting import (
+    AlgorithmAssignment,
+    AlgorithmicResult,
+    ExecutionPlan,
+    PriceTimeQueue,
+    QueuedResult,
+)
 from alphalab.data.dataset import Dataset
 from alphalab.data.exceptions import DataValidationError
 from alphalab.data.time import BarStamp
@@ -613,6 +619,51 @@ def test_a_manifest_names_the_plan_that_worked_the_runs_orders(dataset: Dataset)
     plain = manifest_for_run(run_backtest(dataset), dataset, fingerprint(), ENGINE, build=BUILD)
     assert plain.execution_plan_id is None
     assert "inputs.execution_plan" not in canonical_manifest_key(
+        plain.kind,
+        plain.result_id,
+        plain.dataset_version,
+        plain.dataset_content_hash,
+        plain.configuration_id,
+        plain.seed,
+        plain.seed_role,
+        plain.engine,
+        plain.fingerprint.fingerprint if plain.fingerprint else None,
+        plain.build,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# A run whose resting limit orders a queue model governed (v4.1.1, FUT-011)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_manifest_names_the_queue_model_its_run_was_measured_under(dataset: Dataset) -> None:
+    queued = backtest(
+        run_config(STRATEGY_ID, SEED),
+        dataset,
+        running_strategy_state(STRATEGY_ID, BarStrategy(STRATEGY_ID, ASSET_ID, PLAN)),
+        context_factory,
+        NORMALIZATION,
+        queue=PriceTimeQueue(),
+    )
+    assert isinstance(queued, QueuedResult)
+    plain_result = run_backtest(dataset)
+    manifest = manifest_for_run(queued, dataset, fingerprint(), ENGINE, build=BUILD)
+    plain = manifest_for_run(plain_result, dataset, fingerprint(), ENGINE, build=BUILD)
+
+    # The queue book is driver state: the run's record and configuration are the
+    # plain run's. The manifest names the model, so the two are not one manifest.
+    assert manifest.result_id == plain.result_id
+    assert manifest.configuration_id == plain.configuration_id
+    assert manifest.queue_model == "PriceTimeQueue(count_unsigned_trades=False)"
+    assert plain.queue_model is None
+    assert manifest.manifest_id != plain.manifest_id
+    assert verify_manifest(manifest) and verify_manifest(plain)
+    assert not verify_manifest(replace(manifest, queue_model=None))
+    assert any(
+        "queue model" in requirement.detail for requirement in external_requirements(manifest)
+    )
+    assert "inputs.queue_model" not in canonical_manifest_key(
         plain.kind,
         plain.result_id,
         plain.dataset_version,

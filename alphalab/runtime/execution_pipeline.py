@@ -39,6 +39,7 @@ from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
 from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS
+from alphalab.data.feed import TradeAggressor
 from alphalab.execution.algorithms import ChildOrder
 from alphalab.execution.algorithms import _apportion as _largest_remainder
 from alphalab.execution.engine import ExecutionEngine
@@ -50,6 +51,7 @@ from alphalab.execution.policy import (
     LiquidityContext,
     StaticFill,
 )
+from alphalab.execution.queue import QueueBook, QueueObservation, QueuePosition, QueueTurn
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
@@ -558,6 +560,10 @@ class ExecutionPipelineResult:
     #: keeps working. Derived and never persisted: no snapshot carries an
     #: ``ExecutionPipelineResult``. See :class:`SettlementRefusal` and ADR-0028.
     settlement_refusals: tuple[SettlementRefusal, ...] = field(default_factory=tuple)
+    #: The run's queue book after the step, when one was given (v4.1.1, ledger
+    #: FUT-011): each resting limit order's place at its price level. ``None``
+    #: for a step taken without one.
+    queue: QueueBook | None = None
 
 
 def _populate_context(
@@ -1027,6 +1033,8 @@ class ExecutionPipeline:
         context_factory: ContextFactory,
         fill_policy: FillPolicy | None = None,
         rates: FxRates = NO_RATES,
+        *,
+        queue: QueueBook | None = None,
     ) -> ExecutionPipelineResult:
         """Move one market record through the whole execution path.
 
@@ -1046,6 +1054,7 @@ class ExecutionPipeline:
             context_factory,
             fill_policy=fill_policy,
             rates=rates,
+            queue=queue,
         )
 
     @staticmethod
@@ -1058,6 +1067,8 @@ class ExecutionPipeline:
         fill_quantity: Decimal | None = None,
         fill_policy: FillPolicy | None = None,
         rates: FxRates = NO_RATES,
+        *,
+        queue: QueueBook | None = None,
     ) -> ExecutionPipelineResult:
         """Route one market event through strategy, order, execution, and portfolio.
 
@@ -1093,6 +1104,16 @@ class ExecutionPipeline:
         would move ``PIPELINE_SNAPSHOT_SCHEMA``. It is not on
         ``ExecutionPipelineState`` either, which ADR-0030 fixes at sixteen
         fields because every one of them is paid eleven times per record.
+
+        ``queue`` (v4.1.1, ledger FUT-011) is the run's
+        :class:`~alphalab.execution.queue.QueueBook`, a parameter for the same
+        reasons. With one, a simulated resting limit order working in the
+        event's asset -- a limit order, or a triggered stop-limit, that is not
+        immediate and not an auction order -- fills at this event only as far as
+        its queue model allows, the fill policy deciding within that; an order
+        the step leaves resting joins its queue at this event; and the book that
+        comes back on the result holds only orders still working. Without one
+        nothing changes.
         """
 
         refusal = price_refusal(state, _event_payload(event))
@@ -1135,7 +1156,14 @@ class ExecutionPipeline:
             and state.config.routing is ExecutionRouting.SIMULATED
             and current.oms.working_orders_for(update[0])
         ):
-            current, earlier = _fill_working_orders(current, event, update[0], policy, rates)
+            current, earlier, queue = _fill_working_orders(
+                current, event, update[0], policy, rates, queue
+            )
+        # Every order still working in the asset now has had its turn; what the
+        # step places from here on is appended after them (FUT-011).
+        resting_before = (
+            _working_count(current, update[0]) if queue is not None and update is not None else 0
+        )
 
         # Assembled from the marked state above, after marking, after the risk
         # resync and after any working order filled, and before dispatch. The
@@ -1178,6 +1206,8 @@ class ExecutionPipeline:
             contributions_before=contributions_before,
             records_before=records_before,
         )
+        if queue is not None:
+            queue = _queue_after_step(queue, current, event, update, resting_before)
         return _step_result(
             current,
             event,
@@ -1185,6 +1215,7 @@ class ExecutionPipeline:
             (*requests, *feedback_requests),
             routed.then(feedback),
             rates,
+            queue,
         )
 
     @staticmethod
@@ -2300,6 +2331,7 @@ def _step_result(
     requests: tuple[OrderRequest, ...],
     routed: _Routed,
     rates: FxRates,
+    queue: QueueBook | None = None,
 ) -> ExecutionPipelineResult:
     """Close the step: value the book once, record the snapshot, and report."""
 
@@ -2335,6 +2367,7 @@ def _step_result(
         routed.unpriced,
         valuation,
         routed.refusals,
+        queue,
     )
 
 
@@ -3501,6 +3534,7 @@ def _work_resting(
     price: Decimal,
     passive: bool,
     one_shot: bool,
+    cap: Decimal | None = None,
 ) -> tuple[
     ExecutionPipelineState,
     tuple[ExecutionReport, ...],
@@ -3512,10 +3546,13 @@ def _work_resting(
     What does not fill goes on resting, unless the order is ``one_shot`` -- an
     immediate-or-cancel, fill-or-kill or auction order -- when it is cancelled.
     A decision to fill nothing is not a refusal of the order: a resting order
-    that found no liquidity this event rests.
+    that found no liquidity this event rests. ``cap`` is what a queue model
+    allows to fill, when less than the queue cleared (FUT-011).
     """
 
     decision = _decide_fill(policy, order, event, price, _whole_units(state))
+    if cap is not None:
+        decision = _within_queue(decision, order, cap, _whole_units(state))
     if _kills(order, decision):
         return _end_unfilled(state, order, event.timestamp), (), (), ()
     if decision.status is FillStatus.NO_FILL:
@@ -3542,6 +3579,7 @@ def _work_order(
     rates: FxRates,
     *,
     arriving: bool,
+    queue_turn: QueueTurn | None = None,
 ) -> tuple[
     ExecutionPipelineState,
     tuple[ExecutionReport, ...],
@@ -3570,7 +3608,9 @@ def _work_order(
       and fill at their limit -- or at a bar's better open -- when the market
       trades through it, as a maker: no spread, slippage or impact. What does
       not fill rests on; an immediate-or-cancel or fill-or-kill order is
-      cancelled after its first turn instead.
+      cancelled after its first turn instead. Under a queue model
+      (``queue_turn``, FUT-011) a resting turn fills only what the model says
+      has reached the front of the order's price level.
     """
 
     timestamp = event.timestamp
@@ -3618,11 +3658,21 @@ def _work_order(
         return current, (), (), ()
 
     resting_price = _resting_fill_price(order, event)
+    if queue_turn is not None and not queue_turn.may_fill:
+        resting_price = None
     if resting_price is None:
         current = _end_unfilled(current, order, timestamp) if one_shot else current
         return current, (), (), ()
     return _work_resting(
-        current, order, event, policy, rates, price=resting_price, passive=True, one_shot=one_shot
+        current,
+        order,
+        event,
+        policy,
+        rates,
+        price=resting_price,
+        passive=True,
+        one_shot=one_shot,
+        cap=None if queue_turn is None else queue_turn.eligible,
     )
 
 
@@ -3632,31 +3682,178 @@ def _fill_working_orders(
     asset_id: str,
     policy: FillPolicy,
     rates: FxRates,
-) -> tuple[ExecutionPipelineState, _Routed]:
+    queue: QueueBook | None = None,
+) -> tuple[ExecutionPipelineState, _Routed, QueueBook | None]:
     """Work the simulated orders left working in ``asset_id``, at ``event``.
 
     In the order they were placed, each gets its turn at what this event showed
     -- see :func:`_work_order`: a market order its one attempt, a resting order
-    the fill the event's prices give it, or nothing.
+    the fill the event's prices give it, or nothing. Under a queue model each
+    resting limit order's position is advanced by the event first, from where
+    it stood -- or, for an order that has not joined, from an unknown queue --
+    and its turn fills only what that allows (FUT-011).
     """
 
     current = state
+    observation = None if queue is None else _queue_observation(event)
     orders: list[OMSOrder] = []
     reports: list[ExecutionReport] = []
     fills: list[CoreFill] = []
     trades: list[CoreTrade] = []
     for order_id in state.oms.working_orders_for(asset_id):
         order = current.oms.orders.find(order_id)
+        turn = None
+        key = ""
+        if queue is not None and observation is not None:
+            key = str(order_id.value)
+            if _queued(order):
+                held = queue.position_of(key)
+                limit = order.limit_price
+                assert limit is not None  # a queued order is a limit order
+                position = held
+                if position is None or position.limit_price != limit:
+                    position = QueuePosition(limit, None)
+                turn = queue.model.advance(position, order.side, observation)
+                if turn.position != held:
+                    queue = queue.placed(key, turn.position)
         current, new_reports, new_fills, new_trades = _work_order(
-            current, order, event, policy, rates, arriving=False
+            current, order, event, policy, rates, arriving=False, queue_turn=turn
         )
-        orders.append(current.oms.orders.find(order_id))
+        after = current.oms.orders.find(order_id)
+        if queue is not None and observation is not None:
+            if not after.is_open:
+                # Filled, expired or withdrawn: it leaves the queue with the book.
+                queue = queue.without(key)
+            elif turn is None and _queued(after):
+                # A stop-limit triggered at this event rests from here: it joins now.
+                limit = after.limit_price
+                assert limit is not None
+                queue = queue.placed(key, queue.model.join(after.side, limit, observation))
+        orders.append(after)
         reports.extend(new_reports)
         fills.extend(new_fills)
         trades.extend(new_trades)
-    return current, _Routed(
+    routed = _Routed(
         orders=tuple(orders), reports=tuple(reports), fills=tuple(fills), trades=tuple(trades)
     )
+    return current, routed, queue
+
+
+def _queued(order: OMSOrder) -> bool:
+    """Whether a queue model governs ``order``: a limit order resting in continuous trading.
+
+    A limit order, or a stop-limit once triggered, that is neither immediate --
+    it never rests -- nor an auction order, which an auction fills at one price
+    rather than a queue (FUT-011).
+    """
+
+    if order.time_in_force in _NOT_QUEUED:
+        return False
+    if order.order_type is OrderType.LIMIT:
+        return True
+    return order.order_type is OrderType.STOP_LIMIT and order.triggered_at is not None
+
+
+#: Times in force whose orders never rest in a queue: they end at their first
+#: attempt (``IOC``, ``FOK``) or are filled by an auction (``OPG``, ``CLS``) --
+#: what :attr:`OrderTerms.is_immediate` and :attr:`OrderTerms.is_auction` name,
+#: read off the order without building its terms on every turn.
+_NOT_QUEUED: Final = frozenset({TimeInForce.IOC, TimeInForce.FOK, TimeInForce.OPG, TimeInForce.CLS})
+
+
+_AGGRESSOR: Final = {TradeAggressor.BUYER: CoreSide.BUY, TradeAggressor.SELLER: CoreSide.SELL}
+
+
+def _queue_observation(event: MarketEvent) -> QueueObservation:
+    """What ``event`` showed that a queue model reads -- see :class:`QueueObservation`."""
+
+    if isinstance(event, QuoteReceived):
+        quote = event.quote
+        return QueueObservation(
+            event.timestamp,
+            bid=quote.bid,
+            bid_size=quote.bid_size,
+            ask=quote.ask,
+            ask_size=quote.ask_size,
+        )
+    if isinstance(event, TickReceived | TradeReceived):
+        tick = event.tick
+        return QueueObservation(
+            event.timestamp,
+            trade_price=tick.price,
+            trade_quantity=tick.quantity,
+            aggressor=None if tick.aggressor is None else _AGGRESSOR[tick.aggressor],
+        )
+    if isinstance(event, BarClosed):
+        return QueueObservation(event.timestamp, low=event.bar.low, high=event.bar.high)
+    return QueueObservation(event.timestamp)
+
+
+def _queue_after_step(
+    queue: QueueBook,
+    state: ExecutionPipelineState,
+    event: MarketEvent,
+    update: tuple[str, Decimal] | None,
+    resting_before: int,
+) -> QueueBook:
+    """``queue`` after a step: the orders it left resting in the event's asset joined.
+
+    Each joins at this event -- the one it was placed at -- from what the
+    event showed, which the strategy had seen before placing it. They are the
+    asset's working orders after the ``resting_before`` that were working when
+    the step began placing orders: the working orders of an asset are kept in
+    the order they were placed. An order placed outside a market event of its
+    asset -- by a timer, a slice or an observation -- has no event of its own
+    to join at, and starts its first turn from an unknown queue instead.
+
+    Orders that end at their turn leave the book there
+    (:func:`_fill_working_orders`); one ended otherwise -- a settlement, a
+    split, an outcome a caller reports -- is never worked again, and leaves it
+    when the driver next keeps only working orders (at a pause, and at the end).
+    """
+
+    if state.config.routing is not ExecutionRouting.SIMULATED or update is None:
+        return queue
+    if _working_count(state, update[0]) == resting_before:
+        return queue  # the step placed nothing that rests in this asset
+    placed = state.oms.working_orders_for(update[0])[resting_before:]
+    observation: QueueObservation | None = None
+    for order_id in placed:
+        key = str(order_id.value)
+        if queue.position_of(key) is not None:
+            continue
+        order = state.oms.orders.find(order_id)
+        if not _queued(order):
+            continue
+        limit = order.limit_price
+        assert limit is not None  # a queued order is a limit order
+        if observation is None:
+            observation = _queue_observation(event)
+        queue = queue.placed(key, queue.model.join(order.side, limit, observation))
+    return queue
+
+
+def _working_count(state: ExecutionPipelineState, asset_id: str) -> int:
+    """How many orders are working in ``asset_id``, without listing them."""
+
+    working = state.oms.working_by_asset.get(asset_id)
+    return 0 if working is None else len(working)
+
+
+def _within_queue(
+    decision: FillDecision, order: OMSOrder, cap: Decimal, whole_units: bool
+) -> FillDecision:
+    """``decision`` held to what a queue model allows, in whole units when the run trades them."""
+
+    if decision.status not in (FillStatus.FULL_FILL, FillStatus.PARTIAL_FILL):
+        return decision
+    quantity = order.remaining_quantity if decision.quantity is None else decision.quantity
+    if quantity <= cap:
+        return decision
+    allowed = cap.to_integral_value(rounding=decimal.ROUND_DOWN) if whole_units else cap
+    if allowed <= Decimal("0"):
+        return FillDecision(FillStatus.NO_FILL, None)
+    return FillDecision(FillStatus.PARTIAL_FILL, allowed)
 
 
 def _classify_unpriced(state: ExecutionPipelineState, asset_id: str) -> tuple[UnpricedReason, str]:

@@ -108,9 +108,11 @@ from alphalab.backtesting.engine import (
     initialize,
 )
 from alphalab.backtesting.exceptions import UnsupportedRecordError
+from alphalab.backtesting.queueing import queued_result, queued_run
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE, RunSchedule, ScheduleCursor
 from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, ReplayResult
 from alphalab.common.ids import IdStreamPosition, current_id_position, use_id_source
+from alphalab.execution.queue import QueueBook, QueueModel
 from alphalab.replay.engine import ReplayEngine
 from alphalab.replay.exceptions import InvalidReplayStateError
 from alphalab.replay.session import ReplaySession
@@ -210,6 +212,9 @@ class PausedReplay:
         algorithms: The execution plan's book, for a replay given one (v4.1.1,
             ledger FUT-009): every parent's algorithm as it stood at the pause,
             the children still working included; ``None`` otherwise.
+        queue: The queue book, for a replay given a queue model (v4.1.1, ledger
+            FUT-011): the model, and each resting limit order's place at its
+            price level at the pause; ``None`` otherwise.
 
     Raises:
         InvalidReplayStateError: If the three do not describe one replay paused
@@ -223,6 +228,7 @@ class PausedReplay:
     cursor_position: IdStreamPosition
     schedule: RunSchedule = EMPTY_SCHEDULE
     algorithms: AlgorithmBook | None = None
+    queue: QueueBook | None = None
 
     def __post_init__(self) -> None:
         cursor = self.cursor
@@ -296,6 +302,7 @@ class ReplayBacktest:
         observations: Iterable[ObservationDelivery[Any]] = (),
         schedule: RunSchedule = EMPTY_SCHEDULE,
         execution: ExecutionPlan | None = None,
+        queue: QueueModel | None = None,
     ) -> ReplayResult: ...
 
     @overload
@@ -310,6 +317,7 @@ class ReplayBacktest:
         observations: Iterable[ObservationDelivery[Any]] = (),
         schedule: RunSchedule = EMPTY_SCHEDULE,
         execution: ExecutionPlan | None = None,
+        queue: QueueModel | None = None,
     ) -> ReplayResult | PausedReplay: ...
 
     @staticmethod
@@ -323,6 +331,7 @@ class ReplayBacktest:
         observations: Iterable[ObservationDelivery[Any]] = (),
         schedule: RunSchedule = EMPTY_SCHEDULE,
         execution: ExecutionPlan | None = None,
+        queue: QueueModel | None = None,
     ) -> ReplayResult | PausedReplay:
         """Replay ``dataset`` through the execution path, to its end or to a pause.
 
@@ -350,9 +359,15 @@ class ReplayBacktest:
         ``execution`` (v4.1.1, ledger FUT-009) works every order in children, as
         :meth:`BacktestEngine.run <alphalab.backtesting.engine.BacktestEngine.run>`
         does; a pause keeps the book, and a resume continues every algorithm.
+
+        ``queue`` (v4.1.1, ledger FUT-011) governs resting limit orders by a
+        queue model, as :meth:`BacktestEngine.run
+        <alphalab.backtesting.engine.BacktestEngine.run>` does; a pause keeps
+        every order's place, and a resume continues from it.
         """
 
         config, book = algorithmic_run(config, execution, ExecutionMode.REPLAY)
+        queued = queued_run(config, queue)
         cursor_ids = id_source(cursor_seed(config.seed))
 
         with use_id_source(cursor_ids):
@@ -371,6 +386,7 @@ class ReplayBacktest:
                 pause_when,
                 schedule.with_observations(observations),
                 book,
+                queued,
                 resumed=False,
             )
 
@@ -428,6 +444,7 @@ class ReplayBacktest:
                 pause_when,
                 paused.schedule,
                 paused.algorithms,
+                paused.queue,
                 resumed=True,
             )
 
@@ -440,6 +457,7 @@ def _drive(
     pause_when: Callable[[ReplayProgress], bool] | None,
     schedule: RunSchedule,
     book: AlgorithmBook | None,
+    queue: QueueBook | None,
     *,
     resumed: bool,
 ) -> ReplayResult | PausedReplay:
@@ -450,7 +468,8 @@ def _drive(
     ``schedule`` is applied by the backtest's own cursor, record by record,
     started where the last record the cursor took leaves it; ``book`` works
     every parent at its asset's events, after the run's step at each, as the
-    backtest does.
+    backtest does; ``queue`` is threaded through each step, as the backtest
+    threads it.
     """
 
     total = len(replay.events)
@@ -485,7 +504,10 @@ def _drive(
                 with use_id_source(cursor_ids):
                     paused = ReplayEngine.pause(replay, float(replayed))
                     position = current_id_position()
-                return PausedReplay(state, paused, position, schedule, book)
+                if queue is not None:
+                    working = (str(oid.value) for oid in state.pipeline.oms.active_orders)
+                    queue = queue.keeping(working)
+                return PausedReplay(state, paused, position, schedule, book, queue)
         ask = True
 
         with use_id_source(cursor_ids):
@@ -504,7 +526,11 @@ def _drive(
             )
         inputs, state = inputs.before(state, record.timestamp, context_factory)
         state = RunEngine.close_slice(state, context_factory, inputs.rates, before=record.timestamp)
-        state, result = RunEngine.advance(state, record, context_factory, rates=inputs.rates)
+        state, result = RunEngine.advance(
+            state, record, context_factory, rates=inputs.rates, queue=queue
+        )
+        if result is not None and result.queue is not None:
+            queue = result.queue
         if book is not None and result is not None:
             book, state = work_children(book, state, result.market_event, inputs.rates)
         # The cursor's lifecycle log is an audit trail like any subsystem's, and
@@ -518,7 +544,9 @@ def _drive(
     inputs, state = inputs.finish(state, context_factory, None if last is None else last.timestamp)
     state = RunEngine.close_slice(state, context_factory, inputs.rates)
     backtest: BacktestResult
-    if book is None:
+    if queue is not None:
+        backtest = queued_result(state, queue)
+    elif book is None:
         backtest = finalize(state)
     else:
         book, state = finish_children(book, state)
