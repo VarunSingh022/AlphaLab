@@ -257,6 +257,9 @@ schedule declaring no daily period writes nothing new.
 An exchange whose cash is paid later (phase 3, ledger FUT-025) writes its
 `EXCHANGE` transactions with the `settles_at` and `settlement_cash` a fill
 carries, and its pending entry is rebuilt from them as a fill's is.
+A scenario model repricing options (phase 3, ledger FUT-026) writes `repriced`
+-- each option's volatility, rate, carry by kind and yield, and lattice steps --
+and each scenario's `volatility_shifts`, only when declared.
 
 Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
 account's declared margin model as `margin_model_to_primitives` writes it

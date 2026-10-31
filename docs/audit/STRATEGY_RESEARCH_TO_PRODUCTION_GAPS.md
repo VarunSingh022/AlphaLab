@@ -18,7 +18,8 @@ entry the program accepted is delivered. The phase 2 global gap audit that
 followed (section *The phase 2 global gap audit*, below) fixed three gaps --
 EXE-013, NUM-016, and a strategy's view of borrow terms under FUT-018 -- and
 raised FUT-022 to FUT-029, which phase 3 delivers in turn (FUT-022, a
-lender's recall bought in, FUT-023, daily accrual, and FUT-025, an entitlement paid later, so far). Rows below are as
+lender's recall bought in, FUT-023, daily accrual, FUT-025, an entitlement paid later, and FUT-026, options repriced in
+margin scenarios, so far). Rows below are as
 of the FUT-011 milestone.
 
 ## Classes
@@ -156,7 +157,6 @@ on one schedule, and its replay pauses through a payload.
 | Work | Families it moves | Release class |
 | --- | --- | --- |
 | FUT-024 holder elections, announcement instants | 3 (merger arbitrage), 5 (adjusted contracts) | minor |
-| FUT-026 options repriced in margin scenarios | 5 (hedged options books) | minor |
 | FUT-027 a halt's reopening auction, auction imbalance | 6 (microstructure), 3 (news halts) | minor |
 | FUT-028 bands from a reference price | 1, 6 (limit-locked markets) | minor |
 | FUT-029 a strategy's amend in place | 6 (market making, passive execution) | minor |
@@ -193,7 +193,7 @@ future enhancement; 6 already implemented or resolved.
 | Interest and fees on a period's daily balances | 5 | FUT-023, **delivered in phase 3** |
 | Holder elections; corporate-action and adjustment announcement instants | 2 | FUT-024 (v4.4) |
 | A corporate action's consideration paid after its instant | 5 | FUT-025, **delivered in phase 3** |
-| Options repriced from their underlying in margin scenarios | 2 | FUT-026 (v4.4) |
+| Options repriced from their underlying in margin scenarios | 2 | FUT-026, **delivered in phase 3** |
 | A halt's reopening auction; auction imbalance | 2 | FUT-027 (v4.4); opening and closing auctions fill at the session bar's open or close |
 | Bands computed from a reference price | 5 | FUT-028 (v4.3); precomputed bands are exact for a daily reference |
 | A strategy's amend in place, keeping priority | 5 | FUT-029 (v4.3); cancel and replace is the conservative reading |

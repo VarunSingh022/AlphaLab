@@ -404,6 +404,16 @@ settle -- the same settlement index, so buying power, settled cash and a
 restore treat it alike -- and nothing new is written for an action paying at
 once.
 
+**30. A scenario reprices an option from its underlying, by declared inputs
+(FUT-026, phase 3).** The inputs a pricer needs and the market does not state --
+volatility, rate, carry, a lattice -- are the model's declaration, as a clearing
+house's risk arrays are its own; everything else is the contract's terms and the
+market's prices now, supplied by the execution path. The loss is the model
+value's change, not a mark against a model, so a scenario of no move costs
+nothing. What the engine has no pricer for is refused at declaration, and an
+option whose underlying is not yet priced is margined on its own terms: neither
+is approximated.
+
 ---
 
 # Consequences
@@ -439,10 +449,12 @@ once.
   currency**: components priced in two currencies within one package, and a
   package with no whole unit, are refused; a quanto contract fixes the rate its
   consideration converts at, not its payoff.
-- **A scenario revalues each covered instrument by its declared move alone**: an
-  option is not repriced from its underlying; orders are judged leg by leg
-  against the book as it stands; without a declared model, margin is each
-  position's own and the gate's `MarginLimit` a gross-notional cap.
+- **A scenario revalues each covered instrument by its declared move alone**,
+  unless the model reprices an option from its underlying (FUT-026), at one
+  declared volatility per option and instantaneously, with no time decay over a
+  horizon; orders are judged leg by leg against the book as it stands; without a
+  declared model, margin is each position's own and the gate's `MarginLimit` a
+  gross-notional cap.
 - **Interest and fees accrue at each declared period's instant**: on the balance
   and the short then, unless the period is declared daily (FUT-023), when each
   calendar day accrues at its cutoff and the period posts once, with no

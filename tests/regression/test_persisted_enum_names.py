@@ -39,6 +39,8 @@ ROOT = Path(__file__).resolve().parents[2]
 NAMED: dict[str, tuple[str, ...]] = {
     # v4.2.0 (ledger FUT-020): what a venue does with an order beyond its band.
     "alphalab.instrument.controls.BandAction": ("REFUSE", "CAP"),
+    # Phase 3 (FUT-026): a repriced option's carry, by name, in a margin model.
+    "alphalab.options.carry.CarryKind": ("DIVIDEND_YIELD", "FOREIGN_RATE", "FUTURES"),
     # v4.2.0 (ledger FUT-018): an instrument's borrow terms, by their day count.
     "alphalab.conventions.daycount.DayCount": ("ACT_365_FIXED", "ACT_360", "THIRTY_360_US"),
     # v4.2.0 (ledger FUT-017): an instrument's margin terms, by their basis.

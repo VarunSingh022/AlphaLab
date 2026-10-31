@@ -64,6 +64,8 @@ from alphalab.instrument.margin import (
     MarginExposure,
     MarginModel,
     MarginTerms,
+    OptionRisk,
+    ScenarioMargin,
 )
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
@@ -3127,6 +3129,9 @@ class MarginHolding:
     unit_value: Decimal = Decimal("0")
     unit_maintenance: Decimal = Decimal("0")
     haircut_rate: Decimal = Decimal("0")
+    #: An option the account's model reprices: its facts, ``units`` per
+    #: contract held (FUT-026); ``None`` otherwise.
+    option: OptionRisk | None = None
 
     def exposure(self, quantity: Decimal | None = None) -> MarginExposure:
         """This position as a margin model reads it, at ``quantity`` units (its own by default).
@@ -3136,18 +3141,25 @@ class MarginHolding:
         when a liquidation or an order is being sized (FUT-019).
         """
 
+        held = self.quantity if quantity is None else quantity
+        option = (
+            None
+            if self.option is None
+            else replace(self.option, units=ACCOUNTING_CONTEXT.multiply(held, self.option.units))
+        )
         if quantity is None or quantity == self.quantity:
             sign = Decimal("1") if self.quantity > 0 else Decimal("-1")
             value = ACCOUNTING_CONTEXT.multiply(
                 sign, ACCOUNTING_CONTEXT.multiply(self.quantity.copy_abs(), self.unit_value)
             )
-            return MarginExposure(self.asset_id, value, self.initial, self.maintenance)
+            return MarginExposure(self.asset_id, value, self.initial, self.maintenance, option)
         units = quantity.copy_abs()
         return MarginExposure(
             self.asset_id,
             ACCOUNTING_CONTEXT.multiply(quantity, self.unit_value),
             ACCOUNTING_CONTEXT.multiply(units, self.unit_initial),
             ACCOUNTING_CONTEXT.multiply(units, self.unit_maintenance),
+            option,
         )
 
     def haircut(self, quantity: Decimal) -> Decimal:
@@ -3252,6 +3264,8 @@ def margin_position(
             return amount
         return rates.convert(amount, currency, base, as_of, units=units).converted
 
+    model = registry.margin_model
+    repriced = model.repriced if isinstance(model, ScenarioMargin) else None
     holdings: list[MarginHolding] = []
     haircuts = Decimal("0")
     # Only what the registry's index says declares margin is read: a book's other
@@ -3286,6 +3300,11 @@ def margin_position(
             else in_base(terms.maintenance, position.currency)
         )
         haircut_rate = terms.haircut if position.pays_notional else Decimal("0")
+        option = (
+            _option_risk(state, record, position.currency, in_base, as_of)
+            if repriced and asset_id in repriced
+            else None
+        )
         collateral = Decimal("0")
         if position.quantity > 0 and position.pays_notional and terms.haircut:
             haircuts += ctx.multiply(value, terms.haircut)
@@ -3302,13 +3321,13 @@ def margin_position(
                 unit_value,
                 unit_maintenance,
                 haircut_rate,
+                option,
             )
         )
     if not holdings:
         return None
     nav = NAVCalculator.calculate(portfolio.cash, portfolio.positions, base, rates, as_of)
     holdings.sort(key=lambda h: (h.terms.priority, -h.initial, h.asset_id))
-    model = registry.margin_model
     if model is None:
         initial_total = sum((h.initial for h in holdings), Decimal("0"))
         maintenance_total = sum((h.maintenance for h in holdings), Decimal("0"))
@@ -3323,6 +3342,40 @@ def margin_position(
         maintenance=maintenance_total,
         holdings=tuple(holdings),
         model=model,
+    )
+
+
+def _option_risk(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord | None,
+    currency: str,
+    in_base: Callable[[Decimal, str], Decimal],
+    as_of: float,
+) -> OptionRisk | None:
+    """A repriced option's facts at ``as_of``, ``units`` per contract, or ``None`` (FUT-026).
+
+    Its terms in effect now and its underlying's price now. Until the run has
+    priced the underlying there is nothing to value the option from, and it is
+    margined by its own terms, offsetting nothing -- never at a guessed price.
+    """
+
+    terms = None if record is None else record.terms
+    assert record is not None and isinstance(terms, OptionTerms)
+    effective = terms.effective(as_of)
+    underlying = effective.deliverable.asset_id
+    price = state.market_prices.get(underlying)
+    if price is None:
+        return None
+    return OptionRisk(
+        underlying,
+        price,
+        effective.strike,
+        effective.option_type,
+        effective.exercise_style,
+        effective.expires_at,
+        as_of,
+        effective.deliverable.units,
+        in_base(Decimal("1"), currency),
     )
 
 
@@ -4014,6 +4067,21 @@ def _margin_unit(
         )
     economics = _economics_of(state, asset_id)
     pays = economics is None or economics.settlement.pays_notional
+    registry = state.config.instruments
+    model = None if registry is None else registry.margin_model
+    option = None
+    if isinstance(model, ScenarioMargin) and asset_id in model.repriced:
+        record = _declared(state, asset_id)
+        assert record is not None
+        base = state.portfolio.account.base_currency
+        units = state.portfolio.account.currency_units
+
+        def in_base(amount: Decimal, currency: str) -> Decimal:
+            if currency == base:
+                return amount
+            return rates.convert(amount, currency, base, at, units=units).converted
+
+        option = _option_risk(state, record, record.currency, in_base, at)
     return MarginHolding(
         asset_id,
         Decimal("0"),
@@ -4025,6 +4093,7 @@ def _margin_unit(
         unit_value,
         unit_maintenance,
         terms.haircut if pays else Decimal("0"),
+        option,
     )
 
 

@@ -85,8 +85,10 @@ from alphalab.instrument.classification import (
 )
 from alphalab.instrument.controls import TradingControls
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
-from alphalab.instrument.margin import MarginModel, ScenarioMargin
+from alphalab.instrument.margin import MarginModel, OptionPricing, ScenarioMargin
 from alphalab.instrument.record import DatedAlias, InstrumentRecord, normalize_sector_label
+from alphalab.instrument.terms import OptionTerms
+from alphalab.options.enums import ExerciseStyle
 
 __all__ = [
     "InstrumentRegistry",
@@ -876,7 +878,41 @@ def declare_margin_model(
                     "which declares no margin terms; an instrument a model covers declares how "
                     "it is margined on its own."
                 )
+        for asset_id, pricing in model.repriced.items():
+            _require_repriceable(registry.instruments[asset_id], pricing, model)
     return replace(registry, margin_model=model)
+
+
+def _require_repriceable(
+    record: InstrumentRecord, pricing: OptionPricing, model: ScenarioMargin
+) -> None:
+    """A repriced option is one a closed form or a lattice values from one moved deliverable."""
+
+    terms = record.terms
+    if not isinstance(terms, OptionTerms):
+        raise InstrumentRegistrationError(
+            f"The margin model reprices {record.symbol}, which declares no option terms."
+        )
+    if terms.basket or terms.cash_per_contract or terms.consideration_currency is not None:
+        raise InstrumentRegistrationError(
+            f"The margin model reprices {record.symbol}, a package or a quanto contract the "
+            "model cannot value from one underlying: declare its own moves instead."
+        )
+    if terms.exercise_style not in (ExerciseStyle.EUROPEAN, ExerciseStyle.AMERICAN):
+        raise InstrumentRegistrationError(
+            f"The margin model reprices {record.symbol}, a {terms.exercise_style.name} "
+            "contract it has no pricer for: declare its own moves instead."
+        )
+    if terms.exercise_style is ExerciseStyle.AMERICAN and pricing.lattice_steps is None:
+        raise InstrumentRegistrationError(
+            f"{record.symbol} is American: its repricing declares the lattice it is valued on."
+        )
+    underlying = terms.deliverable.asset_id
+    if underlying not in model.scenarios[0].moves:
+        raise InstrumentRegistrationError(
+            f"The margin model reprices {record.symbol} from {underlying}, which its scenarios "
+            "do not move."
+        )
 
 
 def declare_trading_controls(

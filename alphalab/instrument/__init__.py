@@ -98,6 +98,8 @@ from alphalab.instrument.margin import (
     MarginRequirement,
     MarginScenario,
     MarginTerms,
+    OptionPricing,
+    OptionRisk,
     PerPositionMargin,
     ScenarioMargin,
 )
@@ -166,6 +168,8 @@ __all__ = [
     "MarginRequirement",
     "MarginScenario",
     "MarginTerms",
+    "OptionPricing",
+    "OptionRisk",
     "OptionTerms",
     "PerPositionMargin",
     "PriceBand",
