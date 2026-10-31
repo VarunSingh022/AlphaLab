@@ -1,5 +1,5 @@
 {
-  "release": "4.1.0",
+  "release": "4.2.0",
   "rule": "One name, one contract: a name two packages export is the same object in both, or it is listed under shared_names with the reason the two are deliberately different.",
   "packages": {
     "alphalab": {

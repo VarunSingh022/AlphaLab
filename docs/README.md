@@ -314,7 +314,7 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v4.1.0
+v4.2.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 -- twelve releases that shipped

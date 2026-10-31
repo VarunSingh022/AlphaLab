@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v4.1)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v4.2)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v4.1)
+# Implementation Status (v4.2)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -5327,8 +5327,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v4.1.0
-Status: Implementation Status (v4.1) describes what is built and is authoritative.
+Version: v4.2.0
+Status: Implementation Status (v4.2) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```

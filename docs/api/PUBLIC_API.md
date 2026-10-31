@@ -23,7 +23,7 @@ durability table.
 | [`generate_public_api.py`](generate_public_api.py) | Writes the manifest from the package. Keeps the reasons already written; leaves a new shared name's reason empty |
 | `tests/regression/test_public_api_manifest.py` | Fails on any export added, removed or rebound, on a shared name without a reason, and on a manifest for another release |
 
-At v4.1.0 the manifest records 44 packages and 12 documented modules, 2,683 exports and 35 shared names
+At v4.2.0 the manifest records 44 packages and 12 documented modules, 2,683 exports and 35 shared names
 (`test_public_api_manifest.py` holds this sentence to the manifest).
 
 ## Stability from v4.0

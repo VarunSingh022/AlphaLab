@@ -159,7 +159,7 @@ names what the release established and the ADR that records the decision.
 - **The contract an application builds on, checked against the artifact**:
   `tests/consumer_contract.py` runs inside every installed wheel and sdist.
 
-## v4.2.0 candidate (the v4.1.1 future-readiness program; release number pending)
+## v4.2.0 (in development: the v4.1.1 future-readiness program, its number approved by the maintainer; not yet published)
 
 - **One schedule for every timed input** (FUT-004): `alphalab.backtesting.schedule`
   -- rates, funding, cash flows, per-unit dividends and coupons, perpetual funding
@@ -554,7 +554,7 @@ holds this list to the ledger: an entry may be left for later only here.
 The entries below were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
 horizon, is the maintainer's decision. The candidate itself delivered the rest
-of what the audit proposed (section *v4.2.0 candidate*, above).
+of what the audit proposed (section *v4.2.0*, above).
 
 ## FUT-014 — a strategy that instructs an exercise from its hooks (target v4.3)
 

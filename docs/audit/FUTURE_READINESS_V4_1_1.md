@@ -331,21 +331,20 @@ the FUT-002 milestone's, on the tree it committed (the FUT-011 commit's own, mea
 | Mutation | the FUT-011 rules and the FUT-002 checks, each broken in a scratch copy | 15 of 15 caught by `tests/integration/test_queue_model.py`; 13 of 13 by `tests/regression/test_typed_strategy_configuration.py` |
 | Whitespace | `git diff --check` | clean |
 
-### 8.2 The three guards that wait for the version
+### 8.2 The three guards that waited for the version
 
-They read `alphalab.__version__`, still `4.1.0`, and fail by construction:
-
-* `tests/regression/test_api_changes_are_in_the_changelog.py::test_every_removed_or_changed_name_is_in_the_changelog`
-  compares the manifest with the newest history file older than the package's
-  version (4.0.0) and wants the changed names in the `[4.1.0]` entry -- the
-  released one, which is history and is not edited;
-* `tests/regression/test_nothing_is_left_for_later.py::test_no_ledger_entry_is_assigned_beyond_this_release`
-  refuses ledger entries recorded for `v4.2.0` while the package says 4.1.0;
-* `tests/unit/test_package_metadata.py::test_package_exposes_version` fails in the
-  dev venv only (stale editable metadata, as at baseline) and passes fresh.
-
-Choosing the version closes the first two (section 9's checklist); nothing else
-depends on it. The version was not changed to make them pass.
+Until the version was set they read `alphalab.__version__`, then `4.1.0`, and
+failed by construction: `test_every_removed_or_changed_name_is_in_the_changelog`
+wanted the changed names in the released `[4.1.0]` entry, and
+`test_no_ledger_entry_is_assigned_beyond_this_release` refused the ledger's
+`v4.2.0` entries. The maintainer approved v4.2.0 as the development and release
+target (section 9); with the version set, both pass on the changes themselves --
+the CHANGELOG's `[4.2.0]` section, which the first guard showed lacked three
+rows (`BrokerAssetClass`, `InstrumentRegistryRecord`, `InstrumentRegistrySnapshot`),
+now added. The third, `tests/unit/test_package_metadata.py::test_package_exposes_version`,
+failed in the dev venv only: its editable install had been made at 4.0.0 and
+its metadata never refreshed. Reinstalled (`pip install --no-deps -e .`), it
+reports 4.2.0 and passes; every fresh environment passed it throughout.
 
 ### 8.3 What was not run
 
@@ -361,7 +360,7 @@ Windows remains untested (BDY-027).
 
 ## 9. Versioning
 
-**Recommendation: release this candidate as v4.2.0.** It adds a public module
+**Decision: v4.2.0.** The maintainer approved it as the development and release target (2026-10-30), on the grounds below; the checklist that follows is applied except where it publishes (no tag, release, upload or change to `main` is made before publication is decided).  It adds a public module
 (`alphalab.backtesting.schedule`) and modules (`alphalab.backtesting.algorithmic`,
 `alphalab.backtesting.queueing`, `alphalab.execution.queue`,
 `alphalab.instrument.terms`, `alphalab.strategy.configuration`), names in

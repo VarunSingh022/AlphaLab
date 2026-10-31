@@ -1,7 +1,7 @@
-# Depending on AlphaLab 4.1 from an application
+# Depending on AlphaLab 4.2 from an application
 
 How a host application -- iluvtrade is the one this release was prepared for --
-installs AlphaLab 4.1.0 and what it may rely on. Every statement here is held by
+installs AlphaLab 4.2.0 and what it may rely on. Every statement here is held by
 a test, a release gate or the certificate; where something is *not* established,
 this page says so. The checklist at the end is the order to wire it in.
 
@@ -11,18 +11,23 @@ this page says so. The checklist at the end is the order to wire it in.
 
 | | |
 | --- | --- |
-| Distribution | `alphalab` **4.1.0**: a wheel `alphalab-4.1.0-py3-none-any.whl` (pure Python) and an sdist `alphalab-4.1.0.tar.gz` |
-| Python | `Requires-Python: >=3.12`. **Tested on CPython 3.12, 3.13 and 3.14** -- every release gate on each, in CI and in the 4.1.0 verification (ledger LIM-007). Other implementations are not tested |
+| Distribution | `alphalab` **4.2.0**: a wheel `alphalab-4.2.0-py3-none-any.whl` (pure Python) and an sdist `alphalab-4.2.0.tar.gz` |
+| Python | `Requires-Python: >=3.12`. **Tested on CPython 3.12, 3.13 and 3.14** -- every release gate on each, in CI and in the 4.2.0 verification (ledger LIM-007). Other implementations are not tested |
 | Operating systems | **Linux and macOS**, each a required CI cell under all three interpreters. Windows has never run a gate and is not claimed (ledger BDY-027) |
 | Runtime dependencies | **None.** The standard library is the whole of it. The `dev` extra is the lint, type-check, test and build toolchain and is not needed to use the library |
 | Type information | `py.typed` ships in the wheel; the package is checked with `mypy --strict` |
 | Network | None at import or on the research, backtest or replay paths: the examples the release gates run from each installed artifact run with every socket operation refused. Live connectivity is the application's: AlphaLab defines the broker and market-data contracts an adapter implements, and holds no vendor client and no credential |
 
+**4.2.0 is the development target and is not yet published.** Until its tag
+and release exist, the download and `@v4.2.0` references below resolve to
+nothing; the published tag is v4.1.0, whose own `docs/INTEGRATION.md` describes
+it.
+
 `tests/installed_smoke.py` is what the release gates -- CI on every push, Release
 Preflight before publication and Release Validation after it -- run against each
 built distribution in a fresh environment, from outside any checkout: `pip
 check` finds nothing broken, no runtime requirement is declared, every module
-imports without a warning, the version is 4.1.0, `py.typed` is present, every
+imports without a warning, the version is 4.2.0, `py.typed` is present, every
 public name is the one the manifest records, examples `11`, `70` and `71` run end
 to end with every socket operation refused, and `tests/consumer_contract.py` --
 the contract below, exercised through public names, a replay paused in one
@@ -30,20 +35,20 @@ process and resumed in another included -- passes against the artifact.
 
 ## How to install it
 
-AlphaLab 4.1.0 is **not published on PyPI**, and no project of that name there
-belongs to it. Do not write a bare `alphalab==4.1.0` against a public index: if
+AlphaLab 4.2.0 is **not published on PyPI**, and no project of that name there
+belongs to it. Do not write a bare `alphalab==4.2.0` against a public index: if
 somebody registers the name, that requirement installs their package. Install
 the released artifact by a direct reference instead, and pin its hash.
 
-From the release's wheel (recommended). Once the `v4.1.0` release is published
-on GitHub, download its `SHA256SUMS-4.1.0` beside the wheel and write the pinned
+From the release's wheel (recommended). Once the `v4.2.0` release is published
+on GitHub, download its `SHA256SUMS-4.2.0` beside the wheel and write the pinned
 requirement from it -- no value is typed by hand:
 
 ```bash
-RELEASE="https://github.com/VarunSingh022/AlphaLab/releases/download/v4.1.0"
-curl -fsSLO "${RELEASE}/SHA256SUMS-4.1.0"
-WHEEL_SHA256="$(grep ' alphalab-4.1.0-py3-none-any.whl$' SHA256SUMS-4.1.0 | cut -d ' ' -f 1)"
-printf 'alphalab @ %s/alphalab-4.1.0-py3-none-any.whl --hash=sha256:%s\n' "${RELEASE}" "${WHEEL_SHA256}" > requirements-alphalab.txt
+RELEASE="https://github.com/VarunSingh022/AlphaLab/releases/download/v4.2.0"
+curl -fsSLO "${RELEASE}/SHA256SUMS-4.2.0"
+WHEEL_SHA256="$(grep ' alphalab-4.2.0-py3-none-any.whl$' SHA256SUMS-4.2.0 | cut -d ' ' -f 1)"
+printf 'alphalab @ %s/alphalab-4.2.0-py3-none-any.whl --hash=sha256:%s\n' "${RELEASE}" "${WHEEL_SHA256}" > requirements-alphalab.txt
 python -m pip install --require-hashes -r requirements-alphalab.txt
 ```
 
@@ -51,7 +56,7 @@ From the tag, building the sdist locally (needs network access to fetch
 `hatchling` for the build):
 
 ```bash
-python -m pip install "alphalab @ git+https://github.com/VarunSingh022/AlphaLab@v4.1.0"
+python -m pip install "alphalab @ git+https://github.com/VarunSingh022/AlphaLab@v4.2.0"
 ```
 
 An editable install or a checkout on `sys.path` is for working on AlphaLab, not
@@ -67,15 +72,16 @@ python -m pip check
 python -c "import alphalab, alphalab.api; print(alphalab.__version__, alphalab.__file__)"
 ```
 
-The version must be `4.1.0` and the path must be inside the environment's
+The version must be `4.2.0` and the path must be inside the environment's
 `site-packages`.
 
 ## Which version range to declare
 
 `docs/api/PUBLIC_API.md` states the policy: from 4.0, a minor release adds and
 corrects and does not break; a breaking change waits for 5.0 with an ADR and a
-migration. An application using replay pause and resume needs 4.1, so it can
-accept `>=4.1,<5`; pinning `4.1.0` exactly, with its hash, is what makes a
+migration. An application using replay pause and resume needs 4.1, and one using a
+schedule, an execution plan, a queue model, declared contract terms or a typed
+configuration needs 4.2, so it can accept `>=4.2,<5`; pinning `4.2.0` exactly, with its hash, is what makes a
 deployment reproducible, and is what this release recommends.
 
 ## What the application may rely on
@@ -144,9 +150,9 @@ record.
 **Persistence.** A run stopped, serialized, read back and continued finishes
 byte-identical to one never stopped (certificate REP-2), and so does a paused
 replay (FUT-001). Every payload v3.9.0, v3.11.0, v3.12.0, v3.13.0 and v4.1.0 wrote
-and froze is read by 4.1.0 (REP-3); 4.1.0 writes the run and pipeline schemas
+and froze is read by 4.2.0 (REP-3); 4.2.0 writes the run and pipeline schemas
 4.0.0 wrote (5 and 8), so it reads 4.0.0's payloads as 4.0.0 does. A later 4.x
-reading what 4.1.0 writes is the stability policy's commitment (a persisted
+reading what 4.2.0 writes is the stability policy's commitment (a persisted
 format moves only by a schema step that reads every older payload). A restore
 must be given the same sizing model, simulator and fill policy, configured the
 same way, as the run was captured with; it refuses anything else and names both
@@ -182,9 +188,9 @@ lists each boundary and limitation with its reason.
 
 In order; each step names what holds it.
 
-1. **Pin the artifact.** Depend on `alphalab-4.1.0-py3-none-any.whl` by direct
-   reference with its SHA-256 from `SHA256SUMS-4.1.0` (above), never a bare
-   `alphalab==4.1.0`. Use CPython 3.12, 3.13 or 3.14 on Linux or macOS.
+1. **Pin the artifact.** Depend on `alphalab-4.2.0-py3-none-any.whl` by direct
+   reference with its SHA-256 from `SHA256SUMS-4.2.0` (above), never a bare
+   `alphalab==4.2.0`. Use CPython 3.12, 3.13 or 3.14 on Linux or macOS.
 2. **Verify the install** in iluvtrade's own environment: `pip check`, then the
    version and import location (above). Then run the release's consumer
    contract against the installed package, from the release's sdist unpacked
@@ -194,9 +200,9 @@ In order; each step names what holds it.
 
    ```bash
    SCRATCH="$(mktemp -d)"
-   curl -fsSL -o "${SCRATCH}/alphalab-4.1.0.tar.gz" "https://github.com/VarunSingh022/AlphaLab/releases/download/v4.1.0/alphalab-4.1.0.tar.gz"
-   tar -xzf "${SCRATCH}/alphalab-4.1.0.tar.gz" -C "${SCRATCH}"
-   (cd "${SCRATCH}" && python -W error "${SCRATCH}/alphalab-4.1.0/tests/consumer_contract.py" 4.1.0)
+   curl -fsSL -o "${SCRATCH}/alphalab-4.2.0.tar.gz" "https://github.com/VarunSingh022/AlphaLab/releases/download/v4.2.0/alphalab-4.2.0.tar.gz"
+   tar -xzf "${SCRATCH}/alphalab-4.2.0.tar.gz" -C "${SCRATCH}"
+   (cd "${SCRATCH}" && python -W error "${SCRATCH}/alphalab-4.2.0/tests/consumer_contract.py" 4.2.0)
    ```
 3. **Import public names only** -- those in `docs/api/public_api.json`.
    Anything else may change in a patch release.

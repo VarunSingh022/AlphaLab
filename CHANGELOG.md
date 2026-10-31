@@ -14,7 +14,7 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
-# [Unreleased] - v4.1.1 candidate (release number pending the maintainer's decision; recommended 4.2.0)
+# [4.2.0] - unreleased (the development target the maintainer approved; not yet published or tagged)
 
 **A researcher-defined strategy over several assets, datasets, sentiment, macro
 releases and fitted models -- every timed input applied at its instant on every
@@ -186,6 +186,8 @@ IDs are in brackets.
 | `alphalab.runtime.ExecutionAssumptions`, `execution_assumptions` | field `queue_model` and trailing parameter `queue_model`, `None` by default; property `passive_fills`; `settings()` adds `execution.queue_model` only when a model is declared |
 | `alphalab.runtime.execution_pipeline.ExecutionRouting` | member `ALGORITHMIC`; `ExecutionMode.works_children` |
 | `alphalab.core.enums.AssetType` | members `BOND` and `INDEX` |
+| `alphalab.broker.BrokerAssetClass` | the same enum as `AssetType`, so members `BOND` and `INDEX` |
+| `alphalab.instrument.snapshot.InstrumentRegistryRecord`, `InstrumentRegistrySnapshot` | the record's fields `last_trade_at` and `terms`, `None` by default, and the snapshot's `schema_version` default 3 -> 4 (instrument schema 4; a version-3 payload upgrades) -- a snapshot a caller obtains from `capture` or `from_primitives`, not builds |
 | `alphalab.instrument.record.InstrumentRecord` | fields `last_trade_at` and `terms`, `None` by default; `InstrumentRegistry.expiring`, a derived index |
 | `alphalab.lifecycle.manifest_for_run`, `canonical_manifest_key`, `derive_manifest_id` | keyword or trailing `schedule` / `schedule_digest` (`None`) and `dataset_parts` (empty) by default, `execution` / `execution_plan_id` and `queue_model` (`None`); `ReproducibilityManifest.schedule_digest`, `dataset_parts`, `execution_plan_id` and `queue_model` |
 | `alphalab.portfolio.engine.PortfolioEngine.apply_fill` | keyword-only `final_settlement`, `False` by default |

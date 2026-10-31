@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v4.1.0.**
+**A long-term project reference, written at v3.0.0 and updated at v4.2.0.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,7 +42,7 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **4.1.0** |
+| Version | **4.2.0** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
