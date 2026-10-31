@@ -145,6 +145,10 @@ class InstrumentRegistry:
             reads on every record to refuse an expired contract's price, so a
             registry with no expiring instrument costs that path nothing. An
             index, derived like ``members``.
+        margined: ``asset_id`` -> ``None``, for every instrument declaring
+            margin terms (v4.2.0, ledger FUT-017) -- what the execution path
+            reads after every market step, so a registry declaring no margin
+            costs that path nothing. An index, derived like ``expiring``.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -160,6 +164,7 @@ class InstrumentRegistry:
     )
     members: PersistentMap[str, PersistentMap[str, PersistentMap[str, None]]] | None = None
     expiring: PersistentMap[str, float] | None = None
+    margined: PersistentMap[str, None] | None = None
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -188,6 +193,18 @@ class InstrumentRegistry:
                         asset_id: record.last_trade_at
                         for asset_id, record in self.instruments.items()
                         if record.last_trade_at is not None
+                    }
+                ),
+            )
+        if self.margined is None:
+            object.__setattr__(
+                self,
+                "margined",
+                PersistentMap(
+                    {
+                        asset_id: None
+                        for asset_id, record in self.instruments.items()
+                        if record.margin is not None
                     }
                 ),
             )
@@ -432,6 +449,11 @@ def register_instrument(
                 registry.expiring
                 if record.last_trade_at is None or registry.expiring is None
                 else registry.expiring.set(record.asset_id, record.last_trade_at)
+            ),
+            margined=(
+                registry.margined
+                if record.margin is None or registry.margined is None
+                else registry.margined.set(record.asset_id, None)
             ),
         )
     )

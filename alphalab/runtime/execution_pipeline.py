@@ -57,6 +57,7 @@ from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
 from alphalab.instrument.economics import economics_for
 from alphalab.instrument.exceptions import InstrumentInputError
+from alphalab.instrument.margin import MarginBasis, MarginTerms
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.instrument.terms import Deliverable, FutureTerms, OptionTerms
@@ -113,6 +114,7 @@ from alphalab.portfolio.valuation import (
 )
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.engine import RiskEngine
+from alphalab.risk.events import MarginCall
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
@@ -1221,6 +1223,9 @@ class ExecutionPipeline:
         current = _exercises_requested(
             current, (*intents, *feedback_intents), event.timestamp, rates
         )
+        # The account's margin, after everything the step did (FUT-017).
+        current, liquidation = _margin_call(current, event, rates)
+        routed = routed.then(liquidation)
         if queue is not None:
             queue = _queue_after_step(queue, current, event, update, resting_before)
         return _step_result(
@@ -2010,6 +2015,7 @@ class ExecutionPipeline:
             timestamp,
             rates,
             f"EXERCISE-{exercise.asset_id}-{timestamp!r}-{exercise.reference}",
+            instructed=True,
         )
 
     @staticmethod
@@ -2279,7 +2285,34 @@ def _route_requests(
         ):
             current = _record_unpriced(current, asset_id, instant)
 
+    breached: MarginPosition | bool | None = False  # not yet asked
     for request in requests:
+        # An order that would increase a position while the account is below
+        # its maintenance margin is refused: only reductions trade while a
+        # margin call is open (FUT-017). Asked once, and only when one would.
+        if _increases(current, request):
+            if breached is False:
+                margin = margin_position(current, rates, instant)
+                breached = margin if margin is not None and margin.in_breach else None
+            if isinstance(breached, MarginPosition):
+                dropped.append(
+                    (
+                        request,
+                        f"The account is below its maintenance margin -- equity "
+                        f"{breached.equity} against {breached.maintenance} -- and only an "
+                        "order reducing a position trades until the call is met.",
+                    )
+                )
+                current = _retire_dropped_request(current, request.order_id, instant)
+                continue
+            # An order growing a margined position must leave the account's
+            # equity at or above its initial requirement, counting what is
+            # already working (FUT-017).
+            short_of_margin = _initial_margin_refusal(current, request, rates, instant)
+            if short_of_margin is not None:
+                dropped.append((request, short_of_margin))
+                current = _retire_dropped_request(current, request.order_id, instant)
+                continue
         # An order cannot be priced, executed or valued without a market price
         # for its asset -- allocation prices unknown assets at 0.00. Drop the
         # request here, deterministically and before it reaches the OMS, rather
@@ -2628,6 +2661,7 @@ def _lifecycle_fill(
     economics: InstrumentEconomics,
     parts: Mapping[str, Decimal],
     trade_id: str,
+    financed: bool = False,
 ) -> ExecutionPipelineState:
     """Book ``quantity`` of ``asset_id`` at ``price`` through the portfolio's fill authority.
 
@@ -2650,6 +2684,7 @@ def _lifecycle_fill(
         economics=economics,
         final_settlement=True,
         settles_at=_settles_at(state, asset_id, timestamp),
+        financed=financed,
     )
     realized = Decimal("0.00")
     for event in portfolio.events[before:]:
@@ -2696,13 +2731,20 @@ def _require_deliverable(
     units: Decimal,
     price: Decimal,
     multiplier: Decimal,
-) -> tuple[InstrumentRecord, InstrumentEconomics, Decimal]:
-    """The deliverable's record, its economics and the price per unit it moves at -- or a refusal.
+) -> tuple[InstrumentRecord, InstrumentEconomics, Decimal, bool]:
+    """The deliverable's record, its economics, the price per unit it moves at, and
+    whether it is financed -- or a refusal.
 
     ``units`` is signed: positive is taken in, negative delivered away. ``price``
     is per unit of the contract's price, so ``price x multiplier`` is one
     contract's consideration, and the unit price is that over the deliverable
     units and the deliverable's own multiplier.
+
+    A delivery taken in for more than the cash it is paid in is financed --
+    booked as a debit -- only when the deliverable declares
+    :class:`~alphalab.instrument.margin.MarginTerms`: it is then held on margin,
+    and the account's margin, not its cash, decides what follows (FUT-017). A
+    deliverable declaring none is refused, as it always was.
     """
 
     named = f"{contract.symbol} on {contract.exchange}"
@@ -2750,16 +2792,19 @@ def _require_deliverable(
             f"{named} must deliver {-units} {underlying.symbol} and the book holds {held}; the "
             "run does not allow a short position, and none is created to make the delivery."
         )
+    financed = False
     if units > 0 and economics.settlement.pays_notional:
         cost = ctx.multiply(ctx.multiply(units, unit_price), economics.multiplier)
         cash = state.portfolio.cash.balance(underlying.currency)
-        if cash < cost:
+        if cash < cost and underlying.margin is None:
             raise RuntimeValidationError(
                 f"{named} takes delivery of {units} {underlying.symbol} for {cost} "
-                f"{underlying.currency}, and the book holds {cash}; no financing of a delivery "
-                "is modelled."
+                f"{underlying.currency}, and the book holds {cash}; a delivery is financed only "
+                "when its deliverable declares margin terms (InstrumentRecord.margin), and "
+                f"{underlying.symbol} declares none."
             )
-    return underlying, economics, unit_price
+        financed = cash < cost
+    return underlying, economics, unit_price, financed
 
 
 def _deliver(
@@ -2776,7 +2821,7 @@ def _deliver(
 ) -> ExecutionPipelineState:
     """Move ``units`` of the deliverable against ``price`` per unit of the contract's price."""
 
-    underlying, economics, unit_price = _require_deliverable(
+    underlying, economics, unit_price, financed = _require_deliverable(
         state, contract, deliverable, units, price, multiplier
     )
     current = _lifecycle_fill(
@@ -2789,6 +2834,7 @@ def _deliver(
         economics,
         parts,
         trade_id,
+        financed=financed,
     )
     budget_value = _in_budget_currency(
         current,
@@ -2813,6 +2859,406 @@ def _deliver(
             ),
         )
     return current
+
+
+@dataclass(frozen=True, slots=True)
+class MarginHolding:
+    """One margined position's part of the account's margin, in the base currency (FUT-017).
+
+    Attributes:
+        asset_id: The position.
+        quantity: Its signed quantity.
+        terms: What its instrument declares.
+        initial: What it requires at the initial rate.
+        maintenance: What it requires at maintenance.
+        unit_initial: What one unit of it requires at the initial rate.
+        unit_collateral: What selling one unit adds to equity: its haircut on a
+            long, fully paid position, nothing otherwise.
+    """
+
+    asset_id: str
+    quantity: Decimal
+    terms: MarginTerms
+    initial: Decimal
+    maintenance: Decimal
+    unit_initial: Decimal
+    unit_collateral: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class MarginPosition:
+    """The account's margin at one instant, in the base currency (FUT-017).
+
+    Attributes:
+        equity: Net asset value less each long position's haircut.
+        initial: Every margined position's initial requirement, summed.
+        maintenance: Every margined position's maintenance requirement, summed.
+        holdings: The margined positions, in the order a liquidation reduces them.
+    """
+
+    equity: Decimal
+    initial: Decimal
+    maintenance: Decimal
+    holdings: tuple[MarginHolding, ...]
+
+    @property
+    def in_breach(self) -> bool:
+        """Whether equity is below the maintenance requirement: a margin call."""
+
+        return self.equity < self.maintenance
+
+    @property
+    def deficit(self) -> Decimal:
+        """What a liquidation restores: the initial requirement less the equity."""
+
+        return max(Decimal("0"), self.initial - self.equity)
+
+
+def margin_position(
+    state: ExecutionPipelineState, rates: FxRates, as_of: float
+) -> MarginPosition | None:
+    """The account's margin at ``as_of``, or ``None`` when no position held declares margin.
+
+    Each position whose instrument declares :class:`~alphalab.instrument.margin.MarginTerms`
+    requires its initial and maintenance amounts on its own -- a rate of its
+    absolute market value, or an amount per contract -- converted into the base
+    currency by ``rates`` at ``as_of``. Margin equity is the book's net asset
+    value less each long, fully paid position's haircut on its market value. A
+    book holding no margined position has no margin; only the instruments the
+    registry's index says declare margin are read, so a run declaring none
+    costs one emptiness check (FUT-017).
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.margined:
+        return None
+    portfolio = state.portfolio
+    base = portfolio.account.base_currency
+    units = portfolio.account.currency_units
+    ctx = ACCOUNTING_CONTEXT
+
+    def in_base(amount: Decimal, currency: str) -> Decimal:
+        if currency == base or not amount:
+            return amount
+        return rates.convert(amount, currency, base, as_of, units=units).converted
+
+    holdings: list[MarginHolding] = []
+    haircuts = Decimal("0")
+    # Only what the registry's index says declares margin is read: a book's other
+    # positions cost nothing, however many there are.
+    for asset_id in registry.margined:
+        position = portfolio.positions.get(asset_id)
+        record = _declared(state, asset_id)
+        terms = None if record is None else record.margin
+        if position is None or terms is None or position.quantity == 0:
+            continue
+        value = in_base(
+            ctx.multiply(
+                ctx.multiply(position.quantity.copy_abs(), position.market_price),
+                position.multiplier,
+            ),
+            position.currency,
+        )
+        unit_value = ctx.divide(value, position.quantity.copy_abs())
+        if terms.basis is MarginBasis.VALUE_RATE:
+            initial = terms.requirement(position.quantity, value, initial=True)
+            maintenance = terms.requirement(position.quantity, value, initial=False)
+            unit_initial = ctx.multiply(unit_value, terms.initial)
+        else:
+            initial = in_base(terms.requirement(position.quantity, value, True), position.currency)
+            maintenance = in_base(
+                terms.requirement(position.quantity, value, False), position.currency
+            )
+            unit_initial = in_base(terms.initial, position.currency)
+        collateral = Decimal("0")
+        if position.quantity > 0 and position.pays_notional and terms.haircut:
+            haircuts += ctx.multiply(value, terms.haircut)
+            collateral = ctx.multiply(unit_value, terms.haircut)
+        holdings.append(
+            MarginHolding(
+                asset_id, position.quantity, terms, initial, maintenance, unit_initial, collateral
+            )
+        )
+    if not holdings:
+        return None
+    nav = NAVCalculator.calculate(portfolio.cash, portfolio.positions, base, rates, as_of)
+    holdings.sort(key=lambda h: (h.terms.priority, -h.initial, h.asset_id))
+    return MarginPosition(
+        equity=ctx.subtract(nav, haircuts),
+        initial=sum((h.initial for h in holdings), Decimal("0")),
+        maintenance=sum((h.maintenance for h in holdings), Decimal("0")),
+        holdings=tuple(holdings),
+    )
+
+
+def _increases(state: ExecutionPipelineState, request: OrderRequest) -> bool:
+    """Whether ``request`` would open a position, increase one's size, or reverse it."""
+
+    return _growth_of(state, request.asset_id, _signed(request)) > 0
+
+
+def _signed(request: OrderRequest) -> Decimal:
+    return request.quantity if request.side is CoreSide.BUY else -request.quantity
+
+
+def _growth_of(state: ExecutionPipelineState, asset_id: str, signed: Decimal) -> Decimal:
+    """Units of new exposure ``signed`` adds to the filled position: as the risk gate counts."""
+
+    position = state.portfolio.positions.get(asset_id)
+    held = Decimal("0") if position is None else position.quantity
+    after = ACCOUNTING_CONTEXT.add(held, signed)
+    if (held > 0 > after) or (held < 0 < after):
+        return after.copy_abs()
+    return max(Decimal("0"), ACCOUNTING_CONTEXT.subtract(after.copy_abs(), held.copy_abs()))
+
+
+def _unit_margin(
+    state: ExecutionPipelineState,
+    asset_id: str,
+    terms: MarginTerms,
+    unit_value: Decimal,
+    rates: FxRates,
+    at: float,
+) -> Decimal:
+    """What one unit of ``asset_id`` requires at the initial rate, in the base currency.
+
+    ``unit_value`` is one unit's value in the base currency, multiplier included.
+    """
+
+    if terms.basis is MarginBasis.VALUE_RATE:
+        return ACCOUNTING_CONTEXT.multiply(unit_value.copy_abs(), terms.initial)
+    record = _declared(state, asset_id)
+    currency = state.portfolio.account.base_currency if record is None else record.currency
+    base = state.portfolio.account.base_currency
+    if currency == base:
+        return terms.initial
+    units = state.portfolio.account.currency_units
+    return rates.convert(terms.initial, currency, base, at, units=units).converted
+
+
+def _buying_power_charge(
+    state: ExecutionPipelineState,
+    asset_id: str,
+    unit_value: Decimal,
+    rates: FxRates,
+    at: float,
+) -> Decimal | None:
+    """What a unit of growth in ``asset_id`` spends of buying power, when not its value (FUT-017).
+
+    An instrument that pays no notional -- a future settled by variation --
+    moves no cash when it trades: what opening it commits is the initial margin
+    its record declares, not the notional, which the gate charged until v4.2.0.
+    ``None`` -- charge the notional, as always -- for an instrument that pays
+    its notional or declares no margin terms; a registry declaring none costs one
+    emptiness check.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.margined or asset_id not in registry.margined:
+        return None
+    record = _declared(state, asset_id)
+    economics = _economics_of(state, asset_id)
+    if record is None or record.margin is None or economics is None:
+        return None
+    if economics.settlement.pays_notional:
+        return None
+    return _unit_margin(state, asset_id, record.margin, unit_value, rates, at)
+
+
+def _initial_margin_refusal(
+    state: ExecutionPipelineState, request: OrderRequest, rates: FxRates, at: float
+) -> str | None:
+    """Why ``request`` would leave equity below the initial requirement, or ``None`` (FUT-017).
+
+    Read only for an order growing a position in an instrument that declares
+    margin terms. The requirement counts the margined positions held, every
+    working order growing one, and this order's growth, each at its current
+    price; equity is the account's margin equity, less the haircut a long,
+    fully paid purchase adds to it.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.margined or request.asset_id not in registry.margined:
+        return None
+    record = _declared(state, request.asset_id)
+    if record is None or record.margin is None:
+        return None
+    ctx = ACCOUNTING_CONTEXT
+    margin = margin_position(state, rates, at)
+    if margin is None:
+        portfolio = state.portfolio
+        equity = NAVCalculator.calculate(
+            portfolio.cash, portfolio.positions, portfolio.account.base_currency, rates, at
+        )
+        initial = Decimal("0")
+    else:
+        equity, initial = margin.equity, margin.initial
+
+    def unit_value(asset_id: str) -> Decimal | None:
+        price = state.market_prices.get(asset_id)
+        if price is None:
+            return None
+        return _unit_value(
+            state, asset_id, _price_in_base(state, asset_id, price, rates, at)
+        ).copy_abs()
+
+    committed = Decimal("0")
+    for asset_id in registry.margined:
+        margined = _declared(state, asset_id)
+        terms = None if margined is None else margined.margin
+        value = unit_value(asset_id)
+        if terms is None or value is None:
+            continue
+        for order_id in state.oms.working_orders_for(asset_id):
+            order = state.oms.orders.find(order_id)
+            remaining = order.remaining_quantity
+            growth = _growth_of(
+                state, asset_id, remaining if order.side is OMSSide.BUY else -remaining
+            )
+            if growth:
+                committed = ctx.add(
+                    committed,
+                    ctx.multiply(growth, _unit_margin(state, asset_id, terms, value, rates, at)),
+                )
+    value = unit_value(request.asset_id)
+    if value is None:
+        return None  # refused as unpriced, after this
+    growth = _growth_of(state, request.asset_id, _signed(request))
+    added = ctx.multiply(
+        growth, _unit_margin(state, request.asset_id, record.margin, value, rates, at)
+    )
+    economics = _economics_of(state, request.asset_id)
+    pays = economics is None or economics.settlement.pays_notional
+    held = state.portfolio.positions.get(request.asset_id)
+    after_long = request.side is CoreSide.BUY and (held is None or held.quantity >= 0)
+    if pays and after_long and record.margin.haircut:
+        equity = ctx.subtract(
+            equity, ctx.multiply(ctx.multiply(growth, value), record.margin.haircut)
+        )
+    required = ctx.add(ctx.add(initial, committed), added)
+    if equity >= required:
+        return None
+    return (
+        f"The order would leave the account below its initial margin -- equity {equity} "
+        f"against {required} required, {added} of it this order's -- and an order growing a "
+        "margined position trades only within it."
+    )
+
+
+def _reducing_order_working(state: ExecutionPipelineState, margin: MarginPosition) -> bool:
+    """Whether an order reducing a margined position is working -- a liquidation in progress.
+
+    Read off the OMS's working orders, which a snapshot keeps whatever retention
+    trims, so a liquidation is never placed twice for one call: a strategy's own
+    order reducing the position defers it the same way.
+    """
+
+    for holding in margin.holdings:
+        for order_id in state.oms.working_orders_for(holding.asset_id):
+            order = state.oms.orders.find(order_id)
+            if (order.side is OMSSide.SELL) == (holding.quantity > 0):
+                return True
+    return False
+
+
+def _margin_call(
+    state: ExecutionPipelineState, event: MarketEvent, rates: FxRates
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Call margin and liquidate, when the account is below maintenance at ``event`` (FUT-017).
+
+    A liquidation reduces the margined positions in their declared order --
+    lowest priority first, then the largest requirement, then the asset -- by
+    the least that restores equity to the initial requirement, whole lots of
+    each where the run trades them, each holding strategy reducing its own share.
+    It is placed as each strategy's own target through allocation, risk and the
+    OMS, as a market order resting to its asset's next event, so it fills by the
+    run's fill policy at a price the market then shows -- in part, or not at
+    all, as the market allows. A call that finds a liquidation already working
+    places nothing; one whose positions cannot be sold -- unpriced -- is
+    recorded with no orders. Each round is a
+    :class:`~alphalab.risk.events.MarginCall` on the risk log.
+    """
+
+    at = event.timestamp
+    margin = margin_position(state, rates, at)
+    if margin is None or not margin.in_breach or _reducing_order_working(state, margin):
+        return state, _NO_ROUTING
+    ctx = ACCOUNTING_CONTEXT
+    remaining = margin.deficit
+    intents: list[Intent] = []
+    for holding in margin.holdings:
+        if remaining <= 0:
+            break
+        if holding.asset_id not in state.market_prices:
+            continue
+        improvement = ctx.add(holding.unit_initial, holding.unit_collateral)
+        if improvement <= 0:
+            continue
+        needed = ctx.divide(remaining, improvement)
+        economics = _economics_of(state, holding.asset_id)
+        lot = None if economics is None else economics.lot
+        # A liquidation sells what the book can trade: whole lots where the
+        # instrument declares them, whole units where the run trades them or the
+        # position is held in them -- rounded up, so it restores what it must.
+        whole = _whole_units(state) or holding.quantity == holding.quantity.to_integral_value()
+        step = lot.lot_size if lot is not None else (Decimal("1") if whole else None)
+        if step is not None:
+            needed = ctx.multiply(
+                ctx.divide(needed, step).to_integral_value(rounding=decimal.ROUND_CEILING), step
+            )
+        quantity = min(needed, holding.quantity.copy_abs())
+        if quantity <= 0:
+            continue
+        sign = Decimal("1") if holding.quantity > 0 else Decimal("-1")
+        shares = tuple(
+            (sid, share)
+            for sid, share in AllocationEngine.shares_of(state.allocation, holding.asset_id)
+            if share and (share > 0) == (holding.quantity > 0)
+        )
+        if not shares:
+            continue
+        parts = _strategy_parts(shares, ctx.multiply(sign, quantity))
+        for sid, share in shares:
+            part = parts.get(sid, Decimal("0"))
+            if part:
+                intents.append(
+                    Intent(
+                        sid,
+                        holding.asset_id,
+                        ctx.subtract(share, part),
+                        timestamp=at,
+                        kind=IntentKind.TARGET_QUANTITY,
+                        metadata={"margin_call": repr(at)},
+                    )
+                )
+        remaining = ctx.subtract(remaining, ctx.multiply(quantity, improvement))
+    current = state
+    routed = _NO_ROUTING
+    if intents:
+        batch = tuple(intents)
+        allocation, requests = _allocate(current, batch, current.market_prices, rates, at)
+        current = evolve(current, allocation=allocation)
+        current, routed = _route_requests(
+            current,
+            event,
+            batch,
+            requests,
+            StaticFill(FillStatus.FULL_FILL, None),
+            rates,
+            rest=True,
+            at=at,
+        )
+    called = MarginCall(
+        str(new_id()),
+        at,
+        equity=margin.equity,
+        initial_requirement=margin.initial,
+        maintenance_requirement=margin.maintenance,
+        deficit=margin.deficit,
+        orders=tuple(str(order.order_id.value) for order in routed.orders),
+    )
+    risk = current.risk
+    return evolve(current, risk=evolve(risk, events=risk.events.append(called))), routed
 
 
 def _require_adjusted_for(state: ExecutionPipelineState, split: Split, timestamp: float) -> None:
@@ -2958,6 +3404,9 @@ class _PackagePlan:
     convert_after: tuple[Decimal, str, str] | None
     #: The rates both conversions use: the run's, or a quanto contract's fixed one.
     rates: FxRates
+    #: Whether the consideration is more than the cash it is paid in, and is
+    #: financed: every component taken in declares margin terms (FUT-017).
+    financed: bool = False
 
 
 def _package_plan(
@@ -3139,13 +3588,17 @@ def _package_plan(
     paying = sign > 0
     payer_currency = consideration_currency if paying else currency
     owed = net if paying else Decimal("0")
+    financed = False
     if paying:
         cash = state.portfolio.cash.balance(consideration_currency)
-        if cash < owed:
+        unmargined = [c.record.symbol for c in components if c.record.margin is None]
+        if cash < owed and unmargined:
             raise RuntimeValidationError(
                 f"{named} takes delivery for {owed} {payer_currency}, and the book holds "
-                f"{cash}; no financing of a delivery is modelled."
+                f"{cash}; a delivery is financed only when every deliverable declares margin "
+                f"terms (InstrumentRecord.margin), and {', '.join(unmargined)} declares none."
             )
+        financed = cash < owed
         if consideration_currency != currency:
             convert_before = (net, consideration_currency, currency)
     elif consideration_currency != currency:
@@ -3157,6 +3610,7 @@ def _package_plan(
         convert_before,
         convert_after,
         conversion_rates,
+        financed,
     )
 
 
@@ -3176,7 +3630,7 @@ def _book_package(
     if plan.convert_before is not None:
         amount, source, target = plan.convert_before
         portfolio, _ = PortfolioEngine.convert_cash(
-            current.portfolio, amount, source, target, plan.rates, timestamp
+            current.portfolio, amount, source, target, plan.rates, timestamp, financed=plan.financed
         )
         current = evolve(current, portfolio=portfolio)
     total = sum(parts.values(), Decimal("0"))
@@ -3197,6 +3651,7 @@ def _book_package(
             component.economics,
             component_parts,
             f"DELIVERY-{trade_id}-{asset_id}",
+            financed=plan.financed and component.units > 0,
         )
         budget_value = _in_budget_currency(
             current,
@@ -3307,6 +3762,7 @@ def _strategy_exercise(
         rates,
         f"EXERCISE-{asset_id}-{timestamp!r}-{strategy_id}-{number}",
         parts={strategy_id: contracts},
+        instructed=True,
     )
 
 
@@ -3340,12 +3796,22 @@ def _resolve_option(
     rates: FxRates,
     trade_id: str,
     parts: Mapping[str, Decimal] | None = None,
+    *,
+    instructed: bool = False,
 ) -> ExecutionPipelineState:
     """Exercise (``closing`` > 0) or assign (< 0) contracts by the option's terms.
 
     ``parts`` is whose contracts they are, when that is named -- a strategy
     exercising its own (FUT-014) -- rather than apportioned across every
     strategy holding the position.
+
+    ``instructed`` is an exercise someone asked for -- scheduled, or a
+    strategy's -- rather than an obligation: an assignment, or an expiry's
+    automatic exercise. A delivery financed on margin (FUT-017) is booked for an
+    obligation whatever it leaves, and the account's next margin check calls
+    it; an instructed one is refused unless the account still meets its initial
+    margin requirement afterwards -- financing extends no further than the
+    declared terms do.
     """
 
     named = f"{record.symbol} on {record.exchange}"
@@ -3381,14 +3847,16 @@ def _resolve_option(
         ACCOUNTING_CONTEXT.multiply(direction, terms.deliverable.units), closing
     )
     plan = None
+    financed = False
     if not cash_settled and not terms.is_single:
         # Refused before anything moves (FUT-016).
         plan = _package_plan(state, record, terms, economics, closing, timestamp, rates)
+        financed = plan.financed
     elif not cash_settled:
         # Refused before anything moves.
-        _require_deliverable(
+        financed = _require_deliverable(
             state, record, terms.deliverable, delivered_units, terms.strike, economics.multiplier
-        )
+        )[3]
     current = evolve(
         state, allocation=AllocationEngine.apply_lifecycle(state.allocation, asset_id, parts)
     )
@@ -3430,6 +3898,8 @@ def _resolve_option(
         )
         if plan is not None:
             current = _book_package(current, record, plan, parts, timestamp, rates, trade_id)
+            if financed and instructed:
+                _require_initial_margin(current, record, timestamp, rates)
             return _after_book_change(current, current.portfolio, timestamp, rates)
         current = _deliver(
             current,
@@ -3448,7 +3918,33 @@ def _resolve_option(
             rates,
             f"DELIVERY-{trade_id}",
         )
+        if financed and instructed:
+            _require_initial_margin(current, record, timestamp, rates)
     return _after_book_change(current, current.portfolio, timestamp, rates)
+
+
+def _require_initial_margin(
+    state: ExecutionPipelineState, contract: InstrumentRecord, timestamp: float, rates: FxRates
+) -> None:
+    """Refuse an instructed exercise whose financed delivery leaves equity below initial margin.
+
+    Read on the state the delivery produced, which is discarded with the refusal:
+    nothing moves (FUT-017).
+    """
+
+    margin = margin_position(state, rates, timestamp)
+    if margin is not None and margin.equity >= margin.initial:
+        return
+    named = f"{contract.symbol} on {contract.exchange}"
+    detail = (
+        "no position declares margin"
+        if margin is None
+        else f"equity {margin.equity} against an initial requirement of {margin.initial}"
+    )
+    raise RuntimeValidationError(
+        f"Exercising {named} takes a delivery its cash does not cover, financed on margin, and "
+        f"would leave {detail}: an exercise is financed only within the initial requirement."
+    )
 
 
 def _economics_of(state: ExecutionPipelineState, asset_id: str) -> InstrumentEconomics | None:
@@ -4642,6 +5138,7 @@ def _evaluate_risk(
         price=price,
         working=working,
         buckets=_bucket_exposures(state, request, price, working),
+        charge=_buying_power_charge(state, request.asset_id, price, rates, timestamp),
     )
     return evolve(state, risk=risk), decision
 
@@ -4841,12 +5338,14 @@ def _working_exposure(
         if mark is None:
             continue
         held = state.portfolio.positions.get(asset_id)
+        unit = _unit_value(
+            state, asset_id, _price_in_base(state, asset_id, mark, rates, as_of)
+        ).copy_abs()
         working[asset_id] = WorkingExposure(
             quantity=quantity,
-            price=_unit_value(
-                state, asset_id, _price_in_base(state, asset_id, mark, rates, as_of)
-            ).copy_abs(),
+            price=unit,
             position=held.quantity if held is not None else Decimal("0"),
+            charge=_buying_power_charge(state, asset_id, unit, rates, as_of),
         )
     return working
 

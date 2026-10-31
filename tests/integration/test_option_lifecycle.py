@@ -496,7 +496,9 @@ def test_a_cash_exercise_needs_its_settlement_value_and_a_physical_one_refuses_o
 
 
 def test_a_delivery_the_book_cannot_pay_for_is_refused() -> None:
-    with pytest.raises(RuntimeValidationError, match="no financing of a delivery"):
+    # Refused while the deliverable declares no margin terms: nothing finances
+    # it (FUT-017 finances one only on declared terms).
+    with pytest.raises(RuntimeValidationError, match="financed only when its deliverable declares"):
         run(AM_CALL, hold(AM_CALL, "2"), expiry(AM_CALL, "112"), cash=Decimal("5000"))
 
 

@@ -242,6 +242,8 @@ class PortfolioEngine:
         to_currency: str,
         rates: FxRates,
         timestamp: float,
+        *,
+        financed: bool = False,
     ) -> tuple[PortfolioState, FxConversion]:
         """Move cash between two settlement currencies at a supplied rate.
 
@@ -302,7 +304,13 @@ class PortfolioEngine:
         # the unit that currency's cash balance is kept at.
         conversion = rates.convert(amount, from_currency, to_currency, timestamp, units=units)
 
-        cash = state.cash.withdraw(amount, from_currency)
+        # ``financed``: the consideration of a delivery taken on margin, owed in
+        # ``from_currency`` whether or not it is held there (FUT-017).
+        cash = (
+            state.cash.settle(-amount, from_currency)
+            if financed
+            else state.cash.withdraw(amount, from_currency)
+        )
         cash = cash.deposit(conversion.converted, to_currency)
 
         evt = CashConverted(
@@ -363,6 +371,7 @@ class PortfolioEngine:
         economics: InstrumentEconomics | None = None,
         final_settlement: bool = False,
         settles_at: float | None = None,
+        financed: bool = False,
     ) -> PortfolioState:
         """Apply one signed fill (BUY > 0, SELL < 0) to the portfolio.
 
@@ -514,8 +523,19 @@ class PortfolioEngine:
         if not pos.pays_notional and pnl != 0:
             new_cash = new_cash.settle(pnl, currency)
         cash_impact = (trade_value if quantity < 0 else -trade_value) - commission
+        # Buying back a short is an obligation the account already carries --
+        # the shares are owed -- so its cost is debited whether or not cash
+        # covers it, as a margin account's debit balance is; a forced
+        # liquidation of an account whose short has outrun its cash is exactly
+        # this (FUT-017). Every other cost is spent from cash the account holds.
+        covering = pos.quantity < 0 < quantity <= -pos.quantity
         if cash_impact > 0:
             new_cash = new_cash.deposit(cash_impact, currency)
+        elif cash_impact < 0 and (covering or financed):
+            # ``financed``: a delivery the account takes on margin, debited as
+            # the obligation it is -- what the caller has checked its margin
+            # terms allow (FUT-017).
+            new_cash = new_cash.settle(cash_impact, currency)
         elif cash_impact < 0:
             new_cash = new_cash.withdraw(-cash_impact, currency)
 

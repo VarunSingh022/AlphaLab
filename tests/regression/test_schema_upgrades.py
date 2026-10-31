@@ -195,6 +195,7 @@ def test_a_v3_9_instrument_registry_is_upgraded_with_no_alias_invented() -> None
             "terms": None,
             # v4.2.0 (ledger FUT-015): no earlier instrument declared a settlement rule.
             "settlement": None,
+            "margin": None,
         }
         for entry in payload["instruments"]
     ]

@@ -229,6 +229,16 @@ index of what is unsettled, `PortfolioState.unsettled`, is derived from those
 transactions and rebuilt from them on restore, never stored apart. Every other
 fill writes the empty metadata it always did, so no payload moved.
 
+Since v4.2.0 (ledger FUT-017) an instrument's record may declare `margin`
+(`MarginTerms`, written by `margin_to_primitives`: the basis by name, the amounts
+as text), kept by the registry snapshot and absent -- `None` -- from every payload
+written before; the registry's index of margined instruments is derived from the
+records, never written. A margin call is a `MarginCall` in the risk event log,
+tagged by its class name like every risk event; a liquidation is ordinary
+orders and fills, and a financed delivery an ordinary ledger transaction whose
+cash leaves the balance below zero. A run declaring no margin writes nothing
+new.
+
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
 incremental checkpoint, 2) and `EVIDENCE_SCHEMA` (the evidence store, 1).

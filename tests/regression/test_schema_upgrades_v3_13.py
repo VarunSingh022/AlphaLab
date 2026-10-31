@@ -266,7 +266,7 @@ def test_the_v3_13_instrument_registry_reads_with_no_contract_expiring() -> None
         "schema_version": 4,
         "instruments": [
             # v4.2.0 (FUT-015): no earlier instrument declared a settlement rule.
-            {**entry, "last_trade_at": None, "terms": None, "settlement": None}
+            {**entry, "last_trade_at": None, "terms": None, "settlement": None, "margin": None}
             for entry in payload["instruments"]
         ],
     }

@@ -277,6 +277,29 @@ run reported means what it meant -- and buying power, the one figure that gates 
 order, excludes proceeds not yet received. A book whose instruments declare no
 rule writes nothing new, so no run's record moves.
 
+**20. Margin is declared by the instrument, called by the account and liquidated
+through the canonical path (FUT-017).** What a position requires as collateral is
+a convention of its market and of whoever extends the credit, so it is declared
+on the instrument's record -- a rate of value or an amount per contract, initial
+and maintenance, a haircut and a priority -- and nothing is inferred from an
+asset class or a venue. The account's margin is read after every market step,
+from the registry's index of margined instruments, so a run declaring none reads
+nothing and records exactly what it did. A call is a risk event, and its
+liquidation is each holding strategy's own target through allocation, risk and
+the OMS, resting to its asset's next event: it trades at a price the market then
+shows, as far as the market allows, and a step still in breach calls again from
+the book as it is, never placing a second liquidation beside a working one. An
+order growing a margined position is held to the initial requirement before it
+is placed; a margined future spends its margin of buying power rather than a
+notional no cash ever moves for. A delivery its cash cannot pay is financed only
+when every deliverable declares margin terms -- the margin terms are what
+extends the credit, and a deliverable declaring none is refused as before -- and
+an exercise someone instructed is financed only within the initial requirement,
+while an obligation is booked and called. Buying back a short is the obligation
+it is, and is debited past the cash rather than stopping the run.
+`alphalab.portfolio.MarginEngine` -- one rate over a book's gross exposure -- is
+a different contract and is unchanged, as is the risk gate's `MarginLimit`.
+
 ---
 
 # Consequences
@@ -312,8 +335,16 @@ rule writes nothing new, so no run's record moves.
   currency**: components priced in two currencies within one package, and a
   package with no whole unit, are refused; a quanto contract fixes the rate its
   consideration converts at, not its payoff.
-- **A delivery the book cannot cover stops the run**: no margin call, collateral
-  or forced liquidation is modelled.
+- **A margin requirement is each position's own, summed**: no portfolio or
+  risk-based margin (SPAN, TIMS, offsets between positions), and the risk gate's
+  `MarginLimit` stays a configured gross-notional cap.
+- **Only a delivery is financed, and a debit accrues no interest**: a purchase of
+  a fully paid instrument is held to the cash, and no financing cost is charged
+  on a debit balance.
+- **A margin call is checked after each market step and liquidated at the
+  asset's next quote**: no grace period and no check between market events; a
+  market order's unfilled remainder is cancelled, and a step still in breach
+  calls again, sized from the book as it is.
 - **The queue model reads the displayed top of the book**: depth beyond it,
   hidden and iceberg liquidity, self-trade prevention and keep-priority amends
   are not modelled; the run's own resting orders are not in the feed, so each is
@@ -323,9 +354,10 @@ rule writes nothing new, so no run's record moves.
   type tags in the payload, which moves every run's identity.
 
 Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
-FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017).
+FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017, FUT-018,
+FUT-019).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: margin and forced liquidation.
+**Deferred** — to v4.3 and later, pending the maintainer's decision: buying on margin and a debit's interest; portfolio and risk-based margin.
 
 ---
 

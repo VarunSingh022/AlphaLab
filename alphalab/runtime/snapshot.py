@@ -176,6 +176,7 @@ from alphalab.risk.events import (
     BuyingPowerUpdated,
     DrawdownTriggered,
     ExposureUpdated,
+    MarginCall,
     MarginUpdated,
     RiskApproved,
     RiskCheckStarted,
@@ -834,6 +835,9 @@ _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     ExposureUpdated,
     BuyingPowerUpdated,
     DrawdownTriggered,
+    # v4.2.0 (ledger FUT-017): written only by a run holding margined positions
+    # that fell below maintenance, so no earlier payload holds one.
+    MarginCall,
 )
 _EXECUTION_EVENTS: Mapping[str, type[ExecutionEvent]] = _types(
     ExecutionSubmitted,
@@ -2199,6 +2203,11 @@ _RISK_FIELDS: Mapping[str, Any] = {
     "buying_power": as_decimal,
     "current_drawdown": as_decimal,
     "max_drawdown": as_decimal,
+    "equity": as_decimal,
+    "initial_requirement": as_decimal,
+    "maintenance_requirement": as_decimal,
+    "deficit": as_decimal,
+    "orders": _assets,
 }
 _EXECUTION_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,

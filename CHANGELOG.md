@@ -23,7 +23,8 @@ declared terms in any market a calendar describes, bonds that pay coupons and
 redeem, orders worked in children by execution algorithms over historical bars,
 resting limit orders that fill only once a declared queue model puts them at the
 front of their price level, a strategy configuration read back as its declared
-type, a paused replay that keeps all of it durably -- and a
+type, settlement-date cash, margin calls and forced liquidation on declared
+margin terms, a paused replay that keeps all of it durably -- and a
 source-derived audit of what
 AlphaLab supports from research to production.**
 
@@ -144,6 +145,29 @@ IDs are in brackets.
   they settle. An order in an instrument whose venue declares no calendar for its
   rule is refused before it is placed. An instrument declaring no rule settles at
   its trade and writes nothing new; no schema moves.
+* **Margin calls and forced liquidation** [FUT-017]. `InstrumentRecord.margin`
+  declares an instrument's `alphalab.instrument.MarginTerms` -- a `MarginBasis`
+  (a rate of the position's value, or an amount per contract), an initial and a
+  maintenance requirement, a collateral haircut on a long, fully paid holding and
+  a liquidation priority -- kept by the registry snapshot, the registry indexing
+  the instruments that declare one (`InstrumentRegistry.margined`).
+  `alphalab.runtime.margin_position` reports the account's margin in the base
+  currency (a `MarginPosition` of `MarginHolding`s). After every market step an
+  account below maintenance is called -- an `alphalab.risk.MarginCall` on the risk
+  log -- and liquidated: the least that restores the initial requirement, in whole
+  lots or units, by priority, then the largest requirement, each holding
+  strategy's own target through allocation, risk and the OMS, resting to its
+  asset's next event and filling there by the run's fill policy. A step still in
+  breach calls again from the book as it is; a working liquidation is never
+  placed twice. While in breach only an order reducing a position trades; at any
+  time an order growing a margined position is refused unless equity stays at or
+  above the initial requirement, working orders counted. A margined future spends
+  its initial margin of buying power, not its notional. A physical delivery the
+  cash cannot pay is financed -- a debit, the consideration converted on margin in
+  another currency -- only when every deliverable declares margin terms: an
+  assignment, a future's delivery or an expiry's automatic exercise is booked and
+  called; an instructed exercise only within the initial requirement. A run
+  declaring no margin records exactly what it did; no schema moves.
 * **Richer contract terms** [FUT-016]. `OptionTerms` declares a `basket` of
   further `Deliverable`s and a `cash_per_contract`; a `consideration_currency`,
   converted at the exercise instant by the run's rates or by a quanto contract's
@@ -216,6 +240,21 @@ IDs are in brackets.
   declares its adjustment.
 * **A Bermudan contract cannot be priced as American or European** [FUT-016]:
   `OptionContract` refuses `ExerciseStyle.BERMUDAN`.
+* **Buying back a short for more than the cash stopped the run** [FUT-017]: the
+  fill raised `InsufficientFundsError`, with or without margin, even for an
+  account worth more than the cost. A buy covering a short is now booked as the
+  debit it is; a buy past the short still spends only cash the account holds.
+* **A delivery the cash could not pay stopped the run** [FUT-017]: it still does
+  for a deliverable declaring no margin terms, and is financed for one that
+  declares them -- the refusal now names that remedy.
+* **The persisted-enum pins missed every decoder not named `from_primitives`**
+  [FUT-017, PER-004]: a module counted only when its text held `def
+  from_primitives`, so the enums `terms_from_primitives`,
+  `economics_from_primitives` and `book_from_primitives` read -- `ExerciseStyle`,
+  `OptionType`, `SettlementStyle`, `SettlementModel`, `AlgorithmStatus`,
+  `IncompletePolicy`, `MissingVolumePolicy` -- were part of the format and unpinned.
+  The scanner now follows every decoder by the architecture's names, the helpers
+  it reaches and the tables it reads, and pins them, with `MarginBasis`.
 * **A capability invariant reached one of its statuses by the luck of its seed**
   [TST-023]. Every draw now also checks a declaration built to offer what the
   flow needs, which must be compatible.
@@ -237,6 +276,12 @@ IDs are in brackets.
 | `alphalab.options.ExerciseStyle` | member `BERMUDAN`; `OptionContract` refuses it |
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `settlement`, `None` by default (FUT-015) |
 | `alphalab.portfolio.PortfolioEngine.apply_fill` | keyword-only `settles_at`, `None` by default; `PortfolioEngine.cash_position` and `PortfolioState.unsettled` added; `alphalab.portfolio.settlement` (`CashPosition`, `PendingSettlement`, `SETTLES_AT`, `SETTLEMENT_CASH`, `pending_from`, `settle_pending`) added |
+| `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `margin`, `None` by default (FUT-017); `alphalab.instrument.MarginBasis`, `MarginTerms` and `alphalab.instrument.margin` (`margin_from_primitives`, `margin_to_primitives`) added |
+| `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `margined`, a derived index, `None` by default and built from the records (FUT-017) |
+| `alphalab.risk.MarginCall`, `alphalab.risk.events.MarginCall` | added (FUT-017) |
+| `alphalab.runtime.margin_position`, `MarginPosition`, `MarginHolding` | added (FUT-017) |
+| `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project` | keyword-only `charge`, `None` by default; `WorkingExposure.charge`, `None` by default (FUT-017) |
+| `alphalab.portfolio.PortfolioEngine.apply_fill`, `convert_cash` | keyword-only `financed`, `False` by default; a buy covering a short is debited past the cash (FUT-017) |
 | `alphalab.portfolio.OptionExpiry` | `underlying_value` optional (`None` by default), refused for a package and required otherwise |
 | `alphalab.strategy.supervisor.RuntimeSupervisor.configure` | raises `StrategyConfigurationError` for a value not of the type its strategy's class declares as `configuration_type`; unchanged for a class that declares none |
 | `alphalab.runtime.ExecutionAssumptions`, `execution_assumptions` | field `queue_model` and trailing parameter `queue_model`, `None` by default; property `passive_fills`; `settings()` adds `execution.queue_model` only when a model is declared |
@@ -251,10 +296,11 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-FUT-017 (margin and forced liquidation), each with its limitation, interim behaviour and acceptance criteria
-on `ROADMAP.md`. FUT-009, FUT-011 and FUT-013, accepted by the audit and the
-continuation, and FUT-002, accepted by v4.1, were delivered by the candidate's
-last four milestones -- FUT-002 by declaration, so an undeclared configuration
+FUT-018 (buying on margin and a debit's interest, v4.3) and FUT-019 (portfolio
+and risk-based margin, v5.0), raised by the FUT-017 milestone, each with its
+limitation, interim behaviour and acceptance criteria on `ROADMAP.md`. FUT-009,
+FUT-011, FUT-013 to FUT-017, accepted by the audit and its milestones, and FUT-002,
+accepted by v4.1, were delivered by the candidate's milestones -- FUT-002 by declaration, so an undeclared configuration
 keeps the stated reading (LIM-004); FUT-011's
 model is price-time priority over displayed liquidity, and what it does not
 model -- pro-rata books, hidden liquidity, a fill probability -- is stated on

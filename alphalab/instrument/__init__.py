@@ -89,6 +89,7 @@ from alphalab.instrument.identity import (
     canonical_instrument_key,
     derive_asset_id,
 )
+from alphalab.instrument.margin import MarginBasis, MarginTerms
 from alphalab.instrument.record import (
     DatedAlias,
     InstrumentRecord,
@@ -143,6 +144,8 @@ __all__ = [
     "InstrumentRecord",
     "InstrumentRegistrationError",
     "InstrumentRegistry",
+    "MarginBasis",
+    "MarginTerms",
     "OptionTerms",
     "SectorClassification",
     "SettlementModel",

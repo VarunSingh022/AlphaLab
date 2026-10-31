@@ -211,6 +211,16 @@ names what the release established and the ADR that records the decision.
   each fill is booked with its settlement instant by the venue's calendar, and a
   sale's proceeds stay out of buying power until they settle
   (`PortfolioEngine.cash_position`: trade-date, settled and available cash).
+- **Margin calls and forced liquidation** (FUT-017): an instrument declares its
+  margin terms -- a rate of value or an amount per contract, initial and
+  maintenance, a collateral haircut and a liquidation priority; after every
+  market step an account below maintenance is called (`MarginCall`) and
+  liquidated through allocation, risk and the OMS at prices the market shows;
+  orders growing a margined position are held to the initial requirement, and a
+  margined future spends its margin of buying power, not its notional; a
+  delivery the cash cannot pay is financed only when its deliverables declare
+  margin terms. Buying on margin and a debit's interest are FUT-018, portfolio
+  margin FUT-019.
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -564,19 +574,36 @@ Accepted for a later release, each with what it is not yet, what happens in the
 meantime and what closes it. `tests/regression/test_nothing_is_left_for_later.py`
 holds this list to the ledger: an entry may be left for later only here.
 
-The entries below were proposed by the v4.1.1 future-readiness audit
+The program's entries were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
 horizon, is the maintainer's decision. The candidate itself delivered the rest
-of what the audit proposed (section *v4.2.0*, above).
+of what the audit proposed (section *v4.2.0*, above); the two below are what the
+margin milestone found beyond its scope.
 
-## FUT-017 — margin, collateral and forced liquidation (target v5.0)
+## FUT-018 — buying on margin and the cost of a debit balance (target v4.3)
 
-- **Limitation.** An assignment or delivery the book cannot cover stops the run
-  with the shortfall named; nothing calls margin or liquidates.
-- **Interim behaviour.** Hold the cash or inventory a delivery needs.
-- **Acceptance criteria.** A declared margin model, a margin event on a
-  shortfall and a declared liquidation policy, recorded and replayable.
-  **Dependencies.** settlement-date accounting, delivered in v4.2.0.
+- **Limitation.** A purchase of a fully paid instrument is never financed past
+  the cash, and a debit balance -- from a financed delivery or a covered short --
+  accrues no interest.
+- **Interim behaviour.** Size purchases to the cash; a run carrying a debit
+  states it in its cash balance and its margin calls.
+- **Acceptance criteria.** A declared financing schedule (rates by currency and
+  tier, effective dates); a margined purchase charged its initial requirement and
+  booked as a financed debit; interest accrued on debits as a ledger cash flow;
+  recorded, replayable, and a run declaring none unchanged.
+  **Dependencies.** margin terms and the margin lifecycle, delivered in v4.2.0.
+
+## FUT-019 — portfolio and risk-based margin (target v5.0)
+
+- **Limitation.** Margin is each position's declared requirement, summed, with
+  no offsets; the risk gate's `MarginLimit` stays a configured gross-notional cap.
+- **Interim behaviour.** Declare per-instrument terms at the stricter of the
+  venue's requirements, and set `MarginLimit` to the leverage intended.
+- **Acceptance criteria.** A declared margin-model protocol, the per-position sum
+  its default, read by the margin check, liquidation sizing and the pre-trade
+  check; offsets by a declared scenario set; the gate's margin figure taken from
+  it; recorded, replayable, and a run declaring none unchanged.
+  **Dependencies.** margin terms and the margin lifecycle, delivered in v4.2.0.
 
 ---
 

@@ -9,9 +9,11 @@ FUT-003 to FUT-012; its continuation delivered FUT-003 to FUT-008, FUT-010 and
 FUT-012 and raised FUT-013, the FUT-009 milestone delivered FUT-009, and the
 FUT-013 milestone delivered FUT-013 and raised FUT-014 to FUT-017, and the
 FUT-011 milestone delivered FUT-011, and the FUT-014 and FUT-016 milestones
-FUT-014 and FUT-016, and the FUT-015 milestone FUT-015, so what is open is FUT-017
-(FUT-002, which predates the audit, was delivered by declaration in the
-FUT-002 milestone). Rows below are as of the FUT-011 milestone.
+FUT-014 and FUT-016, the FUT-015 milestone FUT-015, and the FUT-017 milestone
+FUT-017 and raised FUT-018 and FUT-019, so what is open is FUT-018 (buying on
+margin and a debit's interest) and FUT-019 (portfolio margin) (FUT-002, which
+predates the audit, was delivered by declaration in the FUT-002 milestone). Rows
+below are as of the FUT-011 milestone.
 
 ## Classes
 
@@ -138,8 +140,8 @@ that the seams hold: example 72 combines a price signal (1), a macro regime
 (3), social sentiment (4), a futures hedge (5), a researcher-defined algorithm
 (7) and position sizing with a risk gate (8), through one run, one replay and
 one continuation, with the time semantics of each input preserved. What breaks
-a combination today is the one named gap -- FUT-017 (margin) -- and never
-a missing strategy template; how its
+a combination today is a named gap in how a margin account is financed and
+netted -- FUT-018 and FUT-019 -- and never a missing strategy template; how its
 orders are executed is now part of what a backtest measures (FUT-009). Example 72 now carries every timed input
 on one schedule, and its replay pauses through a payload.
 
@@ -147,7 +149,8 @@ on one schedule, and its replay pauses through a payload.
 
 | Work | Families it moves | Release class |
 | --- | --- | --- |
-| FUT-017 margin | cash-constrained and short-option strategies, physically delivered commodities | major or a stated exception (payload steps) |
+| FUT-018 buying on margin and a debit's interest | leveraged long equity, carry-sensitive strategies | minor (additive, declared) |
+| FUT-019 portfolio margin | spreads, covered and hedged derivative books | major or a stated exception |
 
 Delivered by the continuation, with the release class each took: FUT-004
 scheduled inputs, FUT-012 cash settlement at expiry, FUT-005 the schedule in the
@@ -158,7 +161,10 @@ snapshot schema 2, with an upgrade), and, by the FUT-009 milestone, execution
 algorithms on the historical drivers (a new routing member, additive; the
 algorithm book is driver state, so no run's record moved), and, by the FUT-013
 milestone, the derivative lifecycle (instrument terms in the unreleased schema 4,
-an `AssetType` member, schedule kinds) -- all minor.
+an `AssetType` member, schedule kinds), and, by the v4.2.0 milestones, FUT-011,
+FUT-002, FUT-014, FUT-016, FUT-015 and FUT-017 (record fields outside the
+identity key, transaction metadata, enum members and event tags, each written
+only when used, so no earlier run's record moved) -- all minor.
 
 ## Markets
 

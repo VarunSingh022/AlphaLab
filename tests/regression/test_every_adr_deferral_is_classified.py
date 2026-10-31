@@ -155,8 +155,16 @@ CLASSIFIED: dict[tuple[str, str], str] = {
         "0051",
         "A package's cost is apportioned by its components' observed values, in one currency",
     ): "FUT-016",
-    ("0051", "A delivery the book cannot cover stops the run"): "FUT-017",
-    ("0051", "margin and forced liquidation"): "FUT-017",
+    # FUT-017 delivered margin calls and liquidation in the candidate; ADR-0051
+    # now states what it does not model, and the two entries it raised.
+    ("0051", "A margin requirement is each position's own, summed"): "FUT-019",
+    ("0051", "Only a delivery is financed, and a debit accrues no interest"): "FUT-018",
+    (
+        "0051",
+        "A margin call is checked after each market step and liquidated at the asset's next quote",
+    ): "FUT-017",
+    ("0051", "buying on margin and a debit's interest"): "FUT-018",
+    ("0051", "portfolio and risk-based margin"): "FUT-019",
 }
 
 

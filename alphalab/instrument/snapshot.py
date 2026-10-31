@@ -80,6 +80,7 @@ from alphalab.instrument.classification import (
 )
 from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
+from alphalab.instrument.margin import MarginTerms, margin_from_primitives, margin_to_primitives
 from alphalab.instrument.record import DatedAlias, InstrumentRecord
 from alphalab.instrument.registry import (
     InstrumentRegistry,
@@ -201,6 +202,10 @@ class InstrumentRegistryRecord:
     #: The instrument's settlement rule -- its basis by name and its offset -- or
     #: ``None`` (v4.2.0, ledger FUT-015).
     settlement: Mapping[str, Any] | None = None
+    #: The instrument's margin terms, as
+    #: :func:`~alphalab.instrument.margin.margin_to_primitives` writes them, or
+    #: ``None`` (v4.2.0, ledger FUT-017).
+    margin: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +291,7 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
                 },
                 last_trade_at=record.last_trade_at,
                 terms=terms_to_primitives(record.terms),
+                margin=margin_to_primitives(record.margin),
                 settlement=(
                     None
                     if record.settlement is None
@@ -346,6 +352,7 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
                 last_trade_at=entry.last_trade_at,
                 terms=_terms(entry.terms, f"{entry.symbol}.terms"),
                 settlement=_settlement(entry.settlement, f"{entry.symbol}.settlement"),
+                margin=_margin(entry.margin, f"{entry.symbol}.margin"),
             )
             if record.asset_id in registry.instruments:
                 raise StateDecodeError(
@@ -502,11 +509,19 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
         # Written since v4.2.0; absent from the unreleased schema-4 payloads of
         # the candidate before it, which declared no settlement rule.
         settlement=_optional_mapping(payload.get("settlement"), f"{where}.settlement"),
+        margin=_optional_mapping(payload.get("margin"), f"{where}.margin"),
     )
 
 
 def _optional_mapping(value: Any, where: str) -> Mapping[str, Any] | None:
     return None if value is None else as_mapping(value, where)
+
+
+def _margin(value: Mapping[str, Any] | None, where: str) -> MarginTerms | None:
+    try:
+        return margin_from_primitives(value, where)
+    except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
 
 
 def _settlement(value: Mapping[str, Any] | None, where: str) -> SettlementRule | None:
@@ -591,7 +606,7 @@ def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         **payload,
         "instruments": [
-            {**entry, "last_trade_at": None, "terms": None, "settlement": None}
+            {**entry, "last_trade_at": None, "terms": None, "settlement": None, "margin": None}
             for entry in payload["instruments"]
         ],
     }

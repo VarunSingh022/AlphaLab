@@ -67,6 +67,7 @@ class RiskEngine:
         price: Decimal | None = None,
         working: Mapping[str, WorkingExposure] = NO_WORKING_ORDERS,
         buckets: tuple[BucketExposure, ...] = (),
+        charge: Decimal | None = None,
     ) -> tuple[RiskState, RiskDecision]:
         """Judge ``request`` against every limit, on the book it would leave.
 
@@ -83,6 +84,9 @@ class RiskEngine:
             buckets: The bucket the order's instrument is in along each
                 dimension a :class:`~alphalab.risk.limits.ClassificationLimit`
                 names, before and after the order. Empty when none is limited.
+            charge: What a unit of the order's growth spends of buying power,
+                when that is not ``price``: a margined future's initial
+                requirement (FUT-017). See :func:`~alphalab.risk.projection.project`.
         """
 
         validate_order_request(request)
@@ -96,6 +100,7 @@ class RiskEngine:
             position=position,
             price=request.price if price is None else price,
             working=working,
+            charge=charge,
         )
 
         checks = (
