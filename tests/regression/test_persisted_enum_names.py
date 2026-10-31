@@ -196,6 +196,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "TradeReceived",
     ),
     "alphalab.runtime.snapshot._STRATEGY_EVENTS": (
+        # v4.2.0: written only when a strategy's cancel leaves an order working.
+        "CancelRefused",
         # v4.2.0 (FUT-014): written only when a strategy's exercise is refused.
         "ExerciseRefused",
         "FillEvent",

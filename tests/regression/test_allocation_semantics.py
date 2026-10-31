@@ -267,6 +267,8 @@ def test_an_intent_is_a_delta_by_construction() -> None:
         # v4.2.0 (FUT-014): not an order -- allocation refuses it, below, and the
         # execution pipeline carries it out.
         "exercise",
+        # v4.2.0: a strategy withdraws its own working orders; not an order either.
+        "cancel",
     ]
 
 
@@ -281,6 +283,19 @@ def test_an_exercise_intent_is_refused_by_allocation_and_never_sized() -> None:
 
     (rejected,) = [e for e in state.events if isinstance(e, AllocationRejected)]
     assert "is not an order and is not allocated" in rejected.reason
+
+
+def test_a_cancel_intent_is_refused_by_allocation_and_never_sized() -> None:
+    state = AllocationEngine.initialize(BUDGET)
+    cancel = Intent("S1", "AAPL", Decimal("0"), kind=IntentKind.CANCEL)
+    state, orders = AllocationEngine.allocate(
+        state, (cancel,), PRICES, TargetWeightSizing(), AllocationConstraints(), 1.0
+    )
+    assert orders == ()
+    from alphalab.allocation.events import AllocationRejected
+
+    (rejected,) = [e for e in state.events if isinstance(e, AllocationRejected)]
+    assert "cancel in AAPL is not an order and is not allocated" in rejected.reason
 
 
 def test_emitting_the_same_intent_twice_asks_twice() -> None:

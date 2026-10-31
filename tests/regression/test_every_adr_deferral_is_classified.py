@@ -165,6 +165,12 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ): "FUT-017",
     ("0051", "buying on margin and a debit's interest"): "FUT-018",
     ("0051", "portfolio and risk-based margin"): "FUT-019",
+    # The v4.2.0 global gap audit: a strategy's cancel, an insolvent run, and two
+    # entries it raised.
+    ("0051", "A cancel withdraws only what the strategy alone has working"): "EXE-012",
+    ("0051", "An insolvent run compiles no analytics"): "LIM-008",
+    ("0051", "venue price limits and trading halts"): "FUT-020",
+    ("0051", "holding exchanges"): "FUT-021",
 }
 
 

@@ -217,6 +217,7 @@ from alphalab.strategy.configuration import (
     decode_configuration,
 )
 from alphalab.strategy.events import (
+    CancelRefused,
     ExerciseRefused,
     FillEvent,
     LifecycleTransitioned,
@@ -826,6 +827,8 @@ _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
     # v4.2.0 (ledger FUT-014): written only by a run whose strategy asked for an
     # exercise the run refused, so no earlier payload holds one.
     ExerciseRefused,
+    # v4.2.0: written only by a run whose strategy's cancel left an order working.
+    CancelRefused,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,

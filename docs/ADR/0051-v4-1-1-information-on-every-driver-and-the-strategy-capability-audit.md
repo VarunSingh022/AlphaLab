@@ -300,6 +300,21 @@ it is, and is debited past the cash rather than stopping the run.
 `alphalab.portfolio.MarginEngine` -- one rate over a book's gross exposure -- is
 a different contract and is unchanged, as is the risk gate's `MarginLimit`.
 
+**21. A strategy withdraws its own working orders by instruction, not by a new
+target (EXE-012, the v4.2.0 global gap audit).** A strategy that could place a
+resting order could not take it back, so re-targeting traded against its own
+unfilled order. Making a target supersede the strategy's working orders would be
+the natural reading, and would move the `result_id` of every run that re-targets
+beside a resting order, so the capability is an instruction instead:
+`IntentKind.CANCEL`, an instruction like `EXERCISE` that allocation never sizes,
+carried out at the asking event after its fills and before the batch's orders,
+through the cancellation every withdrawn order takes. It withdraws only what the
+strategy alone contributed to; an order netted with another strategy's, a
+parent an execution plan works, or an order at a venue is not the strategy's to
+withdraw, and the refusal is recorded. A bracket, a one-cancels-other pair and a
+trailing stop are the strategy's logic over its hooks, so no new order type is
+needed.
+
 ---
 
 # Consequences
@@ -345,6 +360,12 @@ a different contract and is unchanged, as is the risk gate's `MarginLimit`.
   asset's next quote**: no grace period and no check between market events; a
   market order's unfilled remainder is cancelled, and a step still in breach
   calls again, sized from the book as it is.
+- **A cancel withdraws only what the strategy alone has working**: an order
+  netted with another strategy's, a parent an execution plan works, and an order
+  at a venue are left working; amending an order in place is not modelled, and a
+  new target still counts a resting order as held.
+- **An insolvent run compiles no analytics**: returns on negative capital are
+  undefined, so such a run keeps its books with `compile_analytics=False`.
 - **The queue model reads the displayed top of the book**: depth beyond it,
   hidden and iceberg liquidity, self-trade prevention and keep-priority amends
   are not modelled; the run's own resting orders are not in the feed, so each is
@@ -355,9 +376,9 @@ a different contract and is unchanged, as is the risk gate's `MarginLimit`.
 
 Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
 FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017, FUT-018,
-FUT-019).
+FUT-019, EXE-012, LIM-008).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: buying on margin and a debit's interest; portfolio and risk-based margin.
+**Deferred** — to v4.3 and later, pending the maintainer's decision: buying on margin and a debit's interest; portfolio and risk-based margin; venue price limits and trading halts; holding exchanges.
 
 ---
 

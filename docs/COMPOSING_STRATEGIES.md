@@ -36,6 +36,17 @@ strategy affects anything: allocation nets intents, risk gates the requests,
 the OMS works them and the portfolio books the fills, exactly as for every
 other strategy.
 
+Two kinds are instructions, not orders, and never reach allocation. `EXERCISE`
+exercises the strategy's own option contracts (FUT-014). `CANCEL` (target 0)
+withdraws every order the strategy alone has working in an instrument, at once,
+after the event's fills and before the batch's orders are placed -- so a cancel
+and a new limit in one return replace a quote, and a bracket, a one-cancels-other
+pair or a trailing stop is the strategy's own logic over `on_fill`, `on_order`
+and `on_quote`. An order netted with another strategy's, or worked by an
+execution plan, is left working and recorded as a `CancelRefused`. Without a
+cancel, a new target counts a resting order as held: a target of zero beside a
+resting buy sells against it.
+
 ## 2. Several assets, several datasets
 
 * **Declare every instrument.** `InstrumentRecord` gives it a derived `asset_id`;

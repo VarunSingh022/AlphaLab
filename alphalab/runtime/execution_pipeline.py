@@ -137,6 +137,7 @@ from alphalab.runtime.retention import RetentionPolicy, trimmed
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
+    CancelRefused,
     ExerciseRefused,
     FillEvent,
     Intent,
@@ -1199,8 +1200,9 @@ class ExecutionPipeline:
             state.strategy, event, populated, event.timestamp
         )
         ordered = _for_orders(intents)
+        current = _cancels_requested(evolve(current, strategy=strategy), intents, event.timestamp)
         allocation, requests = _allocate(current, ordered, market_prices, rates, event.timestamp)
-        current = evolve(current, strategy=strategy, allocation=allocation)
+        current = evolve(current, allocation=allocation)
         current, routed = _route_requests(current, event, ordered, requests, policy, rates)
         routed = earlier.then(routed)
 
@@ -1682,6 +1684,7 @@ class ExecutionPipeline:
         )
         strategy, intents = StrategyEngine.stop(state.strategy, populated, timestamp, strategy_ids)
         current = _exercises_requested(evolve(state, strategy=strategy), intents, timestamp, rates)
+        current = _cancels_requested(current, intents, timestamp)
         ordered = _for_orders(intents)
         if not ordered or last is None:
             # With no event processed there is no price to size or judge an
@@ -3682,12 +3685,86 @@ def _book_package(
     return current
 
 
+_NOT_ORDERS: Final = (IntentKind.EXERCISE, IntentKind.CANCEL)
+
+
+def _cancels_requested(
+    state: ExecutionPipelineState, intents: tuple[Intent, ...], timestamp: float
+) -> ExecutionPipelineState:
+    """Withdraw what each cancel instruction names, before the batch's orders are placed.
+
+    A cancel withdraws every order working in its instrument that the asking
+    strategy alone contributed to -- read off the OMS's working orders and the
+    allocation's contributions -- and frees what each held. An order netted
+    with another strategy's, one an execution plan works, and one held at a
+    venue are left working, each recorded as a
+    :class:`~alphalab.strategy.events.CancelRefused`. A run whose strategies
+    ask for no cancel takes one test per intent.
+    """
+
+    if not any(intent.kind is IntentKind.CANCEL for intent in intents):
+        return state
+    current = state
+    for intent in intents:
+        if intent.kind is not IntentKind.CANCEL:
+            continue
+        sid, asset_id = intent.strategy_id, intent.instrument
+        for order_id in tuple(current.oms.working_orders_for(asset_id)):
+            contributions = AllocationEngine.contributions_for(
+                current.allocation, str(order_id.value)
+            )
+            ours = bool(contributions) and all(c.strategy_id == sid for c in contributions)
+            if not ours:
+                if any(c.strategy_id == sid for c in contributions):
+                    current = _refuse_cancel(
+                        current, intent, order_id, timestamp,
+                        "The order is netted with another strategy's, and withdrawing it "
+                        "would withdraw theirs.",
+                    )  # fmt: skip
+                continue
+            routing = current.config.routing
+            if routing is ExecutionRouting.EXTERNAL:
+                current = _refuse_cancel(
+                    current, intent, order_id, timestamp,
+                    "The order is held at the venue; a cancel there is a venue request "
+                    "(LiveSession.cancel).",
+                )  # fmt: skip
+                continue
+            if routing is ExecutionRouting.ALGORITHMIC:
+                current = _refuse_cancel(
+                    current, intent, order_id, timestamp,
+                    "The order is a parent an execution plan works; withdrawing it is not "
+                    "modelled.",
+                )  # fmt: skip
+                continue
+            current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
+    return current
+
+
+def _refuse_cancel(
+    state: ExecutionPipelineState,
+    intent: Intent,
+    order_id: OrderId,
+    timestamp: float,
+    reason: str,
+) -> ExecutionPipelineState:
+    """Record that ``intent`` left ``order_id`` working, in the strategy runtime's log."""
+
+    refused = CancelRefused(
+        str(new_id()), timestamp, intent.strategy_id, intent.instrument, str(order_id.value), reason
+    )
+    strategy = state.strategy
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
+    )
+
+
 def _for_orders(intents: tuple[Intent, ...]) -> tuple[Intent, ...]:
     """The intents allocation sizes into orders: every one but an exercise instruction (FUT-014)."""
 
-    if not any(intent.kind is IntentKind.EXERCISE for intent in intents):
+    if not any(intent.kind in _NOT_ORDERS for intent in intents):
         return intents
-    return tuple(intent for intent in intents if intent.kind is not IntentKind.EXERCISE)
+    return tuple(intent for intent in intents if intent.kind not in _NOT_ORDERS)
 
 
 def _exercises_requested(
@@ -4062,7 +4139,7 @@ def _deliver_instant(
         as_of=at,
     )
     strategy, intents = StrategyEngine.process_event(state.strategy, event, populated, at)
-    current = evolve(state, strategy=strategy)
+    current = _cancels_requested(evolve(state, strategy=strategy), intents, at)
     ordered = _for_orders(intents)
     if not ordered or last is None:
         current = _exercises_requested(current, intents, at, rates)
@@ -4324,7 +4401,7 @@ def _deliver_feedback(
         as_of=instant,
     )
     strategy, intents = StrategyEngine.deliver(state.strategy, deliveries, populated, instant)
-    current = evolve(state, strategy=strategy)
+    current = _cancels_requested(evolve(state, strategy=strategy), intents, instant)
     ordered = _for_orders(intents)
     if not ordered:
         # Exercise instructions, if any, are the caller's to apply (FUT-014).

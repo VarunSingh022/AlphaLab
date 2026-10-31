@@ -178,6 +178,17 @@ class AllocationEngine:
                     )
                 )
                 continue
+            if intent.kind is IntentKind.CANCEL:
+                # Not an order either: the pipeline withdraws working orders.
+                events = events.append(
+                    AllocationRejected(
+                        AllocationEngine._create_id(),
+                        timestamp,
+                        f"{intent.strategy_id}'s cancel in {intent.instrument} is not an order "
+                        "and is not allocated: the execution pipeline carries it out.",
+                    )
+                )
+                continue
             key = _intent_key(intent)
             if key in seen:
                 events = events.append(

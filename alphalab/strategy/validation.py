@@ -66,6 +66,24 @@ def validate_intent(intent: Intent) -> None:
         )
     if intent.kind is IntentKind.EXERCISE:
         _require_exercise(intent)
+    if intent.kind is IntentKind.CANCEL:
+        _require_cancel(intent)
+
+
+def _require_cancel(intent: Intent) -> None:
+    """A cancel instruction names an instrument and nothing an order would."""
+
+    if intent.target != _ZERO:
+        raise InvalidIntentError(
+            f"A cancel intent withdraws the strategy's working orders and sizes nothing: its "
+            f"target must be 0, got {intent.target}."
+        )
+    if intent.strength != _ONE:
+        raise InvalidIntentError(f"A cancel intent's strength must be 1, got {intent.strength}.")
+    if intent.terms != OrderTerms():
+        raise InvalidIntentError(
+            "A cancel intent is not an order and states no order terms; leave terms at the default."
+        )
 
 
 def _require_exercise(intent: Intent) -> None:

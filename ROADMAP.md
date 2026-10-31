@@ -221,6 +221,12 @@ names what the release established and the ADR that records the decision.
   delivery the cash cannot pay is financed only when its deliverables declare
   margin terms. Buying on margin and a debit's interest are FUT-018, portfolio
   margin FUT-019.
+- **A strategy withdraws its own working orders** (EXE-012, the global gap
+  audit): `Intent(kind=IntentKind.CANCEL)` withdraws every order the strategy
+  alone has working in an instrument, after the event's fills and before the
+  batch's orders, so a cancel and a new limit replace a quote; an order netted
+  with another strategy's, or worked by an execution plan, is left working and
+  recorded as a `CancelRefused`.
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -546,6 +552,11 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   which round-trips exactly. Since the v4.2.0 candidate a strategy that declares
   its configuration's type reads it back typed (FUT-002, above); one that
   declares nothing reads back as stated here.
+- **An insolvent run compiles no analytics** (LIM-008): a run whose net asset
+  value falls below zero -- reachable through a financed delivery or a short
+  bought back past its cash -- is refused by analytics, whose returns on negative
+  capital are undefined; such a run sets `RunConfig.compile_analytics=False` and
+  keeps its books, fills, margin calls and equity, which state the insolvency.
 - **Transcendental functions in the standalone engines** (LIM-005): since v4.1 a
   run's record -- and so its `result_id` -- is host-independent: money is
   `Decimal`, and every float a run records comes from `+ - * /`, `sqrt`, `fsum`
@@ -577,18 +588,23 @@ holds this list to the ledger: an entry may be left for later only here.
 The program's entries were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
 horizon, is the maintainer's decision. The candidate itself delivered the rest
-of what the audit proposed (section *v4.2.0*, above); the two below are what the
-margin milestone found beyond its scope.
+of what the audit proposed (section *v4.2.0*, above); FUT-018 and FUT-019 are what
+the margin milestone found beyond its scope, and FUT-020 and FUT-021 what the
+v4.2.0 global gap audit found.
 
-## FUT-018 — buying on margin and the cost of a debit balance (target v4.3)
+## FUT-018 — buying on margin, a debit's interest and short borrow (target v4.3)
 
 - **Limitation.** A purchase of a fully paid instrument is never financed past
-  the cash, and a debit balance -- from a financed delivery or a covered short --
-  accrues no interest.
+  the cash, a debit balance -- from a financed delivery or a covered short --
+  accrues no interest, and a short is never refused for want of borrow nor
+  charged a borrow rate.
 - **Interim behaviour.** Size purchases to the cash; a run carrying a debit
-  states it in its cash balance and its margin calls.
+  states it in its cash balance and its margin calls, and its interest can be
+  booked as a declared `ScheduledCashFlow` (`CashFlowKind.INTEREST`) at the
+  amount the caller computes, as a borrow fee is.
 - **Acceptance criteria.** A declared financing schedule (rates by currency and
-  tier, effective dates); a margined purchase charged its initial requirement and
+  tier, effective dates) and borrow schedule (availability and rate by
+  instrument); a short refused when nothing is available; a margined purchase charged its initial requirement and
   booked as a financed debit; interest accrued on debits as a ledger cash flow;
   recorded, replayable, and a run declaring none unchanged.
   **Dependencies.** margin terms and the margin lifecycle, delivered in v4.2.0.
@@ -604,6 +620,33 @@ margin milestone found beyond its scope.
   check; offsets by a declared scenario set; the gate's margin figure taken from
   it; recorded, replayable, and a run declaring none unchanged.
   **Dependencies.** margin terms and the margin lifecycle, delivered in v4.2.0.
+
+## FUT-020 — venue price limits and trading halts (target v4.3)
+
+- **Limitation.** A venue's daily price limits, collars and halts are not
+  declared conventions: an order fills at whatever an event shows, and a halt is
+  only missing data.
+- **Interim behaviour.** Fill against sized quotes with a liquidity-capped
+  policy, so a locked market's absent size fills nothing; exclude halted
+  intervals from the data.
+- **Acceptance criteria.** A venue declares its limit rule and halts as dated
+  inputs; an order beyond a limit refused or capped by the rule, a locked market
+  filling only what the event shows, a halted instrument's orders resting;
+  recorded, replayable, and a run declaring none unchanged.
+  **Dependencies.** none.
+
+## FUT-021 — holding exchanges: mergers, spin-offs, rights (target v4.3)
+
+- **Limitation.** A corporate action that exchanges a held position for other
+  instruments is not booked as one event; it is the caller's sale and purchase.
+- **Interim behaviour.** A stock dividend is a split; a cash part is a scheduled
+  `CashFlow`; a true exchange is stated as the caller's trades.
+- **Acceptance criteria.** A declared exchange (ratios, a cash part, the cost
+  basis apportioned by a declared rule) applied to every holding and each
+  strategy's share at its instant, working orders handled as for a split, a
+  contract delivering the old instrument refused unless adjusted; recorded,
+  replayable, and a run declaring none unchanged.
+  **Dependencies.** adjusted contract terms, delivered in v4.2.0.
 
 ---
 

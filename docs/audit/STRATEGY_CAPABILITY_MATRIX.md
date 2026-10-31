@@ -138,14 +138,14 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (1) | v1.x strategy runtime design; context populated v2.10 (ADR-0026); `on_fill`/`on_order`/`on_timer` and `on_start` delivered v3.11 (EXE-005, OFE-014); `on_slice` v3.11 (EXE-004); `on_observation` v3.12 (OFE-009); class registry v2.17 (ADR-0035). |
 | (2) | `alphalab/strategy/protocol.py`, `context.py`, `dispatcher.py`, `events.py`, `registry.py`, `state.py`, `supervisor.py`; context views in `alphalab/runtime/context_views.py`. |
 | (3) | `StrategyProtocol` (ten hooks) + `SliceStrategyProtocol` + `ObservationStrategyProtocol` + `StrategyStateProtocol`; `BaseStrategy`; `StrategyContext` (portfolio, market, history bounded at the event, universe, risk view, orders, clock, logger, config); `Intent` with `IntentKind.DELTA` / `TARGET_QUANTITY` / `TARGET_WEIGHT` and `OrderTerms`. |
-| (4) | `alphalab.strategy` (96 names): `BaseStrategy`, `Intent`, `IntentKind`, `StrategyContext`, `start_strategy`, `context_factory`, `StrategyClassRegistry`, `StrategyDefinition`, `runtime_for`. |
+| (4) | `alphalab.strategy` (103 names): `BaseStrategy`, `Intent`, `IntentKind`, `StrategyContext`, `start_strategy`, `context_factory`, `StrategyClassRegistry`, `StrategyDefinition`, `runtime_for`. |
 | (5) | `alphalab.common` only (pinned by `tests/regression/test_v37_invariants.py`). |
 | (6) | runtime, allocation, backtesting, api, lifecycle, reinforcement_learning, research_assistant. |
 | (7) | R (adaptive research replay), B, Re, P, L -- one dispatcher on every path. |
 | (8) | **VERIFIED**, with one **DEFECT fixed in v4.1.1**: `context.market.bar(asset_id)` returned `None` for every asset since v2.10 -- `MarketView.bar` looked up the bare asset id in an index keyed `"<asset_id>_<interval>"`, and no test read a bar through the context. |
 | (9) | `tests/integration/test_strategy_building_end_to_end.py` (example 70); `test_slices.py`; `test_external_information.py`; `test_strategy_feedback.py`; `tests/regression/test_strategy_context_visibility.py`, `test_strategy_context_history_and_universe.py`; v4.1.1: `tests/regression/test_strategy_context_reads_bars.py` (fails on v4.1.0's lookup), `tests/integration/test_multi_asset_composition.py`. |
 | (10) | No finite list of strategy types exists anywhere: the registry maps an identity to *any* factory returning a `StrategyProtocol` (`registry.py`), which is what makes the universe open. Hooks run in-process with the caller's code: hosting untrusted strategies is the host's isolation problem (BOUNDARY, `docs/INTEGRATION.md`). `MarketView.bar` is linear in the latest-bar index (same order as `prices`). |
-| (11) | `MarketView.bar` fixed (v4.1.1). |
+| (11) | `MarketView.bar` fixed (v4.1.1). A strategy's own working orders could not be withdrawn in a historical run, so re-targeting traded against them: **MISSING** until v4.2.0, now **VERIFIED** -- `IntentKind.CANCEL` withdraws what the strategy alone has working, and a cancel with a new limit replaces a quote (EXE-012, `test_strategy_cancels_orders.py`). |
 | (12) | A researcher's class, unknown to AlphaLab, trades several instruments from several input kinds through the public API and is reproduced -- met by example 72 and its test. |
 
 ### 2.2 Strategy state, capture and restore
@@ -227,9 +227,9 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (5) | common, core, persistence. |
 | (6) | runtime, backtesting, lifecycle. |
 | (7) | B, Re, P, L. |
-| (8) | **VERIFIED**. |
-| (9) | `tests/integration/test_order_terms.py`, `test_day_order_sessions.py`, `tests/regression/test_v39_*`. |
-| (10) | Per-order memory grows with orders (LIMITATION PRF-011). |
+| (8) | **VERIFIED**. Since v4.2.0 a strategy withdraws its own working orders (`IntentKind.CANCEL`, EXE-012); a bracket, a one-cancels-other pair and a trailing stop are composed from it over `on_fill`, `on_order` and `on_quote`. |
+| (9) | `tests/integration/test_order_terms.py`, `test_day_order_sessions.py`, `test_strategy_cancels_orders.py`, `tests/regression/test_v39_*`. |
+| (10) | Per-order memory grows with orders (LIMITATION PRF-011). Amending a working order in place, and cancelling part of a netted order, are not modelled; a venue's price limits and halts are FUT-020. |
 | (11) | none. |
 | (12) | met. |
 

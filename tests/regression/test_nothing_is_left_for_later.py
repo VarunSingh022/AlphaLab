@@ -93,8 +93,9 @@ def test_accepted_future_work_is_stated_and_on_the_roadmap() -> None:
     accepted = [(i, s) for i, s, _ in _entries() if s.startswith("accepted as future work (")]
     # v4.0 accepted FUT-001, which v4.1 delivered; v4.1 accepted FUT-002, which
     # the v4.2.0 candidate delivered, with FUT-009 to FUT-017; v4.2.0 accepts
-    # FUT-018 and FUT-019, what the margin milestone found beyond its scope.
-    assert accepted, "a guard on the guard: v4.2.0 accepts FUT-018 and FUT-019"
+    # FUT-018 and FUT-019, what the margin milestone found beyond its scope, and
+    # FUT-020 and FUT-021, what the v4.2.0 global gap audit found.
+    assert accepted, "a guard on the guard: v4.2.0 accepts FUT-018 to FUT-021"
     for identifier, _ in accepted:
         entry = text.split(f'\n  - id: "{identifier}"', 1)[1].split('\n  - id: "', 1)[0]
         change = re.search(r'\n    required_change: "([^"]*)"', entry)

@@ -168,6 +168,16 @@ IDs are in brackets.
   assignment, a future's delivery or an expiry's automatic exercise is booked and
   called; an instructed exercise only within the initial requirement. A run
   declaring no margin records exactly what it did; no schema moves.
+* **A strategy withdraws its own working orders** [EXE-012].
+  `IntentKind.CANCEL`: a hook returns `Intent(kind=IntentKind.CANCEL,
+  instrument=<asset>, target=0)` and every order working in the asset that the
+  strategy alone contributed to is withdrawn at that event, after its fills and
+  before the batch's orders are placed -- a cancel and a new limit in one return
+  replace a quote. Its reservation is freed, a queue model holds nothing for it,
+  and the strategy hears it through `on_order`. An order netted with another
+  strategy's, a parent an execution plan works, or an order at a venue is left
+  working and recorded as an `alphalab.strategy.CancelRefused`. A run asking for
+  no cancel records what it did.
 * **Richer contract terms** [FUT-016]. `OptionTerms` declares a `basket` of
   further `Deliverable`s and a `cash_per_contract`; a `consideration_currency`,
   converted at the exercise instant by the run's rates or by a quanto contract's
@@ -271,7 +281,7 @@ IDs are in brackets.
 | `alphalab.backtesting.BacktestEngine.run` | keyword-only `schedule`, `execution` and `queue` |
 | `alphalab.backtesting.replay_snapshot.restore` | `schedule`, empty by default, and `execution` and `queue`, `None` by default; `ReplaySnapshot.schedule_digest`, `algorithms` and `queue` |
 | `alphalab.runtime.RunEngine.advance`, `ExecutionPipeline.process_record`, `process_market_event` | keyword-only `queue`, `None` by default; `ExecutionPipelineResult.queue`, appended last, `None` by default |
-| `alphalab.strategy.IntentKind` | member `EXERCISE` (FUT-014); `alphalab.strategy.ExerciseRefused` added |
+| `alphalab.strategy.IntentKind` | members `EXERCISE` (FUT-014) and `CANCEL` (EXE-012); `alphalab.strategy.ExerciseRefused` and `CancelRefused` added |
 | `alphalab.instrument.OptionTerms` | fields `basket`, `cash_per_contract`, `consideration_currency`, `fractions`, `exercise_windows`, `adjustments` and `consideration_rate`, empty or `None` by default; `deliverables`, `is_single`, `effective`, `split_adjusted`, `may_exercise`, `package_value`, `basket_intrinsic`; `intrinsic` refuses a package (FUT-016); `alphalab.instrument.CashInLieu` and `TermsAdjustment` added |
 | `alphalab.options.ExerciseStyle` | member `BERMUDAN`; `OptionContract` refuses it |
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `settlement`, `None` by default (FUT-015) |
@@ -296,8 +306,10 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-FUT-018 (buying on margin and a debit's interest, v4.3) and FUT-019 (portfolio
-and risk-based margin, v5.0), raised by the FUT-017 milestone, each with its
+FUT-018 (buying on margin, a debit's interest and short borrow, v4.3) and
+FUT-019 (portfolio and risk-based margin, v5.0), raised by the FUT-017
+milestone, and FUT-020 (venue price limits and halts, v4.3) and FUT-021 (holding
+exchanges, v4.3), raised by the v4.2.0 global gap audit, each with its
 limitation, interim behaviour and acceptance criteria on `ROADMAP.md`. FUT-009,
 FUT-011, FUT-013 to FUT-017, accepted by the audit and its milestones, and FUT-002,
 accepted by v4.1, were delivered by the candidate's milestones -- FUT-002 by declaration, so an undeclared configuration

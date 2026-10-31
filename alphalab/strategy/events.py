@@ -39,6 +39,7 @@ from alphalab.common.order_terms import MARKET, OrderTerms
 from alphalab.common.point_in_time import StampedRecord
 
 __all__ = [
+    "CancelRefused",
     "ExerciseRefused",
     "FillEvent",
     "Intent",
@@ -102,6 +103,16 @@ class IntentKind(StrEnum):
     #: :class:`ExerciseRefused` and nothing moves. ``strength`` must be one and
     #: ``terms`` the default.
     EXERCISE = "exercise"
+    #: An instruction to withdraw every order the strategy alone has working in
+    #: ``instrument`` (v4.2.0): a resting limit or stop it no longer wants. Not
+    #: an order: it takes effect at once, at the instant of the event whose hook
+    #: returned it -- after that event's fills, before the batch's orders are
+    #: placed, so a cancel and a new limit in one return replace a quote. An
+    #: order netted with another strategy's is not withdrawn, nor is one worked
+    #: by an execution plan or held at a venue; each is recorded as a
+    #: :class:`CancelRefused`. With nothing working it asks for nothing.
+    #: ``target`` must be zero, ``strength`` one and ``terms`` the default.
+    CANCEL = "cancel"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +193,28 @@ class ExerciseRefused(StrategyRuntimeEvent):
     strategy_id: str
     asset_id: str
     contracts: Decimal
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class CancelRefused(StrategyRuntimeEvent):
+    """A working order a strategy's cancel instruction could not withdraw (v4.2.0).
+
+    Recorded in the strategy runtime's event log; the order works on. The
+    strategy keeps running: an order netted with another strategy's, worked by
+    an execution plan, or held at a venue is not the strategy's alone to
+    withdraw.
+
+    Attributes:
+        strategy_id: The strategy that asked.
+        asset_id: The instrument it asked to cancel in.
+        order_id: The order left working.
+        reason: Why, in a sentence.
+    """
+
+    strategy_id: str
+    asset_id: str
+    order_id: str
     reason: str
 
 
