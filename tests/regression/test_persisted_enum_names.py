@@ -213,6 +213,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "TimerEvent",
     ),
     "alphalab.runtime.snapshot._RISK_EVENTS": (
+        # v4.2.0 (ledger FUT-022): a recalled short bought in.
+        "BuyIn",
         "BuyingPowerUpdated",
         "DrawdownTriggered",
         "ExposureUpdated",

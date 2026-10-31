@@ -163,6 +163,11 @@ class InstrumentRegistry:
             ``None``: every instrument trades whenever the data shows it does, as
             before v4.2.0 (ledger FUT-020). Declared with
             :func:`declare_trading_controls`.
+        recallable: ``asset_id`` -> ``None``, for every instrument whose borrow
+            terms declare a recall's buy-in deadline (v4.2.0, ledger FUT-022) --
+            what the execution path reads after every market step, so a registry
+            declaring no recall costs that path nothing. An index, derived like
+            ``margined``.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -181,6 +186,7 @@ class InstrumentRegistry:
     margined: PersistentMap[str, None] | None = None
     margin_model: MarginModel | None = None
     controls: TradingControls | None = None
+    recallable: PersistentMap[str, None] | None = None
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -221,6 +227,18 @@ class InstrumentRegistry:
                         asset_id: None
                         for asset_id, record in self.instruments.items()
                         if record.margin is not None
+                    }
+                ),
+            )
+        if self.recallable is None:
+            object.__setattr__(
+                self,
+                "recallable",
+                PersistentMap(
+                    {
+                        asset_id: None
+                        for asset_id, record in self.instruments.items()
+                        if record.borrow is not None and record.borrow.recalls
                     }
                 ),
             )
@@ -470,6 +488,11 @@ def register_instrument(
                 registry.margined
                 if record.margin is None or registry.margined is None
                 else registry.margined.set(record.asset_id, None)
+            ),
+            recallable=(
+                registry.recallable
+                if record.borrow is None or not record.borrow.recalls or registry.recallable is None
+                else registry.recallable.set(record.asset_id, None)
             ),
         )
     )

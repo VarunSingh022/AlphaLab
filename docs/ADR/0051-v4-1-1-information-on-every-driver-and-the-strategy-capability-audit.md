@@ -379,6 +379,15 @@ direction a price should move is the strategy's decision, not the engine's. A
 band's cap is the one price the engine sets, so it lands on the grid, inward. A
 market order is priced by the market and is not judged by the grid at all.
 
+**27. A lender's recall is bought in through the canonical path (FUT-022,
+phase 3).** A recall is the lender's term, an entry in the borrow series with
+its deadline; nothing in the engine decides a lender wants its shares back. The
+cover is the book's trade: each short strategy's own, sized to what the
+deadline leaves uncovered, through allocation, risk and the OMS like a
+liquidation -- a delta, because a strategy's resting bid is its own price, not
+the lender's -- and filling only as the market allows, placed again for what
+it leaves. A working market buy defers it, so a recall is never covered twice.
+
 ---
 
 # Consequences
@@ -420,7 +429,8 @@ market order is priced by the market and is not judged by the grid at all.
   position's own and the gate's `MarginLimit` a gross-notional cap.
 - **Interest and fees accrue at each declared period's instant**: on the balance
   and the short then, not a daily average; the periods are the caller's
-  cadence; borrow is the book's, with no recall or buy-in.
+  cadence; borrow is the book's, and a recall's buy-in is priced by the run's
+  fill policy, with no premium a lender might charge.
 - **A margin call is checked after each market step and liquidated at the
   asset's next quote**: no grace period and no check between market events; a
   market order's unfilled remainder is cancelled, and a step still in breach

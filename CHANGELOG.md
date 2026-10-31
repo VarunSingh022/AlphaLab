@@ -42,6 +42,17 @@ IDs are in brackets.
 
 ## Added
 
+Entries marked *phase 3* were delivered on the candidate branch after its
+validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
+
+* **A lender's recall, bought in** [FUT-022] (*phase 3*). `BorrowAvailability`
+  declares a recall's `buy_in_at` deadline; after it, a short beyond what the
+  entry makes available is bought in after each market step -- each short
+  strategy's own cover, a delta through allocation, risk and the OMS, a market
+  order resting to the asset's next event, filling as the market allows and
+  placed again for what it leaves -- and recorded as `alphalab.risk.BuyIn`. A
+  working market buy defers it; a resting limit does not. A run declaring no
+  recall records exactly what it did.
 * **Every timed input on the historical drivers** [FUT-004, OFE-027].
   `alphalab.backtesting.schedule`: a `RunSchedule` of observations, FX rates,
   fundings, cash flows, per-unit distributions (`ScheduledDistribution`),
@@ -365,6 +376,9 @@ IDs are in brackets.
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `margined`, a derived index, `None` by default and built from the records (FUT-017) |
 | `alphalab.risk.MarginCall`, `alphalab.risk.events.MarginCall` | added (FUT-017) |
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
+| `alphalab.instrument.BorrowAvailability` | field `buy_in_at`, `None` by default, written only when declared; `BorrowTerms.recalls` (FUT-022, phase 3) |
+| `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `recallable`, a derived index, appended last, `None` by default and built from the records (FUT-022, phase 3) |
+| `alphalab.risk.BuyIn`, `alphalab.risk.events.BuyIn` | added (FUT-022, phase 3) |
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `tick`, `None` by default (EXE-013); `alphalab.conventions.tick.tick_to_primitives`, `tick_from_primitives` added |
 | `alphalab.conventions.days_in_year`, `alphalab.conventions.daycount.days_in_year` | added (NUM-016) |
 | `alphalab.instrument.MarginTerms` | field `purchase_on_margin`, `False` by default and written only when declared (FUT-018) |
@@ -396,7 +410,7 @@ IDs are in brackets.
 ## Accepted as future work
 
 FUT-022 to FUT-029, proposed by the phase 2 global gap audit after FUT-018 to
-FUT-021 were delivered: borrow recall and buy-in, daily-balance accrual, holder
+FUT-021 were delivered, and delivered in turn by phase 3 (FUT-022 so far): borrow recall and buy-in, daily-balance accrual, holder
 elections and announcement instants, a corporate action settling after its
 instant, options repriced in margin scenarios, a halt's reopening auction, bands computed from a
 reference price, and amend in place. Each is new declared capability, on

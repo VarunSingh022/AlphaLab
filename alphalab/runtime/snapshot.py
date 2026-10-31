@@ -173,6 +173,7 @@ from alphalab.portfolio.snapshot import from_primitives as portfolio_from_primit
 from alphalab.portfolio.snapshot import restore as restore_portfolio
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.events import (
+    BuyIn,
     BuyingPowerUpdated,
     DrawdownTriggered,
     ExposureUpdated,
@@ -841,6 +842,9 @@ _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     # v4.2.0 (ledger FUT-017): written only by a run holding margined positions
     # that fell below maintenance, so no earlier payload holds one.
     MarginCall,
+    # v4.2.0 (ledger FUT-022): written only by a run whose recalled short was
+    # bought in.
+    BuyIn,
 )
 _EXECUTION_EVENTS: Mapping[str, type[ExecutionEvent]] = _types(
     ExecutionSubmitted,
@@ -2211,6 +2215,10 @@ _RISK_FIELDS: Mapping[str, Any] = {
     "maintenance_requirement": as_decimal,
     "deficit": as_decimal,
     "orders": _assets,
+    # v4.2.0 (ledger FUT-022): a buy-in's short, availability and excess.
+    "short": as_decimal,
+    "available": as_decimal,
+    "excess": as_decimal,
 }
 _EXECUTION_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,

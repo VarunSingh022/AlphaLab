@@ -17,7 +17,8 @@ FUT-020 (venue price limits and halts) and FUT-021 (holding exchanges). Every
 entry the program accepted is delivered. The phase 2 global gap audit that
 followed (section *The phase 2 global gap audit*, below) fixed three gaps --
 EXE-013, NUM-016, and a strategy's view of borrow terms under FUT-018 -- and
-raised FUT-022 to FUT-029, now on the ROADMAP's Future work. Rows below are as
+raised FUT-022 to FUT-029, which phase 3 delivers in turn (FUT-022, a
+lender's recall bought in, first). Rows below are as
 of the FUT-011 milestone.
 
 ## Classes
@@ -154,7 +155,6 @@ on one schedule, and its replay pauses through a payload.
 
 | Work | Families it moves | Release class |
 | --- | --- | --- |
-| FUT-022 borrow recall and buy-in | 2 (long-short, pairs), 3 (event-driven shorts) | minor |
 | FUT-023 daily-balance accrual | 2, 8 (leveraged and financed books) | minor |
 | FUT-024 holder elections, announcement instants | 3 (merger arbitrage), 5 (adjusted contracts) | minor |
 | FUT-025 a corporate action settling after its instant | 3 | minor |
@@ -191,7 +191,7 @@ future enhancement; 6 already implemented or resolved.
 | A strategy could read a lender's later borrow entries through `context.universe.instrument(...)`: information before its instant | 1 | **Fixed** (FUT-018): the view shows the series only as far as in effect; `context.universe.borrow` gives the entry in effect now |
 | A declared tick grid was read by nothing that placed an order: an off-grid limit or stop could fill | 2 | **Fixed** (EXE-013): refused at placement; a band's cap lands on the grid |
 | A day count's year was chosen by elimination, so a basis added later would divide by 365 | 5 | **Fixed** (NUM-016): each year stated, an unstated one refused |
-| Borrow recall and buy-in | 2 | FUT-022 (v4.3) |
+| Borrow recall and buy-in | 2 | FUT-022, **delivered in phase 3** |
 | Interest and fees on a period's daily balances | 5 | FUT-023 (v4.3); exact meanwhile with one period a day |
 | Holder elections; corporate-action and adjustment announcement instants | 2 | FUT-024 (v4.4) |
 | A corporate action's consideration paid after its instant | 5 | FUT-025 (v4.4) |

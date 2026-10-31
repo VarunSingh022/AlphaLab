@@ -18,6 +18,7 @@ from alphalab.risk.checks import (
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.engine import RiskEngine
 from alphalab.risk.events import (
+    BuyIn,
     BuyingPowerUpdated,
     DrawdownTriggered,
     ExposureUpdated,
@@ -64,6 +65,7 @@ from alphalab.risk.views import (
 __all__ = [
     "NO_WORKING_ORDERS",
     "BucketExposure",
+    "BuyIn",
     "BuyingPowerUpdated",
     "ClassificationLimit",
     "DailyLossLimit",

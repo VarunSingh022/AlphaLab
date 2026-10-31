@@ -49,11 +49,18 @@ class BorrowAvailability:
             Zero is a name nothing can be borrowed in.
         annual_rate: The borrow fee, a fraction of the borrowed value a year;
             at least zero.
+        buy_in_at: A recall's deadline (v4.2.0, ledger FUT-022): from this
+            instant a short beyond ``available`` is bought in -- covered through
+            the execution path at the market's prices, as far as the market
+            allows -- or ``None``, a short already held beyond it is kept and
+            only new shorts are refused. At or after ``effective_at``, the
+            notice; never on an entry stating no limit.
     """
 
     effective_at: float
     available: Decimal | None
     annual_rate: Decimal
+    buy_in_at: float | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -80,6 +87,26 @@ class BorrowAvailability:
             raise InstrumentInputError(
                 f"A borrow fee is a non-negative Decimal, got {self.annual_rate!r}."
             )
+        if self.buy_in_at is not None:
+            if (
+                isinstance(self.buy_in_at, bool)
+                or not isinstance(self.buy_in_at, int | float)
+                or not math.isfinite(self.buy_in_at)
+            ):
+                raise InstrumentInputError(
+                    f"A buy-in deadline is an instant, got {self.buy_in_at!r}."
+                )
+            if self.buy_in_at < self.effective_at:
+                raise InstrumentInputError(
+                    f"A recall's buy-in deadline {self.buy_in_at!r} is before its notice "
+                    f"{self.effective_at!r}: a short is told before it is bought in."
+                )
+            if self.available is None:
+                raise InstrumentInputError(
+                    "A buy-in recalls a short beyond what is available; an entry stating no "
+                    "limit recalls nothing."
+                )
+            object.__setattr__(self, "buy_in_at", float(self.buy_in_at))
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +134,12 @@ class BorrowTerms:
             raise InstrumentInputError(f"day_count is a DayCount, got {self.day_count!r}.")
         object.__setattr__(self, "entries", entries)
 
+    @property
+    def recalls(self) -> bool:
+        """Whether any entry declares a buy-in deadline (FUT-022)."""
+
+        return any(entry.buy_in_at is not None for entry in self.entries)
+
     def in_effect(self, at: float) -> BorrowAvailability | None:
         """The entry in force at ``at``, or ``None`` before the first takes effect."""
 
@@ -130,6 +163,9 @@ def borrow_to_primitives(terms: BorrowTerms | None) -> dict[str, Any] | None:
                 "effective_at": entry.effective_at,
                 "available": None if entry.available is None else str(entry.available),
                 "annual_rate": str(entry.annual_rate),
+                # Written only when declared, so terms without a recall keep
+                # the form they had.
+                **({} if entry.buy_in_at is None else {"buy_in_at": entry.buy_in_at}),
             }
             for entry in terms.entries
         ],
@@ -152,6 +188,7 @@ def borrow_from_primitives(value: Any, where: str = "borrow") -> BorrowTerms | N
                     float(entry["effective_at"]),
                     None if entry["available"] is None else Decimal(entry["available"]),
                     Decimal(entry["annual_rate"]),
+                    None if entry.get("buy_in_at") is None else float(entry["buy_in_at"]),
                 )
                 for entry in value["entries"]
             ),

@@ -125,7 +125,7 @@ from alphalab.portfolio.valuation import (
 )
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.engine import RiskEngine
-from alphalab.risk.events import MarginCall
+from alphalab.risk.events import BuyIn, MarginCall
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
@@ -1236,9 +1236,11 @@ class ExecutionPipeline:
         current = _exercises_requested(
             current, (*intents, *feedback_intents), event.timestamp, rates
         )
-        # The account's margin, after everything the step did (FUT-017).
+        # A recalled short past its buy-in deadline is covered (FUT-022), and
+        # then the account's margin, after everything the step did (FUT-017).
+        current, bought_in = _buy_ins(current, event, rates)
         current, liquidation = _margin_call(current, event, rates)
-        routed = routed.then(liquidation)
+        routed = routed.then(bought_in).then(liquidation)
         if queue is not None:
             queue = _queue_after_step(queue, current, event, update, resting_before)
         return _step_result(
@@ -3536,6 +3538,126 @@ def _margin_call(
     return evolve(current, risk=evolve(risk, events=risk.events.append(called))), routed
 
 
+def _buy_ins(
+    state: ExecutionPipelineState, event: MarketEvent, rates: FxRates
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Cover each recalled short beyond what its lender makes available (FUT-022).
+
+    Read only for the instruments whose borrow terms declare a recall, so a run
+    declaring none costs one emptiness test. Once the entry in effect has passed
+    its buy-in deadline, a short beyond its availability is covered -- the
+    excess, rounded up to whole lots where declared or whole units where the
+    run trades them, never more than is short -- each short strategy covering
+    its own share, as its own target through allocation, risk and the OMS, a
+    market order resting to the asset's next event. It fills as the market
+    allows: in a halt or outside a band it rests, with too little liquidity it
+    fills in part and what it leaves is bought in at the next step. A buy-in
+    already working places nothing, so a recall is never covered twice. Each
+    round is a :class:`~alphalab.risk.events.BuyIn` on the risk log.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.recallable:
+        return state, _NO_ROUTING
+    at = event.timestamp
+    ctx = ACCOUNTING_CONTEXT
+    current, routed = state, _NO_ROUTING
+    for asset_id in registry.recallable:
+        position = current.portfolio.positions.get(asset_id)
+        if position is None or position.quantity >= 0:
+            continue
+        record = _declared(current, asset_id)
+        assert record is not None and record.borrow is not None
+        entry = record.borrow.in_effect(at)
+        if entry is None or entry.buy_in_at is None or entry.buy_in_at > at:
+            continue
+        assert entry.available is not None
+        short = position.quantity.copy_abs()
+        if short <= entry.available or _covering_order_working(current, asset_id):
+            continue
+        excess = ctx.subtract(short, entry.available)
+        step = _trading_step(current, asset_id, position.quantity)
+        if step is not None:
+            excess = ctx.multiply(
+                ctx.divide(excess, step).to_integral_value(rounding=decimal.ROUND_CEILING), step
+            )
+        excess = min(excess, short)
+        shares = tuple(
+            (sid, share)
+            for sid, share in AllocationEngine.shares_of(current.allocation, asset_id)
+            if share < 0
+        )
+        placed: tuple[str, ...] = ()
+        if shares and asset_id in current.market_prices:
+            parts = _strategy_parts(shares, -excess)
+            # A delta, not a target: what the lender requires is bought now,
+            # whatever the strategy has resting -- a target would count a
+            # resting bid as held and buy nothing.
+            batch = tuple(
+                Intent(
+                    sid,
+                    asset_id,
+                    -parts[sid],
+                    timestamp=at,
+                    kind=IntentKind.DELTA,
+                    metadata={"buy_in": repr(at)},
+                )
+                for sid, _ in shares
+                if parts.get(sid)
+            )
+            allocation, requests = _allocate(current, batch, current.market_prices, rates, at)
+            current = evolve(current, allocation=allocation)
+            current, step_routed = _route_requests(
+                current,
+                event,
+                batch,
+                requests,
+                StaticFill(FillStatus.FULL_FILL, None),
+                rates,
+                rest=True,
+                at=at,
+            )
+            routed = routed.then(step_routed)
+            placed = tuple(str(order.order_id.value) for order in step_routed.orders)
+        bought = BuyIn(
+            str(new_id()),
+            at,
+            asset_id=asset_id,
+            short=short,
+            available=entry.available,
+            excess=excess,
+            orders=placed,
+        )
+        risk = current.risk
+        current = evolve(current, risk=evolve(risk, events=risk.events.append(bought)))
+    return current, routed
+
+
+def _covering_order_working(state: ExecutionPipelineState, asset_id: str) -> bool:
+    """Whether a market buy is working in ``asset_id``: a buy-in, or a cover trading now.
+
+    A market order only: a resting limit or stop buy is a price the strategy
+    waits for, and does not stand in for a buy-in its lender requires now.
+    """
+
+    for order_id in state.oms.working_orders_for(asset_id):
+        order = state.oms.orders.find(order_id)
+        if order.side is OMSSide.BUY and order.order_type is OrderType.MARKET:
+            return True
+    return False
+
+
+def _trading_step(
+    state: ExecutionPipelineState, asset_id: str, quantity: Decimal
+) -> Decimal | None:
+    """What a forced trade moves in: whole lots where declared, whole units where the book is."""
+
+    economics = _economics_of(state, asset_id)
+    lot = None if economics is None else economics.lot
+    whole = _whole_units(state) or quantity == quantity.to_integral_value()
+    return lot.lot_size if lot is not None else (Decimal("1") if whole else None)
+
+
 def _venue_blocks(state: ExecutionPipelineState, asset_id: str, at: float, price: Decimal) -> bool:
     """Whether the venue's declared controls stop a trade in ``asset_id`` at ``price`` (FUT-020).
 
@@ -3634,10 +3756,7 @@ def _holding_shares(
 def _liquidation_step(state: ExecutionPipelineState, holding: MarginHolding) -> Decimal | None:
     """What a liquidation sells in: whole lots where declared, whole units where the book is."""
 
-    economics = _economics_of(state, holding.asset_id)
-    lot = None if economics is None else economics.lot
-    whole = _whole_units(state) or holding.quantity == holding.quantity.to_integral_value()
-    return lot.lot_size if lot is not None else (Decimal("1") if whole else None)
+    return _trading_step(state, holding.asset_id, holding.quantity)
 
 
 def _per_position_reductions(

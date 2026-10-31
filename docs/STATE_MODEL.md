@@ -244,7 +244,11 @@ written by `borrow_to_primitives`: the day count by name, each entry's instant,
 availability and fee), and `MarginTerms` writes `purchase_on_margin` only when
 it is declared. Interest and borrow fees are ordinary `INTEREST` and `FEE`
 ledger transactions; the schedule entries that charge them are identified by
-the schedule's digest, whose encoder writes a calendar date as ISO 8601.
+the schedule's digest, whose encoder writes a calendar date as ISO 8601. A
+recall (phase 3, ledger FUT-022) writes an entry's `buy_in_at` only when it is
+declared; the registry's index of recallable instruments is derived, never
+written; a buy-in is a `BuyIn` in the risk event log, and its cover ordinary
+orders and fills.
 
 Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
 account's declared margin model as `margin_model_to_primitives` writes it

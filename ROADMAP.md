@@ -248,6 +248,11 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **A lender's recall, bought in** (FUT-022, phase 3): a borrow entry declares
+  its recall's `buy_in_at` deadline; after it, a short beyond what the lender
+  makes available is bought in -- each short strategy's own cover through
+  allocation, risk and the OMS, filling as the market allows and placed again
+  for what it leaves -- with a `BuyIn` on the risk log.
 - **A venue's price grid where an order meets it** (EXE-013, the phase 2 global
   gap audit): `InstrumentRecord.tick` declares the instrument's tiered or flat
   `TickSchedule`; a limit or stop between two ticks is refused at placement,
@@ -619,12 +624,13 @@ of what the audit proposed (section *v4.2.0*, above).
 Every entry accepted by the v4.1.1 program, the margin milestone and the v4.2.0
 global gap audit was delivered in v4.2.0. The global gap audit that followed
 those deliveries (phase 2, `docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`)
-proposed the eight below; each is new declared capability, and each ledger
-entry states its interim safe behaviour and completion criteria in full.
+proposed eight entries; phase 3 delivers them in turn on the candidate
+branch, after its validation at `350f3f7` -- each delivered one is in section
+*v4.2.0*, above, and leaves the table below. Each ledger entry states its
+interim safe behaviour and completion criteria in full.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-022 | **Borrow recall and buy-in**: a short held beyond what a lender makes available is kept, at its fee | availability is visible to the strategy now (`context.universe.borrow`); cover, or schedule the cover | v4.3 | margin liquidation, borrow terms |
 | FUT-023 | **Daily-balance accrual**: interest and borrow fees charge the balance and the short at the period's instant | declare one period a day, which is the daily accrual | v4.3 | -- |
 | FUT-024 | **Holder elections and announcement instants**: a corporate action applies one declared outcome; an adjustment is visible from the run's start | declare the elected outcome; declare adjustments only once announced | v4.4 | holding exchanges |
 | FUT-025 | **A corporate action settling after its instant**: a cash part is spendable from the effective instant | schedule the exchange at its payment instant | v4.4 | settlement-date cash, holding exchanges |
@@ -634,10 +640,9 @@ entry states its interim safe behaviour and completion criteria in full.
 | FUT-029 | **A strategy's amend in place, keeping priority by a venue's rule**: a strategy, and a simulated venue, change an order only by cancel and replace (an operator can amend at a live venue) | cancel and re-place: priority lost, the conservative reading | v4.3 | strategy cancel, queue model |
 
 Each is a boundary of the delivered behaviour, stated in ADR-0051's known
-limitations. Three are not conservative while open -- a short kept past a recall
-(FUT-022), a period charged on one balance (FUT-023), a corporate action's cash
-spendable before its payment (FUT-025) -- and each one's interim safe behaviour
-says how to declare around it.
+limitations. Two are not conservative while open -- a period charged on one
+balance (FUT-023), a corporate action's cash spendable before its payment
+(FUT-025) -- and each one's interim safe behaviour says how to declare around it.
 
 ---
 
