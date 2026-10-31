@@ -14,6 +14,9 @@ class TransactionType(Enum):
     #: as cash, and a perpetual's funding payment.
     VARIATION_MARGIN = auto()
     FUNDING = auto()
+    #: v4.2.0 (FUT-021): cash a holding exchange paid or cost -- its cash part
+    #: and any cash in lieu of a fraction.
+    EXCHANGE = auto()
 
 
 class PositionSide(Enum):

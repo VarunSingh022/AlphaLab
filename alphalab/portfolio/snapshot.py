@@ -89,6 +89,7 @@ from alphalab.portfolio.events import (
     PortfolioEvent,
     PortfolioValuationUpdated,
     PositionClosed,
+    PositionExchanged,
     PositionIncreased,
     PositionOpened,
     PositionReduced,
@@ -172,6 +173,8 @@ _EVENT_TYPES: Mapping[str, type[PortfolioEvent]] = {
         VariationSettled,
         CashFlowBooked,
         PositionSplit,
+        # v4.2.0 (FUT-021): written only by a run whose holding was exchanged.
+        PositionExchanged,
     )
 }
 
@@ -194,6 +197,10 @@ _EVENT_FIELD_DECODERS: Mapping[str, Any] = {
     "rate_derived": as_bool,
     # PositionSplit (v3.11): units after for each unit before.
     "ratio": as_decimal,
+    # PositionExchanged (v4.2.0, FUT-021): what the holding became.
+    "received": as_decimal_mapping,
+    "consideration": as_decimal_mapping,
+    "retained": as_bool,
 }
 
 

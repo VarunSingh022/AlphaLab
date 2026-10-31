@@ -79,6 +79,7 @@ from alphalab.portfolio.corporate_actions import (
     CashFlowKind,
     ContractSettlement,
     Exercise,
+    HoldingExchange,
     OptionExpiry,
     Split,
 )
@@ -108,6 +109,7 @@ __all__ = [
     "ScheduledBorrowFee",
     "ScheduledCashFlow",
     "ScheduledDistribution",
+    "ScheduledExchange",
     "ScheduledExercise",
     "ScheduledExpiry",
     "ScheduledFundingRate",
@@ -152,6 +154,9 @@ class ScheduleKind(StrEnum):
     #: instant left.
     INTEREST = "interest"
     BORROW_FEE = "borrow_fee"
+    #: v4.2.0 (FUT-021): a holding exchanged by its issuer -- before the
+    #: instant's records, as a split is.
+    EXCHANGE = "exchange"
 
 
 _PLACE: Final = {
@@ -169,6 +174,7 @@ _PLACE: Final = {
     ScheduleKind.SETTLEMENT: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.INTEREST: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.BORROW_FEE: SchedulePlace.AFTER_RECORDS,
+    ScheduleKind.EXCHANGE: SchedulePlace.BEFORE_RECORDS,
 }
 _RANK: Final = {kind: rank for rank, kind in enumerate(ScheduleKind)}
 
@@ -289,6 +295,14 @@ class ScheduledSplit:
 
 
 @dataclass(frozen=True, slots=True)
+class ScheduledExchange:
+    """A holding exchanged by its issuer, effective at ``at`` (ledger FUT-021)."""
+
+    exchange: HoldingExchange
+    at: float
+
+
+@dataclass(frozen=True, slots=True)
 class ScheduledSettlement:
     """A contract's final settlement, published at ``at`` (ledger FUT-012)."""
 
@@ -397,6 +411,7 @@ class RunSchedule:
         expiries: Iterable[ScheduledExpiry] = (),
         interest: Iterable[ScheduledInterest] = (),
         borrow_fees: Iterable[ScheduledBorrowFee] = (),
+        exchanges: Iterable[ScheduledExchange] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
 
@@ -440,6 +455,9 @@ class RunSchedule:
                 for i in interest
             ),
             *(_entry(ScheduleKind.BORROW_FEE, b.at, b.reference, b) for b in borrow_fees),
+            # One exchange of an instrument at an instant: a second, conflicting
+            # declaration of it is refused below, as two answers to one question.
+            *(_entry(ScheduleKind.EXCHANGE, x.at, x.exchange.asset_id, x) for x in exchanges),
         ]
         entries.sort(key=lambda entry: entry.key)
         for previous, current in pairwise(entries):
@@ -636,6 +654,8 @@ def _apply(
         return rates, RunEngine.apply_cash_flow(state, flow, item.at, rates)
     if kind is ScheduleKind.SPLIT:
         return rates, RunEngine.apply_split(state, item.split, item.at, rates)
+    if kind is ScheduleKind.EXCHANGE:
+        return rates, RunEngine.apply_exchange(state, item.exchange, item.at, rates)
     if kind is ScheduleKind.OBSERVATION:
         return rates, RunEngine.deliver_observation(state, item, context_factory, rates)
     if kind is ScheduleKind.TIMER:

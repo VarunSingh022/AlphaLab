@@ -76,6 +76,7 @@ from alphalab.portfolio.corporate_actions import (
     CashFlow,
     ContractSettlement,
     Exercise,
+    HoldingExchange,
     OptionExpiry,
     Split,
 )
@@ -800,6 +801,26 @@ class RunEngine:
 
         clock = state.current_timestamp if timestamp is None else timestamp
         pipeline = ExecutionPipeline.apply_split(state.pipeline, split, clock, rates)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def apply_exchange(
+        state: RunState,
+        exchange: HoldingExchange,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Exchange a holding by its declared terms at ``timestamp`` (FUT-021).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.apply_exchange`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.apply_exchange(state.pipeline, exchange, clock, rates)
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )

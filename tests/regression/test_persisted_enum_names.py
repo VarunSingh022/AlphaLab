@@ -93,6 +93,8 @@ NAMED: dict[str, tuple[str, ...]] = {
         "TRANSFER",
         "VARIATION_MARGIN",
         "FUNDING",
+        # v4.2.0 (FUT-021): an exchange's cash part and cash in lieu.
+        "EXCHANGE",
     ),
     "alphalab.runtime.execution_pipeline.ExecutionRouting": (
         "SIMULATED",
@@ -247,6 +249,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "MarketValueUpdated",
         "PortfolioValuationUpdated",
         "PositionClosed",
+        # v4.2.0 (FUT-021): written only by a run whose holding was exchanged.
+        "PositionExchanged",
         "PositionIncreased",
         "PositionOpened",
         "PositionReduced",

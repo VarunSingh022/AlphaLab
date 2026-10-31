@@ -22,7 +22,9 @@ from .corporate_actions import Assignment as Assignment
 from .corporate_actions import CashFlow as CashFlow
 from .corporate_actions import CashFlowKind as CashFlowKind
 from .corporate_actions import ContractSettlement as ContractSettlement
+from .corporate_actions import ExchangeLeg as ExchangeLeg
 from .corporate_actions import Exercise as Exercise
+from .corporate_actions import HoldingExchange as HoldingExchange
 from .corporate_actions import OptionExpiry as OptionExpiry
 from .corporate_actions import Split as Split
 from .engine import PortfolioEngine as PortfolioEngine
@@ -143,6 +145,7 @@ __all__ = [
     "ContractSettlement",
     "CurrencyAttribution",
     "CurrencyAttributionReport",
+    "ExchangeLeg",
     "Exercise",
     "ExposureEngine",
     "FinancingTier",
@@ -151,6 +154,7 @@ __all__ = [
     "FxConversion",
     "FxRate",
     "FxRates",
+    "HoldingExchange",
     "HoldingValuation",
     "InstrumentHolding",
     "InstrumentValuation",

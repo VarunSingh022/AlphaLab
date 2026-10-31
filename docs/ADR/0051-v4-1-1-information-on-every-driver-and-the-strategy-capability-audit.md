@@ -355,6 +355,17 @@ quote, a closed session and an absent fill stay distinct conditions with their
 own outcomes. A strategy is told what is in force now and never when an
 interval ends, which would be the venue's announcement before it was made.
 
+**25. A holding exchanged by its issuer is booked by the issuer's declared terms,
+with its basis carried exactly (FUT-021).** A merger, a spin-off and a rights
+issue are one declaration: what each unit held becomes, the cash it pays and how
+the cost basis is apportioned -- shares that sum to one, because a basis the
+terms do not place would be P&L the event did not make. The portfolio books the
+result without a fill, as a split is booked, and a cash part realizes only its
+share; one event records what the holding was, what it became and why. The
+derivative lifecycle carries what follows: rights are a declared option on the
+share, and a contract on the exchanged instrument must declare its adjusted
+terms, as for a split, or the exchange is refused.
+
 ---
 
 # Consequences
@@ -410,6 +421,9 @@ interval ends, which would be the venue's announcement before it was made.
 - **A halt's first event after it trades at its own price**: no reopening
   auction is modelled, a market order is held through a halt rather than
   rejected, and bands are dated inputs, not computed from a reference price.
+- **An exchange applies its declared outcome at its instant**: a holder's
+  election between considerations is not modelled, nor an exchange settling
+  after its instant; strategies holding opposite sides of it are refused.
 - **The queue model reads the displayed top of the book**: depth beyond it,
   hidden and iceberg liquidity, self-trade prevention and keep-priority amends
   are not modelled; the run's own resting orders are not in the feed, so each is
@@ -420,9 +434,10 @@ interval ends, which would be the venue's announcement before it was made.
 
 Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
 FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017, FUT-018,
-FUT-019, EXE-012, LIM-008).
+FUT-019, FUT-020, FUT-021, EXE-012, LIM-008).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: holding exchanges.
+Nothing this program accepted is deferred: FUT-002 and FUT-009 to FUT-021 were delivered in
+v4.2.0, and what the global gap audit that followed found is on the ROADMAP.
 
 ---
 

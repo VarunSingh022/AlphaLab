@@ -136,6 +136,33 @@ class CashFlowBooked(PortfolioEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class PositionExchanged(PortfolioEvent):
+    """A holding exchanged by its issuer for other instruments and cash (ledger FUT-021).
+
+    What a reader needs to see why a holding became another: what was held, what
+    it became, what cash moved and what of it was realized.
+
+    Attributes:
+        asset_id: The holding exchanged.
+        quantity: Its signed quantity before.
+        received: ``asset_id`` -> the signed quantity received of each leg.
+        consideration: Currency -> the signed cash it moved: the cash part and
+            any cash in lieu; received positive, paid negative.
+        realized_pnl: The P&L the cash realized, in the holding's currency.
+        retained: Whether the holding stays: a spin-off or a rights issue.
+        reference: The issuer's reference.
+    """
+
+    asset_id: str
+    quantity: Decimal
+    received: Mapping[str, Decimal]
+    consideration: Mapping[str, Decimal]
+    realized_pnl: Decimal
+    retained: bool
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
 class PositionSplit(PortfolioEvent):
     """A split or stock dividend changed a position's quantity, not its value (ACC-006).
 

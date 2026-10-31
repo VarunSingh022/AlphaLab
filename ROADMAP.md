@@ -243,6 +243,11 @@ names what the release established and the ADR that records the decision.
   instrument or venue; nothing trades in a halt or outside the band at any
   order's turn -- orders rest, a market order to its first turn after -- and a
   strategy sees what is in force now through `context.universe`.
+- **Mergers, spin-offs and rights issues** (FUT-021): a `HoldingExchange`
+  declares what each unit held becomes -- instruments at ratios, a cash part,
+  the basis apportioned by declared shares, cash in lieu of a fraction -- and
+  is applied at its instant to the books and every strategy's share, with one
+  `PositionExchanged` saying why the holding changed.
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -604,21 +609,10 @@ holds this list to the ledger: an entry may be left for later only here.
 The program's entries were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
 horizon, is the maintainer's decision. The candidate itself delivered the rest
-of what the audit proposed (section *v4.2.0*, above); FUT-021 is what the v4.2.0
-global gap audit found.
+of what the audit proposed (section *v4.2.0*, above).
 
-## FUT-021 — holding exchanges: mergers, spin-offs, rights (target v4.3)
-
-- **Limitation.** A corporate action that exchanges a held position for other
-  instruments is not booked as one event; it is the caller's sale and purchase.
-- **Interim behaviour.** A stock dividend is a split; a cash part is a scheduled
-  `CashFlow`; a true exchange is stated as the caller's trades.
-- **Acceptance criteria.** A declared exchange (ratios, a cash part, the cost
-  basis apportioned by a declared rule) applied to every holding and each
-  strategy's share at its instant, working orders handled as for a split, a
-  contract delivering the old instrument refused unless adjusted; recorded,
-  replayable, and a run declaring none unchanged.
-  **Dependencies.** adjusted contract terms, delivered in v4.2.0.
+None is open: every entry accepted by the v4.1.1 program, the margin
+milestone and the v4.2.0 global gap audit was delivered in v4.2.0.
 
 ---
 

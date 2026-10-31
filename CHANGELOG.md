@@ -204,6 +204,18 @@ IDs are in brackets.
   beyond a band is refused or capped at placement. `context.universe.halted` and
   `price_band` tell a strategy what is in force now. A run declaring no controls
   records exactly what it did.
+* **Mergers, spin-offs and rights issues** [FUT-021]. `alphalab.portfolio.HoldingExchange`
+  declares a holding's transformation by its issuer's terms -- `ExchangeLeg`s
+  (an instrument, units per unit held, the share of the basis it carries, an
+  in-lieu price for a fraction), a cash part, a retained basis share -- the
+  shares summing to one. `ExecutionPipeline.apply_exchange` and
+  `RunEngine.apply_exchange` (scheduled as `alphalab.backtesting.ScheduledExchange`)
+  apply it at its instant: the units the book can hold, a fraction in lieu or
+  refused, the basis apportioned and converted at the rate in force, the cash
+  part realizing its share -- a short receiving short legs and paying the cash --
+  each strategy's share carried, working orders cancelled as at a split, and a
+  contract on the instrument refused unless adjusted. `PortfolioEngine.apply_exchange`
+  books it as an `EXCHANGE` ledger transaction and one `PositionExchanged` event.
 * **A strategy withdraws its own working orders** [EXE-012].
   `IntentKind.CANCEL`: a hook returns `Intent(kind=IntentKind.CANCEL,
   instrument=<asset>, target=0)` and every order working in the asset that the
@@ -339,6 +351,7 @@ IDs are in brackets.
 | `alphalab.instrument.TradingControls`, `PriceBand`, `TradingHalt`, `BandAction`, `declare_trading_controls`, `alphalab.instrument.controls` | added (FUT-020) |
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.snapshot.InstrumentRegistrySnapshot` | field `controls`, `None` by default (FUT-020) |
 | `alphalab.strategy.UniverseProtocol`, `alphalab.strategy.context.NoUniverse`, `alphalab.runtime.context_views.UniverseView` | methods `halted` and `price_band`; the view's field `_as_of`, `None` by default (FUT-020) |
+| `alphalab.portfolio.HoldingExchange`, `ExchangeLeg`; `alphalab.portfolio.corporate_actions.ExchangedHolding`, `PortfolioEngine.apply_exchange`; `alphalab.portfolio.events.PositionExchanged`; `alphalab.portfolio.types.TransactionType` member `EXCHANGE`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`; `alphalab.backtesting.ScheduledExchange`, `RunSchedule.of(exchanges=)`, `ScheduleKind.EXCHANGE` | added (FUT-021) |
 | `alphalab.runtime.MarginHolding`, `MarginPosition` | fields `unit_value`, `unit_maintenance`, `haircut_rate` and `model`, defaulted; `MarginHolding.exposure`, `haircut`, `MarginPosition.figures` (FUT-019) |
 | `alphalab.runtime.margin_position`, `MarginPosition`, `MarginHolding` | added (FUT-017) |
 | `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project` | keyword-only `charge`, `None` by default; `WorkingExposure.charge`, `None` by default (FUT-017) |
@@ -357,8 +370,8 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-FUT-021 (holding exchanges, v4.3), raised by the v4.2.0 global gap audit, each with its
-limitation, interim behaviour and acceptance criteria on `ROADMAP.md`. FUT-009,
+none: FUT-018 to FUT-021, raised by the FUT-017 milestone and the v4.2.0
+global gap audit, were delivered in v4.2.0 with the rest. FUT-009,
 FUT-011, FUT-013 to FUT-017, accepted by the audit and its milestones, and FUT-002,
 accepted by v4.1, were delivered by the candidate's milestones -- FUT-002 by declaration, so an undeclared configuration
 keeps the stated reading (LIM-004); FUT-011's

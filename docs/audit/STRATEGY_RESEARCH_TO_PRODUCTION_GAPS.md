@@ -13,8 +13,9 @@ FUT-016, FUT-015 and FUT-017, the margin milestone raising FUT-018 and FUT-019;
 the v4.2.0 global gap audit delivered EXE-012 (a strategy withdraws its own
 working orders) and raised FUT-020 and FUT-021; and the phase that followed
 delivered FUT-018 (financing and short borrow), FUT-019 (portfolio margin) and
-FUT-020 (venue price limits and halts). What is open is FUT-021 (holding
-exchanges). Rows below are as
+FUT-020 (venue price limits and halts) and FUT-021 (holding exchanges). Every
+entry the program accepted is delivered; what the global gap audit that
+followed found is on the ROADMAP's Future work. Rows below are as
 of the FUT-011 milestone.
 
 ## Classes
@@ -142,8 +143,8 @@ that the seams hold: example 72 combines a price signal (1), a macro regime
 (3), social sentiment (4), a futures hedge (5), a researcher-defined algorithm
 (7) and position sizing with a risk gate (8), through one run, one replay and
 one continuation, with the time semantics of each input preserved. What breaks
-a combination today is a named gap -- an issuer's holding
-exchange (FUT-021) -- and never a missing strategy template; how its
+a combination today is a gap named on the ROADMAP, and never a missing strategy
+template; how its
 orders are executed is now part of what a backtest measures (FUT-009). Example 72 now carries every timed input
 on one schedule, and its replay pauses through a payload.
 
@@ -151,7 +152,6 @@ on one schedule, and its replay pauses through a payload.
 
 | Work | Families it moves | Release class |
 | --- | --- | --- |
-| FUT-021 holding exchanges | event-driven and merger-arbitrage strategies, long-horizon equity books | minor (additive, declared) |
 
 Delivered by the continuation, with the release class each took: FUT-004
 scheduled inputs, FUT-012 cash settlement at expiry, FUT-005 the schedule in the

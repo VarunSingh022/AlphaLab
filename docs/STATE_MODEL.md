@@ -258,6 +258,13 @@ them (each band's instrument, interval, limits and action by name; each halt's
 interval, instrument or venue, and reason), or `None` for a payload written
 before.
 
+Since v4.2.0 (ledger FUT-021) a holding exchange is a `PositionExchanged` in the
+portfolio's event log -- the holding and its quantity, what it became, the cash
+it moved by currency, the P&L realized, whether it was retained, the issuer's
+reference -- tagged by its class name, and its cash an `EXCHANGE` ledger
+transaction; the holdings it creates are ordinary positions. A run with no
+exchange writes neither.
+
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
 incremental checkpoint, 2) and `EVIDENCE_SCHEMA` (the evidence store, 1).

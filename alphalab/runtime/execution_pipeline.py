@@ -95,7 +95,10 @@ from alphalab.portfolio.corporate_actions import (
     Assignment,
     CashFlow,
     ContractSettlement,
+    ExchangedHolding,
+    ExchangeLeg,
     Exercise,
+    HoldingExchange,
     OptionExpiry,
     Split,
 )
@@ -111,6 +114,7 @@ from alphalab.portfolio.fx import (
 )
 from alphalab.portfolio.money import to_money
 from alphalab.portfolio.nav import NAVCalculator
+from alphalab.portfolio.position import Position
 from alphalab.portfolio.valuation import (
     PortfolioValuation,
     PortfolioValuationSnapshot,
@@ -1814,6 +1818,98 @@ class ExecutionPipeline:
                 )
             ),
         )
+        return _after_book_change(current, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def apply_exchange(
+        state: ExecutionPipelineState,
+        exchange: HoldingExchange,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Exchange a holding for other instruments and cash by its declared terms (FUT-021).
+
+        Everything is planned before anything moves, and refused whole:
+
+        * each leg's instrument is one the run's registry declares, when it has
+          one, and the book does not hold its opposite side;
+        * each leg's units are the holding's times its ratio -- the whole part
+          the book can hold, whole lots or whole units where the run trades them,
+          a fraction paid at the leg's declared in-lieu price or refused;
+        * the cost basis is apportioned by the declared shares, converted at the
+          rate in force into a leg's or the cash part's currency when it differs,
+          and the cash part, and any cash in lieu, realizes its share against the
+          cash it pays -- received by a long, paid by a short;
+        * a contract delivering the exchanged instrument, held or working, must
+          declare its adjusted terms effective at this instant, as for a split;
+        * an order working in the exchanged instrument is cancelled under
+          simulated routing, and refuses the exchange under external routing.
+
+        Each strategy's share of the holding becomes its share of each leg. A
+        received holding is marked at its last observed price, or at its basis
+        per unit until its first one. The run holding none of the instrument
+        moves no position, cash or share; the orders and contracts are still
+        checked and handled.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event,
+                or any check above fails.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A holding exchange")
+        _require_exchange_adjusted(state, exchange, timestamp)
+        current = state
+        working = state.oms.working_orders_for(exchange.asset_id)
+        if working:
+            if state.config.routing is ExecutionRouting.EXTERNAL:
+                raise RuntimeValidationError(
+                    f"{len(working)} order(s) are working in {exchange.asset_id} at the venue, "
+                    "which decides what becomes of them at a corporate action; apply the "
+                    "exchange once they are resolved."
+                )
+            for order_id in working:
+                current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
+        held = current.portfolio.positions.get(exchange.asset_id)
+        if held is None or held.quantity == 0:
+            return _after_book_change(current, current.portfolio, timestamp, rates)
+        plan = _exchange_plan(current, exchange, held, timestamp, rates)
+        portfolio = PortfolioEngine.apply_exchange(
+            current.portfolio,
+            exchange.asset_id,
+            plan.received,
+            plan.retained_basis,
+            plan.consideration,
+            plan.realized,
+            timestamp,
+            exchange.reference,
+        )
+        allocation = current.allocation
+        shares = AllocationEngine.shares_of(allocation, exchange.asset_id)
+        closed = {} if exchange.retained else dict(shares)
+        for index, (leg, holding) in enumerate(plan.legs):
+            given = tuple(
+                (sid, ACCOUNTING_CONTEXT.multiply(share, leg.ratio)) for sid, share in shares
+            )
+            parts = _strategy_parts(given, holding.quantity) if given else {}
+            unit_value = _in_budget_currency(
+                current,
+                ACCOUNTING_CONTEXT.multiply(holding.price, _multiplier(holding.economics)),
+                holding.currency,
+                rates,
+                timestamp,
+            )
+            allocation = AllocationEngine.apply_lifecycle(
+                allocation,
+                exchange.asset_id,
+                closed if index == 0 else {},
+                leg.asset_id,
+                parts,
+                unit_value,
+            )
+        if not plan.legs and closed:
+            allocation = AllocationEngine.apply_lifecycle(allocation, exchange.asset_id, closed)
+        current = evolve(current, allocation=allocation)
         return _after_book_change(current, portfolio, timestamp, rates)
 
     @staticmethod
@@ -3720,6 +3816,179 @@ def _projected_margin(
         return None
     equity, initial, _ = margin.figures(quantities, tuple(added.values()))
     return equity, initial
+
+
+def _multiplier(economics: InstrumentEconomics | None) -> Decimal:
+    return Decimal("1") if economics is None else economics.multiplier
+
+
+@dataclass(frozen=True, slots=True)
+class _ExchangePlan:
+    """What a holding exchange moves, planned before anything does (FUT-021)."""
+
+    legs: tuple[tuple[ExchangeLeg, ExchangedHolding], ...]
+    retained_basis: Decimal | None
+    consideration: Mapping[str, Decimal]
+    realized: Decimal
+
+    @property
+    def received(self) -> tuple[ExchangedHolding, ...]:
+        return tuple(holding for _, holding in self.legs)
+
+
+def _exchange_plan(
+    state: ExecutionPipelineState,
+    exchange: HoldingExchange,
+    held: Position,
+    at: float,
+    rates: FxRates,
+) -> _ExchangePlan:
+    """Apportion a holding's basis and units across an exchange's legs and cash, or refuse it."""
+
+    ctx = ACCOUNTING_CONTEXT
+    sign = Decimal("1") if held.quantity > 0 else Decimal("-1")
+    units = held.quantity.copy_abs()
+    basis = held.basis
+    source = held.currency
+    account_units = state.portfolio.account.currency_units
+
+    def convert(amount: Decimal, from_currency: str, to_currency: str) -> Decimal:
+        if from_currency == to_currency or not amount:
+            return amount
+        try:
+            return rates.convert(
+                amount, from_currency, to_currency, at, units=account_units
+            ).converted
+        except (MissingRateError, StaleRateError) as error:
+            raise RuntimeValidationError(
+                f"The exchange of {exchange.asset_id} moves {from_currency} into {to_currency} at "
+                f"{at!r}, and needs a rate the run holds then: {error}"
+            ) from None
+
+    legs: list[tuple[ExchangeLeg, ExchangedHolding]] = []
+    consideration: dict[str, Decimal] = {}
+    realized = Decimal("0")
+    for leg in exchange.legs:
+        record = _declared(state, leg.asset_id)
+        if state.config.instruments is not None and record is None:
+            raise RuntimeValidationError(
+                f"The exchange of {exchange.asset_id} delivers {leg.asset_id}, which the run's "
+                "registry does not declare; nothing can be delivered that the book cannot name."
+            )
+        currency = source if record is None else record.currency
+        economics = None if record is None else record.economics
+        booked = (
+            economics_for(record.asset_type, economics, record.symbol)
+            if record is not None
+            else None
+        )
+        received = ctx.multiply(units, leg.ratio)
+        whole = received if booked is None else _whole_part(state, booked, received)
+        fraction = ctx.subtract(received, whole)
+        carried = ctx.multiply(basis, leg.basis_share)
+        if fraction:
+            if leg.in_lieu_price is None:
+                raise RuntimeValidationError(
+                    f"The exchange of {exchange.asset_id} delivers {received} {leg.asset_id}, of "
+                    f"which {fraction} is less than a unit the book can hold, and declares no "
+                    "in-lieu price for it (ExchangeLeg.in_lieu_price)."
+                )
+            fraction_basis = ctx.divide(ctx.multiply(carried, fraction), received)
+            carried = ctx.subtract(carried, fraction_basis)
+            paid = ctx.multiply(ctx.multiply(fraction, leg.in_lieu_price), _multiplier(economics))
+            consideration[currency] = ctx.add(
+                consideration.get(currency, Decimal("0")), ctx.multiply(sign, paid)
+            )
+            realized = ctx.add(
+                realized,
+                ctx.multiply(sign, ctx.subtract(convert(paid, currency, source), fraction_basis)),
+            )
+        if not whole:
+            continue
+        leg_basis = convert(carried, source, currency)
+        price = state.market_prices.get(leg.asset_id)
+        if price is None:
+            price = ctx.divide(leg_basis, ctx.multiply(whole, _multiplier(economics)))
+        legs.append(
+            (
+                leg,
+                ExchangedHolding(
+                    leg.asset_id, ctx.multiply(sign, whole), leg_basis, price, currency, economics
+                ),
+            )
+        )
+    if exchange.cash_per_unit:
+        currency = exchange.cash_currency or source
+        if currency not in _settlement_currencies(state):
+            raise RuntimeValidationError(
+                f"The exchange of {exchange.asset_id} pays cash in {currency}, which the run does "
+                "not settle: declare it in ExecutionPipelineConfig.also_settles."
+            )
+        paid = ctx.multiply(units, exchange.cash_per_unit)
+        consideration[currency] = ctx.add(
+            consideration.get(currency, Decimal("0")), ctx.multiply(sign, paid)
+        )
+        share = ctx.multiply(basis, exchange.cash_basis_share)
+        realized = ctx.add(
+            realized, ctx.multiply(sign, ctx.subtract(convert(paid, currency, source), share))
+        )
+    retained = (
+        None
+        if exchange.retained_basis_share is None
+        else ctx.multiply(basis, exchange.retained_basis_share)
+    )
+    return _ExchangePlan(tuple(legs), retained, consideration, realized)
+
+
+def _settlement_currencies(state: ExecutionPipelineState) -> frozenset[str]:
+    config = state.config
+    return frozenset({config.currency, *config.also_settles})
+
+
+def _require_exchange_adjusted(
+    state: ExecutionPipelineState, exchange: HoldingExchange, timestamp: float
+) -> None:
+    """Refuse an exchange of an instrument a held or working contract delivers, unless adjusted.
+
+    A contract on the exchanged instrument keeps its economics only if its terms
+    say what it delivers from the exchange's instant: it must declare an
+    adjustment effective then -- an exchange's is the issuer's and the clearing
+    house's published one, declared, not derived here. A future delivering it is
+    refused: futures' terms are not adjusted (FUT-021).
+    """
+
+    assets = dict.fromkeys(
+        (
+            *state.portfolio.positions,
+            *(o for o in state.oms.working_by_asset if state.oms.working_orders_for(o)),
+        )
+    )
+    for asset_id in assets:
+        if asset_id == exchange.asset_id:
+            continue
+        record = _declared(state, asset_id)
+        terms = None if record is None else record.terms
+        if terms is None:
+            continue
+        named = f"{record.symbol} on {record.exchange}"  # type: ignore[union-attr]
+        if isinstance(terms, FutureTerms):
+            if terms.deliverable is not None and terms.deliverable.asset_id == exchange.asset_id:
+                raise RuntimeValidationError(
+                    f"{named} delivers {exchange.asset_id}, which is exchanged at {timestamp!r}; "
+                    "a future's delivery is not adjusted for an exchange. Close it before."
+                )
+            continue
+        before = replace(
+            terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
+        ).effective(timestamp)
+        if exchange.asset_id not in {d.asset_id for d in before.deliverables}:
+            continue
+        if not any(a.effective_at == timestamp for a in terms.adjustments):
+            raise RuntimeValidationError(
+                f"{named} delivers {exchange.asset_id}, which is exchanged at {timestamp!r}, and "
+                "declares no adjustment effective then: it would deliver an instrument that no "
+                "longer trades as it was. Declare its adjusted terms (OptionTerms.adjustments)."
+            )
 
 
 def _require_adjusted_for(state: ExecutionPipelineState, split: Split, timestamp: float) -> None:

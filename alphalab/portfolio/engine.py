@@ -59,7 +59,7 @@ from alphalab.portfolio.account import Account
 from alphalab.portfolio.amounts import CurrencyAmounts
 from alphalab.portfolio.book import PositionBook
 from alphalab.portfolio.cash import CashLedger
-from alphalab.portfolio.corporate_actions import CashFlow, CashFlowKind, Split
+from alphalab.portfolio.corporate_actions import CashFlow, CashFlowKind, ExchangedHolding, Split
 from alphalab.portfolio.events import (
     CashConverted,
     CashDeposited,
@@ -68,6 +68,7 @@ from alphalab.portfolio.events import (
     MarketValueUpdated,
     PortfolioEvent,
     PositionClosed,
+    PositionExchanged,
     PositionIncreased,
     PositionOpened,
     PositionReduced,
@@ -737,6 +738,126 @@ class PortfolioEngine:
             ledger=state.ledger.append(tx),
             events=state.events.append(evt),
             realized_pnl=state.realized_pnl.add(amount, flow.currency),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def apply_exchange(
+        state: PortfolioState,
+        asset_id: str,
+        received: tuple[ExchangedHolding, ...],
+        retained_basis: Decimal | None,
+        consideration: Mapping[str, Decimal],
+        realized: Decimal,
+        timestamp: float,
+        reference: str = "",
+    ) -> PortfolioState:
+        """Book a holding exchanged for others and cash, exactly as computed (ledger FUT-021).
+
+        The caller -- the execution pipeline -- has apportioned the basis and
+        priced every fraction by the exchange's declared terms; this books it:
+        each received holding opened at the basis it carries, or added to one on
+        the same side; the exchanged holding kept at ``retained_basis`` or closed;
+        each currency's ``consideration`` moved as an ``EXCHANGE`` ledger
+        transaction; ``realized`` -- in the exchanged holding's currency -- added
+        to realized P&L; and one :class:`~alphalab.portfolio.events.PositionExchanged`
+        recording all of it.
+
+        Raises:
+            InvalidTransactionError: If the account holds no position in
+                ``asset_id``, or holds the opposite side of an instrument it
+                would receive -- booking it would net two holdings at a basis
+                no fill set.
+        """
+
+        held = state.book.get(asset_id)
+        if held is None or held.quantity == 0:
+            raise InvalidTransactionError(
+                f"No position in {asset_id} to exchange; the run holds none."
+            )
+        units = state.account.currency_units
+        positions = state.book
+        for leg in received:
+            existing = positions.get(leg.asset_id)
+            basis = to_money(leg.basis, leg.currency, units)
+            if existing is not None and existing.quantity != 0:
+                if (existing.quantity > 0) != (leg.quantity > 0):
+                    raise InvalidTransactionError(
+                        f"The exchange delivers {leg.quantity} {leg.asset_id}, and the account "
+                        f"holds {existing.quantity} of it: an exchange does not net opposite "
+                        "holdings. Close the opposite position first."
+                    )
+                quantity = existing.quantity + leg.quantity
+                combined = existing._rebased(
+                    quantity, existing.basis + basis, existing.realized_pnl, existing.market_price,
+                    timestamp,
+                )  # fmt: skip
+                positions = positions.set(leg.asset_id, combined)
+                continue
+            opened = Position(
+                leg.asset_id,
+                Decimal("0"),
+                Decimal("0"),
+                leg.price,
+                ZERO_MONEY,
+                leg.currency,
+                timestamp,
+                minor_units=units.minor_units(leg.currency),
+                economics=leg.economics,
+            )._rebased(leg.quantity, basis, ZERO_MONEY, leg.price, timestamp, opened_at=timestamp)
+            positions = positions.set(leg.asset_id, opened)
+        if retained_basis is None:
+            positions = positions.delete(asset_id)
+        else:
+            kept = to_money(retained_basis, held.currency, units)
+            positions = positions.set(
+                asset_id,
+                held._rebased(held.quantity, kept, held.realized_pnl, held.market_price, timestamp),
+            )
+        cash = state.cash
+        ledger = state.ledger
+        moved: dict[str, Decimal] = {}
+        for currency, amount in sorted(consideration.items()):
+            money = to_money(amount, currency, units)
+            if money == 0:
+                continue
+            moved[currency] = money
+            cash = cash.settle(money, currency)
+            ledger = ledger.append(
+                Transaction(
+                    str(new_id()),
+                    timestamp,
+                    state.account.account_id,
+                    TransactionType.EXCHANGE,
+                    asset_id,
+                    money,
+                    Decimal("1.0"),
+                    Decimal("0.0"),
+                    currency,
+                    {} if not reference else {"exchange": reference},
+                )
+            )
+        gain = to_money(realized, held.currency, units)
+        evt = PositionExchanged(
+            timestamp,
+            state.account.account_id,
+            asset_id,
+            held.quantity,
+            {leg.asset_id: leg.quantity for leg in received},
+            moved,
+            gain,
+            retained_basis is not None,
+            reference,
+        )
+        return evolve(
+            state,
+            positions=positions,
+            cash=cash,
+            ledger=ledger,
+            events=state.events.append(evt),
+            realized_pnl=state.realized_pnl
+            if gain == 0
+            else state.realized_pnl.add(gain, held.currency),
         )
 
     @staticmethod
