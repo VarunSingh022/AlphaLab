@@ -238,6 +238,11 @@ names what the release established and the ADR that records the decision.
   declared scenarios with a floor -- and the margin check, the liquidation's
   sizing, the pre-trade check and the risk gate's margin limit all read it; a
   hedge offsets exactly as far as the scenarios say.
+- **Venue price bands and trading halts** (FUT-020): the registry declares a
+  venue's dated `PriceBand`s (refuse or cap beyond them) and `TradingHalt`s, by
+  instrument or venue; nothing trades in a halt or outside the band at any
+  order's turn -- orders rest, a market order to its first turn after -- and a
+  strategy sees what is in force now through `context.universe`.
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -599,22 +604,8 @@ holds this list to the ledger: an entry may be left for later only here.
 The program's entries were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
 horizon, is the maintainer's decision. The candidate itself delivered the rest
-of what the audit proposed (section *v4.2.0*, above); FUT-020 and FUT-021 are
-what the v4.2.0 global gap audit found.
-
-## FUT-020 — venue price limits and trading halts (target v4.3)
-
-- **Limitation.** A venue's daily price limits, collars and halts are not
-  declared conventions: an order fills at whatever an event shows, and a halt is
-  only missing data.
-- **Interim behaviour.** Fill against sized quotes with a liquidity-capped
-  policy, so a locked market's absent size fills nothing; exclude halted
-  intervals from the data.
-- **Acceptance criteria.** A venue declares its limit rule and halts as dated
-  inputs; an order beyond a limit refused or capped by the rule, a locked market
-  filling only what the event shows, a halted instrument's orders resting;
-  recorded, replayable, and a run declaring none unchanged.
-  **Dependencies.** none.
+of what the audit proposed (section *v4.2.0*, above); FUT-021 is what the v4.2.0
+global gap audit found.
 
 ## FUT-021 — holding exchanges: mergers, spin-offs, rights (target v4.3)
 

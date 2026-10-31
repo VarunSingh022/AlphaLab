@@ -698,6 +698,30 @@ class UniverseView:
     """
 
     _registry: InstrumentRegistry | None
+    _as_of: float | None = None
+
+    def halted(self, asset_id: str) -> bool:
+        """Whether ``asset_id`` is halted now, by its venue's declared halts (FUT-020).
+
+        Now only: when a halt ends is the venue's announcement to come, and not
+        a strategy's to read before it is made.
+        """
+
+        controls = None if self._registry is None else self._registry.controls
+        if controls is None or self._as_of is None:
+            return False
+        record = self._registry.record_for(asset_id) if self._registry is not None else None
+        venue = "" if record is None else record.exchange
+        return controls.halt(asset_id, venue, self._as_of) is not None
+
+    def price_band(self, asset_id: str) -> tuple[Decimal, Decimal] | None:
+        """The limit down and up in force for ``asset_id`` now, or ``None`` (FUT-020)."""
+
+        controls = None if self._registry is None else self._registry.controls
+        if controls is None or self._as_of is None:
+            return None
+        band = controls.band(asset_id, self._as_of)
+        return None if band is None else (band.lower, band.upper)
 
     @property
     def configured(self) -> bool:

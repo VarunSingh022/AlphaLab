@@ -264,8 +264,10 @@ def test_the_v3_13_instrument_registry_reads_with_no_contract_expiring() -> None
     expected = {
         **payload,
         "schema_version": 4,
-        # v4.2.0 (FUT-019): no earlier registry declared a margin model.
+        # v4.2.0 (FUT-019, FUT-020): no earlier registry declared a margin model
+        # or a venue's controls.
         "margin_model": None,
+        "controls": None,
         "instruments": [
             # v4.2.0 (FUT-015): no earlier instrument declared a settlement rule.
             {

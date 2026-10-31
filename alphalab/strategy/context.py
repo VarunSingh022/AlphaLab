@@ -332,6 +332,14 @@ class UniverseProtocol(Protocol):
         """The sector ``asset_id`` is classified as, or ``None``."""
         ...
 
+    def halted(self, asset_id: str) -> bool:
+        """Whether ``asset_id`` is halted now, by its venue's declared halts (v4.2.0, FUT-020)."""
+        ...
+
+    def price_band(self, asset_id: str) -> tuple[Decimal, Decimal] | None:
+        """The limit down and up in force for ``asset_id`` now, or ``None`` (v4.2.0, FUT-020)."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class NoPortfolio:
@@ -604,6 +612,12 @@ class NoUniverse:
         return None
 
     def sector(self, asset_id: str) -> str | None:
+        return None
+
+    def halted(self, asset_id: str) -> bool:
+        return False
+
+    def price_band(self, asset_id: str) -> tuple[Decimal, Decimal] | None:
         return None
 
 

@@ -83,6 +83,7 @@ from alphalab.instrument.classification import (
     SectorClassification,
     normalize_dimension,
 )
+from alphalab.instrument.controls import TradingControls
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
 from alphalab.instrument.margin import MarginModel, ScenarioMargin
 from alphalab.instrument.record import DatedAlias, InstrumentRecord, normalize_sector_label
@@ -96,6 +97,7 @@ __all__ = [
     "classify_instrument",
     "classify_instruments",
     "declare_margin_model",
+    "declare_trading_controls",
     "dimension_history",
     "get_instrument",
     "label_as_of",
@@ -156,6 +158,11 @@ class InstrumentRegistry:
             :class:`~alphalab.instrument.margin.MarginModel` -- or ``None``, each
             position's own terms summed (v4.2.0, ledger FUT-019). Declared with
             :func:`declare_margin_model`, which checks what it covers.
+        controls: The venues' declared price bands and trading halts -- a
+            :class:`~alphalab.instrument.controls.TradingControls` -- or
+            ``None``: every instrument trades whenever the data shows it does, as
+            before v4.2.0 (ledger FUT-020). Declared with
+            :func:`declare_trading_controls`.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -173,6 +180,7 @@ class InstrumentRegistry:
     expiring: PersistentMap[str, float] | None = None
     margined: PersistentMap[str, None] | None = None
     margin_model: MarginModel | None = None
+    controls: TradingControls | None = None
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -846,3 +854,31 @@ def declare_margin_model(
                     "it is margined on its own."
                 )
     return replace(registry, margin_model=model)
+
+
+def declare_trading_controls(
+    registry: InstrumentRegistry, controls: TradingControls | None
+) -> InstrumentRegistry:
+    """The registry with ``controls`` as its venues' price bands and halts (ledger FUT-020).
+
+    Raises:
+        InstrumentRegistrationError: If a band or an instrument's halt names an
+            instrument the registry does not hold, or a venue's halt names a
+            venue no registered instrument lists on -- a halt that could halt
+            nothing is more likely a mistake than a declaration.
+    """
+
+    if controls is not None:
+        for asset_id in sorted(controls.assets):
+            if asset_id not in registry.instruments:
+                raise InstrumentRegistrationError(
+                    f"The trading controls name {asset_id}, which the registry does not hold."
+                )
+        venues = {record.exchange for record in registry.instruments.values()}
+        for halt in controls.halts:
+            if halt.venue is not None and halt.venue not in venues:
+                raise InstrumentRegistrationError(
+                    f"A halt of venue {halt.venue} names a venue no registered instrument "
+                    f"lists on ({', '.join(sorted(venues))})."
+                )
+    return replace(registry, controls=controls)

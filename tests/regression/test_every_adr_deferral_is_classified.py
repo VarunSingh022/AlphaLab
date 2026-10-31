@@ -172,7 +172,8 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     # entries it raised.
     ("0051", "A cancel withdraws only what the strategy alone has working"): "EXE-012",
     ("0051", "An insolvent run compiles no analytics"): "LIM-008",
-    ("0051", "venue price limits and trading halts"): "FUT-020",
+    # FUT-020 delivered venue bands and halts; its stated limitation.
+    ("0051", "A halt's first event after it trades at its own price"): "FUT-020",
     ("0051", "holding exchanges"): "FUT-021",
 }
 

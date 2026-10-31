@@ -55,6 +55,7 @@ from alphalab.execution.queue import QueueBook, QueueObservation, QueuePosition,
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
+from alphalab.instrument.controls import BandAction
 from alphalab.instrument.economics import economics_for
 from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.margin import (
@@ -630,7 +631,7 @@ def _populate_context(
     risk_view = RiskView(risk)
     market_view = MarketView(market, market_prices)
     history_view = HistoryView(market, as_of, window)
-    universe_view = UniverseView(instruments)
+    universe_view = UniverseView(instruments, as_of)
 
     def populate(strategy_id: str) -> StrategyContext:
         supplied = context_factory(strategy_id)
@@ -1484,6 +1485,12 @@ class ExecutionPipeline:
         if price is None:
             return ChildTurn(state, (), (), (), Decimal("0"), None)
 
+        if _venue_blocks(state, parent.asset_id, event.timestamp, price):
+            # Halted or outside the band (FUT-020): the child does not trade here,
+            # and is withdrawn as an unfilled market child is, its limit child
+            # resting on; the parent's schedule continues.
+            unworked = OrderStatus.CANCELLED if child.order_type is OrderType.MARKET else None
+            return ChildTurn(state, (), (), (), Decimal("0"), unworked)
         decision = _decide_fill(policy, view, event, price, _whole_units(state))
         if decision.status is FillStatus.REJECTED:
             return ChildTurn(state, (), (), (), Decimal("0"), OrderStatus.REJECTED)
@@ -2327,6 +2334,13 @@ def _route_requests(
                 dropped.append((request, unborrowable))
                 current = _retire_dropped_request(current, request.order_id, instant)
                 continue
+        # A venue's band, at placement (FUT-020): a limit priced beyond it is
+        # refused or capped, as the band declares.
+        beyond, request = _band_terms(current, request, instant)
+        if beyond is not None:
+            dropped.append((request, beyond))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
         # An order cannot be priced, executed or valued without a market price
         # for its asset -- allocation prices unknown assets at 0.00. Drop the
         # request here, deterministically and before it reaches the OMS, rather
@@ -3416,6 +3430,53 @@ def _margin_call(
     )
     risk = current.risk
     return evolve(current, risk=evolve(risk, events=risk.events.append(called))), routed
+
+
+def _venue_blocks(state: ExecutionPipelineState, asset_id: str, at: float, price: Decimal) -> bool:
+    """Whether the venue's declared controls stop a trade in ``asset_id`` at ``price`` (FUT-020).
+
+    Halted -- the instrument, or its listing venue -- or ``price`` outside the
+    band in force. A registry declaring no controls costs one test.
+    """
+
+    registry = state.config.instruments
+    if registry is None or registry.controls is None:
+        return False
+    controls = registry.controls
+    record = _declared(state, asset_id)
+    venue = "" if record is None else record.exchange
+    if controls.halt(asset_id, venue, at) is not None:
+        return True
+    band = controls.band(asset_id, at)
+    return band is not None and not band.admits(price)
+
+
+def _band_terms(
+    state: ExecutionPipelineState, request: OrderRequest, at: float
+) -> tuple[str | None, OrderRequest]:
+    """A limit priced beyond the band in force, refused or capped as it declares (FUT-020).
+
+    Returns why the request is refused, or ``None`` and the request -- its limit
+    moved to the band's edge when the band caps. A market order, and an order
+    in an instrument with no band in force, is returned as it is.
+    """
+
+    registry = state.config.instruments
+    if registry is None or registry.controls is None:
+        return None, request
+    limit = request.terms.limit_price
+    if limit is None:
+        return None, request
+    band = registry.controls.band(request.asset_id, at)
+    if band is None or band.admits(limit):
+        return None, request
+    if band.beyond is BandAction.REFUSE:
+        return (
+            f"The limit {limit} is outside the venue's price band in force at {at!r} "
+            f"({band.lower} to {band.upper}), and the venue refuses an order priced beyond it."
+        ), request
+    edge = band.upper if limit > band.upper else band.lower
+    return None, replace(request, terms=replace(request.terms, limit_price=edge))
 
 
 def _holding_shares(
@@ -4832,6 +4893,9 @@ def _simulate_fill(
     """
 
     base = state.market_prices[order.asset_id] if price is None else price
+    if _venue_blocks(state, order.asset_id, event.timestamp, base):
+        # A stop reached at a price beyond the band trades nothing there (FUT-020).
+        return state, (), (), ()
     decision = _decide_fill(policy, order, event, base, _whole_units(state))
     if _kills(order, decision):
         return _end_unfilled(state, order, event.timestamp), (), (), ()
@@ -5180,6 +5244,10 @@ def _work_resting(
     allows to fill, when less than the queue cleared (FUT-011).
     """
 
+    if _venue_blocks(state, order.asset_id, event.timestamp, price):
+        # The price it would fill at is outside the band in force (FUT-020).
+        current = _end_unfilled(state, order, event.timestamp) if one_shot else state
+        return current, (), (), ()
     decision = _decide_fill(policy, order, event, price, _whole_units(state))
     if cap is not None:
         decision = _within_queue(decision, order, cap, _whole_units(state))
@@ -5249,6 +5317,11 @@ def _work_order(
         return _expire(state, order, timestamp), (), (), ()
     market_price = state.market_prices[order.asset_id]
     one_shot = terms.is_immediate
+    if _venue_blocks(state, order.asset_id, timestamp, market_price):
+        # Halted, or the market outside the venue's band (FUT-020): nothing
+        # trades at this event. The order rests -- a market order too, to its
+        # next turn after -- unless it was to trade now or never.
+        return (_end_unfilled(state, order, timestamp) if one_shot else state), (), (), ()
 
     if terms.is_auction:
         bar = None if arriving else _session_bar(event, order.asset_id)

@@ -416,6 +416,12 @@ def test_the_pipeline_overwrites_whatever_the_caller_supplied() -> None:
         def __len__(self) -> int:
             return 1
 
+        def halted(self, asset_id: str) -> bool:
+            return True
+
+        def price_band(self, asset_id: str) -> Any:
+            return None
+
         def instrument(self, asset_id: str) -> Any:
             return None
 

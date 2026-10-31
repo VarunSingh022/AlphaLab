@@ -193,6 +193,17 @@ IDs are in brackets.
   that leaves a hedge leg alone when selling it would raise the requirement),
   the pre-trade check and the risk gate's `MarginLimit` all read its figure. A
   run declaring none is FUT-017's exactly.
+* **Venue price bands and trading halts** [FUT-020]. `alphalab.instrument.TradingControls`,
+  declared on the registry by `declare_trading_controls` and kept by its
+  snapshot, holds dated `PriceBand`s (a limit down and up, and a `BandAction`
+  for an order beyond them, `REFUSE` or `CAP`) and `TradingHalt`s of an
+  instrument or a venue. At every order's turn nothing trades in a halt or at a
+  price outside the band: the order rests -- a market order to its first turn
+  after -- an immediate-or-cancel order is cancelled, a stop is not set off in a
+  halt, and an algorithm's child is withdrawn while its schedule goes on; a limit
+  beyond a band is refused or capped at placement. `context.universe.halted` and
+  `price_band` tell a strategy what is in force now. A run declaring no controls
+  records exactly what it did.
 * **A strategy withdraws its own working orders** [EXE-012].
   `IntentKind.CANCEL`: a hook returns `Intent(kind=IntentKind.CANCEL,
   instrument=<asset>, target=0)` and every order working in the asset that the
@@ -325,6 +336,9 @@ IDs are in brackets.
 | `alphalab.instrument.MarginModel`, `MarginExposure`, `MarginRequirement`, `MarginScenario`, `PerPositionMargin`, `ScenarioMargin`, `declare_margin_model`; `alphalab.instrument.margin.margin_model_to_primitives`, `margin_model_from_primitives` | added (FUT-019) |
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.snapshot.InstrumentRegistrySnapshot` | field `margin_model`, `None` by default (FUT-019) |
 | `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project`, `RiskProjection` | keyword-only `margin`, `None` by default; fields `margin_requirement` and `margin_equity`, `None` by default (FUT-019) |
+| `alphalab.instrument.TradingControls`, `PriceBand`, `TradingHalt`, `BandAction`, `declare_trading_controls`, `alphalab.instrument.controls` | added (FUT-020) |
+| `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.snapshot.InstrumentRegistrySnapshot` | field `controls`, `None` by default (FUT-020) |
+| `alphalab.strategy.UniverseProtocol`, `alphalab.strategy.context.NoUniverse`, `alphalab.runtime.context_views.UniverseView` | methods `halted` and `price_band`; the view's field `_as_of`, `None` by default (FUT-020) |
 | `alphalab.runtime.MarginHolding`, `MarginPosition` | fields `unit_value`, `unit_maintenance`, `haircut_rate` and `model`, defaulted; `MarginHolding.exposure`, `haircut`, `MarginPosition.figures` (FUT-019) |
 | `alphalab.runtime.margin_position`, `MarginPosition`, `MarginHolding` | added (FUT-017) |
 | `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project` | keyword-only `charge`, `None` by default; `WorkingExposure.charge`, `None` by default (FUT-017) |
@@ -343,8 +357,7 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-FUT-020 (venue price limits and halts, v4.3) and FUT-021 (holding
-exchanges, v4.3), raised by the v4.2.0 global gap audit, each with its
+FUT-021 (holding exchanges, v4.3), raised by the v4.2.0 global gap audit, each with its
 limitation, interim behaviour and acceptance criteria on `ROADMAP.md`. FUT-009,
 FUT-011, FUT-013 to FUT-017, accepted by the audit and its milestones, and FUT-002,
 accepted by v4.1, were delivered by the candidate's milestones -- FUT-002 by declaration, so an undeclared configuration

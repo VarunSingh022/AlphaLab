@@ -252,6 +252,12 @@ account's declared margin model as `margin_model_to_primitives` writes it
 or `None`; a payload written before reads as none. A host's own model is not
 written and is supplied back with the registry.
 
+Since v4.2.0 (ledger FUT-020) the registry snapshot also carries `controls`,
+the venues' declared price bands and halts as `controls_to_primitives` writes
+them (each band's instrument, interval, limits and action by name; each halt's
+interval, instrument or venue, and reason), or `None` for a payload written
+before.
+
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
 incremental checkpoint, 2) and `EVIDENCE_SCHEMA` (the evidence store, 1).

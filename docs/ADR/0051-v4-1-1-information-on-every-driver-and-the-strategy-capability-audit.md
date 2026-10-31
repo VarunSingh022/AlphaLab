@@ -343,6 +343,18 @@ admits what it refuses. A liquidation under a model is a convex search per
 position, because selling the wrong leg of a hedge raises what is owed; orders
 are judged against the book as it stands, never on offsets not yet held.
 
+**24. Where and when an instrument trades is its venue's declared rule, applied
+at every order's turn (FUT-020).** A band and a halt are the venue's, declared
+as dated intervals on the registry, so the engine's behaviour at an instant
+depends only on what is in force at it. They are applied where every simulated
+order has its turn, so no path -- a market order, a resting limit, a stop, an
+auction order, an algorithm's child, a margin liquidation -- trades around them;
+an order rests rather than being refused in a halt, because a venue holds it,
+and a stop is not set off by a price nothing traded at. A halt, a band, a missing
+quote, a closed session and an absent fill stay distinct conditions with their
+own outcomes. A strategy is told what is in force now and never when an
+interval ends, which would be the venue's announcement before it was made.
+
 ---
 
 # Consequences
@@ -395,6 +407,9 @@ are judged against the book as it stands, never on offsets not yet held.
   new target still counts a resting order as held.
 - **An insolvent run compiles no analytics**: returns on negative capital are
   undefined, so such a run keeps its books with `compile_analytics=False`.
+- **A halt's first event after it trades at its own price**: no reopening
+  auction is modelled, a market order is held through a halt rather than
+  rejected, and bands are dated inputs, not computed from a reference price.
 - **The queue model reads the displayed top of the book**: depth beyond it,
   hidden and iceberg liquidity, self-trade prevention and keep-priority amends
   are not modelled; the run's own resting orders are not in the feed, so each is
@@ -407,7 +422,7 @@ Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
 FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017, FUT-018,
 FUT-019, EXE-012, LIM-008).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: venue price limits and trading halts; holding exchanges.
+**Deferred** — to v4.3 and later, pending the maintainer's decision: holding exchanges.
 
 ---
 
