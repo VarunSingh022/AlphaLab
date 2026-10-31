@@ -84,6 +84,7 @@ from alphalab.instrument.classification import (
     normalize_dimension,
 )
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
+from alphalab.instrument.margin import MarginModel, ScenarioMargin
 from alphalab.instrument.record import DatedAlias, InstrumentRecord, normalize_sector_label
 
 __all__ = [
@@ -94,6 +95,7 @@ __all__ = [
     "classify_dimensions",
     "classify_instrument",
     "classify_instruments",
+    "declare_margin_model",
     "dimension_history",
     "get_instrument",
     "label_as_of",
@@ -149,6 +151,11 @@ class InstrumentRegistry:
             margin terms (v4.2.0, ledger FUT-017) -- what the execution path
             reads after every market step, so a registry declaring no margin
             costs that path nothing. An index, derived like ``expiring``.
+        margin_model: How the account's margin is computed from the positions in
+            the instruments that declare margin terms -- a declared
+            :class:`~alphalab.instrument.margin.MarginModel` -- or ``None``, each
+            position's own terms summed (v4.2.0, ledger FUT-019). Declared with
+            :func:`declare_margin_model`, which checks what it covers.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -165,6 +172,7 @@ class InstrumentRegistry:
     members: PersistentMap[str, PersistentMap[str, PersistentMap[str, None]]] | None = None
     expiring: PersistentMap[str, float] | None = None
     margined: PersistentMap[str, None] | None = None
+    margin_model: MarginModel | None = None
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -807,3 +815,34 @@ def label_as_of(
     if name == SECTOR:
         return sector_as_of(registry, asset_id, timestamp)
     return dimension_history(registry, asset_id, name).label_at(timestamp)
+
+
+def declare_margin_model(
+    registry: InstrumentRegistry, model: MarginModel | None
+) -> InstrumentRegistry:
+    """The registry with ``model`` as the account's margin model (ledger FUT-019).
+
+    A scenario model may cover only instruments the registry holds and that
+    declare their own margin terms -- what a liquidation reduces them by -- so a
+    position is never offset by a model that does not margin it.
+
+    Raises:
+        InstrumentRegistrationError: If the model covers an instrument the
+            registry does not hold, or one declaring no margin terms.
+    """
+
+    if isinstance(model, ScenarioMargin):
+        for asset_id in sorted(model.covered):
+            record = registry.instruments.get(asset_id)
+            if record is None:
+                raise InstrumentRegistrationError(
+                    f"The margin model's scenarios move {asset_id}, which the registry does not "
+                    "hold: register it first."
+                )
+            if record.margin is None:
+                raise InstrumentRegistrationError(
+                    f"The margin model's scenarios move {record.symbol} on {record.exchange}, "
+                    "which declares no margin terms; an instrument a model covers declares how "
+                    "it is margined on its own."
+                )
+    return replace(registry, margin_model=model)

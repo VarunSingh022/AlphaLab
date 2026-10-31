@@ -329,6 +329,20 @@ already held to be bought in. A purchase on margin is the instrument's terms,
 not the account's: it spends its initial requirement and is financed, and the
 margin lifecycle (decision 20) governs what follows.
 
+**23. An account's portfolio margin is a declared model, and every reader of
+margin takes its figure (FUT-019).** Offsets are a clearing house's or a broker's
+methodology, so the engine applies one only as declared: a scenario model
+revalues every covered position under each declared scenario at once and
+requires the worst loss, floored, and a scenario set that leaves an instrument
+out of one scenario is refused, since that omission is exactly how an offset
+nobody stated would appear. A position the model does not cover offsets nothing.
+The model is the registry's -- outside every run's record -- and once declared it
+is read by the margin check, the liquidation, the pre-trade check and the risk
+gate alike, so no gate charges a requirement the model has netted away and none
+admits what it refuses. A liquidation under a model is a convex search per
+position, because selling the wrong leg of a hedge raises what is owed; orders
+are judged against the book as it stands, never on offsets not yet held.
+
 ---
 
 # Consequences
@@ -364,9 +378,10 @@ margin lifecycle (decision 20) governs what follows.
   currency**: components priced in two currencies within one package, and a
   package with no whole unit, are refused; a quanto contract fixes the rate its
   consideration converts at, not its payoff.
-- **A margin requirement is each position's own, summed**: no portfolio or
-  risk-based margin (SPAN, TIMS, offsets between positions), and the risk gate's
-  `MarginLimit` stays a configured gross-notional cap.
+- **A scenario revalues each covered instrument by its declared move alone**: an
+  option is not repriced from its underlying; orders are judged leg by leg
+  against the book as it stands; without a declared model, margin is each
+  position's own and the gate's `MarginLimit` a gross-notional cap.
 - **Interest and fees accrue at each declared period's instant**: on the balance
   and the short then, not a daily average; the periods are the caller's
   cadence; borrow is the book's, with no recall or buy-in.
@@ -392,7 +407,7 @@ Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
 FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017, FUT-018,
 FUT-019, EXE-012, LIM-008).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: portfolio and risk-based margin; venue price limits and trading halts; holding exchanges.
+**Deferred** — to v4.3 and later, pending the maintainer's decision: venue price limits and trading halts; holding exchanges.
 
 ---
 

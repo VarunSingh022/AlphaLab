@@ -182,6 +182,17 @@ IDs are in brackets.
   and `alphalab.backtesting.ScheduledBorrowFee` charges each short the fee in
   effect on its value at the last mark. A run declaring none of it records
   exactly what it did; no schema moves.
+* **A declared portfolio margin model** [FUT-019]. `alphalab.instrument.MarginModel`
+  reads every margined position at once; `PerPositionMargin` is FUT-017's sum,
+  and `ScenarioMargin` revalues the positions it covers under each declared
+  `MarginScenario` and requires the worst loss, floored, a position it does not
+  cover margined by its own terms. `alphalab.instrument.declare_margin_model`
+  puts one on the registry (`InstrumentRegistry.margin_model`, kept by its
+  snapshot), refusing one that covers what the registry does not margin. With a
+  model declared, the margin check, the liquidation's sizing (a convex search
+  that leaves a hedge leg alone when selling it would raise the requirement),
+  the pre-trade check and the risk gate's `MarginLimit` all read its figure. A
+  run declaring none is FUT-017's exactly.
 * **A strategy withdraws its own working orders** [EXE-012].
   `IntentKind.CANCEL`: a hook returns `Intent(kind=IntentKind.CANCEL,
   instrument=<asset>, target=0)` and every order working in the asset that the
@@ -311,6 +322,10 @@ IDs are in brackets.
 | `alphalab.instrument.MarginTerms` | field `purchase_on_margin`, `False` by default and written only when declared (FUT-018) |
 | `alphalab.backtesting.ScheduledInterest`, `ScheduledBorrowFee`; `RunSchedule.of` | added; keyword-only `interest` and `borrow_fees`, empty by default; `ScheduleKind` members `INTEREST` and `BORROW_FEE` (FUT-018) |
 | `alphalab.portfolio.FinancingTier`, `BalanceBasis`, `alphalab.portfolio.financing` | added (FUT-018) |
+| `alphalab.instrument.MarginModel`, `MarginExposure`, `MarginRequirement`, `MarginScenario`, `PerPositionMargin`, `ScenarioMargin`, `declare_margin_model`; `alphalab.instrument.margin.margin_model_to_primitives`, `margin_model_from_primitives` | added (FUT-019) |
+| `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.snapshot.InstrumentRegistrySnapshot` | field `margin_model`, `None` by default (FUT-019) |
+| `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project`, `RiskProjection` | keyword-only `margin`, `None` by default; fields `margin_requirement` and `margin_equity`, `None` by default (FUT-019) |
+| `alphalab.runtime.MarginHolding`, `MarginPosition` | fields `unit_value`, `unit_maintenance`, `haircut_rate` and `model`, defaulted; `MarginHolding.exposure`, `haircut`, `MarginPosition.figures` (FUT-019) |
 | `alphalab.runtime.margin_position`, `MarginPosition`, `MarginHolding` | added (FUT-017) |
 | `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project` | keyword-only `charge`, `None` by default; `WorkingExposure.charge`, `None` by default (FUT-017) |
 | `alphalab.portfolio.PortfolioEngine.apply_fill`, `convert_cash` | keyword-only `financed`, `False` by default; a buy covering a short is debited past the cash (FUT-017) |
@@ -328,8 +343,7 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-FUT-019 (portfolio and risk-based margin, v5.0), raised by the FUT-017
-milestone, and FUT-020 (venue price limits and halts, v4.3) and FUT-021 (holding
+FUT-020 (venue price limits and halts, v4.3) and FUT-021 (holding
 exchanges, v4.3), raised by the v4.2.0 global gap audit, each with its
 limitation, interim behaviour and acceptance criteria on `ROADMAP.md`. FUT-009,
 FUT-011, FUT-013 to FUT-017, accepted by the audit and its milestones, and FUT-002,

@@ -90,7 +90,16 @@ from alphalab.instrument.identity import (
     canonical_instrument_key,
     derive_asset_id,
 )
-from alphalab.instrument.margin import MarginBasis, MarginTerms
+from alphalab.instrument.margin import (
+    MarginBasis,
+    MarginExposure,
+    MarginModel,
+    MarginRequirement,
+    MarginScenario,
+    MarginTerms,
+    PerPositionMargin,
+    ScenarioMargin,
+)
 from alphalab.instrument.record import (
     DatedAlias,
     InstrumentRecord,
@@ -105,6 +114,7 @@ from alphalab.instrument.registry import (
     classify_dimensions,
     classify_instrument,
     classify_instruments,
+    declare_margin_model,
     dimension_history,
     get_instrument,
     label_as_of,
@@ -148,8 +158,14 @@ __all__ = [
     "InstrumentRegistrationError",
     "InstrumentRegistry",
     "MarginBasis",
+    "MarginExposure",
+    "MarginModel",
+    "MarginRequirement",
+    "MarginScenario",
     "MarginTerms",
     "OptionTerms",
+    "PerPositionMargin",
+    "ScenarioMargin",
     "SectorClassification",
     "SettlementModel",
     "TermsAdjustment",
@@ -160,6 +176,7 @@ __all__ = [
     "classify_dimensions",
     "classify_instrument",
     "classify_instruments",
+    "declare_margin_model",
     "derive_asset_id",
     "dimension_history",
     "economics_for",

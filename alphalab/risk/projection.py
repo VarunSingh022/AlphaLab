@@ -115,6 +115,10 @@ class RiskProjection:
         available_buying_power: Cash, less what working orders will spend
             growing positions.
         nav: Net asset value the ratios are taken over.
+        margin_requirement: The account's declared margin model's initial
+            requirement after the order, when one is declared, which the margin
+            limit reads in place of gross exposure (FUT-019); ``None`` otherwise.
+        margin_equity: The margin equity it is taken over.
     """
 
     asset_id: str
@@ -129,6 +133,8 @@ class RiskProjection:
     increasing_notional: Decimal
     available_buying_power: Decimal
     nav: Decimal
+    margin_requirement: Decimal | None = None
+    margin_equity: Decimal | None = None
 
     @property
     def increases_exposure(self) -> bool:
@@ -157,6 +163,7 @@ def project(
     price: Decimal,
     working: Mapping[str, WorkingExposure] = NO_WORKING_ORDERS,
     charge: Decimal | None = None,
+    margin: tuple[Decimal, Decimal] | None = None,
 ) -> RiskProjection:
     """Project the book after ``request``, counting ``working`` orders.
 
@@ -169,6 +176,8 @@ def project(
         working: Every asset with working orders, and what they commit.
         charge: What a unit of the order's growth spends of buying power, when
             that is not ``price`` -- see :attr:`WorkingExposure.charge`.
+        margin: The declared margin model's initial requirement and margin
+            equity after the order, when the account declares one (FUT-019).
     """
 
     ctx = ACCOUNTING_CONTEXT
@@ -226,6 +235,8 @@ def project(
         increasing_notional=increasing,
         available_buying_power=ctx.subtract(state.buying_power, working_growth),
         nav=state.current_nav,
+        margin_requirement=None if margin is None else margin[0],
+        margin_equity=None if margin is None else margin[1],
     )
 
 

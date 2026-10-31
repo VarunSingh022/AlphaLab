@@ -57,7 +57,12 @@ from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
 from alphalab.instrument.economics import economics_for
 from alphalab.instrument.exceptions import InstrumentInputError
-from alphalab.instrument.margin import MarginBasis, MarginTerms
+from alphalab.instrument.margin import (
+    MarginBasis,
+    MarginExposure,
+    MarginModel,
+    MarginTerms,
+)
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.instrument.terms import Deliverable, FutureTerms, OptionTerms
@@ -2883,6 +2888,10 @@ class MarginHolding:
         unit_initial: What one unit of it requires at the initial rate.
         unit_collateral: What selling one unit adds to equity: its haircut on a
             long, fully paid position, nothing otherwise.
+        unit_value: One unit's market value in the base currency.
+        unit_maintenance: What one unit requires at maintenance.
+        haircut_rate: The haircut a long holding of it takes as collateral:
+            its terms' haircut when it pays its notional, nothing otherwise.
     """
 
     asset_id: str
@@ -2892,6 +2901,40 @@ class MarginHolding:
     maintenance: Decimal
     unit_initial: Decimal
     unit_collateral: Decimal
+    unit_value: Decimal = Decimal("0")
+    unit_maintenance: Decimal = Decimal("0")
+    haircut_rate: Decimal = Decimal("0")
+
+    def exposure(self, quantity: Decimal | None = None) -> MarginExposure:
+        """This position as a margin model reads it, at ``quantity`` units (its own by default).
+
+        At its own quantity the figures are the ones its terms gave; at another
+        they are the per-unit figures scaled, which is what a model is asked
+        when a liquidation or an order is being sized (FUT-019).
+        """
+
+        if quantity is None or quantity == self.quantity:
+            sign = Decimal("1") if self.quantity > 0 else Decimal("-1")
+            value = ACCOUNTING_CONTEXT.multiply(
+                sign, ACCOUNTING_CONTEXT.multiply(self.quantity.copy_abs(), self.unit_value)
+            )
+            return MarginExposure(self.asset_id, value, self.initial, self.maintenance)
+        units = quantity.copy_abs()
+        return MarginExposure(
+            self.asset_id,
+            ACCOUNTING_CONTEXT.multiply(quantity, self.unit_value),
+            ACCOUNTING_CONTEXT.multiply(units, self.unit_initial),
+            ACCOUNTING_CONTEXT.multiply(units, self.unit_maintenance),
+        )
+
+    def haircut(self, quantity: Decimal) -> Decimal:
+        """What a holding of ``quantity`` is not counted for as collateral."""
+
+        if quantity <= 0 or not self.haircut_rate:
+            return Decimal("0")
+        return ACCOUNTING_CONTEXT.multiply(
+            ACCOUNTING_CONTEXT.multiply(quantity, self.unit_value), self.haircut_rate
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2903,12 +2946,47 @@ class MarginPosition:
         initial: Every margined position's initial requirement, summed.
         maintenance: Every margined position's maintenance requirement, summed.
         holdings: The margined positions, in the order a liquidation reduces them.
+        model: The account's declared margin model, or ``None``: each
+            position's own requirement, summed (FUT-019).
     """
 
     equity: Decimal
     initial: Decimal
     maintenance: Decimal
     holdings: tuple[MarginHolding, ...]
+    model: MarginModel | None = None
+
+    def figures(
+        self, quantities: Mapping[str, Decimal], added: tuple[MarginHolding, ...] = ()
+    ) -> tuple[Decimal, Decimal, Decimal]:
+        """Equity, initial and maintenance were the margined positions ``quantities``.
+
+        A position ``quantities`` does not name keeps its own; ``added`` are
+        positions not held yet, at their own quantities. Equity moves only by
+        the haircuts the changed holdings take -- a trade at the mark moves no
+        net asset value -- and the requirement is the declared model's, or each
+        position's own summed (FUT-019).
+        """
+
+        ctx = ACCOUNTING_CONTEXT
+        equity = self.equity
+        exposures: list[MarginExposure] = []
+        held_ids = {id(holding) for holding in self.holdings}
+        for holding in (*self.holdings, *added):
+            held = holding.quantity if id(holding) in held_ids else Decimal("0")
+            after = quantities.get(holding.asset_id, holding.quantity)
+            equity = ctx.add(equity, ctx.subtract(holding.haircut(held), holding.haircut(after)))
+            if after:
+                exposures.append(holding.exposure(after))
+        exposed = tuple(exposures)
+        if self.model is None:
+            return (
+                equity,
+                sum((e.initial for e in exposed), Decimal("0")),
+                sum((e.maintenance for e in exposed), Decimal("0")),
+            )
+        required = self.model.requirement(exposed)
+        return equity, required.initial, required.maintenance
 
     @property
     def in_breach(self) -> bool:
@@ -2979,24 +3057,49 @@ def margin_position(
                 terms.requirement(position.quantity, value, False), position.currency
             )
             unit_initial = in_base(terms.initial, position.currency)
+        unit_maintenance = (
+            ctx.multiply(unit_value, terms.maintenance)
+            if terms.basis is MarginBasis.VALUE_RATE
+            else in_base(terms.maintenance, position.currency)
+        )
+        haircut_rate = terms.haircut if position.pays_notional else Decimal("0")
         collateral = Decimal("0")
         if position.quantity > 0 and position.pays_notional and terms.haircut:
             haircuts += ctx.multiply(value, terms.haircut)
             collateral = ctx.multiply(unit_value, terms.haircut)
         holdings.append(
             MarginHolding(
-                asset_id, position.quantity, terms, initial, maintenance, unit_initial, collateral
+                asset_id,
+                position.quantity,
+                terms,
+                initial,
+                maintenance,
+                unit_initial,
+                collateral,
+                unit_value,
+                unit_maintenance,
+                haircut_rate,
             )
         )
     if not holdings:
         return None
     nav = NAVCalculator.calculate(portfolio.cash, portfolio.positions, base, rates, as_of)
     holdings.sort(key=lambda h: (h.terms.priority, -h.initial, h.asset_id))
+    model = registry.margin_model
+    if model is None:
+        initial_total = sum((h.initial for h in holdings), Decimal("0"))
+        maintenance_total = sum((h.maintenance for h in holdings), Decimal("0"))
+    else:
+        # The account's declared model reads every margined position at once
+        # (FUT-019); each holding keeps its own figures for liquidation order.
+        required = model.requirement(tuple(h.exposure() for h in holdings))
+        initial_total, maintenance_total = required.initial, required.maintenance
     return MarginPosition(
         equity=ctx.subtract(nav, haircuts),
-        initial=sum((h.initial for h in holdings), Decimal("0")),
-        maintenance=sum((h.maintenance for h in holdings), Decimal("0")),
+        initial=initial_total,
+        maintenance=maintenance_total,
         holdings=tuple(holdings),
+        model=model,
     )
 
 
@@ -3076,6 +3179,12 @@ def _buying_power_charge(
     pays = economics is None or economics.settlement.pays_notional
     if pays and not (buying and record.margin.purchase_on_margin):
         return None
+    if registry.margin_model is not None:
+        # Under a declared margin model what such an order commits is the
+        # model's to say, and the model's own checks gate it -- the pre-trade
+        # initial requirement and the risk gate's margin figure -- so its own
+        # requirement is not charged again here, offset-blind (FUT-019).
+        return Decimal("0")
     return _unit_margin(state, asset_id, record.margin, unit_value, rates, at)
 
 
@@ -3147,6 +3256,15 @@ def _initial_margin_refusal(
     record = _declared(state, request.asset_id)
     if record is None or record.margin is None:
         return None
+    if registry.margin_model is not None:
+        projected = _projected_margin(state, request, rates, at)
+        if projected is None or projected[0] >= projected[1]:
+            return None
+        return (
+            f"The order would leave the account below its initial margin -- equity "
+            f"{projected[0]} against {projected[1]} required under the account's margin model "
+            "-- and an order growing a margined position trades only within it."
+        )
     ctx = ACCOUNTING_CONTEXT
     margin = margin_position(state, rates, at)
     if margin is None:
@@ -3248,39 +3366,15 @@ def _margin_call(
     if margin is None or not margin.in_breach or _reducing_order_working(state, margin):
         return state, _NO_ROUTING
     ctx = ACCOUNTING_CONTEXT
-    remaining = margin.deficit
+    reductions = (
+        _per_position_reductions(state, margin)
+        if margin.model is None
+        else _model_reductions(state, margin)
+    )
     intents: list[Intent] = []
-    for holding in margin.holdings:
-        if remaining <= 0:
-            break
-        if holding.asset_id not in state.market_prices:
-            continue
-        improvement = ctx.add(holding.unit_initial, holding.unit_collateral)
-        if improvement <= 0:
-            continue
-        needed = ctx.divide(remaining, improvement)
-        economics = _economics_of(state, holding.asset_id)
-        lot = None if economics is None else economics.lot
-        # A liquidation sells what the book can trade: whole lots where the
-        # instrument declares them, whole units where the run trades them or the
-        # position is held in them -- rounded up, so it restores what it must.
-        whole = _whole_units(state) or holding.quantity == holding.quantity.to_integral_value()
-        step = lot.lot_size if lot is not None else (Decimal("1") if whole else None)
-        if step is not None:
-            needed = ctx.multiply(
-                ctx.divide(needed, step).to_integral_value(rounding=decimal.ROUND_CEILING), step
-            )
-        quantity = min(needed, holding.quantity.copy_abs())
-        if quantity <= 0:
-            continue
+    for holding, quantity in reductions:
+        shares = _holding_shares(state, holding)
         sign = Decimal("1") if holding.quantity > 0 else Decimal("-1")
-        shares = tuple(
-            (sid, share)
-            for sid, share in AllocationEngine.shares_of(state.allocation, holding.asset_id)
-            if share and (share > 0) == (holding.quantity > 0)
-        )
-        if not shares:
-            continue
         parts = _strategy_parts(shares, ctx.multiply(sign, quantity))
         for sid, share in shares:
             part = parts.get(sid, Decimal("0"))
@@ -3295,7 +3389,6 @@ def _margin_call(
                         metadata={"margin_call": repr(at)},
                     )
                 )
-        remaining = ctx.subtract(remaining, ctx.multiply(quantity, improvement))
     current = state
     routed = _NO_ROUTING
     if intents:
@@ -3323,6 +3416,249 @@ def _margin_call(
     )
     risk = current.risk
     return evolve(current, risk=evolve(risk, events=risk.events.append(called))), routed
+
+
+def _holding_shares(
+    state: ExecutionPipelineState, holding: MarginHolding
+) -> tuple[tuple[str, Decimal], ...]:
+    """The strategies holding ``holding``'s side, and their shares: who a liquidation reduces."""
+
+    return tuple(
+        (sid, share)
+        for sid, share in AllocationEngine.shares_of(state.allocation, holding.asset_id)
+        if share and (share > 0) == (holding.quantity > 0)
+    )
+
+
+def _liquidation_step(state: ExecutionPipelineState, holding: MarginHolding) -> Decimal | None:
+    """What a liquidation sells in: whole lots where declared, whole units where the book is."""
+
+    economics = _economics_of(state, holding.asset_id)
+    lot = None if economics is None else economics.lot
+    whole = _whole_units(state) or holding.quantity == holding.quantity.to_integral_value()
+    return lot.lot_size if lot is not None else (Decimal("1") if whole else None)
+
+
+def _per_position_reductions(
+    state: ExecutionPipelineState, margin: MarginPosition
+) -> list[tuple[MarginHolding, Decimal]]:
+    """How much of each position a liquidation sells when each is margined on its own (FUT-017).
+
+    Each unit sold frees its initial requirement and the haircut it held back,
+    so the least that restores the initial requirement is the deficit over
+    that, rounded up to what the book trades in -- whole lots where the
+    instrument declares them, whole units where the run trades them or the
+    position is held in them.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    remaining = margin.deficit
+    reductions: list[tuple[MarginHolding, Decimal]] = []
+    for holding in margin.holdings:
+        if remaining <= 0:
+            break
+        if holding.asset_id not in state.market_prices:
+            continue
+        improvement = ctx.add(holding.unit_initial, holding.unit_collateral)
+        if improvement <= 0:
+            continue
+        needed = ctx.divide(remaining, improvement)
+        step = _liquidation_step(state, holding)
+        if step is not None:
+            needed = ctx.multiply(
+                ctx.divide(needed, step).to_integral_value(rounding=decimal.ROUND_CEILING), step
+            )
+        quantity = min(needed, holding.quantity.copy_abs())
+        if quantity <= 0 or not _holding_shares(state, holding):
+            continue
+        reductions.append((holding, quantity))
+        remaining = ctx.subtract(remaining, ctx.multiply(quantity, improvement))
+    return reductions
+
+
+#: The finest a liquidation divides a position held in fractions of a unit.
+_FRACTIONAL_STEP: Final = Decimal("0.000001")
+
+
+#: How many passes over the positions a liquidation under a model takes at most:
+#: each pass only lowers the deficit, so it ends; a call still short calls again.
+_LIQUIDATION_PASSES: Final = 4
+
+
+def _model_reductions(
+    state: ExecutionPipelineState, margin: MarginPosition
+) -> list[tuple[MarginHolding, Decimal]]:
+    """How much of each position a liquidation sells under the declared margin model (FUT-019).
+
+    Coordinate descent over the positions in their liquidation order: each is
+    reduced by the quantity that lowers the deficit most -- or, when some
+    quantity restores the initial requirement, by the least that does -- in the
+    units the book trades in, and left alone when no reduction lowers it, as a
+    hedge leg whose sale alone would raise the requirement is. Under a scenario
+    model the deficit is convex in one position's size, so the best quantity is
+    found by ternary search and the least restoring one by bisection below it. A
+    pass that lowers nothing ends the search; what it leaves short, the next
+    step's call takes up from the book as it then is.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    quantities: dict[str, Decimal] = {}
+    sold: dict[str, Decimal] = {}
+
+    def deficit() -> Decimal:
+        equity, initial, _ = margin.figures(quantities)
+        return ctx.subtract(initial, equity)
+
+    candidates = [
+        holding
+        for holding in margin.holdings
+        if holding.asset_id in state.market_prices and _holding_shares(state, holding)
+    ]
+    for _ in range(_LIQUIDATION_PASSES):
+        improved = False
+        for holding in candidates:
+            current = deficit()
+            if current <= 0:
+                break
+            sign = Decimal("1") if holding.quantity > 0 else Decimal("-1")
+            done = sold.get(holding.asset_id, Decimal("0"))
+            left = ctx.subtract(holding.quantity.copy_abs(), done)
+            if left <= 0:
+                continue
+            step = _liquidation_step(state, holding) or _FRACTIONAL_STEP
+            steps = int(ctx.divide(left, step).to_integral_value(rounding=decimal.ROUND_CEILING))
+
+            def at(
+                n: int,
+                holding: MarginHolding = holding,
+                sign: Decimal = sign,
+                done: Decimal = done,
+                left: Decimal = left,
+                step: Decimal = step,
+            ) -> Decimal:
+                more = min(ctx.multiply(Decimal(n), step), left)
+                quantities[holding.asset_id] = ctx.subtract(
+                    holding.quantity, ctx.multiply(sign, ctx.add(done, more))
+                )
+                return deficit()  # fmt: skip
+
+            low, high = 0, steps
+            while high - low > 2:
+                first, second = low + (high - low) // 3, high - (high - low) // 3
+                if at(first) <= at(second):
+                    high = second
+                else:
+                    low = first
+            best = min(range(low, high + 1), key=lambda n: (at(n), n))
+            if at(best) >= current:
+                at(0)  # no reduction of this position helps: leave it as it was
+                continue
+            if at(best) <= 0:
+                bottom, top = 0, best
+                while top - bottom > 1:
+                    middle = (bottom + top) // 2
+                    if at(middle) <= 0:
+                        top = middle
+                    else:
+                        bottom = middle
+                best = top
+            at(best)
+            sold[holding.asset_id] = ctx.add(done, min(ctx.multiply(Decimal(best), step), left))
+            improved = True
+        if not improved or deficit() <= 0:
+            break
+    by_asset = {holding.asset_id: holding for holding in candidates}
+    return [(by_asset[asset_id], quantity) for asset_id, quantity in sold.items() if quantity > 0]
+
+
+def _margin_unit(
+    state: ExecutionPipelineState, asset_id: str, terms: MarginTerms, rates: FxRates, at: float
+) -> MarginHolding | None:
+    """A holding of none of ``asset_id``, with its per-unit figures: what an order would add."""
+
+    price = state.market_prices.get(asset_id)
+    if price is None:
+        return None
+    unit_value = _unit_value(
+        state, asset_id, _price_in_base(state, asset_id, price, rates, at)
+    ).copy_abs()
+    unit_initial = _unit_margin(state, asset_id, terms, unit_value, rates, at)
+    if terms.basis is MarginBasis.VALUE_RATE:
+        unit_maintenance = ACCOUNTING_CONTEXT.multiply(unit_value, terms.maintenance)
+    else:
+        unit_maintenance = ACCOUNTING_CONTEXT.multiply(
+            unit_initial, ACCOUNTING_CONTEXT.divide(terms.maintenance, terms.initial)
+        )
+    economics = _economics_of(state, asset_id)
+    pays = economics is None or economics.settlement.pays_notional
+    return MarginHolding(
+        asset_id,
+        Decimal("0"),
+        terms,
+        Decimal("0"),
+        Decimal("0"),
+        unit_initial,
+        Decimal("0"),
+        unit_value,
+        unit_maintenance,
+        terms.haircut if pays else Decimal("0"),
+    )
+
+
+def _projected_margin(
+    state: ExecutionPipelineState, request: OrderRequest, rates: FxRates, at: float
+) -> tuple[Decimal, Decimal] | None:
+    """Margin equity and the initial requirement, were ``request`` to fill (FUT-019).
+
+    The declared model is asked for the book as it would be: every margined
+    position held, every working order that grows one, and this order -- so an
+    order that offsets a held position is credited only as the model credits
+    it, and one in an instrument it does not cover only by its own terms.
+    ``None`` when the order's instrument declares no margin terms or no price.
+    """
+
+    registry = state.config.instruments
+    if registry is None:
+        return None
+    record = _declared(state, request.asset_id)
+    if record is None or record.margin is None:
+        return None
+    margin = margin_position(state, rates, at)
+    if margin is None:
+        portfolio = state.portfolio
+        nav = NAVCalculator.calculate(
+            portfolio.cash, portfolio.positions, portfolio.account.base_currency, rates, at
+        )
+        margin = MarginPosition(nav, Decimal("0"), Decimal("0"), (), registry.margin_model)
+    ctx = ACCOUNTING_CONTEXT
+    held = {holding.asset_id: holding for holding in margin.holdings}
+    added: dict[str, MarginHolding] = {}
+    quantities: dict[str, Decimal] = {}
+
+    def grow(asset_id: str, terms: MarginTerms, signed: Decimal) -> bool:
+        if asset_id not in held and asset_id not in added:
+            unit = _margin_unit(state, asset_id, terms, rates, at)
+            if unit is None:
+                return False
+            added[asset_id] = unit
+        base = held[asset_id].quantity if asset_id in held else Decimal("0")
+        quantities[asset_id] = ctx.add(quantities.get(asset_id, base), signed)
+        return True
+
+    for asset_id in registry.margined or ():
+        margined = _declared(state, asset_id)
+        if margined is None or margined.margin is None:
+            continue
+        for order_id in state.oms.working_orders_for(asset_id):
+            order = state.oms.orders.find(order_id)
+            remaining = order.remaining_quantity
+            signed = remaining if order.side is OMSSide.BUY else -remaining
+            if _growth_of(state, asset_id, signed):
+                grow(asset_id, margined.margin, signed)
+    if not grow(request.asset_id, record.margin, _signed(request)):
+        return None
+    equity, initial, _ = margin.figures(quantities, tuple(added.values()))
+    return equity, initial
 
 
 def _require_adjusted_for(state: ExecutionPipelineState, split: Split, timestamp: float) -> None:
@@ -5279,8 +5615,30 @@ def _evaluate_risk(
         charge=_buying_power_charge(
             state, request.asset_id, price, rates, timestamp, request.side is CoreSide.BUY
         ),
+        margin=_gate_margin(state, request, rates, timestamp),
     )
     return evolve(state, risk=risk), decision
+
+
+def _gate_margin(
+    state: ExecutionPipelineState, request: OrderRequest, rates: FxRates, at: float
+) -> tuple[Decimal, Decimal] | None:
+    """The risk gate's margin figure, when the account declares a margin model (FUT-019).
+
+    The model's initial requirement and margin equity were the order to fill,
+    for an order in an instrument declaring margin terms; ``None`` -- the gate
+    reads gross exposure over net asset value, as always -- otherwise, at one
+    test for a registry declaring no model.
+    """
+
+    registry = state.config.instruments
+    if registry is None or registry.margin_model is None:
+        return None
+    projected = _projected_margin(state, request, rates, at)
+    if projected is None:
+        return None
+    equity, initial = projected
+    return initial, equity
 
 
 def _bucket_exposures(

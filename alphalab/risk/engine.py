@@ -68,6 +68,7 @@ class RiskEngine:
         working: Mapping[str, WorkingExposure] = NO_WORKING_ORDERS,
         buckets: tuple[BucketExposure, ...] = (),
         charge: Decimal | None = None,
+        margin: tuple[Decimal, Decimal] | None = None,
     ) -> tuple[RiskState, RiskDecision]:
         """Judge ``request`` against every limit, on the book it would leave.
 
@@ -87,6 +88,9 @@ class RiskEngine:
             charge: What a unit of the order's growth spends of buying power,
                 when that is not ``price``: a margined future's initial
                 requirement (FUT-017). See :func:`~alphalab.risk.projection.project`.
+            margin: The declared margin model's initial requirement and margin
+                equity after the order, which the margin limit reads in place of
+                gross exposure over net asset value (FUT-019).
         """
 
         validate_order_request(request)
@@ -101,6 +105,7 @@ class RiskEngine:
             price=request.price if price is None else price,
             working=working,
             charge=charge,
+            margin=margin,
         )
 
         checks = (

@@ -690,10 +690,11 @@ def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -
     # charge and the pre-trade initial-margin check read the registry's
     # `margined` index -- an emptiness test, a membership test, and the margined
     # instruments alone when one is held -- and every record through `_declared`;
-    # (v4.2.0, FUT-018) a fill's margin-purchase check reads it the same way.
+    # (v4.2.0, FUT-018) a fill's margin-purchase check reads it the same way,
+    # and (FUT-019) a projection under a declared model reads the index once.
     assert source.count("record_for(") == 8
     assert source.count(".expiring") == 2
-    assert source.count(".margined") == 9
+    assert source.count(".margined") == 10
     assert source.count(".label_of(") == 2
     assert source.count(".bucket_members(") == 1
     assert source.count(".members") == 1

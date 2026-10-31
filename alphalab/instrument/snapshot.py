@@ -81,7 +81,14 @@ from alphalab.instrument.classification import (
 )
 from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
-from alphalab.instrument.margin import MarginTerms, margin_from_primitives, margin_to_primitives
+from alphalab.instrument.margin import (
+    MarginModel,
+    MarginTerms,
+    margin_from_primitives,
+    margin_model_from_primitives,
+    margin_model_to_primitives,
+    margin_to_primitives,
+)
 from alphalab.instrument.record import DatedAlias, InstrumentRecord
 from alphalab.instrument.registry import (
     InstrumentRegistry,
@@ -226,6 +233,10 @@ class InstrumentRegistrySnapshot:
 
     instruments: tuple[InstrumentRegistryRecord, ...]
     schema_version: int = INSTRUMENT_SNAPSHOT_SCHEMA
+    #: The account's margin model, as
+    #: :func:`~alphalab.instrument.margin.margin_model_to_primitives` writes it,
+    #: or ``None`` (v4.2.0, ledger FUT-019).
+    margin_model: Mapping[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +320,9 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
             )
         )
     return InstrumentRegistrySnapshot(
-        instruments=tuple(entries), schema_version=INSTRUMENT_SNAPSHOT_SCHEMA
+        instruments=tuple(entries),
+        schema_version=INSTRUMENT_SNAPSHOT_SCHEMA,
+        margin_model=margin_model_to_primitives(registry.margin_model),
     )
 
 
@@ -403,6 +416,7 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
         dimensions=PersistentMap(
             {name: PersistentMap(histories) for name, histories in sorted(dimensions.items())}
         ),
+        margin_model=_margin_model(snapshot.margin_model),
     )
 
 
@@ -523,6 +537,13 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
 
 def _optional_mapping(value: Any, where: str) -> Mapping[str, Any] | None:
     return None if value is None else as_mapping(value, where)
+
+
+def _margin_model(value: Mapping[str, Any] | None) -> MarginModel | None:
+    try:
+        return margin_model_from_primitives(value)
+    except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
 
 
 def _borrow(value: Mapping[str, Any] | None, where: str) -> BorrowTerms | None:
@@ -676,4 +697,6 @@ def from_primitives(payload: Mapping[str, Any]) -> InstrumentRegistrySnapshot:
     return InstrumentRegistrySnapshot(
         instruments=tuple(_record(item, index) for index, item in enumerate(records)),
         schema_version=INSTRUMENT_SNAPSHOT_SCHEMA,
+        # Written since v4.2.0 (FUT-019); absent from every earlier payload.
+        margin_model=_optional_mapping(payload.get("margin_model"), "margin_model"),
     )

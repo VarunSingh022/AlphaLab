@@ -246,6 +246,12 @@ it is declared. Interest and borrow fees are ordinary `INTEREST` and `FEE`
 ledger transactions; the schedule entries that charge them are identified by
 the schedule's digest, whose encoder writes a calendar date as ISO 8601.
 
+Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
+account's declared margin model as `margin_model_to_primitives` writes it
+(`per_position`, or `scenario` with its scenarios, maintenance ratio and floor),
+or `None`; a payload written before reads as none. A host's own model is not
+written and is supplied back with the registry.
+
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
 incremental checkpoint, 2) and `EVIDENCE_SCHEMA` (the evidence store, 1).

@@ -219,8 +219,8 @@ names what the release established and the ADR that records the decision.
   orders growing a margined position are held to the initial requirement, and a
   margined future spends its margin of buying power, not its notional; a
   delivery the cash cannot pay is financed only when its deliverables declare
-  margin terms. Buying on margin and a debit's interest are FUT-018, delivered
-  below; portfolio margin is FUT-019.
+  margin terms. Buying on margin and a debit's interest are FUT-018, and
+  portfolio margin FUT-019, both delivered below.
 - **A strategy withdraws its own working orders** (EXE-012, the global gap
   audit): `Intent(kind=IntentKind.CANCEL)` withdraws every order the strategy
   alone has working in an instrument, after the event's fills and before the
@@ -233,6 +233,11 @@ names what the release established and the ADR that records the decision.
   balance by its day count, trade-date or settled; an instrument declares dated
   borrow availability and fees, a short beyond what is available is refused, and
   a `ScheduledBorrowFee` charges each short the fee in effect.
+- **A declared portfolio margin model** (FUT-019): the registry declares the
+  account's `MarginModel` -- `PerPositionMargin`, or `ScenarioMargin` over
+  declared scenarios with a floor -- and the margin check, the liquidation's
+  sizing, the pre-trade check and the risk gate's margin limit all read it; a
+  hedge offsets exactly as far as the scenarios say.
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -594,21 +599,8 @@ holds this list to the ledger: an entry may be left for later only here.
 The program's entries were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
 horizon, is the maintainer's decision. The candidate itself delivered the rest
-of what the audit proposed (section *v4.2.0*, above); FUT-019 is what the margin
-milestone found beyond its scope, and FUT-020 and FUT-021 what the v4.2.0 global
-gap audit found.
-
-## FUT-019 — portfolio and risk-based margin (target v5.0)
-
-- **Limitation.** Margin is each position's declared requirement, summed, with
-  no offsets; the risk gate's `MarginLimit` stays a configured gross-notional cap.
-- **Interim behaviour.** Declare per-instrument terms at the stricter of the
-  venue's requirements, and set `MarginLimit` to the leverage intended.
-- **Acceptance criteria.** A declared margin-model protocol, the per-position sum
-  its default, read by the margin check, liquidation sizing and the pre-trade
-  check; offsets by a declared scenario set; the gate's margin figure taken from
-  it; recorded, replayable, and a run declaring none unchanged.
-  **Dependencies.** margin terms and the margin lifecycle, delivered in v4.2.0.
+of what the audit proposed (section *v4.2.0*, above); FUT-020 and FUT-021 are
+what the v4.2.0 global gap audit found.
 
 ## FUT-020 — venue price limits and trading halts (target v4.3)
 
