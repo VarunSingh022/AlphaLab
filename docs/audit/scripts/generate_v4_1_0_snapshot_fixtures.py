@@ -27,7 +27,10 @@ def main(root: Path) -> None:
     from alphalab.persistence import serialize
     from tests.integration import replay_workload
 
-    assert REPLAY_SNAPSHOT_SCHEMA == 1, "this script freezes replay schema 1"
+    # Run against the v4.1.0 tree: the payload it freezes is replay schema 1,
+    # which later trees upgrade from and refuse to write.
+    schema: int = REPLAY_SNAPSHOT_SCHEMA
+    assert schema == 1, "this script freezes replay schema 1; run it on the v4.1.0 tree"
     paused = replay_workload.run(replay_workload.pause_at(11))
     assert isinstance(paused, PausedReplay)
     payload = serialize(capture(paused))

@@ -58,7 +58,7 @@ from alphalab.runtime.broker_routing import (
     route_order,
     venue_order_type,
 )
-from alphalab.runtime.calendars import VenueCalendars
+from alphalab.runtime.calendars import VenueCalendars, session_close, settles_at
 from alphalab.runtime.checkpoint import (
     CHECKPOINT_SCHEMA,
     CheckpointMark,
@@ -77,9 +77,12 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineResult,
     ExecutionPipelineState,
     ExecutionRouting,
+    MarginHolding,
+    MarginPosition,
     SettlementRefusal,
     UnpricedAsset,
     UnpricedReason,
+    margin_position,
     wants_slices,
 )
 from alphalab.runtime.live import (
@@ -120,6 +123,8 @@ __all__ = [
     "LiveRunState",
     "LiveSession",
     "LiveStep",
+    "MarginHolding",
+    "MarginPosition",
     "RetentionPolicy",
     "RoutedOrder",
     "RoutingConfig",
@@ -146,10 +151,13 @@ __all__ = [
     "execution_assumptions",
     "execution_report_from_broker",
     "live_health",
+    "margin_position",
     "read_checkpoints",
     "restore_checkpoints",
     "route_child_order",
     "route_order",
+    "session_close",
+    "settles_at",
     "venue_order_type",
     "wants_slices",
 ]

@@ -79,6 +79,13 @@ from alphalab.portfolio.fx import FxConversion, FxRates
 from alphalab.portfolio.ledger import TransactionLedger
 from alphalab.portfolio.money import ZERO_MONEY, notional, to_money
 from alphalab.portfolio.position import Position
+from alphalab.portfolio.settlement import (
+    SETTLEMENT_CASH,
+    SETTLES_AT,
+    CashPosition,
+    PendingSettlement,
+    settle_pending,
+)
 from alphalab.portfolio.transaction import Transaction
 from alphalab.portfolio.types import TransactionType
 
@@ -109,6 +116,12 @@ class PortfolioState:
     #: :meth:`PortfolioEngine.mark_changed` re-marks these and the asset whose
     #: price changed, and nothing else (PRF-001).
     pending_marks: tuple[str, ...] = ()
+    #: Fills whose cash and units have not settled, in the order traded (v4.2.0,
+    #: ledger FUT-015). Derived from the ledger's settlement metadata and rebuilt
+    #: from it on restore, so it is never persisted on its own; empty for a book
+    #: whose instruments declare no settlement rule. See
+    #: :mod:`alphalab.portfolio.settlement`.
+    unsettled: tuple[PendingSettlement, ...] = ()
 
     def __post_init__(self) -> None:
         # Any mapping of positions is accepted, and kept as a PositionBook, so
@@ -229,6 +242,8 @@ class PortfolioEngine:
         to_currency: str,
         rates: FxRates,
         timestamp: float,
+        *,
+        financed: bool = False,
     ) -> tuple[PortfolioState, FxConversion]:
         """Move cash between two settlement currencies at a supplied rate.
 
@@ -289,7 +304,13 @@ class PortfolioEngine:
         # the unit that currency's cash balance is kept at.
         conversion = rates.convert(amount, from_currency, to_currency, timestamp, units=units)
 
-        cash = state.cash.withdraw(amount, from_currency)
+        # ``financed``: the consideration of a delivery taken on margin, owed in
+        # ``from_currency`` whether or not it is held there (FUT-017).
+        cash = (
+            state.cash.settle(-amount, from_currency)
+            if financed
+            else state.cash.withdraw(amount, from_currency)
+        )
         cash = cash.deposit(conversion.converted, to_currency)
 
         evt = CashConverted(
@@ -348,6 +369,9 @@ class PortfolioEngine:
         currency: str,
         *,
         economics: InstrumentEconomics | None = None,
+        final_settlement: bool = False,
+        settles_at: float | None = None,
+        financed: bool = False,
     ) -> PortfolioState:
         """Apply one signed fill (BUY > 0, SELL < 0) to the portfolio.
 
@@ -379,7 +403,10 @@ class PortfolioEngine:
 
         ``commission`` is signed since v3.11 (ledger ACC-007): a negative one is
         a rebate, which a venue pays a liquidity provider. And a price need only
-        be one the economics admit: positive, unless they allow otherwise.
+        be one the economics admit: positive, unless they allow otherwise --
+        or, for a contract's ``final_settlement`` (v4.1.1, FUT-012), zero too:
+        an option that expires worthless is closed at nothing, which no trade
+        could have been.
 
         Raises:
             InvalidTransactionError: If the price is not one the economics
@@ -402,7 +429,10 @@ class PortfolioEngine:
         # a fully paid unit of one is recorded as no declaration at all, which
         # is what it was before v3.11.
         declared = None if economics is None or economics.is_cash_equity else economics
-        if not (declared or CASH_EQUITY).admits_price(price):
+        admitted = (declared or CASH_EQUITY).admits_price(price) or (
+            final_settlement and price == 0
+        )
+        if not admitted:
             raise InvalidTransactionError(
                 f"A fill of {asset_id} at {price} is refused: its price must be positive, "
                 "unless its economics declare that it may not be (ACC-007)."
@@ -493,12 +523,29 @@ class PortfolioEngine:
         if not pos.pays_notional and pnl != 0:
             new_cash = new_cash.settle(pnl, currency)
         cash_impact = (trade_value if quantity < 0 else -trade_value) - commission
+        # Buying back a short is an obligation the account already carries --
+        # the shares are owed -- so its cost is debited whether or not cash
+        # covers it, as a margin account's debit balance is; a forced
+        # liquidation of an account whose short has outrun its cash is exactly
+        # this (FUT-017). Every other cost is spent from cash the account holds.
+        covering = pos.quantity < 0 < quantity <= -pos.quantity
         if cash_impact > 0:
             new_cash = new_cash.deposit(cash_impact, currency)
+        elif cash_impact < 0 and (covering or financed):
+            # ``financed``: a delivery the account takes on margin, debited as
+            # the obligation it is -- what the caller has checked its margin
+            # terms allow (FUT-017).
+            new_cash = new_cash.settle(cash_impact, currency)
         elif cash_impact < 0:
             new_cash = new_cash.withdraw(-cash_impact, currency)
 
         tx_type = TransactionType.BUY if quantity > 0 else TransactionType.SELL
+        # Settlement-date accounting (FUT-015): booked on the transaction only
+        # when its instrument declares a rule, so every other fill's transaction
+        # is the one it always was.
+        settled_cash = None
+        if settles_at is not None:
+            settled_cash = cash_impact + (pnl if not pos.pays_notional else Decimal("0"))
         tx = Transaction(
             str(new_id()),
             timestamp,
@@ -509,7 +556,28 @@ class PortfolioEngine:
             price,
             commission,
             currency,
+            {}
+            if settles_at is None
+            else {SETTLES_AT: settles_at, SETTLEMENT_CASH: str(settled_cash)},
         )
+        unsettled = state.unsettled
+        if settles_at is not None or unsettled:
+            assert settles_at is None or settled_cash is not None
+            unsettled = settle_pending(
+                unsettled,
+                timestamp,
+                None
+                if settles_at is None or settled_cash is None
+                else PendingSettlement(
+                    tx.transaction_id,
+                    asset_id,
+                    currency,
+                    settled_cash,
+                    quantity,
+                    timestamp,
+                    settles_at,
+                ),
+            )
 
         # A position a fill leaves open is priced at the fill until the market
         # prices it again; a closed one needs no mark at all.
@@ -532,7 +600,28 @@ class PortfolioEngine:
             state.realized_pnl.add(pnl, currency),
             state.commission_paid.add(commission, currency),
             pending,
+            unsettled,
         )
+
+    @staticmethod
+    def cash_position(state: PortfolioState, currency: str, at: float) -> CashPosition:
+        """``currency``'s cash at ``at``: trade-date, and what of it has not settled (FUT-015).
+
+        See :mod:`alphalab.portfolio.settlement`. For a book whose instruments
+        declare no settlement rule nothing is unsettled, and every figure is the
+        cash ledger's balance.
+        """
+
+        credits = Decimal("0")
+        debits = Decimal("0")
+        for entry in state.unsettled:
+            if entry.currency != currency or not entry.pending_at(at):
+                continue
+            if entry.cash > 0:
+                credits += entry.cash
+            else:
+                debits -= entry.cash
+        return CashPosition(currency, state.cash.balance(currency), credits, debits)
 
     @staticmethod
     @in_accounting_context

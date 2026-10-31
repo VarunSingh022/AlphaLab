@@ -680,8 +680,20 @@ def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -
     # (v3.11, FEA-001) one in `_instrument_grid`, once per distinct asset a
     # batch of intents names, for the lot grid and minimum notional it declares;
     # and (v3.12, EXE-010) one in `_listing_exchange`, once per simulated resting
-    # day order that states no close, for the venue whose calendar it reads.
-    assert source.count("record_for(") == 6
+    # day order that states no close, for the venue whose calendar it reads;
+    # and (v4.1.1, FUT-012) one in `settle_contract`, once per final settlement,
+    # for the contract's expiry and economics; and (v4.1.1, FUT-013) one in
+    # `_declared`, once per contract or deliverable an exercise, assignment,
+    # expiry or delivery names. The per-record expiry check reads the registry's
+    # `expiring` index instead -- and nothing when it is empty. (v4.2.0,
+    # FUT-017) The margin check after every market step, the buying-power
+    # charge and the pre-trade initial-margin check read the registry's
+    # `margined` index -- an emptiness test, a membership test, and the margined
+    # instruments alone when one is held -- and every record through `_declared`;
+    # (v4.2.0, FUT-018) a fill's margin-purchase check reads it the same way.
+    assert source.count("record_for(") == 8
+    assert source.count(".expiring") == 2
+    assert source.count(".margined") == 9
     assert source.count(".label_of(") == 2
     assert source.count(".bucket_members(") == 1
     assert source.count(".members") == 1

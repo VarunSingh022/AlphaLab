@@ -66,10 +66,15 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+from alphalab.conventions.economics import SettlementModel
+from alphalab.conventions.settlement import SettlementRule
 from alphalab.core.enums import AssetType
+from alphalab.instrument.borrow import BorrowTerms
 from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.identity import canonical_instrument_key, derive_asset_id
+from alphalab.instrument.margin import MarginTerms
+from alphalab.instrument.terms import ContractTerms, FutureTerms, OptionTerms
 
 __all__ = ["DatedAlias", "InstrumentRecord", "normalize_key_field", "normalize_sector_label"]
 
@@ -318,6 +323,35 @@ class InstrumentRecord:
             equity for the asset types that are one and refuses for a future or
             an option. Not part of the identity key: an exchange revising a lot
             size re-identifies nothing.
+        last_trade_at: The last instant, in Unix seconds, at which the
+            instrument trades -- a future's or an option's expiry -- or ``None``
+            for one that does not expire (v4.1.1, ledger FUT-012). After it, the
+            execution path skips the instrument's records and refuses its orders,
+            and a position still held must be closed by a
+            :class:`~alphalab.portfolio.corporate_actions.ContractSettlement`
+            before the run finishes. Not part of the identity key, like
+            ``economics``.
+        terms: What the contract does at exercise, assignment, expiry and
+            delivery -- :class:`~alphalab.instrument.terms.OptionTerms` for an
+            option, :class:`~alphalab.instrument.terms.FutureTerms` for a future
+            -- or ``None``, when a contract is settled at a price the caller
+            states, as every contract was before v4.1.1 (ledger FUT-013).
+            Declared only with the contract's economics and last trading
+            instant; not part of the identity key.
+        settlement: How a trade in the instrument settles -- its market's T+n,
+            counted by the listing venue's declared calendar -- or ``None``: it
+            settles at the trade, as every trade did before v4.2.0 (ledger
+            FUT-015). A run then books each fill's settlement instant and keeps
+            its proceeds out of buying power until it; see
+            :mod:`alphalab.portfolio.settlement`. Not part of the identity key.
+        margin: What holding it requires as collateral -- initial and maintenance
+            requirements, a haircut, a liquidation priority -- or ``None``: it
+            carries no margin requirement (v4.2.0, ledger FUT-017; see
+            :mod:`alphalab.instrument.margin`). Not part of the identity key.
+        borrow: What borrowing it to sell short costs and how much a lender
+            offers, as a dated series, or ``None``: it is shorted as before
+            v4.2.0, at no fee (ledger FUT-018; see :mod:`alphalab.instrument.borrow`).
+            Not part of the identity key.
         asset_id: The derived canonical identifier. UUIDv5, and therefore
             accepted by :func:`~alphalab.core.ids.validate_uuid_id`.
     """
@@ -330,6 +364,11 @@ class InstrumentRecord:
     aliases: Mapping[str, str] = field(default_factory=dict)
     dated_aliases: tuple[DatedAlias, ...] = ()
     economics: InstrumentEconomics | None = None
+    last_trade_at: float | None = None
+    terms: ContractTerms | None = None
+    settlement: SettlementRule | None = None
+    margin: MarginTerms | None = None
+    borrow: BorrowTerms | None = None
     asset_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -340,6 +379,14 @@ class InstrumentRecord:
         if self.economics is not None and not isinstance(self.economics, InstrumentEconomics):
             raise InstrumentInputError(
                 f"economics must be InstrumentEconomics, got {type(self.economics).__name__}."
+            )
+        if self.last_trade_at is not None and (
+            isinstance(self.last_trade_at, bool)
+            or not isinstance(self.last_trade_at, int | float)
+            or not math.isfinite(self.last_trade_at)
+        ):
+            raise InstrumentInputError(
+                f"last_trade_at is an instant in Unix seconds, got {self.last_trade_at!r}."
             )
 
         symbol = normalize_key_field(self.symbol, "symbol")
@@ -356,6 +403,16 @@ class InstrumentRecord:
             "asset_id",
             derive_asset_id(self.asset_type, exchange, symbol, currency),
         )
+        if self.terms is not None:
+            _require_consistent_terms(self)
+        if self.margin is not None and not isinstance(self.margin, MarginTerms):
+            raise InstrumentInputError(f"margin is MarginTerms or None, got {self.margin!r}.")
+        if self.borrow is not None and not isinstance(self.borrow, BorrowTerms):
+            raise InstrumentInputError(f"borrow is BorrowTerms or None, got {self.borrow!r}.")
+        if self.settlement is not None and not isinstance(self.settlement, SettlementRule):
+            raise InstrumentInputError(
+                f"settlement is a SettlementRule or None, got {self.settlement!r}."
+            )
 
     @property
     def canonical_key(self) -> str:
@@ -366,3 +423,41 @@ class InstrumentRecord:
         """
 
         return canonical_instrument_key(self.asset_type, self.exchange, self.symbol, self.currency)
+
+
+def _require_consistent_terms(record: InstrumentRecord) -> None:
+    """Terms that cannot belong to this record are refused at declaration (FUT-013)."""
+
+    terms = record.terms
+    named = f"{record.symbol} on {record.exchange}"
+    if isinstance(terms, OptionTerms):
+        expected, settles = AssetType.OPTION, SettlementModel.OPTION_PREMIUM
+    elif isinstance(terms, FutureTerms):
+        expected, settles = AssetType.FUTURE, SettlementModel.FUTURES_VARIATION
+    else:
+        raise InstrumentInputError(
+            f"terms are OptionTerms or FutureTerms, got {type(terms).__name__}."
+        )
+    if record.asset_type is not expected:
+        raise InstrumentInputError(
+            f"{named} is a {record.asset_type.value}; {type(terms).__name__} are a "
+            f"{expected.value}'s terms."
+        )
+    if record.economics is None or record.economics.settlement is not settles:
+        raise InstrumentInputError(
+            f"{named} declares terms and not economics settled as {settles.value}: the "
+            "terms read the contract's multiplier, which only its economics state."
+        )
+    if record.last_trade_at is None:
+        raise InstrumentInputError(
+            f"{named} declares terms and no last trading instant; a contract with a lifecycle "
+            "stops trading at a stated instant."
+        )
+    if isinstance(terms, OptionTerms) and terms.expires_at < record.last_trade_at:
+        raise InstrumentInputError(
+            f"{named} stops trading at {record.last_trade_at!r} and expires at "
+            f"{terms.expires_at!r}: exercise cannot end before trading does."
+        )
+    deliverable = terms.deliverable
+    if deliverable is not None and deliverable.asset_id == record.asset_id:
+        raise InstrumentInputError(f"{named} cannot deliver itself.")

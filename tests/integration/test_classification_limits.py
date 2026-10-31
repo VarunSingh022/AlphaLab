@@ -182,7 +182,7 @@ def test_dimensions_survive_a_registry_snapshot_and_rebuild_the_index() -> None:
     payload = deserialize(serialize(capture_registry(registry)))
     restored = restore_registry(registry_from_primitives(payload))
 
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4  # v4.1.1: a last trading instant (FUT-012)
     assert restored == registry
     assert set(restored.bucket_members(ISSUER, "Acme Corp")) == {
         ACME_A.asset_id,

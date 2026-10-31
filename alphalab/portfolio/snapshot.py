@@ -97,6 +97,7 @@ from alphalab.portfolio.events import (
 )
 from alphalab.portfolio.ledger import TransactionLedger
 from alphalab.portfolio.position import Position
+from alphalab.portfolio.settlement import pending_from
 from alphalab.portfolio.transaction import Transaction
 from alphalab.portfolio.types import TransactionType
 
@@ -269,6 +270,8 @@ def restore(snapshot: PortfolioSnapshot) -> PortfolioState:
         realized_pnl=CurrencyAmounts(dict(snapshot.realized_pnl)),
         commission_paid=CurrencyAmounts(dict(snapshot.commission_paid)),
         pending_marks=snapshot.pending_marks,
+        # Derived from the ledger it travels in (FUT-015), never stored apart.
+        unsettled=pending_from(snapshot.transactions),
     )
 
 

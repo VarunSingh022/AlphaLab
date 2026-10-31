@@ -6,26 +6,38 @@ Neither type here holds state of its own. A run's state is
 drivers report once that state is finished. Storing a second copy of a fact the
 run already carries is how a result comes to disagree with the run it describes
 -- which is exactly what happened to ``dataset_id`` before v2.14, and why every
-attribute below reads through.
+attribute below reads through. A run given an execution plan (v4.1.1, ledger
+FUT-009) returns an :class:`AlgorithmicResult`: the same projection, and beside
+it the plan's :class:`~alphalab.backtesting.algorithmic.AlgorithmBook` -- driver
+state the run does not hold, as a schedule's cursor is not, so it is no second
+copy of anything, and the run's record and ``result_id`` are what they were. A
+run given a queue model (v4.1.1, ledger FUT-011) returns a :class:`QueuedResult`
+on the same terms, carrying its
+:class:`~alphalab.execution.queue.QueueBook`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from alphalab.analytics.engine import PortfolioSnapshot
 from alphalab.analytics.report import PerformanceReport
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.trade import Trade as CoreTrade
+from alphalab.execution.queue import QueueBook
 from alphalab.market.record import MarketRecord
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.fx import NO_RATES, FxRates
 from alphalab.portfolio.valuation import PortfolioValuation, PortfolioValuationSnapshot
-from alphalab.runtime.assumptions import ExecutionAssumptions
+from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.execution_pipeline import ExecutionPipelineState, UnpricedAsset
 from alphalab.runtime.run import RunConfig, RunState, RunStep, StrategyFailure
 
-__all__ = ["BacktestResult", "ReplayResult"]
+if TYPE_CHECKING:
+    from alphalab.backtesting.algorithmic import AlgorithmBook
+
+__all__ = ["AlgorithmicResult", "BacktestResult", "QueuedResult", "ReplayResult"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +196,44 @@ class BacktestResult:
 
 
 @dataclass(frozen=True, slots=True)
+class AlgorithmicResult(BacktestResult):
+    """A finished run whose orders an execution plan worked in children (v4.1.1, FUT-009).
+
+    Everything :class:`BacktestResult` reads, through the run, and the book the
+    run does not hold.
+
+    Attributes:
+        algorithms: Every parent the plan's algorithms worked, work, or refused,
+            with their children and every child fill.
+    """
+
+    algorithms: AlgorithmBook
+
+
+@dataclass(frozen=True, slots=True)
+class QueuedResult(BacktestResult):
+    """A finished run whose resting limit orders a queue model governed (v4.1.1, FUT-011).
+
+    Everything :class:`BacktestResult` reads, through the run, and the queue
+    book the run does not hold. Its :attr:`execution_assumptions` name the
+    queue model, which is what a run's figures were measured under.
+
+    Attributes:
+        queue: The queue model, and the position of every limit order still
+            resting when the data ended.
+    """
+
+    queue: QueueBook
+
+    @property
+    def execution_assumptions(self) -> ExecutionAssumptions:
+        """How the run modelled execution, its queue model included."""
+
+        config = self.run.config
+        return execution_assumptions(config.pipeline, config.fill_policy, self.queue.model)
+
+
+@dataclass(frozen=True, slots=True)
 class ReplayResult:
     """A replay run: the backtest result plus the replay cursor it was driven by."""
 
@@ -201,6 +251,20 @@ class ReplayResult:
         """
 
         return self.backtest.dataset_id
+
+    @property
+    def algorithms(self) -> AlgorithmBook | None:
+        """The execution plan's book, for a replay given one (v4.1.1); ``None`` otherwise."""
+
+        backtest = self.backtest
+        return backtest.algorithms if isinstance(backtest, AlgorithmicResult) else None
+
+    @property
+    def queue(self) -> QueueBook | None:
+        """The queue book, for a replay given a queue model (v4.1.1); ``None`` otherwise."""
+
+        backtest = self.backtest
+        return backtest.queue if isinstance(backtest, QueuedResult) else None
 
     @property
     def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:

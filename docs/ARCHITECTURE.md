@@ -4,7 +4,7 @@
 
 AlphaLab is an institutional-grade quantitative research and algorithmic trading platform built around deterministic execution, immutable state, and event-driven architecture.
 
-Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v4.1)** section below.
+Every subsystem follows the same engineering principles (immutable state, pure functional engines, deterministic execution). They are designed to compose through well-defined interfaces, but only `alphalab.runtime.ExecutionPipeline`, the `alphalab.runtime.run.RunEngine` that owns a run over it, and the drivers that feed it — `alphalab.runtime.session`, `alphalab.backtesting`, `alphalab.backtesting.replay` and `alphalab.runtime.live` — together with `alphalab.lifecycle`, which v2.16 joined to it, actually wire a group of them together. See the **Implementation Status (v4.2)** section below.
 
 > **How to read this document.** The **Implementation Status** section and
 > everything up to *Known boundaries* describe what is **built**. From
@@ -19,7 +19,7 @@ Every component—from market data ingestion to production deployment—is desig
 
 ---
 
-# Implementation Status (v4.1)
+# Implementation Status (v4.2)
 
 Most of this document describes the **target** architecture. This section states
 what is actually built so the two are not confused.
@@ -450,6 +450,15 @@ fill back (`apply_broker_execution`), and the return leg goes through
 `ExecutionPipeline.apply_execution_report` — the same function a simulated fill
 uses.
 
+A historical run may instead route `ExecutionRouting.ALGORITHMIC` (v4.1.1,
+FUT-009): every accepted order is a parent held in the OMS, as under `EXTERNAL`,
+and an `ExecutionPlan`'s algorithms -- driver state in
+`alphalab.backtesting.algorithmic`, beside the run -- work it in children at its
+asset's events. Each child is simulated by `ExecutionPipeline.work_child` with
+the run's own fill policy and cost model and settles on the parent through the
+same report path, so the OMS, the portfolio, the reservation and attribution see
+one order, as they do for a live parent worked by `route_child_order`.
+
 Two pre-trade gates: an order is never sent on a connection that is not
 `CONNECTED`, and an OMS order already bound to a venue handle is never sent
 again. The client order id is *derived* from the OMS order id, so a retry after
@@ -515,7 +524,7 @@ schema is unchanged.
 | **Point-in-time ingestion** | **Implemented (v3.7).** `alphalab.api.ingest_observations` / `ingest_events` / `ingest_fundamentals` with an explicit availability rule and a declared timestamp reading; `lift_wire_records` with the wire timestamp's meaning declared |
 | **Knowledge frames, event studies, fundamentals, regimes** | **Implemented (v3.7).** `factor_library.knowledge` and `factor_library.fundamentals`; `research.event_study` (anchored where news could be traded, no p-value); `alt_data.fundamentals` (TTM, valuation, ratios, restatements at an instant); `research.regimes` (declared rules, persistence, a reconstructable state) |
 | **Adaptive strategies** | **Implemented (v3.7).** `strategy.adaptive`, `strategy.adaptive_rules`, `strategy.adaptive_strategy` — immutable learned state with lineage, one pure update function, checkpoints and reprocessing; the state reaches the run snapshot and `digest_run`; `lifecycle.assess_adaptive_replay` |
-| **Execution-path delivery of external information** | **Implemented (v3.12).** An observation is delivered at the instant it became knowable to the strategies subscribed to `observations` or `observations:<subject>` that define `on_observation`: `ExecutionPipeline.process_observation`, `RunEngine.deliver_observation` (an idempotent cursor) and `BacktestEngine.run(observations=)`, which merges them with the records; an order an observation causes rests to the next market event (OFE-009, ADR-0047). ADR-0042 had deferred it; this row said so until v3.13 |
+| **Execution-path delivery of external information** | **Implemented (v3.12).** An observation is delivered at the instant it became knowable to the strategies subscribed to `observations` or `observations:<subject>` that define `on_observation`: `ExecutionPipeline.process_observation`, `RunEngine.deliver_observation` (an idempotent cursor) and `BacktestEngine.run(observations=)`, which merges them with the records; an order an observation causes rests to the next market event (OFE-009, ADR-0047). ADR-0042 had deferred it; this row said so until v3.13. Since the v4.1.1 candidate every timed input -- observations, rates, funding, cash flows, per-unit distributions, funding rates, splits, timers, contract settlements -- is a `RunSchedule` (`alphalab.backtesting.schedule`) that `BacktestEngine.run`, `ReplayBacktest.run` and the facade apply through one `ScheduleCursor`; a paused replay's payload records the schedule's digest (replay schema 2); `LiveSession.deliver_observation` delivers and routes (OFE-027, FUT-003, FUT-004, ADR-0051) |
 | Vendor alternative-data, event or fundamentals feeds | **None.** AlphaLab ships the point-in-time contract and ingests rows a caller supplies, with their bytes; it fetches nothing |
 | **The risk model** | **Implemented (v3.8).** `alphalab.analytics.risk_model` — `CovarianceMatrix` with currency, period, source, observations and a derived identity; definiteness measured by a rank-revealing Cholesky; ridge and diagonal shrinkage as recorded derivations; `FactorLoadings` and `Classification` that refuse holes. v3.3's decomposition calls the same arithmetic, unchanged bit for bit |
 | **Constrained portfolio construction** | **Implemented (v3.8).** `alphalab.portfolio_optimizer.construct` — minimum variance, mean-variance, maximum diversification, risk parity (equal or stated budgets) and robust mean-variance under bounds, concentration, gross, group, factor, turnover, notional and volatility constraints; one dual active-set solver certifying optimality and naming conflicts; `black_litterman` for a posterior. The v1 closed forms are unchanged. Since v3.12 a factor-model covariance over a large universe is solved by an O(n k²) interior point certified by the same criteria, the dense solver deciding whatever it does not certify (PRF-005) |
@@ -683,11 +692,11 @@ owning module, its own schema constant and its own typed decoder:
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA = 3` | v2.9 |
 | `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 8` | v2.9 |
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 5` | v2.14 |
-| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 3` | v2.15 |
+| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 4` | v2.15 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 2` | v2.16 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA = 2` | v2.16 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA = 1` | v2.17 |
-| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA = 1` | v4.1 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA = 2` | v4.1 |
 
 Three envelopes carry a payload and version only what they add: the run-state
 store's (`persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, v2.14), an
@@ -5318,8 +5327,8 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v4.1.0
-Status: Implementation Status (v4.1) describes what is built and is authoritative.
+Version: v4.2.0
+Status: Implementation Status (v4.2) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
 ```

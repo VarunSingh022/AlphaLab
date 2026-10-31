@@ -47,11 +47,20 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
+from alphalab.backtesting.algorithmic import (
+    ExecutionPlan,
+    ExecutionPlanError,
+    book_from_primitives,
+    capture_book,
+)
 from alphalab.backtesting.dataset import MarketDataset
+from alphalab.backtesting.queueing import QueueModelError, capture_queue, queue_from_primitives
 from alphalab.backtesting.replay import PausedReplay, cursor_seed
+from alphalab.backtesting.schedule import EMPTY_SCHEDULE, RunSchedule
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.constants import DEFAULT_ENCODING
 from alphalab.common.ids import IdStreamPosition
+from alphalab.execution.queue import QueueBook, QueueModel
 from alphalab.persistence.decode import (
     as_float,
     as_int,
@@ -64,7 +73,7 @@ from alphalab.persistence.decode import (
 )
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.serializer import serialize
-from alphalab.persistence.upgrade import SchemaHistory
+from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
 from alphalab.replay.events import (
     ReplayAdvanced,
     ReplayPaused,
@@ -95,15 +104,35 @@ __all__ = [
     "restore",
 ]
 
-#: Schema version this module reads and writes. New in v4.1, so it reads nothing
-#: older; a module-local literal for the reason ``RUN_SNAPSHOT_SCHEMA`` is one.
-REPLAY_SNAPSHOT_SCHEMA: Final = 1
+#: Schema version this module reads and writes; a module-local literal for the
+#: reason ``RUN_SNAPSHOT_SCHEMA`` is one. Version 1 was v4.1's; version 2
+#: (v4.1.1, ledger FUT-003) records the digest of the replay's schedule and, for
+#: a replay given an execution plan (FUT-009), its algorithm book, and for one
+#: given a queue model (FUT-011), its queue book.
+REPLAY_SNAPSHOT_SCHEMA: Final = 2
 
 _SUBSYSTEM: Final = "replay"
 
-#: How every replay payload a release has written is read by this one. Version 1
-#: is the first, so there is nothing yet to upgrade.
-REPLAY_SCHEMA_HISTORY = SchemaHistory(_SUBSYSTEM, REPLAY_SNAPSHOT_SCHEMA)
+
+def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
+    """A version-1 replay was given no schedule, plan or queue model: v4.1 replays took none."""
+
+    return {**payload, "schedule_digest": None, "algorithms": None, "queue": None}
+
+
+#: How every replay payload a release has written is read by this one.
+REPLAY_SCHEMA_HISTORY = SchemaHistory(
+    _SUBSYSTEM,
+    REPLAY_SNAPSHOT_SCHEMA,
+    (
+        SchemaStep(
+            1,
+            "version 2 records the digest of the replay's schedule, its algorithm book and "
+            "its queue book; a v4.1 replay had none of them",
+            upgrade=_v1_to_v2,
+        ),
+    ),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +169,19 @@ class ReplaySnapshot:
         next_event_id: The record due next.
         events_dropped: How many earlier lifecycle events a declared retention
             dropped (``RetentionPolicy.audit_events``).
+        schedule_digest: :attr:`~alphalab.backtesting.schedule.RunSchedule.digest`
+            of the replay's schedule, or ``None`` for a replay given none
+            (v4.1.1, schema 2). The schedule is supplied back to
+            :func:`restore`, as the dataset is, and held to it.
+        algorithms: The replay's
+            :class:`~alphalab.backtesting.algorithmic.AlgorithmBook` as
+            :func:`~alphalab.backtesting.algorithmic.capture_book` writes it, or
+            ``None`` for a replay given no execution plan (v4.1.1, schema 2). The
+            plan is supplied back to :func:`restore` and held to the book.
+        queue: The replay's :class:`~alphalab.execution.queue.QueueBook` as
+            :func:`~alphalab.backtesting.queueing.capture_queue` writes it, or
+            ``None`` for a replay given no queue model (v4.1.1, schema 2). The
+            model is supplied back to :func:`restore` and held to the book.
     """
 
     run: RunSnapshot
@@ -156,6 +198,9 @@ class ReplaySnapshot:
     last_event_id: str | None
     next_event_id: str
     events_dropped: int = 0
+    schedule_digest: str | None = None
+    algorithms: Mapping[str, Any] | None = None
+    queue: Mapping[str, Any] | None = None
     schema_version: int = REPLAY_SNAPSHOT_SCHEMA
 
 
@@ -189,7 +234,8 @@ def capture(paused: PausedReplay) -> ReplaySnapshot:
 
     Pure: nothing is minted and nothing is mutated, so capturing one paused
     replay twice gives equal snapshots. Linear in the run's recorded history
-    and the dataset's length, as the run's own capture is.
+    and the dataset's length, as the run's own capture is -- and, since
+    v4.1.1, in its schedule's length, whose digest it records.
     """
 
     cursor = paused.cursor
@@ -212,6 +258,9 @@ def capture(paused: PausedReplay) -> ReplaySnapshot:
         last_event_id=records[index - 1].event_id if index else None,
         next_event_id=records[index].event_id,
         events_dropped=cursor.system_events.dropped,
+        schedule_digest=paused.schedule.digest if paused.schedule else None,
+        algorithms=None if paused.algorithms is None else capture_book(paused.algorithms),
+        queue=None if paused.queue is None else capture_queue(paused.queue),
     )
 
 
@@ -330,14 +379,29 @@ def _check_cursor(snapshot: ReplaySnapshot) -> None:
         )
 
 
-def restore(snapshot: ReplaySnapshot, objects: RunObjects, dataset: MarketDataset) -> PausedReplay:
+def restore(
+    snapshot: ReplaySnapshot,
+    objects: RunObjects,
+    dataset: MarketDataset,
+    schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: ExecutionPlan | None = None,
+    queue: QueueModel | None = None,
+) -> PausedReplay:
     """Rebuild the paused replay a snapshot was captured from.
 
     ``dataset`` is the replay's input, supplied back as ``objects`` are; the
     snapshot records what it must be, and anything else is refused before any
-    live object is touched. The run is rebuilt by
-    :func:`alphalab.runtime.run_snapshot.restore`, which refuses an object
-    configured otherwise than the run recorded (ledger PER-008).
+    live object is touched. ``schedule`` (v4.1.1) is supplied back the same
+    way: it must be the schedule the replay was paused on, by digest, and what
+    of it remains is derived from the last record taken, so no input is
+    applied twice or lost. ``execution`` (v4.1.1, ledger FUT-009) is the plan a
+    replay that worked its orders in children was given, held to the book the
+    payload carries, whose every algorithm is rebuilt and checked against its
+    recorded identity. ``queue`` (v4.1.1, ledger FUT-011) is the queue model a
+    replay was given, held to the type and configuration its book records. The
+    run is rebuilt by :func:`alphalab.runtime.run_snapshot.restore`, which
+    refuses an object configured otherwise than the run recorded (ledger
+    PER-008).
 
     Returns:
         The paused replay. Nothing is processed and no identifier is minted:
@@ -347,12 +411,51 @@ def restore(snapshot: ReplaySnapshot, objects: RunObjects, dataset: MarketDatase
         StateDecodeError: If the snapshot does not describe one replay paused
             between two records; if ``dataset`` is not the one it read -- another
             id, another length, another span, another record at the boundary, or
-            any record changed (:func:`dataset_digest`); or if a live object is
-            missing, of the wrong type, or configured otherwise.
+            any record changed (:func:`dataset_digest`); if ``schedule`` is not
+            the one it was paused on; if ``execution`` is not the plan its
+            book was produced under, or is missing, or is given for a replay
+            that had none; if ``queue`` is likewise not the queue model its
+            queue book was produced under, missing, or given for a replay that
+            had none; or if a live object is missing, of the wrong type, or
+            configured otherwise.
     """
 
     _check_cursor(snapshot)
     _check_input(snapshot, dataset)
+    supplied = schedule.digest if schedule else None
+    if supplied != snapshot.schedule_digest:
+        if snapshot.schedule_digest is None:
+            raise _refuse(
+                f"it was paused with no schedule, and a schedule of {len(schedule)} entries "
+                "was supplied; applying it would change what the replay is."
+            )
+        if supplied is None:
+            raise _refuse(
+                f"it was paused on schedule {snapshot.schedule_digest}, and none was "
+                "supplied: resuming without it would lose every input it still had to apply."
+            )
+        raise _refuse(
+            f"it was paused on schedule {snapshot.schedule_digest} and schedule {supplied} "
+            "was supplied; resuming would apply other inputs than the replay was given."
+        )
+    book = None
+    if snapshot.algorithms is None:
+        if execution is not None:
+            raise _refuse(
+                "it was paused with no execution plan, and one was supplied; working its "
+                "orders in children would change what the replay is."
+            )
+    else:
+        if execution is None:
+            raise _refuse(
+                "it worked its orders in children, and no execution plan was supplied: "
+                "resuming without it would leave every parent held and none worked."
+            )
+        try:
+            book = book_from_primitives(snapshot.algorithms, execution)
+        except (ExecutionPlanError, KeyError, TypeError, ValueError, ArithmeticError) as refused:
+            raise _refuse(f"its algorithm book cannot be continued: {refused}") from refused
+    queued = _queue_book(snapshot, queue)
     records = dataset.records
     index = snapshot.current_index
     expected_clock = records[index - 1].timestamp if index else snapshot.session.start_time
@@ -375,7 +478,35 @@ def restore(snapshot: ReplaySnapshot, objects: RunObjects, dataset: MarketDatase
             (entry.event for entry in snapshot.events), snapshot.events_dropped
         ),
     )
-    return PausedReplay(run=run, cursor=cursor, cursor_position=snapshot.cursor_position)
+    return PausedReplay(
+        run=run,
+        cursor=cursor,
+        cursor_position=snapshot.cursor_position,
+        schedule=schedule,
+        algorithms=book,
+        queue=queued,
+    )
+
+
+def _queue_book(snapshot: ReplaySnapshot, model: QueueModel | None) -> QueueBook | None:
+    """The paused replay's queue book, held to the model supplied -- or refused."""
+
+    if snapshot.queue is None:
+        if model is not None:
+            raise _refuse(
+                "it was paused with no queue model, and one was supplied; governing its "
+                "resting orders by a queue would change what the replay is."
+            )
+        return None
+    if model is None:
+        raise _refuse(
+            "its resting orders were governed by a queue model, and none was supplied: "
+            "resuming without it would fill them as though nothing were ahead of them."
+        )
+    try:
+        return queue_from_primitives(snapshot.queue, model)
+    except (QueueModelError, KeyError, TypeError, ValueError, ArithmeticError) as refused:
+        raise _refuse(f"its queue book cannot be continued: {refused}") from refused
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +577,18 @@ def _event(value: Any, where: str) -> ReplayEventRecord:
     return ReplayEventRecord(tag, event)
 
 
+def _optional_book(value: Any) -> Mapping[str, Any] | None:
+    """The book's primitives, kept as they are: decoded by :func:`restore`, given its plan."""
+
+    return None if value is None else as_mapping(value, "algorithms")
+
+
+def _optional_queue(value: Any) -> Mapping[str, Any] | None:
+    """The queue book's primitives, as they are: decoded by :func:`restore`, given its model."""
+
+    return None if value is None else as_mapping(value, "queue")
+
+
 def from_primitives(payload: Mapping[str, Any]) -> ReplaySnapshot:
     """Decode a JSON-decoded replay payload back into :class:`ReplaySnapshot`.
 
@@ -475,5 +618,8 @@ def from_primitives(payload: Mapping[str, Any]) -> ReplaySnapshot:
         last_event_id=as_optional_str(require(payload, "last_event_id"), "last_event_id"),
         next_event_id=as_str(require(payload, "next_event_id"), "next_event_id"),
         events_dropped=as_int(require(payload, "events_dropped"), "events_dropped"),
+        schedule_digest=as_optional_str(require(payload, "schedule_digest"), "schedule_digest"),
+        algorithms=_optional_book(require(payload, "algorithms")),
+        queue=_optional_queue(require(payload, "queue")),
         schema_version=REPLAY_SNAPSHOT_SCHEMA,
     )

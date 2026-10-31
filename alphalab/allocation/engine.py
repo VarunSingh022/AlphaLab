@@ -166,6 +166,29 @@ class AllocationEngine:
                     AllocationRejected(AllocationEngine._create_id(), timestamp, str(refusal))
                 )
                 continue
+            if intent.kind is IntentKind.EXERCISE:
+                # Not an order (FUT-014): sized here it would read as a target.
+                events = events.append(
+                    AllocationRejected(
+                        AllocationEngine._create_id(),
+                        timestamp,
+                        f"{intent.strategy_id}'s exercise of {intent.target} {intent.instrument} "
+                        "is not an order and is not allocated: the execution pipeline carries "
+                        "it out (ExecutionPipeline routes it before allocation).",
+                    )
+                )
+                continue
+            if intent.kind is IntentKind.CANCEL:
+                # Not an order either: the pipeline withdraws working orders.
+                events = events.append(
+                    AllocationRejected(
+                        AllocationEngine._create_id(),
+                        timestamp,
+                        f"{intent.strategy_id}'s cancel in {intent.instrument} is not an order "
+                        "and is not allocated: the execution pipeline carries it out.",
+                    )
+                )
+                continue
             key = _intent_key(intent)
             if key in seen:
                 events = events.append(
@@ -525,6 +548,110 @@ class AllocationEngine:
             if quantity is not None:
                 restated = restated.set(strategy_id, held.set(asset_id, quantity * ratio))
         return state if restated is positions else evolve(state, strategy_positions=restated)
+
+    @staticmethod
+    @in_accounting_context
+    def settle_asset(
+        state: AllocationState, asset_id: str
+    ) -> tuple[AllocationState, tuple[StrategyContribution, ...]]:
+        """Close every strategy's position in ``asset_id``, settled by the venue (FUT-012).
+
+        A contract's final settlement closes the whole position, so each
+        strategy's own share of it closes too, and what the share cost is released
+        from a ceilinged strategy's deployed capital -- a target measured against
+        a position the venue has closed would ask for it back as a trade. Returns
+        the state and each strategy's share as it stood, the attribution of the
+        settlement. Nothing is recorded where nothing was.
+        """
+
+        positions = state.strategy_positions
+        if positions is None:
+            return state, ()
+        shares: list[StrategyContribution] = []
+        restated = positions
+        capital = state.strategy_capital
+        for strategy_id, held in positions.items():
+            quantity = held.get(asset_id)
+            if quantity is None or quantity == 0:
+                continue
+            shares.append(StrategyContribution(strategy_id, quantity.copy_abs()))
+            restated = restated.set(strategy_id, held.delete(asset_id))
+            if strategy_id in capital:
+                capital = capital.set(
+                    strategy_id,
+                    capital[strategy_id].fill("", asset_id, quantity, -quantity, Decimal("0")),
+                )
+        if not shares:
+            return state, ()
+        return evolve(state, strategy_positions=restated, strategy_capital=capital), tuple(shares)
+
+    @staticmethod
+    def shares_of(state: AllocationState, asset_id: str) -> tuple[tuple[str, Decimal], ...]:
+        """Each strategy's own signed position in ``asset_id``, in strategy order."""
+
+        positions = state.strategy_positions
+        if positions is None:
+            return ()
+        return tuple(
+            (strategy_id, held[asset_id])
+            for strategy_id, held in positions.items()
+            if held.get(asset_id, Decimal("0")) != 0
+        )
+
+    @staticmethod
+    def apply_lifecycle(
+        state: AllocationState,
+        asset_id: str,
+        closed: Mapping[str, Decimal],
+        delivered_asset: str | None = None,
+        delivered: Mapping[str, Decimal] | None = None,
+        unit_value: Decimal = Decimal("0"),
+    ) -> AllocationState:
+        """Book an exercise, an assignment or a delivery in each strategy's own positions (FUT-013).
+
+        ``closed`` is each strategy's signed quantity of ``asset_id`` that the
+        event closed -- its share of a contract exercised, assigned or expired.
+        ``delivered`` is each strategy's signed quantity of ``delivered_asset``
+        it received, at ``unit_value`` per unit in the budget's currency, which a
+        ceilinged strategy's deployed capital books as a fill would. A target is
+        then measured against what the strategy holds after the event, as it is
+        after a fill.
+        """
+
+        positions = state.strategy_positions
+        if positions is None:
+            return state
+        capital = state.strategy_capital
+        restated = positions
+        ctx = ACCOUNTING_CONTEXT
+        for strategy_id, quantity in closed.items():
+            held_map = restated.get(strategy_id, PersistentMap())
+            held = held_map.get(asset_id, Decimal("0"))
+            after = ctx.subtract(held, quantity)
+            held_map = held_map.delete(asset_id) if after == 0 else held_map.set(asset_id, after)
+            restated = restated.set(strategy_id, held_map)
+            if strategy_id in capital:
+                capital = capital.set(
+                    strategy_id,
+                    capital[strategy_id].fill("", asset_id, held, -quantity, Decimal("0")),
+                )
+        if delivered_asset is not None and delivered:
+            for strategy_id, units in delivered.items():
+                held_map = restated.get(strategy_id, PersistentMap())
+                held = held_map.get(delivered_asset, Decimal("0"))
+                after = ctx.add(held, units)
+                held_map = (
+                    held_map.delete(delivered_asset)
+                    if after == 0
+                    else held_map.set(delivered_asset, after)
+                )
+                restated = restated.set(strategy_id, held_map)
+                if strategy_id in capital:
+                    capital = capital.set(
+                        strategy_id,
+                        capital[strategy_id].fill("", delivered_asset, held, units, unit_value),
+                    )
+        return evolve(state, strategy_positions=restated, strategy_capital=capital)
 
     @staticmethod
     def strategy_position(state: AllocationState, strategy_id: str, asset_id: str) -> Decimal:

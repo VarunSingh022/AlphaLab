@@ -72,26 +72,47 @@ The cursor's envelope is :mod:`alphalab.backtesting.replay_snapshot`, outside
 :class:`~alphalab.runtime.run.RunState` and
 :data:`~alphalab.runtime.run_snapshot.RUN_SNAPSHOT_SCHEMA`, both of which are
 unchanged: the replay envelope nests the run's.
+
+External information and every other timed input (v4.1.1)
+---------------------------------------------------------
+Until v4.1.1 a replay delivered no observations: :meth:`BacktestEngine.run
+<alphalab.backtesting.engine.BacktestEngine.run>` merged a
+:class:`~alphalab.alt_data.streaming.DeliverySchedule` with its records (ledger
+OFE-009) and :meth:`ReplayBacktest.run` took none, so a strategy acting on
+news, a statement or a macro release produced one result as a backtest and
+another as a replay of the same records. A replay now takes ``observations``
+and a :class:`~alphalab.backtesting.schedule.RunSchedule` -- rates, funding,
+cash flows, splits, timers, contract settlements -- applied by the same
+:class:`~alphalab.backtesting.schedule.ScheduleCursor` the backtest uses, so the
+two apply every input at the same step. A :class:`PausedReplay` carries the
+schedule; what it has applied is a function of the last record it took, so a
+resume -- in this process or, through :mod:`alphalab.backtesting.replay_snapshot`'s
+schema 2, another -- continues with exactly what remained (ledger FUT-003).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
-from typing import overload
+from typing import Any, overload
 
+from alphalab.alt_data.streaming import ObservationDelivery
+from alphalab.backtesting.algorithmic import AlgorithmBook, ExecutionPlan, algorithmic_run
+from alphalab.backtesting.algorithmic import finish as finish_children
+from alphalab.backtesting.algorithmic import work as work_children
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
 from alphalab.backtesting.engine import (
-    advance,
-    close_slice,
     finalize,
     id_scope,
     id_source,
     initialize,
 )
 from alphalab.backtesting.exceptions import UnsupportedRecordError
-from alphalab.backtesting.state import ReplayResult
+from alphalab.backtesting.queueing import queued_result, queued_run
+from alphalab.backtesting.schedule import EMPTY_SCHEDULE, RunSchedule, ScheduleCursor
+from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, ReplayResult
 from alphalab.common.ids import IdStreamPosition, current_id_position, use_id_source
+from alphalab.execution.queue import QueueBook, QueueModel
 from alphalab.replay.engine import ReplayEngine
 from alphalab.replay.exceptions import InvalidReplayStateError
 from alphalab.replay.session import ReplaySession
@@ -183,6 +204,17 @@ class PausedReplay:
         cursor_position: Where the cursor's own identifier stream had reached
             (seed ``seed + REPLAY_CURSOR_SEED_OFFSET``), or an unseeded position
             for an unseeded run.
+        schedule: Every timed input of the replay -- observations, rates,
+            funding, cash flows, splits, timers, settlements (v4.1.1). What of it
+            has been applied follows from the last record the cursor took
+            (:meth:`~alphalab.backtesting.schedule.ScheduleCursor.start`), so it
+            is held whole rather than as a remainder.
+        algorithms: The execution plan's book, for a replay given one (v4.1.1,
+            ledger FUT-009): every parent's algorithm as it stood at the pause,
+            the children still working included; ``None`` otherwise.
+        queue: The queue book, for a replay given a queue model (v4.1.1, ledger
+            FUT-011): the model, and each resting limit order's place at its
+            price level at the pause; ``None`` otherwise.
 
     Raises:
         InvalidReplayStateError: If the three do not describe one replay paused
@@ -194,6 +226,9 @@ class PausedReplay:
     run: RunState
     cursor: ReplayState
     cursor_position: IdStreamPosition
+    schedule: RunSchedule = EMPTY_SCHEDULE
+    algorithms: AlgorithmBook | None = None
+    queue: QueueBook | None = None
 
     def __post_init__(self) -> None:
         cursor = self.cursor
@@ -263,6 +298,11 @@ class ReplayBacktest:
         dataset: MarketDataset,
         strategy_state: StrategyRuntimeState,
         context_factory: ContextFactory,
+        *,
+        observations: Iterable[ObservationDelivery[Any]] = (),
+        schedule: RunSchedule = EMPTY_SCHEDULE,
+        execution: ExecutionPlan | None = None,
+        queue: QueueModel | None = None,
     ) -> ReplayResult: ...
 
     @overload
@@ -274,6 +314,10 @@ class ReplayBacktest:
         context_factory: ContextFactory,
         *,
         pause_when: Callable[[ReplayProgress], bool],
+        observations: Iterable[ObservationDelivery[Any]] = (),
+        schedule: RunSchedule = EMPTY_SCHEDULE,
+        execution: ExecutionPlan | None = None,
+        queue: QueueModel | None = None,
     ) -> ReplayResult | PausedReplay: ...
 
     @staticmethod
@@ -284,6 +328,10 @@ class ReplayBacktest:
         context_factory: ContextFactory,
         *,
         pause_when: Callable[[ReplayProgress], bool] | None = None,
+        observations: Iterable[ObservationDelivery[Any]] = (),
+        schedule: RunSchedule = EMPTY_SCHEDULE,
+        execution: ExecutionPlan | None = None,
+        queue: QueueModel | None = None,
     ) -> ReplayResult | PausedReplay:
         """Replay ``dataset`` through the execution path, to its end or to a pause.
 
@@ -299,8 +347,27 @@ class ReplayBacktest:
         of the replay's streams; an exception it raises propagates, and the
         replay is not paused. Without it, or once the last record has been
         taken, the replay finishes and returns its :class:`ReplayResult`.
+
+        ``observations`` and ``schedule`` (v4.1.1) are applied exactly as
+        :meth:`BacktestEngine.run <alphalab.backtesting.engine.BacktestEngine.run>`
+        applies them -- each input at its instant, by
+        :class:`~alphalab.backtesting.schedule.ScheduleCursor` -- so a replay of
+        a strategy that acts on external information, settles a second
+        currency, reacts to timers or holds a contract to its settlement equals
+        the backtest of it.
+
+        ``execution`` (v4.1.1, ledger FUT-009) works every order in children, as
+        :meth:`BacktestEngine.run <alphalab.backtesting.engine.BacktestEngine.run>`
+        does; a pause keeps the book, and a resume continues every algorithm.
+
+        ``queue`` (v4.1.1, ledger FUT-011) governs resting limit orders by a
+        queue model, as :meth:`BacktestEngine.run
+        <alphalab.backtesting.engine.BacktestEngine.run>` does; a pause keeps
+        every order's place, and a resume continues from it.
         """
 
+        config, book = algorithmic_run(config, execution, ExecutionMode.REPLAY)
+        queued = queued_run(config, queue)
         cursor_ids = id_source(cursor_seed(config.seed))
 
         with use_id_source(cursor_ids):
@@ -311,7 +378,17 @@ class ReplayBacktest:
                 initialize(replace(config, mode=ExecutionMode.REPLAY), strategy_state),
                 source_id=dataset.dataset_id,
             )
-            return _drive(state, replay, cursor_ids, context_factory, pause_when, resumed=False)
+            return _drive(
+                state,
+                replay,
+                cursor_ids,
+                context_factory,
+                pause_when,
+                schedule.with_observations(observations),
+                book,
+                queued,
+                resumed=False,
+            )
 
     @overload
     @staticmethod
@@ -351,14 +428,25 @@ class ReplayBacktest:
 
         A paused replay from :func:`~alphalab.backtesting.replay_snapshot.restore`
         has been checked against the dataset and the live objects it is given;
-        this does not check them again.
+        this does not check them again. Its schedule continues from the last
+        record it took (:meth:`~alphalab.backtesting.schedule.ScheduleCursor.start`).
         """
 
         cursor_ids = RunEngine.id_source_at(paused.cursor_position)
         with RunEngine.resume(paused.run):
             with use_id_source(cursor_ids):
                 replay = ReplayEngine.resume(paused.cursor, float(paused.cursor.current_index))
-            return _drive(paused.run, replay, cursor_ids, context_factory, pause_when, resumed=True)
+            return _drive(
+                paused.run,
+                replay,
+                cursor_ids,
+                context_factory,
+                pause_when,
+                paused.schedule,
+                paused.algorithms,
+                paused.queue,
+                resumed=True,
+            )
 
 
 def _drive(
@@ -367,6 +455,9 @@ def _drive(
     cursor_ids: Callable[[], str] | None,
     context_factory: ContextFactory,
     pause_when: Callable[[ReplayProgress], bool] | None,
+    schedule: RunSchedule,
+    book: AlgorithmBook | None,
+    queue: QueueBook | None,
     *,
     resumed: bool,
 ) -> ReplayResult | PausedReplay:
@@ -374,6 +465,11 @@ def _drive(
 
     Called inside the run's identifier scope. The cursor's stream is installed
     around each cursor transition only, so the two streams never mix.
+    ``schedule`` is applied by the backtest's own cursor, record by record,
+    started where the last record the cursor took leaves it; ``book`` works
+    every parent at its asset's events, after the run's step at each, as the
+    backtest does; ``queue`` is threaded through each step, as the backtest
+    threads it.
     """
 
     total = len(replay.events)
@@ -387,6 +483,9 @@ def _drive(
                 f"Replay holds {type(previous).__name__}, not a MarketRecord"
             )
         last = previous
+    # What of the schedule the replay has applied follows from the last record
+    # it took, processed or skipped -- see alphalab.backtesting.schedule.
+    inputs = ScheduleCursor.start(schedule, None if last is None else last.timestamp)
     ask = not resumed
 
     while True:
@@ -405,7 +504,10 @@ def _drive(
                 with use_id_source(cursor_ids):
                     paused = ReplayEngine.pause(replay, float(replayed))
                     position = current_id_position()
-                return PausedReplay(state, paused, position)
+                if queue is not None:
+                    working = (str(oid.value) for oid in state.pipeline.oms.active_orders)
+                    queue = queue.keeping(working)
+                return PausedReplay(state, paused, position, schedule, book, queue)
         ask = True
 
         with use_id_source(cursor_ids):
@@ -422,8 +524,15 @@ def _drive(
             raise UnsupportedRecordError(
                 f"Replay yielded {type(record).__name__}, not a MarketRecord"
             )
-        state = close_slice(state, context_factory, before=record.timestamp)
-        state, _ = advance(state, record, context_factory)
+        inputs, state = inputs.before(state, record.timestamp, context_factory)
+        state = RunEngine.close_slice(state, context_factory, inputs.rates, before=record.timestamp)
+        state, result = RunEngine.advance(
+            state, record, context_factory, rates=inputs.rates, queue=queue
+        )
+        if result is not None and result.queue is not None:
+            queue = result.queue
+        if book is not None and result is not None:
+            book, state = work_children(book, state, result.market_event, inputs.rates)
         # The cursor's lifecycle log is an audit trail like any subsystem's, and
         # a declared retention bounds it as it bounds theirs (v4.1): until then
         # a replay kept one ReplayAdvanced per record whatever the run declared.
@@ -432,10 +541,19 @@ def _drive(
             replay = replace(replay, system_events=kept)
         last = record
         replayed += 1
-    state = close_slice(state, context_factory)
+    inputs, state = inputs.finish(state, context_factory, None if last is None else last.timestamp)
+    state = RunEngine.close_slice(state, context_factory, inputs.rates)
+    backtest: BacktestResult
+    if queue is not None:
+        backtest = queued_result(state, queue)
+    elif book is None:
+        backtest = finalize(state)
+    else:
+        book, state = finish_children(book, state)
+        backtest = AlgorithmicResult(run=RunEngine.finalize(state), algorithms=book)
 
     return ReplayResult(
-        backtest=finalize(state),
+        backtest=backtest,
         replay_status=replay.status.name,
         records_replayed=replayed,
         last_record=last,

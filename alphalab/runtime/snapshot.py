@@ -176,6 +176,7 @@ from alphalab.risk.events import (
     BuyingPowerUpdated,
     DrawdownTriggered,
     ExposureUpdated,
+    MarginCall,
     MarginUpdated,
     RiskApproved,
     RiskCheckStarted,
@@ -210,7 +211,14 @@ from alphalab.runtime.execution_pipeline import (
     _require_one_account_currency,
 )
 from alphalab.runtime.retention import RetentionPolicy
+from alphalab.strategy.configuration import (
+    StrategyConfigurationError,
+    declared_configuration,
+    decode_configuration,
+)
 from alphalab.strategy.events import (
+    CancelRefused,
+    ExerciseRefused,
     FillEvent,
     LifecycleTransitioned,
     OrderEvent,
@@ -811,7 +819,16 @@ _MARKET_EVENTS: Mapping[str, type[MarketEvent]] = _types(
     QuoteReceived, TickReceived, TradeReceived, BarClosed, BookUpdated, SnapshotCreated
 )
 _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
-    LifecycleTransitioned, FillEvent, OrderEvent, TimerEvent, SliceClosed
+    LifecycleTransitioned,
+    FillEvent,
+    OrderEvent,
+    TimerEvent,
+    SliceClosed,
+    # v4.2.0 (ledger FUT-014): written only by a run whose strategy asked for an
+    # exercise the run refused, so no earlier payload holds one.
+    ExerciseRefused,
+    # v4.2.0: written only by a run whose strategy's cancel left an order working.
+    CancelRefused,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -821,6 +838,9 @@ _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     ExposureUpdated,
     BuyingPowerUpdated,
     DrawdownTriggered,
+    # v4.2.0 (ledger FUT-017): written only by a run holding margined positions
+    # that fell below maintenance, so no earlier payload holds one.
+    MarginCall,
 )
 _EXECUTION_EVENTS: Mapping[str, type[ExecutionEvent]] = _types(
     ExecutionSubmitted,
@@ -1457,6 +1477,27 @@ def _restore_state(record: StrategyRecord, instance: object) -> None:
         ) from exc
 
 
+def _restore_configuration(record: StrategyRecord, instance: object) -> Any:
+    """The strategy's configuration, as its declared type when it declares one (FUT-002).
+
+    The payload holds what the encoder wrote, as it always has; a strategy whose
+    class declares ``configuration_type`` reads it back as that type -- see
+    :mod:`alphalab.strategy.configuration` -- and one that declares nothing
+    reads it back as JSON reads it (LIM-004).
+    """
+
+    declared = declared_configuration(instance)
+    if declared is None:
+        return record.config
+    try:
+        return decode_configuration(record.config, declared, f"{record.strategy_id} config")
+    except StrategyConfigurationError as refused:
+        raise StateDecodeError(
+            f"The configuration recorded for strategy {record.strategy_id!r} is not of the "
+            f"type its class declares: {refused}"
+        ) from refused
+
+
 def _restore_strategies(
     records: tuple[StrategyRecord, ...],
     events: tuple[StrategyEventRecord, ...],
@@ -1476,7 +1517,7 @@ def _restore_strategies(
             strategy_id=record.strategy_id,
             status=record.status,
             instance=instance,
-            config=record.config,
+            config=_restore_configuration(record, instance),
             subscriptions=frozenset(record.subscriptions),
             last_error=record.last_error,
             started=record.started,
@@ -2153,6 +2194,7 @@ _STRATEGY_FIELDS: Mapping[str, Any] = {
     "quantity": as_optional_decimal,
     "filled_quantity": as_optional_decimal,
     "assets": _assets,
+    "contracts": as_decimal,
 }
 _RISK_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,
@@ -2164,6 +2206,11 @@ _RISK_FIELDS: Mapping[str, Any] = {
     "buying_power": as_decimal,
     "current_drawdown": as_decimal,
     "max_drawdown": as_decimal,
+    "equity": as_decimal,
+    "initial_requirement": as_decimal,
+    "maintenance_requirement": as_decimal,
+    "deficit": as_decimal,
+    "orders": _assets,
 }
 _EXECUTION_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,

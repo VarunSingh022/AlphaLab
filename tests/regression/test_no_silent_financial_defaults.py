@@ -95,6 +95,9 @@ _RECORDED_RATE = (
 PERMITTED: dict[tuple[str, str], str] = {
     # The empty table, not a rate. Every consumer refuses when it needs one.
     ("*", "rates"): "NO_RATES is the absence of rates, which is what refuses",
+    # A schedule's funding rates, empty when none is stated: nothing is charged
+    # without a stated rate, and a stated one without a mark is refused.
+    ("RunSchedule.of", "funding_rates"): "no funding rate stated, so none is charged",
     # ADR-0027: classification provenance defaults to the operator, which is a
     # named constant meaning "a person did this", not an invented source.
     ("classify_instrument", "source"): "OPERATOR is a named principal, not a source",

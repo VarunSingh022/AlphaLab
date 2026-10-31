@@ -63,6 +63,7 @@ naming an instrument the run never priced produces no orders -- which is the
 v2.6 behaviour, and detecting it is not v2.7 work.
 """
 
+from alphalab.instrument.borrow import BorrowAvailability, BorrowTerms
 from alphalab.instrument.classification import (
     OPERATOR,
     SECTOR,
@@ -89,6 +90,7 @@ from alphalab.instrument.identity import (
     canonical_instrument_key,
     derive_asset_id,
 )
+from alphalab.instrument.margin import MarginBasis, MarginTerms
 from alphalab.instrument.record import (
     DatedAlias,
     InstrumentRecord,
@@ -112,6 +114,15 @@ from alphalab.instrument.registry import (
     register_instruments,
     sector_as_of,
 )
+from alphalab.instrument.terms import (
+    AutomaticExercise,
+    CashInLieu,
+    ContractTerms,
+    Deliverable,
+    FutureTerms,
+    OptionTerms,
+    TermsAdjustment,
+)
 
 __all__ = [
     "ALPHALAB_INSTRUMENT_NAMESPACE",
@@ -119,18 +130,29 @@ __all__ = [
     "INSTRUMENT_KEY_SCHEME",
     "OPERATOR",
     "SECTOR",
+    "AutomaticExercise",
+    "BorrowAvailability",
+    "BorrowTerms",
+    "CashInLieu",
     "ClassificationHistory",
+    "ContractTerms",
     "DatedAlias",
+    "Deliverable",
     "DimensionClassification",
     "DimensionHistory",
+    "FutureTerms",
     "InstrumentEconomics",
     "InstrumentError",
     "InstrumentInputError",
     "InstrumentRecord",
     "InstrumentRegistrationError",
     "InstrumentRegistry",
+    "MarginBasis",
+    "MarginTerms",
+    "OptionTerms",
     "SectorClassification",
     "SettlementModel",
+    "TermsAdjustment",
     "canonical_instrument_key",
     "classification_history",
     "classification_of",

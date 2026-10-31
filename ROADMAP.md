@@ -159,6 +159,88 @@ names what the release established and the ADR that records the decision.
 - **The contract an application builds on, checked against the artifact**:
   `tests/consumer_contract.py` runs inside every installed wheel and sdist.
 
+## v4.2.0 (in development: the v4.1.1 future-readiness program, its number approved by the maintainer; not yet published)
+
+- **One schedule for every timed input** (FUT-004): `alphalab.backtesting.schedule`
+  -- rates, funding, cash flows, per-unit dividends and coupons, perpetual funding
+  rates, splits, timers and contract settlements -- applied by `BacktestEngine.run`,
+  `ReplayBacktest.run` and the facade at each input's instant.
+- **External information on every driver** (OFE-027) and **several datasets in
+  one run** (OFE-028).
+- **A paused replay with information outstanding, kept durably** (FUT-003):
+  replay schema 2.
+- **Contract expiry and cash settlement** (FUT-012) and **bonds** (FUT-010):
+  `InstrumentRecord.last_trade_at`, `ContractSettlement`, `AssetType.BOND`,
+  `alphalab.api.bond_schedule`.
+- **The schedule in a run's manifest** (FUT-005), **the macro engine's series as
+  observations** (FUT-008), and **features and a fitted model on the execution
+  path, evidenced** (FUT-006, FUT-007; examples 72 and 73).
+- **`context.market.bar` returns the bar** (KD-005; broken since v2.10).
+- **Execution algorithms on the historical drivers** (FUT-009):
+  `alphalab.backtesting.algorithmic.ExecutionPlan` on `BacktestEngine.run`,
+  `ReplayBacktest.run` and the facade -- each parent held by the OMS and worked in
+  children at its asset's events, every child filled by the run's own fill policy
+  and cost model and settled on the parent; TWAP, VWAP, slicing, iceberg and
+  participation (example 74).
+- **A derivative's whole lifecycle, declared** (FUT-013): `InstrumentRecord.terms`
+  -- `OptionTerms` (American or European, cash or physical, a deliverable in any
+  quantity, an automatic-exercise rule) and `FutureTerms` (cash or physical
+  delivery) -- carried out by `Exercise`, `Assignment` and `OptionExpiry` on the
+  run's schedule through the portfolio's fill authority; `AssetType.INDEX`;
+  lifecycle instants from a declared market calendar (`session_close`,
+  `settles_at`); example 75.
+- **A queue model for resting limit orders** (the audit's queue-position
+  proposal): `alphalab.execution.queue.PriceTimeQueue` on `BacktestEngine.run`,
+  `ReplayBacktest.run` and the facade (`queue=`) -- each resting limit order keeps
+  its place at its price level from the quote, the signed prints and the bar's
+  range, and fills only as far as reached the front, through the run's own fill
+  policy, costs and books; named in the result's execution assumptions and the
+  run's manifest, kept by a paused replay. Price-time priority over displayed
+  liquidity only: pro-rata books, hidden liquidity and a fill probability are
+  other models of the same protocol.
+- **A strategy exercises its own options from its hooks** (FUT-014): a hook
+  returns `Intent(kind=IntentKind.EXERCISE, ...)`, carried out at the end of the
+  step that asked, at its instant, through the checks a scheduled exercise
+  passes, against the strategy's own contracts; a cash contract settles against
+  the last observed underlying price; a refusal is a recorded `ExerciseRefused`.
+- **Richer contract terms** (FUT-016): baskets and a cash component, cash in
+  lieu of fractions, a consideration in another currency (at the run's rate, or a
+  quanto contract's fixed one), Bermudan windows, and adjusted terms from a
+  declared instant -- a split's, checked against the split, and a merger's.
+- **Settlement-date accounting** (FUT-015): an instrument declares its T+n rule;
+  each fill is booked with its settlement instant by the venue's calendar, and a
+  sale's proceeds stay out of buying power until they settle
+  (`PortfolioEngine.cash_position`: trade-date, settled and available cash).
+- **Margin calls and forced liquidation** (FUT-017): an instrument declares its
+  margin terms -- a rate of value or an amount per contract, initial and
+  maintenance, a collateral haircut and a liquidation priority; after every
+  market step an account below maintenance is called (`MarginCall`) and
+  liquidated through allocation, risk and the OMS at prices the market shows;
+  orders growing a margined position are held to the initial requirement, and a
+  margined future spends its margin of buying power, not its notional; a
+  delivery the cash cannot pay is financed only when its deliverables declare
+  margin terms. Buying on margin and a debit's interest are FUT-018, delivered
+  below; portfolio margin is FUT-019.
+- **A strategy withdraws its own working orders** (EXE-012, the global gap
+  audit): `Intent(kind=IntentKind.CANCEL)` withdraws every order the strategy
+  alone has working in an instrument, after the event's fills and before the
+  batch's orders, so a cancel and a new limit replace a quote; an order netted
+  with another strategy's, or worked by an execution plan, is left working and
+  recorded as a `CancelRefused`.
+- **Financing and short borrow** (FUT-018): an instrument may allow a purchase
+  on margin, spending its initial requirement of buying power and financing the
+  rest; a `ScheduledInterest` charges a period's declared tiers on a currency's
+  balance by its day count, trade-date or settled; an instrument declares dated
+  borrow availability and fees, a short beyond what is available is refused, and
+  a `ScheduledBorrowFee` charges each short the fee in effect.
+- **A strategy configuration that reads back typed** (FUT-002): a strategy class
+  declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
+  only with a value of that type and reads it back as that type after a restore
+  -- `Decimal`, tuples, enums, `UUID`, typed mapping keys, dataclasses rebuilt
+  through their constructors with their defaults and constraints -- with the
+  payload, and so every run's identity, unchanged. An undeclared configuration
+  reads back as JSON reads it (LIM-004), as before.
+
 # Deliberate boundaries
 
 Not built, on purpose. Each has a reason, and most have a regression test that a
@@ -473,7 +555,14 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   v4.1 states that as a tested contract (`docs/STATE_MODEL.md`). Nothing on the
   execution path reads the value, and a run's identities are the same before and
   after a restore; durable strategy state goes through `StrategyStateProtocol`,
-  which round-trips exactly. A lossless typed form is FUT-002, below.
+  which round-trips exactly. Since the v4.2.0 candidate a strategy that declares
+  its configuration's type reads it back typed (FUT-002, above); one that
+  declares nothing reads back as stated here.
+- **An insolvent run compiles no analytics** (LIM-008): a run whose net asset
+  value falls below zero -- reachable through a financed delivery or a short
+  bought back past its cash -- is refused by analytics, whose returns on negative
+  capital are undefined; such a run sets `RunConfig.compile_analytics=False` and
+  keeps its books, fills, margin calls and equity, which state the insolvency.
 - **Transcendental functions in the standalone engines** (LIM-005): since v4.1 a
   run's record -- and so its `result_id` -- is host-independent: money is
   `Decimal`, and every float a run records comes from `+ - * /`, `sqrt`, `fsum`
@@ -502,25 +591,51 @@ Accepted for a later release, each with what it is not yet, what happens in the
 meantime and what closes it. `tests/regression/test_nothing_is_left_for_later.py`
 holds this list to the ledger: an entry may be left for later only here.
 
-## FUT-002 — a strategy configuration that reads back typed (target v5.0, pending the maintainer's decision)
+The program's entries were proposed by the v4.1.1 future-readiness audit
+(`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
+horizon, is the maintainer's decision. The candidate itself delivered the rest
+of what the audit proposed (section *v4.2.0*, above); FUT-019 is what the margin
+milestone found beyond its scope, and FUT-020 and FUT-021 what the v4.2.0 global
+gap audit found.
 
-- **Limitation.** `restore(capture(s)) == s` does not hold for a strategy whose
-  `configure` value holds a `Decimal`, a tuple, a non-string mapping key, an
-  enum, a `UUID` or a dataclass: each reads back in the converted form
-  `docs/STATE_MODEL.md` states (LIM-004).
-- **Interim behaviour.** The conversion is exact and tested
-  (`tests/regression/test_strategy_configuration_contract.py`); nothing on the
-  execution path reads the value; identities are unaffected. Keep durable
-  strategy parameters in `StrategyStateProtocol` state, which round-trips
-  exactly, or configure with JSON-native values.
-- **Why not in 4.x.** A typed form changes the pipeline payload and so every
-  run's `result_id`, which `docs/api/PUBLIC_API.md`'s stability policy does not
-  let a minor release do. Taking it in 5.0, or as a stated 4.x exception, is the
-  maintainer's decision.
-- **Acceptance criteria.** `restore(capture(s)) == s` for every value the
-  contract converts; every earlier payload read as it reads today; a migration
-  row for the identity change; the ledger entry closed.
-- **Dependencies.** A pipeline schema step, and frozen v4.x payloads.
+## FUT-019 — portfolio and risk-based margin (target v5.0)
+
+- **Limitation.** Margin is each position's declared requirement, summed, with
+  no offsets; the risk gate's `MarginLimit` stays a configured gross-notional cap.
+- **Interim behaviour.** Declare per-instrument terms at the stricter of the
+  venue's requirements, and set `MarginLimit` to the leverage intended.
+- **Acceptance criteria.** A declared margin-model protocol, the per-position sum
+  its default, read by the margin check, liquidation sizing and the pre-trade
+  check; offsets by a declared scenario set; the gate's margin figure taken from
+  it; recorded, replayable, and a run declaring none unchanged.
+  **Dependencies.** margin terms and the margin lifecycle, delivered in v4.2.0.
+
+## FUT-020 — venue price limits and trading halts (target v4.3)
+
+- **Limitation.** A venue's daily price limits, collars and halts are not
+  declared conventions: an order fills at whatever an event shows, and a halt is
+  only missing data.
+- **Interim behaviour.** Fill against sized quotes with a liquidity-capped
+  policy, so a locked market's absent size fills nothing; exclude halted
+  intervals from the data.
+- **Acceptance criteria.** A venue declares its limit rule and halts as dated
+  inputs; an order beyond a limit refused or capped by the rule, a locked market
+  filling only what the event shows, a halted instrument's orders resting;
+  recorded, replayable, and a run declaring none unchanged.
+  **Dependencies.** none.
+
+## FUT-021 — holding exchanges: mergers, spin-offs, rights (target v4.3)
+
+- **Limitation.** A corporate action that exchanges a held position for other
+  instruments is not booked as one event; it is the caller's sale and purchase.
+- **Interim behaviour.** A stock dividend is a split; a cash part is a scheduled
+  `CashFlow`; a true exchange is stated as the caller's trades.
+- **Acceptance criteria.** A declared exchange (ratios, a cash part, the cost
+  basis apportioned by a declared rule) applied to every holding and each
+  strategy's share at its instant, working orders handled as for a split, a
+  contract delivering the old instrument refused unless adjusted; recorded,
+  replayable, and a run declaring none unchanged.
+  **Dependencies.** adjusted contract terms, delivered in v4.2.0.
 
 ---
 

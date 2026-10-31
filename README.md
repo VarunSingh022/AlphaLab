@@ -7,7 +7,7 @@
 **Deterministic • Immutable • Fully typed • Zero runtime dependencies**
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)]()
-[![Version](https://img.shields.io/badge/Version-4.1.0-blue)]()
+[![Version](https://img.shields.io/badge/Version-4.2.0-blue)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)]()
 [![Typing](https://img.shields.io/badge/MyPy-Strict-blue)]()
 [![Style](https://img.shields.io/badge/Ruff-Clean-red)]()
@@ -45,16 +45,16 @@ It exists to answer the questions that decide whether a backtest means anything:
 
 # Release Status
 
-**Current Release:** **v4.1.0 — a replay that pauses and resumes durably to the identical result, CPython 3.12 to 3.14 on Linux and macOS, run identities that no longer depend on the host, and release verification fixed at its root -- additive on the v4.0 contract**
+**Current Release:** **v4.2.0 (development target, not yet published; the published tag is v4.1.0) — every timed input on every driver, several datasets in one run, contracts declared and carried through exercise, assignment, expiry and delivery, execution algorithms and a queue model on the historical drivers, typed strategy configuration -- additive on the v4.0 contract**
 
 | Metric | Status |
 |---------|--------|
 | Python | CPython 3.12, 3.13, 3.14 (Linux, macOS) |
-| Version | 4.1.0 |
+| Version | 4.2.0 |
 | Runtime dependencies | **None** (standard library only) |
 | Tests | **9,672 passing, 0 skipped, 0 warnings** (each of CPython 3.12, 3.13, 3.14) |
 | Static typing | **Strict mypy**, repository-wide |
-| Examples | **71 / 71** |
+| Examples | **75 / 75** |
 | Release certificate | [11 / 11 checks](docs/audit/RELEASE_CERTIFICATION.md) |
 | License | MIT |
 

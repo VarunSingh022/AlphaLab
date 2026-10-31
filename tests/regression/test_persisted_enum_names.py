@@ -37,6 +37,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 #: Every plain enum a decoder reads, by where it is defined: its member names.
 NAMED: dict[str, tuple[str, ...]] = {
+    # v4.2.0 (ledger FUT-018): an instrument's borrow terms, by their day count.
+    "alphalab.conventions.daycount.DayCount": ("ACT_365_FIXED", "ACT_360", "THIRTY_360_US"),
+    # v4.2.0 (ledger FUT-017): an instrument's margin terms, by their basis.
+    "alphalab.instrument.margin.MarginBasis": ("VALUE_RATE", "PER_CONTRACT"),
+    # v4.1.1 (ledger FUT-013), found by the v4.2.0 scanner, which reads
+    # terms_from_primitives: an option's declared terms, by name.
+    "alphalab.options.enums.ExerciseStyle": ("AMERICAN", "EUROPEAN", "BERMUDAN"),
+    "alphalab.options.enums.OptionType": ("CALL", "PUT"),
+    "alphalab.options.expiration.SettlementStyle": ("PHYSICAL", "CASH"),
+    # v4.2.0 (ledger FUT-015): an instrument's settlement rule, by its basis.
+    "alphalab.conventions.settlement.SettlementBasis": (
+        "TRADE_DATE",
+        "TRADING_DAYS",
+        "CALENDAR_DAYS",
+    ),
     "alphalab.broker.order.BrokerOrderStatus": ("PENDING_SUBMIT", "SUBMITTED", "PENDING_CANCEL"),
     "alphalab.broker.reconciliation.ExecutionOutcome": (
         "APPLIED",
@@ -77,7 +92,11 @@ NAMED: dict[str, tuple[str, ...]] = {
         "VARIATION_MARGIN",
         "FUNDING",
     ),
-    "alphalab.runtime.execution_pipeline.ExecutionRouting": ("SIMULATED", "EXTERNAL"),
+    "alphalab.runtime.execution_pipeline.ExecutionRouting": (
+        "SIMULATED",
+        "EXTERNAL",
+        "ALGORITHMIC",
+    ),
     "alphalab.runtime.execution_pipeline.UnpricedReason": (
         "NO_PRICE_OBSERVED",
         "NOT_REGISTERED",
@@ -102,6 +121,25 @@ NAMED: dict[str, tuple[str, ...]] = {
 
 #: Every enum written by value that a decoder reads: its values.
 VALUES: dict[str, tuple[str, ...]] = {
+    # v3.11 (ledger ACC-005), found by the v4.2.0 scanner, which reads
+    # economics_from_primitives: how a position turns into cash.
+    "alphalab.conventions.economics.SettlementModel": (
+        "cash_equity",
+        "futures_variation",
+        "option_premium",
+        "perpetual",
+    ),
+    # v4.1.1 (ledger FUT-009), found by the v4.2.0 scanner, which reads
+    # book_from_primitives: a working algorithm's state and policies.
+    "alphalab.execution.algorithms.AlgorithmStatus": (
+        "working",
+        "completed",
+        "cancelled",
+        "expired",
+        "failed",
+    ),
+    "alphalab.execution.algorithms.IncompletePolicy": ("leave_unfilled", "complete_at_end"),
+    "alphalab.execution.algorithms.MissingVolumePolicy": ("refuse", "time_weighted"),
     "alphalab.analytics.report.Periodicity": ("DECLARED", "OBSERVED", "UNDEFINED", "ASSUMED"),
     "alphalab.common.order_terms.OrderType": ("market", "limit", "stop", "stop_limit"),
     "alphalab.common.order_terms.TimeInForce": (
@@ -113,7 +151,18 @@ VALUES: dict[str, tuple[str, ...]] = {
         "at_the_opening",
         "at_the_close",
     ),
-    "alphalab.core.enums.AssetType": ("equity", "future", "option", "forex", "crypto", "cash"),
+    # v4.1.1 added "bond" (ledger FUT-010) and "index" (FUT-013), last, so no
+    # written value moved.
+    "alphalab.core.enums.AssetType": (
+        "equity",
+        "future",
+        "option",
+        "forex",
+        "crypto",
+        "cash",
+        "bond",
+        "index",
+    ),
     "alphalab.core.enums.OrderStatus": (
         "new",
         "pending",
@@ -149,6 +198,10 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "TradeReceived",
     ),
     "alphalab.runtime.snapshot._STRATEGY_EVENTS": (
+        # v4.2.0: written only when a strategy's cancel leaves an order working.
+        "CancelRefused",
+        # v4.2.0 (FUT-014): written only when a strategy's exercise is refused.
+        "ExerciseRefused",
         "FillEvent",
         "LifecycleTransitioned",
         "OrderEvent",
@@ -159,6 +212,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "BuyingPowerUpdated",
         "DrawdownTriggered",
         "ExposureUpdated",
+        # v4.2.0 (ledger FUT-017): a margin call and the liquidation it placed.
+        "MarginCall",
         "MarginUpdated",
         "RiskApproved",
         "RiskCheckStarted",
@@ -228,17 +283,81 @@ def _resolve(qualified: str) -> object:
     return getattr(importlib.import_module(module), name)
 
 
+def is_decoder(name: str) -> bool:
+    """Whether a function is one of the persistence layer's decoders, by its name.
+
+    The decoding architecture names every decoder for what it reads: a
+    snapshot's ``from_primitives``, or a part's ``<part>_from_primitives``
+    (``terms_from_primitives``, ``margin_from_primitives``), and the
+    ``restore`` -- ``restore_<part>``, ``<part>_restore`` -- that turns a
+    decoded snapshot into live objects, where some payloads' names are read.
+    Until v4.2.0 a module counted only when its text held ``def
+    from_primitives``, so ``terms_from_primitives`` (FUT-013),
+    ``economics_from_primitives`` (ACC-005), ``book_from_primitives`` (FUT-009)
+    and ``margin_from_primitives`` (FUT-017) read enums no table pinned.
+    """
+
+    return (
+        name in ("from_primitives", "restore")
+        or name.endswith(("_from_primitives", "_restore"))
+        or name.startswith("restore_")
+    )
+
+
+def decoded_names(tree: ast.Module) -> set[str]:
+    """Every name a module's decoders read: their own bodies, what they reach, and its tables.
+
+    From each decoder, the module's functions and methods it names are followed,
+    as are the module-level tables (``_RISK_EVENTS = {...}``) it reads, so an
+    enum read by a helper or through a table is found. A module with no decoder
+    reads nothing; an enum the module uses elsewhere -- to validate, to route --
+    is not a format name and is not reported.
+    """
+
+    functions: dict[str, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            functions.setdefault(node.name, []).append(node)
+    tables: dict[str, ast.AST] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    tables[target.id] = node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            tables[node.target.id] = node.value
+    pending = [f for name, found in functions.items() if is_decoder(name) for f in found]
+    seen: set[int] = set()
+    names: set[str] = set()
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name):
+                names.add(child.id)
+                pending.extend(functions.get(child.id, ()))
+                if child.id in tables:
+                    pending.append(tables[child.id])
+            elif isinstance(child, ast.Attribute):
+                pending.extend(functions.get(child.attr, ()))
+    return names
+
+
 def _decoder_enums() -> set[str]:
-    """Every enum a module that decodes a snapshot refers to, by where it is defined."""
+    """Every enum the package's decoders read, by where it is defined."""
 
     found: set[str] = set()
     for path in sorted((ROOT / "alphalab").rglob("*.py")):
-        text = path.read_text(encoding="utf-8")
-        if "def from_primitives" not in text:
+        names = decoded_names(ast.parse(path.read_text(encoding="utf-8")))
+        if not names:
             continue
         module = importlib.import_module(".".join(path.relative_to(ROOT).with_suffix("").parts))
-        tree = ast.parse(text)
-        names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
         for name in names:
             value = getattr(module, name, None)
             if (
@@ -248,6 +367,52 @@ def _decoder_enums() -> set[str]:
             ):
                 found.add(f"{value.__module__}.{value.__qualname__}")
     return found
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "from_primitives",
+        "margin_from_primitives",
+        "terms_from_primitives",
+        "_legs_from_primitives",  # a private part decoder
+        "restore",
+        "restore_checkpoints",
+        "venue_restore",
+    ],
+)
+def test_a_decoder_is_recognised_by_every_name_the_architecture_gives_one(name: str) -> None:
+    assert is_decoder(name)
+
+
+@pytest.mark.parametrize("name", ["to_primitives", "margin_to_primitives", "restored", "decode"])
+def test_an_encoder_or_another_function_is_not_a_decoder(name: str) -> None:
+    assert not is_decoder(name)
+
+
+def test_an_enum_read_by_a_decoders_helper_or_table_is_found_and_one_used_elsewhere_is_not() -> (
+    None
+):
+    tree = ast.parse(
+        "TABLE = {'X': Through}\n"
+        "def basis_from_primitives(value):\n"
+        "    return _read(value), TABLE\n"
+        "def _read(value):\n"
+        "    return Helped[value]\n"
+        "class Snapshot:\n"
+        "    @classmethod\n"
+        "    def from_primitives(cls, value):\n"
+        "        return cls._decode(value)\n"
+        "    @staticmethod\n"
+        "    def _decode(value):\n"
+        "        return Method(value)\n"
+        "def validate(value):\n"
+        "    return Elsewhere[value]\n"
+    )
+    names = decoded_names(tree)
+    assert {"Helped", "Through", "Method"} <= names
+    assert "Elsewhere" not in names
+    assert decoded_names(ast.parse("def to_primitives(v):\n    return Unread[v]\n")) == set()
 
 
 def test_every_enum_a_decoder_reads_is_pinned() -> None:

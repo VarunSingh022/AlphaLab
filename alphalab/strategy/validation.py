@@ -64,3 +64,43 @@ def validate_intent(intent: Intent) -> None:
         raise InvalidIntentError(
             f"Intent terms must be OrderTerms, got {type(intent.terms).__name__}."
         )
+    if intent.kind is IntentKind.EXERCISE:
+        _require_exercise(intent)
+    if intent.kind is IntentKind.CANCEL:
+        _require_cancel(intent)
+
+
+def _require_cancel(intent: Intent) -> None:
+    """A cancel instruction names an instrument and nothing an order would."""
+
+    if intent.target != _ZERO:
+        raise InvalidIntentError(
+            f"A cancel intent withdraws the strategy's working orders and sizes nothing: its "
+            f"target must be 0, got {intent.target}."
+        )
+    if intent.strength != _ONE:
+        raise InvalidIntentError(f"A cancel intent's strength must be 1, got {intent.strength}.")
+    if intent.terms != OrderTerms():
+        raise InvalidIntentError(
+            "A cancel intent is not an order and states no order terms; leave terms at the default."
+        )
+
+
+def _require_exercise(intent: Intent) -> None:
+    """An exercise instruction names whole contracts and nothing an order would (FUT-014)."""
+
+    contracts = intent.target
+    if contracts <= _ZERO or contracts != contracts.to_integral_value():
+        raise InvalidIntentError(
+            f"An exercise intent's target is the whole number of contracts to exercise, "
+            f"got {contracts}."
+        )
+    if intent.strength != _ONE:
+        raise InvalidIntentError(
+            f"An exercise intent is exercised whole: its strength must be 1, got {intent.strength}."
+        )
+    if intent.terms != OrderTerms():
+        raise InvalidIntentError(
+            "An exercise intent is not an order and states no order terms; leave terms at the "
+            "default."
+        )

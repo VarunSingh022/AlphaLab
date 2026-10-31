@@ -53,6 +53,15 @@ class AssetType(StrEnum):
     FOREX = "forex"
     CRYPTO = "crypto"
     CASH = "cash"
+    #: v4.1.1 (ledger FUT-010): a fixed-income instrument. Declares its
+    #: economics -- a unit's multiplier on the quoted price -- and its maturity
+    #: as its last trading instant; redeemed by a contract settlement.
+    BOND = "bond"
+    #: v4.1.1 (ledger FUT-013): a reference value -- a benchmark index level a
+    #: cash-settled contract settles against. Valued one unit of price per
+    #: point unless it declares otherwise, and never traded: a request in it is
+    #: refused before an order exists.
+    INDEX = "index"
 
 
 @unique

@@ -131,6 +131,46 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ("0050", "A paused replay's checkpoint is a whole capture"): "LIM-006",
     ("0050", "Windows is untested"): "BDY-027",
     ("0050", "a strategy configuration that reads back typed"): "FUT-002",
+    # ADR-0051, the v4.1.1 candidate: information on every driver, the capability audit.
+    ("0051", "A bond's accrued interest is carried by its price"): "FUT-010",
+    ("0051", "A feature evaluated inside a strategy recomputes its window"): "FUT-006",
+    ("0051", "A run's record names its last delivery, not its schedule"): "FUT-005",
+    ("0051", "A child's fill reaches its strategy through the portfolio, not `on_fill`"): "FUT-009",
+    ("0051", "Participation that completes after its window is refused"): "FUT-009",
+    ("0051", "A child is checked against the venue's declaration, not by risk again"): "FUT-009",
+    ("0051", "An algorithm is assigned per asset, not per strategy"): "FUT-009",
+    # FUT-011 delivered a queue model in the candidate; ADR-0051 now states what
+    # it does not model, which the ledger entry states too.
+    ("0051", "The queue model reads the displayed top of the book"): "FUT-011",
+    ("0051", "An undeclared configuration reads back as JSON reads it"): "LIM-004",
+    (
+        "0051",
+        "A strategy's exercise takes effect at the end of the step that asked for it",
+    ): "FUT-014",
+    (
+        "0051",
+        "The books are trade-date; the settlement ledger keeps cash, not units, back",
+    ): "FUT-015",
+    (
+        "0051",
+        "A package's cost is apportioned by its components' observed values, in one currency",
+    ): "FUT-016",
+    # FUT-017 delivered margin calls and liquidation in the candidate; ADR-0051
+    # now states what it does not model, and the two entries it raised.
+    ("0051", "A margin requirement is each position's own, summed"): "FUT-019",
+    # FUT-018 delivered financing and borrow; the limitation stated is its own.
+    ("0051", "Interest and fees accrue at each declared period's instant"): "FUT-018",
+    (
+        "0051",
+        "A margin call is checked after each market step and liquidated at the asset's next quote",
+    ): "FUT-017",
+    ("0051", "portfolio and risk-based margin"): "FUT-019",
+    # The v4.2.0 global gap audit: a strategy's cancel, an insolvent run, and two
+    # entries it raised.
+    ("0051", "A cancel withdraws only what the strategy alone has working"): "EXE-012",
+    ("0051", "An insolvent run compiles no analytics"): "LIM-008",
+    ("0051", "venue price limits and trading halts"): "FUT-020",
+    ("0051", "holding exchanges"): "FUT-021",
 }
 
 

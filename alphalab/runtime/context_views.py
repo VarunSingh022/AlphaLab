@@ -412,7 +412,27 @@ class MarketView:
         return self._market.latest_ticks.get(asset_id)
 
     def bar(self, asset_id: str) -> Bar | None:
-        return self._market.latest_bars.get(asset_id)
+        """The latest bar published for ``asset_id``, of whatever interval, or ``None``.
+
+        The market engine keeps one latest bar per asset *and interval*, keyed
+        ``"<asset_id>_<interval code>"`` (:func:`alphalab.market.views.latest_bar`
+        reads one by both). Until v4.1.1 this looked the bare ``asset_id`` up in
+        that index, which no key ever equals, so it returned ``None`` for every
+        asset in every run since v2.10 -- a strategy reading its context's bars
+        saw none, and no test read one. It now finds the asset's bars by their
+        key and returns the most recent; of two closing at the same instant, the
+        one covering the longer interval, which contains the other. Linear in the
+        bars the market holds, as :attr:`prices` is in the prices.
+        """
+
+        prefix = f"{asset_id}_"
+        latest: Bar | None = None
+        for key, bar in self._market.latest_bars.items():
+            if not key.startswith(prefix) or bar.asset_id != asset_id:
+                continue
+            if latest is None or _bar_order(bar) > _bar_order(latest):
+                latest = bar
+        return latest
 
     def price(self, asset_id: str) -> Decimal | None:
         """The price the run is marking this asset at, or ``None`` if unpriced.
@@ -434,6 +454,13 @@ class MarketView:
         """Assets the run has priced, in sorted order for determinism."""
 
         return tuple(sorted(self._prices))
+
+
+def _bar_order(bar: Bar) -> tuple[float, float]:
+    """Latest first, then the longer interval; a month-counted interval is the longest."""
+
+    seconds = bar.timeframe.seconds
+    return (bar.timestamp, float("inf") if seconds is None else seconds)
 
 
 # ---------------------------------------------------------------------------

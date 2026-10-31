@@ -27,7 +27,15 @@ from enum import StrEnum, unique
 
 from alphalab.portfolio.exceptions import InvalidTransactionError
 
-__all__ = ["CashFlow", "CashFlowKind", "Split"]
+__all__ = [
+    "Assignment",
+    "CashFlow",
+    "CashFlowKind",
+    "ContractSettlement",
+    "Exercise",
+    "OptionExpiry",
+    "Split",
+]
 
 
 @unique
@@ -111,3 +119,150 @@ class Split:
             raise InvalidTransactionError(
                 "A split with a ratio of one changes nothing; it is refused as a likely mistake."
             )
+
+
+@dataclass(frozen=True, slots=True)
+class ContractSettlement:
+    """The final cash settlement of a future or an option at its expiry (v4.1.1, FUT-012).
+
+    What an exchange publishes once a contract has stopped trading: the price
+    every open position in it is closed at. A cash-settled future's last
+    variation is settled at it; a cash-settled option is exercised at its
+    intrinsic value per unit -- ``Decimal("0")`` for one expiring worthless.
+    For a future whose declared
+    :class:`~alphalab.instrument.terms.FutureTerms` are physical, the deliverable
+    then moves against this price (v4.1.1, FUT-013). An option whose
+    :class:`~alphalab.instrument.terms.OptionTerms` are declared is not settled
+    at a stated price but by :class:`OptionExpiry`, which the engine resolves
+    from its terms.
+
+    Attributes:
+        asset_id: The contract.
+        price: The final settlement price per unit, as the exchange published it.
+        reference: The caller's reference, not interpreted.
+
+    Raises:
+        InvalidTransactionError: If the contract is not named or the price is
+            not a finite Decimal.
+    """
+
+    asset_id: str
+    price: Decimal
+    reference: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.asset_id, str) or not self.asset_id.strip():
+            raise InvalidTransactionError("A settlement names the contract it settles.")
+        if not isinstance(self.price, Decimal) or not self.price.is_finite():
+            raise InvalidTransactionError(
+                f"A settlement price is a finite Decimal, got {self.price!r}."
+            )
+
+
+def _contracts(value: Decimal, what: str) -> None:
+    if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:
+        raise InvalidTransactionError(f"{what} is a positive count of contracts, got {value!r}.")
+    if value != value.to_integral_value():
+        raise InvalidTransactionError(
+            f"{what} is {value}; a contract is exercised or assigned whole."
+        )
+
+
+def _settlement_value(value: Decimal | None, required: bool, what: str) -> None:
+    if value is None:
+        if required:
+            raise InvalidTransactionError(f"{what} needs the underlying's settlement value.")
+        return
+    if not isinstance(value, Decimal) or not value.is_finite() or value < 0:
+        raise InvalidTransactionError(
+            f"{what}'s underlying settlement value is a non-negative finite Decimal, got {value!r}."
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Exercise:
+    """A holder's instruction to exercise ``contracts`` of a long option, effective at its instant.
+
+    The decision is the holder's -- the engine checks the contract allows it then,
+    and carries out what the contract's
+    :class:`~alphalab.instrument.terms.OptionTerms` say happens; it does not judge
+    whether exercising was wise (v4.1.1, FUT-013).
+
+    Attributes:
+        asset_id: The option.
+        contracts: How many, whole.
+        underlying_value: The value the exercise settles against, per unit of
+            the deliverable, as the venue publishes it -- required for a
+            cash-settled contract, and ``None`` for a physical one, which needs
+            no price: the deliverable moves against the strike.
+        reference: The caller's reference, not interpreted.
+    """
+
+    asset_id: str
+    contracts: Decimal
+    underlying_value: Decimal | None = None
+    reference: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.asset_id, str) or not self.asset_id.strip():
+            raise InvalidTransactionError("An exercise names the option it exercises.")
+        _contracts(self.contracts, "An exercise")
+        _settlement_value(self.underlying_value, False, "An exercise")
+
+
+@dataclass(frozen=True, slots=True)
+class Assignment:
+    """``contracts`` of a short option assigned at its instant (v4.1.1, FUT-013).
+
+    Assignment is the clearing house's notice that holders on the other side
+    exercised. It is stated, never drawn: which written contracts are assigned
+    before expiry is not knowable from prices, so an early assignment is an
+    input a caller supplies -- recorded history, or a policy the researcher
+    states. At expiry the contract's declared automatic-exercise rule assigns.
+
+    Attributes:
+        asset_id: The option.
+        contracts: How many, whole.
+        underlying_value: As :attr:`Exercise.underlying_value`.
+        reference: The caller's reference, not interpreted.
+    """
+
+    asset_id: str
+    contracts: Decimal
+    underlying_value: Decimal | None = None
+    reference: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.asset_id, str) or not self.asset_id.strip():
+            raise InvalidTransactionError("An assignment names the option assigned.")
+        _contracts(self.contracts, "An assignment")
+        _settlement_value(self.underlying_value, False, "An assignment")
+
+
+@dataclass(frozen=True, slots=True)
+class OptionExpiry:
+    """An option reaching expiry, with the value it settles against (v4.1.1, FUT-013).
+
+    Every position still open is resolved by the contract's terms: exercised or
+    assigned where its automatic-exercise rule says so -- in cash at the
+    intrinsic value, or by delivery against the strike -- and otherwise closed
+    at nothing, as an expired option is worth.
+
+    Attributes:
+        asset_id: The option.
+        underlying_value: The deliverable's settlement value per unit, as the
+            venue publishes it -- often not the last trade. Required for a contract
+            on one deliverable; ``None`` for one on a package -- a basket or a cash
+            component -- whose components are valued at the prices the run has
+            observed for them (v4.2.0, FUT-016).
+        reference: The caller's reference, not interpreted.
+    """
+
+    asset_id: str
+    underlying_value: Decimal | None = None
+    reference: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.asset_id, str) or not self.asset_id.strip():
+            raise InvalidTransactionError("An expiry names the option expiring.")
+        _settlement_value(self.underlying_value, False, "An expiry")
