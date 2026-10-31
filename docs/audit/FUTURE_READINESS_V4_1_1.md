@@ -1,5 +1,11 @@
 # AlphaLab v4.1.1 Future-Readiness Report
 
+> **Superseded for v4.2.0 by [`V4_2_0_READINESS.md`](V4_2_0_READINESS.md).** This
+> report records the v4.1.1 program as it stood after the FUT-002 milestone. Since
+> then FUT-014 to FUT-017 and EXE-012 were delivered, the version was set to
+> 4.2.0, and the future work is FUT-018 to FUT-021; where the two disagree, the
+> v4.2.0 report and the ledger are current.
+
 **Candidate:** branch `work/v4.1.1-future-readiness`, created from `main` at
 `33e61d3edbd041bcd125d5dea913c00cdc9da613` -- the commit the `v4.1.0` tag names.
 Nothing was committed, pushed, tagged or published; the tag and its artifacts
