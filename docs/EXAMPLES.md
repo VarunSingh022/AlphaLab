@@ -57,6 +57,7 @@ The `examples/` directory contains:
 | `73_train_and_trade_a_model.py` | **Train a model on the past and trade it forward** (v4.1.1): features defined once, a model fitted before a boundary, the same features and model on the execution path |
 | `74_evaluate_an_execution_algorithm.py` | **Evaluate an execution algorithm in a backtest** (v4.1.1): one decision executed whole and by TWAP, VWAP, participation and iceberg over the same bars, each child through the run's liquidity cap and cost model, measured as implementation shortfall; replayed and resumed |
 | `75_exercise_assign_and_deliver.py` | **Exercise, assign and deliver** (v4.1.1): an American physically settled call exercised early before a dividend by a stated policy, a European cash-settled put on an index settled at expiry, every instant from a declared market's calendar; refusals; replayed and resumed |
+| `76_a_financed_long_short_book.py` | **A financed long-short book** (v4.2.0): a pair margined by declared scenarios, the long bought on margin and its debit charged tiered interest, the short sold against a lender's declared borrow and its fee, a bid placed in a halt and re-quoted inside a price band, the short carried through a merger; replayed and resumed |
 
 ---
 
@@ -430,6 +431,18 @@ says one algorithm is better than another in a real market.
 `tests/integration/test_option_lifecycle.py` and
 `test_lifecycle_conventions.py` hold the mechanism and the conventions. The
 prices are synthetic and the market is a stated one.
+
+# A financed long-short book (v4.2.0)
+
+| # | Shows |
+|---|---|
+| 76 | A pair -- 1,000 SHORTCO sold short, then 1,500 LONGCO bought on margin -- margined together by a declared scenario model: both 15% up or down, or apart by 5%, the worst loss floored at 4% of the gross, so the hedge needs 17,685.00 where the two legs alone need 107,450.00. The margin purchase spends its initial requirement and leaves a debit of 11,800.00, charged a day's interest by declared tiers on ACT/360; the short is sold only against borrow a lender declares and pays the lender's rate in force. LONGCO is halted for an hour: a bid placed in the halt rests, is withdrawn after it with `IntentKind.CANCEL` and re-quoted, and fills inside its price band. SHORTCO is merged into SHORTNEW one for two by its issuer, the short and its basis carried, one event saying why. The run replayed, paused after the sixth record, written to JSON and resumed |
+
+`tests/integration/test_financed_book_example.py` holds it figure for figure;
+`tests/integration/test_financing_and_borrow.py`, `test_portfolio_margin.py`,
+`test_trading_controls.py`, `test_holding_exchanges.py` and
+`test_v42_milestone_interactions.py` hold the mechanism. Every price, rate and
+term is synthetic -- no broker's, lender's, venue's or issuer's.
 
 ---
 

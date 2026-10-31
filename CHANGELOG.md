@@ -269,12 +269,19 @@ IDs are in brackets.
 * **The macro engine's series as observations** [FUT-008].
   `alphalab.api.observations_from_indicator`.
 * **`LiveSession.deliver_observation`** [OFE-027].
-* **Examples 72 to 75** -- a multi-asset strategy over prices, sentiment and
+* **Examples 72 to 76** -- a multi-asset strategy over prices, sentiment and
   macro releases, a model fitted before a boundary and traded after it
   [FUT-006, FUT-007], one decision executed whole and by four algorithms,
-  measured as implementation shortfall [FUT-009], and an option's whole life on
-  a declared market's calendar [FUT-013] -- each held by an integration
+  measured as implementation shortfall [FUT-009], an option's whole life on
+  a declared market's calendar [FUT-013], and a financed long-short book --
+  scenario-margined, bought on margin and charged its debit's interest, sold
+  short on declared borrow, halted, banded and merged [FUT-018 to FUT-021,
+  EXE-012] -- each held by an integration
   test and run from every built artifact by `tests/installed_smoke.py`.
+  `tests/integration/test_v42_milestone_interactions.py` holds the four
+  v4.2.0 milestones together: an exchange into a stricter margined instrument,
+  a liquidation held by a band, a contract adjusted for a merger, and one book
+  using all of them replayed from every pause.
   `benchmarks/benchmark_algorithmic_execution.py`. **`docs/COMPOSING_STRATEGIES.md`**
   and three audits: `docs/audit/STRATEGY_CAPABILITY_MATRIX.md`,
   `docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`,
