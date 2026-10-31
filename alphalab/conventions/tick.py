@@ -24,9 +24,11 @@ to -- one band covering every price -- rather than the other way round.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal, InvalidOperation
 from enum import Enum, auto
+from typing import Any
 
 from alphalab.conventions.exceptions import ConventionInputError, ConventionViolationError
 
@@ -37,6 +39,8 @@ __all__ = [
     "TickValue",
     "is_on_tick",
     "round_to_tick",
+    "tick_from_primitives",
+    "tick_to_primitives",
     "tick_value",
 ]
 
@@ -249,3 +253,47 @@ def round_to_tick(price: Decimal, tick_size: Decimal, direction: RoundingDirecti
         raise ConventionInputError(f"tick_size is {tick_size}; a tick is a positive increment.")
     steps = (price / tick_size).quantize(Decimal("1"), rounding=_MODES[direction])
     return steps * tick_size
+
+
+def tick_to_primitives(schedule: TickSchedule | None) -> dict[str, Any] | None:
+    """A schedule as plain primitives: each band's bound and increment as text."""
+
+    if schedule is None:
+        return None
+    return {
+        "bands": [
+            {
+                "upper_bound": None if band.upper_bound is None else str(band.upper_bound),
+                "tick_size": str(band.tick_size),
+            }
+            for band in schedule.bands
+        ]
+    }
+
+
+def tick_from_primitives(value: Any, where: str = "tick") -> TickSchedule | None:
+    """Read a schedule :func:`tick_to_primitives` wrote.
+
+    Raises:
+        ConventionInputError: If the value is not that shape or does not validate.
+    """
+
+    if value is None:
+        return None
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != {"bands"}
+        or not isinstance(value["bands"], list)
+    ):
+        raise ConventionInputError(f"{where} is a mapping of bands, got {value!r}.")
+    bands = []
+    for band in value["bands"]:
+        if not isinstance(band, Mapping) or set(band) != {"upper_bound", "tick_size"}:
+            raise ConventionInputError(f"{where} has a band that is not one: {band!r}.")
+        try:
+            bound = None if band["upper_bound"] is None else Decimal(band["upper_bound"])
+            size = Decimal(band["tick_size"])
+        except (TypeError, InvalidOperation) as exc:
+            raise ConventionInputError(f"{where} has a band that is not one: {band!r}.") from exc
+        bands.append(TickBand(bound, size))
+    return TickSchedule(tuple(bands))

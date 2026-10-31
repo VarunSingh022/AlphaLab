@@ -10,6 +10,7 @@ assumed: no rate, no availability, no lender.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -33,7 +34,7 @@ from alphalab.backtesting.schedule import (
     ScheduledInterest,
     ScheduleValidationError,
 )
-from alphalab.conventions.daycount import DayCount
+from alphalab.conventions.daycount import DayCount, year_fraction
 from alphalab.instrument.borrow import (
     BorrowAvailability,
     BorrowTerms,
@@ -57,6 +58,8 @@ from alphalab.portfolio.financing import (
 from alphalab.portfolio.types import TransactionType
 from alphalab.runtime.run_snapshot import RunObjects
 from alphalab.runtime.snapshot import RuntimeObjects
+from alphalab.strategy.context import StrategyContext
+from alphalab.strategy.events import Intent
 from tests.integration import test_margin_and_liquidation as margin
 from tests.integration.harness import context_factory, quote, registry_of, running_strategy_state
 
@@ -173,6 +176,16 @@ def test_a_period_is_counted_by_its_day_count_and_runs_forward() -> None:
     )
     with pytest.raises(InvalidTransactionError):
         day_fraction(date(2024, 1, 3), date(2024, 1, 3), DayCount.ACT_360)
+
+
+def test_a_period_is_the_conventions_year_fraction_for_every_basis() -> None:
+    # The exact Decimal and the conventions' float agree on every declared basis,
+    # each dividing by the year its basis states.
+    start, end = date(2024, 1, 31), date(2024, 7, 31)
+    for basis in DayCount:
+        assert float(day_fraction(start, end, basis)) == pytest.approx(
+            year_fraction(start, end, basis), abs=1e-15
+        )
 
 
 @pytest.mark.parametrize(
@@ -531,3 +544,40 @@ def test_a_long_in_a_borrowable_name_pays_no_fee_and_a_multiplier_counts() -> No
     assert [t.asset_id for t in fees] == [units.asset_id]
     expected = margin.CASH + D("5000") - D("2000") - D("5.00")
     assert result.state.portfolio.cash.balance("USD") == expected
+
+
+class BorrowReader(margin.Trader):
+    """Keeps what the strategy's universe says of an instrument's borrow at each quote."""
+
+    def __init__(self) -> None:
+        super().__init__({})
+        self.seen: list[tuple[float, Any, Any]] = []
+
+    def on_quote(self, context: StrategyContext, event: Any) -> Iterable[Intent]:
+        asset = event.quote.asset_id
+        record = context.universe.instrument(asset)
+        assert record is not None
+        self.seen.append((event.quote.timestamp, context.universe.borrow(asset), record.borrow))
+        return ()
+
+
+def test_a_strategy_reads_the_borrow_in_effect_now_and_never_a_later_entry() -> None:
+    # Quotes at 2.0, 3.0 and 4.0; the lender's entries take effect at 3.0 and 4.0.
+    record = borrowing((3.0, "100", "0.10"), (4.0, "0", "0.30"))
+    reader = BorrowReader()
+    run({}, record, strategy=reader)
+    first = record.borrow.entries[0]
+    nothing = BorrowAvailability(2.0, D("0"), D("0"))
+    # Before the lender's first entry nothing is available, as the execution path
+    # reads it; then each entry from its own instant, the later one unseen.
+    assert reader.seen == [
+        (2.0, (D("0"), D("0")), BorrowTerms((nothing,), DayCount.ACT_360)),
+        (3.0, (D("100"), D("0.10")), BorrowTerms((first,), DayCount.ACT_360)),
+        (4.0, (D("0"), D("0.30")), record.borrow),
+    ]
+
+
+def test_a_strategy_reads_no_borrow_for_an_instrument_declaring_none() -> None:
+    reader = BorrowReader()
+    run({}, margin.PLAIN, strategy=reader)
+    assert reader.seen == [(2.0, None, None), (3.0, None, None), (4.0, None, None)]

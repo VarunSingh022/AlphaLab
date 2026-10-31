@@ -23,7 +23,7 @@ from enum import Enum, auto
 from itertools import pairwise
 
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
-from alphalab.conventions.daycount import DayCount, day_count_days
+from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year
 from alphalab.portfolio.exceptions import InvalidTransactionError
 
 __all__ = ["BalanceBasis", "FinancingTier", "accrued_interest", "day_fraction", "require_tiers"]
@@ -101,10 +101,7 @@ def day_fraction(start: date, end: date, basis: DayCount) -> Decimal:
         raise InvalidTransactionError(
             f"An accrual period runs forward: {start} to {end} counts {days} days."
         )
-    denominator = (
-        Decimal(360) if basis in (DayCount.ACT_360, DayCount.THIRTY_360_US) else Decimal(365)
-    )
-    return ACCOUNTING_CONTEXT.divide(Decimal(days), denominator)
+    return ACCOUNTING_CONTEXT.divide(Decimal(days), Decimal(days_in_year(basis)))
 
 
 def accrued_interest(

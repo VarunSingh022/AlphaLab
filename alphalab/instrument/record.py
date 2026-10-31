@@ -68,6 +68,7 @@ from dataclasses import dataclass, field
 
 from alphalab.conventions.economics import SettlementModel
 from alphalab.conventions.settlement import SettlementRule
+from alphalab.conventions.tick import TickSchedule
 from alphalab.core.enums import AssetType
 from alphalab.instrument.borrow import BorrowTerms
 from alphalab.instrument.economics import InstrumentEconomics
@@ -352,6 +353,10 @@ class InstrumentRecord:
             offers, as a dated series, or ``None``: it is shorted as before
             v4.2.0, at no fee (ledger FUT-018; see :mod:`alphalab.instrument.borrow`).
             Not part of the identity key.
+        tick: The price grid its venue quotes on, band by band, or ``None``: any
+            price is accepted, as before v4.2.0. An order whose limit or stop is
+            off the grid is refused at placement, as the venue would (see
+            :mod:`alphalab.conventions.tick`). Not part of the identity key.
         asset_id: The derived canonical identifier. UUIDv5, and therefore
             accepted by :func:`~alphalab.core.ids.validate_uuid_id`.
     """
@@ -369,6 +374,7 @@ class InstrumentRecord:
     settlement: SettlementRule | None = None
     margin: MarginTerms | None = None
     borrow: BorrowTerms | None = None
+    tick: TickSchedule | None = None
     asset_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -409,6 +415,8 @@ class InstrumentRecord:
             raise InstrumentInputError(f"margin is MarginTerms or None, got {self.margin!r}.")
         if self.borrow is not None and not isinstance(self.borrow, BorrowTerms):
             raise InstrumentInputError(f"borrow is BorrowTerms or None, got {self.borrow!r}.")
+        if self.tick is not None and not isinstance(self.tick, TickSchedule):
+            raise InstrumentInputError(f"tick is a TickSchedule or None, got {self.tick!r}.")
         if self.settlement is not None and not isinstance(self.settlement, SettlementRule):
             raise InstrumentInputError(
                 f"settlement is a SettlementRule or None, got {self.settlement!r}."

@@ -340,6 +340,10 @@ class UniverseProtocol(Protocol):
         """The limit down and up in force for ``asset_id`` now, or ``None`` (v4.2.0, FUT-020)."""
         ...
 
+    def borrow(self, asset_id: str) -> tuple[Decimal | None, Decimal] | None:
+        """Units available to borrow and the fee in effect now, or ``None`` (v4.2.0, FUT-018)."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class NoPortfolio:
@@ -618,6 +622,9 @@ class NoUniverse:
         return False
 
     def price_band(self, asset_id: str) -> tuple[Decimal, Decimal] | None:
+        return None
+
+    def borrow(self, asset_id: str) -> tuple[Decimal | None, Decimal] | None:
         return None
 
 

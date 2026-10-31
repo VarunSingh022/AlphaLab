@@ -327,7 +327,11 @@ each short's value at the last mark. A short beyond what a lender offers is
 refused before it is placed, counting every working sale; nothing forces one
 already held to be bought in. A purchase on margin is the instrument's terms,
 not the account's: it spends its initial requirement and is financed, and the
-margin lifecycle (decision 20) governs what follows.
+margin lifecycle (decision 20) governs what follows. A strategy is told what is
+in effect now -- `context.universe.borrow`, nothing available before the first
+entry -- and the record its universe shows carries the series only as far as it
+is in effect, as a band or a halt is shown only while in force: a lender's later
+rate is an input the run applies at its instant, not a fact before it.
 
 **23. An account's portfolio margin is a declared model, and every reader of
 margin takes its figure (FUT-019).** Offsets are a clearing house's or a broker's
@@ -365,6 +369,15 @@ share; one event records what the holding was, what it became and why. The
 derivative lifecycle carries what follows: rights are a declared option on the
 share, and a contract on the exchanged instrument must declare its adjusted
 terms, as for a split, or the exchange is refused.
+
+**26. A venue's price grid is read where an order meets it (EXE-013).** The
+grid was declarable since v3.4 and read by nothing that placed an order. It is
+the instrument's, declared on its record beside its borrow and margin, and read
+at placement once per priced order: a limit or stop between two ticks of its
+own band is refused, as the venue refuses it, rather than rounded -- which
+direction a price should move is the strategy's decision, not the engine's. A
+band's cap is the one price the engine sets, so it lands on the grid, inward. A
+market order is priced by the market and is not judged by the grid at all.
 
 ---
 
@@ -437,7 +450,11 @@ FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017, FUT-018,
 FUT-019, FUT-020, FUT-021, EXE-012, LIM-008).
 
 Nothing this program accepted is deferred: FUT-002 and FUT-009 to FUT-021 were delivered in
-v4.2.0, and what the global gap audit that followed found is on the ROADMAP.
+v4.2.0. What the phase 2 global gap audit that followed found beyond these
+limitations' interim behaviour is accepted as FUT-022 to FUT-029 on the ROADMAP,
+each a new declared capability with its completion criteria; a contract
+adjustment is, meanwhile, visible to a strategy from the run's start, since its
+announcement instant is not declared (FUT-024).
 
 ---
 

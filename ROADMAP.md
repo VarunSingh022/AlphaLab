@@ -248,6 +248,11 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **A venue's price grid where an order meets it** (EXE-013, the phase 2 global
+  gap audit): `InstrumentRecord.tick` declares the instrument's tiered or flat
+  `TickSchedule`; a limit or stop between two ticks is refused at placement,
+  and a band's cap lands on the grid inside the band. The same audit stated each
+  day count's year (NUM-016) and showed a strategy only the borrow in effect now.
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -611,8 +616,28 @@ The program's entries were proposed by the v4.1.1 future-readiness audit
 horizon, is the maintainer's decision. The candidate itself delivered the rest
 of what the audit proposed (section *v4.2.0*, above).
 
-None is open: every entry accepted by the v4.1.1 program, the margin
-milestone and the v4.2.0 global gap audit was delivered in v4.2.0.
+Every entry accepted by the v4.1.1 program, the margin milestone and the v4.2.0
+global gap audit was delivered in v4.2.0. The global gap audit that followed
+those deliveries (phase 2, `docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`)
+proposed the eight below; each is new declared capability, and each ledger
+entry states its interim safe behaviour and completion criteria in full.
+
+| ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
+|---|---|---|---|---|
+| FUT-022 | **Borrow recall and buy-in**: a short held beyond what a lender makes available is kept, at its fee | availability is visible to the strategy now (`context.universe.borrow`); cover, or schedule the cover | v4.3 | margin liquidation, borrow terms |
+| FUT-023 | **Daily-balance accrual**: interest and borrow fees charge the balance and the short at the period's instant | declare one period a day, which is the daily accrual | v4.3 | -- |
+| FUT-024 | **Holder elections and announcement instants**: a corporate action applies one declared outcome; an adjustment is visible from the run's start | declare the elected outcome; declare adjustments only once announced | v4.4 | holding exchanges |
+| FUT-025 | **A corporate action settling after its instant**: a cash part is spendable from the effective instant | schedule the exchange at its payment instant | v4.4 | settlement-date cash, holding exchanges |
+| FUT-026 | **Options repriced in margin scenarios**: each covered instrument moves by its own declared fraction | margin options per position, or outside the covered set | v4.4 | portfolio margin; a declared pricing model (new) |
+| FUT-027 | **A reopening auction after a halt, and auction imbalance**: orders held through a halt fill at the next print; on-open and on-close orders fill at the session bar's open or close | take the reopening print from the data as the first event after the halt | v4.4 | queue model, venue controls; imbalance data (new) |
+| FUT-028 | **Bands computed from a reference price**: bands are dated absolute limits | precompute daily bands from the previous closes | v4.3 | venue controls |
+| FUT-029 | **A strategy's amend in place, keeping priority by a venue's rule**: a strategy, and a simulated venue, change an order only by cancel and replace (an operator can amend at a live venue) | cancel and re-place: priority lost, the conservative reading | v4.3 | strategy cancel, queue model |
+
+Each is a boundary of the delivered behaviour, stated in ADR-0051's known
+limitations. Three are not conservative while open -- a short kept past a recall
+(FUT-022), a period charged on one balance (FUT-023), a corporate action's cash
+spendable before its payment (FUT-025) -- and each one's interim safe behaviour
+says how to declare around it.
 
 ---
 

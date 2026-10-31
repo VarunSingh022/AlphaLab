@@ -32,6 +32,7 @@ from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.conventions.economics import InstrumentEconomics, SettlementModel
 from alphalab.conventions.lot import LotSpecification
+from alphalab.conventions.tick import RoundingDirection, is_on_tick, round_to_tick
 from alphalab.core.contribution import StrategyContribution, split_by_contribution
 from alphalab.core.enums import AssetType
 from alphalab.core.enums import Side as CoreSide
@@ -2437,6 +2438,13 @@ def _route_requests(
             dropped.append((request, beyond))
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
+        # The venue's price grid: a limit or stop between its ticks is refused,
+        # as the venue would refuse it.
+        off_grid = _tick_refusal(current, request)
+        if off_grid is not None:
+            dropped.append((request, off_grid))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
         # An order cannot be priced, executed or valued without a market price
         # for its asset -- allocation prices unknown assets at 0.00. Drop the
         # request here, deterministically and before it reaches the OMS, rather
@@ -3572,7 +3580,43 @@ def _band_terms(
             f"({band.lower} to {band.upper}), and the venue refuses an order priced beyond it."
         ), request
     edge = band.upper if limit > band.upper else band.lower
+    record = _declared(state, request.asset_id)
+    if record is not None and record.tick is not None and edge >= 0:
+        # A cap lands on the grid inside the band: a buy capped at the limit up
+        # rounds down, a sell at the limit down rounds up.
+        inward = RoundingDirection.DOWN if edge == band.upper else RoundingDirection.UP
+        edge = round_to_tick(edge, record.tick.tick_size_at(edge), inward)
     return None, replace(request, terms=replace(request.terms, limit_price=edge))
+
+
+def _tick_refusal(state: ExecutionPipelineState, request: OrderRequest) -> str | None:
+    """Why ``request``'s limit or stop is off its venue's declared grid, or ``None``.
+
+    Read only for a priced order in an instrument declaring a tick schedule; a
+    negative price is refused, since no band of a published grid covers one.
+    """
+
+    terms = request.terms
+    if terms.limit_price is None and terms.stop_price is None:
+        return None
+    record = _declared(state, request.asset_id)
+    if record is None or record.tick is None:
+        return None
+    for price, what in ((terms.limit_price, "limit"), (terms.stop_price, "stop")):
+        if price is None:
+            continue
+        if price < 0:
+            return (
+                f"The {what} {price} is negative, and {record.symbol}'s declared price grid "
+                "covers no negative price."
+            )
+        tick = record.tick.tick_size_at(price)
+        if not is_on_tick(price, tick):
+            return (
+                f"The {what} {price} is not on {record.symbol}'s price grid: the venue quotes "
+                f"it in steps of {tick} there, and refuses a price between them."
+            )
+    return None
 
 
 def _holding_shares(

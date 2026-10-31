@@ -14,8 +14,10 @@ the v4.2.0 global gap audit delivered EXE-012 (a strategy withdraws its own
 working orders) and raised FUT-020 and FUT-021; and the phase that followed
 delivered FUT-018 (financing and short borrow), FUT-019 (portfolio margin) and
 FUT-020 (venue price limits and halts) and FUT-021 (holding exchanges). Every
-entry the program accepted is delivered; what the global gap audit that
-followed found is on the ROADMAP's Future work. Rows below are as
+entry the program accepted is delivered. The phase 2 global gap audit that
+followed (section *The phase 2 global gap audit*, below) fixed three gaps --
+EXE-013, NUM-016, and a strategy's view of borrow terms under FUT-018 -- and
+raised FUT-022 to FUT-029, now on the ROADMAP's Future work. Rows below are as
 of the FUT-011 milestone.
 
 ## Classes
@@ -152,6 +154,14 @@ on one schedule, and its replay pauses through a payload.
 
 | Work | Families it moves | Release class |
 | --- | --- | --- |
+| FUT-022 borrow recall and buy-in | 2 (long-short, pairs), 3 (event-driven shorts) | minor |
+| FUT-023 daily-balance accrual | 2, 8 (leveraged and financed books) | minor |
+| FUT-024 holder elections, announcement instants | 3 (merger arbitrage), 5 (adjusted contracts) | minor |
+| FUT-025 a corporate action settling after its instant | 3 | minor |
+| FUT-026 options repriced in margin scenarios | 5 (hedged options books) | minor |
+| FUT-027 a halt's reopening auction, auction imbalance | 6 (microstructure), 3 (news halts) | minor |
+| FUT-028 bands from a reference price | 1, 6 (limit-locked markets) | minor |
+| FUT-029 a strategy's amend in place | 6 (market making, passive execution) | minor |
 
 Delivered by the continuation, with the release class each took: FUT-004
 scheduled inputs, FUT-012 cash settlement at expiry, FUT-005 the schedule in the
@@ -166,6 +176,43 @@ an `AssetType` member, schedule kinds), and, by the v4.2.0 milestones, FUT-011,
 FUT-002, FUT-014, FUT-016, FUT-015 and FUT-017 (record fields outside the
 identity key, transaction metadata, enum members and event tags, each written
 only when used, so no earlier run's record moved) -- all minor.
+
+## The phase 2 global gap audit
+
+Read after FUT-018 to FUT-021 were delivered, against the objective rather than
+the FUT list: the brief's areas -- research, data, markets and instruments,
+execution and risk, reliability -- through the code, each checked against what
+the matrix claims. Classes: 1 correctness-critical; 2 a material engine
+capability gap; 3 an explicit external boundary; 4 an accepted limitation; 5 a
+future enhancement; 6 already implemented or resolved.
+
+| Finding | Class | Disposition |
+| --- | --- | --- |
+| A strategy could read a lender's later borrow entries through `context.universe.instrument(...)`: information before its instant | 1 | **Fixed** (FUT-018): the view shows the series only as far as in effect; `context.universe.borrow` gives the entry in effect now |
+| A declared tick grid was read by nothing that placed an order: an off-grid limit or stop could fill | 2 | **Fixed** (EXE-013): refused at placement; a band's cap lands on the grid |
+| A day count's year was chosen by elimination, so a basis added later would divide by 365 | 5 | **Fixed** (NUM-016): each year stated, an unstated one refused |
+| Borrow recall and buy-in | 2 | FUT-022 (v4.3) |
+| Interest and fees on a period's daily balances | 5 | FUT-023 (v4.3); exact meanwhile with one period a day |
+| Holder elections; corporate-action and adjustment announcement instants | 2 | FUT-024 (v4.4) |
+| A corporate action's consideration paid after its instant | 5 | FUT-025 (v4.4) |
+| Options repriced from their underlying in margin scenarios | 2 | FUT-026 (v4.4) |
+| A halt's reopening auction; auction imbalance | 2 | FUT-027 (v4.4); opening and closing auctions fill at the session bar's open or close |
+| Bands computed from a reference price | 5 | FUT-028 (v4.3); precomputed bands are exact for a daily reference |
+| A strategy's amend in place, keeping priority | 5 | FUT-029 (v4.3); cancel and replace is the conservative reading |
+| Opening and closing auction orders | 6 | `OrderTerms.at_open` and `at_close`, filled at a session bar's open or close |
+| An operator's amend at a live venue | 6 | `LiveSession.amend` |
+| Lots, minimum notional, negative prices, multipliers | 6 | `InstrumentEconomics`, read at allocation and liquidation |
+| Calendars, zones and DST, T+n settlement, FX timing, scheduled rates | 6 | matrix section 2.27; `test_lifecycle_conventions.py` |
+| Data revisions, vintages, late, duplicate and undated observations | 6 | matrix sections 2.13 to 2.15; example 72 |
+| Point-in-time features and models on the execution path | 6 | FUT-006, FUT-007; example 73 |
+| Deterministic replay, pause and resume, snapshot compatibility, manifests, the public API | 6 | the release certificate; the schema-upgrade suites; `docs/api` |
+| Hard-coded regional conventions in the v4.2.0 modules | 6, none found | the literals in `borrow`, `controls`, `margin`, `financing` and `corporate_actions` are docstrings |
+| Market depth beyond the top of book, real venues and data, reference data, sentiment models, hosted isolation of strategy code | 3 | unchanged (BDY-003, BDY-013, matrix 2.15, 2.24) |
+| An insolvent run's analytics; the feature store and portfolio construction off the drivers | 4 | LIM-008; matrix 2.17, 2.20 |
+
+Nothing here claims global completeness: what is declared is applied, what is
+not is refused or stated, and the rules, data and venues of any real market are
+the host's.
 
 ## Markets
 

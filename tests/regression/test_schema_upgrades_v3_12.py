@@ -246,6 +246,7 @@ def test_the_v3_12_instrument_registry_reads_with_no_contract_expiring() -> None
                 "settlement": None,
                 "margin": None,
                 "borrow": None,
+                "tick": None,
             }
             for entry in payload["instruments"]
         ],

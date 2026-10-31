@@ -21,6 +21,7 @@ from alphalab.conventions import (
     compound_factor,
     contract_notional,
     day_count_days,
+    days_in_year,
     discount_factor,
     is_on_tick,
     lots_in,
@@ -360,6 +361,18 @@ def test_the_three_bases_disagree_on_the_same_dates() -> None:
     assert fractions[DayCount.THIRTY_360_US] == pytest.approx(0.5)
     assert fractions[DayCount.ACT_365_FIXED] == pytest.approx(181 / 365)
     assert fractions[DayCount.ACT_360] == pytest.approx(181 / 360)
+
+
+def test_every_basis_states_its_year_and_anything_else_is_refused() -> None:
+    """A basis added to DayCount is refused until its year is written, never divided by 365."""
+
+    assert {basis: days_in_year(basis) for basis in DayCount} == {
+        DayCount.ACT_365_FIXED: 365,
+        DayCount.ACT_360: 360,
+        DayCount.THIRTY_360_US: 360,
+    }
+    with pytest.raises(ConventionInputError, match="No year is stated"):
+        days_in_year("ACT_ACT")  # type: ignore[arg-type]
 
 
 def test_thirty_360_applies_the_end_of_month_rule() -> None:

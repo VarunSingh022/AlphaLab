@@ -69,6 +69,7 @@ from alphalab.common.persistent_map import PersistentMap
 from alphalab.conventions.economics import economics_from_primitives
 from alphalab.conventions.exceptions import ConventionInputError
 from alphalab.conventions.settlement import SettlementBasis, SettlementRule
+from alphalab.conventions.tick import TickSchedule, tick_from_primitives, tick_to_primitives
 from alphalab.core.enums import AssetType
 from alphalab.instrument.borrow import BorrowTerms, borrow_from_primitives, borrow_to_primitives
 from alphalab.instrument.classification import (
@@ -223,6 +224,10 @@ class InstrumentRegistryRecord:
     #: :func:`~alphalab.instrument.borrow.borrow_to_primitives` writes them, or
     #: ``None`` (v4.2.0, ledger FUT-018).
     borrow: Mapping[str, Any] | None = None
+    #: The venue's price grid, as
+    #: :func:`~alphalab.conventions.tick.tick_to_primitives` writes it, or
+    #: ``None`` (v4.2.0).
+    tick: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +323,7 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
                 terms=terms_to_primitives(record.terms),
                 margin=margin_to_primitives(record.margin),
                 borrow=borrow_to_primitives(record.borrow),
+                tick=tick_to_primitives(record.tick),
                 settlement=(
                     None
                     if record.settlement is None
@@ -383,6 +389,7 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
                 settlement=_settlement(entry.settlement, f"{entry.symbol}.settlement"),
                 margin=_margin(entry.margin, f"{entry.symbol}.margin"),
                 borrow=_borrow(entry.borrow, f"{entry.symbol}.borrow"),
+                tick=_tick(entry.tick, f"{entry.symbol}.tick"),
             )
             if record.asset_id in registry.instruments:
                 raise StateDecodeError(
@@ -543,6 +550,7 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
         settlement=_optional_mapping(payload.get("settlement"), f"{where}.settlement"),
         margin=_optional_mapping(payload.get("margin"), f"{where}.margin"),
         borrow=_optional_mapping(payload.get("borrow"), f"{where}.borrow"),
+        tick=_optional_mapping(payload.get("tick"), f"{where}.tick"),
     )
 
 
@@ -561,6 +569,13 @@ def _margin_model(value: Mapping[str, Any] | None) -> MarginModel | None:
     try:
         return margin_model_from_primitives(value)
     except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
+
+
+def _tick(value: Mapping[str, Any] | None, where: str) -> TickSchedule | None:
+    try:
+        return tick_from_primitives(value, where)
+    except ConventionInputError as exc:
         raise StateDecodeError(str(exc)) from exc
 
 
@@ -667,6 +682,7 @@ def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
                 "settlement": None,
                 "margin": None,
                 "borrow": None,
+                "tick": None,
             }
             for entry in payload["instruments"]
         ],

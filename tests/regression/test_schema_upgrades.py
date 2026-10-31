@@ -197,6 +197,7 @@ def test_a_v3_9_instrument_registry_is_upgraded_with_no_alias_invented() -> None
             "settlement": None,
             "margin": None,
             "borrow": None,
+            "tick": None,
         }
         for entry in payload["instruments"]
     ]

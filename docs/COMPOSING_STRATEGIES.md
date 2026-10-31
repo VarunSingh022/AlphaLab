@@ -52,7 +52,11 @@ resting buy sells against it.
 * **Declare every instrument.** `InstrumentRecord` gives it a derived `asset_id`;
   a future or option must declare `InstrumentEconomics` (multiplier, settlement
   model, lot), or it cannot be booked. A strategy reads the declaration from
-  `context.universe.instrument(asset_id)` instead of assuming one.
+  `context.universe.instrument(asset_id)` instead of assuming one, and what a
+  venue and a lender state now from `context.universe.halted`, `price_band` and
+  `borrow` -- never an entry that takes effect later. An instrument declaring a
+  price grid (`InstrumentRecord.tick`) refuses a limit or stop between its ticks:
+  round a computed price onto it, in the direction the strategy means.
 * **One dataset per source and series kind.** Ingest each file with
   `alphalab.api.ingest_csv` or `ingest_rows`; it gets a version derived from its
   bytes. Read several in one run with `alphalab.api.combine_datasets` and

@@ -229,7 +229,7 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (7) | B, Re, P, L. |
 | (8) | **VERIFIED**. Since v4.2.0 a strategy withdraws its own working orders (`IntentKind.CANCEL`, EXE-012); a bracket, a one-cancels-other pair and a trailing stop are composed from it over `on_fill`, `on_order` and `on_quote`. |
 | (9) | `tests/integration/test_order_terms.py`, `test_day_order_sessions.py`, `test_strategy_cancels_orders.py`, `tests/regression/test_v39_*`. |
-| (10) | Per-order memory grows with orders (LIMITATION PRF-011). Amending a working order in place, and cancelling part of a netted order, are not modelled. Since FUT-020 a venue's declared price bands and halts are applied at every order's turn (`test_trading_controls.py`); a reopening auction is not modelled. |
+| (10) | Per-order memory grows with orders (LIMITATION PRF-011). Amending a working order in place, and cancelling part of a netted order, are not modelled. Since FUT-020 a venue's declared price bands and halts are applied at every order's turn (`test_trading_controls.py`); a reopening auction is not modelled (FUT-027). A limit or stop off an instrument's declared price grid is refused at placement (EXE-013, `test_tick_grid.py`); a strategy's amend in place is FUT-029. |
 | (11) | none. |
 | (12) | met. |
 
@@ -280,7 +280,7 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (7) | B, Re, P, L. |
 | (8) | **VERIFIED** for cash equities, futures (variation margin), options (premium x multiplier), perpetuals (funding as a cash flow), splits, dividends, fees; a future or option with no declared economics is refused before an order exists. |
 | (9) | `tests/integration/test_instrument_economics.py`; `test_mark_to_market_pipeline.py`; `tests/regression/test_close_fill_cash_accounting.py`; v4.1.1: example 72's index future held in whole contracts, notional never paid, accounting identity exact. |
-| (10) | Borrow availability is not modelled -- a borrow *fee* is a stated `CashFlow` (BOUNDARY: the host's data). |
+| (10) | Borrow availability and its fee are declared per instrument as a dated series (FUT-018, `test_financing_and_borrow.py`), and a strategy reads only the entry in effect now; a lender's recall and buy-in are not modelled (FUT-022), and fees and interest accrue at each period's instant (FUT-023). The rates and availability are the host's data (BOUNDARY). |
 | (11) | none. |
 | (12) | met. |
 
@@ -568,7 +568,7 @@ where it is needed.
 | Lifecycle instants | `session_close`, `settles_at` | the calendar and a `SettlementRule` | `test_lifecycle_conventions.py` | a date on a closed day is refused, not moved |
 | Settlement lag (T+n) | `settlement_date`, `settles_at` compute it | the rule | `tests/unit/conventions/` | booked on each fill by the instrument's declared rule over its venue's calendar; unsettled proceeds kept out of buying power (FUT-015, `test_settlement_date_accounting.py`) |
 | Currencies and FX timing | settlement per instrument currency, `also_settles`, scheduled rates applied at their `as_of` | each currency's rates | `test_lifecycle_conventions.py::test_an_option_settling_in_another_currency_is_valued_at_the_rate_in_force`, `test_scheduled_inputs.py` | a consideration in another currency converts at the exercise instant, at the run's rate or a quanto contract's fixed one (FUT-016); a package's components share one currency |
-| Multipliers, lots, ticks, deliverable quantities | `InstrumentEconomics`, `LotSpecification`, `TickSchedule`, `Deliverable.units` | each contract's | `test_option_lifecycle.py` (multipliers 10 to 1,000, an adjusted deliverable of 150 against 100, an option on a future), `test_advanced_contract_terms.py` | baskets with a cash component and cash in lieu of fractions (FUT-016); a package's cost apportioned by observed values |
+| Multipliers, lots, ticks, deliverable quantities | `InstrumentEconomics`, `LotSpecification`, `TickSchedule`, `Deliverable.units` | each contract's | `test_option_lifecycle.py` (multipliers 10 to 1,000, an adjusted deliverable of 150 against 100, an option on a future), `test_advanced_contract_terms.py` | baskets with a cash component and cash in lieu of fractions (FUT-016); a package's cost apportioned by observed values; a declared `InstrumentRecord.tick` grid refuses an off-grid limit or stop at placement (EXE-013, `test_tick_grid.py`) |
 | Exercise styles and windows | `OptionTerms` (`AMERICAN`, `EUROPEAN`, `BERMUDAN` with `exercise_windows`, `exercisable_from`, `expires_at`) | the style and windows | `test_option_lifecycle.py`, `test_advanced_contract_terms.py` | the pricers model American and European exercise only |
 | Automatic exercise and assignment | `AutomaticExercise` threshold, or none; assignment before expiry an input | the clearing house's rule | `test_option_lifecycle.py` | no probabilistic assignment model in the engine, by design |
 | Cash and physical settlement | `SettlementStyle` on options and futures | the style and deliverable | `test_option_lifecycle.py`, `test_financed_delivery.py` | a shortfall is financed on declared margin terms and called (FUT-017); a debit accrues the declared interest for each scheduled period (FUT-018) |

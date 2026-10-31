@@ -52,12 +52,13 @@ Two consequences, both stated rather than worked around:
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from types import MappingProxyType
 from uuid import UUID
 
 from alphalab.allocation.state import AllocationState
+from alphalab.instrument.borrow import BorrowAvailability, BorrowTerms
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar
@@ -723,6 +724,25 @@ class UniverseView:
         band = controls.band(asset_id, self._as_of)
         return None if band is None else (band.lower, band.upper)
 
+    def borrow(self, asset_id: str) -> tuple[Decimal | None, Decimal] | None:
+        """What a lender offers on ``asset_id`` now: units available and the fee rate.
+
+        ``None`` when the instrument declares no borrow terms -- it is shorted as
+        the run allows, at no fee. Otherwise the entry in effect now, the units
+        ``None`` where the lender states no limit; before the first entry takes
+        effect nothing is available, ``(0, 0)``, as the execution path reads it
+        (FUT-018). Never a later entry: what a lender will offer is its to state.
+        A view with no instant has no "now", and answers ``None``.
+        """
+
+        record = self.instrument(asset_id)
+        if record is None or record.borrow is None or self._as_of is None:
+            return None
+        # The view's terms end at the entry in effect now, or the stand-in for
+        # none yet -- see instrument().
+        entry = record.borrow.entries[-1]
+        return (entry.available, entry.annual_rate)
+
     @property
     def configured(self) -> bool:
         """Whether this run has an instrument registry at all.
@@ -766,9 +786,25 @@ class UniverseView:
         :meth:`~alphalab.instrument.registry.InstrumentRegistry.record_for`,
         which answers ``None`` rather than raising, so a strategy asking about an
         instrument it does not have is not an error.
+
+        Its borrow terms are those in effect by now: a lender's later entries --
+        a rate it will raise, a recall it will make -- are dated inputs the run
+        applies at their instants, not facts a strategy can read before them
+        (FUT-018). A record declaring none, and every other field, is the
+        registry's as declared.
         """
 
-        return None if self._registry is None else self._registry.record_for(asset_id)
+        record = None if self._registry is None else self._registry.record_for(asset_id)
+        if record is None or record.borrow is None or self._as_of is None:
+            return record
+        terms = record.borrow
+        known = tuple(e for e in terms.entries if e.effective_at <= self._as_of)
+        if len(known) == len(terms.entries):
+            return record
+        # Before the first entry the lender has stated nothing yet: the view
+        # says so as the execution path reads it, nothing available from now.
+        stated = known or (BorrowAvailability(self._as_of, Decimal("0"), Decimal("0")),)
+        return replace(record, borrow=BorrowTerms(stated, terms.day_count))
 
     def sector(self, asset_id: str) -> str | None:
         """The sector ``asset_id`` is currently classified as, or ``None``.

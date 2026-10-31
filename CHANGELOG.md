@@ -180,8 +180,12 @@ IDs are in brackets.
   (units available, or no stated limit, and an annual fee): a short beyond what
   is available in effect, working sales counted, is refused before it is placed,
   and `alphalab.backtesting.ScheduledBorrowFee` charges each short the fee in
-  effect on its value at the last mark. A run declaring none of it records
-  exactly what it did; no schema moves.
+  effect on its value at the last mark. A strategy reads the borrow in effect
+  now through `context.universe.borrow(asset_id)` -- units available and the
+  fee, `(0, 0)` before the lender's first entry -- and never a later entry:
+  `context.universe.instrument` shows a record's borrow terms only as far as
+  they are in effect. A run declaring none of it records exactly what it did;
+  no schema moves.
 * **A declared portfolio margin model** [FUT-019]. `alphalab.instrument.MarginModel`
   reads every margined position at once; `PerPositionMargin` is FUT-017's sum,
   and `ScenarioMargin` revalues the positions it covers under each declared
@@ -216,6 +220,13 @@ IDs are in brackets.
   each strategy's share carried, working orders cancelled as at a split, and a
   contract on the instrument refused unless adjusted. `PortfolioEngine.apply_exchange`
   books it as an `EXCHANGE` ledger transaction and one `PositionExchanged` event.
+* **A venue's price grid on the execution path** [EXE-013].
+  `InstrumentRecord.tick` declares the instrument's `TickSchedule`, tiered or
+  flat, kept by the registry snapshot (`alphalab.conventions.tick.tick_to_primitives`,
+  `tick_from_primitives`). A limit or stop between two ticks of its own band is
+  refused at placement, naming the step, as is a negative one; a market order is
+  never refused for the grid; a band capping a limit lands it on the grid inside
+  the band. A run declaring no grid accepts any price, as before.
 * **A strategy withdraws its own working orders** [EXE-012].
   `IntentKind.CANCEL`: a hook returns `Intent(kind=IntentKind.CANCEL,
   instrument=<asset>, target=0)` and every order working in the asset that the
@@ -305,6 +316,11 @@ IDs are in brackets.
   declares its adjustment.
 * **A Bermudan contract cannot be priced as American or European** [FUT-016]:
   `OptionContract` refuses `ExerciseStyle.BERMUDAN`.
+* **A day count's year was chosen by elimination** [NUM-016]: `year_fraction`
+  and `day_fraction` divided every basis but the two 360-day ones by 365, so a
+  basis added later would have been misread silently.
+  `alphalab.conventions.days_in_year` states each basis's year and refuses one
+  not stated; every figure for the three bases is unchanged.
 * **A calendar date could not be serialized** [FUT-018]: the deterministic
   encoder refused `datetime.date`, so no payload or schedule digest could hold
   one. It is now written as ISO 8601; a `datetime`, whose clock and zone the
@@ -349,6 +365,8 @@ IDs are in brackets.
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `margined`, a derived index, `None` by default and built from the records (FUT-017) |
 | `alphalab.risk.MarginCall`, `alphalab.risk.events.MarginCall` | added (FUT-017) |
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
+| `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `tick`, `None` by default (EXE-013); `alphalab.conventions.tick.tick_to_primitives`, `tick_from_primitives` added |
+| `alphalab.conventions.days_in_year`, `alphalab.conventions.daycount.days_in_year` | added (NUM-016) |
 | `alphalab.instrument.MarginTerms` | field `purchase_on_margin`, `False` by default and written only when declared (FUT-018) |
 | `alphalab.backtesting.ScheduledInterest`, `ScheduledBorrowFee`; `RunSchedule.of` | added; keyword-only `interest` and `borrow_fees`, empty by default; `ScheduleKind` members `INTEREST` and `BORROW_FEE` (FUT-018) |
 | `alphalab.portfolio.FinancingTier`, `BalanceBasis`, `alphalab.portfolio.financing` | added (FUT-018) |
@@ -357,7 +375,7 @@ IDs are in brackets.
 | `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project`, `RiskProjection` | keyword-only `margin`, `None` by default; fields `margin_requirement` and `margin_equity`, `None` by default (FUT-019) |
 | `alphalab.instrument.TradingControls`, `PriceBand`, `TradingHalt`, `BandAction`, `declare_trading_controls`, `alphalab.instrument.controls` | added (FUT-020) |
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.snapshot.InstrumentRegistrySnapshot` | field `controls`, `None` by default (FUT-020) |
-| `alphalab.strategy.UniverseProtocol`, `alphalab.strategy.context.NoUniverse`, `alphalab.runtime.context_views.UniverseView` | methods `halted` and `price_band`; the view's field `_as_of`, `None` by default (FUT-020) |
+| `alphalab.strategy.UniverseProtocol`, `alphalab.strategy.context.NoUniverse`, `alphalab.runtime.context_views.UniverseView` | methods `halted` and `price_band`; the view's field `_as_of`, `None` by default (FUT-020); method `borrow`, and `instrument` shows only the borrow entries in effect at the view's instant (FUT-018) |
 | `alphalab.portfolio.HoldingExchange`, `ExchangeLeg`; `alphalab.portfolio.corporate_actions.ExchangedHolding`, `PortfolioEngine.apply_exchange`; `alphalab.portfolio.events.PositionExchanged`; `alphalab.portfolio.types.TransactionType` member `EXCHANGE`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`; `alphalab.backtesting.ScheduledExchange`, `RunSchedule.of(exchanges=)`, `ScheduleKind.EXCHANGE` | added (FUT-021) |
 | `alphalab.runtime.MarginHolding`, `MarginPosition` | fields `unit_value`, `unit_maintenance`, `haircut_rate` and `model`, defaulted; `MarginHolding.exposure`, `haircut`, `MarginPosition.figures` (FUT-019) |
 | `alphalab.runtime.margin_position`, `MarginPosition`, `MarginHolding` | added (FUT-017) |
@@ -377,7 +395,15 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-none: FUT-018 to FUT-021, raised by the FUT-017 milestone and the v4.2.0
+FUT-022 to FUT-029, proposed by the phase 2 global gap audit after FUT-018 to
+FUT-021 were delivered: borrow recall and buy-in, daily-balance accrual, holder
+elections and announcement instants, a corporate action settling after its
+instant, options repriced in margin scenarios, a halt's reopening auction, bands computed from a
+reference price, and amend in place. Each is new declared capability, on
+ROADMAP's Future work with its interim safe behaviour, horizon (v4.3 or v4.4),
+dependencies and completion criteria; none changes what v4.2.0 does.
+
+FUT-018 to FUT-021, raised by the FUT-017 milestone and the v4.2.0
 global gap audit, were delivered in v4.2.0 with the rest. FUT-009,
 FUT-011, FUT-013 to FUT-017, accepted by the audit and its milestones, and FUT-002,
 accepted by v4.1, were delivered by the candidate's milestones -- FUT-002 by declaration, so an undeclared configuration

@@ -95,11 +95,12 @@ def test_accepted_future_work_is_stated_and_on_the_roadmap() -> None:
     # A guard on the guard: the statuses are read as written, so an empty list of
     # accepted work is a fact and not a misread. v4.0 accepted FUT-001, which v4.1
     # delivered; the v4.2.0 program delivered FUT-002 and FUT-009 to FUT-021, and
-    # what remains open is whatever the ledger accepts now, the list below.
+    # its phase 2 global gap audit accepted FUT-022 to FUT-029: what remains open
+    # is whatever the ledger accepts now, the list below.
     assert statuses["FUT-001"].startswith("implemented ("), statuses["FUT-001"]
-    assert statuses["FUT-021"].startswith(("implemented (", "accepted as future work (")), statuses[
-        "FUT-021"
-    ]
+    assert statuses["FUT-021"].startswith("implemented ("), statuses["FUT-021"]
+    assert statuses["FUT-022"].startswith("accepted as future work ("), statuses["FUT-022"]
+    assert accepted, "the ledger's accepted future work was misread as none"
     for identifier, _ in accepted:
         entry = text.split(f'\n  - id: "{identifier}"', 1)[1].split('\n  - id: "', 1)[0]
         change = re.search(r'\n    required_change: "([^"]*)"', entry)

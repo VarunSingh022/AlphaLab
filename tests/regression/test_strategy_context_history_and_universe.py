@@ -422,6 +422,9 @@ def test_the_pipeline_overwrites_whatever_the_caller_supplied() -> None:
         def price_band(self, asset_id: str) -> Any:
             return None
 
+        def borrow(self, asset_id: str) -> Any:
+            return None
+
         def instrument(self, asset_id: str) -> Any:
             return None
 
