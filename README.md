@@ -52,9 +52,9 @@ It exists to answer the questions that decide whether a backtest means anything:
 | Python | CPython 3.12, 3.13, 3.14 (Linux, macOS) |
 | Version | 4.2.0 |
 | Runtime dependencies | **None** (standard library only) |
-| Tests | **9,672 passing, 0 skipped, 0 warnings** (each of CPython 3.12, 3.13, 3.14) |
+| Tests | **10,417 passing, 0 skipped, 0 warnings** (each of CPython 3.12, 3.13, 3.14) |
 | Static typing | **Strict mypy**, repository-wide |
-| Examples | **75 / 75** |
+| Examples | **76 / 76** |
 | Release certificate | [11 / 11 checks](docs/audit/RELEASE_CERTIFICATION.md) |
 | License | MIT |
 
