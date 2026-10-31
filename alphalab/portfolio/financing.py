@@ -21,14 +21,29 @@ from datetime import date
 from decimal import Decimal
 from enum import Enum, auto
 from itertools import pairwise
+from typing import Final
 
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year
 from alphalab.portfolio.exceptions import InvalidTransactionError
 
-__all__ = ["BalanceBasis", "FinancingTier", "accrued_interest", "day_fraction", "require_tiers"]
+__all__ = [
+    "ACCRUAL_CLOSED",
+    "ACCRUES",
+    "BalanceBasis",
+    "FinancingTier",
+    "accrued_interest",
+    "day_fraction",
+    "require_tiers",
+]
 
 _ZERO = Decimal("0")
+
+#: The metadata key an ``ACCRUAL`` ledger transaction names its period by
+#: (FUT-023): every day of one period's interest, or of one short's fee, shares it.
+ACCRUES: Final = "accrues"
+#: The metadata key marking the ``ACCRUAL`` that closes a period, when it posts.
+ACCRUAL_CLOSED: Final = "accrual_closed"
 
 
 class BalanceBasis(Enum):

@@ -45,6 +45,14 @@ IDs are in brackets.
 Entries marked *phase 3* were delivered on the candidate branch after its
 validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 
+* **Interest and borrow fees accrued day by day** [FUT-023] (*phase 3*).
+  `alphalab.backtesting.DailyInterest` and `DailyBorrowFee` wrap a period with a
+  `DailyAccrual` -- an IANA zone and a cutoff -- and optional `RateChange`s:
+  each calendar day accrues at its cutoff on the balance (trade-date or
+  settled) or the short (at the day's mark and fee) it leaves, recorded
+  exactly as an `ACCRUAL` ledger transaction moving no cash, and the period
+  posts once, rounded once. `ScheduledInterest` and `ScheduledBorrowFee` are
+  unchanged, so a schedule declaring neither daily form keeps its digest.
 * **A lender's recall, bought in** [FUT-022] (*phase 3*). `BorrowAvailability`
   declares a recall's `buy_in_at` deadline; after it, a short beyond what the
   entry makes available is bought in after each market step -- each short
@@ -380,6 +388,8 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `margined`, a derived index, `None` by default and built from the records (FUT-017) |
 | `alphalab.risk.MarginCall`, `alphalab.risk.events.MarginCall` | added (FUT-017) |
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
+| `alphalab.backtesting.DailyAccrual`, `DailyInterest`, `DailyBorrowFee`, `RateChange`; `RunSchedule.of(interest=, borrow_fees=)` | added, accepted beside the instant forms; `ScheduleKind.ACCRUAL` (FUT-023, phase 3) |
+| `alphalab.portfolio.types.TransactionType`; `alphalab.portfolio.financing` | member `ACCRUAL`; `ACCRUES`, `ACCRUAL_CLOSED` added; `PortfolioEngine.record_accrual`, `accrued`, `close_accrual`; `ExecutionPipeline.record_accrual`, `post_accrual`; `RunEngine.record_accrual`, `post_accrual` (FUT-023, phase 3) |
 | `alphalab.instrument.BorrowAvailability` | field `buy_in_at`, `None` by default, written only when declared; `BorrowTerms.recalls` (FUT-022, phase 3) |
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `recallable`, a derived index, appended last, `None` by default and built from the records (FUT-022, phase 3) |
 | `alphalab.risk.BuyIn`, `alphalab.risk.events.BuyIn` | added (FUT-022, phase 3) |
@@ -414,7 +424,7 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 ## Accepted as future work
 
 FUT-022 to FUT-029, proposed by the phase 2 global gap audit after FUT-018 to
-FUT-021 were delivered, and delivered in turn by phase 3 (FUT-022 so far): borrow recall and buy-in, daily-balance accrual, holder
+FUT-021 were delivered, and delivered in turn by phase 3 (FUT-022 and FUT-023 so far): borrow recall and buy-in, daily-balance accrual, holder
 elections and announcement instants, a corporate action settling after its
 instant, options repriced in margin scenarios, a halt's reopening auction, bands computed from a
 reference price, and amend in place. Each is new declared capability, on

@@ -74,6 +74,7 @@ from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.corporate_actions import (
     Assignment,
     CashFlow,
+    CashFlowKind,
     ContractSettlement,
     Exercise,
     HoldingExchange,
@@ -783,6 +784,47 @@ class RunEngine:
         pipeline = ExecutionPipeline.apply_cash_flow(state.pipeline, flow, clock, rates)
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def record_accrual(
+        state: RunState, key: str, amount: Decimal, currency: str, timestamp: float
+    ) -> RunState:
+        """Record one day's accrued interest or fee (FUT-023).
+
+        See :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.record_accrual`.
+        """
+
+        pipeline = ExecutionPipeline.record_accrual(
+            state.pipeline, key, amount, currency, timestamp
+        )
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, timestamp)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def post_accrual(
+        state: RunState,
+        key: str,
+        kind: CashFlowKind,
+        currency: str,
+        asset_id: str,
+        reference: str,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Post a period's accrual once (FUT-023).
+
+        See :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.post_accrual`.
+        """
+
+        pipeline = ExecutionPipeline.post_accrual(
+            state.pipeline, key, kind, currency, asset_id, reference, timestamp, rates
+        )
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, timestamp)
         )
 
     @staticmethod

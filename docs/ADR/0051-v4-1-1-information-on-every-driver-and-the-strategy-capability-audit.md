@@ -388,6 +388,14 @@ liquidation -- a delta, because a strategy's resting bid is its own price, not
 the lender's -- and filling only as the market allows, placed again for what
 it leaves. A working market buy defers it, so a recall is never covered twice.
 
+**28. A period's interest accrues on each day's balance, by its declared clock
+(FUT-023, phase 3).** Which instant closes a day is the broker's, so the zone and
+the cutoff are declared; every calendar day accrues, as brokers accrue weekends.
+Each day is recorded exactly in the ledger, moving no cash, and the period posts
+once, rounded once -- the ledger travels with the portfolio, so a restore needs
+nothing new, and a retention bound keeps what is open. The instant basis stays
+what it was, for a caller whose cadence is the period itself.
+
 ---
 
 # Consequences
@@ -428,9 +436,11 @@ it leaves. A working market buy defers it, so a recall is never covered twice.
   against the book as it stands; without a declared model, margin is each
   position's own and the gate's `MarginLimit` a gross-notional cap.
 - **Interest and fees accrue at each declared period's instant**: on the balance
-  and the short then, not a daily average; the periods are the caller's
-  cadence; borrow is the book's, and a recall's buy-in is priced by the run's
-  fill policy, with no premium a lender might charge.
+  and the short then, unless the period is declared daily (FUT-023), when each
+  calendar day accrues at its cutoff and the period posts once, with no
+  compounding within it; the periods are the caller's cadence; borrow is the
+  book's, and a recall's buy-in is priced by the run's fill policy, with no
+  premium a lender might charge.
 - **A margin call is checked after each market step and liquidated at the
   asset's next quote**: no grace period and no check between market events; a
   market order's unfilled remainder is cancelled, and a step still in breach

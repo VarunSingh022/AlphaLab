@@ -17,6 +17,9 @@ class TransactionType(Enum):
     #: v4.2.0 (FUT-021): cash a holding exchange paid or cost -- its cash part
     #: and any cash in lieu of a fraction.
     EXCHANGE = auto()
+    #: v4.2.0, phase 3 (FUT-023): interest or a fee accrued for one day and
+    #: not yet posted -- moving no cash; its period posts the sum once.
+    ACCRUAL = auto()
 
 
 class PositionSide(Enum):

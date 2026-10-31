@@ -76,6 +76,7 @@ from alphalab.portfolio.events import (
     VariationSettled,
 )
 from alphalab.portfolio.exceptions import InvalidTransactionError
+from alphalab.portfolio.financing import ACCRUAL_CLOSED, ACCRUES
 from alphalab.portfolio.fx import FxConversion, FxRates
 from alphalab.portfolio.ledger import TransactionLedger
 from alphalab.portfolio.money import ZERO_MONEY, notional, to_money
@@ -686,6 +687,68 @@ class PortfolioEngine:
         book = state.book
         held = ((asset, book[asset]) for asset in assets if asset in book)
         return _marked(state, held, prices, timestamp)
+
+    @staticmethod
+    @in_accounting_context
+    def record_accrual(
+        state: PortfolioState, key: str, amount: Decimal, currency: str, timestamp: float
+    ) -> PortfolioState:
+        """Record one day's accrued interest or fee under ``key``, moving no cash (FUT-023).
+
+        An ``ACCRUAL`` ledger transaction holding the exact amount, signed as the
+        cash it will move -- negative owed, positive earned -- unrounded, so a
+        period posting the sum rounds it once. Cash, P&L and every event are
+        untouched until :meth:`close_accrual` closes it.
+        """
+
+        tx = Transaction(
+            str(new_id()),
+            timestamp,
+            state.account.account_id,
+            TransactionType.ACCRUAL,
+            "CASH",
+            amount,
+            Decimal("1.0"),
+            Decimal("0.0"),
+            currency,
+            {ACCRUES: key},
+        )
+        return evolve(state, ledger=state.ledger.append(tx))
+
+    @staticmethod
+    def accrued(state: PortfolioState, key: str) -> Decimal:
+        """What is accrued and open under ``key``: its accruals, less any closing (FUT-023)."""
+
+        total = Decimal("0")
+        for tx in state.ledger.transactions:
+            if tx.type is TransactionType.ACCRUAL and tx.metadata.get(ACCRUES) == key:
+                total += tx.quantity
+        return total
+
+    @staticmethod
+    @in_accounting_context
+    def close_accrual(
+        state: PortfolioState, key: str, amount: Decimal, currency: str, timestamp: float
+    ) -> PortfolioState:
+        """Close ``key``'s accrual: an ``ACCRUAL`` of the negated sum, marked closed (FUT-023).
+
+        What it closed is then posted, if anything, as an ordinary cash flow;
+        the closing entry is what tells a bounded ledger the period is done.
+        """
+
+        tx = Transaction(
+            str(new_id()),
+            timestamp,
+            state.account.account_id,
+            TransactionType.ACCRUAL,
+            "CASH",
+            -amount,
+            Decimal("1.0"),
+            Decimal("0.0"),
+            currency,
+            {ACCRUES: key, ACCRUAL_CLOSED: True},
+        )
+        return evolve(state, ledger=state.ledger.append(tx))
 
     @staticmethod
     @in_accounting_context

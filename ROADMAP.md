@@ -248,6 +248,11 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **Interest and borrow fees accrued day by day** (FUT-023, phase 3): a
+  `DailyInterest` or `DailyBorrowFee` accrues each calendar day at a declared
+  zone's cutoff on the balance or the short the day leaves, at the rates and
+  marks of that day, recorded exactly in the ledger and posted once a period,
+  rounded once.
 - **A lender's recall, bought in** (FUT-022, phase 3): a borrow entry declares
   its recall's `buy_in_at` deadline; after it, a short beyond what the lender
   makes available is bought in -- each short strategy's own cover through
@@ -631,7 +636,6 @@ interim safe behaviour and completion criteria in full.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-023 | **Daily-balance accrual**: interest and borrow fees charge the balance and the short at the period's instant | declare one period a day, which is the daily accrual | v4.3 | -- |
 | FUT-024 | **Holder elections and announcement instants**: a corporate action applies one declared outcome; an adjustment is visible from the run's start | declare the elected outcome; declare adjustments only once announced | v4.4 | holding exchanges |
 | FUT-025 | **A corporate action settling after its instant**: a cash part is spendable from the effective instant | schedule the exchange at its payment instant | v4.4 | settlement-date cash, holding exchanges |
 | FUT-026 | **Options repriced in margin scenarios**: each covered instrument moves by its own declared fraction | margin options per position, or outside the covered set | v4.4 | portfolio margin; a declared pricing model (new) |
@@ -640,9 +644,9 @@ interim safe behaviour and completion criteria in full.
 | FUT-029 | **A strategy's amend in place, keeping priority by a venue's rule**: a strategy, and a simulated venue, change an order only by cancel and replace (an operator can amend at a live venue) | cancel and re-place: priority lost, the conservative reading | v4.3 | strategy cancel, queue model |
 
 Each is a boundary of the delivered behaviour, stated in ADR-0051's known
-limitations. Two are not conservative while open -- a period charged on one
-balance (FUT-023), a corporate action's cash spendable before its payment
-(FUT-025) -- and each one's interim safe behaviour says how to declare around it.
+limitations. One is not conservative while open -- a corporate action's cash
+spendable before its payment (FUT-025) -- and its interim safe behaviour says
+how to declare around it.
 
 ---
 

@@ -19,11 +19,19 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from alphalab.backtesting import BacktestEngine, BacktestResult, PausedReplay, ReplayBacktest
+from alphalab.backtesting import (
+    BacktestEngine,
+    BacktestResult,
+    PausedReplay,
+    ReplayBacktest,
+    RunSchedule,
+)
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.replay_snapshot import capture as capture_replay
 from alphalab.backtesting.replay_snapshot import from_primitives as replay_from_primitives
 from alphalab.backtesting.replay_snapshot import restore as restore_replay
+from alphalab.backtesting.schedule import DailyAccrual, DailyInterest, ScheduledInterest
+from alphalab.conventions.daycount import DayCount
 from alphalab.conventions.settlement import SettlementBasis, SettlementRule
 from alphalab.core.enums import AssetType
 from alphalab.data.calendar import MarketCalendar, SessionWindow
@@ -31,8 +39,10 @@ from alphalab.instrument.record import InstrumentRecord
 from alphalab.lifecycle import digest_run
 from alphalab.persistence import deserialize, serialize
 from alphalab.portfolio.engine import PortfolioEngine
+from alphalab.portfolio.financing import BalanceBasis, FinancingTier
 from alphalab.portfolio.fx import FxRate
 from alphalab.portfolio.settlement import SETTLES_AT, pending_from
+from alphalab.portfolio.types import TransactionType
 from alphalab.runtime.calendars import VenueCalendars
 from alphalab.runtime.retention import RetentionPolicy
 from alphalab.runtime.run_snapshot import RunObjects
@@ -416,3 +426,44 @@ def test_a_results_bound_never_trims_a_fill_still_unsettled() -> None:
         assert restored.run.pipeline.portfolio.unsettled == held, boundary
         resumed = ReplayBacktest.resume(restored, context_factory)
         assert digest_run(resumed.backtest).result_id == reference
+
+
+def test_daily_interest_on_the_settled_basis_accrues_on_each_days_settled_cash() -> None:
+    # Bought Wednesday, T+2 over Good Friday: the purchase settles at Monday's
+    # open. Trade-date cash is nothing from Wednesday; settled cash is still the
+    # 10,000 on Wednesday to Sunday, and nothing from Monday.
+    keyed = {(WED, ACME.asset_id): D("100")}
+    # A quote after the posting, so the run reaches it.
+    data = prices(ACME.asset_id, [WED, THU, MON, TUE, ny(3, 4, 10)])
+    close = DailyAccrual("America/New_York", time(17, 0))
+
+    def credit(basis: BalanceBasis) -> Decimal:
+        item = ScheduledInterest(
+            "USD",
+            date(2024, 3, 27),
+            date(2024, 4, 3),
+            ny(3, 4, 9),
+            DayCount.ACT_360,
+            (FinancingTier(None, D("0.05")),),
+            D("0.01"),
+            basis,
+        )
+        result = BacktestEngine.run(
+            config(ACME),
+            data,
+            running_strategy_state("S", Trader(keyed)),
+            context_factory,
+            schedule=RunSchedule.of(interest=[DailyInterest(item, close)]),
+        )
+        return sum(
+            (
+                t.quantity
+                for t in result.state.portfolio.ledger.transactions
+                if t.type is TransactionType.INTEREST
+            ),
+            D("0"),
+        )
+
+    day = D("10000") * D("0.01") / D("360")
+    assert credit(BalanceBasis.SETTLED) == (5 * day).quantize(D("0.01"))
+    assert credit(BalanceBasis.TRADE_DATE) == 0

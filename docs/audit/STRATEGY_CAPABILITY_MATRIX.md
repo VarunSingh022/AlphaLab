@@ -280,7 +280,7 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (7) | B, Re, P, L. |
 | (8) | **VERIFIED** for cash equities, futures (variation margin), options (premium x multiplier), perpetuals (funding as a cash flow), splits, dividends, fees; a future or option with no declared economics is refused before an order exists. |
 | (9) | `tests/integration/test_instrument_economics.py`; `test_mark_to_market_pipeline.py`; `tests/regression/test_close_fill_cash_accounting.py`; v4.1.1: example 72's index future held in whole contracts, notional never paid, accounting identity exact. |
-| (10) | Borrow availability and its fee are declared per instrument as a dated series (FUT-018, `test_financing_and_borrow.py`), and a strategy reads only the entry in effect now; a lender's recall is bought in after its declared deadline through the canonical path, as the market allows (FUT-022, `test_borrow_recall.py`), and fees and interest accrue at each period's instant (FUT-023). The rates and availability are the host's data (BOUNDARY). |
+| (10) | Borrow availability and its fee are declared per instrument as a dated series (FUT-018, `test_financing_and_borrow.py`), and a strategy reads only the entry in effect now; a lender's recall is bought in after its declared deadline through the canonical path, as the market allows (FUT-022, `test_borrow_recall.py`), and fees and interest accrue at each period's instant or, declared daily, on each day's balance and short at a declared cutoff (FUT-023, `test_daily_accrual.py`). The rates and availability are the host's data (BOUNDARY). |
 | (11) | none. |
 | (12) | met. |
 

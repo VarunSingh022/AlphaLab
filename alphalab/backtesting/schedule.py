@@ -61,7 +61,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import IntEnum, StrEnum, unique
 from itertools import pairwise
@@ -71,7 +71,9 @@ from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.backtesting.exceptions import BacktestError
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.common.constants import DEFAULT_ENCODING
-from alphalab.conventions.daycount import DayCount
+from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year
+from alphalab.data.exceptions import DataValidationError
+from alphalab.data.time import resolve_zone
 from alphalab.persistence.serializer import serialize
 from alphalab.portfolio.corporate_actions import (
     Assignment,
@@ -85,6 +87,7 @@ from alphalab.portfolio.corporate_actions import (
 )
 from alphalab.portfolio.engine import PortfolioEngine
 from alphalab.portfolio.financing import (
+    ACCRUES,
     BalanceBasis,
     FinancingTier,
     accrued_interest,
@@ -92,13 +95,18 @@ from alphalab.portfolio.financing import (
     require_tiers,
 )
 from alphalab.portfolio.fx import FxRate, FxRates
+from alphalab.portfolio.types import TransactionType
 from alphalab.runtime.execution_pipeline import ContextFactory
 from alphalab.runtime.run import RunEngine, RunState
 from alphalab.strategy.events import TimerEvent
 
 __all__ = [
     "EMPTY_SCHEDULE",
+    "DailyAccrual",
+    "DailyBorrowFee",
+    "DailyInterest",
     "Funding",
+    "RateChange",
     "RunSchedule",
     "ScheduleCursor",
     "ScheduleEntry",
@@ -149,6 +157,10 @@ class ScheduleKind(StrEnum):
     ASSIGNMENT = "assignment"
     EXPIRY = "expiry"
     SETTLEMENT = "settlement"
+    #: Phase 3 (FUT-023): one day of a daily-accrued period -- after the
+    #: instant's records, on the balance and the shorts the day's cutoff left,
+    #: and before a period posting at the same instant.
+    ACCRUAL = "accrual"
     #: v4.2.0 (FUT-018): a period's interest on a cash balance, and its borrow
     #: fees -- after the instant's records, on the balance and the shorts the
     #: instant left.
@@ -172,6 +184,7 @@ _PLACE: Final = {
     ScheduleKind.ASSIGNMENT: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.EXPIRY: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.SETTLEMENT: SchedulePlace.AFTER_RECORDS,
+    ScheduleKind.ACCRUAL: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.INTEREST: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.BORROW_FEE: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.EXCHANGE: SchedulePlace.BEFORE_RECORDS,
@@ -287,6 +300,157 @@ class ScheduledBorrowFee:
 
 
 @dataclass(frozen=True, slots=True)
+class DailyAccrual:
+    """When each day of a period accrues: at ``cutoff`` on ``zone``'s wall clock (FUT-023).
+
+    A broker accrues interest on each day's closing balance and posts the sum
+    once a period; which instant closes a day is its own, so it is declared --
+    an IANA zone and a time of day -- never assumed. Every calendar day of the
+    period accrues, a weekend or a holiday carrying its balance as it stood.
+    Where the zone's clock skips or repeats the cutoff, it is the instant the
+    zone database resolves it to.
+    """
+
+    zone: str
+    cutoff: time
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.cutoff, time) or self.cutoff.tzinfo is not None:
+            raise ScheduleValidationError(
+                f"A daily cutoff is a naive time of day on the declared zone, got {self.cutoff!r}."
+            )
+        if not isinstance(self.zone, str):
+            raise ScheduleValidationError(
+                f"A daily accrual's zone is an IANA zone's name, got {self.zone!r}."
+            )
+        try:
+            resolve_zone(self.zone)
+        except DataValidationError as exc:
+            raise ScheduleValidationError(f"A daily accrual's zone: {exc}") from exc
+
+    def instant(self, day: date) -> float:
+        """The instant ``day``'s cutoff falls at."""
+
+        return datetime.combine(day, self.cutoff, tzinfo=resolve_zone(self.zone)).timestamp()
+
+
+@dataclass(frozen=True, slots=True)
+class RateChange:
+    """A broker's rates from ``effective`` on, within a daily-accrued period (FUT-023).
+
+    Attributes:
+        effective: The first day the rates apply to.
+        debit_tiers: The tiered debit rates, as :class:`ScheduledInterest` states them.
+        credit_rate: The credit rate, or ``None`` for none.
+    """
+
+    effective: date
+    debit_tiers: tuple[FinancingTier, ...]
+    credit_rate: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "debit_tiers", require_tiers(self.debit_tiers))
+        _require_credit_rate(self.credit_rate)
+
+
+@dataclass(frozen=True, slots=True)
+class DailyInterest:
+    """``interest`` accrued day by day and posted at its ``at`` (FUT-023).
+
+    Each calendar day of the period, at its cutoff, accrues the day's interest on
+    the currency's balance then -- trade-date or settled, by the period's basis --
+    at the rates in effect that day: the period's own, or the latest
+    :class:`RateChange` effective by then. Each day is weighted by what its day
+    count counts it as, over that count's year; the exact sum posts once, at
+    ``interest.at``, rounded once, as an ``INTEREST`` cash flow. Every cutoff is
+    at or before the posting.
+    """
+
+    interest: ScheduledInterest
+    accrual: DailyAccrual
+    rates: tuple[RateChange, ...] = ()
+
+    def __post_init__(self) -> None:
+        rates = tuple(self.rates)
+        if any(b.effective <= a.effective for a, b in pairwise(rates)):
+            raise ScheduleValidationError(
+                "Rate changes take effect on strictly increasing days: two on one day would be "
+                "two answers to what the rate is."
+            )
+        object.__setattr__(self, "rates", rates)
+        _require_cutoffs(self.interest.start, self.interest.end, self.interest.at, self.accrual)
+
+    @property
+    def key(self) -> str:
+        """The ledger's name for this period's accrual."""
+
+        item = self.interest
+        return f"interest:{item.currency}:{item.start}:{item.end}:{item.reference}"
+
+    def rates_on(self, day: date) -> tuple[tuple[FinancingTier, ...], Decimal | None]:
+        """The debit tiers and credit rate in effect on ``day``."""
+
+        tiers, credit = self.interest.debit_tiers, self.interest.credit_rate
+        for change in self.rates:
+            if change.effective > day:
+                break
+            tiers, credit = change.debit_tiers, change.credit_rate
+        return tiers, credit
+
+
+@dataclass(frozen=True, slots=True)
+class DailyBorrowFee:
+    """``fee`` accrued day by day on each short and posted at its ``at`` (FUT-023).
+
+    Each calendar day of the period, at its cutoff, every short in an instrument
+    declaring borrow terms accrues the day's fee: the fee in effect then, on the
+    short's value at the run's mark then, weighted by its terms' day count. A
+    short held for part of the period pays for those days; the exact sum per
+    instrument posts once, at ``fee.at``, as a ``FEE`` cash flow.
+    """
+
+    fee: ScheduledBorrowFee
+    accrual: DailyAccrual
+
+    def __post_init__(self) -> None:
+        _require_cutoffs(self.fee.start, self.fee.end, self.fee.at, self.accrual)
+
+    def key(self, asset_id: str) -> str:
+        """The ledger's name for ``asset_id``'s accrual in this period."""
+
+        item = self.fee
+        return f"borrow:{asset_id}:{item.start}:{item.end}:{item.reference}"
+
+
+@dataclass(frozen=True, slots=True)
+class _AccrualDay:
+    """One day of a daily-accrued period: what the schedule applies at its cutoff."""
+
+    of: DailyInterest | DailyBorrowFee
+    day: date
+
+
+def _days(start: date, end: date) -> tuple[date, ...]:
+    return tuple(start + timedelta(days=n) for n in range((end - start).days))
+
+
+def _require_cutoffs(start: date, end: date, at: float, accrual: DailyAccrual) -> None:
+    last = end - timedelta(days=1)
+    if accrual.instant(last) > at:
+        raise ScheduleValidationError(
+            f"A daily accrual posts at {at!r}, before its last day's cutoff "
+            f"{accrual.instant(last)!r}: a period posts what its days accrued, after they did."
+        )
+
+
+def _require_credit_rate(rate: Decimal | None) -> None:
+    if rate is not None and (not isinstance(rate, Decimal) or not rate.is_finite() or rate < 0):
+        raise ScheduleValidationError(
+            f"A credit rate is a non-negative Decimal or None, got {rate!r}."
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ScheduledSplit:
     """A split, reverse split or stock dividend, effective at ``at``."""
 
@@ -364,6 +528,35 @@ def _entry(kind: ScheduleKind, at: float, identity: str, item: object) -> Schedu
     return ScheduleEntry(float(at), _PLACE[kind], kind, identity, item)
 
 
+def _daily_entries(
+    interest: Iterable[ScheduledInterest | DailyInterest],
+    borrow_fees: Iterable[ScheduledBorrowFee | DailyBorrowFee],
+) -> list[ScheduleEntry]:
+    """Each daily-accrued period's days, at their cutoffs, and its posting (FUT-023)."""
+
+    entries: list[ScheduleEntry] = []
+    for item in (*interest, *borrow_fees):
+        period: ScheduledInterest | ScheduledBorrowFee
+        if isinstance(item, DailyInterest):
+            period, identity = item.interest, f"{item.interest.currency}:{item.interest.reference}"
+            entries.append(_entry(ScheduleKind.INTEREST, period.at, identity, item))
+        elif isinstance(item, DailyBorrowFee):
+            period, identity = item.fee, item.fee.reference
+            entries.append(_entry(ScheduleKind.BORROW_FEE, period.at, identity, item))
+        else:
+            continue
+        for day in _days(period.start, period.end):
+            entries.append(
+                _entry(
+                    ScheduleKind.ACCRUAL,
+                    item.accrual.instant(day),
+                    f"{identity}:{day.isoformat()}",
+                    _AccrualDay(item, day),
+                )
+            )
+    return entries
+
+
 def _instruction(instruction: Exercise | Assignment) -> str:
     """One exercise or assignment's identity: two at one instant are two only by reference."""
 
@@ -409,8 +602,8 @@ class RunSchedule:
         exercises: Iterable[ScheduledExercise] = (),
         assignments: Iterable[ScheduledAssignment] = (),
         expiries: Iterable[ScheduledExpiry] = (),
-        interest: Iterable[ScheduledInterest] = (),
-        borrow_fees: Iterable[ScheduledBorrowFee] = (),
+        interest: Iterable[ScheduledInterest | DailyInterest] = (),
+        borrow_fees: Iterable[ScheduledBorrowFee | DailyBorrowFee] = (),
         exchanges: Iterable[ScheduledExchange] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
@@ -453,8 +646,14 @@ class RunSchedule:
             *(
                 _entry(ScheduleKind.INTEREST, i.at, f"{i.currency}:{i.reference}", i)
                 for i in interest
+                if isinstance(i, ScheduledInterest)
             ),
-            *(_entry(ScheduleKind.BORROW_FEE, b.at, b.reference, b) for b in borrow_fees),
+            *(
+                _entry(ScheduleKind.BORROW_FEE, b.at, b.reference, b)
+                for b in borrow_fees
+                if isinstance(b, ScheduledBorrowFee)
+            ),
+            *_daily_entries(interest, borrow_fees),
             # One exchange of an instrument at an instant: a second, conflicting
             # declaration of it is refused below, as two answers to one question.
             *(_entry(ScheduleKind.EXCHANGE, x.at, x.exchange.asset_id, x) for x in exchanges),
@@ -666,6 +865,22 @@ def _apply(
         return rates, RunEngine.assign(state, item.assignment, item.at, rates)
     if kind is ScheduleKind.EXPIRY:
         return rates, RunEngine.expire_option(state, item.expiry, item.at, rates)
+    if kind is ScheduleKind.ACCRUAL:
+        return rates, _accrue_day(state, item, entry.at)
+    if kind is ScheduleKind.INTEREST and isinstance(item, DailyInterest):
+        period = item.interest
+        return rates, RunEngine.post_accrual(
+            state,
+            item.key,
+            CashFlowKind.INTEREST,
+            period.currency,
+            "",
+            period.reference,
+            period.at,
+            rates,
+        )
+    if kind is ScheduleKind.BORROW_FEE and isinstance(item, DailyBorrowFee):
+        return rates, _post_borrow_fees(state, item, rates)
     if kind is ScheduleKind.INTEREST:
         flow = _interest(state, item)
         if flow is None:
@@ -733,6 +948,82 @@ def _interest(state: RunState, item: ScheduledInterest) -> CashFlow | None:
     if amount == 0:
         return None
     return CashFlow(CashFlowKind.INTEREST, amount, item.currency, "", item.reference)
+
+
+def _accrue_day(state: RunState, item: _AccrualDay, at: float) -> RunState:
+    """Accrue one day of a daily period on the book as its cutoff leaves it (FUT-023)."""
+
+    period = item.of
+    if isinstance(period, DailyInterest):
+        interest = period.interest
+        portfolio = state.pipeline.portfolio
+        if interest.basis is BalanceBasis.SETTLED:
+            balance = PortfolioEngine.cash_position(portfolio, interest.currency, at).settled
+        else:
+            balance = portfolio.cash.balance(interest.currency)
+        tiers, credit = period.rates_on(item.day)
+        amount = accrued_interest(balance, tiers, credit, _day_weight(item.day, interest.day_count))
+        if amount == 0:
+            return state
+        return RunEngine.record_accrual(state, period.key, amount, interest.currency, at)
+    registry = state.config.pipeline.instruments
+    if registry is None:
+        return state
+    ctx = ACCOUNTING_CONTEXT
+    for asset_id, position in state.pipeline.portfolio.positions.items():
+        if position.quantity >= 0:
+            continue
+        record = registry.record_for(asset_id)
+        terms = None if record is None else record.borrow
+        if terms is None:
+            continue
+        entry = terms.in_effect(at)
+        mark = state.pipeline.market_prices.get(asset_id)
+        if entry is None or mark is None:
+            raise ScheduleValidationError(
+                f"{asset_id} is held short at {at!r} with no borrow entry in effect or no mark "
+                "to value its day's fee by."
+            )
+        value = ctx.multiply(ctx.multiply(position.quantity.copy_abs(), position.multiplier), mark)
+        weight = _day_weight(item.day, terms.day_count)
+        amount = -ctx.multiply(ctx.multiply(value, entry.annual_rate), weight)
+        if amount != 0:
+            state = RunEngine.record_accrual(
+                state, period.key(asset_id), amount, position.currency, at
+            )
+    return state
+
+
+def _day_weight(day: date, basis: DayCount) -> Decimal:
+    """One day as a fraction of its day count's year: what the count counts it as."""
+
+    counted = day_count_days(day, day + timedelta(days=1), basis)
+    return ACCOUNTING_CONTEXT.divide(Decimal(counted), Decimal(days_in_year(basis)))
+
+
+def _post_borrow_fees(state: RunState, item: DailyBorrowFee, rates: FxRates) -> RunState:
+    """Post every instrument's fee the period accrued, once each (FUT-023)."""
+
+    # Every key of this period ends in what ``key("")`` does after its asset.
+    head, suffix = "borrow:", item.key("")[len("borrow:") :]
+    accrued: dict[str, str] = {}
+    for tx in state.pipeline.portfolio.ledger.transactions:
+        key = tx.metadata.get(ACCRUES) if tx.type is TransactionType.ACCRUAL else None
+        if isinstance(key, str) and key.startswith(head) and key.endswith(suffix):
+            accrued.setdefault(key, tx.currency)
+    for key, currency in accrued.items():
+        asset_id = key[len(head) : len(key) - len(suffix)]
+        state = RunEngine.post_accrual(
+            state,
+            key,
+            CashFlowKind.FEE,
+            currency,
+            asset_id,
+            item.fee.reference,
+            item.fee.at,
+            rates,
+        )
+    return state
 
 
 def _borrow_fees(state: RunState, item: ScheduledBorrowFee) -> tuple[CashFlow, ...]:

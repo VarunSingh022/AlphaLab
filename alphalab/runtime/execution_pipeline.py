@@ -95,6 +95,7 @@ from alphalab.portfolio.book import BookGroups, BookMarketValues, PositionBook
 from alphalab.portfolio.corporate_actions import (
     Assignment,
     CashFlow,
+    CashFlowKind,
     ContractSettlement,
     ExchangedHolding,
     ExchangeLeg,
@@ -105,6 +106,7 @@ from alphalab.portfolio.corporate_actions import (
 )
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
+from alphalab.portfolio.financing import ACCRUAL_CLOSED, ACCRUES
 from alphalab.portfolio.fx import (
     NO_RATES,
     FxConversion,
@@ -116,6 +118,7 @@ from alphalab.portfolio.fx import (
 from alphalab.portfolio.money import to_money
 from alphalab.portfolio.nav import NAVCalculator
 from alphalab.portfolio.position import Position
+from alphalab.portfolio.types import TransactionType
 from alphalab.portfolio.valuation import (
     PortfolioValuation,
     PortfolioValuationSnapshot,
@@ -563,21 +566,32 @@ def retained(state: ExecutionPipelineState) -> ExecutionPipelineState:
 
 
 def _ledger_bound(portfolio: PortfolioState, bound: int | None) -> int | None:
-    """The ledger's bound, widened so no fill still unsettled is trimmed (FUT-015).
+    """The ledger's bound, widened so nothing a restore rebuilds from is trimmed.
 
-    A restore rebuilds the unsettled fills from the ledger they travel in, so
-    trimming one before it settles would lose an obligation. The bound grows by
-    at most the fills of a settlement cycle, and only while one is pending.
+    A restore rebuilds the fills not yet settled (FUT-015) from the ledger they
+    travel in, and a period's posting sums the accruals it has not closed
+    (FUT-023): trimming one before it settles or posts would lose an obligation
+    (ACC-015). The bound grows to keep the oldest such transaction and
+    everything after it -- a settlement cycle's fills, a period's days -- and
+    only while one is open.
     """
 
-    if bound is None or not portfolio.unsettled:
+    if bound is None:
         return bound
-    oldest = portfolio.unsettled[0].transaction_id
-    newest_first = reversed(portfolio.ledger.transactions.to_tuple())
-    for needed, transaction in enumerate(newest_first, start=1):
-        if transaction.transaction_id == oldest:
-            return max(bound, needed)
-    return bound
+    transactions = portfolio.ledger.transactions
+    pending = {entry.transaction_id for entry in portfolio.unsettled}
+    closed: set[object] = set()
+    needed = 0
+    for depth, transaction in enumerate(reversed(transactions.to_tuple()), start=1):
+        if transaction.transaction_id in pending:
+            needed = depth
+        elif transaction.type is TransactionType.ACCRUAL:
+            key = transaction.metadata.get(ACCRUES)
+            if transaction.metadata.get(ACCRUAL_CLOSED):
+                closed.add(key)
+            elif key not in closed:
+                needed = depth
+    return max(bound, needed)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1776,6 +1790,64 @@ class ExecutionPipeline:
             )
         portfolio = PortfolioEngine.apply_cash_flow(state.portfolio, flow, timestamp)
         return _after_book_change(state, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def record_accrual(
+        state: ExecutionPipelineState, key: str, amount: Decimal, currency: str, timestamp: float
+    ) -> ExecutionPipelineState:
+        """Record one day's accrued interest or fee under ``key``, moving no cash (FUT-023).
+
+        See :meth:`~alphalab.portfolio.engine.PortfolioEngine.record_accrual`.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event, or
+                ``currency`` is one this pipeline does not settle.
+        """
+
+        _require_not_before_last_event(state, timestamp, "An accrual")
+        if currency not in state.config.settlement_currencies:
+            raise RuntimeValidationError(
+                f"An accrual in {currency!r} cannot be recorded by a pipeline that settles in "
+                f"{sorted(state.config.settlement_currencies)}."
+            )
+        portfolio = PortfolioEngine.record_accrual(
+            state.portfolio, key, amount, currency, timestamp
+        )
+        return evolve(state, portfolio=portfolio)
+
+    @staticmethod
+    @in_accounting_context
+    def post_accrual(
+        state: ExecutionPipelineState,
+        key: str,
+        kind: CashFlowKind,
+        currency: str,
+        asset_id: str,
+        reference: str,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Close ``key``'s accrual and post its sum, rounded once, as a cash flow (FUT-023).
+
+        Nothing is posted for a sum that rounds to nothing at the currency's
+        minor unit -- the accrual still closes -- and nothing at all for a key
+        with nothing open, so a period posts once.
+        """
+
+        open_amount = PortfolioEngine.accrued(state.portfolio, key)
+        if open_amount == 0:
+            return state
+        _require_not_before_last_event(state, timestamp, "An accrual's posting")
+        portfolio = PortfolioEngine.close_accrual(
+            state.portfolio, key, open_amount, currency, timestamp
+        )
+        current = evolve(state, portfolio=portfolio)
+        posted = to_money(open_amount, currency, portfolio.account.currency_units)
+        if posted == 0:
+            return current
+        flow = CashFlow(kind, open_amount, currency, asset_id, reference)
+        return ExecutionPipeline.apply_cash_flow(current, flow, timestamp, rates)
 
     @staticmethod
     @in_accounting_context

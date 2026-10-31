@@ -249,6 +249,11 @@ recall (phase 3, ledger FUT-022) writes an entry's `buy_in_at` only when it is
 declared; the registry's index of recallable instruments is derived, never
 written; a buy-in is a `BuyIn` in the risk event log, and its cover ordinary
 orders and fills.
+A daily-accrued period (phase 3, ledger FUT-023) writes each day as an `ACCRUAL`
+ledger transaction -- its exact amount, its period's key under `accrues`, and
+`accrual_closed` on the entry that closes it at the posting -- moving no cash;
+the schedule's digest encodes a daily cutoff's time of day as ISO 8601. A
+schedule declaring no daily period writes nothing new.
 
 Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
 account's declared margin model as `margin_model_to_primitives` writes it

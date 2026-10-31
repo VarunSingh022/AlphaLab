@@ -95,6 +95,8 @@ NAMED: dict[str, tuple[str, ...]] = {
         "FUNDING",
         # v4.2.0 (FUT-021): an exchange's cash part and cash in lieu.
         "EXCHANGE",
+        # Phase 3 (FUT-023): a day's interest or fee accrued, not yet posted.
+        "ACCRUAL",
     ),
     "alphalab.runtime.execution_pipeline.ExecutionRouting": (
         "SIMULATED",
