@@ -130,6 +130,20 @@ IDs are in brackets.
   `QUEUE_BOOK_SCHEMA = 1`; `replay_snapshot.restore(..., queue=)`), and
   `manifest_for_run` records the model as `ReproducibilityManifest.queue_model`.
   Refused beside an execution plan and on a run that routes to a venue.
+* **Settlement-date accounting** [FUT-015]. `InstrumentRecord.settlement` declares
+  an instrument's settlement rule (a `SettlementRule`: trade date, T+n trading or
+  calendar days); each of its fills -- simulated, from a venue, a lifecycle
+  delivery or a final settlement -- is booked with its settlement instant by its
+  venue's declared calendar, holidays and time zone included, as metadata on its
+  own ledger transaction (`alphalab.portfolio.settlement`: `SETTLES_AT`,
+  `SETTLEMENT_CASH`). `PortfolioState.unsettled` (a derived index of
+  `PendingSettlement`s, rebuilt from the ledger on restore) and
+  `PortfolioEngine.cash_position` (a `CashPosition`: trade-date, unsettled credits
+  and debits, settled, available) report it; buying power excludes proceeds not
+  yet received, in the base currency, so an order needing them is refused until
+  they settle. An order in an instrument whose venue declares no calendar for its
+  rule is refused before it is placed. An instrument declaring no rule settles at
+  its trade and writes nothing new; no schema moves.
 * **Richer contract terms** [FUT-016]. `OptionTerms` declares a `basket` of
   further `Deliverable`s and a `cash_per_contract`; a `consideration_currency`,
   converted at the exercise instant by the run's rates or by a quanto contract's
@@ -221,6 +235,8 @@ IDs are in brackets.
 | `alphalab.strategy.IntentKind` | member `EXERCISE` (FUT-014); `alphalab.strategy.ExerciseRefused` added |
 | `alphalab.instrument.OptionTerms` | fields `basket`, `cash_per_contract`, `consideration_currency`, `fractions`, `exercise_windows`, `adjustments` and `consideration_rate`, empty or `None` by default; `deliverables`, `is_single`, `effective`, `split_adjusted`, `may_exercise`, `package_value`, `basket_intrinsic`; `intrinsic` refuses a package (FUT-016); `alphalab.instrument.CashInLieu` and `TermsAdjustment` added |
 | `alphalab.options.ExerciseStyle` | member `BERMUDAN`; `OptionContract` refuses it |
+| `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `settlement`, `None` by default (FUT-015) |
+| `alphalab.portfolio.PortfolioEngine.apply_fill` | keyword-only `settles_at`, `None` by default; `PortfolioEngine.cash_position` and `PortfolioState.unsettled` added; `alphalab.portfolio.settlement` (`CashPosition`, `PendingSettlement`, `SETTLES_AT`, `SETTLEMENT_CASH`, `pending_from`, `settle_pending`) added |
 | `alphalab.portfolio.OptionExpiry` | `underlying_value` optional (`None` by default), refused for a package and required otherwise |
 | `alphalab.strategy.supervisor.RuntimeSupervisor.configure` | raises `StrategyConfigurationError` for a value not of the type its strategy's class declares as `configuration_type`; unchanged for a class that declares none |
 | `alphalab.runtime.ExecutionAssumptions`, `execution_assumptions` | field `queue_model` and trailing parameter `queue_model`, `None` by default; property `passive_fills`; `settings()` adds `execution.queue_model` only when a model is declared |
@@ -235,8 +251,7 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-FUT-015 (settlement-date accounting) and FUT-017 (margin and forced
-liquidation), each with its limitation, interim behaviour and acceptance criteria
+FUT-017 (margin and forced liquidation), each with its limitation, interim behaviour and acceptance criteria
 on `ROADMAP.md`. FUT-009, FUT-011 and FUT-013, accepted by the audit and the
 continuation, and FUT-002, accepted by v4.1, were delivered by the candidate's
 last four milestones -- FUT-002 by declaration, so an undeclared configuration

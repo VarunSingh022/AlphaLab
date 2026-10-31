@@ -37,6 +37,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 #: Every plain enum a decoder reads, by where it is defined: its member names.
 NAMED: dict[str, tuple[str, ...]] = {
+    # v4.2.0 (ledger FUT-015): an instrument's settlement rule, by its basis.
+    "alphalab.conventions.settlement.SettlementBasis": (
+        "TRADE_DATE",
+        "TRADING_DAYS",
+        "CALENDAR_DAYS",
+    ),
     "alphalab.broker.order.BrokerOrderStatus": ("PENDING_SUBMIT", "SUBMITTED", "PENDING_CANCEL"),
     "alphalab.broker.reconciliation.ExecutionOutcome": (
         "APPLIED",

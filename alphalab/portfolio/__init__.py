@@ -105,6 +105,8 @@ from .multi_strategy import value_book as value_book
 from .nav import NAVCalculator as NAVCalculator
 from .pnl import PnLEngine as PnLEngine
 from .position import Position as Position
+from .settlement import CashPosition as CashPosition
+from .settlement import PendingSettlement as PendingSettlement
 from .transaction import Transaction as Transaction
 from .types import (
     PositionSide as PositionSide,
@@ -131,6 +133,7 @@ __all__ = [
     "CashFlowBooked",
     "CashFlowKind",
     "CashLedger",
+    "CashPosition",
     "CashWithdrawn",
     "ContractExposure",
     "ContractHolding",
@@ -156,6 +159,7 @@ __all__ = [
     "MultiStrategyBook",
     "NAVCalculator",
     "OptionExpiry",
+    "PendingSettlement",
     "PnLEngine",
     "PortfolioEngine",
     "PortfolioEvent",

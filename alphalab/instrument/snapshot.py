@@ -68,6 +68,7 @@ from typing import Any, Final
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.conventions.economics import economics_from_primitives
 from alphalab.conventions.exceptions import ConventionInputError
+from alphalab.conventions.settlement import SettlementBasis, SettlementRule
 from alphalab.core.enums import AssetType
 from alphalab.instrument.classification import (
     SECTOR,
@@ -89,6 +90,7 @@ from alphalab.instrument.registry import (
 from alphalab.instrument.terms import ContractTerms, terms_from_primitives, terms_to_primitives
 from alphalab.persistence.decode import (
     as_float,
+    as_int,
     as_mapping,
     as_optional_str,
     as_sequence,
@@ -196,6 +198,9 @@ class InstrumentRegistryRecord:
     #: The contract's terms as :func:`~alphalab.instrument.terms.terms_to_primitives`
     #: writes them, or ``None``.
     terms: Mapping[str, Any] | None = None
+    #: The instrument's settlement rule -- its basis by name and its offset -- or
+    #: ``None`` (v4.2.0, ledger FUT-015).
+    settlement: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +286,14 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
                 },
                 last_trade_at=record.last_trade_at,
                 terms=terms_to_primitives(record.terms),
+                settlement=(
+                    None
+                    if record.settlement is None
+                    else {
+                        "basis": record.settlement.basis.name,
+                        "offset_days": record.settlement.offset_days,
+                    }
+                ),
             )
         )
     return InstrumentRegistrySnapshot(
@@ -332,6 +345,7 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
                 economics=entry.economics,
                 last_trade_at=entry.last_trade_at,
                 terms=_terms(entry.terms, f"{entry.symbol}.terms"),
+                settlement=_settlement(entry.settlement, f"{entry.symbol}.settlement"),
             )
             if record.asset_id in registry.instruments:
                 raise StateDecodeError(
@@ -485,11 +499,26 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
             require(payload, "last_trade_at"), f"{where}.last_trade_at"
         ),
         terms=_optional_mapping(require(payload, "terms"), f"{where}.terms"),
+        # Written since v4.2.0; absent from the unreleased schema-4 payloads of
+        # the candidate before it, which declared no settlement rule.
+        settlement=_optional_mapping(payload.get("settlement"), f"{where}.settlement"),
     )
 
 
 def _optional_mapping(value: Any, where: str) -> Mapping[str, Any] | None:
     return None if value is None else as_mapping(value, where)
+
+
+def _settlement(value: Mapping[str, Any] | None, where: str) -> SettlementRule | None:
+    if value is None:
+        return None
+    try:
+        return SettlementRule(
+            SettlementBasis[as_str(require(value, "basis"), f"{where}.basis")],
+            as_int(require(value, "offset_days"), f"{where}.offset_days"),
+        )
+    except (KeyError, ConventionInputError) as exc:
+        raise StateDecodeError(f"{where} is not a settlement rule: {exc}") from exc
 
 
 def _terms(value: Mapping[str, Any] | None, where: str) -> ContractTerms | None:
@@ -562,7 +591,8 @@ def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         **payload,
         "instruments": [
-            {**entry, "last_trade_at": None, "terms": None} for entry in payload["instruments"]
+            {**entry, "last_trade_at": None, "terms": None, "settlement": None}
+            for entry in payload["instruments"]
         ],
     }
 

@@ -222,6 +222,13 @@ the model's type and configuration, and each resting limit order's limit and
 the quantity ahead of it. The model is taken back by `restore` and refused when
 its type or configuration differs.
 
+Since v4.2.0 (ledger FUT-015) a fill of an instrument that declares a settlement
+rule carries its settlement instant and its signed cash on its own ledger
+`Transaction`, as `metadata` (`settles_at`, `settlement_cash`); the portfolio's
+index of what is unsettled, `PortfolioState.unsettled`, is derived from those
+transactions and rebuilt from them on restore, never stored apart. Every other
+fill writes the empty metadata it always did, so no payload moved.
+
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
 incremental checkpoint, 2) and `EVIDENCE_SCHEMA` (the evidence store, 1).

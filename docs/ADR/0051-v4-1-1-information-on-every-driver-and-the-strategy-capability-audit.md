@@ -13,7 +13,8 @@ orders (decision 15), then the FUT-002 milestone, a strategy configuration read
 back as its declared type (decision 16), then -- the release number v4.2.0 set
 by the maintainer -- the FUT-014 milestone, an exercise a strategy asks for from
 its hooks (decision 17), then the FUT-016 milestone, richer contract terms
-(decision 18). The release number is the
+(decision 18), then the FUT-015 milestone, settlement-date accounting (decision
+19). The release number is the
 maintainer's decision: the candidate adds public names, keyword-only parameters,
 an enum member and two schema steps (instrument 3 to 4, replay 1 to 2, each
 reading every earlier payload), which `docs/api/PUBLIC_API.md`'s policy and
@@ -265,6 +266,17 @@ instrument a held contract delivers is refused unless the contract declares the
 adjustment the split implies, because delivering the units of before at the
 strike of before is the one wrong answer a run must never give silently.
 
+**19. A trade's settlement instant rides on its own ledger entry (FUT-015).** The
+entry expected a portfolio schema step; none is needed. An instrument declares its
+settlement rule, and each of its fills' ledger transactions carries the instant it
+settles, computed over its venue's declared calendar. The ledger is the persisted
+record already, so what is unsettled follows from it exactly on every driver and
+across every restore, and the portfolio's index of pending obligations is derived
+from it rather than stored beside it. The books stay trade-date -- every figure a
+run reported means what it meant -- and buying power, the one figure that gates an
+order, excludes proceeds not yet received. A book whose instruments declare no
+rule writes nothing new, so no run's record moves.
+
 ---
 
 # Consequences
@@ -293,9 +305,9 @@ strike of before is the one wrong answer a run must never give silently.
   with no instruction held across a pause; a cash-settled one settles against
   the run's last observed underlying price, not an official settlement value,
   which a scheduled exercise carries.
-- **Cash and deliverables move at the event's instant**: a market's T+n lag is
-  modelled by scheduling the event at `settles_at`'s instant; no unsettled-cash
-  ledger is kept.
+- **The books are trade-date; the settlement ledger keeps cash, not units, back**:
+  units bought and unsettled may be sold -- no free-riding rule -- and neither
+  interest on unsettled balances nor a settlement fail is modelled.
 - **A package's cost is apportioned by its components' observed values, in one
   currency**: components priced in two currencies within one package, and a
   package with no whole unit, are refused; a quanto contract fixes the rate its
@@ -313,7 +325,7 @@ strike of before is the one wrong answer a run must never give silently.
 Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
 FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: settlement-date accounting; margin and forced liquidation.
+**Deferred** — to v4.3 and later, pending the maintainer's decision: margin and forced liquidation.
 
 ---
 

@@ -79,6 +79,13 @@ from alphalab.portfolio.fx import FxConversion, FxRates
 from alphalab.portfolio.ledger import TransactionLedger
 from alphalab.portfolio.money import ZERO_MONEY, notional, to_money
 from alphalab.portfolio.position import Position
+from alphalab.portfolio.settlement import (
+    SETTLEMENT_CASH,
+    SETTLES_AT,
+    CashPosition,
+    PendingSettlement,
+    settle_pending,
+)
 from alphalab.portfolio.transaction import Transaction
 from alphalab.portfolio.types import TransactionType
 
@@ -109,6 +116,12 @@ class PortfolioState:
     #: :meth:`PortfolioEngine.mark_changed` re-marks these and the asset whose
     #: price changed, and nothing else (PRF-001).
     pending_marks: tuple[str, ...] = ()
+    #: Fills whose cash and units have not settled, in the order traded (v4.2.0,
+    #: ledger FUT-015). Derived from the ledger's settlement metadata and rebuilt
+    #: from it on restore, so it is never persisted on its own; empty for a book
+    #: whose instruments declare no settlement rule. See
+    #: :mod:`alphalab.portfolio.settlement`.
+    unsettled: tuple[PendingSettlement, ...] = ()
 
     def __post_init__(self) -> None:
         # Any mapping of positions is accepted, and kept as a PositionBook, so
@@ -349,6 +362,7 @@ class PortfolioEngine:
         *,
         economics: InstrumentEconomics | None = None,
         final_settlement: bool = False,
+        settles_at: float | None = None,
     ) -> PortfolioState:
         """Apply one signed fill (BUY > 0, SELL < 0) to the portfolio.
 
@@ -506,6 +520,12 @@ class PortfolioEngine:
             new_cash = new_cash.withdraw(-cash_impact, currency)
 
         tx_type = TransactionType.BUY if quantity > 0 else TransactionType.SELL
+        # Settlement-date accounting (FUT-015): booked on the transaction only
+        # when its instrument declares a rule, so every other fill's transaction
+        # is the one it always was.
+        settled_cash = None
+        if settles_at is not None:
+            settled_cash = cash_impact + (pnl if not pos.pays_notional else Decimal("0"))
         tx = Transaction(
             str(new_id()),
             timestamp,
@@ -516,7 +536,28 @@ class PortfolioEngine:
             price,
             commission,
             currency,
+            {}
+            if settles_at is None
+            else {SETTLES_AT: settles_at, SETTLEMENT_CASH: str(settled_cash)},
         )
+        unsettled = state.unsettled
+        if settles_at is not None or unsettled:
+            assert settles_at is None or settled_cash is not None
+            unsettled = settle_pending(
+                unsettled,
+                timestamp,
+                None
+                if settles_at is None or settled_cash is None
+                else PendingSettlement(
+                    tx.transaction_id,
+                    asset_id,
+                    currency,
+                    settled_cash,
+                    quantity,
+                    timestamp,
+                    settles_at,
+                ),
+            )
 
         # A position a fill leaves open is priced at the fill until the market
         # prices it again; a closed one needs no mark at all.
@@ -539,7 +580,28 @@ class PortfolioEngine:
             state.realized_pnl.add(pnl, currency),
             state.commission_paid.add(commission, currency),
             pending,
+            unsettled,
         )
+
+    @staticmethod
+    def cash_position(state: PortfolioState, currency: str, at: float) -> CashPosition:
+        """``currency``'s cash at ``at``: trade-date, and what of it has not settled (FUT-015).
+
+        See :mod:`alphalab.portfolio.settlement`. For a book whose instruments
+        declare no settlement rule nothing is unsettled, and every figure is the
+        cash ledger's balance.
+        """
+
+        credits = Decimal("0")
+        debits = Decimal("0")
+        for entry in state.unsettled:
+            if entry.currency != currency or not entry.pending_at(at):
+                continue
+            if entry.cash > 0:
+                credits += entry.cash
+            else:
+                debits -= entry.cash
+        return CashPosition(currency, state.cash.balance(currency), credits, debits)
 
     @staticmethod
     @in_accounting_context

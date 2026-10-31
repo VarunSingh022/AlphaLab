@@ -171,9 +171,10 @@ shorts. Assignment before expiry is an input you state, never drawn. A future's
 calendar (`MarketCalendar`) and `SettlementRule` give every instant through
 `alphalab.runtime.session_close` and `settles_at`, so another market is another
 declaration (example 75). A delivery the book cannot pay for or would go short
-on without permission is refused; baskets, cash in lieu, quanto and Bermudan
-contracts cannot be stated yet (FUT-016), and cash moves at the event's instant,
-not a settlement date (FUT-015).
+on without permission is refused. Baskets, cash in lieu, a consideration in
+another currency, Bermudan windows and adjusted terms are declared terms
+(FUT-016); an instrument's settlement rule books each fill's settlement instant,
+and its sale proceeds are spendable once they settle (FUT-015).
 
 ## 5. How the orders are executed
 

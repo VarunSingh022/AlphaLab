@@ -207,6 +207,10 @@ names what the release established and the ADR that records the decision.
   lieu of fractions, a consideration in another currency (at the run's rate, or a
   quanto contract's fixed one), Bermudan windows, and adjusted terms from a
   declared instant -- a split's, checked against the split, and a merger's.
+- **Settlement-date accounting** (FUT-015): an instrument declares its T+n rule;
+  each fill is booked with its settlement instant by the venue's calendar, and a
+  sale's proceeds stay out of buying power until they settle
+  (`PortfolioEngine.cash_position`: trade-date, settled and available cash).
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -565,18 +569,6 @@ The entries below were proposed by the v4.1.1 future-readiness audit
 horizon, is the maintainer's decision. The candidate itself delivered the rest
 of what the audit proposed (section *v4.2.0*, above).
 
-## FUT-015 — settlement-date accounting (target v5.0)
-
-- **Limitation.** Cash and positions move at a fill's or a lifecycle event's
-  instant; the portfolio keeps no unsettled-cash or pending-delivery ledger,
-  though `settles_at` computes a market's T+n instant.
-- **Interim behaviour.** Schedule a lifecycle event at `settles_at`'s instant to
-  model its lag; treat buying power as optimistic.
-- **Acceptance criteria.** Fills and deliveries pend until their declared
-  settlement date by the market's calendar, buying power excludes unsettled
-  cash, and every earlier payload reads as settled. **Dependencies.** a
-  portfolio schema step.
-
 ## FUT-017 — margin, collateral and forced liquidation (target v5.0)
 
 - **Limitation.** An assignment or delivery the book cannot cover stops the run
@@ -584,7 +576,7 @@ of what the audit proposed (section *v4.2.0*, above).
 - **Interim behaviour.** Hold the cash or inventory a delivery needs.
 - **Acceptance criteria.** A declared margin model, a margin event on a
   shortfall and a declared liquidation policy, recorded and replayable.
-  **Dependencies.** FUT-015.
+  **Dependencies.** settlement-date accounting, delivered in v4.2.0.
 
 ---
 

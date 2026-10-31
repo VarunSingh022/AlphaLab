@@ -118,7 +118,7 @@ from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.projection import NO_WORKING_ORDERS, BucketExposure, WorkingExposure
 from alphalab.risk.state import RiskState
-from alphalab.runtime.calendars import VenueCalendars
+from alphalab.runtime.calendars import VenueCalendars, settles_at
 from alphalab.runtime.context_views import (
     HistoryView,
     MarketView,
@@ -1920,6 +1920,7 @@ class ExecutionPipeline:
                 position.currency,
                 economics=economics,
                 final_settlement=True,
+                settles_at=_settles_at(current, asset_id, timestamp),
             )
             realized = Decimal("0.00")
             for event in portfolio.events[before:]:
@@ -2648,6 +2649,7 @@ def _lifecycle_fill(
         currency,
         economics=economics,
         final_settlement=True,
+        settles_at=_settles_at(state, asset_id, timestamp),
     )
     realized = Decimal("0.00")
     for event in portfolio.events[before:]:
@@ -3907,6 +3909,57 @@ def _has_session_bars(market: MarketState, asset_id: str) -> bool:
     )
 
 
+def _settlement_calendar(
+    state: ExecutionPipelineState, asset_id: str
+) -> tuple[InstrumentRecord, Any] | None:
+    """The record and calendar a fill of ``asset_id`` settles by; ``None``: it settles at once.
+
+    ``None`` when the run configures no registry, the asset is undeclared, or
+    its record declares no settlement rule (FUT-015). The calendar is ``None``
+    when the rule is declared and its listing venue's calendar is not.
+    """
+
+    if state.config.instruments is None:
+        return None
+    record = _declared(state, asset_id)
+    if record is None or record.settlement is None:
+        return None
+    return record, state.config.calendars.calendar_for(record.exchange)
+
+
+def _settlement_calendar_refusal(state: ExecutionPipelineState, asset_id: str) -> str | None:
+    """Why an order in ``asset_id`` cannot settle, or ``None`` (FUT-015)."""
+
+    found = _settlement_calendar(state, asset_id)
+    if found is None or found[1] is not None:
+        return None
+    record = found[0]
+    return (
+        f"{record.symbol} on {record.exchange} settles T+n by its venue's calendar, and no "
+        f"calendar is declared for {record.exchange}: declare it on "
+        "ExecutionPipelineConfig.calendars."
+    )
+
+
+def _settles_at(state: ExecutionPipelineState, asset_id: str, timestamp: float) -> float | None:
+    """When a fill of ``asset_id`` at ``timestamp`` settles, or ``None``: at once (FUT-015).
+
+    By the instrument's declared rule over its listing venue's declared calendar:
+    the trade date is the session the fill belongs to -- the local date, when it
+    falls outside one -- and the instant is the settlement date's first open.
+    """
+
+    found = _settlement_calendar(state, asset_id)
+    if found is None:
+        return None
+    record, calendar = found
+    if calendar is None:
+        raise RuntimeValidationError(str(_settlement_calendar_refusal(state, asset_id)))
+    assert record.settlement is not None  # _settlement_calendar returned it
+    day = calendar.trading_day_of(timestamp) or calendar.local_datetime(timestamp).date()
+    return settles_at(calendar, record.settlement, day)
+
+
 def _terms_refusal(
     state: ExecutionPipelineState, request: OrderRequest, instant: float
 ) -> str | None:
@@ -3926,6 +3979,9 @@ def _terms_refusal(
             f"The order would be placed at {instant!r}, and its terms expire it at "
             f"{terms.expire_at!r}."
         )
+    unsettleable = _settlement_calendar_refusal(state, request.asset_id)
+    if unsettleable is not None:
+        return unsettleable
     if state.config.routing is ExecutionRouting.EXTERNAL:
         return None
     if state.config.routing is ExecutionRouting.ALGORITHMIC:
@@ -5233,6 +5289,7 @@ def _apply_report_to_portfolio(
         report.timestamp,
         report.currency,
         economics=_economics_of(state, report.asset_id),
+        settles_at=_settles_at(state, report.asset_id, report.timestamp),
     )
     risk = _sync_risk_from_portfolio(
         state.risk, portfolio, state.config.instruments, rates, as_of=report.timestamp
@@ -5849,7 +5906,25 @@ def _sync_risk_from_portfolio(
     risk_with_exposure = RiskEngine.update_exposure(risk, exposure, as_of)
     margin = MarginStatus(available_margin=nav, margin_used=exposure.gross_exposure)
     risk_with_margin = RiskEngine.update_margin(risk_with_exposure, margin, as_of)
-    return RiskEngine.mark(risk_with_margin, nav=nav, cash=cash, timestamp=as_of)
+    marked = RiskEngine.mark(risk_with_margin, nav=nav, cash=cash, timestamp=as_of)
+    if not portfolio.unsettled:
+        return marked
+    # Proceeds traded and not yet received are not cash a run may spend
+    # (FUT-015): buying power is trade-date cash less them, in the base currency.
+    credits = Decimal("0")
+    for entry in portfolio.unsettled:
+        if entry.cash <= 0 or not entry.pending_at(as_of):
+            continue
+        credits += (
+            entry.cash
+            if entry.currency == base
+            else rates.convert(
+                entry.cash, entry.currency, base, as_of, units=portfolio.account.currency_units
+            ).converted
+        )
+    if not credits:
+        return marked
+    return evolve(marked, buying_power=max(Decimal("0.00"), marked.cash - credits))
 
 
 class _ValuesInBase(Mapping[str, Decimal]):

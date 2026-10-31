@@ -67,6 +67,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from alphalab.conventions.economics import SettlementModel
+from alphalab.conventions.settlement import SettlementRule
 from alphalab.core.enums import AssetType
 from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError
@@ -335,6 +336,12 @@ class InstrumentRecord:
             states, as every contract was before v4.1.1 (ledger FUT-013).
             Declared only with the contract's economics and last trading
             instant; not part of the identity key.
+        settlement: How a trade in the instrument settles -- its market's T+n,
+            counted by the listing venue's declared calendar -- or ``None``: it
+            settles at the trade, as every trade did before v4.2.0 (ledger
+            FUT-015). A run then books each fill's settlement instant and keeps
+            its proceeds out of buying power until it; see
+            :mod:`alphalab.portfolio.settlement`. Not part of the identity key.
         asset_id: The derived canonical identifier. UUIDv5, and therefore
             accepted by :func:`~alphalab.core.ids.validate_uuid_id`.
     """
@@ -349,6 +356,7 @@ class InstrumentRecord:
     economics: InstrumentEconomics | None = None
     last_trade_at: float | None = None
     terms: ContractTerms | None = None
+    settlement: SettlementRule | None = None
     asset_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -385,6 +393,10 @@ class InstrumentRecord:
         )
         if self.terms is not None:
             _require_consistent_terms(self)
+        if self.settlement is not None and not isinstance(self.settlement, SettlementRule):
+            raise InstrumentInputError(
+                f"settlement is a SettlementRule or None, got {self.settlement!r}."
+            )
 
     @property
     def canonical_key(self) -> str:

@@ -147,13 +147,15 @@ CLASSIFIED: dict[tuple[str, str], str] = {
         "0051",
         "A strategy's exercise takes effect at the end of the step that asked for it",
     ): "FUT-014",
-    ("0051", "Cash and deliverables move at the event's instant"): "FUT-015",
+    (
+        "0051",
+        "The books are trade-date; the settlement ledger keeps cash, not units, back",
+    ): "FUT-015",
     (
         "0051",
         "A package's cost is apportioned by its components' observed values, in one currency",
     ): "FUT-016",
     ("0051", "A delivery the book cannot cover stops the run"): "FUT-017",
-    ("0051", "settlement-date accounting"): "FUT-015",
     ("0051", "margin and forced liquidation"): "FUT-017",
 }
 

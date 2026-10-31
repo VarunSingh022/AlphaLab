@@ -297,8 +297,8 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (7) | B, Re, P, L. |
 | (8) | **VERIFIED**. AlphaLab ships no holiday or reference data: **EXTERNAL** (BDY-013). |
 | (9) | `tests/integration/test_day_order_sessions.py`, `tests/regression/test_instrument_identity_reaches_a_fill.py`; example 72 declares two venues' instants; since FUT-013 `tests/integration/test_lifecycle_conventions.py` -- four synthetic profiles (a zone without daylight saving, two that change on different dates, a Sunday-to-Thursday market with a lunch break and a holiday) through `session_close` and `settles_at` and the same option lifecycle, no market named in the engine. |
-| (10) | Holidays are the caller's declaration; a missing one is an extra session. A lifecycle date the market does not trade on is refused rather than moved: which way it moves is the contract's convention. Trade-date settlement lag is computed, not booked (FUT-015). |
-| (11) | FUT-015 (settlement-date accounting). |
+| (10) | Holidays are the caller's declaration; a missing one is an extra session. A lifecycle date the market does not trade on is refused rather than moved: which way it moves is the contract's convention. Since v4.2.0 a declared settlement lag is booked on each fill and gates buying power (FUT-015, `test_settlement_date_accounting.py`). |
+| (11) | none (FUT-015 delivered). |
 | (12) | met. |
 
 ### 2.11 FX rates, conversion and multi-currency runs
@@ -566,7 +566,7 @@ where it is needed.
 | --- | --- | --- | --- | --- |
 | Time zones, sessions, breaks, holidays, early closes | `MarketCalendar` (IANA zone, weekly windows, holidays, special sessions); `VenueCalendars` per listing venue | the calendar | `test_lifecycle_conventions.py` (no-DST, two DST zones, Sunday-to-Thursday with a lunch break), `test_day_order_sessions.py` | overnight sessions spanning midnight are windows the caller states |
 | Lifecycle instants | `session_close`, `settles_at` | the calendar and a `SettlementRule` | `test_lifecycle_conventions.py` | a date on a closed day is refused, not moved |
-| Settlement lag (T+n) | `settlement_date`, `settles_at` compute it | the rule | `tests/unit/conventions/` | not booked: cash moves at the event (FUT-015) |
+| Settlement lag (T+n) | `settlement_date`, `settles_at` compute it | the rule | `tests/unit/conventions/` | booked on each fill by the instrument's declared rule over its venue's calendar; unsettled proceeds kept out of buying power (FUT-015, `test_settlement_date_accounting.py`) |
 | Currencies and FX timing | settlement per instrument currency, `also_settles`, scheduled rates applied at their `as_of` | each currency's rates | `test_lifecycle_conventions.py::test_an_option_settling_in_another_currency_is_valued_at_the_rate_in_force`, `test_scheduled_inputs.py` | a consideration in another currency converts at the exercise instant, at the run's rate or a quanto contract's fixed one (FUT-016); a package's components share one currency |
 | Multipliers, lots, ticks, deliverable quantities | `InstrumentEconomics`, `LotSpecification`, `TickSchedule`, `Deliverable.units` | each contract's | `test_option_lifecycle.py` (multipliers 10 to 1,000, an adjusted deliverable of 150 against 100, an option on a future), `test_advanced_contract_terms.py` | baskets with a cash component and cash in lieu of fractions (FUT-016); a package's cost apportioned by observed values |
 | Exercise styles and windows | `OptionTerms` (`AMERICAN`, `EUROPEAN`, `BERMUDAN` with `exercise_windows`, `exercisable_from`, `expires_at`) | the style and windows | `test_option_lifecycle.py`, `test_advanced_contract_terms.py` | the pricers model American and European exercise only |
