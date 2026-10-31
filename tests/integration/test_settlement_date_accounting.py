@@ -34,6 +34,7 @@ from alphalab.portfolio.engine import PortfolioEngine
 from alphalab.portfolio.fx import FxRate
 from alphalab.portfolio.settlement import SETTLES_AT, pending_from
 from alphalab.runtime.calendars import VenueCalendars
+from alphalab.runtime.retention import RetentionPolicy
 from alphalab.runtime.run_snapshot import RunObjects
 from alphalab.runtime.snapshot import RuntimeObjects
 from alphalab.strategy.context import StrategyContext
@@ -376,3 +377,42 @@ def test_a_delivery_from_an_exercise_settles_by_the_deliverables_rule() -> None:
         t for t in result.state.portfolio.ledger.transactions if t.asset_id == call.asset_id
     ]
     assert all(t.metadata == {} for t in option_fills), "the option declares no rule"
+
+
+def test_a_results_bound_never_trims_a_fill_still_unsettled() -> None:
+    # A ledger kept to its last transaction would trim Thursday's sale before it
+    # settles on Tuesday; a restore rebuilds the obligations from the ledger, so
+    # the bound widens over every fill still unsettled (found by the phase 3 gap
+    # audit: a restored run had lost them).
+    keyed = {(t, ACME.asset_id): q for (t, _), q in PLAN.items()}
+    data = prices(ACME.asset_id, sorted({t for t, _ in keyed}))
+    base = config(ACME)
+    cfg = replace(base, pipeline=replace(base.pipeline, retention=RetentionPolicy(results=1)))
+    whole = ReplayBacktest.run(
+        cfg, data, running_strategy_state("S", Trader(keyed)), context_factory
+    )
+    reference = digest_run(whole.backtest).result_id
+    for boundary in range(1, len(data.records)):
+        paused = ReplayBacktest.run(
+            cfg,
+            data,
+            running_strategy_state("S", Trader(keyed)),
+            context_factory,
+            pause_when=_at(boundary),
+        )
+        assert isinstance(paused, PausedReplay)
+        payload = deserialize(serialize(capture_replay(paused)))
+        objects = RunObjects(
+            RuntimeObjects(
+                cfg.pipeline.sizing_model,
+                cfg.pipeline.simulator,
+                {"S": Trader(keyed)},
+                cfg.pipeline.instruments,
+            ),
+            cfg.fill_policy,
+        )
+        restored = restore_replay(replay_from_primitives(payload), objects, data)
+        held = paused.run.pipeline.portfolio.unsettled
+        assert restored.run.pipeline.portfolio.unsettled == held, boundary
+        resumed = ReplayBacktest.resume(restored, context_factory)
+        assert digest_run(resumed.backtest).result_id == reference

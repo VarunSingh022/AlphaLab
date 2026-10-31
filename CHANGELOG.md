@@ -327,6 +327,10 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
   declares its adjustment.
 * **A Bermudan contract cannot be priced as American or European** [FUT-016]:
   `OptionContract` refuses `ExerciseStyle.BERMUDAN`.
+* **A restored run could lose fills not yet settled** [ACC-015] (*phase 3*): a
+  run bounding its results trimmed the ledger regardless of settlement, and a
+  restore rebuilds the unsettled fills from it. The bound now widens, while a
+  fill is unsettled, to keep it; nothing else trims differently.
 * **A day count's year was chosen by elimination** [NUM-016]: `year_fraction`
   and `day_fraction` divided every basis but the two 360-day ones by 365, so a
   basis added later would have been misread silently.

@@ -543,7 +543,7 @@ def retained(state: ExecutionPipelineState) -> ExecutionPipelineState:
 
     portfolio = state.portfolio
     portfolio_events = trimmed(portfolio.events, audit)
-    transactions = trimmed(portfolio.ledger.transactions, policy.results)
+    transactions = trimmed(portfolio.ledger.transactions, _ledger_bound(portfolio, policy.results))
     if (
         portfolio_events is not portfolio.events
         or transactions is not portfolio.ledger.transactions
@@ -560,6 +560,24 @@ def retained(state: ExecutionPipelineState) -> ExecutionPipelineState:
         if kept is not log:
             changes[name] = kept
     return evolve(state, **changes) if changes else state
+
+
+def _ledger_bound(portfolio: PortfolioState, bound: int | None) -> int | None:
+    """The ledger's bound, widened so no fill still unsettled is trimmed (FUT-015).
+
+    A restore rebuilds the unsettled fills from the ledger they travel in, so
+    trimming one before it settles would lose an obligation. The bound grows by
+    at most the fills of a settlement cycle, and only while one is pending.
+    """
+
+    if bound is None or not portfolio.unsettled:
+        return bound
+    oldest = portfolio.unsettled[0].transaction_id
+    newest_first = reversed(portfolio.ledger.transactions.to_tuple())
+    for needed, transaction in enumerate(newest_first, start=1):
+        if transaction.transaction_id == oldest:
+            return max(bound, needed)
+    return bound
 
 
 @dataclass(frozen=True, slots=True)
