@@ -130,6 +130,19 @@ IDs are in brackets.
   `QUEUE_BOOK_SCHEMA = 1`; `replay_snapshot.restore(..., queue=)`), and
   `manifest_for_run` records the model as `ReproducibilityManifest.queue_model`.
   Refused beside an execution plan and on a run that routes to a venue.
+* **A strategy exercises its own options from its hooks** [FUT-014].
+  `IntentKind.EXERCISE`: any hook returns `Intent(kind=IntentKind.EXERCISE,
+  instrument=<option>, target=<whole contracts>)`. It is not an order --
+  allocation, risk and the OMS never see it, and `AllocationEngine.allocate`
+  refuses one handed to it directly -- but an instruction the execution pipeline
+  carries out at the end of the step that asked, at that event's instant, through
+  the checks a scheduled `Exercise` passes, against the asking strategy's own
+  long contracts, attributed to it alone. A cash-settled contract settles against
+  the last price the run observed for its underlying. A malformed instruction
+  fails the strategy as any malformed intent does; one the run cannot carry out is
+  recorded as `alphalab.strategy.ExerciseRefused` in the strategy runtime's log,
+  moves nothing, and leaves the strategy running. Backtest, replay and a pause
+  agree; a run that asks for no exercise records what it did.
 * **A strategy configuration read back as its declared type** [FUT-002].
   `alphalab.strategy.configuration`: a strategy class that sets
   `configuration_type` -- a dataclass, say, with `Decimal`, tuple, enum, `UUID`
@@ -182,6 +195,7 @@ IDs are in brackets.
 | `alphalab.backtesting.BacktestEngine.run` | keyword-only `schedule`, `execution` and `queue` |
 | `alphalab.backtesting.replay_snapshot.restore` | `schedule`, empty by default, and `execution` and `queue`, `None` by default; `ReplaySnapshot.schedule_digest`, `algorithms` and `queue` |
 | `alphalab.runtime.RunEngine.advance`, `ExecutionPipeline.process_record`, `process_market_event` | keyword-only `queue`, `None` by default; `ExecutionPipelineResult.queue`, appended last, `None` by default |
+| `alphalab.strategy.IntentKind` | member `EXERCISE` (FUT-014); `alphalab.strategy.ExerciseRefused` added |
 | `alphalab.strategy.supervisor.RuntimeSupervisor.configure` | raises `StrategyConfigurationError` for a value not of the type its strategy's class declares as `configuration_type`; unchanged for a class that declares none |
 | `alphalab.runtime.ExecutionAssumptions`, `execution_assumptions` | field `queue_model` and trailing parameter `queue_model`, `None` by default; property `passive_fills`; `settings()` adds `execution.queue_model` only when a model is declared |
 | `alphalab.runtime.execution_pipeline.ExecutionRouting` | member `ALGORITHMIC`; `ExecutionMode.works_children` |
@@ -195,9 +209,8 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-FUT-014 (a strategy-facing exercise instruction), FUT-015 (settlement-date
-accounting), FUT-016 (richer contract terms) and FUT-017 (margin and forced
-liquidation), each with its limitation, interim behaviour and acceptance criteria
+FUT-015 (settlement-date accounting), FUT-016 (richer contract terms) and
+FUT-017 (margin and forced liquidation), each with its limitation, interim behaviour and acceptance criteria
 on `ROADMAP.md`. FUT-009, FUT-011 and FUT-013, accepted by the audit and the
 continuation, and FUT-002, accepted by v4.1, were delivered by the candidate's
 last four milestones -- FUT-002 by declaration, so an undeclared configuration

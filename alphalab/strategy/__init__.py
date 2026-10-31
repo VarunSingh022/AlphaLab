@@ -73,6 +73,7 @@ from alphalab.strategy.definition import StrategyDefinition, numeric_parameters
 from alphalab.strategy.dispatcher import Dispatcher
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
+    ExerciseRefused,
     FillEvent,
     Intent,
     IntentKind,
@@ -144,6 +145,7 @@ __all__ = [
     "DiscardingLogger",
     "Dispatcher",
     "DuplicateStrategyError",
+    "ExerciseRefused",
     "ExponentialMeanRule",
     "FillEvent",
     "FixedClock",

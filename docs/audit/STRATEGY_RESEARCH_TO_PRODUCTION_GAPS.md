@@ -8,7 +8,8 @@ gap is a ledger entry and a ROADMAP "Future work" item. The audit raised
 FUT-003 to FUT-012; its continuation delivered FUT-003 to FUT-008, FUT-010 and
 FUT-012 and raised FUT-013, the FUT-009 milestone delivered FUT-009, and the
 FUT-013 milestone delivered FUT-013 and raised FUT-014 to FUT-017, and the
-FUT-011 milestone delivered FUT-011, so what is open is FUT-014 to FUT-017
+FUT-011 milestone delivered FUT-011, and the FUT-014 milestone FUT-014, so what is
+open is FUT-015 to FUT-017
 (FUT-002, which predates the audit, was delivered by declaration in the
 FUT-002 milestone). Rows below are as of the FUT-011 milestone.
 
@@ -147,7 +148,6 @@ on one schedule, and its replay pauses through a payload.
 
 | Work | Families it moves | Release class |
 | --- | --- | --- |
-| FUT-014 a strategy-facing exercise instruction | early-exercise and volatility strategies deciding inside the run | minor |
 | FUT-016 richer contract terms | adjusted contracts after mergers, quanto options, Bermudan contracts | minor |
 | FUT-015 / FUT-017 settlement-date accounting, margin | cash-constrained and short-option strategies, physically delivered commodities | major or a stated exception (payload steps) |
 

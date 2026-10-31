@@ -143,11 +143,13 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     # it does not model, which the ledger entry states too.
     ("0051", "The queue model reads the displayed top of the book"): "FUT-011",
     ("0051", "An undeclared configuration reads back as JSON reads it"): "LIM-004",
-    ("0051", "A strategy cannot instruct an exercise from its hooks"): "FUT-014",
+    (
+        "0051",
+        "A strategy's exercise takes effect at the end of the step that asked for it",
+    ): "FUT-014",
     ("0051", "Cash and deliverables move at the event's instant"): "FUT-015",
     ("0051", "One deliverable, in the consideration's currency, American or European"): "FUT-016",
     ("0051", "A delivery the book cannot cover stops the run"): "FUT-017",
-    ("0051", "a strategy-facing exercise instruction"): "FUT-014",
     ("0051", "settlement-date accounting"): "FUT-015",
     ("0051", "richer contract terms"): "FUT-016",
     ("0051", "margin and forced liquidation"): "FUT-017",

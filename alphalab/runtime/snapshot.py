@@ -216,6 +216,7 @@ from alphalab.strategy.configuration import (
     decode_configuration,
 )
 from alphalab.strategy.events import (
+    ExerciseRefused,
     FillEvent,
     LifecycleTransitioned,
     OrderEvent,
@@ -816,7 +817,14 @@ _MARKET_EVENTS: Mapping[str, type[MarketEvent]] = _types(
     QuoteReceived, TickReceived, TradeReceived, BarClosed, BookUpdated, SnapshotCreated
 )
 _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
-    LifecycleTransitioned, FillEvent, OrderEvent, TimerEvent, SliceClosed
+    LifecycleTransitioned,
+    FillEvent,
+    OrderEvent,
+    TimerEvent,
+    SliceClosed,
+    # v4.2.0 (ledger FUT-014): written only by a run whose strategy asked for an
+    # exercise the run refused, so no earlier payload holds one.
+    ExerciseRefused,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -2179,6 +2187,7 @@ _STRATEGY_FIELDS: Mapping[str, Any] = {
     "quantity": as_optional_decimal,
     "filled_quantity": as_optional_decimal,
     "assets": _assets,
+    "contracts": as_decimal,
 }
 _RISK_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,

@@ -198,6 +198,11 @@ names what the release established and the ADR that records the decision.
   run's manifest, kept by a paused replay. Price-time priority over displayed
   liquidity only: pro-rata books, hidden liquidity and a fill probability are
   other models of the same protocol.
+- **A strategy exercises its own options from its hooks** (FUT-014): a hook
+  returns `Intent(kind=IntentKind.EXERCISE, ...)`, carried out at the end of the
+  step that asked, at its instant, through the checks a scheduled exercise
+  passes, against the strategy's own contracts; a cash contract settles against
+  the last observed underlying price; a refusal is a recorded `ExerciseRefused`.
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -555,17 +560,6 @@ The entries below were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
 horizon, is the maintainer's decision. The candidate itself delivered the rest
 of what the audit proposed (section *v4.2.0*, above).
-
-## FUT-014 — a strategy that instructs an exercise from its hooks (target v4.3)
-
-- **Limitation.** An exercise is a scheduled input or a `RunEngine` call; no
-  strategy hook returns one.
-- **Interim behaviour.** State the exercise policy as a function over
-  point-in-time data and schedule its instructions (example 75); the engine
-  checks each against the contract's window and the book.
-- **Acceptance criteria.** A hook's exercise instruction applies at its event's
-  instant after the instant's records, refused as a scheduled one is, identical
-  in backtest and replay and across a pause. **Dependencies.** the derivative lifecycle, delivered in the v4.2.0 candidate.
 
 ## FUT-015 — settlement-date accounting (target v5.0)
 

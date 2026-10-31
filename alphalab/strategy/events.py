@@ -39,6 +39,7 @@ from alphalab.common.order_terms import MARKET, OrderTerms
 from alphalab.common.point_in_time import StampedRecord
 
 __all__ = [
+    "ExerciseRefused",
     "FillEvent",
     "Intent",
     "IntentKind",
@@ -88,6 +89,19 @@ class IntentKind(StrEnum):
     #: asset, scaled by ``strength`` -- the capital ``TargetWeightSizing`` reads,
     #: valued at the asset's price in the budget's currency.
     TARGET_WEIGHT = "target_weight"
+    #: An instruction to exercise ``target`` whole contracts of the strategy's
+    #: own long position in the option ``instrument`` (v4.2.0, ledger FUT-014).
+    #: Not an order: allocation, risk and the OMS never see it. It takes effect
+    #: at the instant of the event whose hook returned it, at the end of that
+    #: event's step, through the checks a scheduled
+    #: :class:`~alphalab.portfolio.corporate_actions.Exercise` passes -- the
+    #: contract's window, the strategy's own contracts, no working orders, the
+    #: delivery the book can take -- and a cash-settled contract settles
+    #: against the last price the run observed for its underlying, never a value
+    #: the strategy supplies. Refused, it is recorded as an
+    #: :class:`ExerciseRefused` and nothing moves. ``strength`` must be one and
+    #: ``terms`` the default.
+    EXERCISE = "exercise"
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +160,29 @@ class LifecycleTransitioned(StrategyRuntimeEvent):
     old_state: str
     new_state: str
     reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ExerciseRefused(StrategyRuntimeEvent):
+    """A strategy's exercise instruction the run could not carry out (v4.2.0, ledger FUT-014).
+
+    Recorded in the strategy runtime's event log, so a run says what it declined
+    and why; nothing moved. The strategy keeps running: a refused exercise --
+    outside the contract's window, beyond the strategy's own contracts, a
+    delivery the book cannot take -- is a decision the venue turned down, not a
+    malformed intent.
+
+    Attributes:
+        strategy_id: The strategy that asked.
+        asset_id: The option it asked to exercise.
+        contracts: How many it asked to exercise.
+        reason: Why the run refused, in a sentence.
+    """
+
+    strategy_id: str
+    asset_id: str
+    contracts: Decimal
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)

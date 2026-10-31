@@ -27,7 +27,7 @@ from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context
 from alphalab.common.evolve import evolve
-from alphalab.common.ids import IdStreamPosition, current_id_position
+from alphalab.common.ids import IdStreamPosition, current_id_position, new_id
 from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.conventions.economics import InstrumentEconomics, SettlementModel
@@ -127,6 +127,7 @@ from alphalab.runtime.retention import RetentionPolicy, trimmed
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
+    ExerciseRefused,
     FillEvent,
     Intent,
     IntentKind,
@@ -1187,9 +1188,10 @@ class ExecutionPipeline:
         strategy, intents = StrategyEngine.process_event(
             state.strategy, event, populated, event.timestamp
         )
-        allocation, requests = _allocate(current, intents, market_prices, rates, event.timestamp)
+        ordered = _for_orders(intents)
+        allocation, requests = _allocate(current, ordered, market_prices, rates, event.timestamp)
         current = evolve(current, strategy=strategy, allocation=allocation)
-        current, routed = _route_requests(current, event, intents, requests, policy, rates)
+        current, routed = _route_requests(current, event, ordered, requests, policy, rates)
         routed = earlier.then(routed)
 
         # The step's feedback: every fill, and what became of every order and
@@ -1205,6 +1207,11 @@ class ExecutionPipeline:
             requests=requests,
             contributions_before=contributions_before,
             records_before=records_before,
+        )
+        # A strategy's exercise instructions take effect at the end of the step
+        # that asked for them, at its instant (FUT-014).
+        current = _exercises_requested(
+            current, (*intents, *feedback_intents), event.timestamp, rates
         )
         if queue is not None:
             queue = _queue_after_step(queue, current, event, update, resting_before)
@@ -1661,18 +1668,19 @@ class ExecutionPipeline:
             as_of=timestamp,
         )
         strategy, intents = StrategyEngine.stop(state.strategy, populated, timestamp, strategy_ids)
-        current = evolve(state, strategy=strategy)
-        if not intents or last is None:
+        current = _exercises_requested(evolve(state, strategy=strategy), intents, timestamp, rates)
+        ordered = _for_orders(intents)
+        if not ordered or last is None:
             # With no event processed there is no price to size or judge an
             # order by; the intents are reported and nothing is placed.
             return evolve(current, id_position=current_id_position()), intents, ()
 
-        allocation, requests = _allocate(current, intents, current.market_prices, rates, timestamp)
+        allocation, requests = _allocate(current, ordered, current.market_prices, rates, timestamp)
         current = evolve(current, allocation=allocation)
         current, routed = _route_requests(
             current,
             last,
-            intents,
+            ordered,
             requests,
             StaticFill(FillStatus.FULL_FILL, None),
             rates,
@@ -2759,6 +2767,106 @@ def _deliver(
     return current
 
 
+def _for_orders(intents: tuple[Intent, ...]) -> tuple[Intent, ...]:
+    """The intents allocation sizes into orders: every one but an exercise instruction (FUT-014)."""
+
+    if not any(intent.kind is IntentKind.EXERCISE for intent in intents):
+        return intents
+    return tuple(intent for intent in intents if intent.kind is not IntentKind.EXERCISE)
+
+
+def _exercises_requested(
+    state: ExecutionPipelineState,
+    intents: tuple[Intent, ...],
+    timestamp: float,
+    rates: FxRates,
+) -> ExecutionPipelineState:
+    """Carry out the exercise instructions among ``intents``, in the order asked (FUT-014).
+
+    Each is the strategy's own: it exercises contracts of the strategy's own
+    long position, through the checks a scheduled exercise passes, effective at
+    ``timestamp``. One the run cannot carry out is recorded as an
+    :class:`~alphalab.strategy.events.ExerciseRefused` and moves nothing; the
+    strategy keeps running.
+    """
+
+    current = state
+    number = 0
+    for intent in intents:
+        if intent.kind is not IntentKind.EXERCISE:
+            continue
+        try:
+            current = _strategy_exercise(current, intent, timestamp, rates, number)
+        except RuntimeValidationError as refused:
+            current = _refuse_exercise(current, intent, timestamp, str(refused))
+        number += 1
+    return current
+
+
+def _strategy_exercise(
+    state: ExecutionPipelineState,
+    intent: Intent,
+    timestamp: float,
+    rates: FxRates,
+    number: int,
+) -> ExecutionPipelineState:
+    """Exercise ``intent.target`` contracts of the asking strategy's own position."""
+
+    asset_id = intent.instrument
+    strategy_id = intent.strategy_id
+    contracts = intent.target
+    record, terms, economics, named = _declared_option(state, asset_id, timestamp)
+    _require_in_window(record, terms, timestamp, named, "exercised")
+    _require_no_working_orders(state, asset_id, named, "exercised")
+    own = dict(AllocationEngine.shares_of(state.allocation, asset_id)).get(strategy_id, Decimal(0))
+    if own < contracts:
+        raise RuntimeValidationError(
+            f"{strategy_id} asked to exercise {contracts} contracts of {named} and holds "
+            f"{own}: a strategy exercises its own long position, and only that."
+        )
+    value: Decimal | None = None
+    if terms.settlement is SettlementStyle.CASH:
+        underlying = terms.deliverable.asset_id
+        value = state.market_prices.get(underlying)
+        if value is None:
+            raise RuntimeValidationError(
+                f"{named} is cash-settled against {underlying}, and the run has observed no "
+                f"price for it by {timestamp!r}: an exercise a strategy asks for settles "
+                "against what the run has seen, never a value it supplies."
+            )
+    return _resolve_option(
+        state,
+        record,
+        terms,
+        economics,
+        contracts,
+        value,
+        timestamp,
+        rates,
+        f"EXERCISE-{asset_id}-{timestamp!r}-{strategy_id}-{number}",
+        parts={strategy_id: contracts},
+    )
+
+
+def _refuse_exercise(
+    state: ExecutionPipelineState, intent: Intent, timestamp: float, reason: str
+) -> ExecutionPipelineState:
+    """Record that ``intent`` was refused, in the strategy runtime's event log."""
+
+    strategy = state.strategy
+    refused = ExerciseRefused(
+        event_id=str(new_id()),
+        timestamp=timestamp,
+        strategy_id=intent.strategy_id,
+        asset_id=intent.instrument,
+        contracts=intent.target,
+        reason=reason,
+    )
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
+    )
+
+
 def _resolve_option(
     state: ExecutionPipelineState,
     record: InstrumentRecord,
@@ -2769,12 +2877,22 @@ def _resolve_option(
     timestamp: float,
     rates: FxRates,
     trade_id: str,
+    parts: Mapping[str, Decimal] | None = None,
 ) -> ExecutionPipelineState:
-    """Exercise (``closing`` > 0) or assign (< 0) contracts by the option's terms."""
+    """Exercise (``closing`` > 0) or assign (< 0) contracts by the option's terms.
+
+    ``parts`` is whose contracts they are, when that is named -- a strategy
+    exercising its own (FUT-014) -- rather than apportioned across every
+    strategy holding the position.
+    """
 
     named = f"{record.symbol} on {record.exchange}"
     asset_id = record.asset_id
-    parts = _strategy_parts(AllocationEngine.shares_of(state.allocation, asset_id), closing)
+    parts = (
+        _strategy_parts(AllocationEngine.shares_of(state.allocation, asset_id), closing)
+        if parts is None
+        else dict(parts)
+    )
     cash_settled = terms.settlement is SettlementStyle.CASH
     if cash_settled and underlying_value is None:
         raise RuntimeValidationError(
@@ -2966,16 +3084,18 @@ def _deliver_instant(
     )
     strategy, intents = StrategyEngine.process_event(state.strategy, event, populated, at)
     current = evolve(state, strategy=strategy)
-    if not intents or last is None:
+    ordered = _for_orders(intents)
+    if not ordered or last is None:
+        current = _exercises_requested(current, intents, at, rates)
         return evolve(current, id_position=current_id_position()), intents, ()
 
     contributions_before = current.allocation.contributions
     records_before = len(current.trade_records)
-    allocation, requests = _allocate(current, intents, current.market_prices, rates, at)
+    allocation, requests = _allocate(current, ordered, current.market_prices, rates, at)
     current = evolve(current, allocation=allocation)
     policy = StaticFill(FillStatus.FULL_FILL, None)
     current, routed = _route_requests(
-        current, last, intents, requests, policy, rates, rest=True, at=at
+        current, last, ordered, requests, policy, rates, rest=True, at=at
     )
     current, feedback_intents, _, feedback = _deliver_feedback(
         current,
@@ -2990,6 +3110,7 @@ def _deliver_instant(
         records_before=records_before,
         at=at,
     )
+    current = _exercises_requested(current, (*intents, *feedback_intents), at, rates)
     return (
         evolve(current, id_position=current_id_position()),
         (*intents, *feedback_intents),
@@ -3225,13 +3346,15 @@ def _deliver_feedback(
     )
     strategy, intents = StrategyEngine.deliver(state.strategy, deliveries, populated, instant)
     current = evolve(state, strategy=strategy)
-    if not intents:
-        return current, (), (), _NO_ROUTING
+    ordered = _for_orders(intents)
+    if not ordered:
+        # Exercise instructions, if any, are the caller's to apply (FUT-014).
+        return current, intents, (), _NO_ROUTING
 
-    allocation, feedback_requests = _allocate(current, intents, market_prices, rates, instant)
+    allocation, feedback_requests = _allocate(current, ordered, market_prices, rates, instant)
     current = evolve(current, allocation=allocation)
     current, feedback = _route_requests(
-        current, event, intents, feedback_requests, policy, rates, rest=True, at=instant
+        current, event, ordered, feedback_requests, policy, rates, rest=True, at=instant
     )
     return current, intents, feedback_requests, feedback
 

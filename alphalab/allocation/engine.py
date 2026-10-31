@@ -166,6 +166,18 @@ class AllocationEngine:
                     AllocationRejected(AllocationEngine._create_id(), timestamp, str(refusal))
                 )
                 continue
+            if intent.kind is IntentKind.EXERCISE:
+                # Not an order (FUT-014): sized here it would read as a target.
+                events = events.append(
+                    AllocationRejected(
+                        AllocationEngine._create_id(),
+                        timestamp,
+                        f"{intent.strategy_id}'s exercise of {intent.target} {intent.instrument} "
+                        "is not an order and is not allocated: the execution pipeline carries "
+                        "it out (ExecutionPipeline routes it before allocation).",
+                    )
+                )
+                continue
             key = _intent_key(intent)
             if key in seen:
                 events = events.append(

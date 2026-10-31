@@ -10,7 +10,9 @@ milestone, execution algorithms on the historical drivers (decision 13), then
 the FUT-013 milestone, a derivative's lifecycle declared and carried out
 (decision 14), then the FUT-011 milestone, a queue model for resting limit
 orders (decision 15), then the FUT-002 milestone, a strategy configuration read
-back as its declared type (decision 16). The release number is the
+back as its declared type (decision 16), then -- the release number v4.2.0 set
+by the maintainer -- the FUT-014 milestone, an exercise a strategy asks for from
+its hooks (decision 17). The release number is the
 maintainer's decision: the candidate adds public names, keyword-only parameters,
 an enum member and two schema steps (instrument 3 to 4, replay 1 to 2, each
 reading every earlier payload), which `docs/api/PUBLIC_API.md`'s policy and
@@ -233,6 +235,22 @@ read back is refused at configure; a recorded value not of the declared type is
 refused at restore, naming the strategy and the field. No schema moves, no
 identity moves, and a strategy that declares nothing reads back as before.
 
+**17. A strategy asks for an exercise the way it asks for anything: with an
+intent (FUT-014).** `IntentKind.EXERCISE` names an option and a whole number of
+contracts. It is not an order: the pipeline keeps it from allocation, risk and
+the OMS -- allocation refuses one handed to it directly -- and carries it out at
+the end of the step whose hook returned it, through the checks a scheduled
+exercise passes, against the asking strategy's own contracts and attributed to
+it alone. Its effect is at the asking event's instant, not after that instant's
+last record, because holding it until then would be state a pause between two
+records of one instant must keep, and that state would move every run's
+identity; ending the step is the earliest instant it can apply and needs none.
+A cash-settled contract settles against what the run has observed of its
+underlying, never a value the strategy states, so no strategy reads a price it
+could not have had. A refusal is not a strategy failure but a recorded
+`ExerciseRefused`; a malformed instruction fails the strategy as a malformed
+intent does.
+
 ---
 
 # Consequences
@@ -256,9 +274,11 @@ identity moves, and a strategy that declares nothing reads back as before.
   risk judged the parent, whose quantity bounds every child.
 - **An algorithm is assigned per asset, not per strategy**: a netted parent
   holds several strategies, and one parent is worked one way.
-- **A strategy cannot instruct an exercise from its hooks**: exercise is a
-  scheduled input or a run operation, so a decision taken from data is a stated
-  policy over published prices.
+- **A strategy's exercise takes effect at the end of the step that asked for
+  it**, at its instant, not after the instant's last record: the earliest it can,
+  with no instruction held across a pause; a cash-settled one settles against
+  the run's last observed underlying price, not an official settlement value,
+  which a scheduled exercise carries.
 - **Cash and deliverables move at the event's instant**: a market's T+n lag is
   modelled by scheduling the event at `settles_at`'s instant; no unsettled-cash
   ledger is kept.
@@ -277,7 +297,7 @@ identity moves, and a strategy that declares nothing reads back as before.
 Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
 FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: a strategy-facing exercise instruction; settlement-date accounting; richer contract terms; margin and forced liquidation.
+**Deferred** — to v4.3 and later, pending the maintainer's decision: settlement-date accounting; richer contract terms; margin and forced liquidation.
 
 ---
 
