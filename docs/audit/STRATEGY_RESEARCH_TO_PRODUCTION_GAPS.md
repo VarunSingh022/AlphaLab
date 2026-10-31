@@ -8,8 +8,8 @@ gap is a ledger entry and a ROADMAP "Future work" item. The audit raised
 FUT-003 to FUT-012; its continuation delivered FUT-003 to FUT-008, FUT-010 and
 FUT-012 and raised FUT-013, the FUT-009 milestone delivered FUT-009, and the
 FUT-013 milestone delivered FUT-013 and raised FUT-014 to FUT-017, and the
-FUT-011 milestone delivered FUT-011, and the FUT-014 milestone FUT-014, so what is
-open is FUT-015 to FUT-017
+FUT-011 milestone delivered FUT-011, and the FUT-014 and FUT-016 milestones
+FUT-014 and FUT-016, so what is open is FUT-015 and FUT-017
 (FUT-002, which predates the audit, was delivered by declaration in the
 FUT-002 milestone). Rows below are as of the FUT-011 milestone.
 
@@ -138,8 +138,8 @@ that the seams hold: example 72 combines a price signal (1), a macro regime
 (3), social sentiment (4), a futures hedge (5), a researcher-defined algorithm
 (7) and position sizing with a risk gate (8), through one run, one replay and
 one continuation, with the time semantics of each input preserved. What breaks
-a combination today is one of the named gaps -- FUT-016 (contract terms beyond
-one deliverable) or FUT-017 (margin) -- and never
+a combination today is one of the named gaps -- FUT-015 (settlement-date
+accounting) or FUT-017 (margin) -- and never
 a missing strategy template; how its
 orders are executed is now part of what a backtest measures (FUT-009). Example 72 now carries every timed input
 on one schedule, and its replay pauses through a payload.
@@ -148,7 +148,6 @@ on one schedule, and its replay pauses through a payload.
 
 | Work | Families it moves | Release class |
 | --- | --- | --- |
-| FUT-016 richer contract terms | adjusted contracts after mergers, quanto options, Bermudan contracts | minor |
 | FUT-015 / FUT-017 settlement-date accounting, margin | cash-constrained and short-option strategies, physically delivered commodities | major or a stated exception (payload steps) |
 
 Delivered by the continuation, with the release class each took: FUT-004

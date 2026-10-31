@@ -12,7 +12,8 @@ the FUT-013 milestone, a derivative's lifecycle declared and carried out
 orders (decision 15), then the FUT-002 milestone, a strategy configuration read
 back as its declared type (decision 16), then -- the release number v4.2.0 set
 by the maintainer -- the FUT-014 milestone, an exercise a strategy asks for from
-its hooks (decision 17). The release number is the
+its hooks (decision 17), then the FUT-016 milestone, richer contract terms
+(decision 18). The release number is the
 maintainer's decision: the candidate adds public names, keyword-only parameters,
 an enum member and two schema steps (instrument 3 to 4, replay 1 to 2, each
 reading every earlier payload), which `docs/api/PUBLIC_API.md`'s policy and
@@ -251,6 +252,19 @@ could not have had. A refusal is not a strategy failure but a recorded
 `ExerciseRefused`; a malformed instruction fails the strategy as a malformed
 intent does.
 
+**18. A contract's terms say what it delivers, from when, and the engine carries
+them out (FUT-016).** Baskets, a cash component, cash in lieu of a fraction, a
+consideration in another currency and Bermudan windows are declared terms of
+`OptionTerms`; so are adjusted terms, each effective from its own instant,
+because an exchange's adjustment for a split or a merger is a published fact with
+a date -- declared on the contract it does not look ahead, and kept by the
+registry the run is handed back, it moves no run's record. A package is planned
+before anything moves and booked through the fill authority, its cost apportioned
+by observed market values so the fills move exactly the net cash. A split of an
+instrument a held contract delivers is refused unless the contract declares the
+adjustment the split implies, because delivering the units of before at the
+strike of before is the one wrong answer a run must never give silently.
+
 ---
 
 # Consequences
@@ -282,8 +296,10 @@ intent does.
 - **Cash and deliverables move at the event's instant**: a market's T+n lag is
   modelled by scheduling the event at `settles_at`'s instant; no unsettled-cash
   ledger is kept.
-- **One deliverable, in the consideration's currency, American or European**:
-  baskets, cash in lieu, quanto and Bermudan contracts are refused.
+- **A package's cost is apportioned by its components' observed values, in one
+  currency**: components priced in two currencies within one package, and a
+  package with no whole unit, are refused; a quanto contract fixes the rate its
+  consideration converts at, not its payoff.
 - **A delivery the book cannot cover stops the run**: no margin call, collateral
   or forced liquidation is modelled.
 - **The queue model reads the displayed top of the book**: depth beyond it,
@@ -297,7 +313,7 @@ intent does.
 Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
 FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: settlement-date accounting; richer contract terms; margin and forced liquidation.
+**Deferred** — to v4.3 and later, pending the maintainer's decision: settlement-date accounting; margin and forced liquidation.
 
 ---
 

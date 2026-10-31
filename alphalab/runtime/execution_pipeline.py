@@ -80,7 +80,7 @@ from alphalab.oms.order import Order as OMSOrder
 from alphalab.oms.state import OMSState
 from alphalab.oms.status import OrderStatus, OrderType
 from alphalab.oms.status import Side as OMSSide
-from alphalab.options.enums import OptionType
+from alphalab.options.enums import ExerciseStyle, OptionType
 from alphalab.options.expiration import SettlementStyle
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.book import BookGroups, BookMarketValues, PositionBook
@@ -94,7 +94,15 @@ from alphalab.portfolio.corporate_actions import (
 )
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
-from alphalab.portfolio.fx import NO_RATES, FxConversion, FxRates
+from alphalab.portfolio.fx import (
+    NO_RATES,
+    FxConversion,
+    FxRate,
+    FxRates,
+    MissingRateError,
+    StaleRateError,
+)
+from alphalab.portfolio.money import to_money
 from alphalab.portfolio.nav import NAVCalculator
 from alphalab.portfolio.valuation import (
     PortfolioValuation,
@@ -1757,6 +1765,7 @@ class ExecutionPipeline:
         """
 
         _require_not_before_last_event(state, timestamp, "A split")
+        _require_adjusted_for(state, split, timestamp)
         working = state.oms.working_orders_for(split.asset_id)
         current = state
         if working:
@@ -2090,11 +2099,27 @@ class ExecutionPipeline:
                 )
             for order_id in working:
                 current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
-        intrinsic = terms.intrinsic(
-            expiry.underlying_value,
-            economics.multiplier,
-            _deliverable_multiplier(state, record, terms.deliverable),
-        )
+        packaged = bool(terms.basket) or terms.cash_per_contract != 0
+        if packaged:
+            if expiry.underlying_value is not None:
+                raise RuntimeValidationError(
+                    f"{named} expires against a package of {len(terms.deliverables)} "
+                    "deliverables; one underlying value cannot state it, and its components "
+                    "are valued at the prices the run has observed for them."
+                )
+            values, multipliers = _package_values(state, record, terms, timestamp)
+            intrinsic = terms.basket_intrinsic(values, multipliers, economics.multiplier)
+        else:
+            if expiry.underlying_value is None:
+                raise RuntimeValidationError(
+                    f"{named} expires against its deliverable's settlement value, which the "
+                    "expiry does not state."
+                )
+            intrinsic = terms.intrinsic(
+                expiry.underlying_value,
+                economics.multiplier,
+                _deliverable_multiplier(state, record, terms.deliverable),
+            )
         current = evolve(
             current,
             market_prices=_market_prices_with_event(
@@ -2112,7 +2137,9 @@ class ExecutionPipeline:
                 terms,
                 economics,
                 held,
-                expiry.underlying_value if terms.settlement is SettlementStyle.CASH else None,
+                expiry.underlying_value
+                if terms.settlement is SettlementStyle.CASH and not packaged
+                else None,
                 timestamp,
                 rates,
                 f"EXPIRY-{expiry.asset_id}-{timestamp!r}",
@@ -2511,13 +2538,23 @@ def _declared_option(
             "pays. Declare its terms, or settle it with a ContractSettlement at a stated price."
         )
     economics = economics_for(record.asset_type, record.economics, named)
-    return record, terms, economics, named
+    # The terms in force now: a declared adjustment -- a split's, a merger's --
+    # applies from its own instant (FUT-016).
+    return record, terms.effective(timestamp), economics, named
 
 
 def _require_in_window(
     record: InstrumentRecord, terms: OptionTerms, timestamp: float, named: str, done: str
 ) -> None:
     assert record.last_trade_at is not None  # terms are declared only with one
+    if terms.exercise_style is ExerciseStyle.BERMUDAN:
+        if not terms.may_exercise(timestamp, record.last_trade_at):
+            windows = ", ".join(f"{a!r} to {b!r}" for a, b in terms.exercise_windows)
+            raise RuntimeValidationError(
+                f"{named} is BERMUDAN: it may be {done} in its windows, {windows}; "
+                f"{timestamp!r} is in none of them."
+            )
+        return
     start, end = terms.exercise_window(record.last_trade_at)
     if not start <= timestamp <= end:
         raise RuntimeValidationError(
@@ -2683,6 +2720,15 @@ def _require_deliverable(
         underlying.asset_type, underlying.economics, f"{underlying.symbol} on {underlying.exchange}"
     )
     ctx = ACCOUNTING_CONTEXT
+    whole = _whole_part(state, economics, units.copy_abs())
+    if whole != units.copy_abs():
+        # Delivering it would leave the book holding a fraction of a unit it
+        # cannot hold (FUT-016): that is the contract's cash in lieu to settle.
+        raise RuntimeValidationError(
+            f"{named} delivers {units.copy_abs()} {underlying.symbol}, of which "
+            f"{ctx.subtract(units.copy_abs(), whole)} is less than a unit the book can hold, "
+            "and declares no cash in lieu for it (OptionTerms.fractions)."
+        )
     per_contract_units = deliverable.units
     unit_price = ctx.divide(
         ctx.multiply(price, multiplier), ctx.multiply(per_contract_units, economics.multiplier)
@@ -2767,6 +2813,418 @@ def _deliver(
     return current
 
 
+def _require_adjusted_for(state: ExecutionPipelineState, split: Split, timestamp: float) -> None:
+    """Refuse a split of an instrument a held or working contract delivers, unless it is adjusted.
+
+    A contract on the split instrument keeps its economics only if its terms say
+    what it delivers afterwards: an option declaring, effective at the split's
+    instant, the adjustment :meth:`~alphalab.instrument.terms.OptionTerms.split_adjusted`
+    implies -- the split instrument's units times the ratio, everything else the
+    same. Anything else would deliver the pre-split units at the pre-split strike,
+    half the value of a two-for-one split's, so it is refused, naming the
+    contract (FUT-016). Contracts are read by the keyed lookup alone, for the
+    assets the book holds or works.
+    """
+
+    assets = dict.fromkeys(
+        (
+            *state.portfolio.positions,
+            *(o for o in state.oms.working_by_asset if state.oms.working_orders_for(o)),
+        )
+    )
+    for asset_id in assets:
+        if asset_id == split.asset_id:
+            continue
+        record = _declared(state, asset_id)
+        if record is None or record.terms is None:
+            continue
+        terms = record.terms
+        named = f"{record.symbol} on {record.exchange}"
+        if isinstance(terms, FutureTerms):
+            if terms.deliverable is not None and terms.deliverable.asset_id == split.asset_id:
+                raise RuntimeValidationError(
+                    f"{named} delivers {split.asset_id}, which splits at {timestamp!r}; a "
+                    "future's delivery is not adjusted for a split. Close it before the split."
+                )
+            continue
+        before = replace(
+            terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
+        ).effective(timestamp)
+        if split.asset_id not in {d.asset_id for d in before.deliverables}:
+            continue
+        declared = [a for a in terms.adjustments if a.effective_at == timestamp]
+        expected = before.split_adjusted(split.asset_id, split.ratio, timestamp).adjustments[-1]
+        if not declared:
+            raise RuntimeValidationError(
+                f"{named} delivers {split.asset_id}, which splits {split.ratio} for one at "
+                f"{timestamp!r}, and declares no adjustment effective then: it would deliver "
+                "the units of before the split at the strike of before it. Declare its "
+                "adjusted terms (OptionTerms.split_adjusted)."
+            )
+        (adjustment,) = declared
+        if (
+            adjustment.strike,
+            adjustment.deliverable,
+            adjustment.basket,
+            adjustment.cash_per_contract,
+        ) != (
+            expected.strike,
+            expected.deliverable,
+            expected.basket,
+            expected.cash_per_contract,
+        ):
+            raise RuntimeValidationError(
+                f"{named} declares an adjustment at {timestamp!r} that does not preserve its "
+                f"economics under a {split.ratio} split of {split.asset_id}: it delivers "
+                f"{adjustment.deliverable}, {adjustment.basket} at {adjustment.strike}, and the "
+                f"split implies {expected.deliverable}, {expected.basket} at {expected.strike}."
+            )
+
+
+def _observed(state: ExecutionPipelineState, asset_id: str, named: str, why: str) -> Decimal:
+    """The last price the run observed for ``asset_id``, or a refusal saying why it was needed."""
+
+    price = state.market_prices.get(asset_id)
+    if price is None:
+        raise RuntimeValidationError(
+            f"{named} {why} at the price the run has observed for {asset_id}, and it has "
+            "observed none."
+        )
+    return price
+
+
+def _package_values(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord,
+    terms: OptionTerms,
+    timestamp: float,
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """Each deliverable's observed value and multiplier, by asset (FUT-016)."""
+
+    named = f"{record.symbol} on {record.exchange}"
+    values = {
+        d.asset_id: _observed(state, d.asset_id, named, "values its package")
+        for d in terms.deliverables
+    }
+    multipliers = {
+        d.asset_id: _deliverable_multiplier(state, record, d) for d in terms.deliverables
+    }
+    return values, multipliers
+
+
+def _whole_part(
+    state: ExecutionPipelineState, economics: InstrumentEconomics, units: Decimal
+) -> Decimal:
+    """The part of ``units`` a book can hold: whole lots, or whole units if the run trades them."""
+
+    lot = economics.lot
+    if lot is not None:
+        steps = ACCOUNTING_CONTEXT.divide(units, lot.lot_size).to_integral_value(
+            rounding=decimal.ROUND_DOWN
+        )
+        return ACCOUNTING_CONTEXT.multiply(steps, lot.lot_size)
+    if state.config.allocation_constraints.enforce_integer_quantities:
+        return units.to_integral_value(rounding=decimal.ROUND_DOWN)
+    return units
+
+
+@dataclass(frozen=True, slots=True)
+class _Component:
+    """One deliverable of a package, as one exercise moves it."""
+
+    deliverable: Deliverable
+    record: InstrumentRecord
+    economics: InstrumentEconomics
+    #: Whole units moved, signed: positive taken in by the book.
+    units: Decimal
+    #: The price per unit it is booked at, its share of the consideration.
+    unit_price: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class _PackagePlan:
+    """Everything a package delivery moves, checked before anything does (FUT-016)."""
+
+    components: tuple[_Component, ...]
+    #: The deliverables' currency, in which they are booked.
+    currency: str
+    #: The consideration's currency: the strike and the cash component.
+    consideration_currency: str
+    #: Converted before the components move: (amount, from, to), or ``None``.
+    convert_before: tuple[Decimal, str, str] | None
+    #: Converted after: the proceeds back into the consideration's currency.
+    convert_after: tuple[Decimal, str, str] | None
+    #: The rates both conversions use: the run's, or a quanto contract's fixed one.
+    rates: FxRates
+
+
+def _package_plan(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord,
+    terms: OptionTerms,
+    economics: InstrumentEconomics,
+    closing: Decimal,
+    timestamp: float,
+    rates: FxRates,
+) -> _PackagePlan:
+    """Plan a physical delivery of a package -- or refuse it before anything moves (FUT-016).
+
+    The side taking the package in (a call's holder, a put's writer) pays the
+    consideration, ``strike x multiplier`` a contract less the cash component it
+    receives, in the consideration currency, converted into the deliverables'
+    currency at ``timestamp`` by ``rates`` when the two differ. A fraction of a
+    unit the book cannot hold is settled in cash in lieu, by the contract's
+    declared rule. What is left of the consideration is the whole components'
+    cost, apportioned by their observed market values -- the one component's,
+    when there is one -- so each is booked through the portfolio's fill
+    authority at a price, and the fills move exactly the net cash.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    named = f"{record.symbol} on {record.exchange}"
+    direction = Decimal("1") if terms.option_type is OptionType.CALL else Decimal("-1")
+    sign = direction if closing > 0 else -direction
+    contracts = closing.copy_abs()
+    found: list[tuple[Deliverable, InstrumentRecord, InstrumentEconomics, Decimal, Decimal]] = []
+    currency: str | None = None
+    lieu = Decimal("0")
+    for d in terms.deliverables:
+        underlying = _declared(state, d.asset_id)
+        if underlying is None:
+            raise RuntimeValidationError(
+                f"{named} delivers {d.asset_id}, which the run's registry does not declare; "
+                "nothing can be delivered that the book cannot name."
+            )
+        if currency is None:
+            currency = underlying.currency
+        elif underlying.currency != currency:
+            raise RuntimeValidationError(
+                f"{named} delivers a package priced in {currency} and {underlying.currency}; "
+                "one consideration cannot be apportioned across two currencies' components."
+            )
+        component_economics = economics_for(
+            underlying.asset_type,
+            underlying.economics,
+            f"{underlying.symbol} on {underlying.exchange}",
+        )
+        units = ctx.multiply(d.units, contracts)
+        whole = _whole_part(state, component_economics, units)
+        fraction = ctx.subtract(units, whole)
+        if fraction:
+            rule = terms.fractions
+            if rule is None:
+                raise RuntimeValidationError(
+                    f"{named} delivers {units} {underlying.symbol}, of which {fraction} is less "
+                    "than a unit the book can hold, and declares no cash in lieu for it."
+                )
+            price = (
+                rule.price
+                if rule.price is not None
+                else _observed(state, d.asset_id, named, "settles a fraction in cash in lieu")
+            )
+            lieu = ctx.add(
+                lieu, ctx.multiply(ctx.multiply(fraction, price), component_economics.multiplier)
+            )
+        found.append((d, underlying, component_economics, whole, units))
+    assert currency is not None  # a package has a deliverable
+    consideration_currency = terms.consideration_currency or currency
+    units_of_account = state.portfolio.account.currency_units
+    net = to_money(
+        ctx.subtract(
+            ctx.multiply(ctx.multiply(terms.strike, economics.multiplier), contracts),
+            ctx.multiply(terms.cash_per_contract, contracts),
+        ),
+        consideration_currency,
+        units_of_account,
+    )
+    if net <= 0:
+        raise RuntimeValidationError(
+            f"{named}'s cash component covers its strike: the side taking the package in "
+            "would be paid to, which no fill can book."
+        )
+    conversion_rates = rates
+    if terms.consideration_rate is not None and consideration_currency != currency:
+        # A quanto contract converts at the rate it fixes, not the market's.
+        fixed = FxRate(
+            consideration_currency,
+            currency,
+            terms.consideration_rate,
+            timestamp,
+            f"{named}'s fixed rate",
+        )
+        conversion_rates = FxRates.of(
+            (
+                fixed,
+                replace(
+                    fixed,
+                    base=currency,
+                    quote=consideration_currency,
+                    rate=ACCOUNTING_CONTEXT.divide(Decimal("1"), terms.consideration_rate),
+                ),
+            ),
+            currency_units=rates.currency_units,
+        )
+    if consideration_currency == currency:
+        net_in_currency = net
+    else:
+        try:
+            net_in_currency = conversion_rates.convert(
+                net, consideration_currency, currency, timestamp, units=units_of_account
+            ).converted
+        except (MissingRateError, StaleRateError) as refused:
+            raise RuntimeValidationError(
+                f"{named} is paid for in {consideration_currency} and delivers instruments "
+                f"priced in {currency}; converting the consideration at {timestamp!r} needs a "
+                f"rate the run holds: {refused}"
+            ) from refused
+    cost = ctx.subtract(net_in_currency, lieu)
+    whole_components = [entry for entry in found if entry[3] > 0]
+    if not whole_components:
+        raise RuntimeValidationError(
+            f"{named} would deliver no whole unit of anything; a delivery that is all cash in "
+            "lieu is not booked by a fill."
+        )
+    if cost <= 0:
+        raise RuntimeValidationError(
+            f"{named}'s cash in lieu ({lieu} {currency}) covers its consideration; the "
+            "components' cost would not be positive."
+        )
+    if len(whole_components) == 1:
+        shares = [cost]
+    else:
+        worth = [
+            ctx.multiply(
+                ctx.multiply(
+                    whole, _observed(state, d.asset_id, named, "apportions its consideration")
+                ),
+                component_economics.multiplier,
+            )
+            for d, _, component_economics, whole, _ in whole_components
+        ]
+        total = sum(worth, Decimal("0"))
+        if total <= 0:
+            raise RuntimeValidationError(
+                f"{named}'s components are observed worth nothing; its consideration cannot be "
+                "apportioned by their values."
+            )
+        shares = [ctx.divide(ctx.multiply(cost, w), total) for w in worth[:-1]]
+        shares.append(ctx.subtract(cost, sum(shares, Decimal("0"))))
+    components = []
+    for (d, underlying, component_economics, whole, _), share in zip(
+        whole_components, shares, strict=True
+    ):
+        unit_price = ctx.divide(share, ctx.multiply(whole, component_economics.multiplier))
+        if not component_economics.admits_price(unit_price):
+            raise RuntimeValidationError(
+                f"{named} would deliver {underlying.symbol} at {unit_price}, which its "
+                "economics do not admit."
+            )
+        moved = ctx.multiply(sign, whole)
+        held = _held(state, d.asset_id)
+        if (
+            moved < 0
+            and ctx.add(held, moved) < 0
+            and not state.config.allocation_constraints.allow_shorting
+        ):
+            raise RuntimeValidationError(
+                f"{named} must deliver {whole} {underlying.symbol} and the book holds {held}; "
+                "the run does not allow a short position, and none is created to make the "
+                "delivery."
+            )
+        components.append(_Component(d, underlying, component_economics, moved, unit_price))
+    convert_before = None
+    convert_after = None
+    paying = sign > 0
+    payer_currency = consideration_currency if paying else currency
+    owed = net if paying else Decimal("0")
+    if paying:
+        cash = state.portfolio.cash.balance(consideration_currency)
+        if cash < owed:
+            raise RuntimeValidationError(
+                f"{named} takes delivery for {owed} {payer_currency}, and the book holds "
+                f"{cash}; no financing of a delivery is modelled."
+            )
+        if consideration_currency != currency:
+            convert_before = (net, consideration_currency, currency)
+    elif consideration_currency != currency:
+        convert_after = (cost, currency, consideration_currency)
+    return _PackagePlan(
+        tuple(components),
+        currency,
+        consideration_currency,
+        convert_before,
+        convert_after,
+        conversion_rates,
+    )
+
+
+def _book_package(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord,
+    plan: _PackagePlan,
+    parts: Mapping[str, Decimal],
+    timestamp: float,
+    rates: FxRates,
+    trade_id: str,
+) -> ExecutionPipelineState:
+    """Move a planned package through the portfolio's fill authority, attributed (FUT-016)."""
+
+    ctx = ACCOUNTING_CONTEXT
+    current = state
+    if plan.convert_before is not None:
+        amount, source, target = plan.convert_before
+        portfolio, _ = PortfolioEngine.convert_cash(
+            current.portfolio, amount, source, target, plan.rates, timestamp
+        )
+        current = evolve(current, portfolio=portfolio)
+    total = sum(parts.values(), Decimal("0"))
+    for component in plan.components:
+        asset_id = component.deliverable.asset_id
+        shares = tuple(
+            (sid, ctx.divide(ctx.multiply(component.units, part), total))
+            for sid, part in parts.items()
+        )
+        component_parts = _strategy_parts(shares, component.units)
+        current = _lifecycle_fill(
+            current,
+            asset_id,
+            component.units,
+            component.unit_price,
+            timestamp,
+            component.record.currency,
+            component.economics,
+            component_parts,
+            f"DELIVERY-{trade_id}-{asset_id}",
+        )
+        budget_value = _in_budget_currency(
+            current,
+            ctx.multiply(component.unit_price, component.economics.multiplier),
+            component.record.currency,
+            rates,
+            timestamp,
+        )
+        current = evolve(
+            current,
+            allocation=AllocationEngine.apply_lifecycle(
+                current.allocation, asset_id, {}, asset_id, component_parts, budget_value
+            ),
+        )
+        if asset_id in current.market_prices:
+            current = evolve(
+                current,
+                portfolio=PortfolioEngine.mark_changed(
+                    current.portfolio, current.market_prices, timestamp, asset_id
+                ),
+            )
+    if plan.convert_after is not None:
+        amount, source, target = plan.convert_after
+        portfolio, _ = PortfolioEngine.convert_cash(
+            current.portfolio, amount, source, target, plan.rates, timestamp
+        )
+        current = evolve(current, portfolio=portfolio)
+    return current
+
+
 def _for_orders(intents: tuple[Intent, ...]) -> tuple[Intent, ...]:
     """The intents allocation sizes into orders: every one but an exercise instruction (FUT-014)."""
 
@@ -2825,7 +3283,9 @@ def _strategy_exercise(
             f"{own}: a strategy exercises its own long position, and only that."
         )
     value: Decimal | None = None
-    if terms.settlement is SettlementStyle.CASH:
+    if terms.settlement is SettlementStyle.CASH and (terms.basket or terms.cash_per_contract):
+        pass  # a package is valued at its components' observed prices (FUT-016)
+    elif terms.settlement is SettlementStyle.CASH:
         underlying = terms.deliverable.asset_id
         value = state.market_prices.get(underlying)
         if value is None:
@@ -2894,7 +3354,17 @@ def _resolve_option(
         else dict(parts)
     )
     cash_settled = terms.settlement is SettlementStyle.CASH
-    if cash_settled and underlying_value is None:
+    packaged = bool(terms.basket) or terms.cash_per_contract != 0
+    if cash_settled and packaged:
+        if underlying_value is not None:
+            raise RuntimeValidationError(
+                f"{named} settles against a package of {len(terms.deliverables)} deliverables"
+                + (" and cash" if terms.cash_per_contract else "")
+                + ": one underlying value cannot state it. Its components are valued at the "
+                "prices the run has observed for them."
+            )
+        plan = None
+    elif cash_settled and underlying_value is None:
         raise RuntimeValidationError(
             f"{named} is cash-settled: its exercise pays the intrinsic value against the "
             "underlying's settlement value, which was not supplied."
@@ -2908,7 +3378,11 @@ def _resolve_option(
     delivered_units = ACCOUNTING_CONTEXT.multiply(
         ACCOUNTING_CONTEXT.multiply(direction, terms.deliverable.units), closing
     )
-    if not cash_settled:
+    plan = None
+    if not cash_settled and not terms.is_single:
+        # Refused before anything moves (FUT-016).
+        plan = _package_plan(state, record, terms, economics, closing, timestamp, rates)
+    elif not cash_settled:
         # Refused before anything moves.
         _require_deliverable(
             state, record, terms.deliverable, delivered_units, terms.strike, economics.multiplier
@@ -2917,12 +3391,16 @@ def _resolve_option(
         state, allocation=AllocationEngine.apply_lifecycle(state.allocation, asset_id, parts)
     )
     if cash_settled:
-        assert underlying_value is not None
-        paid = terms.intrinsic(
-            underlying_value,
-            economics.multiplier,
-            _deliverable_multiplier(current, record, terms.deliverable),
-        )
+        if packaged:
+            values, multipliers = _package_values(current, record, terms, timestamp)
+            paid = terms.basket_intrinsic(values, multipliers, economics.multiplier)
+        else:
+            assert underlying_value is not None
+            paid = terms.intrinsic(
+                underlying_value,
+                economics.multiplier,
+                _deliverable_multiplier(current, record, terms.deliverable),
+            )
         current = _lifecycle_fill(
             current,
             asset_id,
@@ -2948,6 +3426,9 @@ def _resolve_option(
             parts,
             trade_id,
         )
+        if plan is not None:
+            current = _book_package(current, record, plan, parts, timestamp, rates, trade_id)
+            return _after_book_change(current, current.portfolio, timestamp, rates)
         current = _deliver(
             current,
             record,

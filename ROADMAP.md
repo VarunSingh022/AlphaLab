@@ -203,6 +203,10 @@ names what the release established and the ADR that records the decision.
   step that asked, at its instant, through the checks a scheduled exercise
   passes, against the strategy's own contracts; a cash contract settles against
   the last observed underlying price; a refusal is a recorded `ExerciseRefused`.
+- **Richer contract terms** (FUT-016): baskets and a cash component, cash in
+  lieu of fractions, a consideration in another currency (at the run's rate, or a
+  quanto contract's fixed one), Bermudan windows, and adjusted terms from a
+  declared instant -- a split's, checked against the split, and a merger's.
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -572,18 +576,6 @@ of what the audit proposed (section *v4.2.0*, above).
   settlement date by the market's calendar, buying power excludes unsettled
   cash, and every earlier payload reads as settled. **Dependencies.** a
   portfolio schema step.
-
-## FUT-016 — richer contract terms: baskets, cash in lieu, quanto, Bermudan (target v4.3)
-
-- **Limitation.** One deliverable instrument, the consideration in its currency,
-  American or European exercise; anything else is refused. A corporate action on
-  the deliverable does not adjust a contract's terms; the caller re-declares it.
-- **Interim behaviour.** Close such a contract before its last trading instant.
-- **Acceptance criteria.** A deliverable list with a cash component, a declared
-  consideration currency with its FX timing, and declared exercise dates each
-  settle through the portfolio's fill authority, attributed, and round-trip; a
-  split or merger adjusts the contracts on its deliverable by a declared rule.
-  **Dependencies.** the derivative lifecycle, delivered in the v4.2.0 candidate.
 
 ## FUT-017 — margin, collateral and forced liquidation (target v5.0)
 

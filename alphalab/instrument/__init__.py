@@ -114,10 +114,12 @@ from alphalab.instrument.registry import (
 )
 from alphalab.instrument.terms import (
     AutomaticExercise,
+    CashInLieu,
     ContractTerms,
     Deliverable,
     FutureTerms,
     OptionTerms,
+    TermsAdjustment,
 )
 
 __all__ = [
@@ -127,6 +129,7 @@ __all__ = [
     "OPERATOR",
     "SECTOR",
     "AutomaticExercise",
+    "CashInLieu",
     "ClassificationHistory",
     "ContractTerms",
     "DatedAlias",
@@ -143,6 +146,7 @@ __all__ = [
     "OptionTerms",
     "SectorClassification",
     "SettlementModel",
+    "TermsAdjustment",
     "canonical_instrument_key",
     "classification_history",
     "classification_of",

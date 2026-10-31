@@ -21,3 +21,9 @@ class ExerciseStyle(Enum):
 
     AMERICAN = auto()
     EUROPEAN = auto()
+    #: On the dates or in the windows the contract declares
+    #: (:attr:`~alphalab.instrument.terms.OptionTerms.exercise_windows`, v4.2.0,
+    #: ledger FUT-016). A lifecycle term: the analytical and lattice pricers model
+    #: American and European exercise only, and
+    #: :class:`~alphalab.options.contract.OptionContract` refuses a Bermudan one.
+    BERMUDAN = auto()

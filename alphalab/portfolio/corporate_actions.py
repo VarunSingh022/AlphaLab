@@ -251,15 +251,18 @@ class OptionExpiry:
     Attributes:
         asset_id: The option.
         underlying_value: The deliverable's settlement value per unit, as the
-            venue publishes it -- often not the last trade.
+            venue publishes it -- often not the last trade. Required for a contract
+            on one deliverable; ``None`` for one on a package -- a basket or a cash
+            component -- whose components are valued at the prices the run has
+            observed for them (v4.2.0, FUT-016).
         reference: The caller's reference, not interpreted.
     """
 
     asset_id: str
-    underlying_value: Decimal
+    underlying_value: Decimal | None = None
     reference: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.asset_id, str) or not self.asset_id.strip():
             raise InvalidTransactionError("An expiry names the option expiring.")
-        _settlement_value(self.underlying_value, True, "An expiry")
+        _settlement_value(self.underlying_value, False, "An expiry")

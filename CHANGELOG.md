@@ -130,6 +130,19 @@ IDs are in brackets.
   `QUEUE_BOOK_SCHEMA = 1`; `replay_snapshot.restore(..., queue=)`), and
   `manifest_for_run` records the model as `ReproducibilityManifest.queue_model`.
   Refused beside an execution plan and on a run that routes to a venue.
+* **Richer contract terms** [FUT-016]. `OptionTerms` declares a `basket` of
+  further `Deliverable`s and a `cash_per_contract`; a `consideration_currency`,
+  converted at the exercise instant by the run's rates or by a quanto contract's
+  fixed `consideration_rate`; `fractions` (`alphalab.instrument.CashInLieu`) for a
+  fraction of a unit the book cannot hold; `ExerciseStyle.BERMUDAN` with
+  `exercise_windows`; and `adjustments` (`alphalab.instrument.TermsAdjustment`),
+  each effective from its instant -- `OptionTerms.split_adjusted` writes the one a
+  split implies. A physical package is planned before anything moves and booked
+  through the portfolio's fill authority, its cost apportioned by the components'
+  observed values; a cash-settled package, and a package's moneyness at expiry,
+  are valued at observed prices (`OptionExpiry.underlying_value` is optional). A
+  split of an instrument a held or working contract delivers is refused unless the
+  contract declares the adjustment the split implies.
 * **A strategy exercises its own options from its hooks** [FUT-014].
   `IntentKind.EXERCISE`: any hook returns `Intent(kind=IntentKind.EXERCISE,
   instrument=<option>, target=<whole contracts>)`. It is not an order --
@@ -179,6 +192,16 @@ IDs are in brackets.
   bar, the longer interval on a tie.
 * **The reinforcement-learning docstrings reported a fixed defect as live**
   [DOC-012].
+* **A delivery could leave a whole-units book holding a fraction of a share**
+  [FUT-016]. A contract delivering, say, 33.3333 shares a contract was booked
+  as delivered in a run that trades whole units; it is now refused unless the
+  contract declares cash in lieu for the fraction.
+* **A split of a deliverable left the contracts on it unadjusted** [FUT-016]:
+  after a two-for-one split an option delivered the units of before at the strike
+  of before -- half its value. The split is now refused unless the contract
+  declares its adjustment.
+* **A Bermudan contract cannot be priced as American or European** [FUT-016]:
+  `OptionContract` refuses `ExerciseStyle.BERMUDAN`.
 * **A capability invariant reached one of its statuses by the luck of its seed**
   [TST-023]. Every draw now also checks a declaration built to offer what the
   flow needs, which must be compatible.
@@ -196,6 +219,9 @@ IDs are in brackets.
 | `alphalab.backtesting.replay_snapshot.restore` | `schedule`, empty by default, and `execution` and `queue`, `None` by default; `ReplaySnapshot.schedule_digest`, `algorithms` and `queue` |
 | `alphalab.runtime.RunEngine.advance`, `ExecutionPipeline.process_record`, `process_market_event` | keyword-only `queue`, `None` by default; `ExecutionPipelineResult.queue`, appended last, `None` by default |
 | `alphalab.strategy.IntentKind` | member `EXERCISE` (FUT-014); `alphalab.strategy.ExerciseRefused` added |
+| `alphalab.instrument.OptionTerms` | fields `basket`, `cash_per_contract`, `consideration_currency`, `fractions`, `exercise_windows`, `adjustments` and `consideration_rate`, empty or `None` by default; `deliverables`, `is_single`, `effective`, `split_adjusted`, `may_exercise`, `package_value`, `basket_intrinsic`; `intrinsic` refuses a package (FUT-016); `alphalab.instrument.CashInLieu` and `TermsAdjustment` added |
+| `alphalab.options.ExerciseStyle` | member `BERMUDAN`; `OptionContract` refuses it |
+| `alphalab.portfolio.OptionExpiry` | `underlying_value` optional (`None` by default), refused for a package and required otherwise |
 | `alphalab.strategy.supervisor.RuntimeSupervisor.configure` | raises `StrategyConfigurationError` for a value not of the type its strategy's class declares as `configuration_type`; unchanged for a class that declares none |
 | `alphalab.runtime.ExecutionAssumptions`, `execution_assumptions` | field `queue_model` and trailing parameter `queue_model`, `None` by default; property `passive_fills`; `settings()` adds `execution.queue_model` only when a model is declared |
 | `alphalab.runtime.execution_pipeline.ExecutionRouting` | member `ALGORITHMIC`; `ExecutionMode.works_children` |
@@ -209,8 +235,8 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-FUT-015 (settlement-date accounting), FUT-016 (richer contract terms) and
-FUT-017 (margin and forced liquidation), each with its limitation, interim behaviour and acceptance criteria
+FUT-015 (settlement-date accounting) and FUT-017 (margin and forced
+liquidation), each with its limitation, interim behaviour and acceptance criteria
 on `ROADMAP.md`. FUT-009, FUT-011 and FUT-013, accepted by the audit and the
 continuation, and FUT-002, accepted by v4.1, were delivered by the candidate's
 last four milestones -- FUT-002 by declaration, so an undeclared configuration
