@@ -2316,6 +2316,12 @@ def _route_requests(
                 dropped.append((request, short_of_margin))
                 current = _retire_dropped_request(current, request.order_id, instant)
                 continue
+            # A short is sold only against borrow a lender offers (FUT-018).
+            unborrowable = _borrow_refusal(current, request, instant)
+            if unborrowable is not None:
+                dropped.append((request, unborrowable))
+                current = _retire_dropped_request(current, request.order_id, instant)
+                continue
         # An order cannot be priced, executed or valued without a market price
         # for its asset -- allocation prices unknown assets at 0.00. Drop the
         # request here, deterministically and before it reaches the OMS, rather
@@ -3045,27 +3051,82 @@ def _buying_power_charge(
     unit_value: Decimal,
     rates: FxRates,
     at: float,
+    buying: bool = False,
 ) -> Decimal | None:
     """What a unit of growth in ``asset_id`` spends of buying power, when not its value (FUT-017).
 
     An instrument that pays no notional -- a future settled by variation --
     moves no cash when it trades: what opening it commits is the initial margin
     its record declares, not the notional, which the gate charged until v4.2.0.
-    ``None`` -- charge the notional, as always -- for an instrument that pays
-    its notional or declares no margin terms; a registry declaring none costs one
-    emptiness check.
+    A fully paid instrument whose terms allow a purchase on margin
+    (``MarginTerms.purchase_on_margin``, FUT-018) spends its initial requirement
+    when ``buying``: what the cash does not cover is financed. ``None`` --
+    charge the notional, as always -- otherwise: a short sale, a fully paid
+    purchase, an instrument declaring no margin terms; a registry declaring none
+    costs one emptiness check.
     """
 
     registry = state.config.instruments
     if registry is None or not registry.margined or asset_id not in registry.margined:
         return None
     record = _declared(state, asset_id)
-    economics = _economics_of(state, asset_id)
-    if record is None or record.margin is None or economics is None:
+    if record is None or record.margin is None:
         return None
-    if economics.settlement.pays_notional:
+    economics = _economics_of(state, asset_id)
+    pays = economics is None or economics.settlement.pays_notional
+    if pays and not (buying and record.margin.purchase_on_margin):
         return None
     return _unit_margin(state, asset_id, record.margin, unit_value, rates, at)
+
+
+def _purchased_on_margin(state: ExecutionPipelineState, asset_id: str, quantity: Decimal) -> bool:
+    """Whether a fill buying ``quantity`` is booked as a financed debit (FUT-018)."""
+
+    if quantity <= 0:
+        return False
+    registry = state.config.instruments
+    if registry is None or not registry.margined or asset_id not in registry.margined:
+        return False
+    record = _declared(state, asset_id)
+    return record is not None and record.margin is not None and record.margin.purchase_on_margin
+
+
+def _borrow_refusal(state: ExecutionPipelineState, request: OrderRequest, at: float) -> str | None:
+    """Why ``request`` cannot be borrowed for, or ``None`` (FUT-018).
+
+    Read only for an order that would grow a short in an instrument declaring
+    borrow terms: the book's short after it -- filled, every working order in
+    the instrument and this one -- must be within what the entry in effect at
+    ``at`` makes available. Before the first entry nothing is available.
+    """
+
+    record = _declared(state, request.asset_id)
+    if record is None or record.borrow is None:
+        return None
+    terms = record.borrow
+    position = state.portfolio.positions.get(request.asset_id)
+    committed = Decimal("0") if position is None else position.quantity
+    for order_id in state.oms.working_orders_for(request.asset_id):
+        order = state.oms.orders.find(order_id)
+        remaining = order.remaining_quantity
+        committed = ACCOUNTING_CONTEXT.add(
+            committed, remaining if order.side is OMSSide.BUY else -remaining
+        )
+    after = ACCOUNTING_CONTEXT.add(committed, _signed(request))
+    if after >= 0 or (after.copy_abs() <= committed.copy_abs() and committed < 0):
+        return None
+    entry = terms.in_effect(at)
+    if entry is None:
+        return (
+            f"No borrow is in effect for {record.symbol} at {at!r} (its borrow terms start "
+            f"at {terms.entries[0].effective_at!r}); nothing can be sold short."
+        )
+    if entry.available is not None and after.copy_abs() > entry.available:
+        return (
+            f"Selling short would leave the book short {after.copy_abs()} {record.symbol}, "
+            f"and {entry.available} is available to borrow at {at!r}."
+        )
+    return None
 
 
 def _initial_margin_refusal(
@@ -5215,7 +5276,9 @@ def _evaluate_risk(
         price=price,
         working=working,
         buckets=_bucket_exposures(state, request, price, working),
-        charge=_buying_power_charge(state, request.asset_id, price, rates, timestamp),
+        charge=_buying_power_charge(
+            state, request.asset_id, price, rates, timestamp, request.side is CoreSide.BUY
+        ),
     )
     return evolve(state, risk=risk), decision
 
@@ -5422,7 +5485,7 @@ def _working_exposure(
             quantity=quantity,
             price=unit,
             position=held.quantity if held is not None else Decimal("0"),
-            charge=_buying_power_charge(state, asset_id, unit, rates, as_of),
+            charge=_buying_power_charge(state, asset_id, unit, rates, as_of, quantity > 0),
         )
     return working
 
@@ -5866,6 +5929,7 @@ def _apply_report_to_portfolio(
         report.currency,
         economics=_economics_of(state, report.asset_id),
         settles_at=_settles_at(state, report.asset_id, report.timestamp),
+        financed=_purchased_on_margin(state, report.asset_id, signed_quantity),
     )
     risk = _sync_risk_from_portfolio(
         state.risk, portfolio, state.config.instruments, rates, as_of=report.timestamp

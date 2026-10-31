@@ -219,14 +219,20 @@ names what the release established and the ADR that records the decision.
   orders growing a margined position are held to the initial requirement, and a
   margined future spends its margin of buying power, not its notional; a
   delivery the cash cannot pay is financed only when its deliverables declare
-  margin terms. Buying on margin and a debit's interest are FUT-018, portfolio
-  margin FUT-019.
+  margin terms. Buying on margin and a debit's interest are FUT-018, delivered
+  below; portfolio margin is FUT-019.
 - **A strategy withdraws its own working orders** (EXE-012, the global gap
   audit): `Intent(kind=IntentKind.CANCEL)` withdraws every order the strategy
   alone has working in an instrument, after the event's fills and before the
   batch's orders, so a cancel and a new limit replace a quote; an order netted
   with another strategy's, or worked by an execution plan, is left working and
   recorded as a `CancelRefused`.
+- **Financing and short borrow** (FUT-018): an instrument may allow a purchase
+  on margin, spending its initial requirement of buying power and financing the
+  rest; a `ScheduledInterest` charges a period's declared tiers on a currency's
+  balance by its day count, trade-date or settled; an instrument declares dated
+  borrow availability and fees, a short beyond what is available is refused, and
+  a `ScheduledBorrowFee` charges each short the fee in effect.
 - **A strategy configuration that reads back typed** (FUT-002): a strategy class
   declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
   only with a value of that type and reads it back as that type after a restore
@@ -588,26 +594,9 @@ holds this list to the ledger: an entry may be left for later only here.
 The program's entries were proposed by the v4.1.1 future-readiness audit
 (`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
 horizon, is the maintainer's decision. The candidate itself delivered the rest
-of what the audit proposed (section *v4.2.0*, above); FUT-018 and FUT-019 are what
-the margin milestone found beyond its scope, and FUT-020 and FUT-021 what the
-v4.2.0 global gap audit found.
-
-## FUT-018 — buying on margin, a debit's interest and short borrow (target v4.3)
-
-- **Limitation.** A purchase of a fully paid instrument is never financed past
-  the cash, a debit balance -- from a financed delivery or a covered short --
-  accrues no interest, and a short is never refused for want of borrow nor
-  charged a borrow rate.
-- **Interim behaviour.** Size purchases to the cash; a run carrying a debit
-  states it in its cash balance and its margin calls, and its interest can be
-  booked as a declared `ScheduledCashFlow` (`CashFlowKind.INTEREST`) at the
-  amount the caller computes, as a borrow fee is.
-- **Acceptance criteria.** A declared financing schedule (rates by currency and
-  tier, effective dates) and borrow schedule (availability and rate by
-  instrument); a short refused when nothing is available; a margined purchase charged its initial requirement and
-  booked as a financed debit; interest accrued on debits as a ledger cash flow;
-  recorded, replayable, and a run declaring none unchanged.
-  **Dependencies.** margin terms and the margin lifecycle, delivered in v4.2.0.
+of what the audit proposed (section *v4.2.0*, above); FUT-019 is what the margin
+milestone found beyond its scope, and FUT-020 and FUT-021 what the v4.2.0 global
+gap audit found.
 
 ## FUT-019 — portfolio and risk-based margin (target v5.0)
 

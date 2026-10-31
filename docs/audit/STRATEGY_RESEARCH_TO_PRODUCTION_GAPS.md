@@ -12,8 +12,8 @@ FUT-011 milestone delivered FUT-011, and the FUT-014 and FUT-016 milestones
 FUT-014 and FUT-016, the FUT-015 milestone FUT-015, and the FUT-017 milestone
 FUT-017 and raised FUT-018 and FUT-019, and the v4.2.0 global gap audit
 delivered EXE-012 (a strategy withdraws its own working orders) and raised
-FUT-020 and FUT-021, so what is open is FUT-018 (buying on margin, a debit's
-interest and short borrow), FUT-019 (portfolio margin), FUT-020 (venue price
+FUT-020 and FUT-021, and the FUT-018 milestone delivered FUT-018 (financing and
+short borrow), so what is open is FUT-019 (portfolio margin), FUT-020 (venue price
 limits and halts) and FUT-021 (holding exchanges) (FUT-002, which predates the
 audit, was delivered by declaration in the FUT-002 milestone). Rows below are as
 of the FUT-011 milestone.
@@ -143,8 +143,7 @@ that the seams hold: example 72 combines a price signal (1), a macro regime
 (3), social sentiment (4), a futures hedge (5), a researcher-defined algorithm
 (7) and position sizing with a risk gate (8), through one run, one replay and
 one continuation, with the time semantics of each input preserved. What breaks
-a combination today is a named gap -- a margin account's financing and netting
-(FUT-018, FUT-019), a venue's price limits (FUT-020), an issuer's holding
+a combination today is a named gap -- a margin account's netting (FUT-019), a venue's price limits (FUT-020), an issuer's holding
 exchange (FUT-021) -- and never a missing strategy template; how its
 orders are executed is now part of what a backtest measures (FUT-009). Example 72 now carries every timed input
 on one schedule, and its replay pauses through a payload.
@@ -153,7 +152,6 @@ on one schedule, and its replay pauses through a payload.
 
 | Work | Families it moves | Release class |
 | --- | --- | --- |
-| FUT-018 buying on margin and a debit's interest | leveraged long equity, carry-sensitive strategies | minor (additive, declared) |
 | FUT-019 portfolio margin | spreads, covered and hedged derivative books | major or a stated exception |
 | FUT-020 price limits and halts | limit-locked markets (mainland China, India, Korea, Taiwan, futures with daily limits) | minor (additive, declared) |
 | FUT-021 holding exchanges | event-driven and merger-arbitrage strategies, long-horizon equity books | minor (additive, declared) |

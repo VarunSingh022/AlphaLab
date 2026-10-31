@@ -70,6 +70,12 @@ class MarginTerms:
         priority: Which positions a forced liquidation reduces first: the
             lowest priority first, then the largest requirement, then the asset
             identifier, so the order is always the same.
+        purchase_on_margin: Whether a fully paid instrument may be bought on
+            margin (v4.2.0, ledger FUT-018): a purchase then spends its initial
+            requirement of buying power, not its notional, and what the cash does
+            not cover is booked as a financed debit, which a
+            :class:`~alphalab.backtesting.schedule.ScheduledInterest` charges for.
+            ``False`` by default: a purchase is paid from cash, as in FUT-017.
     """
 
     basis: MarginBasis
@@ -77,6 +83,7 @@ class MarginTerms:
     maintenance: Decimal
     haircut: Decimal = _ZERO
     priority: int = 0
+    purchase_on_margin: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.basis, MarginBasis):
@@ -93,6 +100,10 @@ class MarginTerms:
             raise InstrumentInputError(f"A haircut is in [0, 1), got {haircut}.")
         if isinstance(self.priority, bool) or not isinstance(self.priority, int):
             raise InstrumentInputError(f"priority is an integer, got {self.priority!r}.")
+        if not isinstance(self.purchase_on_margin, bool):
+            raise InstrumentInputError(
+                f"purchase_on_margin is a bool, got {self.purchase_on_margin!r}."
+            )
 
     def requirement(self, quantity: Decimal, value: Decimal, initial: bool) -> Decimal:
         """What ``quantity`` worth ``value`` (absolute, base currency) requires.
@@ -113,13 +124,18 @@ def margin_to_primitives(terms: MarginTerms | None) -> dict[str, Any] | None:
 
     if terms is None:
         return None
-    return {
+    written: dict[str, Any] = {
         "basis": terms.basis.name,
         "initial": str(terms.initial),
         "maintenance": str(terms.maintenance),
         "haircut": str(terms.haircut),
         "priority": terms.priority,
     }
+    if terms.purchase_on_margin:
+        # Written only when declared, so terms declaring no margin purchase
+        # write exactly what FUT-017's did (FUT-018).
+        written["purchase_on_margin"] = True
+    return written
 
 
 def margin_from_primitives(value: Any, where: str = "margin") -> MarginTerms | None:
@@ -138,6 +154,7 @@ def margin_from_primitives(value: Any, where: str = "margin") -> MarginTerms | N
             Decimal(value["maintenance"]),
             Decimal(value["haircut"]),
             int(value["priority"]),
+            bool(value.get("purchase_on_margin", False)),
         )
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise InstrumentInputError(f"{where} is not margin terms: {exc}.") from exc

@@ -315,6 +315,20 @@ withdraw, and the refusal is recorded. A bracket, a one-cancels-other pair and a
 trailing stop are the strategy's logic over its hooks, so no new order type is
 needed.
 
+**22. A broker's financing and a lender's borrow are declared with their dates,
+and charged on what the book holds (FUT-018).** A rate is never the engine's: a
+period's interest states the broker's tiers, credit rate and day count on the
+schedule, and a borrow's availability and fee are a dated series on the
+instrument, each in force from its own instant -- so a run reads only what was
+in effect by then, and nothing changes the record of a run that declares none.
+Interest is charged on the balance at the period's instant, by the period's own
+dates and day count, on trade-date or, by declaration, settled cash; a fee on
+each short's value at the last mark. A short beyond what a lender offers is
+refused before it is placed, counting every working sale; nothing forces one
+already held to be bought in. A purchase on margin is the instrument's terms,
+not the account's: it spends its initial requirement and is financed, and the
+margin lifecycle (decision 20) governs what follows.
+
 ---
 
 # Consequences
@@ -353,9 +367,9 @@ needed.
 - **A margin requirement is each position's own, summed**: no portfolio or
   risk-based margin (SPAN, TIMS, offsets between positions), and the risk gate's
   `MarginLimit` stays a configured gross-notional cap.
-- **Only a delivery is financed, and a debit accrues no interest**: a purchase of
-  a fully paid instrument is held to the cash, and no financing cost is charged
-  on a debit balance.
+- **Interest and fees accrue at each declared period's instant**: on the balance
+  and the short then, not a daily average; the periods are the caller's
+  cadence; borrow is the book's, with no recall or buy-in.
 - **A margin call is checked after each market step and liquidated at the
   asset's next quote**: no grace period and no check between market events; a
   market order's unfilled remainder is cancelled, and a step still in breach
@@ -378,7 +392,7 @@ Each is stated in the ledger entry it belongs to (FUT-010, FUT-006, FUT-005,
 FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017, FUT-018,
 FUT-019, EXE-012, LIM-008).
 
-**Deferred** — to v4.3 and later, pending the maintainer's decision: buying on margin and a debit's interest; portfolio and risk-based margin; venue price limits and trading halts; holding exchanges.
+**Deferred** — to v4.3 and later, pending the maintainer's decision: portfolio and risk-based margin; venue price limits and trading halts; holding exchanges.
 
 ---
 

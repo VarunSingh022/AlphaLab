@@ -63,6 +63,7 @@ naming an instrument the run never priced produces no orders -- which is the
 v2.6 behaviour, and detecting it is not v2.7 work.
 """
 
+from alphalab.instrument.borrow import BorrowAvailability, BorrowTerms
 from alphalab.instrument.classification import (
     OPERATOR,
     SECTOR,
@@ -130,6 +131,8 @@ __all__ = [
     "OPERATOR",
     "SECTOR",
     "AutomaticExercise",
+    "BorrowAvailability",
+    "BorrowTerms",
     "CashInLieu",
     "ClassificationHistory",
     "ContractTerms",

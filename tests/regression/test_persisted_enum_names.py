@@ -37,6 +37,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 #: Every plain enum a decoder reads, by where it is defined: its member names.
 NAMED: dict[str, tuple[str, ...]] = {
+    # v4.2.0 (ledger FUT-018): an instrument's borrow terms, by their day count.
+    "alphalab.conventions.daycount.DayCount": ("ACT_365_FIXED", "ACT_360", "THIRTY_360_US"),
     # v4.2.0 (ledger FUT-017): an instrument's margin terms, by their basis.
     "alphalab.instrument.margin.MarginBasis": ("VALUE_RATE", "PER_CONTRACT"),
     # v4.1.1 (ledger FUT-013), found by the v4.2.0 scanner, which reads

@@ -21,6 +21,7 @@ example) normalize them first.
 
 import json
 from dataclasses import is_dataclass
+from datetime import date
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -64,6 +65,11 @@ class DeterministicEncoder(json.JSONEncoder):
         if isinstance(obj, UUID):
             # Typed identifiers (OrderId, FillId, ...) wrap a UUID.
             return str(obj)
+        if type(obj) is date:
+            # A calendar date -- an accrual period's bounds (v4.2.0, FUT-018) --
+            # as ISO 8601. Exactly ``date``: a ``datetime`` carries a clock and a
+            # zone this text would drop, so it still raises below.
+            return obj.isoformat()
         raise SerializationError(
             f"No deterministic JSON representation for {type(obj).__module__}."
             f"{type(obj).__name__}. Add an explicit branch to DeterministicEncoder "

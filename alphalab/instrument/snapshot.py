@@ -70,6 +70,7 @@ from alphalab.conventions.economics import economics_from_primitives
 from alphalab.conventions.exceptions import ConventionInputError
 from alphalab.conventions.settlement import SettlementBasis, SettlementRule
 from alphalab.core.enums import AssetType
+from alphalab.instrument.borrow import BorrowTerms, borrow_from_primitives, borrow_to_primitives
 from alphalab.instrument.classification import (
     SECTOR,
     ClassificationHistory,
@@ -206,6 +207,10 @@ class InstrumentRegistryRecord:
     #: :func:`~alphalab.instrument.margin.margin_to_primitives` writes them, or
     #: ``None`` (v4.2.0, ledger FUT-017).
     margin: Mapping[str, Any] | None = None
+    #: The instrument's borrow terms, as
+    #: :func:`~alphalab.instrument.borrow.borrow_to_primitives` writes them, or
+    #: ``None`` (v4.2.0, ledger FUT-018).
+    borrow: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +297,7 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
                 last_trade_at=record.last_trade_at,
                 terms=terms_to_primitives(record.terms),
                 margin=margin_to_primitives(record.margin),
+                borrow=borrow_to_primitives(record.borrow),
                 settlement=(
                     None
                     if record.settlement is None
@@ -353,6 +359,7 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
                 terms=_terms(entry.terms, f"{entry.symbol}.terms"),
                 settlement=_settlement(entry.settlement, f"{entry.symbol}.settlement"),
                 margin=_margin(entry.margin, f"{entry.symbol}.margin"),
+                borrow=_borrow(entry.borrow, f"{entry.symbol}.borrow"),
             )
             if record.asset_id in registry.instruments:
                 raise StateDecodeError(
@@ -510,11 +517,19 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
         # the candidate before it, which declared no settlement rule.
         settlement=_optional_mapping(payload.get("settlement"), f"{where}.settlement"),
         margin=_optional_mapping(payload.get("margin"), f"{where}.margin"),
+        borrow=_optional_mapping(payload.get("borrow"), f"{where}.borrow"),
     )
 
 
 def _optional_mapping(value: Any, where: str) -> Mapping[str, Any] | None:
     return None if value is None else as_mapping(value, where)
+
+
+def _borrow(value: Mapping[str, Any] | None, where: str) -> BorrowTerms | None:
+    try:
+        return borrow_from_primitives(value, where)
+    except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
 
 
 def _margin(value: Mapping[str, Any] | None, where: str) -> MarginTerms | None:
@@ -606,7 +621,14 @@ def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         **payload,
         "instruments": [
-            {**entry, "last_trade_at": None, "terms": None, "settlement": None, "margin": None}
+            {
+                **entry,
+                "last_trade_at": None,
+                "terms": None,
+                "settlement": None,
+                "margin": None,
+                "borrow": None,
+            }
             for entry in payload["instruments"]
         ],
     }

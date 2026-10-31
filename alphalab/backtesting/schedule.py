@@ -61,6 +61,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from enum import IntEnum, StrEnum, unique
 from itertools import pairwise
@@ -70,6 +71,7 @@ from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.backtesting.exceptions import BacktestError
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.common.constants import DEFAULT_ENCODING
+from alphalab.conventions.daycount import DayCount
 from alphalab.persistence.serializer import serialize
 from alphalab.portfolio.corporate_actions import (
     Assignment,
@@ -79,6 +81,14 @@ from alphalab.portfolio.corporate_actions import (
     Exercise,
     OptionExpiry,
     Split,
+)
+from alphalab.portfolio.engine import PortfolioEngine
+from alphalab.portfolio.financing import (
+    BalanceBasis,
+    FinancingTier,
+    accrued_interest,
+    day_fraction,
+    require_tiers,
 )
 from alphalab.portfolio.fx import FxRate, FxRates
 from alphalab.runtime.execution_pipeline import ContextFactory
@@ -95,11 +105,13 @@ __all__ = [
     "SchedulePlace",
     "ScheduleValidationError",
     "ScheduledAssignment",
+    "ScheduledBorrowFee",
     "ScheduledCashFlow",
     "ScheduledDistribution",
     "ScheduledExercise",
     "ScheduledExpiry",
     "ScheduledFundingRate",
+    "ScheduledInterest",
     "ScheduledSettlement",
     "ScheduledSplit",
 ]
@@ -135,6 +147,11 @@ class ScheduleKind(StrEnum):
     ASSIGNMENT = "assignment"
     EXPIRY = "expiry"
     SETTLEMENT = "settlement"
+    #: v4.2.0 (FUT-018): a period's interest on a cash balance, and its borrow
+    #: fees -- after the instant's records, on the balance and the shorts the
+    #: instant left.
+    INTEREST = "interest"
+    BORROW_FEE = "borrow_fee"
 
 
 _PLACE: Final = {
@@ -150,6 +167,8 @@ _PLACE: Final = {
     ScheduleKind.ASSIGNMENT: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.EXPIRY: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.SETTLEMENT: SchedulePlace.AFTER_RECORDS,
+    ScheduleKind.INTEREST: SchedulePlace.AFTER_RECORDS,
+    ScheduleKind.BORROW_FEE: SchedulePlace.AFTER_RECORDS,
 }
 _RANK: Final = {kind: rank for rank, kind in enumerate(ScheduleKind)}
 
@@ -205,6 +224,58 @@ class ScheduledFundingRate:
 
     asset_id: str
     rate: Decimal
+    at: float
+    reference: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledInterest:
+    """A period's interest on one currency's cash balance, booked at ``at`` (ledger FUT-018).
+
+    The broker's terms for the period, declared: a debit is charged band by band
+    by ``debit_tiers``; a credit earns ``credit_rate`` when one is stated and
+    nothing otherwise. The period runs from ``start`` to ``end`` -- dates, so its
+    length is the day count's, not the clock's -- and the balance is the one at
+    ``at``, by ``basis``: trade-date cash, or settled cash (FUT-015). Booked as an
+    ``INTEREST`` cash flow in ``currency``; nothing for a zero.
+    """
+
+    currency: str
+    start: date
+    end: date
+    at: float
+    day_count: DayCount
+    debit_tiers: tuple[FinancingTier, ...]
+    credit_rate: Decimal | None = None
+    basis: BalanceBasis = BalanceBasis.TRADE_DATE
+    reference: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "debit_tiers", require_tiers(self.debit_tiers))
+        day_fraction(self.start, self.end, self.day_count)  # refuses a backward period
+        if self.credit_rate is not None and (
+            not isinstance(self.credit_rate, Decimal)
+            or not self.credit_rate.is_finite()
+            or self.credit_rate < 0
+        ):
+            raise ScheduleValidationError(
+                f"A credit rate is a non-negative Decimal or None, got {self.credit_rate!r}."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledBorrowFee:
+    """A period's borrow fees on every short position, booked at ``at`` (ledger FUT-018).
+
+    Each short position in an instrument declaring
+    :class:`~alphalab.instrument.borrow.BorrowTerms` pays, for the period from
+    ``start`` to ``end``, the fee in effect at ``at`` on its value at the run's
+    last mark, by its terms' day count -- a ``FEE`` cash flow in the position's
+    currency. A short in an instrument declaring no terms pays nothing.
+    """
+
+    start: date
+    end: date
     at: float
     reference: str = ""
 
@@ -324,6 +395,8 @@ class RunSchedule:
         exercises: Iterable[ScheduledExercise] = (),
         assignments: Iterable[ScheduledAssignment] = (),
         expiries: Iterable[ScheduledExpiry] = (),
+        interest: Iterable[ScheduledInterest] = (),
+        borrow_fees: Iterable[ScheduledBorrowFee] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
 
@@ -362,6 +435,11 @@ class RunSchedule:
                 for a in assignments
             ),
             *(_entry(ScheduleKind.EXPIRY, x.at, x.expiry.asset_id, x) for x in expiries),
+            *(
+                _entry(ScheduleKind.INTEREST, i.at, f"{i.currency}:{i.reference}", i)
+                for i in interest
+            ),
+            *(_entry(ScheduleKind.BORROW_FEE, b.at, b.reference, b) for b in borrow_fees),
         ]
         entries.sort(key=lambda entry: entry.key)
         for previous, current in pairwise(entries):
@@ -568,6 +646,15 @@ def _apply(
         return rates, RunEngine.assign(state, item.assignment, item.at, rates)
     if kind is ScheduleKind.EXPIRY:
         return rates, RunEngine.expire_option(state, item.expiry, item.at, rates)
+    if kind is ScheduleKind.INTEREST:
+        flow = _interest(state, item)
+        if flow is None:
+            return rates, state
+        return rates, RunEngine.apply_cash_flow(state, flow, item.at, rates)
+    if kind is ScheduleKind.BORROW_FEE:
+        for flow in _borrow_fees(state, item):
+            state = RunEngine.apply_cash_flow(state, flow, item.at, rates)
+        return rates, state
     return rates, RunEngine.settle_contract(state, item.settlement, item.at, rates)
 
 
@@ -611,3 +698,60 @@ def _funding(state: RunState, item: ScheduledFundingRate) -> CashFlow | None:
     if amount == 0:
         return None
     return CashFlow(CashFlowKind.FUNDING, amount, position.currency, item.asset_id, item.reference)
+
+
+def _interest(state: RunState, item: ScheduledInterest) -> CashFlow | None:
+    """What a period's declared terms charge or pay on the currency's balance at its instant."""
+
+    portfolio = state.pipeline.portfolio
+    if item.basis is BalanceBasis.SETTLED:
+        balance = PortfolioEngine.cash_position(portfolio, item.currency, item.at).settled
+    else:
+        balance = portfolio.cash.balance(item.currency)
+    fraction = day_fraction(item.start, item.end, item.day_count)
+    amount = accrued_interest(balance, item.debit_tiers, item.credit_rate, fraction)
+    if amount == 0:
+        return None
+    return CashFlow(CashFlowKind.INTEREST, amount, item.currency, "", item.reference)
+
+
+def _borrow_fees(state: RunState, item: ScheduledBorrowFee) -> tuple[CashFlow, ...]:
+    """Each short's fee for the period, by its instrument's borrow terms in effect at ``at``.
+
+    Raises:
+        ScheduleValidationError: If a short in an instrument declaring borrow
+            terms has no mark, or no borrow was in effect at ``at`` -- a short
+            the run holds (from a delivery, say) with nothing declared to cost it.
+    """
+
+    registry = state.config.pipeline.instruments
+    if registry is None:
+        return ()
+    ctx = ACCOUNTING_CONTEXT
+    flows = []
+    for asset_id, position in state.pipeline.portfolio.positions.items():
+        if position.quantity >= 0:
+            continue
+        record = registry.record_for(asset_id)
+        terms = None if record is None else record.borrow
+        if terms is None:
+            continue
+        entry = terms.in_effect(item.at)
+        if entry is None:
+            raise ScheduleValidationError(
+                f"{asset_id} is held short at {item.at!r}, and its borrow terms have no entry "
+                "in effect then: declare what the borrow cost from the instant it was held."
+            )
+        mark = state.pipeline.market_prices.get(asset_id)
+        if mark is None:
+            raise ScheduleValidationError(
+                f"A borrow fee on {asset_id} at {item.at!r} needs its mark, and the run has none."
+            )
+        value = ctx.multiply(ctx.multiply(position.quantity.copy_abs(), position.multiplier), mark)
+        fraction = day_fraction(item.start, item.end, terms.day_count)
+        amount = -ctx.multiply(ctx.multiply(value, entry.annual_rate), fraction)
+        if amount != 0:
+            flows.append(
+                CashFlow(CashFlowKind.FEE, amount, position.currency, asset_id, item.reference)
+            )
+    return tuple(flows)

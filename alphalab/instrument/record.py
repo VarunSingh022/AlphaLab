@@ -69,6 +69,7 @@ from dataclasses import dataclass, field
 from alphalab.conventions.economics import SettlementModel
 from alphalab.conventions.settlement import SettlementRule
 from alphalab.core.enums import AssetType
+from alphalab.instrument.borrow import BorrowTerms
 from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.identity import canonical_instrument_key, derive_asset_id
@@ -347,6 +348,10 @@ class InstrumentRecord:
             requirements, a haircut, a liquidation priority -- or ``None``: it
             carries no margin requirement (v4.2.0, ledger FUT-017; see
             :mod:`alphalab.instrument.margin`). Not part of the identity key.
+        borrow: What borrowing it to sell short costs and how much a lender
+            offers, as a dated series, or ``None``: it is shorted as before
+            v4.2.0, at no fee (ledger FUT-018; see :mod:`alphalab.instrument.borrow`).
+            Not part of the identity key.
         asset_id: The derived canonical identifier. UUIDv5, and therefore
             accepted by :func:`~alphalab.core.ids.validate_uuid_id`.
     """
@@ -363,6 +368,7 @@ class InstrumentRecord:
     terms: ContractTerms | None = None
     settlement: SettlementRule | None = None
     margin: MarginTerms | None = None
+    borrow: BorrowTerms | None = None
     asset_id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -401,6 +407,8 @@ class InstrumentRecord:
             _require_consistent_terms(self)
         if self.margin is not None and not isinstance(self.margin, MarginTerms):
             raise InstrumentInputError(f"margin is MarginTerms or None, got {self.margin!r}.")
+        if self.borrow is not None and not isinstance(self.borrow, BorrowTerms):
+            raise InstrumentInputError(f"borrow is BorrowTerms or None, got {self.borrow!r}.")
         if self.settlement is not None and not isinstance(self.settlement, SettlementRule):
             raise InstrumentInputError(
                 f"settlement is a SettlementRule or None, got {self.settlement!r}."

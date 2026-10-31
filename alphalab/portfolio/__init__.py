@@ -64,6 +64,8 @@ from .exceptions import (
     MixedCurrencyValuationError as MixedCurrencyValuationError,
 )
 from .exposure import ExposureEngine as ExposureEngine
+from .financing import BalanceBasis as BalanceBasis
+from .financing import FinancingTier as FinancingTier
 from .fx import NO_RATES as NO_RATES
 from .fx import FutureDatedRateError as FutureDatedRateError
 from .fx import FxConversion as FxConversion
@@ -127,6 +129,7 @@ __all__ = [
     "NO_RATES",
     "Account",
     "Assignment",
+    "BalanceBasis",
     "BookValuation",
     "CashDeposited",
     "CashFlow",
@@ -142,6 +145,7 @@ __all__ = [
     "CurrencyAttributionReport",
     "Exercise",
     "ExposureEngine",
+    "FinancingTier",
     "ForwardTerms",
     "FutureDatedRateError",
     "FxConversion",

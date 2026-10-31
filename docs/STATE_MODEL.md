@@ -239,6 +239,13 @@ orders and fills, and a financed delivery an ordinary ledger transaction whose
 cash leaves the balance below zero. A run declaring no margin writes nothing
 new.
 
+Since v4.2.0 (ledger FUT-018) a record may declare `borrow` (`BorrowTerms`,
+written by `borrow_to_primitives`: the day count by name, each entry's instant,
+availability and fee), and `MarginTerms` writes `purchase_on_margin` only when
+it is declared. Interest and borrow fees are ordinary `INTEREST` and `FEE`
+ledger transactions; the schedule entries that charge them are identified by
+the schedule's digest, whose encoder writes a calendar date as ISO 8601.
+
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
 incremental checkpoint, 2) and `EVIDENCE_SCHEMA` (the evidence store, 1).

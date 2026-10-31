@@ -168,6 +168,20 @@ IDs are in brackets.
   assignment, a future's delivery or an expiry's automatic exercise is booked and
   called; an instructed exercise only within the initial requirement. A run
   declaring no margin records exactly what it did; no schema moves.
+* **Financing, margin purchases and short borrow** [FUT-018].
+  `MarginTerms.purchase_on_margin` lets a fully paid instrument be bought on
+  margin: the purchase spends its initial requirement of buying power and the
+  cash it lacks is a financed debit. `alphalab.backtesting.ScheduledInterest`
+  charges a period's declared debit tiers (`alphalab.portfolio.FinancingTier`)
+  and optional credit rate on a currency's balance -- trade-date or settled
+  (`BalanceBasis`) -- for the period's dates by a `DayCount`, as an `INTEREST`
+  cash flow. `InstrumentRecord.borrow` declares
+  `alphalab.instrument.BorrowTerms`, a dated series of `BorrowAvailability`
+  (units available, or no stated limit, and an annual fee): a short beyond what
+  is available in effect, working sales counted, is refused before it is placed,
+  and `alphalab.backtesting.ScheduledBorrowFee` charges each short the fee in
+  effect on its value at the last mark. A run declaring none of it records
+  exactly what it did; no schema moves.
 * **A strategy withdraws its own working orders** [EXE-012].
   `IntentKind.CANCEL`: a hook returns `Intent(kind=IntentKind.CANCEL,
   instrument=<asset>, target=0)` and every order working in the asset that the
@@ -250,6 +264,10 @@ IDs are in brackets.
   declares its adjustment.
 * **A Bermudan contract cannot be priced as American or European** [FUT-016]:
   `OptionContract` refuses `ExerciseStyle.BERMUDAN`.
+* **A calendar date could not be serialized** [FUT-018]: the deterministic
+  encoder refused `datetime.date`, so no payload or schedule digest could hold
+  one. It is now written as ISO 8601; a `datetime`, whose clock and zone the
+  text would drop, is still refused.
 * **Buying back a short for more than the cash stopped the run** [FUT-017]: the
   fill raised `InsufficientFundsError`, with or without margin, even for an
   account worth more than the cost. A buy covering a short is now booked as the
@@ -289,6 +307,10 @@ IDs are in brackets.
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `margin`, `None` by default (FUT-017); `alphalab.instrument.MarginBasis`, `MarginTerms` and `alphalab.instrument.margin` (`margin_from_primitives`, `margin_to_primitives`) added |
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `margined`, a derived index, `None` by default and built from the records (FUT-017) |
 | `alphalab.risk.MarginCall`, `alphalab.risk.events.MarginCall` | added (FUT-017) |
+| `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
+| `alphalab.instrument.MarginTerms` | field `purchase_on_margin`, `False` by default and written only when declared (FUT-018) |
+| `alphalab.backtesting.ScheduledInterest`, `ScheduledBorrowFee`; `RunSchedule.of` | added; keyword-only `interest` and `borrow_fees`, empty by default; `ScheduleKind` members `INTEREST` and `BORROW_FEE` (FUT-018) |
+| `alphalab.portfolio.FinancingTier`, `BalanceBasis`, `alphalab.portfolio.financing` | added (FUT-018) |
 | `alphalab.runtime.margin_position`, `MarginPosition`, `MarginHolding` | added (FUT-017) |
 | `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project` | keyword-only `charge`, `None` by default; `WorkingExposure.charge`, `None` by default (FUT-017) |
 | `alphalab.portfolio.PortfolioEngine.apply_fill`, `convert_cash` | keyword-only `financed`, `False` by default; a buy covering a short is debited past the cash (FUT-017) |
@@ -306,7 +328,6 @@ IDs are in brackets.
 
 ## Accepted as future work
 
-FUT-018 (buying on margin, a debit's interest and short borrow, v4.3) and
 FUT-019 (portfolio and risk-based margin, v5.0), raised by the FUT-017
 milestone, and FUT-020 (venue price limits and halts, v4.3) and FUT-021 (holding
 exchanges, v4.3), raised by the v4.2.0 global gap audit, each with its

@@ -158,12 +158,12 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     # FUT-017 delivered margin calls and liquidation in the candidate; ADR-0051
     # now states what it does not model, and the two entries it raised.
     ("0051", "A margin requirement is each position's own, summed"): "FUT-019",
-    ("0051", "Only a delivery is financed, and a debit accrues no interest"): "FUT-018",
+    # FUT-018 delivered financing and borrow; the limitation stated is its own.
+    ("0051", "Interest and fees accrue at each declared period's instant"): "FUT-018",
     (
         "0051",
         "A margin call is checked after each market step and liquidated at the asset's next quote",
     ): "FUT-017",
-    ("0051", "buying on margin and a debit's interest"): "FUT-018",
     ("0051", "portfolio and risk-based margin"): "FUT-019",
     # The v4.2.0 global gap audit: a strategy's cancel, an insolvent run, and two
     # entries it raised.
