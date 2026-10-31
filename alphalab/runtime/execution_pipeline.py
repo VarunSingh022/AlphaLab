@@ -1920,8 +1920,15 @@ class ExecutionPipeline:
         exchange: HoldingExchange,
         timestamp: float,
         rates: FxRates = NO_RATES,
+        *,
+        payment_at: float | None = None,
     ) -> ExecutionPipelineState:
         """Exchange a holding for other instruments and cash by its declared terms (FUT-021).
+
+        ``payment_at`` is the issuer's payment instant for the cash part and any
+        cash in lieu, when it follows the effective one (FUT-025, phase 3): the
+        cash is then an entitlement until it, kept out of buying power and of
+        settled cash, and paid at it. ``None`` pays it at ``timestamp``.
 
         Everything is planned before anything moves, and refused whole:
 
@@ -1951,6 +1958,11 @@ class ExecutionPipeline:
         """
 
         _require_not_before_last_event(state, timestamp, "A holding exchange")
+        if payment_at is not None and payment_at < timestamp:
+            raise RuntimeValidationError(
+                f"An exchange effective at {timestamp!r} cannot pay its cash at {payment_at!r}, "
+                "before it: a payment follows the entitlement it settles."
+            )
         _require_exchange_adjusted(state, exchange, timestamp)
         current = state
         working = state.oms.working_orders_for(exchange.asset_id)
@@ -1976,6 +1988,7 @@ class ExecutionPipeline:
             plan.realized,
             timestamp,
             exchange.reference,
+            pays_at=payment_at,
         )
         allocation = current.allocation
         shares = AllocationEngine.shares_of(allocation, exchange.asset_id)

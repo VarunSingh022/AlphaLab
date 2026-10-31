@@ -133,13 +133,23 @@ def settle_pending(
     return kept
 
 
+#: The ledger entries a pending settlement is booked by: a fill, and an
+#: exchange's cash paid after its instant (FUT-025).
+_PENDING_TYPES: Final = frozenset(
+    {TransactionType.BUY, TransactionType.SELL, TransactionType.EXCHANGE}
+)
+
+
 def pending_from(transactions: Iterable[Transaction]) -> tuple[PendingSettlement, ...]:
-    """The index a ledger implies: its fills replayed through :func:`settle_pending`, in order."""
+    """The index a ledger implies: its fills replayed through :func:`settle_pending`, in order.
+
+    A fill, and an exchange's cash paid after its instant (FUT-025), keep it.
+    """
 
     pending: tuple[PendingSettlement, ...] = ()
     for transaction in transactions:
-        if transaction.type not in (TransactionType.BUY, TransactionType.SELL):
-            continue  # only a fill keeps the index, live or rebuilt
+        if transaction.type not in _PENDING_TYPES:
+            continue  # only what moves cash later keeps the index, live or rebuilt
         settles = transaction.metadata.get(SETTLES_AT)
         entry = (
             None
@@ -149,7 +159,10 @@ def pending_from(transactions: Iterable[Transaction]) -> tuple[PendingSettlement
                 transaction.asset_id,
                 transaction.currency,
                 Decimal(str(transaction.metadata[SETTLEMENT_CASH])),
-                transaction.quantity,
+                # An exchange's cash moves no units: its quantity is the cash.
+                Decimal("0")
+                if transaction.type is TransactionType.EXCHANGE
+                else transaction.quantity,
                 transaction.timestamp,
                 float(settles),
             )

@@ -45,6 +45,13 @@ IDs are in brackets.
 Entries marked *phase 3* were delivered on the candidate branch after its
 validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 
+* **A corporate action's cash paid on its payment date** [FUT-025] (*phase 3*).
+  `alphalab.backtesting.PaidExchange` declares a `HoldingExchange`'s payment
+  instant beside its effective one: the cash part and any cash in lieu are
+  booked as an entitlement, pending until paid -- out of buying power and
+  settled cash, as a sale's proceeds are -- and a restore rebuilds it.
+  `ExecutionPipeline.apply_exchange` and `RunEngine.apply_exchange` take
+  `payment_at`, keyword-only and `None` by default.
 * **Interest and borrow fees accrued day by day** [FUT-023] (*phase 3*).
   `alphalab.backtesting.DailyInterest` and `DailyBorrowFee` wrap a period with a
   `DailyAccrual` -- an IANA zone and a cutoff -- and optional `RateChange`s:
@@ -388,6 +395,7 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `margined`, a derived index, `None` by default and built from the records (FUT-017) |
 | `alphalab.risk.MarginCall`, `alphalab.risk.events.MarginCall` | added (FUT-017) |
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
+| `alphalab.backtesting.PaidExchange`; `RunSchedule.of(exchanges=)`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`, `PortfolioEngine.apply_exchange` | added; accepted beside `ScheduledExchange`; keyword-only `payment_at` (`pays_at` on the portfolio), `None` by default (FUT-025, phase 3) |
 | `alphalab.backtesting.DailyAccrual`, `DailyInterest`, `DailyBorrowFee`, `RateChange`; `RunSchedule.of(interest=, borrow_fees=)` | added, accepted beside the instant forms; `ScheduleKind.ACCRUAL` (FUT-023, phase 3) |
 | `alphalab.portfolio.types.TransactionType`; `alphalab.portfolio.financing` | member `ACCRUAL`; `ACCRUES`, `ACCRUAL_CLOSED` added; `PortfolioEngine.record_accrual`, `accrued`, `close_accrual`; `ExecutionPipeline.record_accrual`, `post_accrual`; `RunEngine.record_accrual`, `post_accrual` (FUT-023, phase 3) |
 | `alphalab.instrument.BorrowAvailability` | field `buy_in_at`, `None` by default, written only when declared; `BorrowTerms.recalls` (FUT-022, phase 3) |
@@ -424,7 +432,7 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 ## Accepted as future work
 
 FUT-022 to FUT-029, proposed by the phase 2 global gap audit after FUT-018 to
-FUT-021 were delivered, and delivered in turn by phase 3 (FUT-022 and FUT-023 so far): borrow recall and buy-in, daily-balance accrual, holder
+FUT-021 were delivered, and delivered in turn by phase 3 (FUT-022, FUT-023 and FUT-025 so far): borrow recall and buy-in, daily-balance accrual, holder
 elections and announcement instants, a corporate action settling after its
 instant, options repriced in margin scenarios, a halt's reopening auction, bands computed from a
 reference price, and amend in place. Each is new declared capability, on

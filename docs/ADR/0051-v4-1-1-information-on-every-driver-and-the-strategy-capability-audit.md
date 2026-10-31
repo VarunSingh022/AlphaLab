@@ -396,6 +396,14 @@ once, rounded once -- the ledger travels with the portfolio, so a restore needs
 nothing new, and a retention bound keeps what is open. The instant basis stays
 what it was, for a caller whose cadence is the period itself.
 
+**29. An entitlement is not cash until its payment (FUT-025, phase 3).** The
+issuer's terms carry two instants, and the books keep both: the holding is
+exchanged, and the gain realized, when the action takes effect; the cash moves
+when it is paid. Between them it is booked as a sale's proceeds are before they
+settle -- the same settlement index, so buying power, settled cash and a
+restore treat it alike -- and nothing new is written for an action paying at
+once.
+
 ---
 
 # Consequences
@@ -455,8 +463,9 @@ what it was, for a caller whose cadence is the period itself.
   auction is modelled, a market order is held through a halt rather than
   rejected, and bands are dated inputs, not computed from a reference price.
 - **An exchange applies its declared outcome at its instant**: a holder's
-  election between considerations is not modelled, nor an exchange settling
-  after its instant; strategies holding opposite sides of it are refused.
+  election between considerations is not modelled; its cash may be paid at a
+  later declared instant (FUT-025), but a failed or corrected payment, and legs
+  delivered later, are not; strategies holding opposite sides of it are refused.
 - **The queue model reads the displayed top of the book**: depth beyond it,
   hidden and iceberg liquidity, self-trade prevention and keep-priority amends
   are not modelled; the run's own resting orders are not in the feed, so each is

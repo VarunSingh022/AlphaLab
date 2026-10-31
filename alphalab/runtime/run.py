@@ -854,15 +854,20 @@ class RunEngine:
         exchange: HoldingExchange,
         timestamp: float | None = None,
         rates: FxRates = NO_RATES,
+        *,
+        payment_at: float | None = None,
     ) -> RunState:
         """Exchange a holding by its declared terms at ``timestamp`` (FUT-021).
 
-        ``timestamp`` defaults to the run's current instant. See
+        ``timestamp`` defaults to the run's current instant; ``payment_at`` is
+        when its cash is paid, if later (FUT-025). See
         :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.apply_exchange`.
         """
 
         clock = state.current_timestamp if timestamp is None else timestamp
-        pipeline = ExecutionPipeline.apply_exchange(state.pipeline, exchange, clock, rates)
+        pipeline = ExecutionPipeline.apply_exchange(
+            state.pipeline, exchange, clock, rates, payment_at=payment_at
+        )
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )

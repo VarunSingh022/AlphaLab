@@ -48,7 +48,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from itertools import pairwise
-from typing import cast
+from typing import Any, cast
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import in_accounting_context, require_finite
@@ -814,6 +814,8 @@ class PortfolioEngine:
         realized: Decimal,
         timestamp: float,
         reference: str = "",
+        *,
+        pays_at: float | None = None,
     ) -> PortfolioState:
         """Book a holding exchanged for others and cash, exactly as computed (ledger FUT-021).
 
@@ -825,6 +827,11 @@ class PortfolioEngine:
         transaction; ``realized`` -- in the exchanged holding's currency -- added
         to realized P&L; and one :class:`~alphalab.portfolio.events.PositionExchanged`
         recording all of it.
+
+        ``pays_at``, when later than ``timestamp``, is when the cash moves (FUT-025,
+        phase 3): each currency's consideration is then an entitlement -- booked
+        at the effective instant, unsettled until ``pays_at`` -- which buying
+        power and settled cash leave out until it is paid.
 
         Raises:
             InvalidTransactionError: If the account holds no position in
@@ -879,6 +886,8 @@ class PortfolioEngine:
             )
         cash = state.cash
         ledger = state.ledger
+        unsettled = state.unsettled
+        deferred = pays_at is not None and pays_at > timestamp
         moved: dict[str, Decimal] = {}
         for currency, amount in sorted(consideration.items()):
             money = to_money(amount, currency, units)
@@ -886,20 +895,32 @@ class PortfolioEngine:
                 continue
             moved[currency] = money
             cash = cash.settle(money, currency)
-            ledger = ledger.append(
-                Transaction(
-                    str(new_id()),
-                    timestamp,
-                    state.account.account_id,
-                    TransactionType.EXCHANGE,
-                    asset_id,
-                    money,
-                    Decimal("1.0"),
-                    Decimal("0.0"),
-                    currency,
-                    {} if not reference else {"exchange": reference},
-                )
+            metadata: dict[str, Any] = {} if not reference else {"exchange": reference}
+            if deferred:
+                metadata = {**metadata, SETTLES_AT: pays_at, SETTLEMENT_CASH: str(money)}
+            tx = Transaction(
+                str(new_id()),
+                timestamp,
+                state.account.account_id,
+                TransactionType.EXCHANGE,
+                asset_id,
+                money,
+                Decimal("1.0"),
+                Decimal("0.0"),
+                currency,
+                metadata,
             )
+            ledger = ledger.append(tx)
+            if deferred:
+                assert pays_at is not None
+                unsettled = settle_pending(
+                    unsettled,
+                    timestamp,
+                    PendingSettlement(
+                        tx.transaction_id, asset_id, currency, money, Decimal("0"), timestamp,
+                        pays_at,
+                    ),
+                )  # fmt: skip
         gain = to_money(realized, held.currency, units)
         evt = PositionExchanged(
             timestamp,
@@ -917,6 +938,7 @@ class PortfolioEngine:
             positions=positions,
             cash=cash,
             ledger=ledger,
+            unsettled=unsettled,
             events=state.events.append(evt),
             realized_pnl=state.realized_pnl
             if gain == 0

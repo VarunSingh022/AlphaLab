@@ -381,6 +381,7 @@
       "MarketDataset": "class alphalab.backtesting.dataset.MarketDataset(dataset_id: 'str', records: 'tuple[MarketRecord, ...]') -> None",
       "MarketInput": "alias alphalab.market.quote.Quote | alphalab.market.bar.Bar | alphalab.market.tick.Tick",
       "MarketRecord": "class alphalab.market.record.MarketRecord(event_id: 'str', timestamp: 'float', payload: 'MarketInput') -> None",
+      "PaidExchange": "class alphalab.backtesting.schedule.PaidExchange(exchange: 'HoldingExchange', at: 'float', payment_at: 'float') -> None",
       "PausedReplay": "class alphalab.backtesting.replay.PausedReplay(run: 'RunState', cursor: 'ReplayState', cursor_position: 'IdStreamPosition', schedule: 'RunSchedule' = RunSchedule(entries=(), rate_max_age_seconds=None), algorithms: 'AlgorithmBook | None' = None, queue: 'QueueBook | None' = None) -> None",
       "PriceTimeQueue": "class alphalab.execution.queue.PriceTimeQueue(count_unsigned_trades: 'bool' = False) -> None",
       "QueueBook": "class alphalab.execution.queue.QueueBook(model: 'QueueModel', positions: 'PersistentMap[str, QueuePosition]' = <factory>) -> None",

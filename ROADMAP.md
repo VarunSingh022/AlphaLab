@@ -248,6 +248,10 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **A corporate action's cash paid on its payment date** (FUT-025, phase 3): a
+  `PaidExchange` books the cash part at the effective instant as an entitlement,
+  unsettled until its payment instant -- out of buying power and settled cash,
+  as a sale's proceeds are -- and a restore rebuilds it from the ledger.
 - **Interest and borrow fees accrued day by day** (FUT-023, phase 3): a
   `DailyInterest` or `DailyBorrowFee` accrues each calendar day at a declared
   zone's cutoff on the balance or the short the day leaves, at the rates and
@@ -637,16 +641,13 @@ interim safe behaviour and completion criteria in full.
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
 | FUT-024 | **Holder elections and announcement instants**: a corporate action applies one declared outcome; an adjustment is visible from the run's start | declare the elected outcome; declare adjustments only once announced | v4.4 | holding exchanges |
-| FUT-025 | **A corporate action settling after its instant**: a cash part is spendable from the effective instant | schedule the exchange at its payment instant | v4.4 | settlement-date cash, holding exchanges |
 | FUT-026 | **Options repriced in margin scenarios**: each covered instrument moves by its own declared fraction | margin options per position, or outside the covered set | v4.4 | portfolio margin; a declared pricing model (new) |
 | FUT-027 | **A reopening auction after a halt, and auction imbalance**: orders held through a halt fill at the next print; on-open and on-close orders fill at the session bar's open or close | take the reopening print from the data as the first event after the halt | v4.4 | queue model, venue controls; imbalance data (new) |
 | FUT-028 | **Bands computed from a reference price**: bands are dated absolute limits | precompute daily bands from the previous closes | v4.3 | venue controls |
 | FUT-029 | **A strategy's amend in place, keeping priority by a venue's rule**: a strategy, and a simulated venue, change an order only by cancel and replace (an operator can amend at a live venue) | cancel and re-place: priority lost, the conservative reading | v4.3 | strategy cancel, queue model |
 
 Each is a boundary of the delivered behaviour, stated in ADR-0051's known
-limitations. One is not conservative while open -- a corporate action's cash
-spendable before its payment (FUT-025) -- and its interim safe behaviour says
-how to declare around it.
+limitations, and conservative or refused where it binds.
 
 ---
 

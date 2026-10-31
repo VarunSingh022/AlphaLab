@@ -254,6 +254,9 @@ ledger transaction -- its exact amount, its period's key under `accrues`, and
 `accrual_closed` on the entry that closes it at the posting -- moving no cash;
 the schedule's digest encodes a daily cutoff's time of day as ISO 8601. A
 schedule declaring no daily period writes nothing new.
+An exchange whose cash is paid later (phase 3, ledger FUT-025) writes its
+`EXCHANGE` transactions with the `settles_at` and `settlement_cash` a fill
+carries, and its pending entry is rebuilt from them as a fill's is.
 
 Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
 account's declared margin model as `margin_model_to_primitives` writes it

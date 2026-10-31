@@ -106,6 +106,7 @@ __all__ = [
     "DailyBorrowFee",
     "DailyInterest",
     "Funding",
+    "PaidExchange",
     "RateChange",
     "RunSchedule",
     "ScheduleCursor",
@@ -467,6 +468,27 @@ class ScheduledExchange:
 
 
 @dataclass(frozen=True, slots=True)
+class PaidExchange:
+    """A holding exchanged at ``at`` whose cash is paid at ``payment_at`` (FUT-025, phase 3).
+
+    The issuer's terms set the effective instant -- when the holding becomes the
+    legs and the entitlement to the cash -- and the payment instant, when the
+    cash moves: until then it is unsettled, kept out of buying power and of
+    settled cash, as a sale's proceeds are before they settle.
+    """
+
+    exchange: HoldingExchange
+    at: float
+    payment_at: float
+
+    def __post_init__(self) -> None:
+        if self.payment_at < self.at:
+            raise ScheduleValidationError(
+                f"An exchange effective at {self.at!r} pays at {self.payment_at!r}, before it."
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class ScheduledSettlement:
     """A contract's final settlement, published at ``at`` (ledger FUT-012)."""
 
@@ -604,7 +626,7 @@ class RunSchedule:
         expiries: Iterable[ScheduledExpiry] = (),
         interest: Iterable[ScheduledInterest | DailyInterest] = (),
         borrow_fees: Iterable[ScheduledBorrowFee | DailyBorrowFee] = (),
-        exchanges: Iterable[ScheduledExchange] = (),
+        exchanges: Iterable[ScheduledExchange | PaidExchange] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
 
@@ -854,7 +876,10 @@ def _apply(
     if kind is ScheduleKind.SPLIT:
         return rates, RunEngine.apply_split(state, item.split, item.at, rates)
     if kind is ScheduleKind.EXCHANGE:
-        return rates, RunEngine.apply_exchange(state, item.exchange, item.at, rates)
+        paid = item.payment_at if isinstance(item, PaidExchange) else None
+        return rates, RunEngine.apply_exchange(
+            state, item.exchange, item.at, rates, payment_at=paid
+        )
     if kind is ScheduleKind.OBSERVATION:
         return rates, RunEngine.deliver_observation(state, item, context_factory, rates)
     if kind is ScheduleKind.TIMER:
