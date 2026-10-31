@@ -3832,7 +3832,11 @@ def _venue_blocks(state: ExecutionPipelineState, asset_id: str, at: float, price
     venue = "" if record is None else record.exchange
     if controls.halt(asset_id, venue, at) is not None:
         return True
-    band = controls.band(asset_id, at)
+    # A band rule with no current reference: the venue's limits are unknown,
+    # so nothing trades until one is published (FUT-028).
+    if controls.unbanded(asset_id, at) is not None:
+        return True
+    band = controls.band(asset_id, at, None if record is None else record.tick)
     return band is not None and not band.admits(price)
 
 
@@ -3852,7 +3856,8 @@ def _band_terms(
     limit = request.terms.limit_price
     if limit is None:
         return None, request
-    band = registry.controls.band(request.asset_id, at)
+    declared = _declared(state, request.asset_id)
+    band = registry.controls.band(request.asset_id, at, None if declared is None else declared.tick)
     if band is None or band.admits(limit):
         return None, request
     if band.beyond is BandAction.REFUSE:

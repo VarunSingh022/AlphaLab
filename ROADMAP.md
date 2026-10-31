@@ -248,6 +248,10 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **Bands around a declared reference price** (FUT-028, phase 3): a venue's
+  `ReferenceBand` rule -- a rate or an amount either side -- around the
+  `BandReference` in effect, dated as published and rounded inward to the tick
+  grid; with no current reference every order rests until one is published.
 - **Holder elections and announcement instants** (FUT-024, phase 3): an
   `ElectiveExchange` offers a holding's strategies alternatives with a default;
   each elects with `IntentKind.ELECT` between the announcement and the
@@ -652,7 +656,6 @@ interim safe behaviour and completion criteria in full.
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
 | FUT-027 | **A reopening auction after a halt, and auction imbalance**: orders held through a halt fill at the next print; on-open and on-close orders fill at the session bar's open or close | take the reopening print from the data as the first event after the halt | v4.4 | queue model, venue controls; imbalance data (new) |
-| FUT-028 | **Bands computed from a reference price**: bands are dated absolute limits | precompute daily bands from the previous closes | v4.3 | venue controls |
 | FUT-029 | **A strategy's amend in place, keeping priority by a venue's rule**: a strategy, and a simulated venue, change an order only by cancel and replace (an operator can amend at a live venue) | cancel and re-place: priority lost, the conservative reading | v4.3 | strategy cancel, queue model |
 
 Each is a boundary of the delivered behaviour, stated in ADR-0051's known

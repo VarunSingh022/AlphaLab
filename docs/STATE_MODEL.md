@@ -263,6 +263,8 @@ and each scenario's `volatility_shifts`, only when declared.
 An election (phase 3, ledger FUT-024) is an `ElectionMade` in the strategy
 runtime's event log, tagged by its class name like every strategy event; a
 contract adjustment writes its `announced_at` only when declared.
+Trading controls write their `references` and `reference_bands` (phase 3,
+ledger FUT-028) only when declared.
 
 Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
 account's declared margin model as `margin_model_to_primitives` writes it

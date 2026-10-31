@@ -734,7 +734,8 @@ class UniverseView:
         controls = None if self._registry is None else self._registry.controls
         if controls is None or self._as_of is None:
             return None
-        band = controls.band(asset_id, self._as_of)
+        record = self._registry.record_for(asset_id) if self._registry is not None else None
+        band = controls.band(asset_id, self._as_of, None if record is None else record.tick)
         return None if band is None else (band.lower, band.upper)
 
     def borrow(self, asset_id: str) -> tuple[Decimal | None, Decimal] | None:

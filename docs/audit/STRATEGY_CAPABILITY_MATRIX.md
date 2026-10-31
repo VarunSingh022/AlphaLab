@@ -229,7 +229,7 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (7) | B, Re, P, L. |
 | (8) | **VERIFIED**. Since v4.2.0 a strategy withdraws its own working orders (`IntentKind.CANCEL`, EXE-012); a bracket, a one-cancels-other pair and a trailing stop are composed from it over `on_fill`, `on_order` and `on_quote`. |
 | (9) | `tests/integration/test_order_terms.py`, `test_day_order_sessions.py`, `test_strategy_cancels_orders.py`, `tests/regression/test_v39_*`. |
-| (10) | Per-order memory grows with orders (LIMITATION PRF-011). Amending a working order in place, and cancelling part of a netted order, are not modelled. Since FUT-020 a venue's declared price bands and halts are applied at every order's turn (`test_trading_controls.py`); a reopening auction is not modelled (FUT-027). A limit or stop off an instrument's declared price grid is refused at placement (EXE-013, `test_tick_grid.py`); a strategy's amend in place is FUT-029. |
+| (10) | Per-order memory grows with orders (LIMITATION PRF-011). Amending a working order in place, and cancelling part of a netted order, are not modelled. Since FUT-020 a venue's declared price bands and halts are applied at every order's turn (`test_trading_controls.py`), and since FUT-028 a band rule around a declared reference price (`test_reference_bands.py`); a reopening auction is not modelled (FUT-027). A limit or stop off an instrument's declared price grid is refused at placement (EXE-013, `test_tick_grid.py`); a strategy's amend in place is FUT-029. |
 | (11) | none. |
 | (12) | met. |
 

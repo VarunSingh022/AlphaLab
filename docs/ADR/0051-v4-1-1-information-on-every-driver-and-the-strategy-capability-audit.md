@@ -424,6 +424,13 @@ engine would invent to split it. An announcement is the caller's data, delivered
 at its knowledge instant; a contract adjustment's own announcement instant bounds
 what a strategy reads of its terms.
 
+**32. A band rule is applied to the venue's published reference (FUT-028,
+phase 3).** The reference is a dated input, as the venue publishes it, never a
+price the engine derives from the run's own data, so a backtest and the venue
+agree on what the limits were. With no current reference the limits are not
+known, and the engine holds every order -- the one answer that cannot trade
+beyond a limit -- rather than trading at a band it would have to guess.
+
 ---
 
 # Consequences
@@ -483,7 +490,8 @@ what a strategy reads of its terms.
   undefined, so such a run keeps its books with `compile_analytics=False`.
 - **A halt's first event after it trades at its own price**: no reopening
   auction is modelled, a market order is held through a halt rather than
-  rejected, and bands are dated inputs, not computed from a reference price.
+  rejected, and bands are dated inputs or a rule around a dated, published
+  reference (FUT-028) -- never a collar computed from the run's own trades.
 - **An exchange applies its declared outcome at its instant**: an elective one
   (FUT-024) applies its holders' common election or its default, with no split
   between holders and no proration; its cash may be paid at a later declared

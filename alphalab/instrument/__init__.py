@@ -73,7 +73,14 @@ from alphalab.instrument.classification import (
     SectorClassification,
     normalize_dimension,
 )
-from alphalab.instrument.controls import BandAction, PriceBand, TradingControls, TradingHalt
+from alphalab.instrument.controls import (
+    BandAction,
+    BandReference,
+    PriceBand,
+    ReferenceBand,
+    TradingControls,
+    TradingHalt,
+)
 from alphalab.instrument.economics import (
     CASH_EQUITY,
     InstrumentEconomics,
@@ -146,6 +153,7 @@ __all__ = [
     "SECTOR",
     "AutomaticExercise",
     "BandAction",
+    "BandReference",
     "BorrowAvailability",
     "BorrowTerms",
     "CashInLieu",
@@ -173,6 +181,7 @@ __all__ = [
     "OptionTerms",
     "PerPositionMargin",
     "PriceBand",
+    "ReferenceBand",
     "ScenarioMargin",
     "SectorClassification",
     "SettlementModel",
