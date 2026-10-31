@@ -219,6 +219,7 @@ from alphalab.strategy.configuration import (
 )
 from alphalab.strategy.events import (
     CancelRefused,
+    ElectionMade,
     ExerciseRefused,
     FillEvent,
     LifecycleTransitioned,
@@ -830,6 +831,9 @@ _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
     ExerciseRefused,
     # v4.2.0: written only by a run whose strategy's cancel left an order working.
     CancelRefused,
+    # Phase 3 (ledger FUT-024): written only by a run whose strategy elected in a
+    # corporate action.
+    ElectionMade,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -2199,6 +2203,8 @@ _STRATEGY_FIELDS: Mapping[str, Any] = {
     "filled_quantity": as_optional_decimal,
     "assets": _assets,
     "contracts": as_decimal,
+    # Phase 3 (FUT-024): an election's alternative, by index.
+    "alternative": as_int,
 }
 _RISK_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,

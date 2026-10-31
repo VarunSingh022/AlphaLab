@@ -45,6 +45,14 @@ IDs are in brackets.
 Entries marked *phase 3* were delivered on the candidate branch after its
 validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 
+* **Holder elections and announcement instants** [FUT-024] (*phase 3*).
+  `alphalab.backtesting.ElectiveExchange` offers a holding's strategies
+  alternatives -- each a `HoldingExchange` -- with a default, an announcement, a
+  deadline and an effective instant; a strategy elects with
+  `IntentKind.ELECT`, recorded as `alphalab.strategy.ElectionMade`, and the
+  holding is exchanged by its holders' common election between announcement
+  and deadline, or by the default. `TermsAdjustment.announced_at` keeps an
+  adjustment out of a strategy's view of its contract until it is announced.
 * **Options repriced in margin scenarios** [FUT-026] (*phase 3*).
   `ScenarioMargin.repriced` declares, per option, an
   `alphalab.instrument.OptionPricing` -- volatility, rate, carry, and an American
@@ -406,6 +414,7 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `margined`, a derived index, `None` by default and built from the records (FUT-017) |
 | `alphalab.risk.MarginCall`, `alphalab.risk.events.MarginCall` | added (FUT-017) |
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
+| `alphalab.backtesting.ElectiveExchange`; `alphalab.strategy.IntentKind`; `alphalab.strategy.ElectionMade`; `alphalab.instrument.TermsAdjustment` | added; member `ELECT`; added; field `announced_at`, `None` by default (FUT-024, phase 3) |
 | `alphalab.instrument.OptionPricing`, `OptionRisk`; `ScenarioMargin`, `MarginScenario`, `MarginExposure`; `alphalab.runtime.MarginHolding` | added; fields `repriced`, `volatility_shifts`, `option` (and `MarginHolding.option`, appended last), empty or `None` by default (FUT-026, phase 3) |
 | `alphalab.backtesting.PaidExchange`; `RunSchedule.of(exchanges=)`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`, `PortfolioEngine.apply_exchange` | added; accepted beside `ScheduledExchange`; keyword-only `payment_at` (`pays_at` on the portfolio), `None` by default (FUT-025, phase 3) |
 | `alphalab.backtesting.DailyAccrual`, `DailyInterest`, `DailyBorrowFee`, `RateChange`; `RunSchedule.of(interest=, borrow_fees=)` | added, accepted beside the instant forms; `ScheduleKind.ACCRUAL` (FUT-023, phase 3) |
@@ -444,7 +453,7 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 ## Accepted as future work
 
 FUT-022 to FUT-029, proposed by the phase 2 global gap audit after FUT-018 to
-FUT-021 were delivered, and delivered in turn by phase 3 (FUT-022, FUT-023, FUT-025 and FUT-026 so far): borrow recall and buy-in, daily-balance accrual, holder
+FUT-021 were delivered, and delivered in turn by phase 3 (FUT-022 to FUT-026 so far): borrow recall and buy-in, daily-balance accrual, holder
 elections and announcement instants, a corporate action settling after its
 instant, options repriced in margin scenarios, a halt's reopening auction, bands computed from a
 reference price, and amend in place. Each is new declared capability, on

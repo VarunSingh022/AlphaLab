@@ -154,6 +154,7 @@ from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
     CancelRefused,
+    ElectionMade,
     ExerciseRefused,
     FillEvent,
     Intent,
@@ -1270,6 +1271,8 @@ class ExecutionPipeline:
         current = _exercises_requested(
             current, (*intents, *feedback_intents), event.timestamp, rates
         )
+        # A holder's elections are recorded for their actions (FUT-024).
+        current = _elections_requested(current, (*intents, *feedback_intents), event.timestamp)
         # A recalled short past its buy-in deadline is covered (FUT-022), and
         # then the account's margin, after everything the step did (FUT-017).
         current, bought_in = _buy_ins(current, event, rates)
@@ -4747,7 +4750,7 @@ def _book_package(
     return current
 
 
-_NOT_ORDERS: Final = (IntentKind.EXERCISE, IntentKind.CANCEL)
+_NOT_ORDERS: Final = (IntentKind.EXERCISE, IntentKind.CANCEL, IntentKind.ELECT)
 
 
 def _cancels_requested(
@@ -4855,6 +4858,35 @@ def _exercises_requested(
             current = _refuse_exercise(current, intent, timestamp, str(refused))
         number += 1
     return current
+
+
+def _elections_requested(
+    state: ExecutionPipelineState, intents: tuple[Intent, ...], timestamp: float
+) -> ExecutionPipelineState:
+    """Record each election among ``intents`` in the strategy runtime's log (FUT-024).
+
+    Kept as made: which counts is the action's to decide when it takes effect,
+    by its announcement, its deadline and its alternatives.
+    """
+
+    made = tuple(
+        ElectionMade(
+            event_id=str(new_id()),
+            timestamp=timestamp,
+            strategy_id=intent.strategy_id,
+            asset_id=intent.instrument,
+            action=str(intent.metadata["action"]),
+            alternative=int(intent.target),
+        )
+        for intent in intents
+        if intent.kind is IntentKind.ELECT
+    )
+    if not made:
+        return state
+    strategy = state.strategy
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, *made), ())
+    )
 
 
 def _strategy_exercise(

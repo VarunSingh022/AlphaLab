@@ -74,6 +74,7 @@ from alphalab.strategy.dispatcher import Dispatcher
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
     CancelRefused,
+    ElectionMade,
     ExerciseRefused,
     FillEvent,
     Intent,
@@ -147,6 +148,7 @@ __all__ = [
     "DiscardingLogger",
     "Dispatcher",
     "DuplicateStrategyError",
+    "ElectionMade",
     "ExerciseRefused",
     "ExponentialMeanRule",
     "FillEvent",

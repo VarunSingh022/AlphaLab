@@ -414,6 +414,16 @@ nothing. What the engine has no pricer for is refused at declaration, and an
 option whose underlying is not yet priced is margined on its own terms: neither
 is approximated.
 
+**31. A holder elects; the issuer's default stands when it does not (FUT-024,
+phase 3).** The alternatives and the default are the issuer's declaration, and
+the election is the strategy's instruction, recorded as made and counted only
+between the announcement and the deadline -- what was public then. The book
+holds one position, so the action is applied to it once: by the holders' common
+election, or by the default when they do not agree, rather than by a rule the
+engine would invent to split it. An announcement is the caller's data, delivered
+at its knowledge instant; a contract adjustment's own announcement instant bounds
+what a strategy reads of its terms.
+
 ---
 
 # Consequences
@@ -474,10 +484,11 @@ is approximated.
 - **A halt's first event after it trades at its own price**: no reopening
   auction is modelled, a market order is held through a halt rather than
   rejected, and bands are dated inputs, not computed from a reference price.
-- **An exchange applies its declared outcome at its instant**: a holder's
-  election between considerations is not modelled; its cash may be paid at a
-  later declared instant (FUT-025), but a failed or corrected payment, and legs
-  delivered later, are not; strategies holding opposite sides of it are refused.
+- **An exchange applies its declared outcome at its instant**: an elective one
+  (FUT-024) applies its holders' common election or its default, with no split
+  between holders and no proration; its cash may be paid at a later declared
+  instant (FUT-025), but a failed or corrected payment, and legs delivered
+  later, are not; strategies holding opposite sides of it are refused.
 - **The queue model reads the displayed top of the book**: depth beyond it,
   hidden and iceberg liquidity, self-trade prevention and keep-priority amends
   are not modelled; the run's own resting orders are not in the feed, so each is

@@ -260,6 +260,9 @@ carries, and its pending entry is rebuilt from them as a fill's is.
 A scenario model repricing options (phase 3, ledger FUT-026) writes `repriced`
 -- each option's volatility, rate, carry by kind and yield, and lattice steps --
 and each scenario's `volatility_shifts`, only when declared.
+An election (phase 3, ledger FUT-024) is an `ElectionMade` in the strategy
+runtime's event log, tagged by its class name like every strategy event; a
+contract adjustment writes its `announced_at` only when declared.
 
 Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
 account's declared margin model as `margin_model_to_primitives` writes it

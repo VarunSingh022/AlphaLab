@@ -113,6 +113,13 @@ class IntentKind(StrEnum):
     #: :class:`CancelRefused`. With nothing working it asks for nothing.
     #: ``target`` must be zero, ``strength`` one and ``terms`` the default.
     CANCEL = "cancel"
+    #: A holder's election in a corporate action offering alternatives
+    #: (phase 3, ledger FUT-024): ``target`` is the alternative's index, and
+    #: ``metadata["action"]`` the action's reference. Not an order: recorded,
+    #: as an :class:`ElectionMade`, and read when the action takes effect --
+    #: counted only between its announcement and its deadline. ``strength`` must
+    #: be one and ``terms`` the default.
+    ELECT = "elect"
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +201,28 @@ class ExerciseRefused(StrategyRuntimeEvent):
     asset_id: str
     contracts: Decimal
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ElectionMade(StrategyRuntimeEvent):
+    """A strategy's election in a corporate action, as it made it (phase 3, ledger FUT-024).
+
+    Recorded in the strategy runtime's event log at the instant the strategy
+    returned it. The action reads the latest one each holder made between its
+    announcement and its deadline when it takes effect; one outside them, or
+    naming no alternative the action offers, is kept as made and not counted.
+
+    Attributes:
+        strategy_id: The strategy electing.
+        asset_id: The holding the action is on.
+        action: The action's reference.
+        alternative: The index of the alternative elected.
+    """
+
+    strategy_id: str
+    asset_id: str
+    action: str
+    alternative: int
 
 
 @dataclass(frozen=True, slots=True)

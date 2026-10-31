@@ -61,6 +61,7 @@ from alphalab.allocation.state import AllocationState
 from alphalab.instrument.borrow import BorrowAvailability, BorrowTerms
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
+from alphalab.instrument.terms import OptionTerms
 from alphalab.market.bar import Bar
 from alphalab.market.events import (
     BarClosed,
@@ -664,6 +665,18 @@ class HistoryView:
 # ---------------------------------------------------------------------------
 
 
+def _announced_terms(record: InstrumentRecord, as_of: float) -> InstrumentRecord:
+    """``record`` with its contract adjustments only as far as announced by ``as_of`` (FUT-024)."""
+
+    terms = record.terms
+    if not isinstance(terms, OptionTerms) or not any(
+        a.announced_at is not None and a.announced_at > as_of for a in terms.adjustments
+    ):
+        return record
+    known = tuple(a for a in terms.adjustments if a.announced_at is None or a.announced_at <= as_of)
+    return replace(record, terms=replace(terms, adjustments=known))
+
+
 @dataclass(frozen=True, slots=True)
 class UniverseView:
     """The instruments this run may trade, as its registry declares them.
@@ -795,7 +808,10 @@ class UniverseView:
         """
 
         record = None if self._registry is None else self._registry.record_for(asset_id)
-        if record is None or record.borrow is None or self._as_of is None:
+        if record is None or self._as_of is None:
+            return record
+        record = _announced_terms(record, self._as_of)
+        if record.borrow is None:
             return record
         terms = record.borrow
         known = tuple(e for e in terms.entries if e.effective_at <= self._as_of)

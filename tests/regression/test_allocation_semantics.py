@@ -269,7 +269,25 @@ def test_an_intent_is_a_delta_by_construction() -> None:
         "exercise",
         # v4.2.0: a strategy withdraws its own working orders; not an order either.
         "cancel",
+        # Phase 3 (FUT-024): a holder's election in a corporate action; recorded,
+        # never sized.
+        "elect",
     ]
+
+
+def test_an_election_is_refused_by_allocation_and_never_sized() -> None:
+    from alphalab.allocation.events import AllocationRejected
+
+    state = AllocationEngine.initialize(BUDGET)
+    election = Intent(
+        "S1", "AAPL", Decimal("1"), kind=IntentKind.ELECT, metadata={"action": "tender"}
+    )
+    state, orders = AllocationEngine.allocate(
+        state, (election,), PRICES, TargetWeightSizing(), AllocationConstraints(), 1.0
+    )
+    assert orders == ()
+    (rejected,) = [e for e in state.events if isinstance(e, AllocationRejected)]
+    assert "election" in rejected.reason and "not an order" in rejected.reason
 
 
 def test_an_exercise_intent_is_refused_by_allocation_and_never_sized() -> None:

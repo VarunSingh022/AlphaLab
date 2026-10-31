@@ -208,6 +208,10 @@ class TermsAdjustment:
         basket: Any further deliverables from then on.
         cash_per_contract: The cash component per contract from then on.
         reason: The caller's description, not interpreted.
+        announced_at: When the adjustment was published, at or before
+            ``effective_at`` (phase 3, ledger FUT-024): a strategy reading its
+            contract's terms sees it from then, never before. ``None`` -- known
+            from the run's start, as every adjustment was before.
     """
 
     effective_at: float
@@ -216,9 +220,17 @@ class TermsAdjustment:
     basket: tuple[Deliverable, ...] = ()
     cash_per_contract: Decimal = _ZERO
     reason: str = ""
+    announced_at: float | None = None
 
     def __post_init__(self) -> None:
         _instant(self.effective_at, "An adjustment's effective_at")
+        if self.announced_at is not None:
+            _instant(self.announced_at, "An adjustment's announced_at")
+            if self.announced_at > self.effective_at:
+                raise InstrumentInputError(
+                    f"An adjustment effective at {self.effective_at!r} is announced at "
+                    f"{self.announced_at!r}, after it: an adjustment is published first."
+                )
         _positive(self.strike, "An adjusted strike")
         if not isinstance(self.deliverable, Deliverable):
             raise InstrumentInputError(f"deliverable is a Deliverable, got {self.deliverable!r}.")
@@ -634,6 +646,8 @@ def terms_to_primitives(terms: ContractTerms | None) -> dict[str, Any] | None:
                 "basket": [_deliverable_out(d) for d in a.basket],
                 "cash_per_contract": str(a.cash_per_contract),
                 "reason": a.reason,
+                # Written only when declared (FUT-024).
+                **({} if a.announced_at is None else {"announced_at": a.announced_at}),
             }
             for a in terms.adjustments
         ]
@@ -667,6 +681,7 @@ def _adjustment_in(value: Any) -> TermsAdjustment:
         basket=_basket_in(value["basket"]),
         cash_per_contract=Decimal(value["cash_per_contract"]),
         reason=str(value["reason"]),
+        announced_at=None if value.get("announced_at") is None else float(value["announced_at"]),
     )
 
 

@@ -59,7 +59,7 @@ Nothing here reads a clock or contacts anything.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -67,6 +67,7 @@ from enum import IntEnum, StrEnum, unique
 from itertools import pairwise
 from typing import Any, Final
 
+from alphalab.allocation.engine import AllocationEngine
 from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.backtesting.exceptions import BacktestError
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
@@ -98,13 +99,14 @@ from alphalab.portfolio.fx import FxRate, FxRates
 from alphalab.portfolio.types import TransactionType
 from alphalab.runtime.execution_pipeline import ContextFactory
 from alphalab.runtime.run import RunEngine, RunState
-from alphalab.strategy.events import TimerEvent
+from alphalab.strategy.events import ElectionMade, TimerEvent
 
 __all__ = [
     "EMPTY_SCHEDULE",
     "DailyAccrual",
     "DailyBorrowFee",
     "DailyInterest",
+    "ElectiveExchange",
     "Funding",
     "PaidExchange",
     "RateChange",
@@ -489,6 +491,85 @@ class PaidExchange:
 
 
 @dataclass(frozen=True, slots=True)
+class ElectiveExchange:
+    """A corporate action offering its holders alternatives, by election (FUT-024, phase 3).
+
+    The issuer's terms: each alternative a complete :class:`HoldingExchange` of
+    the same holding -- cash, stock, a mix -- and ``default``, the one applied to
+    a holder that does not elect. Holders elect with
+    :attr:`~alphalab.strategy.events.IntentKind.ELECT` between the announcement
+    and the deadline; the announcement itself reaches a strategy as the caller's
+    data delivers it, at its knowledge instant, and an election before
+    ``announced_at`` or after ``deadline`` is not counted. At ``at`` the
+    holding is exchanged by the alternative every strategy holding it elected,
+    or by the default when one did not, or when they elected differently: the
+    book holds one position, and the action is applied to it once. The cash part
+    is paid at ``payment_at`` when stated (FUT-025).
+
+    Attributes:
+        alternatives: At least two, all of one holding.
+        default: The index of the alternative a holder not electing receives.
+        announced_at: When the action was announced: no election counts before it.
+        deadline: The last instant an election counts, at or before ``at``.
+        at: The effective instant.
+        reference: The issuer's reference; holders' elections name it.
+        payment_at: When the cash part is paid, or ``None`` for at ``at``.
+    """
+
+    alternatives: tuple[HoldingExchange, ...]
+    default: int
+    announced_at: float
+    deadline: float
+    at: float
+    reference: str
+    payment_at: float | None = None
+
+    def __post_init__(self) -> None:
+        alternatives = tuple(self.alternatives)
+        if len(alternatives) < 2 or not all(isinstance(a, HoldingExchange) for a in alternatives):
+            raise ScheduleValidationError(
+                "An elective exchange offers at least two HoldingExchange alternatives."
+            )
+        if len({a.asset_id for a in alternatives}) != 1:
+            raise ScheduleValidationError("An elective exchange's alternatives are of one holding.")
+        if isinstance(self.default, bool) or not 0 <= self.default < len(alternatives):
+            raise ScheduleValidationError(
+                f"An elective exchange's default is one of its {len(alternatives)} alternatives, "
+                f"got {self.default!r}."
+            )
+        if not self.announced_at <= self.deadline <= self.at:
+            raise ScheduleValidationError(
+                "An elective exchange is announced, then closes its elections, then takes "
+                f"effect: got {self.announced_at!r}, {self.deadline!r}, {self.at!r}."
+            )
+        if self.payment_at is not None and self.payment_at < self.at:
+            raise ScheduleValidationError(
+                f"An exchange effective at {self.at!r} pays at {self.payment_at!r}, before it."
+            )
+        if not isinstance(self.reference, str) or not self.reference:
+            raise ScheduleValidationError(
+                "An elective exchange has the reference holders elect by."
+            )
+        object.__setattr__(self, "alternatives", alternatives)
+
+    @property
+    def asset_id(self) -> str:
+        """The holding the action is on."""
+
+        return self.alternatives[0].asset_id
+
+    def chosen(self, elections: Mapping[str, int | None]) -> HoldingExchange:
+        """The alternative ``elections`` -- each holder's, or ``None`` -- give the book."""
+
+        made = set(elections.values())
+        if len(made) == 1:
+            (only,) = made
+            if only is not None:
+                return self.alternatives[only]
+        return self.alternatives[self.default]
+
+
+@dataclass(frozen=True, slots=True)
 class ScheduledSettlement:
     """A contract's final settlement, published at ``at`` (ledger FUT-012)."""
 
@@ -626,7 +707,7 @@ class RunSchedule:
         expiries: Iterable[ScheduledExpiry] = (),
         interest: Iterable[ScheduledInterest | DailyInterest] = (),
         borrow_fees: Iterable[ScheduledBorrowFee | DailyBorrowFee] = (),
-        exchanges: Iterable[ScheduledExchange | PaidExchange] = (),
+        exchanges: Iterable[ScheduledExchange | PaidExchange | ElectiveExchange] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
 
@@ -678,7 +759,15 @@ class RunSchedule:
             *_daily_entries(interest, borrow_fees),
             # One exchange of an instrument at an instant: a second, conflicting
             # declaration of it is refused below, as two answers to one question.
-            *(_entry(ScheduleKind.EXCHANGE, x.at, x.exchange.asset_id, x) for x in exchanges),
+            *(
+                _entry(
+                    ScheduleKind.EXCHANGE,
+                    x.at,
+                    x.asset_id if isinstance(x, ElectiveExchange) else x.exchange.asset_id,
+                    x,
+                )
+                for x in exchanges
+            ),
         ]
         entries.sort(key=lambda entry: entry.key)
         for previous, current in pairwise(entries):
@@ -875,6 +964,11 @@ def _apply(
         return rates, RunEngine.apply_cash_flow(state, flow, item.at, rates)
     if kind is ScheduleKind.SPLIT:
         return rates, RunEngine.apply_split(state, item.split, item.at, rates)
+    if kind is ScheduleKind.EXCHANGE and isinstance(item, ElectiveExchange):
+        chosen = item.chosen(_elections(state, item))
+        return rates, RunEngine.apply_exchange(
+            state, chosen, item.at, rates, payment_at=item.payment_at
+        )
     if kind is ScheduleKind.EXCHANGE:
         paid = item.payment_at if isinstance(item, PaidExchange) else None
         return rates, RunEngine.apply_exchange(
@@ -973,6 +1067,33 @@ def _interest(state: RunState, item: ScheduledInterest) -> CashFlow | None:
     if amount == 0:
         return None
     return CashFlow(CashFlowKind.INTEREST, amount, item.currency, "", item.reference)
+
+
+def _elections(state: RunState, action: ElectiveExchange) -> dict[str, int | None]:
+    """Each holder's latest counted election in ``action``, or ``None`` for none (FUT-024).
+
+    A holder is a strategy with a share of the holding as the action takes
+    effect; an election counts when it names the action and one of its
+    alternatives, between its announcement and its deadline.
+    """
+
+    holders: dict[str, int | None] = {
+        sid: None
+        for sid, share in AllocationEngine.shares_of(state.pipeline.allocation, action.asset_id)
+        if share
+    }
+    offered = range(len(action.alternatives))
+    for event in state.pipeline.strategy.events:
+        if (
+            isinstance(event, ElectionMade)
+            and event.strategy_id in holders
+            and event.asset_id == action.asset_id
+            and event.action == action.reference
+            and action.announced_at <= event.timestamp <= action.deadline
+            and event.alternative in offered
+        ):
+            holders[event.strategy_id] = event.alternative
+    return holders
 
 
 def _accrue_day(state: RunState, item: _AccrualDay, at: float) -> RunState:

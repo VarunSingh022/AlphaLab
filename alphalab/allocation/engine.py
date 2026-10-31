@@ -178,6 +178,17 @@ class AllocationEngine:
                     )
                 )
                 continue
+            if intent.kind is IntentKind.ELECT:
+                # Not an order: an election is recorded for its action (FUT-024).
+                events = events.append(
+                    AllocationRejected(
+                        AllocationEngine._create_id(),
+                        timestamp,
+                        f"{intent.strategy_id}'s election in {intent.instrument} is not an "
+                        "order and is not allocated: the execution pipeline records it.",
+                    )
+                )
+                continue
             if intent.kind is IntentKind.CANCEL:
                 # Not an order either: the pipeline withdraws working orders.
                 events = events.append(

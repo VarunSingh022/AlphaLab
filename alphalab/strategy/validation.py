@@ -68,6 +68,29 @@ def validate_intent(intent: Intent) -> None:
         _require_exercise(intent)
     if intent.kind is IntentKind.CANCEL:
         _require_cancel(intent)
+    if intent.kind is IntentKind.ELECT:
+        _require_election(intent)
+
+
+def _require_election(intent: Intent) -> None:
+    """An election names an action and one of its alternatives, nothing an order would (FUT-024)."""
+
+    choice = intent.target
+    if choice < _ZERO or choice != choice.to_integral_value():
+        raise InvalidIntentError(
+            f"An election's target is the index of the alternative elected, got {choice}."
+        )
+    action = intent.metadata.get("action")
+    if not isinstance(action, str) or not action:
+        raise InvalidIntentError(
+            "An election names the corporate action it is for in metadata['action']."
+        )
+    if intent.strength != _ONE:
+        raise InvalidIntentError(f"An election's strength must be 1, got {intent.strength}.")
+    if intent.terms != OrderTerms():
+        raise InvalidIntentError(
+            "An election is not an order and states no order terms; leave terms at the default."
+        )
 
 
 def _require_cancel(intent: Intent) -> None:
