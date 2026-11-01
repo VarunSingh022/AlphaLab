@@ -779,7 +779,7 @@ Every horizon is a proposal for the maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-042 | **A default manifest that names the registry** (a compatibility decision) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
+| FUT-042 | **A default manifest that names the registry** (a compatibility decision; options in ADR-0052, proposed) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
 | FUT-043 | **Auction books and indications delivered during a run** | deliver the venue's auction messages as observations; reopen by the print | v4.4 | computed auctions, surface feeds, published auctions |
 
 ---

@@ -69,6 +69,11 @@ maintainer's decision.
   (`RegistryVerification`, `registry_verification`, `verify_registry`) reports
   a payload written before phase 6 `UNRECORDED`: restored by type, as before,
   and not called verified. No `result_id` moves.
+* **The default manifest's registry: the options** [FUT-042] (*phase 6*).
+  ADR-0052, *proposed*: keep it opt-in (A), make it mandatory (B), or version
+  the manifest identity (C, recommended), with what each does to every
+  manifest and certification already made and a migration plan. Nothing
+  changes until the maintainer decides; `instruments=True` works as before.
 * **A rerun from a manifest compared like for like** [REP-008] (*phase 6*).
   `rerun_from_manifest` recorded the rerun's manifest without the registry or
   the schedule, so a manifest naming either never reproduced; it now names the
