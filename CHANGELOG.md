@@ -45,6 +45,12 @@ IDs are in brackets.
 Entries marked *phase 3* were delivered on the candidate branch after its
 validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 
+* **A halt reopening by auction** [FUT-027] (*phase 3*). `TradingHalt(auction=True)`:
+  at the first event after the halt, every order that rested through it --
+  market orders, and limits the price reaches -- crosses at that event's
+  opening print, as a maker, by time and ahead of any queue model, within the
+  band in force; a market order's remainder is withdrawn, and what the price
+  does not reach trades on continuously.
 * **Bands around a declared reference price** [FUT-028] (*phase 3*).
   `alphalab.instrument.BandReference` declares a venue's dated reference, and
   `ReferenceBand` a rule -- rates or absolute offsets either side, refuse or
@@ -421,6 +427,7 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 | `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `margined`, a derived index, `None` by default and built from the records (FUT-017) |
 | `alphalab.risk.MarginCall`, `alphalab.risk.events.MarginCall` | added (FUT-017) |
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
+| `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
 | `alphalab.instrument.BandReference`, `ReferenceBand`; `alphalab.instrument.TradingControls` | added; fields `references` and `reference_bands`, empty by default; `band` takes a keyword `tick`, `None` by default; `unbanded`, `reference`, `current_reference` (FUT-028, phase 3) |
 | `alphalab.backtesting.ElectiveExchange`; `alphalab.strategy.IntentKind`; `alphalab.strategy.ElectionMade`; `alphalab.instrument.TermsAdjustment` | added; member `ELECT`; added; field `announced_at`, `None` by default (FUT-024, phase 3) |
 | `alphalab.instrument.OptionPricing`, `OptionRisk`; `ScenarioMargin`, `MarginScenario`, `MarginExposure`; `alphalab.runtime.MarginHolding` | added; fields `repriced`, `volatility_shifts`, `option` (and `MarginHolding.option`, appended last), empty or `None` by default (FUT-026, phase 3) |
@@ -461,7 +468,7 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 ## Accepted as future work
 
 FUT-022 to FUT-029, proposed by the phase 2 global gap audit after FUT-018 to
-FUT-021 were delivered, and delivered in turn by phase 3 (FUT-022 to FUT-026 and FUT-028 so far): borrow recall and buy-in, daily-balance accrual, holder
+FUT-021 were delivered, and delivered in turn by phase 3 (FUT-022 to FUT-028 so far): borrow recall and buy-in, daily-balance accrual, holder
 elections and announcement instants, a corporate action settling after its
 instant, options repriced in margin scenarios, a halt's reopening auction, bands computed from a
 reference price, and amend in place. Each is new declared capability, on

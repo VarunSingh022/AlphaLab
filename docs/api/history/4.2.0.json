@@ -1461,7 +1461,7 @@
       "SettlementModel": "enum alphalab.conventions.economics.SettlementModel[CASH_EQUITY, FUTURES_VARIATION, OPTION_PREMIUM, PERPETUAL]",
       "TermsAdjustment": "class alphalab.instrument.terms.TermsAdjustment(effective_at: 'float', strike: 'Decimal', deliverable: 'Deliverable', basket: 'tuple[Deliverable, ...]' = (), cash_per_contract: 'Decimal' = Decimal('0'), reason: 'str' = '', announced_at: 'float | None' = None) -> None",
       "TradingControls": "class alphalab.instrument.controls.TradingControls(bands: 'tuple[PriceBand, ...]' = (), halts: 'tuple[TradingHalt, ...]' = (), references: 'tuple[BandReference, ...]' = (), reference_bands: 'tuple[ReferenceBand, ...]' = ()) -> None",
-      "TradingHalt": "class alphalab.instrument.controls.TradingHalt(start: 'float', end: 'float | None', asset_id: 'str | None' = None, venue: 'str | None' = None, reason: 'str' = '') -> None",
+      "TradingHalt": "class alphalab.instrument.controls.TradingHalt(start: 'float', end: 'float | None', asset_id: 'str | None' = None, venue: 'str | None' = None, reason: 'str' = '', auction: 'bool' = False) -> None",
       "canonical_instrument_key": "function alphalab.instrument.identity.canonical_instrument_key(asset_type: 'AssetType', exchange: 'str', symbol: 'str', currency: 'str') -> 'str'",
       "classification_history": "function alphalab.instrument.registry.classification_history(registry: 'InstrumentRegistry', asset_id: 'str') -> 'ClassificationHistory'",
       "classification_of": "function alphalab.instrument.registry.classification_of(registry: 'InstrumentRegistry', asset_id: 'str') -> 'SectorClassification | None'",

@@ -431,6 +431,13 @@ agree on what the limits were. With no current reference the limits are not
 known, and the engine holds every order -- the one answer that cannot trade
 beyond a limit -- rather than trading at a band it would have to guess.
 
+**33. A reopening auction crosses at the venue's print (FUT-027, phase 3).**
+Whether a venue reopens by auction is its rule, declared on the halt; the price
+is the first event's opening print, the venue's own figure, not an uncross the
+engine would compute from orders it cannot see. Only the orders that waited
+through the halt take part, by time, and each keeps what continuous trading
+would give it afterwards.
+
 ---
 
 # Consequences
@@ -488,9 +495,10 @@ beyond a limit -- rather than trading at a band it would have to guess.
   new target still counts a resting order as held.
 - **An insolvent run compiles no analytics**: returns on negative capital are
   undefined, so such a run keeps its books with `compile_analytics=False`.
-- **A halt's first event after it trades at its own price**: no reopening
-  auction is modelled, a market order is held through a halt rather than
-  rejected, and bands are dated inputs or a rule around a dated, published
+- **A halt's first event after it trades at its own price**, unless the halt
+  declares an auction (FUT-027), when the orders that waited cross at its
+  opening print -- not an uncross computed from a book; a market order is held
+  through a halt rather than rejected, and bands are dated inputs or a rule around a dated, published
   reference (FUT-028) -- never a collar computed from the run's own trades.
 - **An exchange applies its declared outcome at its instant**: an elective one
   (FUT-024) applies its holders' common election or its default, with no split

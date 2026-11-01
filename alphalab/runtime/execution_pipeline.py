@@ -6020,6 +6020,104 @@ def _work_order(
     )
 
 
+def _reopening_print(
+    state: ExecutionPipelineState, event: MarketEvent, asset_id: str
+) -> tuple[Decimal, float] | None:
+    """The reopening auction's price at ``event``, when it is the first after one, or ``None``.
+
+    A halt declaring an auction reopening (FUT-027) has ended by ``event``, and
+    ``event`` is the asset's first since: its opening print -- a bar's open,
+    a quote's or a trade's price -- is the price the auction crosses at, with
+    the halt's end. Read only once a halt declaring an auction has ended, from
+    the market history the run keeps: a market-history bound shorter than the
+    gap between the asset's events cannot tell a later event from the first.
+    """
+
+    registry = state.config.instruments
+    if registry is None or registry.controls is None:
+        return None
+    record = _declared(state, asset_id)
+    venue = "" if record is None else record.exchange
+    halt = registry.controls.reopened_by_auction(asset_id, venue, event.timestamp)
+    if halt is None or halt.end is None:
+        return None
+    history = state.market.history.to_tuple()
+    for earlier in reversed(history[:-1] if history and history[-1] is event else history):
+        priced = _market_price(earlier)
+        if priced is not None and priced[0] == asset_id:
+            if earlier.timestamp >= halt.end:
+                return None  # reopened already, at an earlier event
+            break
+    if isinstance(event, BarClosed):
+        return event.bar.open, halt.end
+    priced = _market_price(event)
+    return None if priced is None else (priced[1], halt.end)
+
+
+def _uncross(
+    state: ExecutionPipelineState,
+    event: MarketEvent,
+    asset_id: str,
+    price: Decimal,
+    ended: float,
+    policy: FillPolicy,
+    rates: FxRates,
+    queue: QueueBook | None,
+) -> tuple[ExecutionPipelineState, _Routed, QueueBook | None]:
+    """The reopening auction: every order that rested through the halt crosses at ``price``.
+
+    In the order they were placed, each market order, and each limit order whose
+    limit the price reaches, fills at the one price as a maker, as far as the
+    run's fill policy gives it at this event; a market order's remainder is
+    withdrawn, a limit order's rests on into continuous trading, and an order
+    the price does not reach -- a limit beyond it, a stop not reached -- takes
+    no part. Outside a band in force the auction does not cross at this event:
+    every order rests, as through the halt (FUT-020, FUT-028). A queue model
+    does not order an auction: it crosses by time (FUT-011).
+    """
+
+    if _venue_blocks(state, asset_id, event.timestamp, price):
+        return state, _NO_ROUTING, queue
+    current = state
+    orders: list[OMSOrder] = []
+    reports: list[ExecutionReport] = []
+    fills: list[CoreFill] = []
+    trades: list[CoreTrade] = []
+    for order_id in state.oms.working_orders_for(asset_id):
+        order = current.oms.orders.find(order_id)
+        if order.created_at >= ended:
+            # Placed after the halt ended, so it did not rest through it: its
+            # turn is continuous trading's, as at any other event.
+            current, new_reports, new_fills, new_trades = _work_order(
+                current, order, event, policy, rates, arriving=False
+            )
+            orders.append(current.oms.orders.find(order_id))
+            reports.extend(new_reports)
+            fills.extend(new_fills)
+            trades.extend(new_trades)
+            continue
+        market = order.order_type is OrderType.MARKET
+        if not market and not (order.order_type is OrderType.LIMIT and _within_limit(order, price)):
+            continue
+        current, new_reports, new_fills, new_trades = _work_resting(
+            current, order, event, policy, rates, price=price, passive=True, one_shot=market
+        )
+        after = current.oms.orders.find(order_id)
+        if queue is not None and not after.is_open:
+            queue = queue.without(str(order_id.value))
+        orders.append(after)
+        reports.extend(new_reports)
+        fills.extend(new_fills)
+        trades.extend(new_trades)
+    routed = _Routed(
+        orders=tuple(orders),
+        reports=tuple(reports),
+        fills=tuple(fills),
+        trades=tuple(trades),
+    )
+    return current, routed, queue
+
+
 def _fill_working_orders(
     state: ExecutionPipelineState,
     event: MarketEvent,
@@ -6038,6 +6136,9 @@ def _fill_working_orders(
     and its turn fills only what that allows (FUT-011).
     """
 
+    reopening = _reopening_print(state, event, asset_id)
+    if reopening is not None:
+        return _uncross(state, event, asset_id, *reopening, policy, rates, queue)
     current = state
     observation = None if queue is None else _queue_observation(event)
     orders: list[OMSOrder] = []

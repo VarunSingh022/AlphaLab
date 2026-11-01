@@ -241,6 +241,10 @@ class TradingHalt:
         asset_id: The instrument halted, or ``None`` when the halt is a venue's.
         venue: The listing venue halted, every instrument it lists, or ``None``.
         reason: What the venue gave, for the record.
+        auction: Whether trading reopens by auction (FUT-027, phase 3): at the
+            first event after ``end`` the orders that rested through the halt
+            cross at one price, that event's opening print, rather than each at
+            its own turn. A halt with no ``end`` never reopens.
     """
 
     start: float
@@ -248,6 +252,7 @@ class TradingHalt:
     asset_id: str | None = None
     venue: str | None = None
     reason: str = ""
+    auction: bool = False
 
     def __post_init__(self) -> None:
         start = _instant(self.start, "A halt's start")
@@ -259,6 +264,8 @@ class TradingHalt:
                 "A halt names one instrument or one venue: an instrument's halt, or a "
                 "market-wide one across what a venue lists."
             )
+        if not isinstance(self.auction, bool):
+            raise InstrumentInputError(f"auction is a bool, got {self.auction!r}.")
         object.__setattr__(self, "start", start)
         object.__setattr__(self, "end", end)
 
@@ -438,6 +445,19 @@ class TradingControls:
                 return rule
         return None
 
+    def reopened_by_auction(self, asset_id: str, venue: str, at: float) -> TradingHalt | None:
+        """The latest halt on ``asset_id`` or ``venue`` ended by ``at`` reopening by auction."""
+
+        ended = [
+            halt
+            for halt in (
+                *self._halts_by_asset.get(asset_id, ()),
+                *self._halts_by_venue.get(venue, ()),
+            )
+            if halt.auction and halt.end is not None and halt.end <= at
+        ]
+        return max(ended, key=lambda halt: halt.end or 0.0) if ended else None
+
     def halt(self, asset_id: str, venue: str, at: float) -> TradingHalt | None:
         """The halt in force on ``asset_id`` or its listing ``venue`` at ``at``, or ``None``."""
 
@@ -471,6 +491,8 @@ def controls_to_primitives(controls: TradingControls | None) -> dict[str, Any] |
                 "asset_id": h.asset_id,
                 "venue": h.venue,
                 "reason": h.reason,
+                # Written only when declared (FUT-027).
+                **({"auction": True} if h.auction else {}),
             }
             for h in controls.halts
         ],
@@ -545,7 +567,14 @@ def controls_from_primitives(value: Any, where: str = "controls") -> TradingCont
                 for b in value["bands"]
             ),
             tuple(
-                TradingHalt(h["start"], h["end"], h["asset_id"], h["venue"], h["reason"])
+                TradingHalt(
+                    h["start"],
+                    h["end"],
+                    h["asset_id"],
+                    h["venue"],
+                    h["reason"],
+                    bool(h.get("auction", False)),
+                )
                 for h in value["halts"]
             ),
             tuple(
