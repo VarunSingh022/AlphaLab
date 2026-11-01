@@ -116,7 +116,13 @@ from alphalab.portfolio.corporate_actions import (
     Split,
 )
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
-from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
+from alphalab.portfolio.events import (
+    PortfolioEvent,
+    PositionClosed,
+    PositionExchanged,
+    PositionReduced,
+)
+from alphalab.portfolio.exceptions import InvalidTransactionError
 from alphalab.portfolio.financing import ACCRUAL_CLOSED, ACCRUES
 from alphalab.portfolio.fx import (
     NO_RATES,
@@ -129,6 +135,7 @@ from alphalab.portfolio.fx import (
 from alphalab.portfolio.money import to_money
 from alphalab.portfolio.nav import NAVCalculator
 from alphalab.portfolio.position import Position
+from alphalab.portfolio.settlement import PaymentChange, payment_chain
 from alphalab.portfolio.types import TransactionType
 from alphalab.portfolio.valuation import (
     PortfolioValuation,
@@ -1830,6 +1837,69 @@ class ExecutionPipeline:
                 "ExecutionPipelineConfig.also_settles to hold it."
             )
         portfolio = PortfolioEngine.apply_cash_flow(state.portfolio, flow, timestamp)
+        return _after_book_change(state, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def amend_payment(
+        state: ExecutionPipelineState,
+        holding: str,
+        effective_at: float,
+        currency: str,
+        change: PaymentChange,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+        *,
+        per_unit: Decimal | None = None,
+        replacement_currency: str | None = None,
+        payment_at: float | None = None,
+        reference: str = "",
+    ) -> ExecutionPipelineState:
+        """Book an issuer's later word on a corporate action's payment (FUT-034, phase 4).
+
+        The payment is ``currency``'s consideration of the exchange of
+        ``holding`` effective at ``effective_at``; see
+        :meth:`~alphalab.portfolio.engine.PortfolioEngine.amend_payment` for
+        each :class:`~alphalab.portfolio.settlement.PaymentChange`. A correction
+        or a replacement is ``per_unit`` for each unit the holding was when it
+        was exchanged, as the exchange recorded it. The risk state is resynced
+        and an equity point recorded, as for any cash the book moves: a payment
+        that fails leaves buying power, settled cash and collateral as if it had
+        never been owed, and a delayed one keeps it out of them until paid.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event, a
+                currency is one this pipeline does not settle, or the amendment
+                does not hold against the book.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A payment amendment")
+        for named in (currency, replacement_currency):
+            if named is not None and named not in state.config.settlement_currencies:
+                raise RuntimeValidationError(
+                    f"A payment in {named!r} cannot be booked by a pipeline that settles in "
+                    f"{sorted(state.config.settlement_currencies)}."
+                )
+        units = None
+        if change in (PaymentChange.CORRECTED, PaymentChange.REPLACED):
+            units = _units_exchanged(state.portfolio, holding, effective_at)
+            ledger = state.portfolio.ledger.transactions
+            if units is None and payment_chain(ledger, holding, effective_at, currency):
+                raise RuntimeValidationError(
+                    f"The run's events no longer record how many units of {holding} its "
+                    f"exchange at {effective_at!r} exchanged -- a results bound trimmed them -- "
+                    "so a payment per unit cannot be booked; keep the portfolio's events."
+                )
+        try:
+            portfolio = PortfolioEngine.amend_payment(
+                state.portfolio, holding, effective_at, currency, change, timestamp,
+                units=units, per_unit=per_unit, replacement_currency=replacement_currency,
+                pays_at=payment_at, reference=reference,
+            )  # fmt: skip
+        except InvalidTransactionError as exc:
+            raise RuntimeValidationError(str(exc)) from exc
+        if portfolio is state.portfolio:
+            return state  # the run held none of it
         return _after_book_change(state, portfolio, timestamp, rates)
 
     @staticmethod
@@ -8288,6 +8358,25 @@ def _require_not_before_last_event(
             f"{what} at {timestamp!r} would be booked before the last event this pipeline "
             f"processed, at {last.timestamp!r}."
         )
+
+
+def _units_exchanged(
+    portfolio: PortfolioState, holding: str, effective_at: float
+) -> Decimal | None:
+    """How many units of ``holding`` its exchange at ``effective_at`` exchanged, signed (FUT-034).
+
+    As the exchange's :class:`~alphalab.portfolio.events.PositionExchanged`
+    recorded them; ``None`` when the run's events hold none.
+    """
+
+    for event in reversed(portfolio.events.to_tuple()):
+        if (
+            isinstance(event, PositionExchanged)
+            and event.asset_id == holding
+            and event.timestamp == effective_at
+        ):
+            return event.quantity
+    return None
 
 
 def _after_book_change(

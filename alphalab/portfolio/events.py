@@ -163,6 +163,35 @@ class PositionExchanged(PortfolioEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class PaymentAmended(PortfolioEvent):
+    """A corporate action's payment amended by the issuer's later word (FUT-034, phase 4).
+
+    Attributes:
+        asset_id: The holding the action exchanged.
+        effective_at: The action's effective instant.
+        currency: The payment's currency.
+        change: What changed, by :class:`~alphalab.portfolio.settlement.PaymentChange` name.
+        owed_before: What was owed in ``currency`` before, signed.
+        owed_after: What is owed in it after.
+        settles_at: When what is owed now is paid, or ``None`` if not pending.
+        replacement_currency: The currency a replacement pays in, or ``""``.
+        replacement: What the replacement pays in it.
+        reference: The issuer's reference.
+    """
+
+    asset_id: str
+    effective_at: float
+    currency: str
+    change: str
+    owed_before: Decimal
+    owed_after: Decimal
+    settles_at: float | None
+    replacement_currency: str
+    replacement: Decimal
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
 class PositionSplit(PortfolioEvent):
     """A split or stock dividend changed a position's quantity, not its value (ACC-006).
 

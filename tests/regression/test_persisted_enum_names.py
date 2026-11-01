@@ -260,6 +260,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "CashFlowBooked",
         "CashWithdrawn",
         "MarketValueUpdated",
+        # Phase 4 (FUT-034): written only by a run whose payment was amended.
+        "PaymentAmended",
         "PortfolioValuationUpdated",
         "PositionClosed",
         # v4.2.0 (FUT-021): written only by a run whose holding was exchanged.

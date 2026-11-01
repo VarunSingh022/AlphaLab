@@ -486,6 +486,22 @@ bound trims -- and an extension, while it lasts, is a halt in all but name.
 The record is written only when a run holds an auction, so no other run's
 identity moves, and the pipeline state gains no field (ADR-0030's budget).
 
+**38. A payment is amended by entries of its own, never rewritten (FUT-034,
+phase 4).** An issuer's later word -- a delay, a failure, a correction, a
+clawback, a payment in another currency -- is a dated input naming one
+currency's payment of an exchange the schedule declares. Each is a ledger
+transaction beside the original, naming the entitlement and the entries whose
+pending cash it re-dates or closes: the original keeps its audit history, the
+pending index is rebuilt from the ledger by the same rule the run keeps it
+by, and a payment is reconciled as of any instant from the ledger alone. A
+failure writes off what is owed -- out of trade-date cash and realized P&L --
+so it never becomes settled cash; a delay known after the payment instant
+re-opens it, because the clock paid it and the issuer did not. A correction
+is stated per unit exchanged, as an issuer restates a payment, against the
+units the exchange recorded. Two words on one payment at one instant, a word
+after a failure or reversal, and a reversal of a payment not yet made are
+refused.
+
 ---
 
 # Consequences
@@ -555,8 +571,9 @@ identity moves, and the pipeline state gains no field (ADR-0030's budget).
 - **An exchange applies its declared outcome at its instant**: an elective one
   (FUT-024) applies its holders' common election or its default, with no split
   between holders and no proration; its cash may be paid at a later declared
-  instant (FUT-025), but a failed or corrected payment, and legs delivered
-  later, are not; strategies holding opposite sides of it are refused.
+  instant (FUT-025) and delayed, failed, corrected, reversed or replaced by
+  the issuer's later word (FUT-034), but legs delivered after the effective
+  instant are not; strategies holding opposite sides of it are refused.
 - **The queue model reads the displayed top of the book**: depth beyond it,
   hidden and iceberg liquidity, self-trade prevention and keep-priority amends
   are not modelled; the run's own resting orders are not in the feed, so each is

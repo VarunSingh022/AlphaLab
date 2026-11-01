@@ -96,6 +96,7 @@ from alphalab.portfolio.financing import (
     require_tiers,
 )
 from alphalab.portfolio.fx import FxRate, FxRates
+from alphalab.portfolio.settlement import PaymentChange
 from alphalab.portfolio.types import TransactionType
 from alphalab.runtime.execution_pipeline import ContextFactory
 from alphalab.runtime.run import RunEngine, RunState
@@ -109,6 +110,7 @@ __all__ = [
     "ElectiveExchange",
     "Funding",
     "PaidExchange",
+    "PaymentAmendment",
     "RateChange",
     "RunSchedule",
     "ScheduleCursor",
@@ -172,6 +174,9 @@ class ScheduleKind(StrEnum):
     #: v4.2.0 (FUT-021): a holding exchanged by its issuer -- before the
     #: instant's records, as a split is.
     EXCHANGE = "exchange"
+    #: Phase 4 (FUT-034): the issuer's later word on an exchange's payment --
+    #: before the instant's records, and after an exchange at the same instant.
+    PAYMENT = "payment"
 
 
 _PLACE: Final = {
@@ -191,6 +196,7 @@ _PLACE: Final = {
     ScheduleKind.INTEREST: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.BORROW_FEE: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.EXCHANGE: SchedulePlace.BEFORE_RECORDS,
+    ScheduleKind.PAYMENT: SchedulePlace.BEFORE_RECORDS,
 }
 _RANK: Final = {kind: rank for rank, kind in enumerate(ScheduleKind)}
 
@@ -570,6 +576,112 @@ class ElectiveExchange:
 
 
 @dataclass(frozen=True, slots=True)
+class PaymentAmendment:
+    """The issuer's later word on a corporate action's payment, at ``at`` (FUT-034, phase 4).
+
+    Names one currency's payment of the exchange of ``holding`` effective at
+    ``effective_at`` -- an exchange the same schedule declares -- and what
+    became of it, by :class:`~alphalab.portfolio.settlement.PaymentChange`:
+
+    * ``DELAYED``: paid at ``payment_at`` instead, after ``at``.
+    * ``FAILED``: will not be paid; ``REVERSED``: paid, and clawed back.
+    * ``CORRECTED``: paid ``per_unit`` for each unit exchanged, in lieu cash
+      included -- at ``payment_at`` if the rest is paid already and it is later.
+    * ``REPLACED``: paid ``per_unit`` in ``replacement_currency`` instead, at
+      ``payment_at``.
+
+    ``at`` is when the run learns of it and it takes effect: nothing is known
+    of it before.
+    """
+
+    holding: str
+    effective_at: float
+    currency: str
+    at: float
+    change: PaymentChange
+    payment_at: float | None = None
+    per_unit: Decimal | None = None
+    replacement_currency: str | None = None
+    reference: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.change, PaymentChange):
+            raise ScheduleValidationError(
+                f"A payment amendment states its change as a PaymentChange, got {self.change!r}."
+            )
+        if self.at < self.effective_at:
+            raise ScheduleValidationError(
+                f"A payment of an action effective at {self.effective_at!r} is amended at "
+                f"{self.at!r}, before it."
+            )
+        change = self.change
+        priced = change in (PaymentChange.CORRECTED, PaymentChange.REPLACED)
+        if priced != (self.per_unit is not None):
+            raise ScheduleValidationError(
+                f"A {change.name.lower()} payment "
+                + ("states" if priced else "states no")
+                + " amount per unit."
+            )
+        if self.per_unit is not None and (not self.per_unit.is_finite() or self.per_unit < 0):
+            raise ScheduleValidationError(
+                f"A payment per unit is zero or more, got {self.per_unit}."
+            )
+        if (change is PaymentChange.REPLACED) != (self.replacement_currency is not None):
+            raise ScheduleValidationError(
+                "A replaced payment, and only one, names the currency it is paid in instead."
+            )
+        if self.replacement_currency == self.currency:
+            raise ScheduleValidationError("A replacement is paid in another currency.")
+        if change is PaymentChange.DELAYED and (
+            self.payment_at is None or self.payment_at <= self.at
+        ):
+            raise ScheduleValidationError(
+                f"A delayed payment is paid after the delay is known ({self.at!r}), got "
+                f"{self.payment_at!r}."
+            )
+        if change in (PaymentChange.FAILED, PaymentChange.REVERSED) and self.payment_at is not None:
+            raise ScheduleValidationError(f"A {change.name.lower()} payment is paid at no instant.")
+        if self.payment_at is not None and self.payment_at < self.at:
+            raise ScheduleValidationError(
+                f"A payment amended at {self.at!r} is paid at {self.payment_at!r}, before it."
+            )
+
+    @property
+    def key(self) -> str:
+        """The payment it names: holding, effective instant and currency."""
+
+        return f"{self.holding}|{self.effective_at!r}|{self.currency}"
+
+
+def _require_payments(
+    payments: tuple[PaymentAmendment, ...],
+    exchanges: tuple[ScheduledExchange | PaidExchange | ElectiveExchange, ...],
+) -> None:
+    """Each amendment names an exchange the schedule declares, none after a terminal one."""
+
+    declared = {
+        (x.asset_id if isinstance(x, ElectiveExchange) else x.exchange.asset_id, x.at)
+        for x in exchanges
+    }
+    by_payment: dict[str, list[PaymentAmendment]] = {}
+    for amendment in payments:
+        if (amendment.holding, amendment.effective_at) not in declared:
+            raise ScheduleValidationError(
+                f"A payment amendment names the exchange of {amendment.holding} at "
+                f"{amendment.effective_at!r}, which the schedule does not declare."
+            )
+        by_payment.setdefault(amendment.key, []).append(amendment)
+    for amendments in by_payment.values():
+        ordered = sorted(amendments, key=lambda a: a.at)
+        for earlier, later in pairwise(ordered):
+            if earlier.change in (PaymentChange.FAILED, PaymentChange.REVERSED):
+                raise ScheduleValidationError(
+                    f"The payment {earlier.key} {earlier.change.name.lower()} at "
+                    f"{earlier.at!r}; it is amended again at {later.at!r}, which cannot hold."
+                )
+
+
+@dataclass(frozen=True, slots=True)
 class ScheduledSettlement:
     """A contract's final settlement, published at ``at`` (ledger FUT-012)."""
 
@@ -708,6 +820,7 @@ class RunSchedule:
         interest: Iterable[ScheduledInterest | DailyInterest] = (),
         borrow_fees: Iterable[ScheduledBorrowFee | DailyBorrowFee] = (),
         exchanges: Iterable[ScheduledExchange | PaidExchange | ElectiveExchange] = (),
+        payments: Iterable[PaymentAmendment] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
 
@@ -716,9 +829,14 @@ class RunSchedule:
                 thing at the same instant -- one observation delivered twice, two
                 rates for one pair as of one instant, one timer fired twice, a
                 contract settled twice. Each is two answers to one question,
-                and picking one would be arbitrary.
+                and picking one would be arbitrary. Or a payment amendment
+                names an exchange the schedule does not declare, or follows a
+                failure or reversal of the same payment (FUT-034).
         """
 
+        exchanges = tuple(exchanges)
+        payments = tuple(payments)
+        _require_payments(payments, exchanges)
         entries = [
             *(_entry(ScheduleKind.OBSERVATION, d.known_at, d.delivery_id, d) for d in observations),
             *(_entry(ScheduleKind.RATE, r.as_of, f"{r.base}/{r.quote}", r) for r in rates),
@@ -768,6 +886,8 @@ class RunSchedule:
                 )
                 for x in exchanges
             ),
+            # One word on one payment at an instant: two are two answers.
+            *(_entry(ScheduleKind.PAYMENT, p.at, p.key, p) for p in payments),
         ]
         entries.sort(key=lambda entry: entry.key)
         for previous, current in pairwise(entries):
@@ -974,6 +1094,12 @@ def _apply(
         return rates, RunEngine.apply_exchange(
             state, item.exchange, item.at, rates, payment_at=paid
         )
+    if kind is ScheduleKind.PAYMENT:
+        return rates, RunEngine.amend_payment(
+            state, item.holding, item.effective_at, item.currency, item.change, item.at, rates,
+            per_unit=item.per_unit, replacement_currency=item.replacement_currency,
+            payment_at=item.payment_at, reference=item.reference,
+        )  # fmt: skip
     if kind is ScheduleKind.OBSERVATION:
         return rates, RunEngine.deliver_observation(state, item, context_factory, rates)
     if kind is ScheduleKind.TIMER:

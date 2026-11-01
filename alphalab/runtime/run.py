@@ -82,6 +82,7 @@ from alphalab.portfolio.corporate_actions import (
     Split,
 )
 from alphalab.portfolio.fx import NO_RATES, FxRates
+from alphalab.portfolio.settlement import PaymentChange
 from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.exceptions import AlphaLabRuntimeError, RuntimeValidationError
 from alphalab.runtime.execution_pipeline import (
@@ -868,6 +869,38 @@ class RunEngine:
         pipeline = ExecutionPipeline.apply_exchange(
             state.pipeline, exchange, clock, rates, payment_at=payment_at
         )
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def amend_payment(
+        state: RunState,
+        holding: str,
+        effective_at: float,
+        currency: str,
+        change: PaymentChange,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+        *,
+        per_unit: Decimal | None = None,
+        replacement_currency: str | None = None,
+        payment_at: float | None = None,
+        reference: str = "",
+    ) -> RunState:
+        """Book an issuer's later word on a corporate action's payment (FUT-034, phase 4).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.amend_payment`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.amend_payment(
+            state.pipeline, holding, effective_at, currency, change, clock, rates,
+            per_unit=per_unit, replacement_currency=replacement_currency,
+            payment_at=payment_at, reference=reference,
+        )  # fmt: skip
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )

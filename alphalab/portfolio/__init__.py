@@ -110,6 +110,9 @@ from .nav import NAVCalculator as NAVCalculator
 from .pnl import PnLEngine as PnLEngine
 from .position import Position as Position
 from .settlement import CashPosition as CashPosition
+from .settlement import Entitlement as Entitlement
+from .settlement import EntitlementStatus as EntitlementStatus
+from .settlement import PaymentChange as PaymentChange
 from .settlement import PendingSettlement as PendingSettlement
 from .transaction import Transaction as Transaction
 from .types import (
@@ -145,6 +148,8 @@ __all__ = [
     "ContractSettlement",
     "CurrencyAttribution",
     "CurrencyAttributionReport",
+    "Entitlement",
+    "EntitlementStatus",
     "ExchangeLeg",
     "Exercise",
     "ExposureEngine",
@@ -167,6 +172,7 @@ __all__ = [
     "MultiStrategyBook",
     "NAVCalculator",
     "OptionExpiry",
+    "PaymentChange",
     "PendingSettlement",
     "PnLEngine",
     "PortfolioEngine",

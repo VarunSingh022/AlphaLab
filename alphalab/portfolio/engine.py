@@ -48,7 +48,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from itertools import pairwise
-from typing import Any, cast
+from typing import Any, Final, cast
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import in_accounting_context, require_finite
@@ -66,6 +66,7 @@ from alphalab.portfolio.events import (
     CashFlowBooked,
     CashWithdrawn,
     MarketValueUpdated,
+    PaymentAmended,
     PortfolioEvent,
     PositionClosed,
     PositionExchanged,
@@ -82,10 +83,17 @@ from alphalab.portfolio.ledger import TransactionLedger
 from alphalab.portfolio.money import ZERO_MONEY, notional, to_money
 from alphalab.portfolio.position import Position
 from alphalab.portfolio.settlement import (
+    AFFECTS,
+    ENTITLEMENT,
+    PAYMENT_CHANGE,
     SETTLEMENT_CASH,
     SETTLES_AT,
     CashPosition,
+    PaymentChange,
     PendingSettlement,
+    amend_pending,
+    entitlement_key,
+    payment_chain,
     settle_pending,
 )
 from alphalab.portfolio.transaction import Transaction
@@ -947,6 +955,187 @@ class PortfolioEngine:
 
     @staticmethod
     @in_accounting_context
+    def amend_payment(
+        state: PortfolioState,
+        holding: str,
+        effective_at: float,
+        currency: str,
+        change: PaymentChange,
+        timestamp: float,
+        *,
+        units: Decimal | None = None,
+        per_unit: Decimal | None = None,
+        replacement_currency: str | None = None,
+        pays_at: float | None = None,
+        reference: str = "",
+    ) -> PortfolioState:
+        """Book an issuer's later word on a corporate action's payment (FUT-034, phase 4).
+
+        The payment is the one ``currency``'s consideration of the exchange of
+        ``holding`` effective at ``effective_at`` booked, with every amendment
+        since; each amendment is a ledger transaction of its own, naming it, so
+        the original is never rewritten:
+
+        * ``DELAYED`` -- not paid yet: every part of it awaited is pending until
+          ``pays_at``, though the clock had paid it; no cash moves.
+        * ``FAILED`` -- will not be paid: what is owed is written off, out of
+          trade-date cash and realized P&L, and none of it ever settles.
+        * ``CORRECTED`` -- owed at ``per_unit`` for each of the ``units`` the
+          holding was: the difference moves cash and realized P&L, pending with
+          the rest of it or, once that is paid, until ``pays_at`` if later.
+        * ``REVERSED`` -- paid, and clawed back: as a failure, of a payment made.
+        * ``REPLACED`` -- paid instead in ``replacement_currency``, ``per_unit``
+          for each of ``units``, at ``pays_at``: what was owed in ``currency``
+          is written off, the replacement owed in its place.
+
+        A book holding no payment of the action -- the run held none of it --
+        is returned as it is.
+
+        Raises:
+            InvalidTransactionError: If the action paid nothing in ``currency``
+                though it paid in another, the payment failed or was reversed
+                already, a reversal names one not yet paid, a delay names an
+                instant not after ``timestamp`` or a payment owing nothing, or a
+                correction or replacement lacks what it needs.
+        """
+
+        ledger_txs = state.ledger.transactions
+        chain = payment_chain(ledger_txs, holding, effective_at, currency)
+        if not chain:
+            if any(
+                payment_chain(ledger_txs, holding, effective_at, c) for c in state.cash.balances
+            ):
+                raise InvalidTransactionError(
+                    f"The action on {holding} at {effective_at!r} paid nothing in {currency}."
+                )
+            return state
+        done = [t for t in chain if t.metadata.get(PAYMENT_CHANGE) in _TERMINAL_CHANGES]
+        if done:
+            raise InvalidTransactionError(
+                f"The payment of {holding}'s action in {currency} was "
+                f"{str(done[0].metadata[PAYMENT_CHANGE]).lower()} at {done[0].timestamp!r}; "
+                "nothing amends it after."
+            )
+        units_of = state.account.currency_units
+        owed = sum((t.quantity for t in chain), Decimal("0"))
+        ids = {t.transaction_id for t in chain}
+        waiting = [
+            e for e in state.unsettled if e.transaction_id in ids and e.pending_at(timestamp)
+        ]
+        key = entitlement_key(holding, effective_at)
+        name = change.name
+
+        def booked(money: Decimal, in_currency: str, extra: Mapping[str, Any]) -> Transaction:
+            metadata: dict[str, Any] = {ENTITLEMENT: key, PAYMENT_CHANGE: name, **extra}
+            if reference:
+                metadata["exchange"] = reference
+            return Transaction(
+                str(new_id()), timestamp, state.account.account_id, TransactionType.EXCHANGE,
+                holding, money, Decimal("1.0"), Decimal("0.0"), in_currency, metadata,
+            )  # fmt: skip
+
+        cash, ledger, unsettled = state.cash, state.ledger, state.unsettled
+        realized = state.realized_pnl
+        owed_after, settles, replacement, replaced_in = owed, None, Decimal("0"), ""
+        by_id = {t.transaction_id: t for t in chain}
+        if change is PaymentChange.DELAYED:
+            if pays_at is None or pays_at <= timestamp:
+                raise InvalidTransactionError(
+                    f"A delayed payment is paid after the delay is known ({timestamp!r}), got "
+                    f"{pays_at!r}."
+                )
+            if owed == 0:
+                raise InvalidTransactionError(f"{holding}'s payment in {currency} owes nothing.")
+            awaited = [t.transaction_id for t in chain if t.quantity != 0]
+            tx = booked(Decimal("0"), currency, {AFFECTS: ",".join(awaited), SETTLES_AT: pays_at})
+            ledger = ledger.append(tx)
+            unsettled = amend_pending(settle_pending(unsettled, timestamp), tx, by_id)
+            settles = pays_at
+        elif change in (PaymentChange.FAILED, PaymentChange.REVERSED):
+            if change is PaymentChange.REVERSED and waiting:
+                raise InvalidTransactionError(
+                    f"{holding}'s payment in {currency} is not paid until "
+                    f"{max(e.settles_at for e in waiting)!r}: what is not paid fails, and is "
+                    "not reversed."
+                )
+            tx = booked(-owed, currency, {AFFECTS: ",".join(t.transaction_id for t in chain)})
+            ledger = ledger.append(tx)
+            unsettled = amend_pending(unsettled, tx, by_id)
+            cash = cash.settle(-owed, currency)
+            realized = realized.add(-owed, currency)
+            owed_after = Decimal("0")
+        else:
+            if units is None or per_unit is None:
+                raise InvalidTransactionError(
+                    f"A {name.lower()} payment states the units exchanged and what each is paid."
+                )
+            if change is PaymentChange.CORRECTED:
+                owed_after = to_money(units * per_unit, currency, units_of)
+                diff = owed_after - owed
+                later = pays_at if pays_at is not None and pays_at > timestamp else None
+                settles = max((e.settles_at for e in waiting), default=later)
+                extra: dict[str, Any] = {"per_unit": str(per_unit)}
+                if settles is not None:
+                    extra = {**extra, SETTLES_AT: settles, SETTLEMENT_CASH: str(diff)}
+                tx = booked(diff, currency, extra)
+                ledger = ledger.append(tx)
+                if settles is not None:
+                    unsettled = settle_pending(
+                        unsettled,
+                        timestamp,
+                        PendingSettlement(
+                            tx.transaction_id, holding, currency, diff, Decimal("0"), timestamp,
+                            settles,
+                        ),
+                    )  # fmt: skip
+                cash = cash.settle(diff, currency)
+                realized = realized.add(diff, currency)
+            else:
+                if replacement_currency is None or replacement_currency == currency:
+                    raise InvalidTransactionError(
+                        "A replaced payment names the other currency it is paid in."
+                    )
+                out = booked(-owed, currency, {AFFECTS: ",".join(t.transaction_id for t in chain)})
+                ledger = ledger.append(out)
+                unsettled = amend_pending(unsettled, out, by_id)
+                cash = cash.settle(-owed, currency)
+                realized = realized.add(-owed, currency)
+                owed_after = Decimal("0")
+                replacement = to_money(units * per_unit, replacement_currency, units_of)
+                replaced_in = replacement_currency
+                later = pays_at if pays_at is not None and pays_at > timestamp else None
+                extra = {"per_unit": str(per_unit)}
+                if later is not None:
+                    extra = {**extra, SETTLES_AT: later, SETTLEMENT_CASH: str(replacement)}
+                into = booked(replacement, replacement_currency, extra)
+                ledger = ledger.append(into)
+                if later is not None:
+                    unsettled = settle_pending(
+                        unsettled,
+                        timestamp,
+                        PendingSettlement(
+                            into.transaction_id, holding, replacement_currency, replacement,
+                            Decimal("0"), timestamp, later,
+                        ),
+                    )  # fmt: skip
+                cash = cash.settle(replacement, replacement_currency)
+                realized = realized.add(replacement, replacement_currency)
+                settles = later
+        evt = PaymentAmended(
+            timestamp, state.account.account_id, holding, effective_at, currency, name, owed,
+            owed_after, settles, replaced_in, replacement, reference,
+        )  # fmt: skip
+        return evolve(
+            state,
+            cash=cash,
+            ledger=ledger,
+            unsettled=unsettled,
+            realized_pnl=realized,
+            events=state.events.append(evt),
+        )
+
+    @staticmethod
+    @in_accounting_context
     def apply_split(state: PortfolioState, split: Split, timestamp: float) -> PortfolioState:
         """Apply a split, reverse split or stock dividend to a holding (ledger ACC-006).
 
@@ -974,6 +1163,9 @@ class PortfolioEngine:
             events=state.events.append(evt),
         )
 
+
+#: The payment changes after which nothing more amends a payment (FUT-034).
+_TERMINAL_CHANGES: Final = frozenset({PaymentChange.FAILED.name, PaymentChange.REVERSED.name})
 
 #: Which ledger entry each kind of cash flow writes.
 _CASH_FLOW_TRANSACTIONS: Mapping[CashFlowKind, TransactionType] = {

@@ -279,6 +279,13 @@ portfolio state -- only the refusal and the allocation and risk decisions that
 judged the replacement are recorded -- so a snapshot taken after it restores the
 order working as it was.
 
+A payment amendment (phase 4, ledger FUT-034) is an `EXCHANGE` ledger
+transaction naming its entitlement (`entitlement`), its change
+(`payment_change`) and the transactions whose pending cash it re-dates or
+closes (`affects`), and a `PaymentAmended` portfolio event; nothing it amends
+is rewritten, and the pending index a restore rebuilds from the ledger applies
+the amendments in order, as the run did.
+
 Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
 account's declared margin model as `margin_model_to_primitives` writes it
 (`per_position`, or `scenario` with its scenarios, maintenance ratio and floor),

@@ -248,6 +248,12 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **A corporate action's payment amended by the issuer** (FUT-034, phase 4): a
+  `PaymentAmendment` delays, fails, corrects, reverses or replaces one
+  currency's payment of a declared exchange, each a ledger entry of its own
+  beside the original; a failed payment is never settled cash, a delayed one
+  funds nothing until paid, and `entitlements` reconciles each payment from the
+  ledger as of any instant.
 - **A reopening auction computed from the venue's book** (FUT-033, phase 4): a
   halt declaring an `AuctionUncross` prices its reopening from the
   `AuctionInterest` the venue published during the halt and the run's orders
@@ -688,7 +694,6 @@ delivered, and their horizons are proposals for the maintainer to confirm.
 |---|---|---|---|---|
 | FUT-030 | **Elections split between holders, and proration**: one holding takes one alternative | separate books for strategies that elect apart; declare a prorated remainder as a later exchange | v4.4 | holder elections |
 | FUT-032 | **A dated volatility surface and scenario horizons for repricing** | redeclare volatilities per segment, or margin options per position | v4.4 | option repricing, observations |
-| FUT-034 | **Failed or corrected corporate-action payments, and legs delivered later** | declare the instant actually paid | v4.4 | delayed payments |
 | FUT-035 | **A buy-in premium, and borrow recalled per strategy** | declare the premium as a cash flow | v4.4 | borrow recalls |
 
 ---

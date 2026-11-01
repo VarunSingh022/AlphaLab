@@ -86,6 +86,7 @@ from alphalab.portfolio.events import (
     CashFlowBooked,
     CashWithdrawn,
     MarketValueUpdated,
+    PaymentAmended,
     PortfolioEvent,
     PortfolioValuationUpdated,
     PositionClosed,
@@ -175,6 +176,8 @@ _EVENT_TYPES: Mapping[str, type[PortfolioEvent]] = {
         PositionSplit,
         # v4.2.0 (FUT-021): written only by a run whose holding was exchanged.
         PositionExchanged,
+        # Phase 4 (FUT-034): written only by a run whose payment was amended.
+        PaymentAmended,
     )
 }
 
@@ -201,6 +204,12 @@ _EVENT_FIELD_DECODERS: Mapping[str, Any] = {
     "received": as_decimal_mapping,
     "consideration": as_decimal_mapping,
     "retained": as_bool,
+    # PaymentAmended (phase 4, FUT-034): a payment's amounts and instants.
+    "effective_at": as_float,
+    "owed_before": as_decimal,
+    "owed_after": as_decimal,
+    "replacement": as_decimal,
+    "settles_at": lambda value, where: None if value is None else as_float(value, where),
 }
 
 
