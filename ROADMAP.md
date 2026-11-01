@@ -159,7 +159,7 @@ names what the release established and the ADR that records the decision.
 - **The contract an application builds on, checked against the artifact**:
   `tests/consumer_contract.py` runs inside every installed wheel and sdist.
 
-## v4.2.0 (in development: the v4.1.1 future-readiness program, its number approved by the maintainer; not yet published)
+## v4.2.0 (in development: the v4.1.1 future-readiness program and phases 2 to 6, its number and scope set by the maintainer; not yet published)
 
 - **One schedule for every timed input** (FUT-004): `alphalab.backtesting.schedule`
   -- rates, funding, cash flows, per-unit dividends and coupons, perpetual funding
@@ -343,11 +343,10 @@ names what the release established and the ADR that records the decision.
   payload, and so every run's identity, unchanged. An undeclared configuration
   reads back as JSON reads it (LIM-004), as before.
 
-## After the v4.2.0 candidate: phase 5 (the release that carries it is the maintainer's decision)
+## v4.2.0, phase 5
 
 Delivered on the same development branch after the phase 4 checkpoint at
-`cde89f6`. The package still states 4.2.0; whether this work ships in v4.2.0 or
-a later release is the maintainer's decision, and nothing here assigns it.
+`cde89f6`; the maintainer assigned it to v4.2.0.
 
 - **Legs delivered after an exchange's effective instant** (FUT-037): a
   `DeliveredExchange` keeps the effective and delivery instants apart -- each
@@ -387,11 +386,10 @@ a later release is the maintainer's decision, and nothing here assigns it.
   tested adapter, production connection (none), synthetic input, verified
   convention (none) -- and FUT-041 to FUT-043 proposed.
 
-## After phase 5: phase 6 (the release that carries it is the maintainer's decision)
+## v4.2.0, phase 6
 
 Delivered on the same development branch after the phase 5 checkpoint at
-`c348e69`. The package still states 4.2.0; whether this work ships in v4.2.0 or
-a later release is the maintainer's decision, and nothing here assigns it.
+`c348e69`; the maintainer assigned it to v4.2.0.
 
 - **A resumed run's registry held to its terms, not its type** (FUT-041): a
   paused replay's and a live run's payload record the digest of the instrument

@@ -8,9 +8,10 @@ target; nothing is tagged, released, uploaded or merged, and the published
 v4.1.0 artifacts were not touched.
 **Companions:** the ledger (`PRE_V4_COMPLETION_LEDGER.yaml`), ROADMAP's *v4.2.0*
 and *Future work* sections, [ADR-0051](../ADR/0051-v4-1-1-information-on-every-driver-and-the-strategy-capability-audit.md)
-(decisions 13 to 26), [`STRATEGY_CAPABILITY_MATRIX.md`](STRATEGY_CAPABILITY_MATRIX.md),
+(decisions 13 to 49), [ADR-0052](../ADR/0052-registry-identity-in-reproducibility-manifests.md)
+(proposed), [`STRATEGY_CAPABILITY_MATRIX.md`](STRATEGY_CAPABILITY_MATRIX.md),
 [`STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`](STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md),
-and the v4.1.1 program's own report, [`FUTURE_READINESS_V4_1_1.md`](FUTURE_READINESS_V4_1_1.md),
+the engine integration audits of phases 5 and 6, and the v4.1.1 program's own report, [`FUTURE_READINESS_V4_1_1.md`](FUTURE_READINESS_V4_1_1.md),
 which this one supersedes for v4.2.0. Every figure below was read from a
 command's own output in the session that produced it.
 
@@ -42,20 +43,18 @@ has its own: all seven FUT-030 to FUT-036 delivered, one reproducibility fix
 **Phase 5** (section 12) was added after phase 4's checkpoint at `cde89f6` and
 has its own: all four FUT-037 to FUT-040 delivered, the engine integration
 audit's three fixes (REP-007, EXE-014, LIV-002) and an integration defect
-(ACC-018), FUT-041 to FUT-043 proposed. Which release carries it is the
-maintainer's decision.
+(ACC-018), FUT-041 to FUT-043 proposed.
 
 **Phase 6** (section 13) was added after phase 5's checkpoint at `c348e69` and
 has its own: FUT-041 and FUT-043 delivered, FUT-042's options written up for
 the maintainer (ADR-0052), two reproducibility fixes (REP-008, REP-009),
-FUT-044 to FUT-046 proposed. Which release carries it is the maintainer's
-decision.
+FUT-044 to FUT-046 proposed.
 
-**Release readiness is the maintainer's call, and the evidence supports it as a
-minor release candidate**: every gate this report lists passes on the final
-tree, on three interpreters, in a clean mirror and on hosted CI, with every
-earlier run's identity where it was. Publication, tagging and the merge of PR
-#18 are not done and need the maintainer's separate authorization.
+**The maintainer assigned phases 3 to 6 to v4.2.0, and section 14 closes the
+candidate**: its scope against the ledger, the release documents made
+consistent, compatibility and identity rechecked, and every gate run on the
+final commit. Publication, tagging and the merge of PR #18 are not done and
+each needs the maintainer's separate authorization.
 
 ---
 

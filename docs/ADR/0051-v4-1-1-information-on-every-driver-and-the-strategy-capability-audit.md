@@ -3,7 +3,7 @@
 ## Status
 
 **Accepted and implemented in the v4.1.1 candidate** (branch
-`work/v4.1.1-future-readiness`, uncommitted), in two milestones: the audit and
+`work/v4.1.1-future-readiness`), in two milestones: the audit and
 information on every driver (decisions 1-6), then the continuation that closed
 the engine-owned gaps the audit found (decisions 7-12), then the FUT-009
 milestone, execution algorithms on the historical drivers (decision 13), then
@@ -22,6 +22,13 @@ semantic versioning make a **minor** release (v4.2.0), not a patch; the ledger
 records the entries under `v4.2.0`, the recommendation. It adds **no package**
 and no package edge but `alphalab.api -> alphalab.macro`; no run, pipeline or
 portfolio schema moves, and no v4.1 run identity moves.
+
+**Extended on the same branch by the later milestones and phases 2 to 6**,
+through decision 49, all of which the maintainer assigned to v4.2.0: they add a further schema step each to the
+replay and live envelopes (2 to 3, the instrument registry's digest), still
+move no run, pipeline or portfolio schema and no v4.1 run identity, and leave
+one identity question open -- the default manifest's registry, ADR-0052,
+proposed.
 
 ---
 

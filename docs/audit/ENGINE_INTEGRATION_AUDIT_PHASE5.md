@@ -11,8 +11,8 @@ whose classes this uses: 1 correctness-critical; 2 a material engine capability
 gap; 3 an explicit external boundary; 4 an accepted limitation; 5 a future
 enhancement; 6 already implemented or resolved).
 
-Which release carries this work, and whether the entries it proposes are
-accepted at the horizons proposed, are the maintainer's decisions.
+The maintainer assigned this work to v4.2.0; whether the entries it proposes
+are accepted at the horizons proposed is the maintainer's decision.
 
 ## 1. The instrument registry and a run's identity
 

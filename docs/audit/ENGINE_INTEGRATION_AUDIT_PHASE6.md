@@ -13,9 +13,9 @@ Every finding was checked in the code before it is called a gap. The classes
 are those of [`STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`](STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md):
 1 correctness-critical; 2 a material missing capability; 3 an external
 integration boundary; 4 an accepted limitation; 5 a future enhancement; 6
-already implemented or resolved. Which release carries this work, and whether
-the entries it proposes are accepted at the horizons proposed, are the
-maintainer's decisions.
+already implemented or resolved. The maintainer assigned this work to v4.2.0;
+whether the entries it proposes are accepted at the horizons proposed is the
+maintainer's decision.
 
 ## 1. The host-application boundary
 

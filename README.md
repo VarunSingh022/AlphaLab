@@ -45,7 +45,7 @@ It exists to answer the questions that decide whether a backtest means anything:
 
 # Release Status
 
-**Current Release:** **v4.2.0 (development target, not yet published; the published tag is v4.1.0) — every timed input on every driver, several datasets in one run, contracts declared and carried through exercise, assignment, expiry and delivery, execution algorithms and a queue model on the historical drivers, typed strategy configuration -- additive on the v4.0 contract**
+**Current Release:** **v4.2.0 (release candidate, not yet published; the published tag is v4.1.0) — every timed input on every driver, several datasets in one run, contracts declared and carried through exercise, assignment, expiry and delivery, execution algorithms and a queue model on the historical drivers, settlement, margin, financing and borrow on declared terms, venue controls and auctions, corporate actions and their corrections, volatility surfaces and auction information delivered during a run, typed strategy configuration -- additive on the v4.0 contract**
 
 | Metric | Status |
 |---------|--------|

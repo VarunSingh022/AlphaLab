@@ -31,10 +31,11 @@ AlphaLab supports from research to production.**
 Additive on the v4.1 contract: against v4.1.0's manifest it adds names, gives
 existing functions keyword-only parameters with no effect unless given, adds
 `AssetType.BOND`, `AssetType.INDEX` and `ExecutionRouting.ALGORITHMIC`, and
-removes or re-signs nothing incompatibly. Two schemas step,
+removes or re-signs nothing incompatibly. Three schemas step,
 each reading every earlier payload: instrument 3 -> 4 (a last trading instant
-and contract terms) and replay 1 -> 2 (the schedule's digest, an execution
-plan's book and a queue model's book). No run, pipeline or portfolio schema
+and contract terms), replay 1 -> 2 -> 3 (the schedule's digest, an execution
+plan's book and a queue model's book; then the instrument registry's digest)
+and live 2 -> 3 (the registry's digest). No run, pipeline or portfolio schema
 moves, and a run of v4.1.0's inputs has the identity it had. Because it adds
 public API it is a minor release under `docs/api/PUBLIC_API.md`'s policy -- see
 `docs/audit/FUTURE_READINESS_V4_1_1.md`. ADR-0051 records the decisions; ledger
@@ -47,13 +48,9 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10); those
 marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 
 Entries marked *phase 5* were added on the same development branch after the
-phase 4 checkpoint at `cde89f6` (section 12). The package still states 4.2.0
-and they are recorded here for that reason; **whether v4.2.0 or a later
-release carries them is the maintainer's decision**, not made here.
-
-Entries marked *phase 6* were added after the phase 5 checkpoint at `c348e69`
-(section 13), on the same terms: the release that carries them is the
-maintainer's decision.
+phase 4 checkpoint at `cde89f6` (section 12), and those marked *phase 6* after
+the phase 5 checkpoint at `c348e69` (section 13). **The maintainer assigned
+phases 3 to 6 to v4.2.0** (section 14).
 
 * **A resumed run's registry held to its terms, not its type** [FUT-041]
   (*phase 6*). `alphalab.instrument.snapshot.registry_digest` names a
