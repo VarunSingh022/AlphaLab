@@ -429,6 +429,11 @@ class ReproducibilityManifest:
             that declared none. Rendered into the identity only when present:
             the run's configuration does not carry it, so without it two runs
             whose passive fills were decided differently would share one.
+        instruments_digest: SHA-256 of the instrument registry the run held, as
+            its snapshot writes it -- every record, its terms, controls,
+            borrow, margin model and surfaces -- when the producer asked for it
+            (phase 4), or ``None``. The run's record names the registry by type
+            only (ADR-0023); rendered into the identity only when present.
     """
 
     manifest_id: str
@@ -447,6 +452,7 @@ class ReproducibilityManifest:
     dataset_parts: tuple[tuple[str, str], ...] = ()
     execution_plan_id: str | None = None
     queue_model: str | None = None
+    instruments_digest: str | None = None
 
     @property
     def evidence_kind(self) -> str:
@@ -505,6 +511,7 @@ def canonical_manifest_key(
     dataset_parts: tuple[tuple[str, str], ...] = (),
     execution_plan_id: str | None = None,
     queue_model: str | None = None,
+    instruments_digest: str | None = None,
 ) -> str:
     """Render the canonical key a manifest's identity is derived from.
 
@@ -543,6 +550,8 @@ def canonical_manifest_key(
         lines.append(f"inputs.execution_plan={execution_plan_id!r}")
     if queue_model is not None:
         lines.append(f"inputs.queue_model={queue_model!r}")
+    if instruments_digest is not None:
+        lines.append(f"inputs.instruments={instruments_digest!r}")
     return "\n".join(lines)
 
 
@@ -561,6 +570,7 @@ def derive_manifest_id(
     dataset_parts: tuple[tuple[str, str], ...] = (),
     execution_plan_id: str | None = None,
     queue_model: str | None = None,
+    instruments_digest: str | None = None,
 ) -> str:
     """SHA-256 over :func:`canonical_manifest_key`. Derived, never minted."""
 
@@ -580,6 +590,7 @@ def derive_manifest_id(
             dataset_parts,
             execution_plan_id,
             queue_model,
+            instruments_digest,
         )
     )
 
@@ -599,6 +610,7 @@ def _manifest(
     dataset_parts: tuple[tuple[str, str], ...] = (),
     execution_plan_id: str | None = None,
     queue_model: str | None = None,
+    instruments_digest: str | None = None,
 ) -> ReproducibilityManifest:
     configuration_id = _sha256(configuration)
     return ReproducibilityManifest(
@@ -617,6 +629,7 @@ def _manifest(
             dataset_parts,
             execution_plan_id,
             queue_model,
+            instruments_digest,
         ),
         kind=kind,
         result_id=result_id,
@@ -633,6 +646,7 @@ def _manifest(
         dataset_parts=dataset_parts,
         execution_plan_id=execution_plan_id,
         queue_model=queue_model,
+        instruments_digest=instruments_digest,
     )
 
 
@@ -717,6 +731,7 @@ def manifest_for_run(
     build: EngineBuild | None,
     schedule: RunSchedule | None = None,
     execution: ExecutionPlan | None = None,
+    instruments: bool = False,
 ) -> ReproducibilityManifest:
     """The manifest of a finished run, with every identity read from its owner.
 
@@ -745,6 +760,11 @@ def manifest_for_run(
             FUT-009), or ``None``. Checked: given exactly when the run routed
             ``ALGORITHMIC``, and the plan of the book the result carries; recorded
             by its ``plan_id``.
+        instruments: Whether to record the digest of the instrument registry
+            the run held (phase 4) -- its records, controls, borrow, margin
+            model and surfaces, as the registry snapshot writes them -- read off
+            the run itself, never supplied. ``False`` by default, so a manifest
+            asked for nothing new keeps its identity.
 
     Raises:
         DataValidationError: If ``dataset`` carries no provenance.
@@ -804,7 +824,19 @@ def manifest_for_run(
         execution_plan_id=None if execution is None else execution.plan_id,
         # Read off the result, which names the model it ran under (FUT-011).
         queue_model=result.execution_assumptions.queue_model,
+        instruments_digest=_registry_digest(result) if instruments else None,
     )
+
+
+def _registry_digest(result: BacktestResult) -> str | None:
+    """SHA-256 of the instrument registry ``result``'s run held, as its snapshot writes it."""
+
+    from alphalab.instrument.snapshot import capture as capture_registry
+
+    registry = result.run.config.pipeline.instruments
+    if registry is None:
+        return None
+    return _sha256(serialize(capture_registry(registry)))
 
 
 def _require_plan_of(result: BacktestResult, execution: ExecutionPlan | None) -> None:
@@ -973,6 +1005,7 @@ def verify_manifest(manifest: ReproducibilityManifest) -> bool:
         manifest.dataset_parts,
         manifest.execution_plan_id,
         manifest.queue_model,
+        manifest.instruments_digest,
     )
 
 
@@ -1285,6 +1318,7 @@ def _input_differences(
         ("dataset parts", repr(original.dataset_parts), repr(rerun.dataset_parts)),
         ("execution plan", repr(original.execution_plan_id), repr(rerun.execution_plan_id)),
         ("queue model", repr(original.queue_model), repr(rerun.queue_model)),
+        ("instruments", repr(original.instruments_digest), repr(rerun.instruments_digest)),
     ):
         if before != after:
             differences.append(f"{label}: {before} -> {after}")

@@ -466,6 +466,13 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
   delta was read through the sizing model. Only a working market order defers
   either now, and every forced trade is a target net of the strategy's working
   orders, trading exactly the reduction required.
+* **A run's manifest did not identify the instrument registry it held** [REP-006]
+  (*phase 4*). The registry -- records, venue controls, borrow, the margin
+  model and its surfaces -- is a live object the record names by type only
+  (ADR-0023), so runs given different terms shared a manifest wherever their
+  records agreed. `manifest_for_run(instruments=True)` records the SHA-256 of
+  the registry the run held, read off the run, and renders it into the
+  manifest's identity; asked for nothing, a manifest keeps the identity it had.
 * **A purchase its currency could not pay stopped a multi-currency run** [ACC-017]
   (*phase 3*): buying power sums every currency, so the fill raised
   `InsufficientFundsError`. The purchase is now refused when placed, naming the
@@ -525,6 +532,7 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
 | `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
 | `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.lifecycle.manifest_for_run`; `ReproducibilityManifest`; `canonical_manifest_key`, `derive_manifest_id` | keyword-only `instruments`, `False` by default; field `instruments_digest`, appended last, `None` by default; trailing `instruments_digest`, `None` by default (REP-006, phase 4) |
 | `alphalab.instrument.OptionPricing`; `ScenarioMargin` | field `volatility` may be `None`, to read a surface; fields `surfaces`, empty by default, and `horizon`, `None` by default, written only when declared; `surface_volatility` (FUT-032, phase 4) |
 | `alphalab.backtesting.ElectiveExchange`; `ScheduleKind`; `alphalab.strategy.UnitsElected`, `HoldersRecorded`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`; `PortfolioEngine.apply_exchange`; `ExecutionPipeline.record_holders`, `RunEngine.record_holders` | fields `proration`, empty by default, and `record_at`, `None` by default; member `RECORD`; added; keyword-only `part`, `None` by default; keyword-only `kept`, `None` by default; added (FUT-030, phase 4) |
 | `alphalab.instrument.BorrowAvailability`; `BorrowTerms`; `alphalab.runtime.BorrowClaim`, `borrow_claims` | fields `buy_in_premium`, `buy_in_fee`, `None` by default, and `allocations`, empty by default, each written only when declared; `shared`, `allocated`; `per_strategy`; added (FUT-035, phase 4) |
@@ -577,13 +585,12 @@ ROADMAP's Future work with its interim behaviour and completion criteria, its
 horizon a proposal for the maintainer to confirm.
 
 FUT-030 to FUT-036, proposed by the phase 3 global gap audit after FUT-022 to
-FUT-029 were delivered (phase 4 delivered all seven: FUT-031, FUT-036, FUT-033, FUT-034, FUT-035, FUT-030 and FUT-032): elections split between holders and proration, an
-atomic amend, a dated volatility surface and scenario horizons, an auction
-uncross and a retention-proof first event, failed or corrected payments and
-legs delivered later, a buy-in premium and per-strategy borrow, and a capital
-ceiling's reservation reduced in place. Each is on ROADMAP's Future work with
-its interim behaviour and completion criteria; its horizon (v4.3 or v4.4) is a
-proposal for the maintainer to confirm.
+FUT-029 were delivered, and all delivered by phase 4 (*Added*, above):
+elections split between holders and proration, an atomic amend, a dated
+volatility surface and scenario horizons, an auction uncross and a
+retention-proof first event, failed or corrected payments, a buy-in premium
+and per-strategy borrow, and a capital ceiling's reservation reduced in place;
+legs delivered later are FUT-037.
 
 FUT-022 to FUT-029, proposed by the phase 2 global gap audit after FUT-018 to
 FUT-021 were delivered, and all delivered by phase 3: borrow recall and buy-in, daily-balance accrual, holder

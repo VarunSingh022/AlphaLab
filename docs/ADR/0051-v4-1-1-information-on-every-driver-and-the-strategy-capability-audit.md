@@ -544,6 +544,14 @@ time decay a risk array over a horizon counts -- while the value now is read at
 the instant. Surfaces are coordinates by strike, as the options package's are;
 a moneyness grid is declared at the strikes it implies.
 
+**42. A manifest can name the registry a run held (REP-006, phase 4).** The
+registry stays a live object the record names by type (ADR-0023): its terms
+are the caller's, supplied back to a rerun. But terms that decide what a run
+did -- a lender's allocation, a margin model's surface -- must be identifiable,
+so a manifest asked for it records the digest of the registry the run held, as
+its snapshot writes it, read off the run and never supplied. Opt-in, so no
+existing manifest identity moves.
+
 ---
 
 # Consequences

@@ -238,6 +238,27 @@ Nothing here claims global completeness: what is declared is applied, what is
 not is refused or stated, and the rules, data and venues of any real market are
 the host's.
 
+## The phase 4 global gap audit
+
+Read after FUT-030 to FUT-036 were delivered, against the same areas and
+against each other -- every finding checked in the code before it is called a
+gap, since several capabilities the brief names (an operator's live amend,
+an options volatility surface, opening and closing auctions) already existed
+and are reused rather than duplicated. Same classes as above.
+
+| Finding | Class | Disposition |
+| --- | --- | --- |
+| A run's manifest could not identify the instrument registry it held: controls, borrow, margin model and surfaces | 1 | **Fixed** (REP-006): `manifest_for_run(instruments=True)` |
+| A margin-model volatility surface would have duplicated the options package's | design | the options `VolatilitySurface` reused (FUT-032) |
+| Legs delivered after an exchange's effective instant | 5 | FUT-037 (v4.4) |
+| An elective action's terms corrected after their announcement | 5 | FUT-038 (v4.4) |
+| Volatility surfaces delivered as observations during a run | 5 | FUT-039 (v4.4) |
+| A strategy's view of a reopening auction's published book | 2 | FUT-040 (v4.4) |
+| An amend's atomicity at a venue | 3 | stated: `LiveSession.amend` is the venue's request (FUT-031) |
+| An uncross from depth the venue did not publish | 3 | unchanged (BDY-003) |
+| Borrow netted across strategies under per-strategy locates | 4, conservative | stated: netting is the account's (FUT-035) |
+| A moneyness-indexed surface | 5 | stated: declared at the strikes it implies (FUT-032) |
+
 ## Markets
 
 No family above is tied to a market. A market is a declared calendar, a
