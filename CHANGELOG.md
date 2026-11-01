@@ -51,6 +51,10 @@ phase 4 checkpoint at `cde89f6` (section 12). The package still states 4.2.0
 and they are recorded here for that reason; **whether v4.2.0 or a later
 release carries them is the maintainer's decision**, not made here.
 
+* **An elective action's late delivery amended by the issuer's word** [ACC-018]
+  (*phase 5*). A `DeliveryAmendment` of an `ElectiveExchange`'s leg delivered
+  later (FUT-038) was refused at declaration, as if undeclared; it now delays,
+  corrects or fails the leg as for a `DeliveredExchange` (FUT-037).
 * **A strategy's view of what a venue publishes of an auction** [FUT-040]
   (*phase 5*). `TradingControls(indications=)` declares a venue's
   `alphalab.instrument.AuctionIndication`s -- an indicative price, a matched

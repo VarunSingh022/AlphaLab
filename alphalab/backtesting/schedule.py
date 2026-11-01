@@ -985,10 +985,12 @@ def _require_payments(
         (x.asset_id if isinstance(x, ElectiveExchange) else x.exchange.asset_id, x.at)
         for x in exchanges
     }
+    # An elective action's legs delivered later (FUT-038) are amended as a
+    # delivered exchange's are (FUT-037).
     delivered = {
-        (x.exchange.asset_id, x.at, asset)
+        (x.asset_id if isinstance(x, ElectiveExchange) else x.exchange.asset_id, x.at, asset)
         for x in exchanges
-        if isinstance(x, DeliveredExchange)
+        if isinstance(x, DeliveredExchange | ElectiveExchange)
         for asset, _ in x.deliveries
     }
     by_payment: dict[str, list[PaymentAmendment | DeliveryAmendment]] = {}

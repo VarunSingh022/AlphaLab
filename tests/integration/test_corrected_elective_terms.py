@@ -128,6 +128,24 @@ def test_a_corrected_action_delivers_its_stock_later() -> None:
     assert [(e.quantity, e.settles_at) for e in owed] == [(D("50"), 3.08)]
 
 
+def test_a_corrected_actions_late_delivery_is_amended_by_the_issuers_word() -> None:
+    from alphalab.backtesting import DeliveryAmendment
+    from alphalab.portfolio.events import DeliveryAmended
+    from alphalab.portfolio.settlement import PaymentChange
+
+    action = elective.action(corrections=(RAISE,), deliveries=((NEW.asset_id, 3.08),))
+    word = DeliveryAmendment(OLD.asset_id, 3.0, NEW.asset_id, 3.05, PaymentChange.DELAYED, 3.5)
+    result = exchanges.run(
+        elective.STOCK, OLD, NEW, mids=split.MIDS,
+        strategies=elective.strategies(("S", split.Holder(split.buys("100"), {}))),
+        schedule=RunSchedule.of(exchanges=[action], payments=[word]),
+    )  # fmt: skip
+    (amended,) = [e for e in result.state.portfolio.events if isinstance(e, DeliveryAmended)]
+    assert (amended.change, amended.settles_at) == ("DELAYED", 3.5)
+    owed = [e for e in result.state.portfolio.unsettled if e.delivery is not None]
+    assert [(e.quantity, e.settles_at) for e in owed] == [(D("50"), 3.5)]
+
+
 # --------------------------------------------------------------------------- #
 # The record: each version apart, nothing rewritten
 # --------------------------------------------------------------------------- #
