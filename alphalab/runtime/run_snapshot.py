@@ -271,12 +271,17 @@ def capture(state: RunState) -> RunSnapshot:
 # ---------------------------------------------------------------------------
 
 
-def restore(snapshot: RunSnapshot, objects: RunObjects) -> RunState:
+def restore(
+    snapshot: RunSnapshot, objects: RunObjects, *, instruments_digest: str | None = None
+) -> RunState:
     """Rebuild the state a snapshot was captured from.
 
     The pipeline is rebuilt first, and its configuration becomes the run
     configuration's, so the two cannot disagree. Construction-time validation is
-    re-applied by the pipeline's own restore.
+    re-applied by the pipeline's own restore. ``instruments_digest`` (FUT-041)
+    holds the supplied registry to the terms it names -- a manifest's
+    ``instruments_digest``, say -- since a run snapshot is the run's identity and
+    records none of its own.
 
     Returns:
         The reconstructed run. No identifier source is installed and no record is
@@ -290,7 +295,9 @@ def restore(snapshot: RunSnapshot, objects: RunObjects) -> RunState:
             ``initialize`` enforces.
     """
 
-    pipeline = restore_pipeline(snapshot.pipeline, objects.pipeline)
+    pipeline = restore_pipeline(
+        snapshot.pipeline, objects.pipeline, instruments_digest=instruments_digest
+    )
     fill_policy = _require_object(
         objects.fill_policy,
         snapshot.fill_policy_type,

@@ -334,9 +334,10 @@ def test_a_version_1_payload_reads_as_a_replay_given_no_schedule() -> None:
     )
     assert isinstance(plain, PausedReplay)
     payload = deserialize(serialize(replay_snapshot.capture(plain)))
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     payload["schema_version"] = 1
     del payload["schedule_digest"]
+    del payload["instruments_digest"]  # schema 3's (FUT-041)
 
     assert replay_snapshot.from_primitives(payload).schedule_digest is None
 

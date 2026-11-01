@@ -621,6 +621,22 @@ nothing is filled in, so a venue publishing only an imbalance is shown only an
 imbalance. When the halt will end is still not shown: it is the venue's
 announcement to come.
 
+**48. A registry is held to its terms where a run resumes, and nowhere in its
+identity (FUT-041, phase 6).** A run's record is its `result_id`, so the
+registry's terms are not written there: every run that held a registry would
+take a new identity. They are written where a run is resumed from -- a paused
+replay's and a live run's envelope -- as the digest of the registry's
+snapshot, the same digest a manifest records when asked (REP-006), and a
+restore refuses a registry of the right type with other terms. This revisits
+ADR-0027 decision 5, written when the registry held records and
+classifications and the sizing model and simulator were checked by type too:
+the registry now holds margin, borrow, controls and surfaces, which decide
+fills. A historical replay resumed under other terms is another run and is
+refused; a live run may continue under updated reference data, but only when
+the host says so (`registry_changed`). A payload written before the digest
+existed cannot be verified and is not called verified: it restores by type, as
+it always did, and `registry_verification` reports it `UNRECORDED`.
+
 ---
 
 # Consequences

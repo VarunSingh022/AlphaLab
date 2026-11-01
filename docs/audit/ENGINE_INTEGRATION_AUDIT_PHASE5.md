@@ -148,7 +148,7 @@ manifest identity moves; the manifest identifies the terms themselves with
 | A manifest asked for nothing new names the registry by type alone, and no assessment said so | 1 | **Fixed** (REP-007): an assessment finding; promoting it is FUT-042 |
 | A result's execution assumptions omitted its venue conditions | 2 | **Fixed** (EXE-014): `venue_conditions` |
 | A live session had no surface delivery | 2 | **Fixed** (LIV-002): `LiveSession.deliver_surface` |
-| A resumed run checks its registry by type alone | 4, design | FUT-041 (proposed v4.3) |
+| A resumed run checks its registry by type alone | 4, design | FUT-041, **delivered in phase 6** |
 | A default manifest's registry, as a gap or by default | 4, identity | FUT-042 (proposed v5.0): the maintainer's decision |
 | Auction books and indications delivered during a run, for a live session | 5 | FUT-043 (proposed v4.4) |
 | A strategy's view of a reopening auction's published information | 2 | FUT-040, **delivered in phase 5** |

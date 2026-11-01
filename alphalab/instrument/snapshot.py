@@ -60,6 +60,7 @@ module in AlphaLab holds. Across JSON, decode with
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -115,6 +116,7 @@ from alphalab.persistence.decode import (
     require,
 )
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.serializer import serialize
 from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
 
 __all__ = [
@@ -126,6 +128,7 @@ __all__ = [
     "InstrumentRegistrySnapshot",
     "capture",
     "from_primitives",
+    "registry_digest",
     "restore",
 ]
 
@@ -340,6 +343,23 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
         margin_model=margin_model_to_primitives(registry.margin_model),
         controls=controls_to_primitives(registry.controls),
     )
+
+
+def registry_digest(registry: InstrumentRegistry) -> str:
+    """SHA-256 of ``registry`` as its snapshot writes it: the identity of its terms (FUT-041).
+
+    Every term a run's results can turn on is in the snapshot -- records and
+    their economics, contract, settlement, margin, borrow and tick terms,
+    classifications and aliases, the margin model and its surfaces, the venues'
+    controls -- and nothing that is not: two registries holding the same terms
+    have one digest however they were built. It is what
+    ``manifest_for_run(instruments=True)`` records (REP-006) and what a paused
+    replay or a live run's payload records, so a registry supplied back is held
+    to its terms, not its type. Apart from any run's ``result_id``, which it
+    never enters.
+    """
+
+    return hashlib.sha256(serialize(capture(registry)).encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------

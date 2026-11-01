@@ -83,14 +83,14 @@ from alphalab.replay.events import (
 )
 from alphalab.replay.session import ReplaySession
 from alphalab.replay.state import ReplayState, ReplayStatus
-from alphalab.runtime.run import ExecutionMode
+
+# The identifier-position decoder belongs to the pipeline snapshot, which first
+# wrote one. Imported rather than repeated, as run_snapshot imports its decoders.
+from alphalab.runtime.run import ExecutionMode, RunState
 from alphalab.runtime.run_snapshot import RunObjects, RunSnapshot
 from alphalab.runtime.run_snapshot import capture as capture_run
 from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
 from alphalab.runtime.run_snapshot import restore as restore_run
-
-# The identifier-position decoder belongs to the pipeline snapshot, which first
-# wrote one. Imported rather than repeated, as run_snapshot imports its decoders.
 from alphalab.runtime.snapshot import _id_position
 
 __all__ = [
@@ -108,8 +108,9 @@ __all__ = [
 #: reason ``RUN_SNAPSHOT_SCHEMA`` is one. Version 1 was v4.1's; version 2
 #: (v4.1.1, ledger FUT-003) records the digest of the replay's schedule and, for
 #: a replay given an execution plan (FUT-009), its algorithm book, and for one
-#: given a queue model (FUT-011), its queue book.
-REPLAY_SNAPSHOT_SCHEMA: Final = 2
+#: given a queue model (FUT-011), its queue book. Version 3 (phase 6, ledger
+#: FUT-041) records the digest of the instrument registry the replay held.
+REPLAY_SNAPSHOT_SCHEMA: Final = 3
 
 _SUBSYSTEM: Final = "replay"
 
@@ -118,6 +119,12 @@ def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
     """A version-1 replay was given no schedule, plan or queue model: v4.1 replays took none."""
 
     return {**payload, "schedule_digest": None, "algorithms": None, "queue": None}
+
+
+def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
+    """A version-2 replay recorded no digest of its registry: one it held is checked by type."""
+
+    return {**payload, "instruments_digest": None}
 
 
 #: How every replay payload a release has written is read by this one.
@@ -130,6 +137,13 @@ REPLAY_SCHEMA_HISTORY = SchemaHistory(
             "version 2 records the digest of the replay's schedule, its algorithm book and "
             "its queue book; a v4.1 replay had none of them",
             upgrade=_v1_to_v2,
+        ),
+        SchemaStep(
+            2,
+            "version 3 records the digest of the instrument registry the replay held, so a "
+            "registry supplied back is held to its terms; a version-2 replay recorded none, "
+            "and one it held is checked by type alone (RegistryVerification.UNRECORDED)",
+            upgrade=_v2_to_v3,
         ),
     ),
 )
@@ -182,6 +196,11 @@ class ReplaySnapshot:
             :func:`~alphalab.backtesting.queueing.capture_queue` writes it, or
             ``None`` for a replay given no queue model (v4.1.1, schema 2). The
             model is supplied back to :func:`restore` and held to the book.
+        instruments_digest: :func:`~alphalab.instrument.snapshot.registry_digest`
+            of the instrument registry the replay held, or ``None`` -- for one
+            that held none, or a payload of schema 2 or earlier, which recorded
+            none (phase 6, ledger FUT-041). The registry is supplied back to
+            :func:`restore` and held to it. Not part of any ``result_id``.
     """
 
     run: RunSnapshot
@@ -201,6 +220,7 @@ class ReplaySnapshot:
     schedule_digest: str | None = None
     algorithms: Mapping[str, Any] | None = None
     queue: Mapping[str, Any] | None = None
+    instruments_digest: str | None = None
     schema_version: int = REPLAY_SNAPSHOT_SCHEMA
 
 
@@ -261,12 +281,17 @@ def capture(paused: PausedReplay) -> ReplaySnapshot:
         schedule_digest=paused.schedule.digest if paused.schedule else None,
         algorithms=None if paused.algorithms is None else capture_book(paused.algorithms),
         queue=None if paused.queue is None else capture_queue(paused.queue),
+        instruments_digest=_held_digest(paused.run),
     )
 
 
-# ---------------------------------------------------------------------------
-# Restore
-# ---------------------------------------------------------------------------
+def _held_digest(run: RunState) -> str | None:
+    """The digest of the registry ``run`` holds, or ``None`` if it holds none (FUT-041)."""
+
+    from alphalab.instrument.snapshot import registry_digest
+
+    registry = run.config.pipeline.instruments
+    return None if registry is None else registry_digest(registry)
 
 
 def _refuse(message: str) -> StateDecodeError:
@@ -417,7 +442,9 @@ def restore(
             that had none; if ``queue`` is likewise not the queue model its
             queue book was produced under, missing, or given for a replay that
             had none; or if a live object is missing, of the wrong type, or
-            configured otherwise.
+            configured otherwise -- the instrument registry held to the terms
+            the payload recorded (FUT-041), see
+            :func:`~alphalab.runtime.registry_check.registry_verification`.
     """
 
     _check_cursor(snapshot)
@@ -465,7 +492,7 @@ def restore(
             f"took is at {expected_clock}."
         )
 
-    run = restore_run(snapshot.run, objects)
+    run = restore_run(snapshot.run, objects, instruments_digest=snapshot.instruments_digest)
     cursor = ReplayState(
         session=snapshot.session,
         status=snapshot.status,
@@ -621,5 +648,8 @@ def from_primitives(payload: Mapping[str, Any]) -> ReplaySnapshot:
         schedule_digest=as_optional_str(require(payload, "schedule_digest"), "schedule_digest"),
         algorithms=_optional_book(require(payload, "algorithms")),
         queue=_optional_queue(require(payload, "queue")),
+        instruments_digest=as_optional_str(
+            require(payload, "instruments_digest"), "instruments_digest"
+        ),
         schema_version=REPLAY_SNAPSHOT_SCHEMA,
     )

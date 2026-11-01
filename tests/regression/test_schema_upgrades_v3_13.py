@@ -192,12 +192,14 @@ def test_a_v3_13_live_envelope_is_upgraded_through_its_run() -> None:
     payload = _load("live.json")
     snapshot = from_primitives(payload)
 
-    assert snapshot.schema_version == 2
+    assert snapshot.schema_version == 3  # upgraded to the current envelope (FUT-041)
     assert snapshot.run.schema_version == 5
     assert snapshot.run.pipeline.schema_version == 8
     assert snapshot.broker.schema_version == 2
     expected = copy.deepcopy(payload)
     expected["run"] = _upgraded_run(payload["run"])
+    # The envelope's own step (phase 6, FUT-041): a registry digest, none recorded.
+    expected.update(schema_version=3, instruments_digest=None)
     assert deserialize(serialize(snapshot)) == expected
 
 

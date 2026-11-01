@@ -373,8 +373,9 @@ def test_capture_is_pure_and_repeatable() -> None:
         first, second = capture(paused), capture(paused)
         assert current_id_position() == before, "capture draws no identifier"
     assert first == second and serialize(first) == serialize(second)
-    # v4.1.1 moved it to 2: the schedule's digest (ledger FUT-003).
-    assert first.schema_version == REPLAY_SNAPSHOT_SCHEMA == 2
+    # v4.1.1 moved it to 2: the schedule's digest (ledger FUT-003); phase 6 to
+    # 3: the registry's digest (ledger FUT-041).
+    assert first.schema_version == REPLAY_SNAPSHOT_SCHEMA == 3
 
 
 def test_restoring_one_payload_twice_gives_two_equal_continuations() -> None:
@@ -626,7 +627,7 @@ def test_a_truncated_payload_is_refused_as_json() -> None:
     [
         (None, "missing 'schema_version'"),
         (0, "declares schema version 0"),
-        (3, "declares schema version 3"),
+        (4, "declares schema version 4"),
         ("1", "not an integer"),
         (True, "not an integer"),
     ],
@@ -914,18 +915,19 @@ def test_the_frozen_v4_1_0_payload_reads_and_resumes() -> None:
 
 
 def test_the_frozen_payload_is_what_this_build_writes() -> None:
-    """Byte for byte, but for the one step schema 2 declares (v4.1.1, ledgers FUT-003,
-    FUT-009 and FUT-011): the version, the digest of a schedule, the algorithm book of
-    an execution plan and the queue book of a queue model, none of which a v4.1.0
-    replay could have had."""
+    """Byte for byte, but for the steps schemas 2 and 3 declare (v4.1.1, ledgers FUT-003,
+    FUT-009 and FUT-011; phase 6, FUT-041): the version, the digest of a schedule, the
+    algorithm book of an execution plan, the queue book of a queue model and the digest
+    of an instrument registry, none of which this v4.1.0 replay had."""
 
     frozen = json.loads(FIXTURE.read_text(encoding="utf-8"))
     upgraded = {
         **frozen,
-        "schema_version": 2,
+        "schema_version": 3,
         "schedule_digest": None,
         "algorithms": None,
         "queue": None,
+        "instruments_digest": None,
     }
     assert upgraded == _payload(_paused(11))
 

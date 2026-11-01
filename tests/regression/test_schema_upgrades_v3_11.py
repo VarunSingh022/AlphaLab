@@ -189,7 +189,7 @@ def test_a_v3_11_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
 
     snapshot = from_primitives(_load("live.json"))
 
-    assert snapshot.schema_version == 2
+    assert snapshot.schema_version == 3  # upgraded to the current envelope (FUT-041)
     assert snapshot.run.schema_version == 5
     assert snapshot.run.pipeline.schema_version == 8
     # Recorded by type alone before v4.0, and upgraded to say so (PER-008).

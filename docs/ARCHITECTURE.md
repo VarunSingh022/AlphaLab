@@ -694,9 +694,9 @@ owning module, its own schema constant and its own typed decoder:
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 5` | v2.14 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 4` | v2.15 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 2` | v2.16 |
-| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA = 2` | v2.16 |
+| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA = 3` | v2.16 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA = 1` | v2.17 |
-| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA = 2` | v4.1 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA = 3` | v4.1 |
 
 Three envelopes carry a payload and version only what they add: the run-state
 store's (`persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, v2.14), an

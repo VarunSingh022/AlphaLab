@@ -217,6 +217,7 @@ from alphalab.runtime.execution_pipeline import (
     _require_classifiable,
     _require_one_account_currency,
 )
+from alphalab.runtime.registry_check import verify_registry
 from alphalab.runtime.retention import RetentionPolicy
 from alphalab.strategy.configuration import (
     StrategyConfigurationError,
@@ -1594,13 +1595,22 @@ def _restore_strategies(
     )
 
 
-def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPipelineState:
+def restore(
+    snapshot: PipelineSnapshot,
+    objects: RuntimeObjects,
+    *,
+    instruments_digest: str | None = None,
+) -> ExecutionPipelineState:
     """Rebuild the state a snapshot was captured from.
 
     Args:
         snapshot: The captured projection.
         objects: The live objects the snapshot recorded but did not carry. Every
             one must be present and of the recorded type.
+        instruments_digest: The digest of the registry the run held, as a
+            paused replay, a live run's payload or a manifest recorded it
+            (FUT-041), or ``None``: the supplied registry is then held to its
+            terms, not only its type -- see :func:`verify_registry`.
 
     Returns:
         The reconstructed state, with ``id_position`` set to the captured
@@ -1609,7 +1619,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
 
     Raises:
         StateDecodeError: If a required live object is missing or of the wrong
-            type.
+            type, or the registry's terms are not the recorded ones.
         RuntimeValidationError: If the restored configuration fails a validation
             :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.initialize`
             enforces -- that its two currencies agree, and that classification
@@ -1618,6 +1628,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
     """
 
     config = _restore_config(snapshot.config, objects)
+    verify_registry(snapshot.config.instruments_type, instruments_digest, config.instruments)
     _require_one_account_currency(config)
     _require_classifiable(config)
 

@@ -220,3 +220,25 @@ def test_a_rerun_under_the_same_terms_reproduces_with_them_named(
     )
     assert named.rerun is RerunOutcome.REPRODUCED
     assert not any(REGISTRY_FINDING in finding for finding in named.findings)
+
+
+def test_a_rerun_from_a_manifest_naming_its_registry_reproduces_under_the_same_terms(
+    example: ModuleType, data: Any, original: BacktestResult
+) -> None:
+    from alphalab.lifecycle import rerun_from_manifest
+
+    named = manifest(example, data, original, instruments=True)
+    same = rerun_from_manifest(
+        named, lambda: run_under(example, data, restore(capture(example.REGISTRY))),
+        dataset=data.prices, fingerprint=example.fingerprint(data), engine=running_engine(),
+        build=running_build(), schedule=data.schedule(),
+    )  # fmt: skip
+    # REP-008: the rerun's manifest names its registry and its schedule as the
+    # original's does, so the same terms reproduce, and other ones are other inputs.
+    assert same.outcome is RerunOutcome.REPRODUCED, same.detail
+    other = rerun_from_manifest(
+        named, lambda: run_under(example, data, variants(example)["an extra record"]),
+        dataset=data.prices, fingerprint=example.fingerprint(data), engine=running_engine(),
+        build=running_build(), schedule=data.schedule(),
+    )  # fmt: skip
+    assert other.outcome is RerunOutcome.INPUTS_DIFFER

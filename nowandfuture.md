@@ -1146,9 +1146,9 @@ constant and **one** typed decoder.
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 5 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 4 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
-| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
+| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 3 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
-| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 2 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 3 |
 
 Plus `persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, which versions what
 the *store* records about a payload and nothing inside it, and the envelopes of

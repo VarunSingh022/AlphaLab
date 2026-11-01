@@ -51,6 +51,29 @@ phase 4 checkpoint at `cde89f6` (section 12). The package still states 4.2.0
 and they are recorded here for that reason; **whether v4.2.0 or a later
 release carries them is the maintainer's decision**, not made here.
 
+Entries marked *phase 6* were added after the phase 5 checkpoint at `c348e69`
+(section 13), on the same terms: the release that carries them is the
+maintainer's decision.
+
+* **A resumed run's registry held to its terms, not its type** [FUT-041]
+  (*phase 6*). `alphalab.instrument.snapshot.registry_digest` names a
+  registry's terms; a paused replay's and a live run's payload record it
+  (`ReplaySnapshot.instruments_digest`, `LiveRunSnapshot.instruments_digest`;
+  replay and live schemas 2 -> 3, each read through its schema history), and
+  their restores refuse a registry of the right type with other borrow,
+  margin, control, settlement, tick or contract terms. `run_snapshot.restore`,
+  the pipeline's `restore` and `restore_checkpoints` take a keyword
+  `instruments_digest` to hold a bare run to a manifest's.
+  `live_snapshot.restore(registry_changed=True)` continues a live run under
+  reference data the host updated. `alphalab.runtime.registry_check`
+  (`RegistryVerification`, `registry_verification`, `verify_registry`) reports
+  a payload written before phase 6 `UNRECORDED`: restored by type, as before,
+  and not called verified. No `result_id` moves.
+* **A rerun from a manifest compared like for like** [REP-008] (*phase 6*).
+  `rerun_from_manifest` recorded the rerun's manifest without the registry or
+  the schedule, so a manifest naming either never reproduced; it now names the
+  registry as the original does and takes keyword `schedule` and `execution`.
+
 * **An elective action's late delivery amended by the issuer's word** [ACC-018]
   (*phase 5*). A `DeliveryAmendment` of an `ElectiveExchange`'s leg delivered
   later (FUT-038) was refused at declaration, as if undeclared; it now delays,
@@ -606,6 +629,7 @@ release carries them is the maintainer's decision**, not made here.
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
 | `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
 | `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.instrument.snapshot.registry_digest`; `alphalab.runtime.registry_check` (`RegistryVerification`, `registry_verification`, `verify_registry`); `alphalab.backtesting.replay_snapshot.ReplaySnapshot`, `alphalab.runtime.live_snapshot.LiveRunSnapshot`; `alphalab.runtime.snapshot.restore`, `alphalab.runtime.run_snapshot.restore`, `alphalab.runtime.checkpoint.restore_checkpoints`; `alphalab.runtime.live_snapshot.restore`; `alphalab.lifecycle.rerun_from_manifest` | added; added; field `instruments_digest`, `None` by default, appended before `schema_version`, schemas 2 -> 3; keyword-only `instruments_digest`, `None` by default; keyword-only `registry_changed`, `False` by default; keyword `schedule` and `execution`, `None` by default (FUT-041, REP-008, phase 6) |
 | `alphalab.instrument.TradingControls`; `alphalab.instrument.AuctionIndication`, `PublishedAuction`; `TradingControls.indication`; `alphalab.strategy.context.UniverseProtocol`, `NoUniverse`; `alphalab.runtime.context_views.UniverseView` | field `indications`, empty by default, appended last, written only when declared; added; added; method `auction`; method `auction` (FUT-040, phase 5) |
 | `alphalab.runtime.ExecutionAssumptions`; `alphalab.runtime.live.LiveSession`; `alphalab.lifecycle.assess_reproducibility` | field `venue_conditions`, empty by default, appended last; method `deliver_surface`; one more finding for a run manifest naming its registry by type alone (phase 5 engine integration audit) |
 | `alphalab.risk.RiskState`; `alphalab.risk.ObservedSurface`, `alphalab.risk.surfaces`; `alphalab.instrument.OptionRisk`; `ScenarioMargin`; `RunSchedule.of`; `ScheduleKind`; `alphalab.strategy.context.RiskViewProtocol`, `NoRiskView`; `alphalab.runtime.context_views.RiskView`; `deliver_surface` (`ExecutionPipeline`, `RunEngine`); `alphalab.instrument.margin.read_surface` | field `surfaces`, empty by default, appended last; added; field `volatility`, appended last, `None` by default; fields `surface_feed`, `surface_max_age`, `None` by default, written only when declared; keyword `surfaces`; member `SURFACE`; method `volatility_surface`; method `volatility_surface`; added; added (FUT-039, phase 5) |

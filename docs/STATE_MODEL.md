@@ -194,15 +194,22 @@ and a typed decoder that refuses what it does not understand. Eleven do (v4.1):
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 5 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 4 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
-| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
+| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 3 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
-| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 2 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 3 |
 
 `InstrumentRegistry` schema 4 (v4.1.1) carries each instrument's last trading
 instant (FUT-012) and its contract terms (FUT-013) -- `OptionTerms` or
 `FutureTerms`, enum members by name and amounts as text -- read back through
 the record's own validation, so a payload stating terms a contract cannot have
 is refused. Neither enters the identity key: every `asset_id` is what it was.
+
+`PausedReplay` schema 3 and `LiveRunState` schema 3 (phase 6, ledger FUT-041)
+record `instruments_digest`, the digest of the instrument registry the run held
+(`instrument.snapshot.registry_digest`) or `null` for one that held none; a
+restore holds the registry supplied back to it. A payload of schema 2 reads as
+recording none, and a registry it held is checked by type alone. Neither the run
+snapshot nor any `result_id` carries it.
 
 `PausedReplay` (v4.1, ledger FUT-001) is a replay stopped between two records:
 its envelope nests the run snapshot unchanged and adds the replay cursor and the

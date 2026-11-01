@@ -443,7 +443,7 @@
       "REPLAY_SCHEMA_HISTORY": "value alphalab.persistence.upgrade.SchemaHistory",
       "REPLAY_SNAPSHOT_SCHEMA": "value builtins.int",
       "ReplayEventRecord": "class alphalab.backtesting.replay_snapshot.ReplayEventRecord(event_type: 'str', event: 'ReplaySystemEvent') -> None",
-      "ReplaySnapshot": "class alphalab.backtesting.replay_snapshot.ReplaySnapshot(run: 'RunSnapshot', session: 'ReplaySession', status: 'ReplayStatus', current_index: 'int', current_timestamp: 'float', real_start_time: 'float', real_current_time: 'float', events: 'tuple[ReplayEventRecord, ...]', cursor_position: 'IdStreamPosition', records_total: 'int', dataset_digest: 'str', last_event_id: 'str | None', next_event_id: 'str', events_dropped: 'int' = 0, schedule_digest: 'str | None' = None, algorithms: 'Mapping[str, Any] | None' = None, queue: 'Mapping[str, Any] | None' = None, schema_version: 'int' = 2) -> None",
+      "ReplaySnapshot": "class alphalab.backtesting.replay_snapshot.ReplaySnapshot(run: 'RunSnapshot', session: 'ReplaySession', status: 'ReplayStatus', current_index: 'int', current_timestamp: 'float', real_start_time: 'float', real_current_time: 'float', events: 'tuple[ReplayEventRecord, ...]', cursor_position: 'IdStreamPosition', records_total: 'int', dataset_digest: 'str', last_event_id: 'str | None', next_event_id: 'str', events_dropped: 'int' = 0, schedule_digest: 'str | None' = None, algorithms: 'Mapping[str, Any] | None' = None, queue: 'Mapping[str, Any] | None' = None, instruments_digest: 'str | None' = None, schema_version: 'int' = 3) -> None",
       "capture": "function alphalab.backtesting.replay_snapshot.capture(paused: 'PausedReplay') -> 'ReplaySnapshot'",
       "dataset_digest": "function alphalab.backtesting.replay_snapshot.dataset_digest(dataset: 'MarketDataset') -> 'str'",
       "from_primitives": "function alphalab.backtesting.replay_snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'ReplaySnapshot'",
@@ -1506,6 +1506,7 @@
       "InstrumentRegistrySnapshot": "class alphalab.instrument.snapshot.InstrumentRegistrySnapshot(instruments: 'tuple[InstrumentRegistryRecord, ...]', schema_version: 'int' = 4, margin_model: 'Mapping[str, Any] | None' = None, controls: 'Mapping[str, Any] | None' = None) -> None",
       "capture": "function alphalab.instrument.snapshot.capture(registry: 'InstrumentRegistry') -> 'InstrumentRegistrySnapshot'",
       "from_primitives": "function alphalab.instrument.snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'InstrumentRegistrySnapshot'",
+      "registry_digest": "function alphalab.instrument.snapshot.registry_digest(registry: 'InstrumentRegistry') -> 'str'",
       "restore": "function alphalab.instrument.snapshot.restore(snapshot: 'InstrumentRegistrySnapshot') -> 'InstrumentRegistry'"
     },
     "alphalab.lifecycle": {
@@ -1717,7 +1718,7 @@
       "register_strategy_version": "function alphalab.lifecycle.strategy_version.register_strategy_version(registry: 'StrategyVersionRegistry', name: 'str', definition: 'StrategyDefinition', timestamp: 'float', model: 'ModelRef | None' = None, run_id: 'str | None' = None, tags: 'Mapping[str, str] | None' = None) -> 'tuple[StrategyVersionRegistry, StrategyVersion]'",
       "release_manifest": "function alphalab.lifecycle.deployment.release_manifest(strategy: 'StrategyVersion') -> 'tuple[dict[str, str], dict[str, str]]'",
       "replace_strategy_version": "function alphalab.lifecycle.strategy_version.replace_strategy_version(registry: 'StrategyVersionRegistry', updated: 'StrategyVersion') -> 'StrategyVersionRegistry'",
-      "rerun_from_manifest": "function alphalab.lifecycle.rerun.rerun_from_manifest(manifest: 'ReproducibilityManifest', run: 'Callable[[], BacktestResult]', *, dataset: 'VersionedDataset', fingerprint: 'StrategyFingerprint', engine: 'EngineIdentity', build: 'EngineBuild | None', original: 'BacktestResult | None' = None) -> 'RerunReport'",
+      "rerun_from_manifest": "function alphalab.lifecycle.rerun.rerun_from_manifest(manifest: 'ReproducibilityManifest', run: 'Callable[[], BacktestResult]', *, dataset: 'VersionedDataset', fingerprint: 'StrategyFingerprint', engine: 'EngineIdentity', build: 'EngineBuild | None', original: 'BacktestResult | None' = None, schedule: 'RunSchedule | None' = None, execution: 'ExecutionPlan | None' = None) -> 'RerunReport'",
       "research_configuration": "function alphalab.lifecycle.fingerprint.research_configuration(settings: 'Mapping[str, str]', study_id: 'str | None' = None) -> 'ResearchConfiguration'",
       "research_configuration_for_study": "function alphalab.lifecycle.fingerprint.research_configuration_for_study(study: 'StudyIdentity', settings: 'Mapping[str, str] | None' = None) -> 'ResearchConfiguration'",
       "research_configuration_with_adaptive": "function alphalab.lifecycle.fingerprint.research_configuration_with_adaptive(settings: 'Mapping[str, str]', adaptive: 'Sequence[tuple[AdaptiveConfiguration, AdaptiveState]]', study: 'StudyIdentity | None' = None) -> 'ResearchConfiguration'",
@@ -2641,7 +2642,7 @@
       "live_health": "function alphalab.runtime.live.live_health(state: 'LiveRunState') -> 'tuple[str, ...]'",
       "margin_position": "function alphalab.runtime.execution_pipeline.margin_position(state: 'ExecutionPipelineState', rates: 'FxRates', as_of: 'float') -> 'MarginPosition | None'",
       "read_checkpoints": "function alphalab.runtime.checkpoint.read_checkpoints(payloads: 'Sequence[str]') -> 'RunSnapshot'",
-      "restore_checkpoints": "function alphalab.runtime.checkpoint.restore_checkpoints(payloads: 'Sequence[str]', objects: 'RunObjects') -> 'RunState'",
+      "restore_checkpoints": "function alphalab.runtime.checkpoint.restore_checkpoints(payloads: 'Sequence[str]', objects: 'RunObjects', *, instruments_digest: 'str | None' = None) -> 'RunState'",
       "route_child_order": "function alphalab.runtime.broker_routing.route_child_order(broker_state: 'BrokerState', broker: 'BrokerProtocol', parent: 'OMSOrder', child: 'ChildOrder', timestamp: 'float', *, mapping: 'ExternalOrderMap', children: 'ChildOrderBindings', config: 'RoutingConfig', capability: 'CompatibilityReport | None') -> 'ChildRoutingResult'",
       "route_order": "function alphalab.runtime.broker_routing.route_order(broker_state: 'BrokerState', broker: 'BrokerProtocol', oms_order: 'OMSOrder', timestamp: 'float', mapping: 'ExternalOrderMap | None' = None, *, config: 'RoutingConfig', capability: 'CompatibilityReport | None' = None) -> 'RoutingResult'",
       "session_close": "function alphalab.runtime.calendars.session_close(calendar: 'MarketCalendar', day: 'date') -> 'float'",
@@ -2653,10 +2654,10 @@
       "IssuedRequestRecord": "class alphalab.runtime.live_snapshot.IssuedRequestRecord(kind: \"Literal['cancel', 'modify']\", request: 'CancelRequest | ModifyRequest') -> None",
       "LIVE_SCHEMA_HISTORY": "value alphalab.persistence.upgrade.SchemaHistory",
       "LIVE_SNAPSHOT_SCHEMA": "value builtins.int",
-      "LiveRunSnapshot": "class alphalab.runtime.live_snapshot.LiveRunSnapshot(run: 'RunSnapshot', broker: 'BrokerSnapshot', venue: 'str', currency: 'str', order_type: 'OrderType', requests: 'tuple[IssuedRequestRecord, ...]' = (), held: 'tuple[str, ...]' = (), schema_version: 'int' = 2) -> None",
+      "LiveRunSnapshot": "class alphalab.runtime.live_snapshot.LiveRunSnapshot(run: 'RunSnapshot', broker: 'BrokerSnapshot', venue: 'str', currency: 'str', order_type: 'OrderType', requests: 'tuple[IssuedRequestRecord, ...]' = (), held: 'tuple[str, ...]' = (), instruments_digest: 'str | None' = None, schema_version: 'int' = 3) -> None",
       "capture": "function alphalab.runtime.live_snapshot.capture(state: 'LiveRunState') -> 'LiveRunSnapshot'",
       "from_primitives": "function alphalab.runtime.live_snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'LiveRunSnapshot'",
-      "restore": "function alphalab.runtime.live_snapshot.restore(snapshot: 'LiveRunSnapshot', objects: 'RunObjects') -> 'LiveRunState'"
+      "restore": "function alphalab.runtime.live_snapshot.restore(snapshot: 'LiveRunSnapshot', objects: 'RunObjects', *, registry_changed: 'bool' = False) -> 'LiveRunState'"
     },
     "alphalab.runtime.run_snapshot": {
       "RUN_SCHEMA_HISTORY": "value alphalab.persistence.upgrade.SchemaHistory",
@@ -2666,7 +2667,7 @@
       "SkippedRecordRecord": "class alphalab.runtime.run_snapshot.SkippedRecordRecord(payload_type: 'str', record: 'MarketRecord', reason: 'str') -> None",
       "capture": "function alphalab.runtime.run_snapshot.capture(state: 'RunState') -> 'RunSnapshot'",
       "from_primitives": "function alphalab.runtime.run_snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'RunSnapshot'",
-      "restore": "function alphalab.runtime.run_snapshot.restore(snapshot: 'RunSnapshot', objects: 'RunObjects') -> 'RunState'"
+      "restore": "function alphalab.runtime.run_snapshot.restore(snapshot: 'RunSnapshot', objects: 'RunObjects', *, instruments_digest: 'str | None' = None) -> 'RunState'"
     },
     "alphalab.runtime.snapshot": {
       "AnalyticsEventRecord": "class alphalab.runtime.snapshot.AnalyticsEventRecord(event_type: 'str', event: 'AnalyticsEvent') -> None",
@@ -2685,7 +2686,7 @@
       "StrategyStateRecord": "class alphalab.runtime.snapshot.StrategyStateRecord(payload: 'Any', version: 'int') -> None",
       "capture": "function alphalab.runtime.snapshot.capture(state: 'ExecutionPipelineState') -> 'PipelineSnapshot'",
       "from_primitives": "function alphalab.runtime.snapshot.from_primitives(payload: 'Mapping[str, Any]') -> 'PipelineSnapshot'",
-      "restore": "function alphalab.runtime.snapshot.restore(snapshot: 'PipelineSnapshot', objects: 'RuntimeObjects') -> 'ExecutionPipelineState'"
+      "restore": "function alphalab.runtime.snapshot.restore(snapshot: 'PipelineSnapshot', objects: 'RuntimeObjects', *, instruments_digest: 'str | None' = None) -> 'ExecutionPipelineState'"
     },
     "alphalab.scenario": {
       "COMMODITY_SHOCK_2022": "value alphalab.scenario.library.ScenarioDefinition",
@@ -3106,9 +3107,9 @@
         "function alphalab.oms.snapshot.restore(snapshot: 'OMSSnapshot') -> 'OMSState'",
         "function alphalab.portfolio.fx_feed.restore(snapshot: 'FxFeedSnapshot') -> 'FxFeedState'",
         "function alphalab.portfolio.snapshot.restore(snapshot: 'PortfolioSnapshot') -> 'PortfolioState'",
-        "function alphalab.runtime.live_snapshot.restore(snapshot: 'LiveRunSnapshot', objects: 'RunObjects') -> 'LiveRunState'",
-        "function alphalab.runtime.run_snapshot.restore(snapshot: 'RunSnapshot', objects: 'RunObjects') -> 'RunState'",
-        "function alphalab.runtime.snapshot.restore(snapshot: 'PipelineSnapshot', objects: 'RuntimeObjects') -> 'ExecutionPipelineState'",
+        "function alphalab.runtime.live_snapshot.restore(snapshot: 'LiveRunSnapshot', objects: 'RunObjects', *, registry_changed: 'bool' = False) -> 'LiveRunState'",
+        "function alphalab.runtime.run_snapshot.restore(snapshot: 'RunSnapshot', objects: 'RunObjects', *, instruments_digest: 'str | None' = None) -> 'RunState'",
+        "function alphalab.runtime.snapshot.restore(snapshot: 'PipelineSnapshot', objects: 'RuntimeObjects', *, instruments_digest: 'str | None' = None) -> 'ExecutionPipelineState'",
         "function alphalab.strategy.adaptive.restore(payload: 'Mapping[str, Any]', configuration: 'AdaptiveConfiguration', rule: 'AdaptiveRule') -> 'AdaptiveState'"
       ],
       "reason": "Restorations of different states: each snapshot module's restore(snapshot) rebuilds its own state from its own snapshot -- the pipeline, run and live snapshots taking back the live objects they record, by type and configuration (docs/STATE_MODEL.md) -- and oms re-exports its module's; strategy.restore(payload, configuration, rule) rebuilds an adaptive state from strategy.checkpoint's primitives, or refuses."

@@ -831,12 +831,10 @@ def manifest_for_run(
 def _registry_digest(result: BacktestResult) -> str | None:
     """SHA-256 of the instrument registry ``result``'s run held, as its snapshot writes it."""
 
-    from alphalab.instrument.snapshot import capture as capture_registry
+    from alphalab.instrument.snapshot import registry_digest
 
     registry = result.run.config.pipeline.instruments
-    if registry is None:
-        return None
-    return _sha256(serialize(capture_registry(registry)))
+    return None if registry is None else registry_digest(registry)
 
 
 def _require_plan_of(result: BacktestResult, execution: ExecutionPlan | None) -> None:

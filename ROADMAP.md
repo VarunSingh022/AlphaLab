@@ -387,6 +387,25 @@ a later release is the maintainer's decision, and nothing here assigns it.
   tested adapter, production connection (none), synthetic input, verified
   convention (none) -- and FUT-041 to FUT-043 proposed.
 
+## After phase 5: phase 6 (the release that carries it is the maintainer's decision)
+
+Delivered on the same development branch after the phase 5 checkpoint at
+`c348e69`. The package still states 4.2.0; whether this work ships in v4.2.0 or
+a later release is the maintainer's decision, and nothing here assigns it.
+
+- **A resumed run's registry held to its terms, not its type** (FUT-041): a
+  paused replay's and a live run's payload record the digest of the instrument
+  registry the run held (`registry_digest`, replay and live schemas 3), and a
+  restore refuses a registry of the right type with other terms; a bare run
+  snapshot or checkpoint chain -- the run's identity, which records none -- is
+  held to a digest the caller supplies, a manifest's say. A live restore may
+  declare `registry_changed` when the host updated its reference data; a
+  payload written before phase 6 restores by type alone and says so
+  (`RegistryVerification.UNRECORDED`). No `result_id` moves.
+- **A rerun from a manifest compared like for like** (REP-008):
+  `rerun_from_manifest` records the rerun's registry and schedule as the
+  original's manifest does, so a run that named either can be reproduced.
+
 # Deliberate boundaries
 
 Not built, on purpose. Each has a reason, and most have a regression test that a
@@ -754,12 +773,12 @@ conservative or refused where it binds. Phase 4 delivers them on the candidate
 branch after its phase 3 checkpoint at `bbc4085`; those still below are not yet
 delivered. The phase 4 global gap audit proposed the others below, each a
 boundary of what phase 4 delivered; the phase 5 engine integration audit
-(`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`) proposed FUT-041 to FUT-043.
+(`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`) proposed three more, which
+phase 6 takes up in turn; those still below are not yet delivered.
 Every horizon is a proposal for the maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-041 | **A resumed run's registry checked by its terms, not its type** | name the registry in the manifest and compare the resumed run's | v4.3 | registry digest (REP-006) |
 | FUT-042 | **A default manifest that names the registry** (a compatibility decision) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
 | FUT-043 | **Auction books and indications delivered during a run** | deliver the venue's auction messages as observations; reopen by the print | v4.4 | computed auctions, surface feeds, published auctions |
 

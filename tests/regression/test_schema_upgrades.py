@@ -312,7 +312,7 @@ def test_a_v3_9_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
     ):
         snapshot = from_primitives(_load("live.json"))
 
-    assert snapshot.schema_version == 2
+    assert snapshot.schema_version == 3  # upgraded to the current envelope (FUT-041)
     assert snapshot.requests == ()  # version 1 recorded none
     assert snapshot.run.schema_version == 5
     assert snapshot.run.pipeline.schema_version == 8
