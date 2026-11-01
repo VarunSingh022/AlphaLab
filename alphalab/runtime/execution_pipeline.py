@@ -153,6 +153,7 @@ from alphalab.runtime.retention import RetentionPolicy, trimmed
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
+    AmendRefused,
     CancelRefused,
     ElectionMade,
     ExerciseRefused,
@@ -1245,8 +1246,9 @@ class ExecutionPipeline:
         strategy, intents = StrategyEngine.process_event(
             state.strategy, event, populated, event.timestamp
         )
-        ordered = _for_orders(intents)
-        current = _cancels_requested(evolve(current, strategy=strategy), intents, event.timestamp)
+        current, ordered = _instructions_requested(
+            evolve(current, strategy=strategy), intents, event.timestamp
+        )
         allocation, requests = _allocate(current, ordered, market_prices, rates, event.timestamp)
         current = evolve(current, allocation=allocation)
         current, routed = _route_requests(current, event, ordered, requests, policy, rates)
@@ -1740,8 +1742,7 @@ class ExecutionPipeline:
         )
         strategy, intents = StrategyEngine.stop(state.strategy, populated, timestamp, strategy_ids)
         current = _exercises_requested(evolve(state, strategy=strategy), intents, timestamp, rates)
-        current = _cancels_requested(current, intents, timestamp)
-        ordered = _for_orders(intents)
+        current, ordered = _instructions_requested(current, intents, timestamp)
         if not ordered or last is None:
             # With no event processed there is no price to size or judge an
             # order by; the intents are reported and nothing is placed.
@@ -4755,7 +4756,7 @@ def _book_package(
     return current
 
 
-_NOT_ORDERS: Final = (IntentKind.EXERCISE, IntentKind.CANCEL, IntentKind.ELECT)
+_NOT_ORDERS: Final = (IntentKind.EXERCISE, IntentKind.CANCEL, IntentKind.ELECT, IntentKind.AMEND)
 
 
 def _cancels_requested(
@@ -4809,6 +4810,152 @@ def _cancels_requested(
                 continue
             current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
     return current
+
+
+def _instructions_requested(
+    state: ExecutionPipelineState, intents: tuple[Intent, ...], timestamp: float
+) -> tuple[ExecutionPipelineState, tuple[Intent, ...]]:
+    """Carry out the batch's cancels and amends; the intents allocation sizes, replacements last."""
+
+    current = _cancels_requested(state, intents, timestamp)
+    current, replacements = _amends_requested(current, intents, timestamp)
+    return current, (*_for_orders(intents), *replacements)
+
+
+def _amends_requested(
+    state: ExecutionPipelineState, intents: tuple[Intent, ...], timestamp: float
+) -> tuple[ExecutionPipelineState, tuple[Intent, ...]]:
+    """Amend what each amend instruction names (FUT-029), and the replacements to place.
+
+    An amend applies to the one order working in its instrument that the asking
+    strategy alone contributed to, under simulated routing; it keeps the order's
+    type and time in force. A reduction at the same prices is made in place --
+    the OMS replaces the order's quantity, its contribution and its reservation
+    shrink, and it keeps its id and so its queue priority. Any other amend --
+    more quantity, another limit or stop -- withdraws the order and returns its
+    replacement, a delta of the quantity asked at the terms asked, which the
+    batch places through allocation, risk and the OMS like any order, at the
+    back of its queue. One the run cannot make is recorded as an
+    :class:`~alphalab.strategy.events.AmendRefused` and changes nothing.
+    """
+
+    if not any(intent.kind is IntentKind.AMEND for intent in intents):
+        return state, ()
+    current = state
+    replacements: list[Intent] = []
+    for intent in intents:
+        if intent.kind is not IntentKind.AMEND:
+            continue
+        refusal, order = _amendable(current, intent)
+        if refusal is not None or order is None:
+            current = _refuse_amend(current, intent, timestamp, refusal or "")
+            continue
+        terms = intent.terms
+        reduced = intent.target < order.remaining_quantity
+        same_prices = (
+            terms.limit_price == order.limit_price and terms.stop_price == order.stop_price
+        )
+        if same_prices and intent.target == order.remaining_quantity:
+            continue  # nothing to change
+        if same_prices and reduced:
+            current = _reduce_in_place(current, order, intent.target, timestamp)
+            continue
+        current = _end_unfilled(current, order, timestamp)
+        sign = Decimal("1") if order.side is OMSSide.BUY else Decimal("-1")
+        replacements.append(
+            Intent(
+                intent.strategy_id,
+                intent.instrument,
+                ACCOUNTING_CONTEXT.multiply(sign, intent.target),
+                timestamp=timestamp,
+                kind=IntentKind.DELTA,
+                terms=terms,
+                metadata={"amends": str(order.order_id.value)},
+            )
+        )
+    return current, tuple(replacements)
+
+
+def _amendable(state: ExecutionPipelineState, intent: Intent) -> tuple[str | None, OMSOrder | None]:
+    """The one order ``intent`` amends, or why it cannot be amended."""
+
+    if state.config.routing is ExecutionRouting.EXTERNAL:
+        return (
+            "The order is held at the venue; an amend there is a venue request "
+            "(LiveSession.amend).",
+            None,
+        )
+    if state.config.routing is ExecutionRouting.ALGORITHMIC:
+        return "The order is a parent an execution plan works; amending it is not modelled.", None
+    own: list[OMSOrder] = []
+    for order_id in state.oms.working_orders_for(intent.instrument):
+        contributions = AllocationEngine.contributions_for(state.allocation, str(order_id.value))
+        if not any(c.strategy_id == intent.strategy_id for c in contributions):
+            continue
+        if not all(c.strategy_id == intent.strategy_id for c in contributions):
+            return (
+                "The order is netted with another strategy's, and amending it would amend theirs.",
+                None,
+            )
+        own.append(state.oms.orders.find(order_id))
+    if len(own) != 1:
+        return (
+            f"An amend names the one order the strategy has working in the instrument, and it "
+            f"has {len(own)}.",
+            None,
+        )
+    (order,) = own
+    terms = intent.terms
+    if terms.order_type is not order.order_type or terms.time_in_force is not order.time_in_force:
+        return (
+            f"An amend keeps the order's type and time in force ({order.order_type.name}, "
+            f"{order.time_in_force.name}); place a new order for other terms.",
+            None,
+        )
+    if order.order_type is OrderType.MARKET:
+        return "A market order has no price to amend; it trades at its next turn.", None
+    return None, order
+
+
+def _reduce_in_place(
+    state: ExecutionPipelineState, order: OMSOrder, remaining: Decimal, timestamp: float
+) -> ExecutionPipelineState:
+    """``order`` with ``remaining`` left working, its id and its queue place kept (FUT-029)."""
+
+    ctx = ACCOUNTING_CONTEXT
+    order_id = str(order.order_id.value)
+    total = ctx.add(order.filled_quantity, remaining)
+    oms = OMSEngine.replace(state.oms, order.order_id, total, timestamp)
+    allocation = state.allocation
+    (contribution,) = AllocationEngine.contributions_for(allocation, order_id)
+    sign = Decimal("1") if contribution.quantity > 0 else Decimal("-1")
+    contributions = allocation.contributions.set(
+        order_id, (replace(contribution, quantity=ctx.multiply(sign, total)),)
+    )
+    reserved = allocation.reservations.get(order_id)
+    if reserved is not None and order.remaining_quantity:
+        # What it holds shrinks with what it may still fill: the same share.
+        kept = ctx.divide(ctx.multiply(reserved, remaining), order.remaining_quantity)
+        allocation = evolve(
+            allocation,
+            reservations=allocation.reservations.set(order_id, kept),
+            notional_allocated=ctx.subtract(
+                allocation.notional_allocated, ctx.subtract(reserved, kept)
+            ),
+        )
+    return evolve(state, oms=oms, allocation=evolve(allocation, contributions=contributions))
+
+
+def _refuse_amend(
+    state: ExecutionPipelineState, intent: Intent, timestamp: float, reason: str
+) -> ExecutionPipelineState:
+    """Record that ``intent`` could not be made, in the strategy runtime's log."""
+
+    refused = AmendRefused(str(new_id()), timestamp, intent.strategy_id, intent.instrument, reason)
+    strategy = state.strategy
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
+    )
 
 
 def _refuse_cancel(
@@ -5238,8 +5385,7 @@ def _deliver_instant(
         as_of=at,
     )
     strategy, intents = StrategyEngine.process_event(state.strategy, event, populated, at)
-    current = _cancels_requested(evolve(state, strategy=strategy), intents, at)
-    ordered = _for_orders(intents)
+    current, ordered = _instructions_requested(evolve(state, strategy=strategy), intents, at)
     if not ordered or last is None:
         current = _exercises_requested(current, intents, at, rates)
         return evolve(current, id_position=current_id_position()), intents, ()
@@ -5500,8 +5646,7 @@ def _deliver_feedback(
         as_of=instant,
     )
     strategy, intents = StrategyEngine.deliver(state.strategy, deliveries, populated, instant)
-    current = _cancels_requested(evolve(state, strategy=strategy), intents, instant)
-    ordered = _for_orders(intents)
+    current, ordered = _instructions_requested(evolve(state, strategy=strategy), intents, instant)
     if not ordered:
         # Exercise instructions, if any, are the caller's to apply (FUT-014).
         return current, intents, (), _NO_ROUTING

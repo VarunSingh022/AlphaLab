@@ -120,6 +120,15 @@ class IntentKind(StrEnum):
     #: counted only between its announcement and its deadline. ``strength`` must
     #: be one and ``terms`` the default.
     ELECT = "elect"
+    #: An instruction to amend the one order the strategy alone has working in
+    #: ``instrument`` (phase 3, ledger FUT-029): ``target`` is the quantity it
+    #: should have left working, and ``terms`` its terms, of the order's own
+    #: type and time in force. A reduction at the same prices is made in place
+    #: and keeps the order's queue priority; any other amend withdraws it and
+    #: places its replacement through allocation, risk and the OMS, at the back
+    #: of its queue. One the run cannot make is recorded as an
+    #: :class:`AmendRefused`. ``strength`` must be one.
+    AMEND = "amend"
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +209,22 @@ class ExerciseRefused(StrategyRuntimeEvent):
     strategy_id: str
     asset_id: str
     contracts: Decimal
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class AmendRefused(StrategyRuntimeEvent):
+    """A strategy's amend the run could not make (phase 3, ledger FUT-029).
+
+    Attributes:
+        strategy_id: The strategy that asked.
+        asset_id: The instrument it asked to amend an order in.
+        reason: Why, in a sentence: no order or several of its own, one netted
+            or held at a venue, or terms the order cannot take.
+    """
+
+    strategy_id: str
+    asset_id: str
     reason: str
 
 

@@ -73,6 +73,7 @@ from alphalab.strategy.definition import StrategyDefinition, numeric_parameters
 from alphalab.strategy.dispatcher import Dispatcher
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
+    AmendRefused,
     CancelRefused,
     ElectionMade,
     ExerciseRefused,
@@ -141,6 +142,7 @@ __all__ = [
     "AdaptiveStep",
     "AdaptiveStrategy",
     "AdaptiveTransition",
+    "AmendRefused",
     "BaseStrategy",
     "CancelRefused",
     "ClockProtocol",

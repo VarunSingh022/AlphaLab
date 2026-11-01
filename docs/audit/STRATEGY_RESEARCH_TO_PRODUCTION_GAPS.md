@@ -19,7 +19,7 @@ followed (section *The phase 2 global gap audit*, below) fixed three gaps --
 EXE-013, NUM-016, and a strategy's view of borrow terms under FUT-018 -- and
 raised FUT-022 to FUT-029, which phase 3 delivers in turn (FUT-022, a
 lender's recall bought in, FUT-023, daily accrual, FUT-025, an entitlement paid later, FUT-026, options repriced in
-margin scenarios, FUT-024, holder elections, FUT-028, reference-price bands, and FUT-027, a reopening auction, so far). Rows below are as
+margin scenarios, FUT-024, holder elections, FUT-028, reference-price bands, FUT-027, a reopening auction, and FUT-029, a strategy's amend: all eight). Rows below are as
 of the FUT-011 milestone.
 
 ## Classes
@@ -156,7 +156,6 @@ on one schedule, and its replay pauses through a payload.
 
 | Work | Families it moves | Release class |
 | --- | --- | --- |
-| FUT-029 a strategy's amend in place | 6 (market making, passive execution) | minor |
 
 Delivered by the continuation, with the release class each took: FUT-004
 scheduled inputs, FUT-012 cash settlement at expiry, FUT-005 the schedule in the
@@ -193,7 +192,7 @@ future enhancement; 6 already implemented or resolved.
 | Options repriced from their underlying in margin scenarios | 2 | FUT-026, **delivered in phase 3** |
 | A halt's reopening auction; auction imbalance | 2 | FUT-027, **delivered in phase 3**; imbalance arrives as the caller's observations |
 | Bands computed from a reference price | 5 | FUT-028, **delivered in phase 3** |
-| A strategy's amend in place, keeping priority | 5 | FUT-029 (v4.3); cancel and replace is the conservative reading |
+| A strategy's amend in place, keeping priority | 5 | FUT-029, **delivered in phase 3** |
 | Opening and closing auction orders | 6 | `OrderTerms.at_open` and `at_close`, filled at a session bar's open or close |
 | An operator's amend at a live venue | 6 | `LiveSession.amend` |
 | Lots, minimum notional, negative prices, multipliers | 6 | `InstrumentEconomics`, read at allocation and liquidation |

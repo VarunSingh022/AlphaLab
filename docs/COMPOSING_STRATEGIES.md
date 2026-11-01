@@ -45,7 +45,11 @@ pair or a trailing stop is the strategy's own logic over `on_fill`, `on_order`
 and `on_quote`. An order netted with another strategy's, or worked by an
 execution plan, is left working and recorded as a `CancelRefused`. Without a
 cancel, a new target counts a resting order as held: a target of zero beside a
-resting buy sells against it.
+resting buy sells against it. `AMEND` (phase 3) changes the one order the strategy alone has
+working in an instrument: its target the quantity to leave working, its terms
+the order's own type and time in force. A reduction at the same price keeps
+the order's queue priority; any other amend is a cancel and a new order, judged
+by risk as one -- if risk refuses it, the original is gone.
 
 ## 2. Several assets, several datasets
 

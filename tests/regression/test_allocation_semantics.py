@@ -272,6 +272,8 @@ def test_an_intent_is_a_delta_by_construction() -> None:
         # Phase 3 (FUT-024): a holder's election in a corporate action; recorded,
         # never sized.
         "elect",
+        # Phase 3 (FUT-029): a strategy amends its own working order; not an order.
+        "amend",
     ]
 
 

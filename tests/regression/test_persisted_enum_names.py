@@ -206,6 +206,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "TradeReceived",
     ),
     "alphalab.runtime.snapshot._STRATEGY_EVENTS": (
+        # Phase 3 (FUT-029): written only when a strategy's amend is refused.
+        "AmendRefused",
         # v4.2.0: written only when a strategy's cancel leaves an order working.
         "CancelRefused",
         # Phase 3 (FUT-024): written only when a strategy elects in an action.

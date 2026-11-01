@@ -248,6 +248,11 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **A strategy amends its own order in place** (FUT-029, phase 3):
+  `IntentKind.AMEND` reduces a working order in place, keeping its queue
+  priority, or replaces it -- more quantity, another price -- through
+  allocation, risk and the OMS as a new order; what cannot be amended is an
+  `AmendRefused`.
 - **A halt reopening by auction** (FUT-027, phase 3): a `TradingHalt` declaring
   `auction=True` reopens by crossing every order that rested through it at the
   first event's opening print, as makers, within the band in force; what the
@@ -652,17 +657,9 @@ of what the audit proposed (section *v4.2.0*, above).
 Every entry accepted by the v4.1.1 program, the margin milestone and the v4.2.0
 global gap audit was delivered in v4.2.0. The global gap audit that followed
 those deliveries (phase 2, `docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`)
-proposed eight entries; phase 3 delivers them in turn on the candidate
-branch, after its validation at `350f3f7` -- each delivered one is in section
-*v4.2.0*, above, and leaves the table below. Each ledger entry states its
-interim safe behaviour and completion criteria in full.
-
-| ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
-|---|---|---|---|---|
-| FUT-029 | **A strategy's amend in place, keeping priority by a venue's rule**: a strategy, and a simulated venue, change an order only by cancel and replace (an operator can amend at a live venue) | cancel and re-place: priority lost, the conservative reading | v4.3 | strategy cancel, queue model |
-
-Each is a boundary of the delivered behaviour, stated in ADR-0051's known
-limitations, and conservative or refused where it binds.
+proposed eight entries, and phase 3 delivered all of them on the candidate
+branch, after its validation at `350f3f7` -- each is in section *v4.2.0*, above.
+None is open.
 
 ---
 

@@ -70,6 +70,20 @@ def validate_intent(intent: Intent) -> None:
         _require_cancel(intent)
     if intent.kind is IntentKind.ELECT:
         _require_election(intent)
+    if intent.kind is IntentKind.AMEND:
+        _require_amend(intent)
+
+
+def _require_amend(intent: Intent) -> None:
+    """An amend names the quantity to leave working, above zero (FUT-029)."""
+
+    if intent.target <= _ZERO:
+        raise InvalidIntentError(
+            f"An amend's target is the quantity to leave working, above zero, got "
+            f"{intent.target}; a cancel withdraws an order."
+        )
+    if intent.strength != _ONE:
+        raise InvalidIntentError(f"An amend's strength must be 1, got {intent.strength}.")
 
 
 def _require_election(intent: Intent) -> None:

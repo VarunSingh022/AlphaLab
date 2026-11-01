@@ -438,6 +438,14 @@ engine would compute from orders it cannot see. Only the orders that waited
 through the halt take part, by time, and each keeps what continuous trading
 would give it afterwards.
 
+**34. An amend keeps priority only where a venue would (FUT-029, phase 3).**
+The price-time rule is the one most venues publish: a reduction keeps the
+order's place, anything else is a new order. So a reduction is made in place,
+and every other amend is a cancel and a replacement through the canonical path
+-- judged by risk as a new order -- rather than a second, laxer route into the
+book. An order the strategy does not alone hold, or one at a venue, is not the
+strategy's to amend; the venue's own amend is the operator's request.
+
 ---
 
 # Consequences
@@ -491,8 +499,9 @@ would give it afterwards.
   calls again, sized from the book as it is.
 - **A cancel withdraws only what the strategy alone has working**: an order
   netted with another strategy's, a parent an execution plan works, and an order
-  at a venue are left working; amending an order in place is not modelled, and a
-  new target still counts a resting order as held.
+  at a venue are left working; an amend (FUT-029) reduces in place or replaces,
+  and a replacement risk refuses leaves the original withdrawn; a new target
+  still counts a resting order as held.
 - **An insolvent run compiles no analytics**: returns on negative capital are
   undefined, so such a run keeps its books with `compile_analytics=False`.
 - **A halt's first event after it trades at its own price**, unless the halt

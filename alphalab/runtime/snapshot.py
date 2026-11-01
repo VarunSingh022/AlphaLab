@@ -218,6 +218,7 @@ from alphalab.strategy.configuration import (
     decode_configuration,
 )
 from alphalab.strategy.events import (
+    AmendRefused,
     CancelRefused,
     ElectionMade,
     ExerciseRefused,
@@ -834,6 +835,9 @@ _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
     # Phase 3 (ledger FUT-024): written only by a run whose strategy elected in a
     # corporate action.
     ElectionMade,
+    # Phase 3 (ledger FUT-029): written only by a run whose strategy's amend
+    # could not be made.
+    AmendRefused,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,

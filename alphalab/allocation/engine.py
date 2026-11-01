@@ -178,6 +178,18 @@ class AllocationEngine:
                     )
                 )
                 continue
+            if intent.kind is IntentKind.AMEND:
+                # Not an order: the pipeline amends the order, or places its
+                # replacement as an ordinary delta (FUT-029).
+                events = events.append(
+                    AllocationRejected(
+                        AllocationEngine._create_id(),
+                        timestamp,
+                        f"{intent.strategy_id}'s amend in {intent.instrument} is not an "
+                        "order and is not allocated: the execution pipeline carries it out.",
+                    )
+                )
+                continue
             if intent.kind is IntentKind.ELECT:
                 # Not an order: an election is recorded for its action (FUT-024).
                 events = events.append(
