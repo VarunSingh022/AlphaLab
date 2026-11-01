@@ -701,11 +701,17 @@ The phase 3 global gap audit that followed proposed seven entries; each is a
 boundary of what phase 3 delivered, stated in ADR-0051's known limitations, and
 conservative or refused where it binds. Phase 4 delivers them on the candidate
 branch after its phase 3 checkpoint at `bbc4085`; those still below are not yet
-delivered, and their horizons are proposals for the maintainer to confirm.
+delivered. The phase 4 global gap audit proposed the others below, each a
+boundary of what phase 4 delivered. Every horizon is a proposal for the
+maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
 | FUT-032 | **A dated volatility surface and scenario horizons for repricing** | redeclare volatilities per segment, or margin options per position | v4.4 | option repricing, observations |
+| FUT-037 | **Legs delivered after an exchange's effective instant** | declare the exchange at the legs' delivery instant, its cash as a PaidExchange | v4.4 | delayed and amended payments |
+| FUT-038 | **An elective action's terms corrected after their announcement** | declare the final terms, announced at the correction's instant | v4.4 | holder elections, split elections |
+| FUT-039 | **Volatility surfaces delivered as observations during a run** | declare each dated surface on the margin model | v4.4 | dated surfaces, observations |
+| FUT-040 | **A strategy's view of a reopening auction's published book** | deliver the venue's auction messages as observations | v4.4 | computed auctions |
 
 ---
 

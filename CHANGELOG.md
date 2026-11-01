@@ -553,6 +553,13 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 
 ## Accepted as future work
 
+FUT-037 to FUT-040, proposed by the phase 4 global gap audit after phase 4's
+deliveries: legs delivered after an exchange's instant, an elective action's
+terms corrected after their announcement, volatility surfaces delivered as
+observations, and a strategy's view of a reopening auction's book -- each on
+ROADMAP's Future work with its interim behaviour and completion criteria, its
+horizon a proposal for the maintainer to confirm.
+
 FUT-030 to FUT-036, proposed by the phase 3 global gap audit after FUT-022 to
 FUT-029 were delivered (phase 4 delivers them in turn: FUT-031, FUT-036, FUT-033, FUT-034, FUT-035 and FUT-030 so far): elections split between holders and proration, an
 atomic amend, a dated volatility surface and scenario horizons, an auction
