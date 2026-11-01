@@ -54,7 +54,7 @@ It exists to answer the questions that decide whether a backtest means anything:
 | Runtime dependencies | **None** (standard library only) |
 | Tests | **10,713 passing, 0 skipped, 0 warnings** (each of CPython 3.12, 3.13, 3.14) |
 | Static typing | **Strict mypy**, repository-wide |
-| Examples | **78 / 78** |
+| Examples | **79 / 79** |
 | Release certificate | [11 / 11 checks](docs/audit/RELEASE_CERTIFICATION.md) |
 | License | MIT |
 

@@ -484,6 +484,14 @@ release carries them is the maintainer's decision**, not made here.
   [FUT-030, FUT-034] -- held by `tests/integration/test_split_tender_example.py`
   and run from every built artifact. `tests/integration/test_phase4_interactions.py`
   holds phase 4's capabilities against each other, replayed from every pause.
+* **Example 79** (*phase 5*) -- a bid into a reopening auction: the venue's
+  published book and indications, one withdrawn, shown to a strategy as
+  published by its instant, a bid above the indicated price, the uncross the
+  run computes from the book rather than the indication, and the venue
+  conditions the result states [FUT-040, EXE-014] -- held by
+  `tests/integration/test_reopening_bid_example.py` and run from every built
+  artifact. `tests/integration/test_phase5_interactions.py` holds phase 5's
+  capabilities against each other, replayed from every pause.
 * **Example 77** (*phase 3*) -- a short squeezed by its lender: a recall bought
   in through a halt and its reopening auction, a bid amended in place, a day's
   borrow fee [FUT-022, FUT-023, FUT-027, FUT-029] -- held by

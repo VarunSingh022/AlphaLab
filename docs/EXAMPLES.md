@@ -60,6 +60,7 @@ The `examples/` directory contains:
 | `76_a_financed_long_short_book.py` | **A financed long-short book** (v4.2.0): a pair margined by declared scenarios, the long bought on margin and its debit charged tiered interest, the short sold against a lender's declared borrow and its fee, a bid placed in a halt and re-quoted inside a price band, the short carried through a merger; replayed and resumed |
 | `77_a_short_squeezed_by_its_lender.py` | **A short squeezed by its lender** (phase 3): a recall from its notice, the buy-in after its deadline resting through a halt and crossing at the venue's reopening auction, a resting bid amended in place keeping its priority, the day's borrow fee accrued at a declared cutoff; replayed and resumed |
 | `78_a_tender_split_between_holders.py` | **A tender split between holders** (phase 4): two strategies holding one position, each electing on its own, the oversubscribed cash prorated and the default taking the rest, the record instant bounding each election, and the cash delayed then corrected by the issuer -- each word a ledger entry, reconciled from the ledger (FUT-030, FUT-034) |
+| `79_bid_into_a_reopening_auction.py` | **Bid into a reopening auction** (phase 5): a halted equity's published book and the venue's indications -- one withdrawn -- shown to a strategy as published by its instant, a bid a tick above the indicated price, the uncross the run computes from the book rather than the indication, and the venue conditions the result states it rested on (FUT-040, EXE-014) |
 
 ---
 
