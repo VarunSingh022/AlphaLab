@@ -248,6 +248,11 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **An atomic amend** (FUT-031, phase 4): an amend that replaces an order is
+  prepared and committed -- the replacement judged by allocation, risk and the
+  venue's rules against the book without the order, and the order withdrawn only
+  if the replacement is placed; one refused leaves the order working, its
+  reservations held, with the refusal recorded.
 - **A strategy amends its own order in place** (FUT-029, phase 3):
   `IntentKind.AMEND` reduces a working order in place, keeping its queue
   priority, or replaces it -- more quantity, another price -- through
@@ -660,15 +665,16 @@ those deliveries (phase 2, `docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`)
 proposed eight entries, and phase 3 delivered all of them on the candidate
 branch, after its validation at `350f3f7` -- each is in section *v4.2.0*, above.
 
-The phase 3 global gap audit that followed proposed the seven below; each is a
-boundary of what phase 3 delivered, stated in ADR-0051's known limitations, and
-conservative or refused where it binds. Their horizons are proposals for the
+The phase 3 global gap audit that followed proposed seven, FUT-030 to FUT-036;
+each is a boundary of what phase 3 delivered, stated in ADR-0051's known
+limitations, and conservative or refused where it binds. Phase 4 delivers them
+on the candidate branch after its phase 3 checkpoint at `bbc4085`; those still
+below are not yet delivered, and their horizons are proposals for the
 maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
 | FUT-030 | **Elections split between holders, and proration**: one holding takes one alternative | separate books for strategies that elect apart; declare a prorated remainder as a later exchange | v4.4 | holder elections |
-| FUT-031 | **An atomic amend**: a replacement risk refuses leaves the original withdrawn | amend downward in place; re-place on refusal | v4.3 | strategy amends |
 | FUT-032 | **A dated volatility surface and scenario horizons for repricing** | redeclare volatilities per segment, or margin options per position | v4.4 | option repricing, observations |
 | FUT-033 | **An auction uncross from a book or an imbalance, extensions, and a retention-proof first event** | keep the market history unbounded with auction halts | v4.4 | reopening auctions; imbalance data and depth (new) |
 | FUT-034 | **Failed or corrected corporate-action payments, and legs delivered later** | declare the instant actually paid | v4.4 | delayed payments |

@@ -267,7 +267,11 @@ Trading controls write their `references` and `reference_bands` (phase 3,
 ledger FUT-028) only when declared.
 A halt writes `auction` (phase 3, ledger FUT-027) only when it reopens by one.
 A refused amend (phase 3, ledger FUT-029) is an `AmendRefused` in the strategy
-runtime's event log; an amend made is ordinary OMS transitions.
+runtime's event log; an amend made is ordinary OMS transitions. An amend whose
+replacement is refused (phase 4, ledger FUT-031) changes no OMS, allocation or
+portfolio state -- only the refusal and the allocation and risk decisions that
+judged the replacement are recorded -- so a snapshot taken after it restores the
+order working as it was.
 
 Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
 account's declared margin model as `margin_model_to_primitives` writes it

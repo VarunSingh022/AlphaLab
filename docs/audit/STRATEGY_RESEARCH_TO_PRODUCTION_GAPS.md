@@ -225,7 +225,7 @@ appear only where two capabilities meet. Same classes as above.
 | An entitlement's EUR could have paid a EUR purchase before it was paid | 1 | **Fixed** with ACC-017 |
 | The capability matrix did not list holding exchanges | documentation | corrected |
 | Elections split between holders; proration | 2 | FUT-030 (v4.4) |
-| A replacement risk refuses leaves the original withdrawn | 5 | FUT-031 (v4.3) |
+| A replacement risk refuses leaves the original withdrawn | 5 | FUT-031, **delivered in phase 4** |
 | A dated volatility surface; scenario horizons | 5 | FUT-032 (v4.4) |
 | An auction uncross from a book; extensions; a retention-proof first event | 5 | FUT-033 (v4.4) |
 | Failed or corrected corporate-action payments; legs delivered later | 5 | FUT-034 (v4.4) |

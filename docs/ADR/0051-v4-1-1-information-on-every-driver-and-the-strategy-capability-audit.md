@@ -446,6 +446,19 @@ and every other amend is a cancel and a replacement through the canonical path
 book. An order the strategy does not alone hold, or one at a venue, is not the
 strategy's to amend; the venue's own amend is the operator's request.
 
+**35. An amend is prepared and committed (FUT-031, phase 4).** A venue that
+rejects an amend leaves the original working, so a simulated amend must too.
+The replacement is allocated and routed against a trial book with the order
+withdrawn -- the same allocation, risk, band, tick, margin, borrow and cash
+checks any order meets, and the replacement sized exactly as asked, never read
+through the sizing model -- and the trial is kept only if the replacement is
+placed. Refused, the book is the one before the amend; what judged the
+replacement (allocation's and risk's decisions) stays on the record, because a
+decision taken is history even when its book is discarded. The atomicity is
+the run's own: an order at a venue is amended by the venue's request
+(`LiveSession.amend`), which the venue confirms or refuses later, and nothing
+promises it is atomic there.
+
 ---
 
 # Consequences
@@ -500,7 +513,8 @@ strategy's to amend; the venue's own amend is the operator's request.
 - **A cancel withdraws only what the strategy alone has working**: an order
   netted with another strategy's, a parent an execution plan works, and an order
   at a venue are left working; an amend (FUT-029) reduces in place or replaces,
-  and a replacement risk refuses leaves the original withdrawn; a new target
+  a replacement judged before the original is withdrawn and refused without
+  withdrawing it (FUT-031); a new target
   still counts a resting order as held.
 - **An insolvent run compiles no analytics**: returns on negative capital are
   undefined, so such a run keeps its books with `compile_analytics=False`.

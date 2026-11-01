@@ -43,13 +43,23 @@ IDs are in brackets.
 ## Added
 
 Entries marked *phase 3* were delivered on the candidate branch after its
-validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
+validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10); those
+marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
+
+* **An atomic amend** [FUT-031] (*phase 4*). An amend that replaces an order --
+  more quantity, another limit or stop -- is prepared against the book without
+  the order and committed only if its replacement is placed: one that
+  allocation, risk or the venue's rules refuse leaves the original working, its
+  reservations held, and is an `AmendRefused` naming why, the decisions that
+  refused it kept on the record. The replacement is the quantity asked, never
+  sized by the run's sizing model. Under FUT-029 a refused replacement left the
+  original withdrawn.
 
 * **A strategy amends its own working order** [FUT-029] (*phase 3*).
   `IntentKind.AMEND`: a reduction at the same prices is made in place and keeps
   the order's id and queue priority; any other amend withdraws the order and
-  places its replacement through allocation, risk and the OMS. What cannot be
-  amended -- no single order of the strategy's own, a netted or venue-held
+  places its replacement through allocation, risk and the OMS (atomically since
+  FUT-031, phase 4). What cannot be amended -- no single order of the strategy's own, a netted or venue-held
   order, other terms -- is recorded as `alphalab.strategy.AmendRefused`.
 * **A halt reopening by auction** [FUT-027] (*phase 3*). `TradingHalt(auction=True)`:
   at the first event after the halt, every order that rested through it --
@@ -491,7 +501,7 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 ## Accepted as future work
 
 FUT-030 to FUT-036, proposed by the phase 3 global gap audit after FUT-022 to
-FUT-029 were delivered: elections split between holders and proration, an
+FUT-029 were delivered (phase 4 delivers them in turn: FUT-031 so far): elections split between holders and proration, an
 atomic amend, a dated volatility surface and scenario horizons, an auction
 uncross and a retention-proof first event, failed or corrected payments and
 legs delivered later, a buy-in premium and per-strategy borrow, and a capital

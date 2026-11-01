@@ -19,6 +19,7 @@ from uuid import UUID
 from alphalab.allocation.budget import CapitalBudget
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.allocation.engine import AllocationEngine
+from alphalab.allocation.events import AllocationRejected, BudgetExceeded
 from alphalab.allocation.sizing import FixedQuantitySizing, SizingModel
 from alphalab.allocation.state import AllocationState
 from alphalab.analytics.attribution import TradeRecord
@@ -1246,13 +1247,18 @@ class ExecutionPipeline:
         strategy, intents = StrategyEngine.process_event(
             state.strategy, event, populated, event.timestamp
         )
-        current, ordered = _instructions_requested(
-            evolve(current, strategy=strategy), intents, event.timestamp
+        current, ordered, amended = _instructions_requested(
+            evolve(current, strategy=strategy),
+            intents,
+            event.timestamp,
+            event=event,
+            policy=policy,
+            rates=rates,
         )
         allocation, requests = _allocate(current, ordered, market_prices, rates, event.timestamp)
         current = evolve(current, allocation=allocation)
         current, routed = _route_requests(current, event, ordered, requests, policy, rates)
-        routed = earlier.then(routed)
+        routed = earlier.then(amended).then(routed)
 
         # The step's feedback: every fill, and what became of every order and
         # request, to the strategies that asked for them (EXE-005).
@@ -1742,11 +1748,19 @@ class ExecutionPipeline:
         )
         strategy, intents = StrategyEngine.stop(state.strategy, populated, timestamp, strategy_ids)
         current = _exercises_requested(evolve(state, strategy=strategy), intents, timestamp, rates)
-        current, ordered = _instructions_requested(current, intents, timestamp)
+        current, ordered, amended = _instructions_requested(
+            current,
+            intents,
+            timestamp,
+            event=last,
+            policy=StaticFill(FillStatus.FULL_FILL, None),
+            rates=rates,
+            rest=True,
+        )
         if not ordered or last is None:
             # With no event processed there is no price to size or judge an
             # order by; the intents are reported and nothing is placed.
-            return evolve(current, id_position=current_id_position()), intents, ()
+            return evolve(current, id_position=current_id_position()), intents, amended.orders
 
         allocation, requests = _allocate(current, ordered, current.market_prices, rates, timestamp)
         current = evolve(current, allocation=allocation)
@@ -1760,7 +1774,11 @@ class ExecutionPipeline:
             rest=True,
             at=timestamp,
         )
-        return evolve(current, id_position=current_id_position()), intents, routed.orders
+        return (
+            evolve(current, id_position=current_id_position()),
+            intents,
+            (*amended.orders, *routed.orders),
+        )
 
     @staticmethod
     @in_accounting_context
@@ -4901,36 +4919,58 @@ def _cancels_requested(
 
 
 def _instructions_requested(
-    state: ExecutionPipelineState, intents: tuple[Intent, ...], timestamp: float
-) -> tuple[ExecutionPipelineState, tuple[Intent, ...]]:
-    """Carry out the batch's cancels and amends; the intents allocation sizes, replacements last."""
+    state: ExecutionPipelineState,
+    intents: tuple[Intent, ...],
+    timestamp: float,
+    *,
+    event: MarketEvent | None,
+    policy: FillPolicy,
+    rates: FxRates,
+    rest: bool = False,
+) -> tuple[ExecutionPipelineState, tuple[Intent, ...], _Routed]:
+    """Carry out the batch's cancels and amends: the intents left to size, and the amends' routing.
+
+    Cancels first, then amends -- each replacement placed atomically, before
+    the batch's own orders (FUT-031).
+    """
 
     current = _cancels_requested(state, intents, timestamp)
-    current, replacements = _amends_requested(current, intents, timestamp)
-    return current, (*_for_orders(intents), *replacements)
+    current, routed = _amends_requested(
+        current, intents, timestamp, event=event, policy=policy, rates=rates, rest=rest
+    )
+    return current, _for_orders(intents), routed
 
 
 def _amends_requested(
-    state: ExecutionPipelineState, intents: tuple[Intent, ...], timestamp: float
-) -> tuple[ExecutionPipelineState, tuple[Intent, ...]]:
-    """Amend what each amend instruction names (FUT-029), and the replacements to place.
+    state: ExecutionPipelineState,
+    intents: tuple[Intent, ...],
+    timestamp: float,
+    *,
+    event: MarketEvent | None,
+    policy: FillPolicy,
+    rates: FxRates,
+    rest: bool,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Amend what each amend instruction names (FUT-029), each atomically (FUT-031).
 
     An amend applies to the one order working in its instrument that the asking
     strategy alone contributed to, under simulated routing; it keeps the order's
     type and time in force. A reduction at the same prices is made in place --
-    the OMS replaces the order's quantity, its contribution and its reservation
+    the OMS replaces the order's quantity, its contribution and its reservations
     shrink, and it keeps its id and so its queue priority. Any other amend --
-    more quantity, another limit or stop -- withdraws the order and returns its
-    replacement, a delta of the quantity asked at the terms asked, which the
-    batch places through allocation, risk and the OMS like any order, at the
-    back of its queue. One the run cannot make is recorded as an
-    :class:`~alphalab.strategy.events.AmendRefused` and changes nothing.
+    more quantity, another limit or stop -- is prepared and committed: its
+    replacement is allocated and routed against the book with the order
+    withdrawn, through allocation, risk and the OMS like any order, at the back
+    of its queue, and only if the replacement is placed is that book kept. If
+    allocation, risk or routing refuses the replacement, the book is as it was
+    -- the order working, its reservations held -- and the amend is recorded as
+    an :class:`~alphalab.strategy.events.AmendRefused` naming why. With no market
+    event yet to route at, a replacement is refused the same way.
     """
 
     if not any(intent.kind is IntentKind.AMEND for intent in intents):
-        return state, ()
-    current = state
-    replacements: list[Intent] = []
+        return state, _NO_ROUTING
+    current, routed = state, _NO_ROUTING
     for intent in intents:
         if intent.kind is not IntentKind.AMEND:
             continue
@@ -4948,20 +4988,93 @@ def _amends_requested(
         if same_prices and reduced:
             current = _reduce_in_place(current, order, intent.target, timestamp)
             continue
-        current = _end_unfilled(current, order, timestamp)
-        sign = Decimal("1") if order.side is OMSSide.BUY else Decimal("-1")
-        replacements.append(
-            Intent(
-                intent.strategy_id,
-                intent.instrument,
-                ACCOUNTING_CONTEXT.multiply(sign, intent.target),
-                timestamp=timestamp,
-                kind=IntentKind.DELTA,
-                terms=terms,
-                metadata={"amends": str(order.order_id.value)},
-            )
+        if event is None:
+            current = _refuse_amend(
+                current, intent, timestamp,
+                "No market event has priced the instrument yet, so the replacement cannot be "
+                "judged; the order is kept working.",
+            )  # fmt: skip
+            continue
+        current, placed = _replace_atomically(
+            current, intent, order, event, policy, rates, timestamp, rest=rest
         )
-    return current, tuple(replacements)
+        routed = routed.then(placed)
+    return current, routed
+
+
+def _replace_atomically(
+    state: ExecutionPipelineState,
+    intent: Intent,
+    order: OMSOrder,
+    event: MarketEvent,
+    policy: FillPolicy,
+    rates: FxRates,
+    timestamp: float,
+    *,
+    rest: bool,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Prepare ``order``'s replacement against the book without it; commit only if placed."""
+
+    trial = _end_unfilled(state, order, timestamp)
+    mark = len(trial.allocation.events)
+    sign = Decimal("1") if order.side is OMSSide.BUY else Decimal("-1")
+    share = AllocationEngine.strategy_position(trial.allocation, intent.strategy_id, order.asset_id)
+    replacement = Intent(
+        intent.strategy_id,
+        intent.instrument,
+        # A target naming the position and the strategy's other working orders,
+        # so the order is exactly the quantity asked, never read through the
+        # run's sizing model (as ACC-016's forced trades).
+        _forced_target(
+            trial,
+            intent.strategy_id,
+            order.asset_id,
+            share,
+            ACCOUNTING_CONTEXT.multiply(sign, intent.target),
+        ),
+        timestamp=timestamp,
+        kind=IntentKind.TARGET_QUANTITY,
+        terms=intent.terms,
+        metadata={"amends": str(order.order_id.value)},
+    )
+    allocation, requests = _allocate(trial, (replacement,), trial.market_prices, rates, timestamp)
+    trial = evolve(trial, allocation=allocation)
+    trial, placed = _route_requests(
+        trial, event, (replacement,), requests, policy, rates, rest=rest,
+        at=timestamp if rest else None,
+    )  # fmt: skip
+    if placed.orders:
+        return trial, placed
+    judged = allocation.events[mark:]
+    why = "; ".join(
+        (
+            *(e.reason for e in judged if isinstance(e, (AllocationRejected, BudgetExceeded))),
+            *(reason for _, reason in placed.dropped),
+        )
+    )
+    # The book is as it was. What judged the replacement stays on the record --
+    # allocation's and risk's decisions, an unpriced asset -- and the strategy
+    # hears of a refused request as of any.
+    kept = evolve(
+        state,
+        allocation=evolve(state.allocation, events=state.allocation.events.extend(judged)),
+        risk=trial.risk,
+        unpriced_assets=trial.unpriced_assets,
+    )
+    refused = _Routed(
+        decisions=placed.decisions,
+        unpriced=placed.unpriced,
+        refusals=placed.refusals,
+        dropped=placed.dropped,
+    )
+    return (
+        _refuse_amend(
+            kept, intent, timestamp,
+            f"The replacement was refused ({why or 'allocation sized no order from it'}); "
+            "the order is kept working as it was.",
+        ),
+        refused,
+    )  # fmt: skip
 
 
 def _amendable(state: ExecutionPipelineState, intent: Intent) -> tuple[str | None, OMSOrder | None]:
@@ -5473,7 +5586,15 @@ def _deliver_instant(
         as_of=at,
     )
     strategy, intents = StrategyEngine.process_event(state.strategy, event, populated, at)
-    current, ordered = _instructions_requested(evolve(state, strategy=strategy), intents, at)
+    current, ordered, amended = _instructions_requested(
+        evolve(state, strategy=strategy),
+        intents,
+        at,
+        event=last,
+        policy=StaticFill(FillStatus.FULL_FILL, None),
+        rates=rates,
+        rest=True,
+    )
     if not ordered or last is None:
         current = _exercises_requested(current, intents, at, rates)
         return evolve(current, id_position=current_id_position()), intents, ()
@@ -5486,6 +5607,7 @@ def _deliver_instant(
     current, routed = _route_requests(
         current, last, ordered, requests, policy, rates, rest=True, at=at
     )
+    routed = amended.then(routed)
     current, feedback_intents, _, feedback = _deliver_feedback(
         current,
         last,
@@ -5734,17 +5856,25 @@ def _deliver_feedback(
         as_of=instant,
     )
     strategy, intents = StrategyEngine.deliver(state.strategy, deliveries, populated, instant)
-    current, ordered = _instructions_requested(evolve(state, strategy=strategy), intents, instant)
+    current, ordered, amended = _instructions_requested(
+        evolve(state, strategy=strategy),
+        intents,
+        instant,
+        event=event,
+        policy=policy,
+        rates=rates,
+        rest=True,
+    )
     if not ordered:
         # Exercise instructions, if any, are the caller's to apply (FUT-014).
-        return current, intents, (), _NO_ROUTING
+        return current, intents, (), amended
 
     allocation, feedback_requests = _allocate(current, ordered, market_prices, rates, instant)
     current = evolve(current, allocation=allocation)
     current, feedback = _route_requests(
         current, event, ordered, feedback_requests, policy, rates, rest=True, at=instant
     )
-    return current, intents, feedback_requests, feedback
+    return current, intents, feedback_requests, amended.then(feedback)
 
 
 def _simulate_fill(
