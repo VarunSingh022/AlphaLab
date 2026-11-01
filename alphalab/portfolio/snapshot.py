@@ -85,10 +85,13 @@ from alphalab.portfolio.events import (
     CashDeposited,
     CashFlowBooked,
     CashWithdrawn,
+    DeliveryAmended,
     MarketValueUpdated,
+    PaymentAmended,
     PortfolioEvent,
     PortfolioValuationUpdated,
     PositionClosed,
+    PositionExchanged,
     PositionIncreased,
     PositionOpened,
     PositionReduced,
@@ -97,6 +100,7 @@ from alphalab.portfolio.events import (
 )
 from alphalab.portfolio.ledger import TransactionLedger
 from alphalab.portfolio.position import Position
+from alphalab.portfolio.settlement import pending_from
 from alphalab.portfolio.transaction import Transaction
 from alphalab.portfolio.types import TransactionType
 
@@ -171,6 +175,12 @@ _EVENT_TYPES: Mapping[str, type[PortfolioEvent]] = {
         VariationSettled,
         CashFlowBooked,
         PositionSplit,
+        # v4.2.0 (FUT-021): written only by a run whose holding was exchanged.
+        PositionExchanged,
+        # Phase 4 (FUT-034): written only by a run whose payment was amended.
+        PaymentAmended,
+        # Phase 5 (FUT-037): written only by a run whose delivery was amended.
+        DeliveryAmended,
     )
 }
 
@@ -193,6 +203,16 @@ _EVENT_FIELD_DECODERS: Mapping[str, Any] = {
     "rate_derived": as_bool,
     # PositionSplit (v3.11): units after for each unit before.
     "ratio": as_decimal,
+    # PositionExchanged (v4.2.0, FUT-021): what the holding became.
+    "received": as_decimal_mapping,
+    "consideration": as_decimal_mapping,
+    "retained": as_bool,
+    # PaymentAmended (phase 4, FUT-034): a payment's amounts and instants.
+    "effective_at": as_float,
+    "owed_before": as_decimal,
+    "owed_after": as_decimal,
+    "replacement": as_decimal,
+    "settles_at": lambda value, where: None if value is None else as_float(value, where),
 }
 
 
@@ -269,6 +289,8 @@ def restore(snapshot: PortfolioSnapshot) -> PortfolioState:
         realized_pnl=CurrencyAmounts(dict(snapshot.realized_pnl)),
         commission_paid=CurrencyAmounts(dict(snapshot.commission_paid)),
         pending_marks=snapshot.pending_marks,
+        # Derived from the ledger it travels in (FUT-015), never stored apart.
+        unsettled=pending_from(snapshot.transactions),
     )
 
 

@@ -208,6 +208,10 @@ class RiskViewProtocol(Protocol):
         """Current exposure status, including the sector breakdown."""
         ...
 
+    def volatility_surface(self, underlying: str, source: str | None = None) -> Any:
+        """The latest volatility surface delivered for ``underlying``, or ``None`` (FUT-039)."""
+        ...
+
 
 class OrderFacadeProtocol(Protocol):
     """Constrained facade for order queries, NOT for direct placement.
@@ -330,6 +334,32 @@ class UniverseProtocol(Protocol):
 
     def sector(self, asset_id: str) -> str | None:
         """The sector ``asset_id`` is classified as, or ``None``."""
+        ...
+
+    def halted(self, asset_id: str) -> bool:
+        """Whether ``asset_id`` is halted now, by its venue's declared halts (v4.2.0, FUT-020)."""
+        ...
+
+    def price_band(self, asset_id: str) -> tuple[Decimal, Decimal] | None:
+        """The limit down and up in force for ``asset_id`` now, or ``None`` (v4.2.0, FUT-020)."""
+        ...
+
+    def borrow(self, asset_id: str) -> tuple[Decimal | None, Decimal] | None:
+        """Units available to borrow and the fee in effect now, or ``None`` (v4.2.0, FUT-018)."""
+        ...
+
+    def auction(self, asset_id: str) -> Any | None:
+        """What the venue has published of an auction yet to be held, or ``None`` (FUT-040).
+
+        A :class:`~alphalab.instrument.controls.PublishedAuction`.
+        """
+        ...
+
+    def reopening(self, asset_id: str) -> Any | None:
+        """The instrument's last reopening auction as held, or ``None`` (FUT-043).
+
+        An :class:`~alphalab.execution.auction.AuctionReopening`.
+        """
         ...
 
 
@@ -483,6 +513,9 @@ class NoRiskView:
     def exposure(self) -> Any:
         return None
 
+    def volatility_surface(self, underlying: str, source: str | None = None) -> Any:
+        return None
+
     def __bool__(self) -> bool:
         return False
 
@@ -604,6 +637,21 @@ class NoUniverse:
         return None
 
     def sector(self, asset_id: str) -> str | None:
+        return None
+
+    def halted(self, asset_id: str) -> bool:
+        return False
+
+    def price_band(self, asset_id: str) -> tuple[Decimal, Decimal] | None:
+        return None
+
+    def borrow(self, asset_id: str) -> tuple[Decimal | None, Decimal] | None:
+        return None
+
+    def auction(self, asset_id: str) -> Any | None:
+        return None
+
+    def reopening(self, asset_id: str) -> Any | None:
         return None
 
 

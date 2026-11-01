@@ -10,28 +10,23 @@ agent's action becomes a real `alphalab.strategy.events.Intent`, emitted by a re
 registered the same way any other strategy would be -- not a bypass of the strategy
 layer, a real (if minimal) participant in it.
 
-One real gap, handled explicitly rather than silently: the production pipeline only
-marks a position to market when it fills, not on every price tick. A trading
-environment's reward signal needs unrealized P&L to reflect every price move, held
-position or not, so `step_environment` marks the traded asset's position to the
-current price after every step before computing equity.
+Two notes from when this environment was built, kept as history:
 
-KNOWN BUG IN THE UNDERLYING PIPELINE, DISCOVERED WHILE BUILDING THIS ENVIRONMENT,
-NOT FIXED HERE: `alphalab.portfolio.engine.PortfolioEngine.apply_fill` computes
-`cash_impact = -(quantity * price) - commission + pnl`. The `pnl` term double-counts
-realized P&L -- it is already fully reflected in `-(quantity * price)`, since `pnl`
-is derived by comparing the fill price to the position's average cost, not a
-separate cash flow. This only manifests on a closing/reducing trade with nonzero
-realized P&L, which is why no earlier PR in this project caught it: options,
-futures, and crypto all constructed `Position` directly via their bridge helpers
-and never routed a round-trip (open then close) trade through the full
-`ExecutionPipeline`. A BUY-then-HOLD-then-SELL sequence in this module's own tests
-reproduces it exactly. Not fixed in this PR -- `portfolio/engine.py` is core
-accounting code used throughout the framework, and a change there deserves review
-on its own, not as a side effect of an RL environment. This environment's rewards
-are internally consistent (sum of step rewards equals the total equity change
-reported by the same buggy function) but will not match a correct hand calculation
-of realized P&L on closing trades until that bug is fixed upstream.
+* The pipeline at the time marked a position to market only when it filled. It
+  has marked every position on every price event since v2.1
+  (`tests/integration/test_mark_to_market_pipeline.py`); `step_environment` still
+  marks the traded asset at the step's price before computing equity, which is
+  now the same figure the pipeline holds, and harmless.
+* Building it surfaced a defect in
+  `alphalab.portfolio.engine.PortfolioEngine.apply_fill`, which computed
+  `cash_impact = -(quantity * price) - commission + pnl` and so double-counted
+  realized P&L into cash on a closing or reducing fill. **It was fixed in v2.0.0**
+  (CHANGELOG, D1): the `+ pnl` term is gone, and
+  `tests/regression/test_close_fill_cash_accounting.py` drives the real pipeline
+  open -> hold -> close. This environment's rewards therefore match a hand
+  calculation -- `test_environment_round_trip_realizes_correct_pnl` asserts the
+  correct +20 on a buy at 150 and a sale at 152. Until v4.1.1 this docstring still
+  described the defect as present.
 """
 
 from collections.abc import Mapping

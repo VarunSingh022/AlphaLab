@@ -30,7 +30,7 @@ from enum import Enum, auto
 
 from alphalab.conventions.exceptions import ConventionInputError
 
-__all__ = ["DayCount", "day_count_days", "year_fraction"]
+__all__ = ["DayCount", "day_count_days", "days_in_year", "year_fraction"]
 
 
 class DayCount(Enum):
@@ -49,6 +49,26 @@ class DayCount(Enum):
     #: (Bond Basis) end-of-month rule: a start day of 31 becomes 30, and an end
     #: day of 31 becomes 30 only when the start day was already 30 or 31.
     THIRTY_360_US = auto()
+
+
+#: The year each basis divides by, stated per member: a basis added later is
+#: refused by :func:`days_in_year` until its year is written here, rather than
+#: divided by whichever year a fall-through would pick.
+_YEAR_DAYS = {DayCount.ACT_365_FIXED: 365, DayCount.ACT_360: 360, DayCount.THIRTY_360_US: 360}
+
+
+def days_in_year(basis: DayCount) -> int:
+    """The denominator: how many days ``basis`` counts in a year.
+
+    Raises:
+        ConventionInputError: If ``basis`` is not a :class:`DayCount` whose year
+            is stated.
+    """
+
+    try:
+        return _YEAR_DAYS[basis]
+    except (KeyError, TypeError) as exc:
+        raise ConventionInputError(f"No year is stated for the day count {basis!r}.") from exc
 
 
 def day_count_days(start: date, end: date, basis: DayCount) -> int:
@@ -83,5 +103,4 @@ def year_fraction(start: date, end: date, basis: DayCount) -> float:
             f"end {end} precedes start {start}. A negative year fraction inverts every "
             "discount factor computed from it."
         )
-    denominator = 360.0 if basis in (DayCount.ACT_360, DayCount.THIRTY_360_US) else 365.0
-    return day_count_days(start, end, basis) / denominator
+    return day_count_days(start, end, basis) / days_in_year(basis)

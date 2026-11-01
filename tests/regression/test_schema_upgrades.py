@@ -181,7 +181,8 @@ def test_a_v3_9_instrument_registry_is_upgraded_with_no_alias_invented() -> None
     recaptured = deserialize(serialize(snapshot))
 
     # v3.12 moved it to 3: no instrument was classified along another dimension.
-    assert recaptured["schema_version"] == 3
+    # v4.1.1 moved it to 4: no instrument declared a last trading instant.
+    assert recaptured["schema_version"] == 4
     expected = [
         {
             **entry,
@@ -190,6 +191,13 @@ def test_a_v3_9_instrument_registry_is_upgraded_with_no_alias_invented() -> None
             "later_dated_aliases": [],
             "economics": None,
             "dimensions": {},
+            "last_trade_at": None,
+            "terms": None,
+            # v4.2.0 (ledger FUT-015): no earlier instrument declared a settlement rule.
+            "settlement": None,
+            "margin": None,
+            "borrow": None,
+            "tick": None,
         }
         for entry in payload["instruments"]
     ]
@@ -304,7 +312,7 @@ def test_a_v3_9_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
     ):
         snapshot = from_primitives(_load("live.json"))
 
-    assert snapshot.schema_version == 2
+    assert snapshot.schema_version == 3  # upgraded to the current envelope (FUT-041)
     assert snapshot.requests == ()  # version 1 recorded none
     assert snapshot.run.schema_version == 5
     assert snapshot.run.pipeline.schema_version == 8

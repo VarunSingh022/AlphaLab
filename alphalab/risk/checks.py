@@ -102,6 +102,27 @@ def check_margin(
     if projection.projected_gross <= projection.committed_gross:
         return None
     limit = state.active_limits.margin
+    if projection.margin_requirement is not None and projection.margin_equity is not None:
+        # The account declares a margin model (FUT-019): utilization is its
+        # requirement over margin equity, not gross exposure over net asset value.
+        if projection.margin_equity <= _ZERO:
+            return RiskViolation(
+                rule="MarginLimit",
+                description="Margin utilization is undefined with no positive margin equity.",
+                severity=RiskSeverity.CRITICAL,
+                current_value=projection.margin_requirement,
+                allowed_value=_ZERO,
+            )
+        used = ACCOUNTING_CONTEXT.divide(projection.margin_requirement, projection.margin_equity)
+        if used > limit.max_margin_utilization:
+            return RiskViolation(
+                rule="MarginLimit",
+                description="Projected margin utilization under the declared model exceeds limit.",
+                severity=RiskSeverity.CRITICAL,
+                current_value=used,
+                allowed_value=limit.max_margin_utilization,
+            )
+        return None
     if projection.nav <= _ZERO:
         return RiskViolation(
             rule="MarginLimit",

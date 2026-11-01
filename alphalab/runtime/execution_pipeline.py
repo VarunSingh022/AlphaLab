@@ -9,16 +9,18 @@ from __future__ import annotations
 
 import decimal
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
-from decimal import Decimal
+from dataclasses import dataclass, field, replace
+from decimal import ROUND_FLOOR, Decimal
 from enum import Enum, auto
 from types import MappingProxyType
 from typing import Any, Final
 from uuid import UUID
 
 from alphalab.allocation.budget import CapitalBudget
+from alphalab.allocation.ceilings import adding_exposure
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.allocation.engine import AllocationEngine
+from alphalab.allocation.events import AllocationRejected, BudgetExceeded
 from alphalab.allocation.sizing import FixedQuantitySizing, SizingModel
 from alphalab.allocation.state import AllocationState
 from alphalab.analytics.attribution import TradeRecord
@@ -27,17 +29,23 @@ from alphalab.analytics.state import AnalyticsState
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context
 from alphalab.common.evolve import evolve
-from alphalab.common.ids import IdStreamPosition, current_id_position
+from alphalab.common.ids import IdStreamPosition, current_id_position, new_id
 from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.common.persistent_map import PersistentMap
-from alphalab.conventions.economics import InstrumentEconomics
+from alphalab.conventions.economics import InstrumentEconomics, SettlementModel
 from alphalab.conventions.lot import LotSpecification
+from alphalab.conventions.tick import RoundingDirection, is_on_tick, round_to_tick
 from alphalab.core.contribution import StrategyContribution, split_by_contribution
+from alphalab.core.enums import AssetType
 from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
 from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS
+from alphalab.data.feed import TradeAggressor
+from alphalab.execution.algorithms import ChildOrder
+from alphalab.execution.algorithms import _apportion as _largest_remainder
+from alphalab.execution.auction import AuctionReopening
 from alphalab.execution.engine import ExecutionEngine
 from alphalab.execution.fill import FillStatus, OrderInstruction
 from alphalab.execution.policy import (
@@ -47,12 +55,35 @@ from alphalab.execution.policy import (
     LiquidityContext,
     StaticFill,
 )
+from alphalab.execution.queue import QueueBook, QueueObservation, QueuePosition, QueueTurn
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
+from alphalab.instrument.borrow import BorrowAvailability
+from alphalab.instrument.controls import (
+    AuctionInterest,
+    AuctionPriority,
+    AuctionTieBreak,
+    BandAction,
+    DeliveredAuction,
+    TradingControls,
+    TradingHalt,
+    published,
+)
 from alphalab.instrument.economics import economics_for
 from alphalab.instrument.exceptions import InstrumentInputError
+from alphalab.instrument.margin import (
+    MarginBasis,
+    MarginExposure,
+    MarginModel,
+    MarginTerms,
+    OptionRisk,
+    ScenarioMargin,
+    read_surface,
+)
+from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
+from alphalab.instrument.terms import Deliverable, FutureTerms, OptionTerms
 from alphalab.market.bar import Bar, IntervalUnit, TimeFrame
 from alphalab.market.engine import MarketEngine
 from alphalab.market.events import (
@@ -73,13 +104,44 @@ from alphalab.oms.order import Order as OMSOrder
 from alphalab.oms.state import OMSState
 from alphalab.oms.status import OrderStatus, OrderType
 from alphalab.oms.status import Side as OMSSide
+from alphalab.options.enums import ExerciseStyle, OptionType
+from alphalab.options.expiration import SettlementStyle
 from alphalab.portfolio.account import Account
 from alphalab.portfolio.book import BookGroups, BookMarketValues, PositionBook
-from alphalab.portfolio.corporate_actions import CashFlow, Split
+from alphalab.portfolio.corporate_actions import (
+    Assignment,
+    CashFlow,
+    CashFlowKind,
+    ContractSettlement,
+    ExchangedHolding,
+    ExchangeLeg,
+    Exercise,
+    HoldingExchange,
+    OptionExpiry,
+    Split,
+)
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
-from alphalab.portfolio.events import PortfolioEvent, PositionClosed, PositionReduced
-from alphalab.portfolio.fx import NO_RATES, FxConversion, FxRates
+from alphalab.portfolio.events import (
+    PortfolioEvent,
+    PositionClosed,
+    PositionExchanged,
+    PositionReduced,
+)
+from alphalab.portfolio.exceptions import InvalidTransactionError
+from alphalab.portfolio.financing import ACCRUAL_CLOSED, ACCRUES
+from alphalab.portfolio.fx import (
+    NO_RATES,
+    FxConversion,
+    FxRate,
+    FxRates,
+    MissingRateError,
+    StaleRateError,
+)
+from alphalab.portfolio.money import to_money
 from alphalab.portfolio.nav import NAVCalculator
+from alphalab.portfolio.position import Position
+from alphalab.portfolio.settlement import DeliveryConvention, PaymentChange, payment_chain
+from alphalab.portfolio.types import TransactionType
 from alphalab.portfolio.valuation import (
     PortfolioValuation,
     PortfolioValuationSnapshot,
@@ -89,12 +151,14 @@ from alphalab.portfolio.valuation import (
 )
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.engine import RiskEngine
+from alphalab.risk.events import BuyIn, MarginCall
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.projection import NO_WORKING_ORDERS, BucketExposure, WorkingExposure
 from alphalab.risk.state import RiskState
-from alphalab.runtime.calendars import VenueCalendars
+from alphalab.risk.surfaces import ObservedSurface, select
+from alphalab.runtime.calendars import VenueCalendars, settles_at
 from alphalab.runtime.context_views import (
     HistoryView,
     MarketView,
@@ -111,14 +175,21 @@ from alphalab.runtime.retention import RetentionPolicy, trimmed
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
+    AmendRefused,
+    CancelRefused,
+    ElectionMade,
+    ExerciseRefused,
     FillEvent,
+    HoldersRecorded,
     Intent,
     IntentKind,
     ObservationReceived,
     OrderEvent,
     SliceClosed,
     StrategyInboundEvent,
+    TermsAnnounced,
     TimerEvent,
+    UnitsElected,
 )
 from alphalab.strategy.protocol import defines_on_observation, defines_on_slice
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
@@ -161,6 +232,17 @@ class ExecutionRouting(Enum):
     #: the order is still live and that capital is still committed. Fills come
     #: back later through :mod:`alphalab.runtime.broker_routing`. Live only.
     EXTERNAL = auto()
+
+    #: The order is the parent an execution algorithm works in children, in a
+    #: historical run (v4.1.1, ledger FUT-009). It is accepted and left working,
+    #: holding its reservation and its contributions, and the pipeline never
+    #: simulates it whole: each child is simulated by
+    #: :meth:`ExecutionPipeline.work_child` against the run's own fill policy,
+    #: simulator and cost model, and its fill settles on the parent. Terms an
+    #: algorithm cannot work -- a stop, an auction, an immediate order -- are
+    #: refused before an order exists. Backtest and replay only; see
+    #: :mod:`alphalab.backtesting.algorithmic`.
+    ALGORITHMIC = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,6 +478,31 @@ class SettlementRefusal:
 
 
 @dataclass(frozen=True, slots=True)
+class ChildTurn:
+    """What one execution-algorithm child did at one market event (v4.1.1, ledger FUT-009).
+
+    Attributes:
+        state: The pipeline after the child's fill, if any, settled on its parent.
+        reports: The execution reports the fill produced -- each against the
+            **parent** order, as a venue fill of a routed child is.
+        fills: The canonical fills.
+        trades: The canonical trades.
+        filled: What the child filled at this event.
+        outcome: ``None`` while the child works on; ``FILLED`` once it has filled
+            in full; ``CANCELLED`` for a market child's unfilled remainder, which
+            is withdrawn after its one attempt, as a market order's is;
+            ``REJECTED`` or ``EXPIRED`` when the fill policy decided so.
+    """
+
+    state: ExecutionPipelineState
+    reports: tuple[ExecutionReport, ...]
+    fills: tuple[CoreFill, ...]
+    trades: tuple[CoreTrade, ...]
+    filled: Decimal
+    outcome: OrderStatus | None
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionPipelineState:
     """Immutable snapshot of all subsystems in the execution path."""
 
@@ -468,7 +575,7 @@ def retained(state: ExecutionPipelineState) -> ExecutionPipelineState:
 
     portfolio = state.portfolio
     portfolio_events = trimmed(portfolio.events, audit)
-    transactions = trimmed(portfolio.ledger.transactions, policy.results)
+    transactions = trimmed(portfolio.ledger.transactions, _ledger_bound(portfolio, policy.results))
     if (
         portfolio_events is not portfolio.events
         or transactions is not portfolio.ledger.transactions
@@ -485,6 +592,35 @@ def retained(state: ExecutionPipelineState) -> ExecutionPipelineState:
         if kept is not log:
             changes[name] = kept
     return evolve(state, **changes) if changes else state
+
+
+def _ledger_bound(portfolio: PortfolioState, bound: int | None) -> int | None:
+    """The ledger's bound, widened so nothing a restore rebuilds from is trimmed.
+
+    A restore rebuilds the fills not yet settled (FUT-015) from the ledger they
+    travel in, and a period's posting sums the accruals it has not closed
+    (FUT-023): trimming one before it settles or posts would lose an obligation
+    (ACC-015). The bound grows to keep the oldest such transaction and
+    everything after it -- a settlement cycle's fills, a period's days -- and
+    only while one is open.
+    """
+
+    if bound is None:
+        return bound
+    transactions = portfolio.ledger.transactions
+    pending = {entry.transaction_id for entry in portfolio.unsettled}
+    closed: set[object] = set()
+    needed = 0
+    for depth, transaction in enumerate(reversed(transactions.to_tuple()), start=1):
+        if transaction.transaction_id in pending:
+            needed = depth
+        elif transaction.type is TransactionType.ACCRUAL:
+            key = transaction.metadata.get(ACCRUES)
+            if transaction.metadata.get(ACCRUAL_CLOSED):
+                closed.add(key)
+            elif key not in closed:
+                needed = depth
+    return max(bound, needed)
 
 
 @dataclass(frozen=True, slots=True)
@@ -508,6 +644,14 @@ class ExecutionPipelineResult:
     #: keeps working. Derived and never persisted: no snapshot carries an
     #: ``ExecutionPipelineResult``. See :class:`SettlementRefusal` and ADR-0028.
     settlement_refusals: tuple[SettlementRefusal, ...] = field(default_factory=tuple)
+    #: The run's queue book after the step, when one was given (v4.1.1, ledger
+    #: FUT-011): each resting limit order's place at its price level. ``None``
+    #: for a step taken without one.
+    queue: QueueBook | None = None
+
+
+#: No instrument has reopened by auction.
+_NO_REOPENINGS: Final[Mapping[str, AuctionReopening]] = MappingProxyType({})
 
 
 def _populate_context(
@@ -521,6 +665,7 @@ def _populate_context(
     instruments: InstrumentRegistry | None,
     as_of: float,
     window: int | None,
+    reopened: Mapping[str, AuctionReopening] = _NO_REOPENINGS,
 ) -> ContextFactory:
     """Wrap a caller's factory so the pipeline owns what only it can know.
 
@@ -557,7 +702,7 @@ def _populate_context(
     risk_view = RiskView(risk)
     market_view = MarketView(market, market_prices)
     history_view = HistoryView(market, as_of, window)
-    universe_view = UniverseView(instruments)
+    universe_view = UniverseView(instruments, as_of, reopened, market.auctions)
 
     def populate(strategy_id: str) -> StrategyContext:
         supplied = context_factory(strategy_id)
@@ -977,6 +1122,8 @@ class ExecutionPipeline:
         context_factory: ContextFactory,
         fill_policy: FillPolicy | None = None,
         rates: FxRates = NO_RATES,
+        *,
+        queue: QueueBook | None = None,
     ) -> ExecutionPipelineResult:
         """Move one market record through the whole execution path.
 
@@ -996,6 +1143,7 @@ class ExecutionPipeline:
             context_factory,
             fill_policy=fill_policy,
             rates=rates,
+            queue=queue,
         )
 
     @staticmethod
@@ -1008,6 +1156,8 @@ class ExecutionPipeline:
         fill_quantity: Decimal | None = None,
         fill_policy: FillPolicy | None = None,
         rates: FxRates = NO_RATES,
+        *,
+        queue: QueueBook | None = None,
     ) -> ExecutionPipelineResult:
         """Route one market event through strategy, order, execution, and portfolio.
 
@@ -1043,6 +1193,16 @@ class ExecutionPipeline:
         would move ``PIPELINE_SNAPSHOT_SCHEMA``. It is not on
         ``ExecutionPipelineState`` either, which ADR-0030 fixes at sixteen
         fields because every one of them is paid eleven times per record.
+
+        ``queue`` (v4.1.1, ledger FUT-011) is the run's
+        :class:`~alphalab.execution.queue.QueueBook`, a parameter for the same
+        reasons. With one, a simulated resting limit order working in the
+        event's asset -- a limit order, or a triggered stop-limit, that is not
+        immediate and not an auction order -- fills at this event only as far as
+        its queue model allows, the fill policy deciding within that; an order
+        the step leaves resting joins its queue at this event; and the book that
+        comes back on the result holds only orders still working. Without one
+        nothing changes.
         """
 
         refusal = price_refusal(state, _event_payload(event))
@@ -1083,9 +1243,18 @@ class ExecutionPipeline:
         if (
             update is not None
             and state.config.routing is ExecutionRouting.SIMULATED
-            and current.oms.working_orders_for(update[0])
+            and (current.oms.working_orders_for(update[0]) or _auctions_declared(current))
         ):
-            current, earlier = _fill_working_orders(current, event, update[0], policy, rates)
+            # With auctions declared, every first event after one is recorded,
+            # orders working or not (FUT-033).
+            current, earlier, queue = _fill_working_orders(
+                current, event, update[0], policy, rates, queue
+            )
+        # Every order still working in the asset now has had its turn; what the
+        # step places from here on is appended after them (FUT-011).
+        resting_before = (
+            _working_count(current, update[0]) if queue is not None and update is not None else 0
+        )
 
         # Assembled from the marked state above, after marking, after the risk
         # resync and after any working order filled, and before dispatch. The
@@ -1100,6 +1269,7 @@ class ExecutionPipeline:
             market_prices=market_prices,
             shares=order_shares_by_strategy(current.oms, current.allocation),
             instruments=state.config.instruments,
+            reopened=current.execution.reopened,
             window=state.config.retention.market_history,
             # The look-ahead bound: this event's own timestamp, never a wall
             # clock. A strategy sees everything up to and including the event it
@@ -1109,10 +1279,18 @@ class ExecutionPipeline:
         strategy, intents = StrategyEngine.process_event(
             state.strategy, event, populated, event.timestamp
         )
-        allocation, requests = _allocate(current, intents, market_prices, rates, event.timestamp)
-        current = evolve(current, strategy=strategy, allocation=allocation)
-        current, routed = _route_requests(current, event, intents, requests, policy, rates)
-        routed = earlier.then(routed)
+        current, ordered, amended = _instructions_requested(
+            evolve(current, strategy=strategy),
+            intents,
+            event.timestamp,
+            event=event,
+            policy=policy,
+            rates=rates,
+        )
+        allocation, requests = _allocate(current, ordered, market_prices, rates, event.timestamp)
+        current = evolve(current, allocation=allocation)
+        current, routed = _route_requests(current, event, ordered, requests, policy, rates)
+        routed = earlier.then(amended).then(routed)
 
         # The step's feedback: every fill, and what became of every order and
         # request, to the strategies that asked for them (EXE-005).
@@ -1128,6 +1306,20 @@ class ExecutionPipeline:
             contributions_before=contributions_before,
             records_before=records_before,
         )
+        # A strategy's exercise instructions take effect at the end of the step
+        # that asked for them, at its instant (FUT-014).
+        current = _exercises_requested(
+            current, (*intents, *feedback_intents), event.timestamp, rates
+        )
+        # A holder's elections are recorded for their actions (FUT-024).
+        current = _elections_requested(current, (*intents, *feedback_intents), event.timestamp)
+        # A recalled short past its buy-in deadline is covered (FUT-022), and
+        # then the account's margin, after everything the step did (FUT-017).
+        current, bought_in = _buy_ins(current, event, rates)
+        current, liquidation = _margin_call(current, event, rates)
+        routed = routed.then(bought_in).then(liquidation)
+        if queue is not None:
+            queue = _queue_after_step(queue, current, event, update, resting_before)
         return _step_result(
             current,
             event,
@@ -1135,6 +1327,7 @@ class ExecutionPipeline:
             (*requests, *feedback_requests),
             routed.then(feedback),
             rates,
+            queue,
         )
 
     @staticmethod
@@ -1285,6 +1478,133 @@ class ExecutionPipeline:
         )
         released = _release_if_terminal(terminated, order.order_id, timestamp)
         return evolve(released, id_position=current_id_position())
+
+    @staticmethod
+    @in_accounting_context
+    def work_child(
+        state: ExecutionPipelineState,
+        child: ChildOrder,
+        working: Decimal,
+        event: MarketEvent,
+        policy: FillPolicy,
+        rates: FxRates = NO_RATES,
+        *,
+        arriving: bool,
+    ) -> ChildTurn:
+        """One execution-algorithm child's turn at ``event``, its fill settled on the parent.
+
+        The historical counterpart of routing a child to a venue (v4.1.1, ledger
+        FUT-009). The parent is the OMS order the algorithm works under
+        :attr:`ExecutionRouting.ALGORITHMIC`; the child is not an order of its
+        own. The **fill policy** decides what the child's ``working`` quantity
+        gets from the liquidity ``event`` showed -- so a liquidity cap applies to
+        each child -- and the **simulator** prices it by the run's cost model.
+        The fill is then applied to the parent by the path every simulated and
+        venue fill takes: the OMS records a partial fill (or the fill that
+        completes the parent), the portfolio books it, the allocation
+        reservation is consumed, and the trade record carries the parent's
+        contributions, so attribution splits by the strategies that asked.
+
+        The child's terms are the order's: a ``MARKET`` child has one attempt at
+        the event's price and what it does not fill is withdrawn (``CANCELLED``);
+        a ``LIMIT`` child meets the market as a taker on its first turn
+        (``arriving``) when the cost model prices taking it within its limit,
+        and otherwise rests and fills at its limit, as a maker, when the market
+        trades through it -- the rules :func:`_work_order` applies to an order.
+        Nothing here reads a later event: ``event`` is the one the child is
+        worked at, and the caller decides which events a child may see.
+
+        Raises:
+            RuntimeValidationError: If the run does not route algorithmically;
+                ``event`` is not of the child's asset or carries no price; the
+                parent is unknown, finished, or not the child's; or ``working``
+                is not positive or exceeds what the parent has left unfilled --
+                the over-execution the parent's quantity forbids.
+        """
+
+        if state.config.routing is not ExecutionRouting.ALGORITHMIC:
+            raise RuntimeValidationError(
+                f"Children are worked by the pipeline only under ALGORITHMIC routing; this run "
+                f"routes {state.config.routing.name}."
+            )
+        priced = _market_price(event)
+        if priced is None or priced[0] != child.asset_id:
+            raise RuntimeValidationError(
+                f"Child {child.child_id} trades {child.asset_id}; the event prices "
+                f"{'nothing' if priced is None else priced[0]}."
+            )
+        parent_id = OrderId(UUID(child.parent_order_id))
+        if not state.oms.orders.contains(parent_id):
+            raise RuntimeValidationError(f"Child {child.child_id} names an unknown parent.")
+        parent = state.oms.orders.find(parent_id)
+        if not parent.is_open or parent.asset_id != child.asset_id or parent.side != child.side:
+            raise RuntimeValidationError(
+                f"Child {child.child_id} cannot work parent {child.parent_order_id}: it is "
+                f"{parent.status} on {parent.asset_id} {parent.side}."
+            )
+        if working <= Decimal("0") or working > parent.remaining_quantity:
+            raise RuntimeValidationError(
+                f"Child {child.child_id} would work {working} with parent "
+                f"{child.parent_order_id} {parent.remaining_quantity} short of filled."
+            )
+
+        # The child as the policy and the cost model see it: the parent's
+        # identity, side and asset, the child's quantity, order type and limit.
+        view = replace(
+            parent,
+            order_type=child.order_type,
+            limit_price=child.limit_price,
+            remaining_quantity=working,
+            time_in_force=TimeInForce.GTC,
+        )
+        market = priced[1]
+        price: Decimal | None = market
+        passive = False
+        if child.order_type is OrderType.LIMIT:
+            if arriving and _within_limit(view, _taker_price(state, view, event, market)):
+                price = market
+            else:
+                price = _resting_fill_price(view, event)
+                passive = True
+        if price is None:
+            return ChildTurn(state, (), (), (), Decimal("0"), None)
+
+        if _venue_blocks(state, parent.asset_id, event.timestamp, price):
+            # Halted or outside the band (FUT-020): the child does not trade here,
+            # and is withdrawn as an unfilled market child is, its limit child
+            # resting on; the parent's schedule continues.
+            unworked = OrderStatus.CANCELLED if child.order_type is OrderType.MARKET else None
+            return ChildTurn(state, (), (), (), Decimal("0"), unworked)
+        decision = _decide_fill(policy, view, event, price, _whole_units(state))
+        if decision.status is FillStatus.REJECTED:
+            return ChildTurn(state, (), (), (), Decimal("0"), OrderStatus.REJECTED)
+        if decision.status is FillStatus.EXPIRED:
+            return ChildTurn(state, (), (), (), Decimal("0"), OrderStatus.EXPIRED)
+        unfilled = OrderStatus.CANCELLED if child.order_type is OrderType.MARKET else None
+        if decision.status is FillStatus.NO_FILL:
+            return ChildTurn(state, (), (), (), Decimal("0"), unfilled)
+
+        quantity = working if decision.quantity is None else min(decision.quantity, working)
+        # Status against the parent, as a venue fill's is: a fill completes the
+        # parent only when it leaves nothing of the parent unfilled.
+        status = (
+            FillStatus.FULL_FILL
+            if quantity >= parent.remaining_quantity
+            else FillStatus.PARTIAL_FILL
+        )
+        current, reports = _execute_order(
+            state, parent, FillDecision(status, quantity), event, price=price, passive=passive
+        )
+        current, fills, trades = _apply_reports(current, parent, reports, rates)
+        outcome = OrderStatus.FILLED if quantity == working else unfilled
+        return ChildTurn(
+            evolve(current, id_position=current_id_position()),
+            reports,
+            fills,
+            trades,
+            quantity,
+            outcome,
+        )
 
     @staticmethod
     @in_accounting_context
@@ -1455,29 +1775,43 @@ class ExecutionPipeline:
             market_prices=state.market_prices,
             shares=order_shares_by_strategy(state.oms, state.allocation),
             instruments=state.config.instruments,
+            reopened=state.execution.reopened,
             window=state.config.retention.market_history,
             as_of=timestamp,
         )
         strategy, intents = StrategyEngine.stop(state.strategy, populated, timestamp, strategy_ids)
-        current = evolve(state, strategy=strategy)
-        if not intents or last is None:
+        current = _exercises_requested(evolve(state, strategy=strategy), intents, timestamp, rates)
+        current, ordered, amended = _instructions_requested(
+            current,
+            intents,
+            timestamp,
+            event=last,
+            policy=StaticFill(FillStatus.FULL_FILL, None),
+            rates=rates,
+            rest=True,
+        )
+        if not ordered or last is None:
             # With no event processed there is no price to size or judge an
             # order by; the intents are reported and nothing is placed.
-            return evolve(current, id_position=current_id_position()), intents, ()
+            return evolve(current, id_position=current_id_position()), intents, amended.orders
 
-        allocation, requests = _allocate(current, intents, current.market_prices, rates, timestamp)
+        allocation, requests = _allocate(current, ordered, current.market_prices, rates, timestamp)
         current = evolve(current, allocation=allocation)
         current, routed = _route_requests(
             current,
             last,
-            intents,
+            ordered,
             requests,
             StaticFill(FillStatus.FULL_FILL, None),
             rates,
             rest=True,
             at=timestamp,
         )
-        return evolve(current, id_position=current_id_position()), intents, routed.orders
+        return (
+            evolve(current, id_position=current_id_position()),
+            intents,
+            (*amended.orders, *routed.orders),
+        )
 
     @staticmethod
     @in_accounting_context
@@ -1516,6 +1850,281 @@ class ExecutionPipeline:
 
     @staticmethod
     @in_accounting_context
+    def deliver_surface(
+        state: ExecutionPipelineState, observed: ObservedSurface
+    ) -> ExecutionPipelineState:
+        """Receive a volatility surface as data, at its knowledge instant (FUT-039, phase 5).
+
+        Kept on the risk state as it arrived -- its surface, instant, source
+        and version -- beside every one before; which one a margin check reads
+        is :func:`~alphalab.risk.surfaces.select`'s rule, never one not yet
+        known. A risk view shows a strategy the latest known.
+
+        Raises:
+            RuntimeValidationError: If its knowledge instant is before the last
+                event, or the same source's same version was delivered already.
+        """
+
+        _require_not_before_last_event(state, observed.known_at, "A surface delivery")
+        underlying = observed.surface.underlying_asset_id
+        earlier = state.risk.surfaces.get(underlying, ())
+        if any((o.source, o.version) == (observed.source, observed.version) for o in earlier):
+            raise RuntimeValidationError(
+                f"{observed.source}'s surface version {observed.version!r} for {underlying} "
+                "was delivered already; a revision is published as a version of its own."
+            )
+        risk = evolve(
+            state.risk, surfaces=state.risk.surfaces.set(underlying, (*earlier, observed))
+        )
+        return evolve(state, risk=risk, id_position=current_id_position())
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_auction(
+        state: ExecutionPipelineState, delivered: DeliveredAuction
+    ) -> ExecutionPipelineState:
+        """Receive a venue's auction book or indication as data, at its knowledge instant (FUT-043).
+
+        Kept on the market state as it arrived -- the publication, its
+        instant, source and version -- beside every one before. The uncross
+        reads the book, and a strategy's ``context.universe.auction`` the book
+        and the indication, by one rule with what was declared (the instrument
+        package's ``published``); never one not yet known.
+
+        Raises:
+            RuntimeValidationError: If its knowledge instant is before the last
+                event, or the same source's same version was delivered already.
+        """
+
+        _require_not_before_last_event(state, delivered.known_at, "An auction delivery")
+        asset = delivered.asset_id
+        earlier = state.market.auctions.get(asset, ())
+        if any((d.source, d.version) == (delivered.source, delivered.version) for d in earlier):
+            raise RuntimeValidationError(
+                f"{delivered.source}'s auction publication {delivered.version!r} for {asset} "
+                "was delivered already; a correction is published as a version of its own."
+            )
+        market = evolve(
+            state.market, auctions=state.market.auctions.set(asset, (*earlier, delivered))
+        )
+        return evolve(state, market=market, id_position=current_id_position())
+
+    @staticmethod
+    @in_accounting_context
+    def record_terms(
+        state: ExecutionPipelineState, asset_id: str, action: str, version: int, timestamp: float
+    ) -> ExecutionPipelineState:
+        """Record that a corrected version of an action's terms is announced (FUT-038, phase 5).
+
+        A :class:`~alphalab.strategy.events.TermsAnnounced` in the strategy
+        runtime's log, at the instant the correction became known.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A correction's announcement")
+        announced = TermsAnnounced(str(new_id()), timestamp, asset_id, action, version)
+        strategy = state.strategy
+        return evolve(
+            state,
+            strategy=strategy.evolved(strategy.strategies, (*strategy.events, announced), ()),
+            id_position=current_id_position(),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def record_holders(
+        state: ExecutionPipelineState, asset_id: str, action: str, timestamp: float
+    ) -> ExecutionPipelineState:
+        """Record who holds ``asset_id`` at an elective action's record instant (FUT-030, phase 4).
+
+        Each strategy's signed share as it stands, as a
+        :class:`~alphalab.strategy.events.HoldersRecorded` in the strategy
+        runtime's log: what each may elect for when the action takes effect.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A record instant")
+        holders = {
+            sid: share
+            for sid, share in AllocationEngine.shares_of(state.allocation, asset_id)
+            if share
+        }
+        recorded = HoldersRecorded(str(new_id()), timestamp, asset_id, action, holders)
+        strategy = state.strategy
+        return evolve(
+            state,
+            strategy=strategy.evolved(strategy.strategies, (*strategy.events, recorded), ()),
+            id_position=current_id_position(),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def amend_delivery(
+        state: ExecutionPipelineState,
+        holding: str,
+        effective_at: float,
+        asset_id: str,
+        change: PaymentChange,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+        *,
+        delivers_at: float | None = None,
+        units: Decimal | None = None,
+        reference: str = "",
+    ) -> ExecutionPipelineState:
+        """Book a later word on units an exchange delivers after its instant (FUT-037, phase 5).
+
+        See :meth:`~alphalab.portfolio.engine.PortfolioEngine.amend_delivery`;
+        units written off are taken from each strategy by its part of the
+        delivery, and the risk state is resynced as for any change to the book.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event, or
+                the amendment does not hold against the book.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A delivery amendment")
+        try:
+            portfolio, lost = PortfolioEngine.amend_delivery(
+                state.portfolio, holding, effective_at, asset_id, change, timestamp,
+                delivers_at=delivers_at, units=units, reference=reference,
+            )  # fmt: skip
+        except InvalidTransactionError as exc:
+            raise RuntimeValidationError(str(exc)) from exc
+        if portfolio is state.portfolio:
+            return state  # the run was owed none of it
+        allocation = state.allocation
+        if lost:
+            allocation = AllocationEngine.apply_lifecycle(allocation, asset_id, lost)
+        return _after_book_change(evolve(state, allocation=allocation), portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def amend_payment(
+        state: ExecutionPipelineState,
+        holding: str,
+        effective_at: float,
+        currency: str,
+        change: PaymentChange,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+        *,
+        per_unit: Decimal | None = None,
+        replacement_currency: str | None = None,
+        payment_at: float | None = None,
+        reference: str = "",
+    ) -> ExecutionPipelineState:
+        """Book an issuer's later word on a corporate action's payment (FUT-034, phase 4).
+
+        The payment is ``currency``'s consideration of the exchange of
+        ``holding`` effective at ``effective_at``; see
+        :meth:`~alphalab.portfolio.engine.PortfolioEngine.amend_payment` for
+        each :class:`~alphalab.portfolio.settlement.PaymentChange`. A correction
+        or a replacement is ``per_unit`` for each unit the holding was when it
+        was exchanged, as the exchange recorded it. The risk state is resynced
+        and an equity point recorded, as for any cash the book moves: a payment
+        that fails leaves buying power, settled cash and collateral as if it had
+        never been owed, and a delayed one keeps it out of them until paid.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event, a
+                currency is one this pipeline does not settle, or the amendment
+                does not hold against the book.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A payment amendment")
+        for named in (currency, replacement_currency):
+            if named is not None and named not in state.config.settlement_currencies:
+                raise RuntimeValidationError(
+                    f"A payment in {named!r} cannot be booked by a pipeline that settles in "
+                    f"{sorted(state.config.settlement_currencies)}."
+                )
+        units = None
+        if change in (PaymentChange.CORRECTED, PaymentChange.REPLACED):
+            units = _units_exchanged(state.portfolio, holding, effective_at)
+            ledger = state.portfolio.ledger.transactions
+            if units is None and payment_chain(ledger, holding, effective_at, currency):
+                raise RuntimeValidationError(
+                    f"The run's events no longer record how many units of {holding} its "
+                    f"exchange at {effective_at!r} exchanged -- a results bound trimmed them -- "
+                    "so a payment per unit cannot be booked; keep the portfolio's events."
+                )
+        try:
+            portfolio = PortfolioEngine.amend_payment(
+                state.portfolio, holding, effective_at, currency, change, timestamp,
+                units=units, per_unit=per_unit, replacement_currency=replacement_currency,
+                pays_at=payment_at, reference=reference,
+            )  # fmt: skip
+        except InvalidTransactionError as exc:
+            raise RuntimeValidationError(str(exc)) from exc
+        if portfolio is state.portfolio:
+            return state  # the run held none of it
+        return _after_book_change(state, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def record_accrual(
+        state: ExecutionPipelineState, key: str, amount: Decimal, currency: str, timestamp: float
+    ) -> ExecutionPipelineState:
+        """Record one day's accrued interest or fee under ``key``, moving no cash (FUT-023).
+
+        See :meth:`~alphalab.portfolio.engine.PortfolioEngine.record_accrual`.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event, or
+                ``currency`` is one this pipeline does not settle.
+        """
+
+        _require_not_before_last_event(state, timestamp, "An accrual")
+        if currency not in state.config.settlement_currencies:
+            raise RuntimeValidationError(
+                f"An accrual in {currency!r} cannot be recorded by a pipeline that settles in "
+                f"{sorted(state.config.settlement_currencies)}."
+            )
+        portfolio = PortfolioEngine.record_accrual(
+            state.portfolio, key, amount, currency, timestamp
+        )
+        return evolve(state, portfolio=portfolio)
+
+    @staticmethod
+    @in_accounting_context
+    def post_accrual(
+        state: ExecutionPipelineState,
+        key: str,
+        kind: CashFlowKind,
+        currency: str,
+        asset_id: str,
+        reference: str,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Close ``key``'s accrual and post its sum, rounded once, as a cash flow (FUT-023).
+
+        Nothing is posted for a sum that rounds to nothing at the currency's
+        minor unit -- the accrual still closes -- and nothing at all for a key
+        with nothing open, so a period posts once.
+        """
+
+        open_amount = PortfolioEngine.accrued(state.portfolio, key)
+        if open_amount == 0:
+            return state
+        _require_not_before_last_event(state, timestamp, "An accrual's posting")
+        portfolio = PortfolioEngine.close_accrual(
+            state.portfolio, key, open_amount, currency, timestamp
+        )
+        current = evolve(state, portfolio=portfolio)
+        posted = to_money(open_amount, currency, portfolio.account.currency_units)
+        if posted == 0:
+            return current
+        flow = CashFlow(kind, open_amount, currency, asset_id, reference)
+        return ExecutionPipeline.apply_cash_flow(current, flow, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
     def apply_split(
         state: ExecutionPipelineState,
         split: Split,
@@ -1547,6 +2156,7 @@ class ExecutionPipeline:
         """
 
         _require_not_before_last_event(state, timestamp, "A split")
+        _require_adjusted_for(state, split, timestamp)
         working = state.oms.working_orders_for(split.asset_id)
         current = state
         if working:
@@ -1576,6 +2186,516 @@ class ExecutionPipeline:
             ),
         )
         return _after_book_change(current, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def apply_exchange(
+        state: ExecutionPipelineState,
+        exchange: HoldingExchange,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+        *,
+        payment_at: float | None = None,
+        part: Mapping[str, Decimal] | None = None,
+        delivers_at: Mapping[str, float] | None = None,
+        delivery: DeliveryConvention | None = None,
+    ) -> ExecutionPipelineState:
+        """Exchange a holding for other instruments and cash by its declared terms (FUT-021).
+
+        ``payment_at`` is the issuer's payment instant for the cash part and any
+        cash in lieu, when it follows the effective one (FUT-025, phase 3): the
+        cash is then an entitlement until it, kept out of buying power and of
+        settled cash, and paid at it. ``None`` pays it at ``timestamp``.
+
+        ``part``, when given, is the part of the holding exchanged (FUT-030,
+        phase 4): each strategy's signed units of it, at most its share, the
+        basis apportioned by units; the rest stays held as it was, so the
+        alternatives of an elective action are applied each to its electors'
+        part. A part that is the whole holding is the holding exchanged whole.
+
+        ``delivers_at`` names the legs delivered after ``timestamp`` (FUT-037,
+        phase 5) and their delivery instants: each is its holders' entitlement
+        from ``timestamp``, owed until then, under ``delivery`` -- by default
+        neither sold nor counted as margin collateral until it arrives.
+
+        Everything is planned before anything moves, and refused whole:
+
+        * each leg's instrument is one the run's registry declares, when it has
+          one, and the book does not hold its opposite side;
+        * each leg's units are the holding's times its ratio -- the whole part
+          the book can hold, whole lots or whole units where the run trades them,
+          a fraction paid at the leg's declared in-lieu price or refused;
+        * the cost basis is apportioned by the declared shares, converted at the
+          rate in force into a leg's or the cash part's currency when it differs,
+          and the cash part, and any cash in lieu, realizes its share against the
+          cash it pays -- received by a long, paid by a short;
+        * a contract delivering the exchanged instrument, held or working, must
+          declare its adjusted terms effective at this instant, as for a split;
+        * an order working in the exchanged instrument is cancelled under
+          simulated routing, and refuses the exchange under external routing.
+
+        Each strategy's share of the holding becomes its share of each leg. A
+        received holding is marked at its last observed price, or at its basis
+        per unit until its first one. The run holding none of the instrument
+        moves no position, cash or share; the orders and contracts are still
+        checked and handled.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event,
+                or any check above fails.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A holding exchange")
+        if payment_at is not None and payment_at < timestamp:
+            raise RuntimeValidationError(
+                f"An exchange effective at {timestamp!r} cannot pay its cash at {payment_at!r}, "
+                "before it: a payment follows the entitlement it settles."
+            )
+        _require_exchange_adjusted(state, exchange, timestamp)
+        current = state
+        working = state.oms.working_orders_for(exchange.asset_id)
+        if working:
+            if state.config.routing is ExecutionRouting.EXTERNAL:
+                raise RuntimeValidationError(
+                    f"{len(working)} order(s) are working in {exchange.asset_id} at the venue, "
+                    "which decides what becomes of them at a corporate action; apply the "
+                    "exchange once they are resolved."
+                )
+            for order_id in working:
+                current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
+        held = current.portfolio.positions.get(exchange.asset_id)
+        if held is None or held.quantity == 0:
+            return _after_book_change(current, current.portfolio, timestamp, rates)
+        shares = AllocationEngine.shares_of(current.allocation, exchange.asset_id)
+        kept = None
+        if part is not None:
+            held, kept, shares = _exchanged_part(current, held, shares, part, timestamp)
+        plan = _exchange_plan(current, exchange, held, timestamp, rates)
+        leg_parts = {
+            leg.asset_id: (
+                _strategy_parts(given, holding.quantity)
+                if (
+                    given := tuple(
+                        (sid, ACCOUNTING_CONTEXT.multiply(share, leg.ratio))
+                        for sid, share in shares
+                    )
+                )
+                else {}
+            )
+            for leg, holding in plan.legs
+        }
+        portfolio = PortfolioEngine.apply_exchange(
+            current.portfolio,
+            exchange.asset_id,
+            plan.received,
+            plan.retained_basis,
+            plan.consideration,
+            plan.realized,
+            timestamp,
+            exchange.reference,
+            pays_at=payment_at,
+            kept=kept,
+            delivers=None
+            if not delivers_at
+            else {a: (when, leg_parts.get(a, {})) for a, when in delivers_at.items()},
+            convention=delivery,
+        )
+        allocation = current.allocation
+        closed = {} if exchange.retained else dict(shares)
+        for index, (leg, holding) in enumerate(plan.legs):
+            parts = leg_parts[leg.asset_id]
+            unit_value = _in_budget_currency(
+                current,
+                ACCOUNTING_CONTEXT.multiply(holding.price, _multiplier(holding.economics)),
+                holding.currency,
+                rates,
+                timestamp,
+            )
+            allocation = AllocationEngine.apply_lifecycle(
+                allocation,
+                exchange.asset_id,
+                closed if index == 0 else {},
+                leg.asset_id,
+                parts,
+                unit_value,
+            )
+        if not plan.legs and closed:
+            allocation = AllocationEngine.apply_lifecycle(allocation, exchange.asset_id, closed)
+        current = evolve(current, allocation=allocation)
+        return _after_book_change(current, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def settle_contract(
+        state: ExecutionPipelineState,
+        settlement: ContractSettlement,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Close every position in an expired contract at its final settlement price (FUT-012).
+
+        The contract must be one the run's registry declares, with a last
+        trading instant at or before ``timestamp``, and a future or an option
+        -- what settles at expiry -- or a bond, redeemed at maturity at the
+        price ``settlement`` states (v4.1.1, FUT-010). Then, as at a split, an order still working
+        in it is cancelled and what it held freed (refused under external
+        routing, where the venue reports what became of its orders); the
+        position is closed at the settlement price with no commission, by the
+        portfolio's one fill authority, so a future realizes its last variation
+        and an option pays its intrinsic value times its multiplier; each
+        strategy's share closes with it; a trade record attributes the realized
+        P&L to the strategies that held it; the run is marked at the price; and
+        risk is resynced and an equity point recorded.
+
+        Settling a contract the run holds no position in only marks it.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event
+                the pipeline processed; the contract is not declared, declares
+                no last trading instant, has not expired by ``timestamp``, or is
+                not a future or an option; the price is one its economics do not
+                admit; or orders are working in it under external routing.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A contract settlement")
+        asset_id = settlement.asset_id
+        registry = state.config.instruments
+        record = None if registry is None else registry.record_for(asset_id)
+        if record is None:
+            raise RuntimeValidationError(
+                f"{asset_id} is not declared in this run's instrument registry, so nothing "
+                "says it expires or how it settles; a settlement for it is refused."
+            )
+        named = f"{record.symbol} on {record.exchange}"
+        if record.last_trade_at is None:
+            raise RuntimeValidationError(
+                f"{named} declares no last trading instant: it does not expire, so it is not "
+                "settled. Declare InstrumentRecord.last_trade_at for a contract that expires."
+            )
+        if timestamp < record.last_trade_at:
+            raise RuntimeValidationError(
+                f"{named} trades until {record.last_trade_at!r}; a settlement at {timestamp!r} "
+                "would close positions while the contract still trades."
+            )
+        economics = economics_for(record.asset_type, record.economics, named)
+        redeemed = record.asset_type is AssetType.BOND
+        if economics.settlement not in _EXPIRING and not redeemed:
+            raise RuntimeValidationError(
+                f"{named} settles as {economics.settlement.value}: only a future or an option "
+                "is settled at expiry, and a bond redeemed at maturity."
+            )
+        price = settlement.price
+        if price < 0 and not economics.allows_negative_prices:
+            raise RuntimeValidationError(
+                f"{named} is settled at {price}, which its economics do not admit."
+            )
+        if isinstance(record.terms, OptionTerms):
+            raise RuntimeValidationError(
+                f"{named} declares its option terms, so its expiry is resolved from them: give "
+                "an OptionExpiry with the underlying's settlement value, not a ContractSettlement "
+                "at a price the caller computed."
+            )
+        delivery = (
+            record.terms.deliverable
+            if isinstance(record.terms, FutureTerms)
+            and record.terms.settlement is SettlementStyle.PHYSICAL
+            else None
+        )
+
+        working = state.oms.working_orders_for(asset_id)
+        current = state
+        if working:
+            if state.config.routing is ExecutionRouting.EXTERNAL:
+                raise RuntimeValidationError(
+                    f"{len(working)} order(s) are working in {named} at the venue. The venue "
+                    "reports what became of them at expiry; settle the contract once they are "
+                    "resolved."
+                )
+            for order_id in working:
+                current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
+
+        portfolio = current.portfolio
+        position = portfolio.positions.get(asset_id)
+        signed_shares = AllocationEngine.shares_of(current.allocation, asset_id)
+        if delivery is not None and position is not None and position.quantity != 0:
+            # Checked before anything moves: a delivery the book cannot take is
+            # refused whole, not half-applied.
+            _require_deliverable(
+                current,
+                record,
+                delivery,
+                delivery.units * position.quantity,
+                price,
+                economics.multiplier,
+            )
+        allocation, shares = AllocationEngine.settle_asset(current.allocation, asset_id)
+        current = evolve(
+            current,
+            allocation=allocation,
+            market_prices=_market_prices_with_event(current.market_prices, (asset_id, price)),
+        )
+        record_of_settlement: TradeRecord | None = None
+        if position is not None and position.quantity != 0:
+            before = len(portfolio.events)
+            opened_at = position.opened_at
+            portfolio = PortfolioEngine.apply_fill(
+                portfolio,
+                asset_id,
+                -position.quantity,
+                price,
+                Decimal("0"),
+                timestamp,
+                position.currency,
+                economics=economics,
+                final_settlement=True,
+                settles_at=_settles_at(current, asset_id, timestamp),
+            )
+            realized = Decimal("0.00")
+            for event in portfolio.events[before:]:
+                if isinstance(event, PositionReduced | PositionClosed):
+                    realized = event.realized_pnl
+                    break
+            record_of_settlement = TradeRecord(
+                # Derived, not drawn from the run's identifier stream.
+                trade_id=f"SETTLEMENT-{asset_id}-{timestamp!r}",
+                asset_id=asset_id,
+                sector_id=_sector_for(current, asset_id),
+                realized_pnl=realized,
+                notional_value=ACCOUNTING_CONTEXT.multiply(position.quantity.copy_abs(), price),
+                holding_period_seconds=None if opened_at is None else timestamp - opened_at,
+                contributions=shares,
+            )
+        if record_of_settlement is not None:
+            current = evolve(
+                current, trade_records=current.trade_records.append(record_of_settlement)
+            )
+        if delivery is not None and position is not None and position.quantity != 0:
+            # A physically settled future: the long takes the deliverable and
+            # pays the final price for it, the short delivers and receives it.
+            current = _deliver(
+                evolve(current, portfolio=portfolio),
+                record,
+                delivery,
+                {sid: delivery.units * held for sid, held in signed_shares},
+                delivery.units * position.quantity,
+                price,
+                economics.multiplier,
+                timestamp,
+                rates,
+                f"DELIVERY-{asset_id}-{timestamp!r}",
+            )
+            portfolio = current.portfolio
+        return _after_book_change(current, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def exercise(
+        state: ExecutionPipelineState,
+        exercise: Exercise,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Exercise ``exercise.contracts`` of a long option at ``timestamp`` (v4.1.1, FUT-013).
+
+        The option's :class:`~alphalab.instrument.terms.OptionTerms` decide what
+        happens: inside its exercise window -- any instant to expiry for an
+        American contract, from the last trading instant to expiry for a European
+        one -- a cash-settled contract pays its intrinsic value against the
+        settlement value the instruction carries, and a physically settled one
+        delivers its deliverable against the strike: a call takes it and pays
+        ``strike x multiplier`` a contract, a put delivers it and receives that.
+        Every movement goes through the portfolio's one fill authority, the
+        exercised contracts closed at what they pay (nothing, when they deliver),
+        and each strategy's share of the position closes and receives its share
+        of the delivery. The engine carries out the instruction; whether
+        exercising was wise is the holder's question.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event;
+                the option is undeclared or declares no terms; the instant is
+                outside its exercise window; the book is not long that many
+                contracts; orders work in it; a cash-settled exercise carries no
+                settlement value or a physical one carries one; or the delivery
+                cannot be taken -- see :meth:`expire_option`.
+        """
+
+        record, terms, economics, named = _declared_option(state, exercise.asset_id, timestamp)
+        _require_in_window(record, terms, timestamp, named, "exercised")
+        _require_no_working_orders(state, exercise.asset_id, named, "exercised")
+        held = _held(state, exercise.asset_id)
+        if held < exercise.contracts:
+            raise RuntimeValidationError(
+                f"{exercise.contracts} contracts of {named} cannot be exercised: the book is "
+                f"{held} of them, and only a long position is exercised."
+            )
+        return _resolve_option(
+            state,
+            record,
+            terms,
+            economics,
+            exercise.contracts,
+            exercise.underlying_value,
+            timestamp,
+            rates,
+            f"EXERCISE-{exercise.asset_id}-{timestamp!r}-{exercise.reference}",
+            instructed=True,
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def assign(
+        state: ExecutionPipelineState,
+        assignment: Assignment,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Assign ``assignment.contracts`` of a short option at ``timestamp`` (v4.1.1, FUT-013).
+
+        The mirror of :meth:`exercise`, from the writer's side: a cash-settled
+        contract pays out its intrinsic value; a physically settled call
+        delivers the deliverable and receives the strike, a put takes it and
+        pays the strike. Assignment is an input, never drawn -- see
+        :class:`~alphalab.portfolio.corporate_actions.Assignment`.
+
+        Raises:
+            RuntimeValidationError: As :meth:`exercise`, with "short" for "long".
+        """
+
+        record, terms, economics, named = _declared_option(state, assignment.asset_id, timestamp)
+        _require_in_window(record, terms, timestamp, named, "assigned")
+        _require_no_working_orders(state, assignment.asset_id, named, "assigned")
+        held = _held(state, assignment.asset_id)
+        if -held < assignment.contracts:
+            raise RuntimeValidationError(
+                f"{assignment.contracts} contracts of {named} cannot be assigned: the book is "
+                f"{held} of them, and only a short position is assigned."
+            )
+        return _resolve_option(
+            state,
+            record,
+            terms,
+            economics,
+            -assignment.contracts,
+            assignment.underlying_value,
+            timestamp,
+            rates,
+            f"ASSIGNMENT-{assignment.asset_id}-{timestamp!r}-{assignment.reference}",
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def expire_option(
+        state: ExecutionPipelineState,
+        expiry: OptionExpiry,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Resolve every open position in an option at its expiry (v4.1.1, FUT-013).
+
+        At or after the contract's ``expires_at``, against the underlying's
+        settlement value: orders still working in it are cancelled, as at a
+        settlement; then, if its automatic-exercise rule exercises at that value,
+        a long position is exercised and a short one assigned -- in cash or by
+        delivery, by its terms -- and otherwise the position is closed at
+        nothing. A contract with no rule exercises nothing it was not instructed
+        to. The option is marked at its intrinsic value.
+
+        A delivery the book cannot take is refused rather than booked: a
+        deliverable the registry does not declare, or one priced in another
+        currency than the strike; a delivery leaving the book short when the
+        run does not allow shorting; or a payment leaving the cash it is paid
+        in below zero -- no financing of a delivery is modelled.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event or
+                before the contract expires; the option is undeclared or declares
+                no terms; orders work in it under external routing; or the
+                delivery cannot be taken.
+        """
+
+        record, terms, economics, named = _declared_option(state, expiry.asset_id, timestamp)
+        if timestamp < terms.expires_at:
+            raise RuntimeValidationError(
+                f"{named} expires at {terms.expires_at!r}; an expiry at {timestamp!r} would "
+                "resolve it while it can still be exercised."
+            )
+        current = state
+        working = state.oms.working_orders_for(expiry.asset_id)
+        if working:
+            if state.config.routing is ExecutionRouting.EXTERNAL:
+                raise RuntimeValidationError(
+                    f"{len(working)} order(s) are working in {named} at the venue; resolve them "
+                    "before its expiry is."
+                )
+            for order_id in working:
+                current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
+        packaged = bool(terms.basket) or terms.cash_per_contract != 0
+        if packaged:
+            if expiry.underlying_value is not None:
+                raise RuntimeValidationError(
+                    f"{named} expires against a package of {len(terms.deliverables)} "
+                    "deliverables; one underlying value cannot state it, and its components "
+                    "are valued at the prices the run has observed for them."
+                )
+            values, multipliers = _package_values(state, record, terms, timestamp)
+            intrinsic = terms.basket_intrinsic(values, multipliers, economics.multiplier)
+        else:
+            if expiry.underlying_value is None:
+                raise RuntimeValidationError(
+                    f"{named} expires against its deliverable's settlement value, which the "
+                    "expiry does not state."
+                )
+            intrinsic = terms.intrinsic(
+                expiry.underlying_value,
+                economics.multiplier,
+                _deliverable_multiplier(state, record, terms.deliverable),
+            )
+        current = evolve(
+            current,
+            market_prices=_market_prices_with_event(
+                current.market_prices, (expiry.asset_id, intrinsic)
+            ),
+        )
+        held = _held(current, expiry.asset_id)
+        if held == 0:
+            return current
+        rule = terms.automatic_exercise
+        if rule is not None and rule.exercises(intrinsic):
+            return _resolve_option(
+                current,
+                record,
+                terms,
+                economics,
+                held,
+                expiry.underlying_value
+                if terms.settlement is SettlementStyle.CASH and not packaged
+                else None,
+                timestamp,
+                rates,
+                f"EXPIRY-{expiry.asset_id}-{timestamp!r}",
+            )
+        # Not exercised: the contract expires and is worth nothing.
+        shares = _strategy_parts(
+            AllocationEngine.shares_of(current.allocation, expiry.asset_id), held
+        )
+        current = evolve(
+            current,
+            allocation=AllocationEngine.apply_lifecycle(
+                current.allocation, expiry.asset_id, shares
+            ),
+        )
+        current = _lifecycle_fill(
+            current,
+            expiry.asset_id,
+            -held,
+            Decimal("0"),
+            timestamp,
+            record.currency,
+            economics,
+            shares,
+            f"EXPIRY-{expiry.asset_id}-{timestamp!r}",
+        )
+        return _after_book_change(current, current.portfolio, timestamp, rates)
 
     @staticmethod
     @in_accounting_context
@@ -1688,7 +2808,54 @@ def _route_requests(
         ):
             current = _record_unpriced(current, asset_id, instant)
 
+    breached: MarginPosition | bool | None = False  # not yet asked
     for request in requests:
+        # An order that would increase a position while the account is below
+        # its maintenance margin is refused: only reductions trade while a
+        # margin call is open (FUT-017). Asked once, and only when one would.
+        if _increases(current, request):
+            if breached is False:
+                margin = margin_position(current, rates, instant)
+                breached = margin if margin is not None and margin.in_breach else None
+            if isinstance(breached, MarginPosition):
+                dropped.append(
+                    (
+                        request,
+                        f"The account is below its maintenance margin -- equity "
+                        f"{breached.equity} against {breached.maintenance} -- and only an "
+                        "order reducing a position trades until the call is met.",
+                    )
+                )
+                current = _retire_dropped_request(current, request.order_id, instant)
+                continue
+            # An order growing a margined position must leave the account's
+            # equity at or above its initial requirement, counting what is
+            # already working (FUT-017).
+            short_of_margin = _initial_margin_refusal(current, request, rates, instant)
+            if short_of_margin is not None:
+                dropped.append((request, short_of_margin))
+                current = _retire_dropped_request(current, request.order_id, instant)
+                continue
+            # A short is sold only against borrow a lender offers (FUT-018).
+            unborrowable = _borrow_refusal(current, request, instant)
+            if unborrowable is not None:
+                dropped.append((request, unborrowable))
+                current = _retire_dropped_request(current, request.order_id, instant)
+                continue
+        # A venue's band, at placement (FUT-020): a limit priced beyond it is
+        # refused or capped, as the band declares.
+        beyond, request = _band_terms(current, request, instant)
+        if beyond is not None:
+            dropped.append((request, beyond))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
+        # The venue's price grid: a limit or stop between its ticks is refused,
+        # as the venue would refuse it.
+        off_grid = _tick_refusal(current, request)
+        if off_grid is not None:
+            dropped.append((request, off_grid))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
         # An order cannot be priced, executed or valued without a market price
         # for its asset -- allocation prices unknown assets at 0.00. Drop the
         # request here, deterministically and before it reaches the OMS, rather
@@ -1719,6 +2886,20 @@ def _route_requests(
             dropped.append((request, refusal.detail))
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
+        # A book settling several currencies pays each fill from the cash of its
+        # own: a purchase that cash cannot pay is refused here, not at the fill
+        # (ACC-017; buying power is the base currency's sum of them all).
+        unpayable = _currency_cash_refusal(current, request, instant)
+        if unpayable is not None:
+            dropped.append((request, unpayable))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
+        # Units an exchange has not yet delivered are not sold (FUT-037).
+        undelivered = _undelivered_refusal(current, request, instant)
+        if undelivered is not None:
+            dropped.append((request, undelivered))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
         unworkable = _terms_refusal(current, request, instant)
         if unworkable is not None:
             dropped.append((request, unworkable))
@@ -1735,10 +2916,11 @@ def _route_requests(
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
         current, order = _submit_and_accept_order(current, request, instant)
-        if current.config.routing is ExecutionRouting.EXTERNAL:
-            # The order is now working and belongs to whoever routes it. No
-            # fill is invented, the order is not closed out, and its
-            # reservation stays held -- the capital is still committed.
+        if current.config.routing is not ExecutionRouting.SIMULATED:
+            # The order is now working and belongs to whoever routes it -- the
+            # venue, or the execution algorithm working it in children. No fill
+            # is invented, the order is not closed out, and its reservation
+            # stays held -- the capital is still committed.
             orders.append(order)
             continue
         if rest or current.config.fill_timing is FillTiming.NEXT_EVENT:
@@ -1775,6 +2957,7 @@ def _step_result(
     requests: tuple[OrderRequest, ...],
     routed: _Routed,
     rates: FxRates,
+    queue: QueueBook | None = None,
 ) -> ExecutionPipelineResult:
     """Close the step: value the book once, record the snapshot, and report."""
 
@@ -1810,6 +2993,7 @@ def _step_result(
         routed.unpriced,
         valuation,
         routed.refusals,
+        queue,
     )
 
 
@@ -1880,6 +3064,3021 @@ def _instrument_grid(
         if economics.multiplier != 1:
             multipliers[asset_id] = economics.multiplier
     return lots, minimums, multipliers
+
+
+def _expired_at(state: ExecutionPipelineState, asset_id: str) -> float | None:
+    """The last trading instant ``asset_id``'s record declares, or ``None`` (FUT-012).
+
+    Read from the registry's index of expiring instruments, so a run whose
+    registry declares none -- every run before v4.1.1 -- pays one emptiness test.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.expiring:
+        return None
+    return registry.expiring.get(asset_id)
+
+
+def held_past_expiry(state: ExecutionPipelineState, at: float) -> tuple[str, ...]:
+    """Every contract the book still holds whose last trading instant is before ``at`` (FUT-012).
+
+    What a :class:`~alphalab.portfolio.corporate_actions.ContractSettlement`
+    should have closed. Sorted, so the answer does not depend on the order the
+    positions were opened in.
+    """
+
+    return tuple(
+        sorted(
+            asset_id
+            for asset_id, position in state.portfolio.positions.items()
+            if position.quantity != 0
+            and (expired := _expired_at(state, asset_id)) is not None
+            and expired < at
+        )
+    )
+
+
+def _declared(state: ExecutionPipelineState, asset_id: str) -> InstrumentRecord | None:
+    """An instrument's declaration, for a lifecycle event: a contract or its deliverable.
+
+    The one keyed read a lifecycle event takes, once per contract or deliverable
+    it names -- never per record.
+    """
+
+    registry = state.config.instruments
+    return None if registry is None else registry.record_for(asset_id)
+
+
+def _declared_option(
+    state: ExecutionPipelineState, asset_id: str, timestamp: float
+) -> tuple[InstrumentRecord, OptionTerms, InstrumentEconomics, str]:
+    """The option's record, terms and economics, or a refusal naming what is missing."""
+
+    _require_not_before_last_event(state, timestamp, "An option's exercise, assignment or expiry")
+    record = _declared(state, asset_id)
+    if record is None:
+        raise RuntimeValidationError(
+            f"{asset_id} is not declared in this run's instrument registry, so nothing says "
+            "what exercising it does."
+        )
+    named = f"{record.symbol} on {record.exchange}"
+    terms = record.terms
+    if not isinstance(terms, OptionTerms):
+        raise RuntimeValidationError(
+            f"{named} declares no OptionTerms, so nothing says what exercising it delivers or "
+            "pays. Declare its terms, or settle it with a ContractSettlement at a stated price."
+        )
+    economics = economics_for(record.asset_type, record.economics, named)
+    # The terms in force now: a declared adjustment -- a split's, a merger's --
+    # applies from its own instant (FUT-016).
+    return record, terms.effective(timestamp), economics, named
+
+
+def _require_in_window(
+    record: InstrumentRecord, terms: OptionTerms, timestamp: float, named: str, done: str
+) -> None:
+    assert record.last_trade_at is not None  # terms are declared only with one
+    if terms.exercise_style is ExerciseStyle.BERMUDAN:
+        if not terms.may_exercise(timestamp, record.last_trade_at):
+            windows = ", ".join(f"{a!r} to {b!r}" for a, b in terms.exercise_windows)
+            raise RuntimeValidationError(
+                f"{named} is BERMUDAN: it may be {done} in its windows, {windows}; "
+                f"{timestamp!r} is in none of them."
+            )
+        return
+    start, end = terms.exercise_window(record.last_trade_at)
+    if not start <= timestamp <= end:
+        raise RuntimeValidationError(
+            f"{named} is {terms.exercise_style.name}: it may be {done} from {start!r} to "
+            f"{end!r}, and not at {timestamp!r}."
+        )
+
+
+def _require_no_working_orders(
+    state: ExecutionPipelineState, asset_id: str, named: str, done: str
+) -> None:
+    working = state.oms.working_orders_for(asset_id)
+    if working:
+        raise RuntimeValidationError(
+            f"{len(working)} order(s) are working in {named}; contracts are not {done} while "
+            "orders may still trade the position. Resolve them first."
+        )
+
+
+def _held(state: ExecutionPipelineState, asset_id: str) -> Decimal:
+    position = state.portfolio.positions.get(asset_id)
+    return Decimal("0") if position is None else position.quantity
+
+
+def _strategy_parts(
+    shares: tuple[tuple[str, Decimal], ...], closing: Decimal
+) -> dict[str, Decimal]:
+    """Each strategy's part of ``closing`` contracts, from its own signed share.
+
+    The whole position is each share as it stands. Part of it is apportioned in
+    proportion to the shares -- whole contracts by largest remainder, ties to the
+    earlier strategy, when every share is whole -- and is refused when the
+    strategies hold opposite sides: which side a part of a netted book belongs to
+    is not something the book can say.
+    """
+
+    if not shares:
+        return {}
+    total = sum((held for _, held in shares), Decimal("0"))
+    if closing == total:
+        return dict(shares)
+    if any((held > 0) != (closing > 0) for _, held in shares):
+        raise RuntimeValidationError(
+            "Part of a position whose strategies hold opposite sides cannot be attributed to "
+            "them; exercise or assign the whole position."
+        )
+    ctx = ACCOUNTING_CONTEXT
+    if all(held == held.to_integral_value() for _, held in shares):
+        # Whole contracts, by the one largest-remainder rule the algorithms
+        # package apportions a schedule by.
+        units = _largest_remainder(int(closing.copy_abs()), [held.copy_abs() for _, held in shares])
+        sign = Decimal("1") if closing > 0 else Decimal("-1")
+        return {sid: sign * Decimal(part) for (sid, _), part in zip(shares, units, strict=True)}
+    parts = {sid: ctx.divide(ctx.multiply(closing, held), total) for sid, held in shares[:-1]}
+    parts[shares[-1][0]] = ctx.subtract(closing, sum(parts.values(), Decimal("0")))
+    return parts
+
+
+def _contributions(parts: Mapping[str, Decimal]) -> tuple[StrategyContribution, ...]:
+    return tuple(StrategyContribution(sid, part.copy_abs()) for sid, part in parts.items() if part)
+
+
+def _lifecycle_fill(
+    state: ExecutionPipelineState,
+    asset_id: str,
+    quantity: Decimal,
+    price: Decimal,
+    timestamp: float,
+    currency: str,
+    economics: InstrumentEconomics,
+    parts: Mapping[str, Decimal],
+    trade_id: str,
+    financed: bool = False,
+) -> ExecutionPipelineState:
+    """Book ``quantity`` of ``asset_id`` at ``price`` through the portfolio's fill authority.
+
+    No commission: a lifecycle event is not a trade the venue charges for as one.
+    The trade record carries the realized P&L and the strategies it belongs to,
+    and its identifier is derived, never drawn from the run's stream.
+    """
+
+    portfolio = state.portfolio
+    before = len(portfolio.events)
+    opened_at = _opened_at(portfolio, asset_id)
+    portfolio = PortfolioEngine.apply_fill(
+        portfolio,
+        asset_id,
+        quantity,
+        price,
+        Decimal("0"),
+        timestamp,
+        currency,
+        economics=economics,
+        final_settlement=True,
+        settles_at=_settles_at(state, asset_id, timestamp),
+        financed=financed,
+    )
+    realized = Decimal("0.00")
+    for event in portfolio.events[before:]:
+        if isinstance(event, PositionReduced | PositionClosed):
+            realized = event.realized_pnl
+            break
+    record = TradeRecord(
+        trade_id=trade_id,
+        asset_id=asset_id,
+        sector_id=_sector_for(state, asset_id),
+        realized_pnl=realized,
+        notional_value=ACCOUNTING_CONTEXT.multiply(quantity.copy_abs(), price),
+        holding_period_seconds=None if opened_at is None else timestamp - opened_at,
+        contributions=_contributions(parts),
+    )
+    return evolve(state, portfolio=portfolio, trade_records=state.trade_records.append(record))
+
+
+def _deliverable_multiplier(
+    state: ExecutionPipelineState, contract: InstrumentRecord, deliverable: Deliverable
+) -> Decimal:
+    """What one quoted unit of the deliverable is worth per unit of its price.
+
+    Read from the deliverable's own declaration -- a cash-settled index option
+    names its index as an instrument too -- so a contract on a future or on an
+    instrument with a multiplier of its own is valued by it, not by an assumed one.
+    """
+
+    underlying = _declared(state, deliverable.asset_id)
+    if underlying is None:
+        raise RuntimeValidationError(
+            f"{contract.symbol} on {contract.exchange} settles against "
+            f"{deliverable.asset_id}, which the run's registry does not declare; what one unit "
+            "of it is worth is that declaration's to say."
+        )
+    named = f"{underlying.symbol} on {underlying.exchange}"
+    return economics_for(underlying.asset_type, underlying.economics, named).multiplier
+
+
+def _require_deliverable(
+    state: ExecutionPipelineState,
+    contract: InstrumentRecord,
+    deliverable: Deliverable,
+    units: Decimal,
+    price: Decimal,
+    multiplier: Decimal,
+) -> tuple[InstrumentRecord, InstrumentEconomics, Decimal, bool]:
+    """The deliverable's record, its economics, the price per unit it moves at, and
+    whether it is financed -- or a refusal.
+
+    ``units`` is signed: positive is taken in, negative delivered away. ``price``
+    is per unit of the contract's price, so ``price x multiplier`` is one
+    contract's consideration, and the unit price is that over the deliverable
+    units and the deliverable's own multiplier.
+
+    A delivery taken in for more than the cash it is paid in is financed --
+    booked as a debit -- only when the deliverable declares
+    :class:`~alphalab.instrument.margin.MarginTerms`: it is then held on margin,
+    and the account's margin, not its cash, decides what follows (FUT-017). A
+    deliverable declaring none is refused, as it always was.
+    """
+
+    named = f"{contract.symbol} on {contract.exchange}"
+    underlying = _declared(state, deliverable.asset_id)
+    if underlying is None:
+        raise RuntimeValidationError(
+            f"{named} delivers {deliverable.asset_id}, which the run's registry does not "
+            "declare; nothing can be delivered that the book cannot name."
+        )
+    if underlying.currency != contract.currency:
+        raise RuntimeValidationError(
+            f"{named} is paid for in {contract.currency} and delivers {underlying.symbol}, "
+            f"priced in {underlying.currency}; a delivery whose consideration and deliverable "
+            "are in two currencies is not modelled."
+        )
+    economics = economics_for(
+        underlying.asset_type, underlying.economics, f"{underlying.symbol} on {underlying.exchange}"
+    )
+    ctx = ACCOUNTING_CONTEXT
+    whole = _whole_part(state, economics, units.copy_abs())
+    if whole != units.copy_abs():
+        # Delivering it would leave the book holding a fraction of a unit it
+        # cannot hold (FUT-016): that is the contract's cash in lieu to settle.
+        raise RuntimeValidationError(
+            f"{named} delivers {units.copy_abs()} {underlying.symbol}, of which "
+            f"{ctx.subtract(units.copy_abs(), whole)} is less than a unit the book can hold, "
+            "and declares no cash in lieu for it (OptionTerms.fractions)."
+        )
+    per_contract_units = deliverable.units
+    unit_price = ctx.divide(
+        ctx.multiply(price, multiplier), ctx.multiply(per_contract_units, economics.multiplier)
+    )
+    if not economics.admits_price(unit_price):
+        raise RuntimeValidationError(
+            f"{named} would deliver {underlying.symbol} at {unit_price}, which its economics do "
+            "not admit."
+        )
+    held = _held(state, deliverable.asset_id)
+    if (
+        units < 0
+        and ctx.add(held, units) < 0
+        and not state.config.allocation_constraints.allow_shorting
+    ):
+        raise RuntimeValidationError(
+            f"{named} must deliver {-units} {underlying.symbol} and the book holds {held}; the "
+            "run does not allow a short position, and none is created to make the delivery."
+        )
+    financed = False
+    if units > 0 and economics.settlement.pays_notional:
+        cost = ctx.multiply(ctx.multiply(units, unit_price), economics.multiplier)
+        cash = state.portfolio.cash.balance(underlying.currency)
+        if cash < cost and underlying.margin is None:
+            raise RuntimeValidationError(
+                f"{named} takes delivery of {units} {underlying.symbol} for {cost} "
+                f"{underlying.currency}, and the book holds {cash}; a delivery is financed only "
+                "when its deliverable declares margin terms (InstrumentRecord.margin), and "
+                f"{underlying.symbol} declares none."
+            )
+        financed = cash < cost
+    return underlying, economics, unit_price, financed
+
+
+def _deliver(
+    state: ExecutionPipelineState,
+    contract: InstrumentRecord,
+    deliverable: Deliverable,
+    parts: Mapping[str, Decimal],
+    units: Decimal,
+    price: Decimal,
+    multiplier: Decimal,
+    timestamp: float,
+    rates: FxRates,
+    trade_id: str,
+) -> ExecutionPipelineState:
+    """Move ``units`` of the deliverable against ``price`` per unit of the contract's price."""
+
+    underlying, economics, unit_price, financed = _require_deliverable(
+        state, contract, deliverable, units, price, multiplier
+    )
+    current = _lifecycle_fill(
+        state,
+        deliverable.asset_id,
+        units,
+        unit_price,
+        timestamp,
+        underlying.currency,
+        economics,
+        parts,
+        trade_id,
+        financed=financed,
+    )
+    budget_value = _in_budget_currency(
+        current,
+        ACCOUNTING_CONTEXT.multiply(unit_price, economics.multiplier),
+        underlying.currency,
+        rates,
+        timestamp,
+    )
+    current = evolve(
+        current,
+        allocation=AllocationEngine.apply_lifecycle(
+            current.allocation, deliverable.asset_id, {}, deliverable.asset_id, parts, budget_value
+        ),
+    )
+    # The delivered position is worth the market's price for it, when the run has
+    # one, not the price it was delivered at.
+    if deliverable.asset_id in current.market_prices:
+        current = evolve(
+            current,
+            portfolio=PortfolioEngine.mark_changed(
+                current.portfolio, current.market_prices, timestamp, deliverable.asset_id
+            ),
+        )
+    return current
+
+
+@dataclass(frozen=True, slots=True)
+class MarginHolding:
+    """One margined position's part of the account's margin, in the base currency (FUT-017).
+
+    Attributes:
+        asset_id: The position.
+        quantity: Its signed quantity.
+        terms: What its instrument declares.
+        initial: What it requires at the initial rate.
+        maintenance: What it requires at maintenance.
+        unit_initial: What one unit of it requires at the initial rate.
+        unit_collateral: What selling one unit adds to equity: its haircut on a
+            long, fully paid position, nothing otherwise.
+        unit_value: One unit's market value in the base currency.
+        unit_maintenance: What one unit requires at maintenance.
+        haircut_rate: The haircut a long holding of it takes as collateral:
+            its terms' haircut when it pays its notional, nothing otherwise.
+    """
+
+    asset_id: str
+    quantity: Decimal
+    terms: MarginTerms
+    initial: Decimal
+    maintenance: Decimal
+    unit_initial: Decimal
+    unit_collateral: Decimal
+    unit_value: Decimal = Decimal("0")
+    unit_maintenance: Decimal = Decimal("0")
+    haircut_rate: Decimal = Decimal("0")
+    #: An option the account's model reprices: its facts, ``units`` per
+    #: contract held (FUT-026); ``None`` otherwise.
+    option: OptionRisk | None = None
+
+    def exposure(self, quantity: Decimal | None = None) -> MarginExposure:
+        """This position as a margin model reads it, at ``quantity`` units (its own by default).
+
+        At its own quantity the figures are the ones its terms gave; at another
+        they are the per-unit figures scaled, which is what a model is asked
+        when a liquidation or an order is being sized (FUT-019).
+        """
+
+        held = self.quantity if quantity is None else quantity
+        option = (
+            None
+            if self.option is None
+            else replace(self.option, units=ACCOUNTING_CONTEXT.multiply(held, self.option.units))
+        )
+        if quantity is None or quantity == self.quantity:
+            sign = Decimal("1") if self.quantity > 0 else Decimal("-1")
+            value = ACCOUNTING_CONTEXT.multiply(
+                sign, ACCOUNTING_CONTEXT.multiply(self.quantity.copy_abs(), self.unit_value)
+            )
+            return MarginExposure(self.asset_id, value, self.initial, self.maintenance, option)
+        units = quantity.copy_abs()
+        return MarginExposure(
+            self.asset_id,
+            ACCOUNTING_CONTEXT.multiply(quantity, self.unit_value),
+            ACCOUNTING_CONTEXT.multiply(units, self.unit_initial),
+            ACCOUNTING_CONTEXT.multiply(units, self.unit_maintenance),
+            option,
+        )
+
+    def haircut(self, quantity: Decimal) -> Decimal:
+        """What a holding of ``quantity`` is not counted for as collateral."""
+
+        if quantity <= 0 or not self.haircut_rate:
+            return Decimal("0")
+        return ACCOUNTING_CONTEXT.multiply(
+            ACCOUNTING_CONTEXT.multiply(quantity, self.unit_value), self.haircut_rate
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class MarginPosition:
+    """The account's margin at one instant, in the base currency (FUT-017).
+
+    Attributes:
+        equity: Net asset value less each long position's haircut.
+        initial: Every margined position's initial requirement, summed.
+        maintenance: Every margined position's maintenance requirement, summed.
+        holdings: The margined positions, in the order a liquidation reduces them.
+        model: The account's declared margin model, or ``None``: each
+            position's own requirement, summed (FUT-019).
+    """
+
+    equity: Decimal
+    initial: Decimal
+    maintenance: Decimal
+    holdings: tuple[MarginHolding, ...]
+    model: MarginModel | None = None
+
+    def figures(
+        self, quantities: Mapping[str, Decimal], added: tuple[MarginHolding, ...] = ()
+    ) -> tuple[Decimal, Decimal, Decimal]:
+        """Equity, initial and maintenance were the margined positions ``quantities``.
+
+        A position ``quantities`` does not name keeps its own; ``added`` are
+        positions not held yet, at their own quantities. Equity moves only by
+        the haircuts the changed holdings take -- a trade at the mark moves no
+        net asset value -- and the requirement is the declared model's, or each
+        position's own summed (FUT-019).
+        """
+
+        ctx = ACCOUNTING_CONTEXT
+        equity = self.equity
+        exposures: list[MarginExposure] = []
+        held_ids = {id(holding) for holding in self.holdings}
+        for holding in (*self.holdings, *added):
+            held = holding.quantity if id(holding) in held_ids else Decimal("0")
+            after = quantities.get(holding.asset_id, holding.quantity)
+            equity = ctx.add(equity, ctx.subtract(holding.haircut(held), holding.haircut(after)))
+            if after:
+                exposures.append(holding.exposure(after))
+        exposed = tuple(exposures)
+        if self.model is None:
+            return (
+                equity,
+                sum((e.initial for e in exposed), Decimal("0")),
+                sum((e.maintenance for e in exposed), Decimal("0")),
+            )
+        required = self.model.requirement(exposed)
+        return equity, required.initial, required.maintenance
+
+    @property
+    def in_breach(self) -> bool:
+        """Whether equity is below the maintenance requirement: a margin call."""
+
+        return self.equity < self.maintenance
+
+    @property
+    def deficit(self) -> Decimal:
+        """What a liquidation restores: the initial requirement less the equity."""
+
+        return max(Decimal("0"), self.initial - self.equity)
+
+
+def margin_position(
+    state: ExecutionPipelineState, rates: FxRates, as_of: float
+) -> MarginPosition | None:
+    """The account's margin at ``as_of``, or ``None`` when no position held declares margin.
+
+    Each position whose instrument declares :class:`~alphalab.instrument.margin.MarginTerms`
+    requires its initial and maintenance amounts on its own -- a rate of its
+    absolute market value, or an amount per contract -- converted into the base
+    currency by ``rates`` at ``as_of``. Margin equity is the book's net asset
+    value less each long, fully paid position's haircut on its market value. A
+    book holding no margined position has no margin; only the instruments the
+    registry's index says declare margin are read, so a run declaring none
+    costs one emptiness check (FUT-017).
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.margined:
+        return None
+    portfolio = state.portfolio
+    base = portfolio.account.base_currency
+    units = portfolio.account.currency_units
+    ctx = ACCOUNTING_CONTEXT
+
+    def in_base(amount: Decimal, currency: str) -> Decimal:
+        if currency == base or not amount:
+            return amount
+        return rates.convert(amount, currency, base, as_of, units=units).converted
+
+    model = registry.margin_model
+    repriced = model.repriced if isinstance(model, ScenarioMargin) else None
+    holdings: list[MarginHolding] = []
+    haircuts = Decimal("0")
+    # Only what the registry's index says declares margin is read: a book's other
+    # positions cost nothing, however many there are.
+    for asset_id in registry.margined:
+        position = portfolio.positions.get(asset_id)
+        record = _declared(state, asset_id)
+        terms = None if record is None else record.margin
+        if position is None or terms is None or position.quantity == 0:
+            continue
+        value = in_base(
+            ctx.multiply(
+                ctx.multiply(position.quantity.copy_abs(), position.market_price),
+                position.multiplier,
+            ),
+            position.currency,
+        )
+        unit_value = ctx.divide(value, position.quantity.copy_abs())
+        if terms.basis is MarginBasis.VALUE_RATE:
+            initial = terms.requirement(position.quantity, value, initial=True)
+            maintenance = terms.requirement(position.quantity, value, initial=False)
+            unit_initial = ctx.multiply(unit_value, terms.initial)
+        else:
+            initial = in_base(terms.requirement(position.quantity, value, True), position.currency)
+            maintenance = in_base(
+                terms.requirement(position.quantity, value, False), position.currency
+            )
+            unit_initial = in_base(terms.initial, position.currency)
+        unit_maintenance = (
+            ctx.multiply(unit_value, terms.maintenance)
+            if terms.basis is MarginBasis.VALUE_RATE
+            else in_base(terms.maintenance, position.currency)
+        )
+        haircut_rate = terms.haircut if position.pays_notional else Decimal("0")
+        option = (
+            _option_risk(state, record, position.currency, in_base, as_of)
+            if repriced and asset_id in repriced
+            else None
+        )
+        collateral = Decimal("0")
+        if position.quantity > 0 and position.pays_notional and terms.haircut:
+            haircuts += ctx.multiply(value, terms.haircut)
+            collateral = ctx.multiply(unit_value, terms.haircut)
+        holdings.append(
+            MarginHolding(
+                asset_id,
+                position.quantity,
+                terms,
+                initial,
+                maintenance,
+                unit_initial,
+                collateral,
+                unit_value,
+                unit_maintenance,
+                haircut_rate,
+                option,
+            )
+        )
+    if not holdings:
+        return None
+    if portfolio.unsettled:
+        # Units an exchange owes and has not delivered are the holder's, and
+        # valued, but not collateral unless their convention says (FUT-037).
+        for entry in portfolio.unsettled:
+            if (
+                entry.delivery is None
+                or not entry.pending_at(as_of)
+                or "collateral" in entry.delivery.split(",")
+            ):
+                continue
+            owed = portfolio.positions.get(entry.asset_id)
+            if owed is None or entry.quantity <= 0:
+                continue
+            haircuts += in_base(
+                ctx.multiply(ctx.multiply(entry.quantity, owed.market_price), owed.multiplier),
+                owed.currency,
+            )
+    nav = NAVCalculator.calculate(portfolio.cash, portfolio.positions, base, rates, as_of)
+    holdings.sort(key=lambda h: (h.terms.priority, -h.initial, h.asset_id))
+    if model is None:
+        initial_total = sum((h.initial for h in holdings), Decimal("0"))
+        maintenance_total = sum((h.maintenance for h in holdings), Decimal("0"))
+    else:
+        # The account's declared model reads every margined position at once
+        # (FUT-019); each holding keeps its own figures for liquidation order.
+        required = model.requirement(tuple(h.exposure() for h in holdings))
+        initial_total, maintenance_total = required.initial, required.maintenance
+    return MarginPosition(
+        equity=ctx.subtract(nav, haircuts),
+        initial=initial_total,
+        maintenance=maintenance_total,
+        holdings=tuple(holdings),
+        model=model,
+    )
+
+
+def _option_risk(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord | None,
+    currency: str,
+    in_base: Callable[[Decimal, str], Decimal],
+    as_of: float,
+) -> OptionRisk | None:
+    """A repriced option's facts at ``as_of``, ``units`` per contract, or ``None`` (FUT-026).
+
+    Its terms in effect now and its underlying's price now. Until the run has
+    priced the underlying there is nothing to value the option from, and it is
+    margined by its own terms, offsetting nothing -- never at a guessed price.
+    """
+
+    terms = None if record is None else record.terms
+    assert record is not None and isinstance(terms, OptionTerms)
+    effective = terms.effective(as_of)
+    underlying = effective.deliverable.asset_id
+    price = state.market_prices.get(underlying)
+    if price is None:
+        return None
+    return OptionRisk(
+        underlying,
+        price,
+        effective.strike,
+        effective.option_type,
+        effective.exercise_style,
+        effective.expires_at,
+        as_of,
+        effective.deliverable.units,
+        in_base(Decimal("1"), currency),
+        _observed_volatility(state, underlying, effective.strike, effective.expires_at, as_of),
+    )
+
+
+def _observed_volatility(
+    state: ExecutionPipelineState,
+    underlying: str,
+    strike: Decimal,
+    expires_at: float,
+    as_of: float,
+) -> Decimal | None:
+    """The volatility the surfaces delivered so far give an option, or ``None`` (FUT-039).
+
+    Read only when the account's model reads a feed: of the feed's surfaces for
+    the underlying known by ``as_of``, :func:`~alphalab.risk.surfaces.select`'s
+    choice, at the option's strike and expiry; ``None`` where none is known, it
+    is older than the model allows, or it quotes nothing there.
+    """
+
+    registry = state.config.instruments
+    model = None if registry is None else registry.margin_model
+    if not isinstance(model, ScenarioMargin) or model.surface_feed is None:
+        return None
+    feed = model.surface_feed
+    chosen = select(
+        (o for o in state.risk.surfaces.get(underlying, ()) if o.source == feed),
+        as_of,
+        model.surface_max_age,
+    )
+    if chosen is None:
+        return None
+    return read_surface(chosen.surface, strike, expires_at)
+
+
+def _increases(state: ExecutionPipelineState, request: OrderRequest) -> bool:
+    """Whether ``request`` would open a position, increase one's size, or reverse it."""
+
+    return _growth_of(state, request.asset_id, _signed(request)) > 0
+
+
+def _signed(request: OrderRequest) -> Decimal:
+    return request.quantity if request.side is CoreSide.BUY else -request.quantity
+
+
+def _growth_of(state: ExecutionPipelineState, asset_id: str, signed: Decimal) -> Decimal:
+    """Units of new exposure ``signed`` adds to the filled position: as the risk gate counts."""
+
+    position = state.portfolio.positions.get(asset_id)
+    held = Decimal("0") if position is None else position.quantity
+    after = ACCOUNTING_CONTEXT.add(held, signed)
+    if (held > 0 > after) or (held < 0 < after):
+        return after.copy_abs()
+    return max(Decimal("0"), ACCOUNTING_CONTEXT.subtract(after.copy_abs(), held.copy_abs()))
+
+
+def _unit_margin(
+    state: ExecutionPipelineState,
+    asset_id: str,
+    terms: MarginTerms,
+    unit_value: Decimal,
+    rates: FxRates,
+    at: float,
+) -> Decimal:
+    """What one unit of ``asset_id`` requires at the initial rate, in the base currency.
+
+    ``unit_value`` is one unit's value in the base currency, multiplier included.
+    """
+
+    if terms.basis is MarginBasis.VALUE_RATE:
+        return ACCOUNTING_CONTEXT.multiply(unit_value.copy_abs(), terms.initial)
+    record = _declared(state, asset_id)
+    currency = state.portfolio.account.base_currency if record is None else record.currency
+    base = state.portfolio.account.base_currency
+    if currency == base:
+        return terms.initial
+    units = state.portfolio.account.currency_units
+    return rates.convert(terms.initial, currency, base, at, units=units).converted
+
+
+def _buying_power_charge(
+    state: ExecutionPipelineState,
+    asset_id: str,
+    unit_value: Decimal,
+    rates: FxRates,
+    at: float,
+    buying: bool = False,
+) -> Decimal | None:
+    """What a unit of growth in ``asset_id`` spends of buying power, when not its value (FUT-017).
+
+    An instrument that pays no notional -- a future settled by variation --
+    moves no cash when it trades: what opening it commits is the initial margin
+    its record declares, not the notional, which the gate charged until v4.2.0.
+    A fully paid instrument whose terms allow a purchase on margin
+    (``MarginTerms.purchase_on_margin``, FUT-018) spends its initial requirement
+    when ``buying``: what the cash does not cover is financed. ``None`` --
+    charge the notional, as always -- otherwise: a short sale, a fully paid
+    purchase, an instrument declaring no margin terms; a registry declaring none
+    costs one emptiness check.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.margined or asset_id not in registry.margined:
+        return None
+    record = _declared(state, asset_id)
+    if record is None or record.margin is None:
+        return None
+    economics = _economics_of(state, asset_id)
+    pays = economics is None or economics.settlement.pays_notional
+    if pays and not (buying and record.margin.purchase_on_margin):
+        return None
+    if registry.margin_model is not None:
+        # Under a declared margin model what such an order commits is the
+        # model's to say, and the model's own checks gate it -- the pre-trade
+        # initial requirement and the risk gate's margin figure -- so its own
+        # requirement is not charged again here, offset-blind (FUT-019).
+        return Decimal("0")
+    return _unit_margin(state, asset_id, record.margin, unit_value, rates, at)
+
+
+def _currency_cash_refusal(
+    state: ExecutionPipelineState, request: OrderRequest, at: float
+) -> str | None:
+    """Why a purchase's own settlement currency cannot pay for it, or ``None`` (ACC-017).
+
+    Read only in a book settling more than one currency -- in one, buying power
+    is that currency's cash and the risk gate holds it -- and only for a purchase
+    paying its notional in full: not one covering a short, which is financed past
+    the cash (FUT-017), nor one bought on margin (FUT-018). Its cost at the
+    request's price must be within the currency's cash less what is reserved,
+    less proceeds not yet received, less every buy already working in it; cash in
+    another currency is not converted to pay it (ADR-0035).
+    """
+
+    if request.side is not CoreSide.BUY or len(state.config.settlement_currencies) < 2:
+        return None
+    asset_id = request.asset_id
+    economics = _economics_of(state, asset_id)
+    if economics is not None and not economics.settlement.pays_notional:
+        return None
+    position = state.portfolio.positions.get(asset_id)
+    if position is not None and position.quantity < 0:
+        return None  # a cover, financed past the cash
+    if _purchased_on_margin(state, asset_id, request.quantity):
+        return None
+    currency = _settlement_currency_for(state, asset_id)
+    ctx = ACCOUNTING_CONTEXT
+    multiplier = _multiplier(economics)
+    cost = ctx.multiply(ctx.multiply(request.quantity, request.price), multiplier)
+    cash = state.portfolio.cash
+    available = ctx.subtract(cash.balance(currency), cash.reserved.get(currency, Decimal("0")))
+    for entry in state.portfolio.unsettled:
+        if entry.currency == currency and entry.cash > 0 and entry.pending_at(at):
+            available = ctx.subtract(available, entry.cash)
+    for order in _working_buys(state):
+        if _settlement_currency_for(state, order.asset_id) != currency:
+            continue
+        unit = _multiplier(_economics_of(state, order.asset_id))
+        price = order.limit_price or state.market_prices.get(order.asset_id, Decimal("0"))
+        available = ctx.subtract(
+            available, ctx.multiply(ctx.multiply(order.remaining_quantity, price), unit)
+        )
+    if cost <= available:
+        return None
+    return (
+        f"The purchase costs {cost} {currency} and the book can pay {max(available, Decimal(0))} "
+        f"{currency}: a fill settles in its own currency, and cash in another is not converted "
+        "to pay it. Fund the currency first (Funding, RunEngine.fund)."
+    )
+
+
+def _working_buys(state: ExecutionPipelineState) -> tuple[OMSOrder, ...]:
+    """Every buy order working, in the order the OMS keeps them."""
+
+    out: list[OMSOrder] = []
+    for order_id in state.oms.active_orders:
+        order = state.oms.orders.find(order_id)
+        if order.side is OMSSide.BUY:
+            out.append(order)
+    return tuple(out)
+
+
+def _purchased_on_margin(state: ExecutionPipelineState, asset_id: str, quantity: Decimal) -> bool:
+    """Whether a fill buying ``quantity`` is booked as a financed debit (FUT-018)."""
+
+    if quantity <= 0:
+        return False
+    registry = state.config.instruments
+    if registry is None or not registry.margined or asset_id not in registry.margined:
+        return False
+    record = _declared(state, asset_id)
+    return record is not None and record.margin is not None and record.margin.purchase_on_margin
+
+
+def _borrow_refusal(state: ExecutionPipelineState, request: OrderRequest, at: float) -> str | None:
+    """Why ``request`` cannot be borrowed for, or ``None`` (FUT-018).
+
+    Read only for an order that would grow a short in an instrument declaring
+    borrow terms: the book's short after it -- filled, every working order in
+    the instrument and this one -- must be within what the entry in effect at
+    ``at`` makes available. Before the first entry nothing is available.
+    """
+
+    record = _declared(state, request.asset_id)
+    if record is None or record.borrow is None:
+        return None
+    terms = record.borrow
+    position = state.portfolio.positions.get(request.asset_id)
+    committed = Decimal("0") if position is None else position.quantity
+    for order_id in state.oms.working_orders_for(request.asset_id):
+        order = state.oms.orders.find(order_id)
+        remaining = order.remaining_quantity
+        committed = ACCOUNTING_CONTEXT.add(
+            committed, remaining if order.side is OMSSide.BUY else -remaining
+        )
+    after = ACCOUNTING_CONTEXT.add(committed, _signed(request))
+    if after >= 0 or (after.copy_abs() <= committed.copy_abs() and committed < 0):
+        return None
+    entry = terms.in_effect(at)
+    if entry is None:
+        return (
+            f"No borrow is in effect for {record.symbol} at {at!r} (its borrow terms start "
+            f"at {terms.entries[0].effective_at!r}); nothing can be sold short."
+        )
+    if entry.available is not None and after.copy_abs() > entry.available:
+        return (
+            f"Selling short would leave the book short {after.copy_abs()} {record.symbol}, "
+            f"and {entry.available} is available to borrow at {at!r}."
+        )
+    if entry.allocations:
+        return _located_refusal(state, request, entry, record.symbol, at)
+    return None
+
+
+def _strategy_shorts(state: ExecutionPipelineState, asset_id: str) -> dict[str, Decimal]:
+    """Each strategy's own holding of ``asset_id``: its share, and its share of what is working."""
+
+    held = dict(AllocationEngine.shares_of(state.allocation, asset_id))
+    for order_id in state.oms.working_orders_for(asset_id):
+        order = state.oms.orders.find(order_id)
+        contributions = state.allocation.contributions.get(str(order_id.value), ())
+        signed = (
+            order.remaining_quantity if order.side is OMSSide.BUY else -order.remaining_quantity
+        )
+        for strategy_id, part in split_by_contribution(signed, contributions, _ATTRIBUTION_QUANTUM):
+            held[strategy_id] = ACCOUNTING_CONTEXT.add(held.get(strategy_id, Decimal("0")), part)
+    return held
+
+
+def _drawn(held: Mapping[str, Decimal], entry: BorrowAvailability) -> Decimal:
+    """What the strategies short beyond their own allocations draw on the shared borrow."""
+
+    return sum(
+        (max(Decimal("0"), -h - entry.allocated(sid)) for sid, h in held.items() if h < 0),
+        Decimal("0"),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class BorrowClaim:
+    """One strategy's claim on an instrument's borrow at one instant (FUT-035, phase 4).
+
+    Attributes:
+        strategy_id: The strategy.
+        short: Its own short, filled and working, as a positive number of units.
+        located: What the lender located for it; zero where none is.
+        drawn: What it draws beyond that on the borrow the lender shares.
+        share: Its fraction of the strategies' shorts -- what a fee on the
+            book's borrow is attributed to it by.
+    """
+
+    strategy_id: str
+    short: Decimal
+    located: Decimal
+    drawn: Decimal
+    share: Decimal
+
+
+def borrow_claims(
+    state: ExecutionPipelineState, asset_id: str, at: float
+) -> tuple[BorrowClaim, ...]:
+    """Each short strategy's claim on ``asset_id``'s borrow at ``at`` (FUT-035, phase 4).
+
+    By the borrow entry in effect then: under one locating per strategy, what is
+    located for each and what each draws on what is shared; under the book's
+    borrow, every short drawing on it. Ordered by strategy; empty for an
+    instrument with no declared borrow or no short strategy.
+    """
+
+    record = _declared(state, asset_id)
+    entry = None if record is None or record.borrow is None else record.borrow.in_effect(at)
+    if record is None or record.borrow is None:
+        return ()
+    held = _strategy_shorts(state, asset_id)
+    shorts = {sid: -h for sid, h in sorted(held.items()) if h < 0}
+    total = sum(shorts.values(), Decimal("0"))
+    ctx = ACCOUNTING_CONTEXT
+    claims = []
+    for sid, short in shorts.items():
+        located = Decimal("0") if entry is None else entry.allocated(sid)
+        claims.append(
+            BorrowClaim(
+                sid,
+                short,
+                located,
+                max(Decimal("0"), ctx.subtract(short, located)),
+                ctx.divide(short, total),
+            )
+        )
+    return tuple(claims)
+
+
+def _located_refusal(
+    state: ExecutionPipelineState,
+    request: OrderRequest,
+    entry: BorrowAvailability,
+    symbol: str,
+    at: float,
+) -> str | None:
+    """Why a strategy's short would draw more than the shared borrow left, or ``None`` (FUT-035).
+
+    Borrow located per strategy: each may be short its own allocation, and
+    beyond it draws on what the lender left shared -- first come, so a short
+    already held keeps its draw, and a unit is never claimed twice.
+    """
+
+    held = _strategy_shorts(state, request.asset_id)
+    before = _drawn(held, entry)
+    for contribution in request.contributions:
+        held[contribution.strategy_id] = ACCOUNTING_CONTEXT.add(
+            held.get(contribution.strategy_id, Decimal("0")), contribution.quantity
+        )
+    after = _drawn(held, entry)
+    shared = entry.shared
+    assert shared is not None  # allocations are of a stated availability
+    if after <= before or after <= shared:
+        return None
+    growing = sorted(c.strategy_id for c in request.contributions if c.quantity < 0)
+    return (
+        f"Selling short would leave {', '.join(growing)} short beyond the {symbol} located for "
+        f"it at {at!r}, drawing {after} on the {shared} the lender shares between strategies."
+    )
+
+
+def _initial_margin_refusal(
+    state: ExecutionPipelineState, request: OrderRequest, rates: FxRates, at: float
+) -> str | None:
+    """Why ``request`` would leave equity below the initial requirement, or ``None`` (FUT-017).
+
+    Read only for an order growing a position in an instrument that declares
+    margin terms. The requirement counts the margined positions held, every
+    working order growing one, and this order's growth, each at its current
+    price; equity is the account's margin equity, less the haircut a long,
+    fully paid purchase adds to it.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.margined or request.asset_id not in registry.margined:
+        return None
+    record = _declared(state, request.asset_id)
+    if record is None or record.margin is None:
+        return None
+    if registry.margin_model is not None:
+        projected = _projected_margin(state, request, rates, at)
+        if projected is None or projected[0] >= projected[1]:
+            return None
+        return (
+            f"The order would leave the account below its initial margin -- equity "
+            f"{projected[0]} against {projected[1]} required under the account's margin model "
+            "-- and an order growing a margined position trades only within it."
+        )
+    ctx = ACCOUNTING_CONTEXT
+    margin = margin_position(state, rates, at)
+    if margin is None:
+        portfolio = state.portfolio
+        equity = NAVCalculator.calculate(
+            portfolio.cash, portfolio.positions, portfolio.account.base_currency, rates, at
+        )
+        initial = Decimal("0")
+    else:
+        equity, initial = margin.equity, margin.initial
+
+    def unit_value(asset_id: str) -> Decimal | None:
+        price = state.market_prices.get(asset_id)
+        if price is None:
+            return None
+        return _unit_value(
+            state, asset_id, _price_in_base(state, asset_id, price, rates, at)
+        ).copy_abs()
+
+    committed = Decimal("0")
+    for asset_id in registry.margined:
+        margined = _declared(state, asset_id)
+        terms = None if margined is None else margined.margin
+        value = unit_value(asset_id)
+        if terms is None or value is None:
+            continue
+        for order_id in state.oms.working_orders_for(asset_id):
+            order = state.oms.orders.find(order_id)
+            remaining = order.remaining_quantity
+            growth = _growth_of(
+                state, asset_id, remaining if order.side is OMSSide.BUY else -remaining
+            )
+            if growth:
+                committed = ctx.add(
+                    committed,
+                    ctx.multiply(growth, _unit_margin(state, asset_id, terms, value, rates, at)),
+                )
+    value = unit_value(request.asset_id)
+    if value is None:
+        return None  # refused as unpriced, after this
+    growth = _growth_of(state, request.asset_id, _signed(request))
+    added = ctx.multiply(
+        growth, _unit_margin(state, request.asset_id, record.margin, value, rates, at)
+    )
+    economics = _economics_of(state, request.asset_id)
+    pays = economics is None or economics.settlement.pays_notional
+    held = state.portfolio.positions.get(request.asset_id)
+    after_long = request.side is CoreSide.BUY and (held is None or held.quantity >= 0)
+    if pays and after_long and record.margin.haircut:
+        equity = ctx.subtract(
+            equity, ctx.multiply(ctx.multiply(growth, value), record.margin.haircut)
+        )
+    required = ctx.add(ctx.add(initial, committed), added)
+    if equity >= required:
+        return None
+    return (
+        f"The order would leave the account below its initial margin -- equity {equity} "
+        f"against {required} required, {added} of it this order's -- and an order growing a "
+        "margined position trades only within it."
+    )
+
+
+def _reducing_order_working(state: ExecutionPipelineState, margin: MarginPosition) -> bool:
+    """Whether a market order reducing a margined position is working -- a liquidation in progress.
+
+    Read off the OMS's working orders, which a snapshot keeps whatever retention
+    trims, so a liquidation is never placed twice for one call: a strategy's own
+    market order reducing the position, trading at its next turn, defers it the
+    same way. A resting limit or stop is a price the strategy waits for and does
+    not (ACC-016: until the phase 3 gap audit any reducing order deferred it).
+    """
+
+    for holding in margin.holdings:
+        for order_id in state.oms.working_orders_for(holding.asset_id):
+            order = state.oms.orders.find(order_id)
+            if order.order_type is OrderType.MARKET and (order.side is OMSSide.SELL) == (
+                holding.quantity > 0
+            ):
+                return True
+    return False
+
+
+def _margin_call(
+    state: ExecutionPipelineState, event: MarketEvent, rates: FxRates
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Call margin and liquidate, when the account is below maintenance at ``event`` (FUT-017).
+
+    A liquidation reduces the margined positions in their declared order --
+    lowest priority first, then the largest requirement, then the asset -- by
+    the least that restores equity to the initial requirement, whole lots of
+    each where the run trades them, each holding strategy reducing its own share.
+    It is placed as each strategy's own target through allocation, risk and the
+    OMS, as a market order resting to its asset's next event, so it fills by the
+    run's fill policy at a price the market then shows -- in part, or not at
+    all, as the market allows. A call that finds a liquidation already working
+    places nothing; one whose positions cannot be sold -- unpriced -- is
+    recorded with no orders. Each round is a
+    :class:`~alphalab.risk.events.MarginCall` on the risk log.
+    """
+
+    at = event.timestamp
+    margin = margin_position(state, rates, at)
+    if margin is None or not margin.in_breach or _reducing_order_working(state, margin):
+        return state, _NO_ROUTING
+    ctx = ACCOUNTING_CONTEXT
+    reductions = (
+        _per_position_reductions(state, margin)
+        if margin.model is None
+        else _model_reductions(state, margin)
+    )
+    intents: list[Intent] = []
+    for holding, quantity in reductions:
+        shares = _holding_shares(state, holding)
+        sign = Decimal("1") if holding.quantity > 0 else Decimal("-1")
+        parts = _strategy_parts(shares, ctx.multiply(sign, quantity))
+        for sid, share in shares:
+            part = parts.get(sid, Decimal("0"))
+            if part:
+                intents.append(
+                    Intent(
+                        sid,
+                        holding.asset_id,
+                        _forced_target(state, sid, holding.asset_id, share, -part),
+                        timestamp=at,
+                        kind=IntentKind.TARGET_QUANTITY,
+                        metadata={"margin_call": repr(at)},
+                    )
+                )
+    current = state
+    routed = _NO_ROUTING
+    if intents:
+        batch = tuple(intents)
+        allocation, requests = _allocate(current, batch, current.market_prices, rates, at)
+        current = evolve(current, allocation=allocation)
+        current, routed = _route_requests(
+            current,
+            event,
+            batch,
+            requests,
+            StaticFill(FillStatus.FULL_FILL, None),
+            rates,
+            rest=True,
+            at=at,
+        )
+    called = MarginCall(
+        str(new_id()),
+        at,
+        equity=margin.equity,
+        initial_requirement=margin.initial,
+        maintenance_requirement=margin.maintenance,
+        deficit=margin.deficit,
+        orders=tuple(str(order.order_id.value) for order in routed.orders),
+    )
+    risk = current.risk
+    return evolve(current, risk=evolve(risk, events=risk.events.append(called))), routed
+
+
+def _buy_ins(
+    state: ExecutionPipelineState, event: MarketEvent, rates: FxRates
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Cover each recalled short beyond what its lender makes available (FUT-022).
+
+    Read only for the instruments whose borrow terms declare a recall, so a run
+    declaring none costs one emptiness test. Once the entry in effect has passed
+    its buy-in deadline, a short beyond its availability is covered -- the
+    excess, rounded up to whole lots where declared or whole units where the
+    run trades them, never more than is short -- each short strategy covering
+    its own share, as its own target through allocation, risk and the OMS, a
+    market order resting to the asset's next event. It fills as the market
+    allows: in a halt or outside a band it rests, with too little liquidity it
+    fills in part and what it leaves is bought in at the next step. A buy-in
+    already working places nothing, so a recall is never covered twice. Each
+    round is a :class:`~alphalab.risk.events.BuyIn` on the risk log.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.recallable:
+        return state, _NO_ROUTING
+    at = event.timestamp
+    ctx = ACCOUNTING_CONTEXT
+    current, routed = state, _NO_ROUTING
+    for asset_id in registry.recallable:
+        position = current.portfolio.positions.get(asset_id)
+        if position is None or position.quantity >= 0:
+            continue
+        record = _declared(current, asset_id)
+        assert record is not None and record.borrow is not None
+        entry = record.borrow.in_effect(at)
+        if entry is None or entry.buy_in_at is None or entry.buy_in_at > at:
+            continue
+        assert entry.available is not None
+        short = position.quantity.copy_abs()
+        held = _strategy_shorts(current, asset_id) if entry.allocations else {}
+        if entry.allocations:
+            # Located per strategy (FUT-035): what the strategies short beyond
+            # their own draw on the shared borrow beyond what it holds.
+            shared = entry.shared
+            assert shared is not None
+            account_excess = max(Decimal("0"), ctx.subtract(_drawn(held, entry), shared))
+        else:
+            account_excess = ctx.subtract(short, entry.available)
+        if account_excess <= 0 or _covering_order_working(current, asset_id):
+            continue
+        excess = account_excess
+        step = _trading_step(current, asset_id, position.quantity)
+        if step is not None:
+            excess = ctx.multiply(
+                ctx.divide(excess, step).to_integral_value(rounding=decimal.ROUND_CEILING), step
+            )
+        excess = min(excess, short)
+        shares = tuple(
+            (sid, share)
+            for sid, share in AllocationEngine.shares_of(current.allocation, asset_id)
+            if share < 0
+        )
+        placed: tuple[str, ...] = ()
+        if shares and asset_id in current.market_prices:
+            if entry.allocations:
+                # Each strategy covers its own need beyond its allocation, in
+                # proportion, never one within its own.
+                needs = tuple(
+                    (sid, -max(Decimal("0"), -h - entry.allocated(sid)))
+                    for sid, h in sorted(held.items())
+                    if h < 0 and -h > entry.allocated(sid)
+                )
+                parts = _strategy_parts(needs, -excess)
+            else:
+                parts = _strategy_parts(shares, -excess)
+            batch = tuple(
+                Intent(
+                    sid,
+                    asset_id,
+                    _forced_target(current, sid, asset_id, share, -parts[sid]),
+                    timestamp=at,
+                    kind=IntentKind.TARGET_QUANTITY,
+                    metadata={"buy_in": repr(at)},
+                )
+                for sid, share in shares
+                if parts.get(sid)
+            )
+            allocation, requests = _allocate(current, batch, current.market_prices, rates, at)
+            current = evolve(current, allocation=allocation)
+            current, step_routed = _route_requests(
+                current,
+                event,
+                batch,
+                requests,
+                StaticFill(FillStatus.FULL_FILL, None),
+                rates,
+                rest=True,
+                at=at,
+            )
+            routed = routed.then(step_routed)
+            placed = tuple(str(order.order_id.value) for order in step_routed.orders)
+            if entry.buy_in_premium is not None or entry.buy_in_fee is not None:
+                # The lender's charge is booked with each fill of the cover
+                # (FUT-035): the order carries the buy-in it is.
+                current = _marked_buy_ins(current, step_routed.orders, at)
+        bought = BuyIn(
+            str(new_id()),
+            at,
+            asset_id=asset_id,
+            short=short,
+            available=entry.available,
+            excess=excess,
+            orders=placed,
+        )
+        risk = current.risk
+        current = evolve(current, risk=evolve(risk, events=risk.events.append(bought)))
+    return current, routed
+
+
+def _forced_target(
+    state: ExecutionPipelineState, strategy_id: str, asset_id: str, share: Decimal, trade: Decimal
+) -> Decimal:
+    """The target that makes allocation trade exactly ``trade`` for a forced reduction.
+
+    A liquidation and a buy-in move what the account requires, whatever the
+    strategy has resting: allocation measures a target against the position and
+    the strategy's working orders, so the target names both, and the order is
+    ``trade`` -- never absorbed by a resting order, and never read through the
+    run's sizing model, as a delta would be (ACC-016).
+    """
+
+    probe = Intent(strategy_id, asset_id, Decimal("0"), kind=IntentKind.TARGET_QUANTITY)
+    working = _working_shares(state, (probe,)).get((strategy_id, asset_id), Decimal("0"))
+    return ACCOUNTING_CONTEXT.add(ACCOUNTING_CONTEXT.add(share, working), trade)
+
+
+#: The order metadata key naming the buy-in an order covers, by its instant (FUT-035).
+BUY_IN: Final = "buy_in"
+
+
+def _marked_buy_ins(
+    state: ExecutionPipelineState, orders: tuple[OMSOrder, ...], at: float
+) -> ExecutionPipelineState:
+    """``state`` with each of ``orders`` marked as the buy-in at ``at`` it is."""
+
+    oms = state.oms
+    for placed in orders:
+        order = oms.orders.find(placed.order_id)
+        marked = replace(order, metadata={**order.metadata, BUY_IN: repr(at)})
+        oms = evolve(oms, orders=oms.orders.replace(marked))
+    return evolve(state, oms=oms)
+
+
+def _buy_in_charges(
+    state: ExecutionPipelineState, order: OMSOrder, report: ExecutionReport
+) -> ExecutionPipelineState:
+    """The lender's premium on one fill of a buy-in, and its fee on the first (FUT-035).
+
+    By the borrow entry in effect at the buy-in's instant, in the instrument's
+    currency, as ``FEE`` cash flows -- one for each strategy the cover was
+    placed for, in proportion to its part, the reference naming it.
+    """
+
+    record = _declared(state, order.asset_id)
+    assert record is not None and record.borrow is not None
+    entry = record.borrow.in_effect(float(order.metadata[BUY_IN]))
+    if entry is None:
+        return state
+    ctx = ACCOUNTING_CONTEXT
+    value = _unit_value(
+        state, order.asset_id, ctx.multiply(report.fill_quantity, report.fill_price)
+    ).copy_abs()
+    charge = Decimal("0")
+    if entry.buy_in_premium is not None:
+        charge = ctx.add(charge, ctx.multiply(value, entry.buy_in_premium))
+    if entry.buy_in_fee is not None and order.filled_quantity == 0:
+        charge = ctx.add(charge, entry.buy_in_fee)
+    if charge == 0:
+        return state
+    contributions = state.allocation.contributions.get(str(order.order_id.value), ())
+    parts = split_by_contribution(charge, contributions, Decimal("0.01")) or (
+        (order.strategy_id, charge),
+    )
+    portfolio = state.portfolio
+    for strategy_id, part in parts:
+        if part == 0:
+            continue
+        flow = CashFlow(
+            CashFlowKind.FEE, -part, report.currency, order.asset_id, f"buy-in:{strategy_id}"
+        )
+        portfolio = PortfolioEngine.apply_cash_flow(portfolio, flow, report.timestamp)
+    return evolve(state, portfolio=portfolio)
+
+
+def _covering_order_working(state: ExecutionPipelineState, asset_id: str) -> bool:
+    """Whether a market buy is working in ``asset_id``: a buy-in, or a cover trading now.
+
+    A market order only: a resting limit or stop buy is a price the strategy
+    waits for, and does not stand in for a buy-in its lender requires now.
+    """
+
+    for order_id in state.oms.working_orders_for(asset_id):
+        order = state.oms.orders.find(order_id)
+        if order.side is OMSSide.BUY and order.order_type is OrderType.MARKET:
+            return True
+    return False
+
+
+def _trading_step(
+    state: ExecutionPipelineState, asset_id: str, quantity: Decimal
+) -> Decimal | None:
+    """What a forced trade moves in: whole lots where declared, whole units where the book is."""
+
+    economics = _economics_of(state, asset_id)
+    lot = None if economics is None else economics.lot
+    whole = _whole_units(state) or quantity == quantity.to_integral_value()
+    return lot.lot_size if lot is not None else (Decimal("1") if whole else None)
+
+
+def _venue_blocks(state: ExecutionPipelineState, asset_id: str, at: float, price: Decimal) -> bool:
+    """Whether the venue's declared controls stop a trade in ``asset_id`` at ``price`` (FUT-020).
+
+    Halted -- the instrument, or its listing venue -- or ``price`` outside the
+    band in force. A registry declaring no controls costs one test.
+    """
+
+    registry = state.config.instruments
+    if registry is None or registry.controls is None:
+        return False
+    controls = registry.controls
+    record = _declared(state, asset_id)
+    venue = "" if record is None else record.exchange
+    if controls.halt(asset_id, venue, at) is not None:
+        return True
+    if state.execution.reopened:
+        # An auction extended because its price was outside the band: nothing
+        # trades until it is held again (FUT-033).
+        reopening = state.execution.reopened.get(asset_id)
+        extended_to = None if reopening is None else reopening.extended_to
+        if extended_to is not None and at < extended_to:
+            return True
+    # A band rule with no current reference: the venue's limits are unknown,
+    # so nothing trades until one is published (FUT-028).
+    if controls.unbanded(asset_id, at) is not None:
+        return True
+    band = controls.band(asset_id, at, None if record is None else record.tick)
+    return band is not None and not band.admits(price)
+
+
+def _band_terms(
+    state: ExecutionPipelineState, request: OrderRequest, at: float
+) -> tuple[str | None, OrderRequest]:
+    """A limit priced beyond the band in force, refused or capped as it declares (FUT-020).
+
+    Returns why the request is refused, or ``None`` and the request -- its limit
+    moved to the band's edge when the band caps. A market order, and an order
+    in an instrument with no band in force, is returned as it is.
+    """
+
+    registry = state.config.instruments
+    if registry is None or registry.controls is None:
+        return None, request
+    limit = request.terms.limit_price
+    if limit is None:
+        return None, request
+    declared = _declared(state, request.asset_id)
+    band = registry.controls.band(request.asset_id, at, None if declared is None else declared.tick)
+    if band is None or band.admits(limit):
+        return None, request
+    if band.beyond is BandAction.REFUSE:
+        return (
+            f"The limit {limit} is outside the venue's price band in force at {at!r} "
+            f"({band.lower} to {band.upper}), and the venue refuses an order priced beyond it."
+        ), request
+    edge = band.upper if limit > band.upper else band.lower
+    record = _declared(state, request.asset_id)
+    if record is not None and record.tick is not None and edge >= 0:
+        # A cap lands on the grid inside the band: a buy capped at the limit up
+        # rounds down, a sell at the limit down rounds up.
+        inward = RoundingDirection.DOWN if edge == band.upper else RoundingDirection.UP
+        edge = round_to_tick(edge, record.tick.tick_size_at(edge), inward)
+    return None, replace(request, terms=replace(request.terms, limit_price=edge))
+
+
+def _tick_refusal(state: ExecutionPipelineState, request: OrderRequest) -> str | None:
+    """Why ``request``'s limit or stop is off its venue's declared grid, or ``None``.
+
+    Read only for a priced order in an instrument declaring a tick schedule; a
+    negative price is refused, since no band of a published grid covers one.
+    """
+
+    terms = request.terms
+    if terms.limit_price is None and terms.stop_price is None:
+        return None
+    record = _declared(state, request.asset_id)
+    if record is None or record.tick is None:
+        return None
+    for price, what in ((terms.limit_price, "limit"), (terms.stop_price, "stop")):
+        if price is None:
+            continue
+        if price < 0:
+            return (
+                f"The {what} {price} is negative, and {record.symbol}'s declared price grid "
+                "covers no negative price."
+            )
+        tick = record.tick.tick_size_at(price)
+        if not is_on_tick(price, tick):
+            return (
+                f"The {what} {price} is not on {record.symbol}'s price grid: the venue quotes "
+                f"it in steps of {tick} there, and refuses a price between them."
+            )
+    return None
+
+
+def _holding_shares(
+    state: ExecutionPipelineState, holding: MarginHolding
+) -> tuple[tuple[str, Decimal], ...]:
+    """The strategies holding ``holding``'s side, and their shares: who a liquidation reduces."""
+
+    return tuple(
+        (sid, share)
+        for sid, share in AllocationEngine.shares_of(state.allocation, holding.asset_id)
+        if share and (share > 0) == (holding.quantity > 0)
+    )
+
+
+def _liquidation_step(state: ExecutionPipelineState, holding: MarginHolding) -> Decimal | None:
+    """What a liquidation sells in: whole lots where declared, whole units where the book is."""
+
+    return _trading_step(state, holding.asset_id, holding.quantity)
+
+
+def _per_position_reductions(
+    state: ExecutionPipelineState, margin: MarginPosition
+) -> list[tuple[MarginHolding, Decimal]]:
+    """How much of each position a liquidation sells when each is margined on its own (FUT-017).
+
+    Each unit sold frees its initial requirement and the haircut it held back,
+    so the least that restores the initial requirement is the deficit over
+    that, rounded up to what the book trades in -- whole lots where the
+    instrument declares them, whole units where the run trades them or the
+    position is held in them.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    remaining = margin.deficit
+    reductions: list[tuple[MarginHolding, Decimal]] = []
+    for holding in margin.holdings:
+        if remaining <= 0:
+            break
+        if holding.asset_id not in state.market_prices:
+            continue
+        improvement = ctx.add(holding.unit_initial, holding.unit_collateral)
+        if improvement <= 0:
+            continue
+        needed = ctx.divide(remaining, improvement)
+        step = _liquidation_step(state, holding)
+        if step is not None:
+            needed = ctx.multiply(
+                ctx.divide(needed, step).to_integral_value(rounding=decimal.ROUND_CEILING), step
+            )
+        quantity = min(needed, holding.quantity.copy_abs())
+        if quantity <= 0 or not _holding_shares(state, holding):
+            continue
+        reductions.append((holding, quantity))
+        remaining = ctx.subtract(remaining, ctx.multiply(quantity, improvement))
+    return reductions
+
+
+#: The finest a liquidation divides a position held in fractions of a unit.
+_FRACTIONAL_STEP: Final = Decimal("0.000001")
+
+
+#: How many passes over the positions a liquidation under a model takes at most:
+#: each pass only lowers the deficit, so it ends; a call still short calls again.
+_LIQUIDATION_PASSES: Final = 4
+
+
+def _model_reductions(
+    state: ExecutionPipelineState, margin: MarginPosition
+) -> list[tuple[MarginHolding, Decimal]]:
+    """How much of each position a liquidation sells under the declared margin model (FUT-019).
+
+    Coordinate descent over the positions in their liquidation order: each is
+    reduced by the quantity that lowers the deficit most -- or, when some
+    quantity restores the initial requirement, by the least that does -- in the
+    units the book trades in, and left alone when no reduction lowers it, as a
+    hedge leg whose sale alone would raise the requirement is. Under a scenario
+    model the deficit is convex in one position's size, so the best quantity is
+    found by ternary search and the least restoring one by bisection below it. A
+    pass that lowers nothing ends the search; what it leaves short, the next
+    step's call takes up from the book as it then is.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    quantities: dict[str, Decimal] = {}
+    sold: dict[str, Decimal] = {}
+
+    def deficit() -> Decimal:
+        equity, initial, _ = margin.figures(quantities)
+        return ctx.subtract(initial, equity)
+
+    candidates = [
+        holding
+        for holding in margin.holdings
+        if holding.asset_id in state.market_prices and _holding_shares(state, holding)
+    ]
+    for _ in range(_LIQUIDATION_PASSES):
+        improved = False
+        for holding in candidates:
+            current = deficit()
+            if current <= 0:
+                break
+            sign = Decimal("1") if holding.quantity > 0 else Decimal("-1")
+            done = sold.get(holding.asset_id, Decimal("0"))
+            left = ctx.subtract(holding.quantity.copy_abs(), done)
+            if left <= 0:
+                continue
+            step = _liquidation_step(state, holding) or _FRACTIONAL_STEP
+            steps = int(ctx.divide(left, step).to_integral_value(rounding=decimal.ROUND_CEILING))
+
+            def at(
+                n: int,
+                holding: MarginHolding = holding,
+                sign: Decimal = sign,
+                done: Decimal = done,
+                left: Decimal = left,
+                step: Decimal = step,
+            ) -> Decimal:
+                more = min(ctx.multiply(Decimal(n), step), left)
+                quantities[holding.asset_id] = ctx.subtract(
+                    holding.quantity, ctx.multiply(sign, ctx.add(done, more))
+                )
+                return deficit()  # fmt: skip
+
+            low, high = 0, steps
+            while high - low > 2:
+                first, second = low + (high - low) // 3, high - (high - low) // 3
+                if at(first) <= at(second):
+                    high = second
+                else:
+                    low = first
+            best = min(range(low, high + 1), key=lambda n: (at(n), n))
+            if at(best) >= current:
+                at(0)  # no reduction of this position helps: leave it as it was
+                continue
+            if at(best) <= 0:
+                bottom, top = 0, best
+                while top - bottom > 1:
+                    middle = (bottom + top) // 2
+                    if at(middle) <= 0:
+                        top = middle
+                    else:
+                        bottom = middle
+                best = top
+            at(best)
+            sold[holding.asset_id] = ctx.add(done, min(ctx.multiply(Decimal(best), step), left))
+            improved = True
+        if not improved or deficit() <= 0:
+            break
+    by_asset = {holding.asset_id: holding for holding in candidates}
+    return [(by_asset[asset_id], quantity) for asset_id, quantity in sold.items() if quantity > 0]
+
+
+def _margin_unit(
+    state: ExecutionPipelineState, asset_id: str, terms: MarginTerms, rates: FxRates, at: float
+) -> MarginHolding | None:
+    """A holding of none of ``asset_id``, with its per-unit figures: what an order would add."""
+
+    price = state.market_prices.get(asset_id)
+    if price is None:
+        return None
+    unit_value = _unit_value(
+        state, asset_id, _price_in_base(state, asset_id, price, rates, at)
+    ).copy_abs()
+    unit_initial = _unit_margin(state, asset_id, terms, unit_value, rates, at)
+    if terms.basis is MarginBasis.VALUE_RATE:
+        unit_maintenance = ACCOUNTING_CONTEXT.multiply(unit_value, terms.maintenance)
+    else:
+        unit_maintenance = ACCOUNTING_CONTEXT.multiply(
+            unit_initial, ACCOUNTING_CONTEXT.divide(terms.maintenance, terms.initial)
+        )
+    economics = _economics_of(state, asset_id)
+    pays = economics is None or economics.settlement.pays_notional
+    registry = state.config.instruments
+    model = None if registry is None else registry.margin_model
+    option = None
+    if isinstance(model, ScenarioMargin) and asset_id in model.repriced:
+        record = _declared(state, asset_id)
+        assert record is not None
+        base = state.portfolio.account.base_currency
+        units = state.portfolio.account.currency_units
+
+        def in_base(amount: Decimal, currency: str) -> Decimal:
+            if currency == base:
+                return amount
+            return rates.convert(amount, currency, base, at, units=units).converted
+
+        option = _option_risk(state, record, record.currency, in_base, at)
+    return MarginHolding(
+        asset_id,
+        Decimal("0"),
+        terms,
+        Decimal("0"),
+        Decimal("0"),
+        unit_initial,
+        Decimal("0"),
+        unit_value,
+        unit_maintenance,
+        terms.haircut if pays else Decimal("0"),
+        option,
+    )
+
+
+def _projected_margin(
+    state: ExecutionPipelineState, request: OrderRequest, rates: FxRates, at: float
+) -> tuple[Decimal, Decimal] | None:
+    """Margin equity and the initial requirement, were ``request`` to fill (FUT-019).
+
+    The declared model is asked for the book as it would be: every margined
+    position held, every working order that grows one, and this order -- so an
+    order that offsets a held position is credited only as the model credits
+    it, and one in an instrument it does not cover only by its own terms.
+    ``None`` when the order's instrument declares no margin terms or no price.
+    """
+
+    registry = state.config.instruments
+    if registry is None:
+        return None
+    record = _declared(state, request.asset_id)
+    if record is None or record.margin is None:
+        return None
+    margin = margin_position(state, rates, at)
+    if margin is None:
+        portfolio = state.portfolio
+        nav = NAVCalculator.calculate(
+            portfolio.cash, portfolio.positions, portfolio.account.base_currency, rates, at
+        )
+        margin = MarginPosition(nav, Decimal("0"), Decimal("0"), (), registry.margin_model)
+    ctx = ACCOUNTING_CONTEXT
+    held = {holding.asset_id: holding for holding in margin.holdings}
+    added: dict[str, MarginHolding] = {}
+    quantities: dict[str, Decimal] = {}
+
+    def grow(asset_id: str, terms: MarginTerms, signed: Decimal) -> bool:
+        if asset_id not in held and asset_id not in added:
+            unit = _margin_unit(state, asset_id, terms, rates, at)
+            if unit is None:
+                return False
+            added[asset_id] = unit
+        base = held[asset_id].quantity if asset_id in held else Decimal("0")
+        quantities[asset_id] = ctx.add(quantities.get(asset_id, base), signed)
+        return True
+
+    for asset_id in registry.margined or ():
+        margined = _declared(state, asset_id)
+        if margined is None or margined.margin is None:
+            continue
+        for order_id in state.oms.working_orders_for(asset_id):
+            order = state.oms.orders.find(order_id)
+            remaining = order.remaining_quantity
+            signed = remaining if order.side is OMSSide.BUY else -remaining
+            if _growth_of(state, asset_id, signed):
+                grow(asset_id, margined.margin, signed)
+    if not grow(request.asset_id, record.margin, _signed(request)):
+        return None
+    equity, initial, _ = margin.figures(quantities, tuple(added.values()))
+    return equity, initial
+
+
+def _multiplier(economics: InstrumentEconomics | None) -> Decimal:
+    return Decimal("1") if economics is None else economics.multiplier
+
+
+@dataclass(frozen=True, slots=True)
+class _ExchangePlan:
+    """What a holding exchange moves, planned before anything does (FUT-021)."""
+
+    legs: tuple[tuple[ExchangeLeg, ExchangedHolding], ...]
+    retained_basis: Decimal | None
+    consideration: Mapping[str, Decimal]
+    realized: Decimal
+
+    @property
+    def received(self) -> tuple[ExchangedHolding, ...]:
+        return tuple(holding for _, holding in self.legs)
+
+
+def _exchange_plan(
+    state: ExecutionPipelineState,
+    exchange: HoldingExchange,
+    held: Position,
+    at: float,
+    rates: FxRates,
+) -> _ExchangePlan:
+    """Apportion a holding's basis and units across an exchange's legs and cash, or refuse it."""
+
+    ctx = ACCOUNTING_CONTEXT
+    sign = Decimal("1") if held.quantity > 0 else Decimal("-1")
+    units = held.quantity.copy_abs()
+    basis = held.basis
+    source = held.currency
+    account_units = state.portfolio.account.currency_units
+
+    def convert(amount: Decimal, from_currency: str, to_currency: str) -> Decimal:
+        if from_currency == to_currency or not amount:
+            return amount
+        try:
+            return rates.convert(
+                amount, from_currency, to_currency, at, units=account_units
+            ).converted
+        except (MissingRateError, StaleRateError) as error:
+            raise RuntimeValidationError(
+                f"The exchange of {exchange.asset_id} moves {from_currency} into {to_currency} at "
+                f"{at!r}, and needs a rate the run holds then: {error}"
+            ) from None
+
+    legs: list[tuple[ExchangeLeg, ExchangedHolding]] = []
+    consideration: dict[str, Decimal] = {}
+    realized = Decimal("0")
+    for leg in exchange.legs:
+        record = _declared(state, leg.asset_id)
+        if state.config.instruments is not None and record is None:
+            raise RuntimeValidationError(
+                f"The exchange of {exchange.asset_id} delivers {leg.asset_id}, which the run's "
+                "registry does not declare; nothing can be delivered that the book cannot name."
+            )
+        currency = source if record is None else record.currency
+        economics = None if record is None else record.economics
+        booked = (
+            economics_for(record.asset_type, economics, record.symbol)
+            if record is not None
+            else None
+        )
+        received = ctx.multiply(units, leg.ratio)
+        whole = received if booked is None else _whole_part(state, booked, received)
+        fraction = ctx.subtract(received, whole)
+        carried = ctx.multiply(basis, leg.basis_share)
+        if fraction:
+            if leg.in_lieu_price is None:
+                raise RuntimeValidationError(
+                    f"The exchange of {exchange.asset_id} delivers {received} {leg.asset_id}, of "
+                    f"which {fraction} is less than a unit the book can hold, and declares no "
+                    "in-lieu price for it (ExchangeLeg.in_lieu_price)."
+                )
+            fraction_basis = ctx.divide(ctx.multiply(carried, fraction), received)
+            carried = ctx.subtract(carried, fraction_basis)
+            paid = ctx.multiply(ctx.multiply(fraction, leg.in_lieu_price), _multiplier(economics))
+            consideration[currency] = ctx.add(
+                consideration.get(currency, Decimal("0")), ctx.multiply(sign, paid)
+            )
+            realized = ctx.add(
+                realized,
+                ctx.multiply(sign, ctx.subtract(convert(paid, currency, source), fraction_basis)),
+            )
+        if not whole:
+            continue
+        leg_basis = convert(carried, source, currency)
+        price = state.market_prices.get(leg.asset_id)
+        if price is None:
+            price = ctx.divide(leg_basis, ctx.multiply(whole, _multiplier(economics)))
+        legs.append(
+            (
+                leg,
+                ExchangedHolding(
+                    leg.asset_id, ctx.multiply(sign, whole), leg_basis, price, currency, economics
+                ),
+            )
+        )
+    if exchange.cash_per_unit:
+        currency = exchange.cash_currency or source
+        if currency not in _settlement_currencies(state):
+            raise RuntimeValidationError(
+                f"The exchange of {exchange.asset_id} pays cash in {currency}, which the run does "
+                "not settle: declare it in ExecutionPipelineConfig.also_settles."
+            )
+        paid = ctx.multiply(units, exchange.cash_per_unit)
+        consideration[currency] = ctx.add(
+            consideration.get(currency, Decimal("0")), ctx.multiply(sign, paid)
+        )
+        share = ctx.multiply(basis, exchange.cash_basis_share)
+        realized = ctx.add(
+            realized, ctx.multiply(sign, ctx.subtract(convert(paid, currency, source), share))
+        )
+    retained = (
+        None
+        if exchange.retained_basis_share is None
+        else ctx.multiply(basis, exchange.retained_basis_share)
+    )
+    return _ExchangePlan(tuple(legs), retained, consideration, realized)
+
+
+def _settlement_currencies(state: ExecutionPipelineState) -> frozenset[str]:
+    config = state.config
+    return frozenset({config.currency, *config.also_settles})
+
+
+def _require_exchange_adjusted(
+    state: ExecutionPipelineState, exchange: HoldingExchange, timestamp: float
+) -> None:
+    """Refuse an exchange of an instrument a held or working contract delivers, unless adjusted.
+
+    A contract on the exchanged instrument keeps its economics only if its terms
+    say what it delivers from the exchange's instant: it must declare an
+    adjustment effective then -- an exchange's is the issuer's and the clearing
+    house's published one, declared, not derived here. A future delivering it is
+    refused: futures' terms are not adjusted (FUT-021).
+    """
+
+    assets = dict.fromkeys(
+        (
+            *state.portfolio.positions,
+            *(o for o in state.oms.working_by_asset if state.oms.working_orders_for(o)),
+        )
+    )
+    for asset_id in assets:
+        if asset_id == exchange.asset_id:
+            continue
+        record = _declared(state, asset_id)
+        terms = None if record is None else record.terms
+        if terms is None:
+            continue
+        named = f"{record.symbol} on {record.exchange}"  # type: ignore[union-attr]
+        if isinstance(terms, FutureTerms):
+            if terms.deliverable is not None and terms.deliverable.asset_id == exchange.asset_id:
+                raise RuntimeValidationError(
+                    f"{named} delivers {exchange.asset_id}, which is exchanged at {timestamp!r}; "
+                    "a future's delivery is not adjusted for an exchange. Close it before."
+                )
+            continue
+        before = replace(
+            terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
+        ).effective(timestamp)
+        if exchange.asset_id not in {d.asset_id for d in before.deliverables}:
+            continue
+        if not any(a.effective_at == timestamp for a in terms.adjustments):
+            raise RuntimeValidationError(
+                f"{named} delivers {exchange.asset_id}, which is exchanged at {timestamp!r}, and "
+                "declares no adjustment effective then: it would deliver an instrument that no "
+                "longer trades as it was. Declare its adjusted terms (OptionTerms.adjustments)."
+            )
+
+
+def _require_adjusted_for(state: ExecutionPipelineState, split: Split, timestamp: float) -> None:
+    """Refuse a split of an instrument a held or working contract delivers, unless it is adjusted.
+
+    A contract on the split instrument keeps its economics only if its terms say
+    what it delivers afterwards: an option declaring, effective at the split's
+    instant, the adjustment :meth:`~alphalab.instrument.terms.OptionTerms.split_adjusted`
+    implies -- the split instrument's units times the ratio, everything else the
+    same. Anything else would deliver the pre-split units at the pre-split strike,
+    half the value of a two-for-one split's, so it is refused, naming the
+    contract (FUT-016). Contracts are read by the keyed lookup alone, for the
+    assets the book holds or works.
+    """
+
+    assets = dict.fromkeys(
+        (
+            *state.portfolio.positions,
+            *(o for o in state.oms.working_by_asset if state.oms.working_orders_for(o)),
+        )
+    )
+    for asset_id in assets:
+        if asset_id == split.asset_id:
+            continue
+        record = _declared(state, asset_id)
+        if record is None or record.terms is None:
+            continue
+        terms = record.terms
+        named = f"{record.symbol} on {record.exchange}"
+        if isinstance(terms, FutureTerms):
+            if terms.deliverable is not None and terms.deliverable.asset_id == split.asset_id:
+                raise RuntimeValidationError(
+                    f"{named} delivers {split.asset_id}, which splits at {timestamp!r}; a "
+                    "future's delivery is not adjusted for a split. Close it before the split."
+                )
+            continue
+        before = replace(
+            terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
+        ).effective(timestamp)
+        if split.asset_id not in {d.asset_id for d in before.deliverables}:
+            continue
+        declared = [a for a in terms.adjustments if a.effective_at == timestamp]
+        expected = before.split_adjusted(split.asset_id, split.ratio, timestamp).adjustments[-1]
+        if not declared:
+            raise RuntimeValidationError(
+                f"{named} delivers {split.asset_id}, which splits {split.ratio} for one at "
+                f"{timestamp!r}, and declares no adjustment effective then: it would deliver "
+                "the units of before the split at the strike of before it. Declare its "
+                "adjusted terms (OptionTerms.split_adjusted)."
+            )
+        (adjustment,) = declared
+        if (
+            adjustment.strike,
+            adjustment.deliverable,
+            adjustment.basket,
+            adjustment.cash_per_contract,
+        ) != (
+            expected.strike,
+            expected.deliverable,
+            expected.basket,
+            expected.cash_per_contract,
+        ):
+            raise RuntimeValidationError(
+                f"{named} declares an adjustment at {timestamp!r} that does not preserve its "
+                f"economics under a {split.ratio} split of {split.asset_id}: it delivers "
+                f"{adjustment.deliverable}, {adjustment.basket} at {adjustment.strike}, and the "
+                f"split implies {expected.deliverable}, {expected.basket} at {expected.strike}."
+            )
+
+
+def _observed(state: ExecutionPipelineState, asset_id: str, named: str, why: str) -> Decimal:
+    """The last price the run observed for ``asset_id``, or a refusal saying why it was needed."""
+
+    price = state.market_prices.get(asset_id)
+    if price is None:
+        raise RuntimeValidationError(
+            f"{named} {why} at the price the run has observed for {asset_id}, and it has "
+            "observed none."
+        )
+    return price
+
+
+def _package_values(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord,
+    terms: OptionTerms,
+    timestamp: float,
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """Each deliverable's observed value and multiplier, by asset (FUT-016)."""
+
+    named = f"{record.symbol} on {record.exchange}"
+    values = {
+        d.asset_id: _observed(state, d.asset_id, named, "values its package")
+        for d in terms.deliverables
+    }
+    multipliers = {
+        d.asset_id: _deliverable_multiplier(state, record, d) for d in terms.deliverables
+    }
+    return values, multipliers
+
+
+def _whole_part(
+    state: ExecutionPipelineState, economics: InstrumentEconomics, units: Decimal
+) -> Decimal:
+    """The part of ``units`` a book can hold: whole lots, or whole units if the run trades them."""
+
+    lot = economics.lot
+    if lot is not None:
+        steps = ACCOUNTING_CONTEXT.divide(units, lot.lot_size).to_integral_value(
+            rounding=decimal.ROUND_DOWN
+        )
+        return ACCOUNTING_CONTEXT.multiply(steps, lot.lot_size)
+    if state.config.allocation_constraints.enforce_integer_quantities:
+        return units.to_integral_value(rounding=decimal.ROUND_DOWN)
+    return units
+
+
+@dataclass(frozen=True, slots=True)
+class _Component:
+    """One deliverable of a package, as one exercise moves it."""
+
+    deliverable: Deliverable
+    record: InstrumentRecord
+    economics: InstrumentEconomics
+    #: Whole units moved, signed: positive taken in by the book.
+    units: Decimal
+    #: The price per unit it is booked at, its share of the consideration.
+    unit_price: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class _PackagePlan:
+    """Everything a package delivery moves, checked before anything does (FUT-016)."""
+
+    components: tuple[_Component, ...]
+    #: The deliverables' currency, in which they are booked.
+    currency: str
+    #: The consideration's currency: the strike and the cash component.
+    consideration_currency: str
+    #: Converted before the components move: (amount, from, to), or ``None``.
+    convert_before: tuple[Decimal, str, str] | None
+    #: Converted after: the proceeds back into the consideration's currency.
+    convert_after: tuple[Decimal, str, str] | None
+    #: The rates both conversions use: the run's, or a quanto contract's fixed one.
+    rates: FxRates
+    #: Whether the consideration is more than the cash it is paid in, and is
+    #: financed: every component taken in declares margin terms (FUT-017).
+    financed: bool = False
+
+
+def _package_plan(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord,
+    terms: OptionTerms,
+    economics: InstrumentEconomics,
+    closing: Decimal,
+    timestamp: float,
+    rates: FxRates,
+) -> _PackagePlan:
+    """Plan a physical delivery of a package -- or refuse it before anything moves (FUT-016).
+
+    The side taking the package in (a call's holder, a put's writer) pays the
+    consideration, ``strike x multiplier`` a contract less the cash component it
+    receives, in the consideration currency, converted into the deliverables'
+    currency at ``timestamp`` by ``rates`` when the two differ. A fraction of a
+    unit the book cannot hold is settled in cash in lieu, by the contract's
+    declared rule. What is left of the consideration is the whole components'
+    cost, apportioned by their observed market values -- the one component's,
+    when there is one -- so each is booked through the portfolio's fill
+    authority at a price, and the fills move exactly the net cash.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    named = f"{record.symbol} on {record.exchange}"
+    direction = Decimal("1") if terms.option_type is OptionType.CALL else Decimal("-1")
+    sign = direction if closing > 0 else -direction
+    contracts = closing.copy_abs()
+    found: list[tuple[Deliverable, InstrumentRecord, InstrumentEconomics, Decimal, Decimal]] = []
+    currency: str | None = None
+    lieu = Decimal("0")
+    for d in terms.deliverables:
+        underlying = _declared(state, d.asset_id)
+        if underlying is None:
+            raise RuntimeValidationError(
+                f"{named} delivers {d.asset_id}, which the run's registry does not declare; "
+                "nothing can be delivered that the book cannot name."
+            )
+        if currency is None:
+            currency = underlying.currency
+        elif underlying.currency != currency:
+            raise RuntimeValidationError(
+                f"{named} delivers a package priced in {currency} and {underlying.currency}; "
+                "one consideration cannot be apportioned across two currencies' components."
+            )
+        component_economics = economics_for(
+            underlying.asset_type,
+            underlying.economics,
+            f"{underlying.symbol} on {underlying.exchange}",
+        )
+        units = ctx.multiply(d.units, contracts)
+        whole = _whole_part(state, component_economics, units)
+        fraction = ctx.subtract(units, whole)
+        if fraction:
+            rule = terms.fractions
+            if rule is None:
+                raise RuntimeValidationError(
+                    f"{named} delivers {units} {underlying.symbol}, of which {fraction} is less "
+                    "than a unit the book can hold, and declares no cash in lieu for it."
+                )
+            price = (
+                rule.price
+                if rule.price is not None
+                else _observed(state, d.asset_id, named, "settles a fraction in cash in lieu")
+            )
+            lieu = ctx.add(
+                lieu, ctx.multiply(ctx.multiply(fraction, price), component_economics.multiplier)
+            )
+        found.append((d, underlying, component_economics, whole, units))
+    assert currency is not None  # a package has a deliverable
+    consideration_currency = terms.consideration_currency or currency
+    units_of_account = state.portfolio.account.currency_units
+    net = to_money(
+        ctx.subtract(
+            ctx.multiply(ctx.multiply(terms.strike, economics.multiplier), contracts),
+            ctx.multiply(terms.cash_per_contract, contracts),
+        ),
+        consideration_currency,
+        units_of_account,
+    )
+    if net <= 0:
+        raise RuntimeValidationError(
+            f"{named}'s cash component covers its strike: the side taking the package in "
+            "would be paid to, which no fill can book."
+        )
+    conversion_rates = rates
+    if terms.consideration_rate is not None and consideration_currency != currency:
+        # A quanto contract converts at the rate it fixes, not the market's.
+        fixed = FxRate(
+            consideration_currency,
+            currency,
+            terms.consideration_rate,
+            timestamp,
+            f"{named}'s fixed rate",
+        )
+        conversion_rates = FxRates.of(
+            (
+                fixed,
+                replace(
+                    fixed,
+                    base=currency,
+                    quote=consideration_currency,
+                    rate=ACCOUNTING_CONTEXT.divide(Decimal("1"), terms.consideration_rate),
+                ),
+            ),
+            currency_units=rates.currency_units,
+        )
+    if consideration_currency == currency:
+        net_in_currency = net
+    else:
+        try:
+            net_in_currency = conversion_rates.convert(
+                net, consideration_currency, currency, timestamp, units=units_of_account
+            ).converted
+        except (MissingRateError, StaleRateError) as refused:
+            raise RuntimeValidationError(
+                f"{named} is paid for in {consideration_currency} and delivers instruments "
+                f"priced in {currency}; converting the consideration at {timestamp!r} needs a "
+                f"rate the run holds: {refused}"
+            ) from refused
+    cost = ctx.subtract(net_in_currency, lieu)
+    whole_components = [entry for entry in found if entry[3] > 0]
+    if not whole_components:
+        raise RuntimeValidationError(
+            f"{named} would deliver no whole unit of anything; a delivery that is all cash in "
+            "lieu is not booked by a fill."
+        )
+    if cost <= 0:
+        raise RuntimeValidationError(
+            f"{named}'s cash in lieu ({lieu} {currency}) covers its consideration; the "
+            "components' cost would not be positive."
+        )
+    if len(whole_components) == 1:
+        shares = [cost]
+    else:
+        worth = [
+            ctx.multiply(
+                ctx.multiply(
+                    whole, _observed(state, d.asset_id, named, "apportions its consideration")
+                ),
+                component_economics.multiplier,
+            )
+            for d, _, component_economics, whole, _ in whole_components
+        ]
+        total = sum(worth, Decimal("0"))
+        if total <= 0:
+            raise RuntimeValidationError(
+                f"{named}'s components are observed worth nothing; its consideration cannot be "
+                "apportioned by their values."
+            )
+        shares = [ctx.divide(ctx.multiply(cost, w), total) for w in worth[:-1]]
+        shares.append(ctx.subtract(cost, sum(shares, Decimal("0"))))
+    components = []
+    for (d, underlying, component_economics, whole, _), share in zip(
+        whole_components, shares, strict=True
+    ):
+        unit_price = ctx.divide(share, ctx.multiply(whole, component_economics.multiplier))
+        if not component_economics.admits_price(unit_price):
+            raise RuntimeValidationError(
+                f"{named} would deliver {underlying.symbol} at {unit_price}, which its "
+                "economics do not admit."
+            )
+        moved = ctx.multiply(sign, whole)
+        held = _held(state, d.asset_id)
+        if (
+            moved < 0
+            and ctx.add(held, moved) < 0
+            and not state.config.allocation_constraints.allow_shorting
+        ):
+            raise RuntimeValidationError(
+                f"{named} must deliver {whole} {underlying.symbol} and the book holds {held}; "
+                "the run does not allow a short position, and none is created to make the "
+                "delivery."
+            )
+        components.append(_Component(d, underlying, component_economics, moved, unit_price))
+    convert_before = None
+    convert_after = None
+    paying = sign > 0
+    payer_currency = consideration_currency if paying else currency
+    owed = net if paying else Decimal("0")
+    financed = False
+    if paying:
+        cash = state.portfolio.cash.balance(consideration_currency)
+        unmargined = [c.record.symbol for c in components if c.record.margin is None]
+        if cash < owed and unmargined:
+            raise RuntimeValidationError(
+                f"{named} takes delivery for {owed} {payer_currency}, and the book holds "
+                f"{cash}; a delivery is financed only when every deliverable declares margin "
+                f"terms (InstrumentRecord.margin), and {', '.join(unmargined)} declares none."
+            )
+        financed = cash < owed
+        if consideration_currency != currency:
+            convert_before = (net, consideration_currency, currency)
+    elif consideration_currency != currency:
+        convert_after = (cost, currency, consideration_currency)
+    return _PackagePlan(
+        tuple(components),
+        currency,
+        consideration_currency,
+        convert_before,
+        convert_after,
+        conversion_rates,
+        financed,
+    )
+
+
+def _book_package(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord,
+    plan: _PackagePlan,
+    parts: Mapping[str, Decimal],
+    timestamp: float,
+    rates: FxRates,
+    trade_id: str,
+) -> ExecutionPipelineState:
+    """Move a planned package through the portfolio's fill authority, attributed (FUT-016)."""
+
+    ctx = ACCOUNTING_CONTEXT
+    current = state
+    if plan.convert_before is not None:
+        amount, source, target = plan.convert_before
+        portfolio, _ = PortfolioEngine.convert_cash(
+            current.portfolio, amount, source, target, plan.rates, timestamp, financed=plan.financed
+        )
+        current = evolve(current, portfolio=portfolio)
+    total = sum(parts.values(), Decimal("0"))
+    for component in plan.components:
+        asset_id = component.deliverable.asset_id
+        shares = tuple(
+            (sid, ctx.divide(ctx.multiply(component.units, part), total))
+            for sid, part in parts.items()
+        )
+        component_parts = _strategy_parts(shares, component.units)
+        current = _lifecycle_fill(
+            current,
+            asset_id,
+            component.units,
+            component.unit_price,
+            timestamp,
+            component.record.currency,
+            component.economics,
+            component_parts,
+            f"DELIVERY-{trade_id}-{asset_id}",
+            financed=plan.financed and component.units > 0,
+        )
+        budget_value = _in_budget_currency(
+            current,
+            ctx.multiply(component.unit_price, component.economics.multiplier),
+            component.record.currency,
+            rates,
+            timestamp,
+        )
+        current = evolve(
+            current,
+            allocation=AllocationEngine.apply_lifecycle(
+                current.allocation, asset_id, {}, asset_id, component_parts, budget_value
+            ),
+        )
+        if asset_id in current.market_prices:
+            current = evolve(
+                current,
+                portfolio=PortfolioEngine.mark_changed(
+                    current.portfolio, current.market_prices, timestamp, asset_id
+                ),
+            )
+    if plan.convert_after is not None:
+        amount, source, target = plan.convert_after
+        portfolio, _ = PortfolioEngine.convert_cash(
+            current.portfolio, amount, source, target, plan.rates, timestamp
+        )
+        current = evolve(current, portfolio=portfolio)
+    return current
+
+
+_NOT_ORDERS: Final = (IntentKind.EXERCISE, IntentKind.CANCEL, IntentKind.ELECT, IntentKind.AMEND)
+
+
+def _cancels_requested(
+    state: ExecutionPipelineState, intents: tuple[Intent, ...], timestamp: float
+) -> ExecutionPipelineState:
+    """Withdraw what each cancel instruction names, before the batch's orders are placed.
+
+    A cancel withdraws every order working in its instrument that the asking
+    strategy alone contributed to -- read off the OMS's working orders and the
+    allocation's contributions -- and frees what each held. An order netted
+    with another strategy's, one an execution plan works, and one held at a
+    venue are left working, each recorded as a
+    :class:`~alphalab.strategy.events.CancelRefused`. A run whose strategies
+    ask for no cancel takes one test per intent.
+    """
+
+    if not any(intent.kind is IntentKind.CANCEL for intent in intents):
+        return state
+    current = state
+    for intent in intents:
+        if intent.kind is not IntentKind.CANCEL:
+            continue
+        sid, asset_id = intent.strategy_id, intent.instrument
+        for order_id in tuple(current.oms.working_orders_for(asset_id)):
+            contributions = AllocationEngine.contributions_for(
+                current.allocation, str(order_id.value)
+            )
+            ours = bool(contributions) and all(c.strategy_id == sid for c in contributions)
+            if not ours:
+                if any(c.strategy_id == sid for c in contributions):
+                    current = _refuse_cancel(
+                        current, intent, order_id, timestamp,
+                        "The order is netted with another strategy's, and withdrawing it "
+                        "would withdraw theirs.",
+                    )  # fmt: skip
+                continue
+            routing = current.config.routing
+            if routing is ExecutionRouting.EXTERNAL:
+                current = _refuse_cancel(
+                    current, intent, order_id, timestamp,
+                    "The order is held at the venue; a cancel there is a venue request "
+                    "(LiveSession.cancel).",
+                )  # fmt: skip
+                continue
+            if routing is ExecutionRouting.ALGORITHMIC:
+                current = _refuse_cancel(
+                    current, intent, order_id, timestamp,
+                    "The order is a parent an execution plan works; withdrawing it is not "
+                    "modelled.",
+                )  # fmt: skip
+                continue
+            current = _end_unfilled(current, current.oms.orders.find(order_id), timestamp)
+    return current
+
+
+def _instructions_requested(
+    state: ExecutionPipelineState,
+    intents: tuple[Intent, ...],
+    timestamp: float,
+    *,
+    event: MarketEvent | None,
+    policy: FillPolicy,
+    rates: FxRates,
+    rest: bool = False,
+) -> tuple[ExecutionPipelineState, tuple[Intent, ...], _Routed]:
+    """Carry out the batch's cancels and amends: the intents left to size, and the amends' routing.
+
+    Cancels first, then amends -- each replacement placed atomically, before
+    the batch's own orders (FUT-031).
+    """
+
+    current = _cancels_requested(state, intents, timestamp)
+    current, routed = _amends_requested(
+        current, intents, timestamp, event=event, policy=policy, rates=rates, rest=rest
+    )
+    return current, _for_orders(intents), routed
+
+
+def _amends_requested(
+    state: ExecutionPipelineState,
+    intents: tuple[Intent, ...],
+    timestamp: float,
+    *,
+    event: MarketEvent | None,
+    policy: FillPolicy,
+    rates: FxRates,
+    rest: bool,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Amend what each amend instruction names (FUT-029), each atomically (FUT-031).
+
+    An amend applies to the one order working in its instrument that the asking
+    strategy alone contributed to, under simulated routing; it keeps the order's
+    type and time in force. A reduction at the same prices is made in place --
+    the OMS replaces the order's quantity, its contribution and its reservations
+    shrink, and it keeps its id and so its queue priority. Any other amend --
+    more quantity, another limit or stop -- is prepared and committed: its
+    replacement is allocated and routed against the book with the order
+    withdrawn, through allocation, risk and the OMS like any order, at the back
+    of its queue, and only if the replacement is placed is that book kept. If
+    allocation, risk or routing refuses the replacement, the book is as it was
+    -- the order working, its reservations held -- and the amend is recorded as
+    an :class:`~alphalab.strategy.events.AmendRefused` naming why. With no market
+    event yet to route at, a replacement is refused the same way.
+    """
+
+    if not any(intent.kind is IntentKind.AMEND for intent in intents):
+        return state, _NO_ROUTING
+    current, routed = state, _NO_ROUTING
+    for intent in intents:
+        if intent.kind is not IntentKind.AMEND:
+            continue
+        refusal, order = _amendable(current, intent)
+        if refusal is not None or order is None:
+            current = _refuse_amend(current, intent, timestamp, refusal or "")
+            continue
+        terms = intent.terms
+        reduced = intent.target < order.remaining_quantity
+        same_prices = (
+            terms.limit_price == order.limit_price and terms.stop_price == order.stop_price
+        )
+        if same_prices and intent.target == order.remaining_quantity:
+            continue  # nothing to change
+        if same_prices and reduced:
+            current = _reduce_in_place(current, order, intent.target, timestamp)
+            continue
+        if event is None:
+            current = _refuse_amend(
+                current, intent, timestamp,
+                "No market event has priced the instrument yet, so the replacement cannot be "
+                "judged; the order is kept working.",
+            )  # fmt: skip
+            continue
+        current, placed = _replace_atomically(
+            current, intent, order, event, policy, rates, timestamp, rest=rest
+        )
+        routed = routed.then(placed)
+    return current, routed
+
+
+def _replace_atomically(
+    state: ExecutionPipelineState,
+    intent: Intent,
+    order: OMSOrder,
+    event: MarketEvent,
+    policy: FillPolicy,
+    rates: FxRates,
+    timestamp: float,
+    *,
+    rest: bool,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Prepare ``order``'s replacement against the book without it; commit only if placed."""
+
+    trial = _end_unfilled(state, order, timestamp)
+    mark = len(trial.allocation.events)
+    sign = Decimal("1") if order.side is OMSSide.BUY else Decimal("-1")
+    share = AllocationEngine.strategy_position(trial.allocation, intent.strategy_id, order.asset_id)
+    replacement = Intent(
+        intent.strategy_id,
+        intent.instrument,
+        # A target naming the position and the strategy's other working orders,
+        # so the order is exactly the quantity asked, never read through the
+        # run's sizing model (as ACC-016's forced trades).
+        _forced_target(
+            trial,
+            intent.strategy_id,
+            order.asset_id,
+            share,
+            ACCOUNTING_CONTEXT.multiply(sign, intent.target),
+        ),
+        timestamp=timestamp,
+        kind=IntentKind.TARGET_QUANTITY,
+        terms=intent.terms,
+        metadata={"amends": str(order.order_id.value)},
+    )
+    allocation, requests = _allocate(trial, (replacement,), trial.market_prices, rates, timestamp)
+    trial = evolve(trial, allocation=allocation)
+    trial, placed = _route_requests(
+        trial, event, (replacement,), requests, policy, rates, rest=rest,
+        at=timestamp if rest else None,
+    )  # fmt: skip
+    if placed.orders:
+        return trial, placed
+    judged = allocation.events[mark:]
+    why = "; ".join(
+        (
+            *(e.reason for e in judged if isinstance(e, (AllocationRejected, BudgetExceeded))),
+            *(reason for _, reason in placed.dropped),
+        )
+    )
+    # The book is as it was. What judged the replacement stays on the record --
+    # allocation's and risk's decisions, an unpriced asset -- and the strategy
+    # hears of a refused request as of any.
+    kept = evolve(
+        state,
+        allocation=evolve(state.allocation, events=state.allocation.events.extend(judged)),
+        risk=trial.risk,
+        unpriced_assets=trial.unpriced_assets,
+    )
+    refused = _Routed(
+        decisions=placed.decisions,
+        unpriced=placed.unpriced,
+        refusals=placed.refusals,
+        dropped=placed.dropped,
+    )
+    return (
+        _refuse_amend(
+            kept, intent, timestamp,
+            f"The replacement was refused ({why or 'allocation sized no order from it'}); "
+            "the order is kept working as it was.",
+        ),
+        refused,
+    )  # fmt: skip
+
+
+def _amendable(state: ExecutionPipelineState, intent: Intent) -> tuple[str | None, OMSOrder | None]:
+    """The one order ``intent`` amends, or why it cannot be amended."""
+
+    if state.config.routing is ExecutionRouting.EXTERNAL:
+        return (
+            "The order is held at the venue; an amend there is a venue request "
+            "(LiveSession.amend).",
+            None,
+        )
+    if state.config.routing is ExecutionRouting.ALGORITHMIC:
+        return "The order is a parent an execution plan works; amending it is not modelled.", None
+    own: list[OMSOrder] = []
+    for order_id in state.oms.working_orders_for(intent.instrument):
+        contributions = AllocationEngine.contributions_for(state.allocation, str(order_id.value))
+        if not any(c.strategy_id == intent.strategy_id for c in contributions):
+            continue
+        if not all(c.strategy_id == intent.strategy_id for c in contributions):
+            return (
+                "The order is netted with another strategy's, and amending it would amend theirs.",
+                None,
+            )
+        own.append(state.oms.orders.find(order_id))
+    if len(own) != 1:
+        return (
+            f"An amend names the one order the strategy has working in the instrument, and it "
+            f"has {len(own)}.",
+            None,
+        )
+    (order,) = own
+    terms = intent.terms
+    if terms.order_type is not order.order_type or terms.time_in_force is not order.time_in_force:
+        return (
+            f"An amend keeps the order's type and time in force ({order.order_type.name}, "
+            f"{order.time_in_force.name}); place a new order for other terms.",
+            None,
+        )
+    if order.order_type is OrderType.MARKET:
+        return "A market order has no price to amend; it trades at its next turn.", None
+    return None, order
+
+
+def _reduce_in_place(
+    state: ExecutionPipelineState, order: OMSOrder, remaining: Decimal, timestamp: float
+) -> ExecutionPipelineState:
+    """``order`` with ``remaining`` left working, its id and its queue place kept (FUT-029).
+
+    What it holds shrinks with what it may still add (FUT-036): the account's
+    reservation by the exposure the order adds to the account's committed
+    position, and a ceilinged strategy's by what it adds to the strategy's --
+    each the share of what it held that the smaller order still adds, so one
+    that only reduces a position holds nothing, and the reservations are the
+    ones its allocation would have made for the smaller order. Nothing is
+    reserved anew, and nothing is released twice: what is released is freed
+    now, and what is kept is released at the order's end as before.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    order_id = str(order.order_id.value)
+    total = ctx.add(order.filled_quantity, remaining)
+    oms = OMSEngine.replace(state.oms, order.order_id, total, timestamp)
+    allocation = state.allocation
+    (contribution,) = AllocationEngine.contributions_for(allocation, order_id)
+    sign = Decimal("1") if contribution.quantity > 0 else Decimal("-1")
+    contributions = allocation.contributions.set(
+        order_id, (replace(contribution, quantity=ctx.multiply(sign, total)),)
+    )
+    was = ctx.multiply(sign, order.remaining_quantity)
+    now = ctx.multiply(sign, remaining)
+    reserved = allocation.reservations.get(order_id)
+    if reserved is not None and order.remaining_quantity:
+        # The account's committed position without this order, as allocation
+        # judged it: filled, and every other order working.
+        committed = _committed_positions(state, (_probe(order),)).get(order.asset_id, Decimal("0"))
+        kept = _still_added(reserved, ctx.subtract(committed, was), was, now, _adds_to_account)
+        allocation = evolve(
+            allocation,
+            reservations=allocation.reservations.set(order_id, kept),
+            notional_allocated=ctx.subtract(
+                allocation.notional_allocated, ctx.subtract(reserved, kept)
+            ),
+        )
+    strategy_id = contribution.strategy_id
+    capital = allocation.strategy_capital.get(strategy_id)
+    held_back = None if capital is None else capital.reserved.get(order_id)
+    if capital is not None and held_back is not None:
+        # The strategy's position and its share of its other working orders.
+        own = AllocationEngine.strategy_position(allocation, strategy_id, order.asset_id)
+        working = _working_shares(state, (_probe(order, strategy_id),)).get(
+            (strategy_id, order.asset_id), Decimal("0")
+        )
+        before = ctx.subtract(ctx.add(own, working), was)
+        kept = _still_added(held_back, before, was, now, adding_exposure)
+        allocation = evolve(
+            allocation,
+            strategy_capital=allocation.strategy_capital.set(
+                strategy_id, capital.reduce(order_id, kept)
+            ),
+        )
+    return evolve(state, oms=oms, allocation=evolve(allocation, contributions=contributions))
+
+
+def _probe(order: OMSOrder, strategy_id: str = "") -> Intent:
+    """A target intent naming ``order``'s asset: what the position readers are asked by."""
+
+    return Intent(strategy_id, order.asset_id, Decimal("0"), kind=IntentKind.TARGET_QUANTITY)
+
+
+def _adds_to_account(held: Decimal, delta: Decimal) -> Decimal:
+    """What ``delta`` adds to the account's committed position ``held``, as allocation reads it."""
+
+    after = ACCOUNTING_CONTEXT.add(held, delta)
+    return max(Decimal("0"), ACCOUNTING_CONTEXT.subtract(abs(after), abs(held)))
+
+
+def _still_added(
+    reserved: Decimal,
+    before: Decimal,
+    was: Decimal,
+    now: Decimal,
+    adds: Callable[[Decimal, Decimal], Decimal],
+) -> Decimal:
+    """The share of ``reserved`` an order cut from ``was`` to ``now`` still adds to ``before``."""
+
+    ctx = ACCOUNTING_CONTEXT
+    added = adds(before, was)
+    if added == 0:
+        # It adds nothing to the book as it stands, though it held something
+        # when allocated: the book may yet change back, so it keeps the same
+        # share of it as of its quantity -- never less than it may need.
+        return ctx.divide(ctx.multiply(reserved, abs(now)), abs(was))
+    return ctx.divide(ctx.multiply(reserved, adds(before, now)), added)
+
+
+def _refuse_amend(
+    state: ExecutionPipelineState, intent: Intent, timestamp: float, reason: str
+) -> ExecutionPipelineState:
+    """Record that ``intent`` could not be made, in the strategy runtime's log."""
+
+    refused = AmendRefused(str(new_id()), timestamp, intent.strategy_id, intent.instrument, reason)
+    strategy = state.strategy
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
+    )
+
+
+def _refuse_cancel(
+    state: ExecutionPipelineState,
+    intent: Intent,
+    order_id: OrderId,
+    timestamp: float,
+    reason: str,
+) -> ExecutionPipelineState:
+    """Record that ``intent`` left ``order_id`` working, in the strategy runtime's log."""
+
+    refused = CancelRefused(
+        str(new_id()), timestamp, intent.strategy_id, intent.instrument, str(order_id.value), reason
+    )
+    strategy = state.strategy
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
+    )
+
+
+def _for_orders(intents: tuple[Intent, ...]) -> tuple[Intent, ...]:
+    """The intents allocation sizes into orders: every one but an exercise instruction (FUT-014)."""
+
+    if not any(intent.kind in _NOT_ORDERS for intent in intents):
+        return intents
+    return tuple(intent for intent in intents if intent.kind not in _NOT_ORDERS)
+
+
+def _exercises_requested(
+    state: ExecutionPipelineState,
+    intents: tuple[Intent, ...],
+    timestamp: float,
+    rates: FxRates,
+) -> ExecutionPipelineState:
+    """Carry out the exercise instructions among ``intents``, in the order asked (FUT-014).
+
+    Each is the strategy's own: it exercises contracts of the strategy's own
+    long position, through the checks a scheduled exercise passes, effective at
+    ``timestamp``. One the run cannot carry out is recorded as an
+    :class:`~alphalab.strategy.events.ExerciseRefused` and moves nothing; the
+    strategy keeps running.
+    """
+
+    current = state
+    number = 0
+    for intent in intents:
+        if intent.kind is not IntentKind.EXERCISE:
+            continue
+        try:
+            current = _strategy_exercise(current, intent, timestamp, rates, number)
+        except RuntimeValidationError as refused:
+            current = _refuse_exercise(current, intent, timestamp, str(refused))
+        number += 1
+    return current
+
+
+def _elections_requested(
+    state: ExecutionPipelineState, intents: tuple[Intent, ...], timestamp: float
+) -> ExecutionPipelineState:
+    """Record each election among ``intents`` in the strategy runtime's log (FUT-024).
+
+    Kept as made: which counts is the action's to decide when it takes effect,
+    by its announcement, its deadline and its alternatives.
+    """
+
+    made = tuple(
+        ElectionMade(
+            event_id=str(new_id()),
+            timestamp=timestamp,
+            strategy_id=intent.strategy_id,
+            asset_id=intent.instrument,
+            action=str(intent.metadata["action"]),
+            alternative=int(intent.target),
+        )
+        if "units" not in intent.metadata
+        # Part of the holding (FUT-030): the units the election names.
+        else UnitsElected(
+            event_id=str(new_id()),
+            timestamp=timestamp,
+            strategy_id=intent.strategy_id,
+            asset_id=intent.instrument,
+            action=str(intent.metadata["action"]),
+            alternative=int(intent.target),
+            units=Decimal(str(intent.metadata["units"])),
+        )
+        for intent in intents
+        if intent.kind is IntentKind.ELECT
+    )
+    if not made:
+        return state
+    strategy = state.strategy
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, *made), ())
+    )
+
+
+def _strategy_exercise(
+    state: ExecutionPipelineState,
+    intent: Intent,
+    timestamp: float,
+    rates: FxRates,
+    number: int,
+) -> ExecutionPipelineState:
+    """Exercise ``intent.target`` contracts of the asking strategy's own position."""
+
+    asset_id = intent.instrument
+    strategy_id = intent.strategy_id
+    contracts = intent.target
+    record, terms, economics, named = _declared_option(state, asset_id, timestamp)
+    _require_in_window(record, terms, timestamp, named, "exercised")
+    _require_no_working_orders(state, asset_id, named, "exercised")
+    own = dict(AllocationEngine.shares_of(state.allocation, asset_id)).get(strategy_id, Decimal(0))
+    if own < contracts:
+        raise RuntimeValidationError(
+            f"{strategy_id} asked to exercise {contracts} contracts of {named} and holds "
+            f"{own}: a strategy exercises its own long position, and only that."
+        )
+    value: Decimal | None = None
+    if terms.settlement is SettlementStyle.CASH and (terms.basket or terms.cash_per_contract):
+        pass  # a package is valued at its components' observed prices (FUT-016)
+    elif terms.settlement is SettlementStyle.CASH:
+        underlying = terms.deliverable.asset_id
+        value = state.market_prices.get(underlying)
+        if value is None:
+            raise RuntimeValidationError(
+                f"{named} is cash-settled against {underlying}, and the run has observed no "
+                f"price for it by {timestamp!r}: an exercise a strategy asks for settles "
+                "against what the run has seen, never a value it supplies."
+            )
+    return _resolve_option(
+        state,
+        record,
+        terms,
+        economics,
+        contracts,
+        value,
+        timestamp,
+        rates,
+        f"EXERCISE-{asset_id}-{timestamp!r}-{strategy_id}-{number}",
+        parts={strategy_id: contracts},
+        instructed=True,
+    )
+
+
+def _refuse_exercise(
+    state: ExecutionPipelineState, intent: Intent, timestamp: float, reason: str
+) -> ExecutionPipelineState:
+    """Record that ``intent`` was refused, in the strategy runtime's event log."""
+
+    strategy = state.strategy
+    refused = ExerciseRefused(
+        event_id=str(new_id()),
+        timestamp=timestamp,
+        strategy_id=intent.strategy_id,
+        asset_id=intent.instrument,
+        contracts=intent.target,
+        reason=reason,
+    )
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
+    )
+
+
+def _resolve_option(
+    state: ExecutionPipelineState,
+    record: InstrumentRecord,
+    terms: OptionTerms,
+    economics: InstrumentEconomics,
+    closing: Decimal,
+    underlying_value: Decimal | None,
+    timestamp: float,
+    rates: FxRates,
+    trade_id: str,
+    parts: Mapping[str, Decimal] | None = None,
+    *,
+    instructed: bool = False,
+) -> ExecutionPipelineState:
+    """Exercise (``closing`` > 0) or assign (< 0) contracts by the option's terms.
+
+    ``parts`` is whose contracts they are, when that is named -- a strategy
+    exercising its own (FUT-014) -- rather than apportioned across every
+    strategy holding the position.
+
+    ``instructed`` is an exercise someone asked for -- scheduled, or a
+    strategy's -- rather than an obligation: an assignment, or an expiry's
+    automatic exercise. A delivery financed on margin (FUT-017) is booked for an
+    obligation whatever it leaves, and the account's next margin check calls
+    it; an instructed one is refused unless the account still meets its initial
+    margin requirement afterwards -- financing extends no further than the
+    declared terms do.
+    """
+
+    named = f"{record.symbol} on {record.exchange}"
+    asset_id = record.asset_id
+    parts = (
+        _strategy_parts(AllocationEngine.shares_of(state.allocation, asset_id), closing)
+        if parts is None
+        else dict(parts)
+    )
+    cash_settled = terms.settlement is SettlementStyle.CASH
+    packaged = bool(terms.basket) or terms.cash_per_contract != 0
+    if cash_settled and packaged:
+        if underlying_value is not None:
+            raise RuntimeValidationError(
+                f"{named} settles against a package of {len(terms.deliverables)} deliverables"
+                + (" and cash" if terms.cash_per_contract else "")
+                + ": one underlying value cannot state it. Its components are valued at the "
+                "prices the run has observed for them."
+            )
+        plan = None
+    elif cash_settled and underlying_value is None:
+        raise RuntimeValidationError(
+            f"{named} is cash-settled: its exercise pays the intrinsic value against the "
+            "underlying's settlement value, which was not supplied."
+        )
+    if not cash_settled and underlying_value is not None:
+        raise RuntimeValidationError(
+            f"{named} is physically settled: the deliverable moves against the strike, and a "
+            "settlement value would be read by nothing."
+        )
+    direction = Decimal("1") if terms.option_type is OptionType.CALL else Decimal("-1")
+    delivered_units = ACCOUNTING_CONTEXT.multiply(
+        ACCOUNTING_CONTEXT.multiply(direction, terms.deliverable.units), closing
+    )
+    plan = None
+    financed = False
+    if not cash_settled and not terms.is_single:
+        # Refused before anything moves (FUT-016).
+        plan = _package_plan(state, record, terms, economics, closing, timestamp, rates)
+        financed = plan.financed
+    elif not cash_settled:
+        # Refused before anything moves.
+        financed = _require_deliverable(
+            state, record, terms.deliverable, delivered_units, terms.strike, economics.multiplier
+        )[3]
+    current = evolve(
+        state, allocation=AllocationEngine.apply_lifecycle(state.allocation, asset_id, parts)
+    )
+    if cash_settled:
+        if packaged:
+            values, multipliers = _package_values(current, record, terms, timestamp)
+            paid = terms.basket_intrinsic(values, multipliers, economics.multiplier)
+        else:
+            assert underlying_value is not None
+            paid = terms.intrinsic(
+                underlying_value,
+                economics.multiplier,
+                _deliverable_multiplier(current, record, terms.deliverable),
+            )
+        current = _lifecycle_fill(
+            current,
+            asset_id,
+            -closing,
+            paid,
+            timestamp,
+            record.currency,
+            economics,
+            parts,
+            trade_id,
+        )
+    else:
+        # The contracts are surrendered for nothing; the deliverable moves
+        # against the strike.
+        current = _lifecycle_fill(
+            current,
+            asset_id,
+            -closing,
+            Decimal("0"),
+            timestamp,
+            record.currency,
+            economics,
+            parts,
+            trade_id,
+        )
+        if plan is not None:
+            current = _book_package(current, record, plan, parts, timestamp, rates, trade_id)
+            if financed and instructed:
+                _require_initial_margin(current, record, timestamp, rates)
+            return _after_book_change(current, current.portfolio, timestamp, rates)
+        current = _deliver(
+            current,
+            record,
+            terms.deliverable,
+            {
+                sid: ACCOUNTING_CONTEXT.multiply(
+                    ACCOUNTING_CONTEXT.multiply(direction, terms.deliverable.units), part
+                )
+                for sid, part in parts.items()
+            },
+            delivered_units,
+            terms.strike,
+            economics.multiplier,
+            timestamp,
+            rates,
+            f"DELIVERY-{trade_id}",
+        )
+        if financed and instructed:
+            _require_initial_margin(current, record, timestamp, rates)
+    return _after_book_change(current, current.portfolio, timestamp, rates)
+
+
+def _require_initial_margin(
+    state: ExecutionPipelineState, contract: InstrumentRecord, timestamp: float, rates: FxRates
+) -> None:
+    """Refuse an instructed exercise whose financed delivery leaves equity below initial margin.
+
+    Read on the state the delivery produced, which is discarded with the refusal:
+    nothing moves (FUT-017).
+    """
+
+    margin = margin_position(state, rates, timestamp)
+    if margin is not None and margin.equity >= margin.initial:
+        return
+    named = f"{contract.symbol} on {contract.exchange}"
+    detail = (
+        "no position declares margin"
+        if margin is None
+        else f"equity {margin.equity} against an initial requirement of {margin.initial}"
+    )
+    raise RuntimeValidationError(
+        f"Exercising {named} takes a delivery its cash does not cover, financed on margin, and "
+        f"would leave {detail}: an exercise is financed only within the initial requirement."
+    )
 
 
 def _economics_of(state: ExecutionPipelineState, asset_id: str) -> InstrumentEconomics | None:
@@ -1959,6 +6158,9 @@ def _working_shares(
     return shares
 
 
+#: The settlement models of what expires: futures and options (FUT-012).
+_EXPIRING: Final = frozenset({SettlementModel.FUTURES_VARIATION, SettlementModel.OPTION_PREMIUM})
+
 _NO_LOTS: Mapping[str, LotSpecification] = MappingProxyType({})
 _NO_MINIMUMS: Mapping[str, Decimal] = MappingProxyType({})
 _NO_MULTIPLIERS: Mapping[str, Decimal] = MappingProxyType({})
@@ -1990,22 +6192,33 @@ def _deliver_instant(
         market_prices=state.market_prices,
         shares=order_shares_by_strategy(state.oms, state.allocation),
         instruments=state.config.instruments,
+        reopened=state.execution.reopened,
         window=state.config.retention.market_history,
         as_of=at,
     )
     strategy, intents = StrategyEngine.process_event(state.strategy, event, populated, at)
-    current = evolve(state, strategy=strategy)
-    if not intents or last is None:
+    current, ordered, amended = _instructions_requested(
+        evolve(state, strategy=strategy),
+        intents,
+        at,
+        event=last,
+        policy=StaticFill(FillStatus.FULL_FILL, None),
+        rates=rates,
+        rest=True,
+    )
+    if not ordered or last is None:
+        current = _exercises_requested(current, intents, at, rates)
         return evolve(current, id_position=current_id_position()), intents, ()
 
     contributions_before = current.allocation.contributions
     records_before = len(current.trade_records)
-    allocation, requests = _allocate(current, intents, current.market_prices, rates, at)
+    allocation, requests = _allocate(current, ordered, current.market_prices, rates, at)
     current = evolve(current, allocation=allocation)
     policy = StaticFill(FillStatus.FULL_FILL, None)
     current, routed = _route_requests(
-        current, last, intents, requests, policy, rates, rest=True, at=at
+        current, last, ordered, requests, policy, rates, rest=True, at=at
     )
+    routed = amended.then(routed)
     current, feedback_intents, _, feedback = _deliver_feedback(
         current,
         last,
@@ -2019,6 +6232,7 @@ def _deliver_instant(
         records_before=records_before,
         at=at,
     )
+    current = _exercises_requested(current, (*intents, *feedback_intents), at, rates)
     return (
         evolve(current, id_position=current_id_position()),
         (*intents, *feedback_intents),
@@ -2249,20 +6463,30 @@ def _deliver_feedback(
         market_prices=market_prices,
         shares=order_shares_by_strategy(state.oms, state.allocation),
         instruments=state.config.instruments,
+        reopened=state.execution.reopened,
         window=state.config.retention.market_history,
         as_of=instant,
     )
     strategy, intents = StrategyEngine.deliver(state.strategy, deliveries, populated, instant)
-    current = evolve(state, strategy=strategy)
-    if not intents:
-        return current, (), (), _NO_ROUTING
+    current, ordered, amended = _instructions_requested(
+        evolve(state, strategy=strategy),
+        intents,
+        instant,
+        event=event,
+        policy=policy,
+        rates=rates,
+        rest=True,
+    )
+    if not ordered:
+        # Exercise instructions, if any, are the caller's to apply (FUT-014).
+        return current, intents, (), amended
 
-    allocation, feedback_requests = _allocate(current, intents, market_prices, rates, instant)
+    allocation, feedback_requests = _allocate(current, ordered, market_prices, rates, instant)
     current = evolve(current, allocation=allocation)
     current, feedback = _route_requests(
-        current, event, intents, feedback_requests, policy, rates, rest=True, at=instant
+        current, event, ordered, feedback_requests, policy, rates, rest=True, at=instant
     )
-    return current, intents, feedback_requests, feedback
+    return current, intents, feedback_requests, amended.then(feedback)
 
 
 def _simulate_fill(
@@ -2285,6 +6509,9 @@ def _simulate_fill(
     """
 
     base = state.market_prices[order.asset_id] if price is None else price
+    if _venue_blocks(state, order.asset_id, event.timestamp, base):
+        # A stop reached at a price beyond the band trades nothing there (FUT-020).
+        return state, (), (), ()
     decision = _decide_fill(policy, order, event, base, _whole_units(state))
     if _kills(order, decision):
         return _end_unfilled(state, order, event.timestamp), (), (), ()
@@ -2332,6 +6559,57 @@ def _has_session_bars(market: MarketState, asset_id: str) -> bool:
     )
 
 
+def _settlement_calendar(
+    state: ExecutionPipelineState, asset_id: str
+) -> tuple[InstrumentRecord, Any] | None:
+    """The record and calendar a fill of ``asset_id`` settles by; ``None``: it settles at once.
+
+    ``None`` when the run configures no registry, the asset is undeclared, or
+    its record declares no settlement rule (FUT-015). The calendar is ``None``
+    when the rule is declared and its listing venue's calendar is not.
+    """
+
+    if state.config.instruments is None:
+        return None
+    record = _declared(state, asset_id)
+    if record is None or record.settlement is None:
+        return None
+    return record, state.config.calendars.calendar_for(record.exchange)
+
+
+def _settlement_calendar_refusal(state: ExecutionPipelineState, asset_id: str) -> str | None:
+    """Why an order in ``asset_id`` cannot settle, or ``None`` (FUT-015)."""
+
+    found = _settlement_calendar(state, asset_id)
+    if found is None or found[1] is not None:
+        return None
+    record = found[0]
+    return (
+        f"{record.symbol} on {record.exchange} settles T+n by its venue's calendar, and no "
+        f"calendar is declared for {record.exchange}: declare it on "
+        "ExecutionPipelineConfig.calendars."
+    )
+
+
+def _settles_at(state: ExecutionPipelineState, asset_id: str, timestamp: float) -> float | None:
+    """When a fill of ``asset_id`` at ``timestamp`` settles, or ``None``: at once (FUT-015).
+
+    By the instrument's declared rule over its listing venue's declared calendar:
+    the trade date is the session the fill belongs to -- the local date, when it
+    falls outside one -- and the instant is the settlement date's first open.
+    """
+
+    found = _settlement_calendar(state, asset_id)
+    if found is None:
+        return None
+    record, calendar = found
+    if calendar is None:
+        raise RuntimeValidationError(str(_settlement_calendar_refusal(state, asset_id)))
+    assert record.settlement is not None  # _settlement_calendar returned it
+    day = calendar.trading_day_of(timestamp) or calendar.local_datetime(timestamp).date()
+    return settles_at(calendar, record.settlement, day)
+
+
 def _terms_refusal(
     state: ExecutionPipelineState, request: OrderRequest, instant: float
 ) -> str | None:
@@ -2351,8 +6629,15 @@ def _terms_refusal(
             f"The order would be placed at {instant!r}, and its terms expire it at "
             f"{terms.expire_at!r}."
         )
-    if state.config.routing is not ExecutionRouting.SIMULATED:
+    unsettleable = _settlement_calendar_refusal(state, request.asset_id)
+    if unsettleable is not None:
+        return unsettleable
+    if state.config.routing is ExecutionRouting.EXTERNAL:
         return None
+    if state.config.routing is ExecutionRouting.ALGORITHMIC:
+        unworkable = _algorithmic_terms_refusal(terms)
+        if unworkable is not None:
+            return unworkable
     if _needs_session_close(terms):
         _, refusal = _day_order_close(state, request.asset_id, instant)
         if refusal is not None:
@@ -2361,6 +6646,30 @@ def _terms_refusal(
         return (
             f"An auction order fills at a daily bar's open or close, and this run has published "
             f"no daily bar for {request.asset_id}."
+        )
+    return None
+
+
+def _algorithmic_terms_refusal(terms: OrderTerms) -> str | None:
+    """Why an execution algorithm cannot work a parent on these terms, or ``None``.
+
+    An algorithm's children are market or limit orders
+    (:class:`~alphalab.execution.algorithms.AlgorithmTerms`), sent over a window:
+    a stop has no trigger to slice, an auction is one price at one instant, and an
+    immediate order ends at its first attempt, which a window contradicts.
+    Refused before an order exists, so nothing is held and nothing is filled
+    whole in its place.
+    """
+
+    if terms.order_type not in (OrderType.MARKET, OrderType.LIMIT):
+        return (
+            f"An execution algorithm works MARKET or LIMIT parents in children, not "
+            f"{terms.order_type}; the order was not placed."
+        )
+    if terms.is_auction or terms.is_immediate:
+        return (
+            f"An execution algorithm works a parent over a window, and a "
+            f"{terms.time_in_force} order is one attempt; the order was not placed."
         )
     return None
 
@@ -2535,6 +6844,7 @@ def _work_resting(
     price: Decimal,
     passive: bool,
     one_shot: bool,
+    cap: Decimal | None = None,
 ) -> tuple[
     ExecutionPipelineState,
     tuple[ExecutionReport, ...],
@@ -2546,10 +6856,17 @@ def _work_resting(
     What does not fill goes on resting, unless the order is ``one_shot`` -- an
     immediate-or-cancel, fill-or-kill or auction order -- when it is cancelled.
     A decision to fill nothing is not a refusal of the order: a resting order
-    that found no liquidity this event rests.
+    that found no liquidity this event rests. ``cap`` is what a queue model
+    allows to fill, when less than the queue cleared (FUT-011).
     """
 
+    if _venue_blocks(state, order.asset_id, event.timestamp, price):
+        # The price it would fill at is outside the band in force (FUT-020).
+        current = _end_unfilled(state, order, event.timestamp) if one_shot else state
+        return current, (), (), ()
     decision = _decide_fill(policy, order, event, price, _whole_units(state))
+    if cap is not None:
+        decision = _within_queue(decision, order, cap, _whole_units(state))
     if _kills(order, decision):
         return _end_unfilled(state, order, event.timestamp), (), (), ()
     if decision.status is FillStatus.NO_FILL:
@@ -2576,6 +6893,7 @@ def _work_order(
     rates: FxRates,
     *,
     arriving: bool,
+    queue_turn: QueueTurn | None = None,
 ) -> tuple[
     ExecutionPipelineState,
     tuple[ExecutionReport, ...],
@@ -2604,7 +6922,9 @@ def _work_order(
       and fill at their limit -- or at a bar's better open -- when the market
       trades through it, as a maker: no spread, slippage or impact. What does
       not fill rests on; an immediate-or-cancel or fill-or-kill order is
-      cancelled after its first turn instead.
+      cancelled after its first turn instead. Under a queue model
+      (``queue_turn``, FUT-011) a resting turn fills only what the model says
+      has reached the front of the order's price level.
     """
 
     timestamp = event.timestamp
@@ -2613,6 +6933,11 @@ def _work_order(
         return _expire(state, order, timestamp), (), (), ()
     market_price = state.market_prices[order.asset_id]
     one_shot = terms.is_immediate
+    if _venue_blocks(state, order.asset_id, timestamp, market_price):
+        # Halted, or the market outside the venue's band (FUT-020): nothing
+        # trades at this event. The order rests -- a market order too, to its
+        # next turn after -- unless it was to trade now or never.
+        return (_end_unfilled(state, order, timestamp) if one_shot else state), (), (), ()
 
     if terms.is_auction:
         bar = None if arriving else _session_bar(event, order.asset_id)
@@ -2652,12 +6977,347 @@ def _work_order(
         return current, (), (), ()
 
     resting_price = _resting_fill_price(order, event)
+    if queue_turn is not None and not queue_turn.may_fill:
+        resting_price = None
     if resting_price is None:
         current = _end_unfilled(current, order, timestamp) if one_shot else current
         return current, (), (), ()
     return _work_resting(
-        current, order, event, policy, rates, price=resting_price, passive=True, one_shot=one_shot
+        current,
+        order,
+        event,
+        policy,
+        rates,
+        price=resting_price,
+        passive=True,
+        one_shot=one_shot,
+        cap=None if queue_turn is None else queue_turn.eligible,
     )
+
+
+def _auctions_declared(state: ExecutionPipelineState) -> bool:
+    """Whether any of the run's venues reopens a halt by auction (FUT-027)."""
+
+    controls = _controls(state)
+    return controls is not None and controls.auctions
+
+
+def _controls(state: ExecutionPipelineState) -> TradingControls | None:
+    """The trading controls the run's venues declare, or ``None``: one read of the registry."""
+
+    registry = state.config.instruments
+    return None if registry is None else registry.controls
+
+
+def _auction_due(
+    state: ExecutionPipelineState, event: MarketEvent, asset_id: str
+) -> TradingHalt | None:
+    """The halt whose reopening auction is held at ``event``, or ``None``.
+
+    A halt declaring an auction reopening (FUT-027) has ended by ``event``, and
+    the run has not yet held its auction -- or held it and extended it to an
+    instant ``event`` has reached (FUT-033). Read from the reopening the run
+    records for the instrument, never from the market history it keeps, so
+    however short that history is, a later event is never taken for the first.
+    """
+
+    controls = _controls(state)
+    if controls is None:
+        return None
+    record = _declared(state, asset_id)
+    venue = "" if record is None else record.exchange
+    halt = controls.reopened_by_auction(asset_id, venue, event.timestamp)
+    if halt is None or halt.end is None:
+        return None
+    held = state.execution.reopened.get(asset_id)
+    if held is None or held.halt_end < halt.end:
+        return halt
+    if held.extended_to is not None and event.timestamp >= held.extended_to:
+        return halt
+    return None
+
+
+def _reopen(
+    state: ExecutionPipelineState,
+    event: MarketEvent,
+    asset_id: str,
+    halt: TradingHalt,
+    policy: FillPolicy,
+    rates: FxRates,
+    queue: QueueBook | None,
+) -> tuple[ExecutionPipelineState, _Routed, QueueBook | None]:
+    """Hold ``halt``'s reopening auction at ``event``, and record it (FUT-027, FUT-033)."""
+
+    assert halt.end is not None  # only an ended halt reopens
+    earlier = state.execution.reopened.get(asset_id)
+    extended = (
+        earlier is not None and earlier.halt_end == halt.end and earlier.extended_to is not None
+    )
+    # The orders that waited for this auction: placed before the halt ended, or
+    # before the extension it was held over to.
+    ended = earlier.extended_to if extended and earlier is not None else halt.end
+    assert ended is not None
+    if halt.uncross is None:
+        price = event.bar.open if isinstance(event, BarClosed) else None
+        if price is None:
+            priced = _market_price(event)
+            price = None if priced is None else priced[1]
+        held = AuctionReopening(halt.end, event.timestamp, price)
+        current = _held_auction(state, asset_id, held)
+        if price is None:
+            return current, _NO_ROUTING, queue
+        return _uncross(current, event, asset_id, price, ended, None, policy, rates, queue)
+    outcome = _computed_uncross(state, event, asset_id, halt, ended)
+    price, matched, imbalance, allotted, reason = outcome
+    if price is not None and _venue_blocks(state, asset_id, event.timestamp, price):
+        extension = halt.uncross.extension
+        if extension is not None and not extended:
+            # Outside the band: the venue extends the auction once, and nothing
+            # trades in the instrument until it is held again.
+            held = AuctionReopening(
+                halt.end,
+                event.timestamp,
+                None,
+                matched,
+                imbalance,
+                event.timestamp + extension,
+                f"The uncross, {price}, was outside the band in force; extended.",
+            )
+            return (
+                _held_auction(state, asset_id, held),
+                _NO_ROUTING,
+                queue,
+            )
+        price, reason = None, f"The uncross, {price}, was outside the band in force."
+    held = AuctionReopening(halt.end, event.timestamp, price, matched, imbalance, None, reason)
+    current = _held_auction(state, asset_id, held)
+    if price is None:
+        # Nothing crossed: every order rests on into continuous trading, from
+        # the next event, as it would after a halt with no auction.
+        return current, _NO_ROUTING, queue
+    return _uncross(current, event, asset_id, price, ended, allotted, policy, rates, queue)
+
+
+def _held_auction(
+    state: ExecutionPipelineState, asset_id: str, held: AuctionReopening
+) -> ExecutionPipelineState:
+    """``state`` recording ``held`` as ``asset_id``'s last reopening auction."""
+
+    execution = state.execution
+    return evolve(
+        state, execution=evolve(execution, reopened=execution.reopened.set(asset_id, held))
+    )
+
+
+def _computed_uncross(
+    state: ExecutionPipelineState,
+    event: MarketEvent,
+    asset_id: str,
+    halt: TradingHalt,
+    ended: float,
+) -> tuple[Decimal | None, Decimal | None, Decimal | None, dict[str, Decimal], str]:
+    """The auction's price, matched volume, imbalance and the run's allotments (FUT-033).
+
+    From the book the venue published for this halt -- its interest at each
+    price and at market -- and the run's own orders that waited for the
+    auction: each market order, and each limit order. The price is the one, of
+    every price stated, that matches the most volume; then the smallest
+    imbalance; then the declared tie-break. Nothing crosses with no book
+    published, with no volume matched, or with a tie the declared rule cannot
+    break. Only the run's own orders are allotted fills: by price, then -- at
+    the marginal price on the side with more interest -- by the declared
+    priority against the published interest there, in the instrument's trading
+    step, the remainder unfilled.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    controls = _controls(state)
+    assert controls is not None and halt.uncross is not None
+    # Declared before the run (FUT-033) or delivered during it (FUT-043): one rule.
+    book = published(
+        controls.auction_book(asset_id, halt.start, event.timestamp),
+        state.market.auctions.get(asset_id, ()),
+        AuctionInterest,
+        halt.start,
+        event.timestamp,
+    )
+    if book is None:
+        return None, None, None, {}, "The venue published no auction book for the halt."
+    own = [
+        order
+        for order in (state.oms.orders.find(i) for i in state.oms.working_orders_for(asset_id))
+        if order.created_at < ended and order.order_type in (OrderType.MARKET, OrderType.LIMIT)
+    ]
+    zero = Decimal("0")
+
+    def interest(price: Decimal) -> tuple[Decimal, Decimal]:
+        demand = book.market_buy + sum((q for p, q in book.bids if p >= price), zero)
+        supply = book.market_sell + sum((q for p, q in book.offers if p <= price), zero)
+        for order in own:
+            reaches = order.order_type is OrderType.MARKET or _within_limit(order, price)
+            if not reaches:
+                continue
+            if order.side is OMSSide.BUY:
+                demand += order.remaining_quantity
+            else:
+                supply += order.remaining_quantity
+        return demand, supply
+
+    prices = sorted({*book.prices, *(o.limit_price for o in own if o.limit_price is not None)})
+    if not prices:
+        return None, None, None, {}, "No price is stated in the auction, so it has none."
+    ranked = []
+    for price in prices:
+        demand, supply = interest(price)
+        ranked.append((min(demand, supply), abs(demand - supply), price, demand - supply))
+    most = max(matched for matched, *_ in ranked)
+    if most <= 0:
+        return None, zero, None, {}, "The auction's interest does not cross."
+    least = min(gap for matched, gap, *_ in ranked if matched == most)
+    tied = [
+        (price, signed) for matched, gap, price, signed in ranked if (matched, gap) == (most, least)
+    ]
+    rule = halt.uncross.tie_break
+    if rule is AuctionTieBreak.HIGHEST:
+        price, signed = tied[-1]
+    elif rule is AuctionTieBreak.LOWEST:
+        price, signed = tied[0]
+    else:
+        reference = controls.reference(asset_id, event.timestamp)
+        if reference is None:
+            return None, most, None, {}, "No reference price is in effect to break the tie by."
+        price, signed = min(tied, key=lambda t: (abs(t[0] - reference.price), t[0]))
+    allotted: dict[str, Decimal] = {}
+    for side in (OMSSide.BUY, OMSSide.SELL):
+        buying = side is OMSSide.BUY
+        levels = sorted(book.bids if buying else book.offers, reverse=buying)
+        mine = [o for o in own if o.side is side]
+        # Tiers by price priority: at market first, then each limit from the
+        # best, down to the clearing price.
+        tiers: list[tuple[Decimal, list[OMSOrder]]] = [
+            (book.market_buy if buying else book.market_sell,
+             [o for o in mine if o.order_type is OrderType.MARKET]),
+        ]  # fmt: skip
+        limits = sorted(
+            {o.limit_price for o in mine if o.limit_price is not None and _within_limit(o, price)}
+            | {p for p, _ in levels if (p >= price if buying else p <= price)},
+            reverse=buying,
+        )
+        for level in limits:
+            tiers.append(
+                (
+                    sum((q for p, q in levels if p == level), zero),
+                    [o for o in mine if o.order_type is OrderType.LIMIT and o.limit_price == level],
+                )
+            )
+        left = most
+        for published_quantity, orders in tiers:
+            wanted = sum((o.remaining_quantity for o in orders), zero)
+            standing = published_quantity + wanted
+            if left >= standing:
+                allotted.update((str(o.order_id.value), o.remaining_quantity) for o in orders)
+                left -= standing
+                continue
+            if halt.uncross.priority is AuctionPriority.PUBLISHED_FIRST:
+                share = max(zero, left - published_quantity)
+                for order in orders:  # by time: the OMS keeps them in placement order
+                    take = min(order.remaining_quantity, share)
+                    take = _in_steps(state, asset_id, take)
+                    allotted[str(order.order_id.value)] = take
+                    share -= take
+            else:
+                for order in orders:
+                    take = ctx.divide(ctx.multiply(order.remaining_quantity, left), standing)
+                    allotted[str(order.order_id.value)] = _in_steps(state, asset_id, take)
+            left = zero
+            break
+    return price, most, signed, allotted, ""
+
+
+def _in_steps(state: ExecutionPipelineState, asset_id: str, quantity: Decimal) -> Decimal:
+    """``quantity`` rounded down to what the instrument trades in: whole lots, or whole units."""
+
+    step = _trading_step(state, asset_id, quantity)
+    if step is None or quantity <= 0:
+        return max(Decimal("0"), quantity)
+    return ACCOUNTING_CONTEXT.multiply((quantity / step).to_integral_value(ROUND_FLOOR), step)
+
+
+def _uncross(
+    state: ExecutionPipelineState,
+    event: MarketEvent,
+    asset_id: str,
+    price: Decimal,
+    ended: float,
+    allotted: Mapping[str, Decimal] | None,
+    policy: FillPolicy,
+    rates: FxRates,
+    queue: QueueBook | None,
+) -> tuple[ExecutionPipelineState, _Routed, QueueBook | None]:
+    """The reopening auction: every order that waited for it crosses at ``price``.
+
+    In the order they were placed, each market order, and each limit order whose
+    limit the price reaches, fills at the one price as a maker: under a computed
+    uncross (FUT-033) exactly what it was ``allotted``; read from the print
+    (FUT-027), as far as the run's fill policy gives it at this event. A market
+    order's remainder is withdrawn, a limit order's rests on into continuous
+    trading, and an order the price does not reach -- a limit beyond it, a stop
+    not reached -- takes no part. Outside a band in force the auction does not
+    cross at this event: every order rests, as through the halt (FUT-020,
+    FUT-028). A queue model does not order an auction: it crosses by time
+    (FUT-011).
+    """
+
+    if _venue_blocks(state, asset_id, event.timestamp, price):
+        return state, _NO_ROUTING, queue
+    current = state
+    orders: list[OMSOrder] = []
+    reports: list[ExecutionReport] = []
+    fills: list[CoreFill] = []
+    trades: list[CoreTrade] = []
+    for order_id in state.oms.working_orders_for(asset_id):
+        order = current.oms.orders.find(order_id)
+        if order.created_at >= ended:
+            # Placed after the halt ended, so it did not rest through it: its
+            # turn is continuous trading's, as at any other event.
+            current, new_reports, new_fills, new_trades = _work_order(
+                current, order, event, policy, rates, arriving=False
+            )
+            orders.append(current.oms.orders.find(order_id))
+            reports.extend(new_reports)
+            fills.extend(new_fills)
+            trades.extend(new_trades)
+            continue
+        market = order.order_type is OrderType.MARKET
+        if not market and not (order.order_type is OrderType.LIMIT and _within_limit(order, price)):
+            continue
+        given = policy
+        if allotted is not None:
+            allot = min(allotted.get(str(order_id.value), Decimal("0")), order.remaining_quantity)
+            if allot <= 0:
+                if market:
+                    current = _end_unfilled(current, order, event.timestamp)
+                    orders.append(current.oms.orders.find(order_id))
+                continue
+            whole = allot == order.remaining_quantity
+            given = StaticFill(FillStatus.FULL_FILL if whole else FillStatus.PARTIAL_FILL, allot)
+        current, new_reports, new_fills, new_trades = _work_resting(
+            current, order, event, given, rates, price=price, passive=True, one_shot=market
+        )
+        after = current.oms.orders.find(order_id)
+        if queue is not None and not after.is_open:
+            queue = queue.without(str(order_id.value))
+        orders.append(after)
+        reports.extend(new_reports)
+        fills.extend(new_fills)
+        trades.extend(new_trades)
+    routed = _Routed(
+        orders=tuple(orders),
+        reports=tuple(reports),
+        fills=tuple(fills),
+        trades=tuple(trades),
+    )
+    return current, routed, queue
 
 
 def _fill_working_orders(
@@ -2666,31 +7326,181 @@ def _fill_working_orders(
     asset_id: str,
     policy: FillPolicy,
     rates: FxRates,
-) -> tuple[ExecutionPipelineState, _Routed]:
+    queue: QueueBook | None = None,
+) -> tuple[ExecutionPipelineState, _Routed, QueueBook | None]:
     """Work the simulated orders left working in ``asset_id``, at ``event``.
 
     In the order they were placed, each gets its turn at what this event showed
     -- see :func:`_work_order`: a market order its one attempt, a resting order
-    the fill the event's prices give it, or nothing.
+    the fill the event's prices give it, or nothing. Under a queue model each
+    resting limit order's position is advanced by the event first, from where
+    it stood -- or, for an order that has not joined, from an unknown queue --
+    and its turn fills only what that allows (FUT-011).
     """
 
+    halt = _auction_due(state, event, asset_id) if _auctions_declared(state) else None
+    if halt is not None:
+        return _reopen(state, event, asset_id, halt, policy, rates, queue)
     current = state
+    observation = None if queue is None else _queue_observation(event)
     orders: list[OMSOrder] = []
     reports: list[ExecutionReport] = []
     fills: list[CoreFill] = []
     trades: list[CoreTrade] = []
     for order_id in state.oms.working_orders_for(asset_id):
         order = current.oms.orders.find(order_id)
+        turn = None
+        key = ""
+        if queue is not None and observation is not None:
+            key = str(order_id.value)
+            if _queued(order):
+                held = queue.position_of(key)
+                limit = order.limit_price
+                assert limit is not None  # a queued order is a limit order
+                position = held
+                if position is None or position.limit_price != limit:
+                    position = QueuePosition(limit, None)
+                turn = queue.model.advance(position, order.side, observation)
+                if turn.position != held:
+                    queue = queue.placed(key, turn.position)
         current, new_reports, new_fills, new_trades = _work_order(
-            current, order, event, policy, rates, arriving=False
+            current, order, event, policy, rates, arriving=False, queue_turn=turn
         )
-        orders.append(current.oms.orders.find(order_id))
+        after = current.oms.orders.find(order_id)
+        if queue is not None and observation is not None:
+            if not after.is_open:
+                # Filled, expired or withdrawn: it leaves the queue with the book.
+                queue = queue.without(key)
+            elif turn is None and _queued(after):
+                # A stop-limit triggered at this event rests from here: it joins now.
+                limit = after.limit_price
+                assert limit is not None
+                queue = queue.placed(key, queue.model.join(after.side, limit, observation))
+        orders.append(after)
         reports.extend(new_reports)
         fills.extend(new_fills)
         trades.extend(new_trades)
-    return current, _Routed(
+    routed = _Routed(
         orders=tuple(orders), reports=tuple(reports), fills=tuple(fills), trades=tuple(trades)
     )
+    return current, routed, queue
+
+
+def _queued(order: OMSOrder) -> bool:
+    """Whether a queue model governs ``order``: a limit order resting in continuous trading.
+
+    A limit order, or a stop-limit once triggered, that is neither immediate --
+    it never rests -- nor an auction order, which an auction fills at one price
+    rather than a queue (FUT-011).
+    """
+
+    if order.time_in_force in _NOT_QUEUED:
+        return False
+    if order.order_type is OrderType.LIMIT:
+        return True
+    return order.order_type is OrderType.STOP_LIMIT and order.triggered_at is not None
+
+
+#: Times in force whose orders never rest in a queue: they end at their first
+#: attempt (``IOC``, ``FOK``) or are filled by an auction (``OPG``, ``CLS``) --
+#: what :attr:`OrderTerms.is_immediate` and :attr:`OrderTerms.is_auction` name,
+#: read off the order without building its terms on every turn.
+_NOT_QUEUED: Final = frozenset({TimeInForce.IOC, TimeInForce.FOK, TimeInForce.OPG, TimeInForce.CLS})
+
+
+_AGGRESSOR: Final = {TradeAggressor.BUYER: CoreSide.BUY, TradeAggressor.SELLER: CoreSide.SELL}
+
+
+def _queue_observation(event: MarketEvent) -> QueueObservation:
+    """What ``event`` showed that a queue model reads -- see :class:`QueueObservation`."""
+
+    if isinstance(event, QuoteReceived):
+        quote = event.quote
+        return QueueObservation(
+            event.timestamp,
+            bid=quote.bid,
+            bid_size=quote.bid_size,
+            ask=quote.ask,
+            ask_size=quote.ask_size,
+        )
+    if isinstance(event, TickReceived | TradeReceived):
+        tick = event.tick
+        return QueueObservation(
+            event.timestamp,
+            trade_price=tick.price,
+            trade_quantity=tick.quantity,
+            aggressor=None if tick.aggressor is None else _AGGRESSOR[tick.aggressor],
+        )
+    if isinstance(event, BarClosed):
+        return QueueObservation(event.timestamp, low=event.bar.low, high=event.bar.high)
+    return QueueObservation(event.timestamp)
+
+
+def _queue_after_step(
+    queue: QueueBook,
+    state: ExecutionPipelineState,
+    event: MarketEvent,
+    update: tuple[str, Decimal] | None,
+    resting_before: int,
+) -> QueueBook:
+    """``queue`` after a step: the orders it left resting in the event's asset joined.
+
+    Each joins at this event -- the one it was placed at -- from what the
+    event showed, which the strategy had seen before placing it. They are the
+    asset's working orders after the ``resting_before`` that were working when
+    the step began placing orders: the working orders of an asset are kept in
+    the order they were placed. An order placed outside a market event of its
+    asset -- by a timer, a slice or an observation -- has no event of its own
+    to join at, and starts its first turn from an unknown queue instead.
+
+    Orders that end at their turn leave the book there
+    (:func:`_fill_working_orders`); one ended otherwise -- a settlement, a
+    split, an outcome a caller reports -- is never worked again, and leaves it
+    when the driver next keeps only working orders (at a pause, and at the end).
+    """
+
+    if state.config.routing is not ExecutionRouting.SIMULATED or update is None:
+        return queue
+    if _working_count(state, update[0]) == resting_before:
+        return queue  # the step placed nothing that rests in this asset
+    placed = state.oms.working_orders_for(update[0])[resting_before:]
+    observation: QueueObservation | None = None
+    for order_id in placed:
+        key = str(order_id.value)
+        if queue.position_of(key) is not None:
+            continue
+        order = state.oms.orders.find(order_id)
+        if not _queued(order):
+            continue
+        limit = order.limit_price
+        assert limit is not None  # a queued order is a limit order
+        if observation is None:
+            observation = _queue_observation(event)
+        queue = queue.placed(key, queue.model.join(order.side, limit, observation))
+    return queue
+
+
+def _working_count(state: ExecutionPipelineState, asset_id: str) -> int:
+    """How many orders are working in ``asset_id``, without listing them."""
+
+    working = state.oms.working_by_asset.get(asset_id)
+    return 0 if working is None else len(working)
+
+
+def _within_queue(
+    decision: FillDecision, order: OMSOrder, cap: Decimal, whole_units: bool
+) -> FillDecision:
+    """``decision`` held to what a queue model allows, in whole units when the run trades them."""
+
+    if decision.status not in (FillStatus.FULL_FILL, FillStatus.PARTIAL_FILL):
+        return decision
+    quantity = order.remaining_quantity if decision.quantity is None else decision.quantity
+    if quantity <= cap:
+        return decision
+    allowed = cap.to_integral_value(rounding=decimal.ROUND_DOWN) if whole_units else cap
+    if allowed <= Decimal("0"):
+        return FillDecision(FillStatus.NO_FILL, None)
+    return FillDecision(FillStatus.PARTIAL_FILL, allowed)
 
 
 def _classify_unpriced(state: ExecutionPipelineState, asset_id: str) -> tuple[UnpricedReason, str]:
@@ -2819,8 +7629,33 @@ def _evaluate_risk(
         price=price,
         working=working,
         buckets=_bucket_exposures(state, request, price, working),
+        charge=_buying_power_charge(
+            state, request.asset_id, price, rates, timestamp, request.side is CoreSide.BUY
+        ),
+        margin=_gate_margin(state, request, rates, timestamp),
     )
     return evolve(state, risk=risk), decision
+
+
+def _gate_margin(
+    state: ExecutionPipelineState, request: OrderRequest, rates: FxRates, at: float
+) -> tuple[Decimal, Decimal] | None:
+    """The risk gate's margin figure, when the account declares a margin model (FUT-019).
+
+    The model's initial requirement and margin equity were the order to fill,
+    for an order in an instrument declaring margin terms; ``None`` -- the gate
+    reads gross exposure over net asset value, as always -- otherwise, at one
+    test for a registry declaring no model.
+    """
+
+    registry = state.config.instruments
+    if registry is None or registry.margin_model is None:
+        return None
+    projected = _projected_margin(state, request, rates, at)
+    if projected is None:
+        return None
+    equity, initial = projected
+    return initial, equity
 
 
 def _bucket_exposures(
@@ -3018,12 +7853,14 @@ def _working_exposure(
         if mark is None:
             continue
         held = state.portfolio.positions.get(asset_id)
+        unit = _unit_value(
+            state, asset_id, _price_in_base(state, asset_id, mark, rates, as_of)
+        ).copy_abs()
         working[asset_id] = WorkingExposure(
             quantity=quantity,
-            price=_unit_value(
-                state, asset_id, _price_in_base(state, asset_id, mark, rates, as_of)
-            ).copy_abs(),
+            price=unit,
             position=held.quantity if held is not None else Decimal("0"),
+            charge=_buying_power_charge(state, asset_id, unit, rates, as_of, quantity > 0),
         )
     return working
 
@@ -3215,7 +8052,9 @@ def _submit_and_accept_order(
     state: ExecutionPipelineState, request: OrderRequest, timestamp: float
 ) -> tuple[ExecutionPipelineState, OMSOrder]:
     expire_at = request.terms.expire_at
-    if state.config.routing is ExecutionRouting.SIMULATED and _needs_session_close(request.terms):
+    if state.config.routing is not ExecutionRouting.EXTERNAL and _needs_session_close(
+        request.terms
+    ):
         # _terms_refusal already refused the order when this has no answer.
         expire_at, _ = _day_order_close(state, request.asset_id, timestamp)
     submitted_order = _oms_order(request, expire_at)
@@ -3279,9 +8118,12 @@ def _apply_reports(
     trades: list[CoreTrade] = []
 
     for report in reports:
+        before = current.oms.orders.find(order.order_id)
         current = _apply_report_to_oms(current, order.order_id, report)
         fill, trade = _canonical_execution(report, order.side)
         current = _apply_report_to_portfolio(current, report, order.side, rates)
+        if BUY_IN in before.metadata:
+            current = _buy_in_charges(current, before, report)
         # Reconcile allocation budgets with executed notional, expressed in the
         # budget's currency like the reservation it consumes. Converting here
         # rather than inside AllocationEngine is what keeps that package free of
@@ -3464,6 +8306,8 @@ def _apply_report_to_portfolio(
         report.timestamp,
         report.currency,
         economics=_economics_of(state, report.asset_id),
+        settles_at=_settles_at(state, report.asset_id, report.timestamp),
+        financed=_purchased_on_margin(state, report.asset_id, signed_quantity),
     )
     risk = _sync_risk_from_portfolio(
         state.risk, portfolio, state.config.instruments, rates, as_of=report.timestamp
@@ -3739,6 +8583,32 @@ def _settlement_refusal(
         return None
     currency = record.currency
     named = f"{record.symbol} on {record.exchange}"
+    if record.asset_type is AssetType.INDEX:
+        # v4.1.1 (FUT-013): an index is a value contracts settle against.
+        return SettlementRefusal(
+            asset_id=asset_id,
+            instrument_currency=currency,
+            settlement_currency=settlement,
+            detail=(
+                f"{named} is an index: a reference value, not something held. Trade a "
+                "contract on it; the request was dropped before it reached the OMS."
+            ),
+            timestamp=timestamp,
+        )
+    if record.last_trade_at is not None and timestamp > record.last_trade_at:
+        # v4.1.1 (FUT-012): an expired contract trades no more, here or anywhere.
+        return SettlementRefusal(
+            asset_id=asset_id,
+            instrument_currency=currency,
+            settlement_currency=settlement,
+            detail=(
+                f"{named} stopped trading at {record.last_trade_at!r} and the request is at "
+                f"{timestamp!r}: an expired contract is not traded. The request was dropped "
+                "before it reached the OMS; a position still held is closed by its "
+                "ContractSettlement."
+            ),
+            timestamp=timestamp,
+        )
     if currency in permitted:
         # Since v3.11 a request must also be one the book can be kept by: a
         # future or an option declaring no economics has a multiplier and a
@@ -3909,6 +8779,13 @@ def price_refusal(state: ExecutionPipelineState, payload: object) -> str | None:
         asset_id, mark, shown = payload.asset_id, payload.price, (payload.price,)
     else:
         return None
+    expired = _expired_at(state, asset_id)
+    if expired is not None and payload.timestamp > expired:
+        return (
+            f"{asset_id} stopped trading at {expired!r} and this record is at "
+            f"{payload.timestamp!r}: an expired contract has no price to mark or trade on "
+            "(FUT-012), so the record is refused."
+        )
     if mark > 0 and all(price >= 0 for price in shown):
         return None
     economics = _economics_of(state, asset_id)
@@ -3944,6 +8821,110 @@ def _require_not_before_last_event(
             f"{what} at {timestamp!r} would be booked before the last event this pipeline "
             f"processed, at {last.timestamp!r}."
         )
+
+
+def _exchanged_part(
+    state: ExecutionPipelineState,
+    held: Position,
+    shares: tuple[tuple[str, Decimal], ...],
+    part: Mapping[str, Decimal],
+    timestamp: float,
+) -> tuple[Position, tuple[Decimal, Decimal] | None, tuple[tuple[str, Decimal], ...]]:
+    """The part of ``held`` an exchange takes, what it leaves, and whose it is (FUT-030).
+
+    Raises:
+        RuntimeValidationError: If a strategy's part is not of its own share --
+            another side, or more than it holds.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    own = dict(shares)
+    for strategy_id, units in part.items():
+        share = own.get(strategy_id, Decimal("0"))
+        if units != 0 and ((units > 0) != (share > 0) or units.copy_abs() > share.copy_abs()):
+            raise RuntimeValidationError(
+                f"{strategy_id}'s part of {held.asset_id}, {units}, is not of its holding of "
+                f"{share}."
+            )
+    taken = tuple((sid, units) for sid, units in sorted(part.items()) if units != 0)
+    units = sum((u for _, u in taken), Decimal("0"))
+    if units == held.quantity:
+        return held, None, taken
+    basis = to_money(
+        ctx.divide(ctx.multiply(held.basis, units.copy_abs()), held.quantity.copy_abs()),
+        held.currency,
+        state.portfolio.account.currency_units,
+    )
+    exchanged = held._rebased(units, basis, held.realized_pnl, held.market_price, timestamp)
+    return exchanged, (ctx.subtract(held.quantity, units), ctx.subtract(held.basis, basis)), taken
+
+
+def _undelivered(state: ExecutionPipelineState, asset_id: str, at: float, use: str) -> Decimal:
+    """Units of ``asset_id`` an exchange owes, undelivered at ``at`` and not usable for ``use``.
+
+    The pending deliveries whose convention does not allow ``use`` -- "sellable"
+    or "collateral" (FUT-037).
+    """
+
+    total = Decimal("0")
+    for entry in state.portfolio.unsettled:
+        if (
+            entry.delivery is not None
+            and entry.asset_id == asset_id
+            and entry.pending_at(at)
+            and use not in entry.delivery.split(",")
+        ):
+            total = ACCOUNTING_CONTEXT.add(total, entry.quantity)
+    return total
+
+
+def _undelivered_refusal(
+    state: ExecutionPipelineState, request: OrderRequest, at: float
+) -> str | None:
+    """Why ``request`` would sell units an exchange has not yet delivered, or ``None`` (FUT-037).
+
+    Read only for a sale in an instrument with a delivery pending: the holding
+    after it -- filled, every working order and this one -- must keep the units
+    owed and not yet delivered, unless their convention lets them be sold.
+    """
+
+    if request.side is not CoreSide.SELL or not state.portfolio.unsettled:
+        return None
+    owed = _undelivered(state, request.asset_id, at, "sellable")
+    if owed <= 0:
+        return None
+    position = state.portfolio.positions.get(request.asset_id)
+    held = Decimal("0") if position is None else position.quantity
+    for order_id in state.oms.working_orders_for(request.asset_id):
+        order = state.oms.orders.find(order_id)
+        if order.side is OMSSide.SELL:
+            held = ACCOUNTING_CONTEXT.subtract(held, order.remaining_quantity)
+    after = ACCOUNTING_CONTEXT.subtract(held, request.quantity)
+    if after >= owed:
+        return None
+    return (
+        f"Selling {request.quantity} {request.asset_id} would sell units an exchange owes and "
+        f"has not delivered: {owed} are pending delivery, and are not sold before they arrive."
+    )
+
+
+def _units_exchanged(
+    portfolio: PortfolioState, holding: str, effective_at: float
+) -> Decimal | None:
+    """How many units of ``holding`` its exchange at ``effective_at`` exchanged, signed (FUT-034).
+
+    As the exchange's :class:`~alphalab.portfolio.events.PositionExchanged`
+    recorded them; ``None`` when the run's events hold none.
+    """
+
+    for event in reversed(portfolio.events.to_tuple()):
+        if (
+            isinstance(event, PositionExchanged)
+            and event.asset_id == holding
+            and event.timestamp == effective_at
+        ):
+            return event.quantity
+    return None
 
 
 def _after_book_change(
@@ -4047,7 +9028,25 @@ def _sync_risk_from_portfolio(
     risk_with_exposure = RiskEngine.update_exposure(risk, exposure, as_of)
     margin = MarginStatus(available_margin=nav, margin_used=exposure.gross_exposure)
     risk_with_margin = RiskEngine.update_margin(risk_with_exposure, margin, as_of)
-    return RiskEngine.mark(risk_with_margin, nav=nav, cash=cash, timestamp=as_of)
+    marked = RiskEngine.mark(risk_with_margin, nav=nav, cash=cash, timestamp=as_of)
+    if not portfolio.unsettled:
+        return marked
+    # Proceeds traded and not yet received are not cash a run may spend
+    # (FUT-015): buying power is trade-date cash less them, in the base currency.
+    credits = Decimal("0")
+    for entry in portfolio.unsettled:
+        if entry.cash <= 0 or not entry.pending_at(as_of):
+            continue
+        credits += (
+            entry.cash
+            if entry.currency == base
+            else rates.convert(
+                entry.cash, entry.currency, base, as_of, units=portfolio.account.currency_units
+            ).converted
+        )
+    if not credits:
+        return marked
+    return evolve(marked, buying_power=max(Decimal("0.00"), marked.cash - credits))
 
 
 class _ValuesInBase(Mapping[str, Decimal]):

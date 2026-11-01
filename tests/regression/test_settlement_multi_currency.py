@@ -61,7 +61,6 @@ from alphalab.portfolio.account import Account
 from alphalab.portfolio.amounts import CurrencyAmounts
 from alphalab.portfolio.engine import PortfolioEngine, PortfolioState
 from alphalab.portfolio.exceptions import (
-    InsufficientFundsError,
     InvalidTransactionError,
     MixedCurrencyValuationError,
 )
@@ -384,7 +383,13 @@ def test_a_single_currency_pipeline_is_unchanged() -> None:
 
 
 def test_settling_a_currency_the_book_does_not_hold_is_refused_not_financed() -> None:
-    """No fill converts cash to cover itself. The refusal is the whole point."""
+    """No fill converts cash to cover itself. The refusal is the whole point.
+
+    Since the phase 3 gap audit (ACC-017) the purchase is refused when it is
+    placed, naming the currency it cannot pay in, rather than at the fill, where
+    the refusal stopped the run: nothing fills, nothing converts, and the run
+    continues.
+    """
 
     strategy_id = str(uuid4())
     strategy = ScriptedStrategy(strategy_id, _SAP.asset_id, {2.0: Decimal("10")})
@@ -393,10 +398,14 @@ def test_settling_a_currency_the_book_does_not_hold_is_refused_not_financed() ->
         unfunded = ExecutionPipeline.initialize(
             _config(strategy_id), running_strategy_state(strategy_id, strategy), 1.0
         )
-        with pytest.raises(InsufficientFundsError, match="EUR"):
-            ExecutionPipeline.process_quote(
-                unfunded, quote(_SAP.asset_id, 2.0, Decimal("100")), context_factory, rates=_RATES
-            )
+        result = ExecutionPipeline.process_quote(
+            unfunded, quote(_SAP.asset_id, 2.0, Decimal("100")), context_factory, rates=_RATES
+        )
+    # The request was made, and no order was placed from it: nothing filled,
+    # nothing converted, and EUR is as it was.
+    assert result.order_requests and result.oms_orders == ()
+    assert result.fills == ()
+    assert result.state.portfolio.cash.balance("EUR") == Decimal("0")
 
 
 def test_a_cash_conversion_records_the_rate_that_produced_it() -> None:

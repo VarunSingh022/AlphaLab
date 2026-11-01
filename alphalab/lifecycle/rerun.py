@@ -38,6 +38,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Final
 
+from alphalab.backtesting.algorithmic import ExecutionPlan
+from alphalab.backtesting.schedule import RunSchedule
 from alphalab.backtesting.state import BacktestResult
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.fingerprint import EngineBuild, EngineIdentity, StrategyFingerprint
@@ -170,6 +172,8 @@ def rerun_from_manifest(
     engine: EngineIdentity,
     build: EngineBuild | None,
     original: BacktestResult | None = None,
+    schedule: RunSchedule | None = None,
+    execution: ExecutionPlan | None = None,
 ) -> RerunReport:
     """Re-execute the run ``manifest`` identifies and say whether it reproduced.
 
@@ -188,6 +192,11 @@ def rerun_from_manifest(
             when the manifest recorded one.
         original: The original result, to locate a divergence. Checked: it
             must be the result the manifest identifies.
+        schedule: The schedule the rerun was given, recorded on its manifest as
+            :func:`~alphalab.lifecycle.reproducibility.manifest_for_run` records
+            the original's (phase 6, REP-008): a run delivered information is
+            compared with a rerun that records its schedule too.
+        execution: Likewise, the execution plan a rerun worked its orders by.
 
     Raises:
         LifecycleInputError: If the manifest does not verify, is not of a run,
@@ -230,7 +239,18 @@ def rerun_from_manifest(
 
     result = run()
     try:
-        rerun_manifest = manifest_for_run(result, dataset, fingerprint, engine, build=build)
+        # Named as the original names it (REP-008): a manifest recording its
+        # registry is compared with a rerun's that records one too.
+        rerun_manifest = manifest_for_run(
+            result,
+            dataset,
+            fingerprint,
+            engine,
+            build=build,
+            schedule=schedule,
+            execution=execution,
+            instruments=manifest.instruments_digest is not None,
+        )
     except LifecycleInputError as error:
         return RerunReport(
             manifest_id=manifest.manifest_id,

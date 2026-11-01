@@ -60,6 +60,7 @@ module in AlphaLab holds. Across JSON, decode with
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -68,7 +69,10 @@ from typing import Any, Final
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.conventions.economics import economics_from_primitives
 from alphalab.conventions.exceptions import ConventionInputError
+from alphalab.conventions.settlement import SettlementBasis, SettlementRule
+from alphalab.conventions.tick import TickSchedule, tick_from_primitives, tick_to_primitives
 from alphalab.core.enums import AssetType
+from alphalab.instrument.borrow import BorrowTerms, borrow_from_primitives, borrow_to_primitives
 from alphalab.instrument.classification import (
     SECTOR,
     ClassificationHistory,
@@ -77,8 +81,21 @@ from alphalab.instrument.classification import (
     SectorClassification,
     normalize_dimension,
 )
+from alphalab.instrument.controls import (
+    TradingControls,
+    controls_from_primitives,
+    controls_to_primitives,
+)
 from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
+from alphalab.instrument.margin import (
+    MarginModel,
+    MarginTerms,
+    margin_from_primitives,
+    margin_model_from_primitives,
+    margin_model_to_primitives,
+    margin_to_primitives,
+)
 from alphalab.instrument.record import DatedAlias, InstrumentRecord
 from alphalab.instrument.registry import (
     InstrumentRegistry,
@@ -86,8 +103,10 @@ from alphalab.instrument.registry import (
     register_dated_alias,
     register_instrument,
 )
+from alphalab.instrument.terms import ContractTerms, terms_from_primitives, terms_to_primitives
 from alphalab.persistence.decode import (
     as_float,
+    as_int,
     as_mapping,
     as_optional_str,
     as_sequence,
@@ -97,6 +116,7 @@ from alphalab.persistence.decode import (
     require,
 )
 from alphalab.persistence.exceptions import StateDecodeError
+from alphalab.persistence.serializer import serialize
 from alphalab.persistence.upgrade import SchemaHistory, SchemaStep
 
 __all__ = [
@@ -108,6 +128,7 @@ __all__ = [
     "InstrumentRegistrySnapshot",
     "capture",
     "from_primitives",
+    "registry_digest",
     "restore",
 ]
 
@@ -123,8 +144,10 @@ __all__ = [
 #: economics (ledger ACC-005); see the module docstring. Version 3 (v3.12)
 #: carries each instrument's classifications along every dimension but sector
 #: (ledger OFE-001); the index of each dimension's buckets is rebuilt, not
-#: carried.
-INSTRUMENT_SNAPSHOT_SCHEMA: Final = 3
+#: carried. Version 4 (v4.1.1) carries each instrument's last trading instant
+#: (ledger FUT-012) and its contract terms (FUT-013); every earlier record
+#: declared neither.
+INSTRUMENT_SNAPSHOT_SCHEMA: Final = 4
 
 _SUBSYSTEM: Final = "instrument"
 
@@ -189,6 +212,25 @@ class InstrumentRegistryRecord:
     #: Dimension -> every classification along it, oldest first; sorted by
     #: dimension so a payload does not depend on the order they were declared in.
     dimensions: Mapping[str, tuple[DimensionRecord, ...]] = field(default_factory=dict)
+    last_trade_at: float | None = None
+    #: The contract's terms as :func:`~alphalab.instrument.terms.terms_to_primitives`
+    #: writes them, or ``None``.
+    terms: Mapping[str, Any] | None = None
+    #: The instrument's settlement rule -- its basis by name and its offset -- or
+    #: ``None`` (v4.2.0, ledger FUT-015).
+    settlement: Mapping[str, Any] | None = None
+    #: The instrument's margin terms, as
+    #: :func:`~alphalab.instrument.margin.margin_to_primitives` writes them, or
+    #: ``None`` (v4.2.0, ledger FUT-017).
+    margin: Mapping[str, Any] | None = None
+    #: The instrument's borrow terms, as
+    #: :func:`~alphalab.instrument.borrow.borrow_to_primitives` writes them, or
+    #: ``None`` (v4.2.0, ledger FUT-018).
+    borrow: Mapping[str, Any] | None = None
+    #: The venue's price grid, as
+    #: :func:`~alphalab.conventions.tick.tick_to_primitives` writes it, or
+    #: ``None`` (v4.2.0).
+    tick: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +246,14 @@ class InstrumentRegistrySnapshot:
 
     instruments: tuple[InstrumentRegistryRecord, ...]
     schema_version: int = INSTRUMENT_SNAPSHOT_SCHEMA
+    #: The account's margin model, as
+    #: :func:`~alphalab.instrument.margin.margin_model_to_primitives` writes it,
+    #: or ``None`` (v4.2.0, ledger FUT-019).
+    margin_model: Mapping[str, Any] | None = None
+    #: The venues' price bands and halts, as
+    #: :func:`~alphalab.instrument.controls.controls_to_primitives` writes them,
+    #: or ``None`` (v4.2.0, ledger FUT-020).
+    controls: Mapping[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -272,11 +322,44 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
                     for dimension, histories in sorted(registry.dimensions.items())
                     if asset_id in histories
                 },
+                last_trade_at=record.last_trade_at,
+                terms=terms_to_primitives(record.terms),
+                margin=margin_to_primitives(record.margin),
+                borrow=borrow_to_primitives(record.borrow),
+                tick=tick_to_primitives(record.tick),
+                settlement=(
+                    None
+                    if record.settlement is None
+                    else {
+                        "basis": record.settlement.basis.name,
+                        "offset_days": record.settlement.offset_days,
+                    }
+                ),
             )
         )
     return InstrumentRegistrySnapshot(
-        instruments=tuple(entries), schema_version=INSTRUMENT_SNAPSHOT_SCHEMA
+        instruments=tuple(entries),
+        schema_version=INSTRUMENT_SNAPSHOT_SCHEMA,
+        margin_model=margin_model_to_primitives(registry.margin_model),
+        controls=controls_to_primitives(registry.controls),
     )
+
+
+def registry_digest(registry: InstrumentRegistry) -> str:
+    """SHA-256 of ``registry`` as its snapshot writes it: the identity of its terms (FUT-041).
+
+    Every term a run's results can turn on is in the snapshot -- records and
+    their economics, contract, settlement, margin, borrow and tick terms,
+    classifications and aliases, the margin model and its surfaces, the venues'
+    controls -- and nothing that is not: two registries holding the same terms
+    have one digest however they were built. It is what
+    ``manifest_for_run(instruments=True)`` records (REP-006) and what a paused
+    replay or a live run's payload records, so a registry supplied back is held
+    to its terms, not its type. Apart from any run's ``result_id``, which it
+    never enters.
+    """
+
+    return hashlib.sha256(serialize(capture(registry)).encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +404,12 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
                 aliases=dict(entry.aliases),
                 dated_aliases=tuple(_dated(item) for item in entry.dated_aliases),
                 economics=entry.economics,
+                last_trade_at=entry.last_trade_at,
+                terms=_terms(entry.terms, f"{entry.symbol}.terms"),
+                settlement=_settlement(entry.settlement, f"{entry.symbol}.settlement"),
+                margin=_margin(entry.margin, f"{entry.symbol}.margin"),
+                borrow=_borrow(entry.borrow, f"{entry.symbol}.borrow"),
+                tick=_tick(entry.tick, f"{entry.symbol}.tick"),
             )
             if record.asset_id in registry.instruments:
                 raise StateDecodeError(
@@ -364,6 +453,8 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
         dimensions=PersistentMap(
             {name: PersistentMap(histories) for name, histories in sorted(dimensions.items())}
         ),
+        margin_model=_margin_model(snapshot.margin_model),
+        controls=_controls(snapshot.controls),
     )
 
 
@@ -470,7 +561,79 @@ def _record(value: Any, index: int) -> InstrumentRegistryRecord:
         ),
         economics=_economics(require(payload, "economics"), f"{where}.economics"),
         dimensions=_dimensions(require(payload, "dimensions"), f"{where}.dimensions"),
+        last_trade_at=_optional_instant(
+            require(payload, "last_trade_at"), f"{where}.last_trade_at"
+        ),
+        terms=_optional_mapping(require(payload, "terms"), f"{where}.terms"),
+        # Written since v4.2.0; absent from the unreleased schema-4 payloads of
+        # the candidate before it, which declared no settlement rule.
+        settlement=_optional_mapping(payload.get("settlement"), f"{where}.settlement"),
+        margin=_optional_mapping(payload.get("margin"), f"{where}.margin"),
+        borrow=_optional_mapping(payload.get("borrow"), f"{where}.borrow"),
+        tick=_optional_mapping(payload.get("tick"), f"{where}.tick"),
     )
+
+
+def _optional_mapping(value: Any, where: str) -> Mapping[str, Any] | None:
+    return None if value is None else as_mapping(value, where)
+
+
+def _controls(value: Mapping[str, Any] | None) -> TradingControls | None:
+    try:
+        return controls_from_primitives(value)
+    except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
+
+
+def _margin_model(value: Mapping[str, Any] | None) -> MarginModel | None:
+    try:
+        return margin_model_from_primitives(value)
+    except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
+
+
+def _tick(value: Mapping[str, Any] | None, where: str) -> TickSchedule | None:
+    try:
+        return tick_from_primitives(value, where)
+    except ConventionInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
+
+
+def _borrow(value: Mapping[str, Any] | None, where: str) -> BorrowTerms | None:
+    try:
+        return borrow_from_primitives(value, where)
+    except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
+
+
+def _margin(value: Mapping[str, Any] | None, where: str) -> MarginTerms | None:
+    try:
+        return margin_from_primitives(value, where)
+    except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
+
+
+def _settlement(value: Mapping[str, Any] | None, where: str) -> SettlementRule | None:
+    if value is None:
+        return None
+    try:
+        return SettlementRule(
+            SettlementBasis[as_str(require(value, "basis"), f"{where}.basis")],
+            as_int(require(value, "offset_days"), f"{where}.offset_days"),
+        )
+    except (KeyError, ConventionInputError) as exc:
+        raise StateDecodeError(f"{where} is not a settlement rule: {exc}") from exc
+
+
+def _terms(value: Mapping[str, Any] | None, where: str) -> ContractTerms | None:
+    try:
+        return terms_from_primitives(value, where)
+    except InstrumentInputError as exc:
+        raise StateDecodeError(str(exc)) from exc
+
+
+def _optional_instant(value: Any, where: str) -> float | None:
+    return None if value is None else as_float(value, where)
 
 
 def _economics(value: Any, where: str) -> InstrumentEconomics | None:
@@ -522,6 +685,30 @@ def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _v3_to_v4(payload: dict[str, Any]) -> dict[str, Any]:
+    """A version-3 instrument declared no last trading instant and no contract terms.
+
+    Nothing before v4.1.1 could declare either (ledgers FUT-012, FUT-013), so
+    every record reads as one that does not expire -- what the payload says.
+    """
+
+    return {
+        **payload,
+        "instruments": [
+            {
+                **entry,
+                "last_trade_at": None,
+                "terms": None,
+                "settlement": None,
+                "margin": None,
+                "borrow": None,
+                "tick": None,
+            }
+            for entry in payload["instruments"]
+        ],
+    }
+
+
 INSTRUMENT_SCHEMA_HISTORY = SchemaHistory(
     _SUBSYSTEM,
     INSTRUMENT_SNAPSHOT_SCHEMA,
@@ -537,6 +724,12 @@ INSTRUMENT_SCHEMA_HISTORY = SchemaHistory(
             "version 3 carries each instrument's classifications along dimensions other "
             "than sector; no earlier registry had any",
             upgrade=_v2_to_v3,
+        ),
+        SchemaStep(
+            3,
+            "version 4 carries each instrument's last trading instant and contract terms; "
+            "no earlier registry declared either",
+            upgrade=_v3_to_v4,
         ),
     ),
 )
@@ -558,4 +751,8 @@ def from_primitives(payload: Mapping[str, Any]) -> InstrumentRegistrySnapshot:
     return InstrumentRegistrySnapshot(
         instruments=tuple(_record(item, index) for index, item in enumerate(records)),
         schema_version=INSTRUMENT_SNAPSHOT_SCHEMA,
+        # Written since v4.2.0 (FUT-019); absent from every earlier payload.
+        margin_model=_optional_mapping(payload.get("margin_model"), "margin_model"),
+        # Written since v4.2.0 (FUT-020); absent from every earlier payload.
+        controls=_optional_mapping(payload.get("controls"), "controls"),
     )

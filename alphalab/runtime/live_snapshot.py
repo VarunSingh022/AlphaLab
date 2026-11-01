@@ -111,8 +111,9 @@ __all__ = [
 
 #: Schema version of the *pairing*. The two halves carry their own; see the
 #: module docstring for why they are nested rather than merged. Version 2
-#: (v3.11) carries the request ledger.
-LIVE_SNAPSHOT_SCHEMA: Final = 2
+#: (v3.11) carries the request ledger. Version 3 (phase 6, ledger FUT-041)
+#: records the digest of the instrument registry the run held.
+LIVE_SNAPSHOT_SCHEMA: Final = 3
 
 _SUBSYSTEM: Final = "live run"
 
@@ -149,6 +150,10 @@ class LiveRunSnapshot:
     #: The OMS orders held for an execution algorithm, sorted (ledger LIV-001):
     #: a restored run that forgot one would send it whole.
     held: tuple[str, ...] = ()
+    #: The digest of the instrument registry the run held, or ``None`` -- for a
+    #: run that held none, or a payload of schema 2, which recorded none (phase
+    #: 6, ledger FUT-041). Not part of any ``result_id``.
+    instruments_digest: str | None = None
     schema_version: int = LIVE_SNAPSHOT_SCHEMA
 
 
@@ -174,8 +179,18 @@ def capture(state: LiveRunState) -> LiveRunSnapshot:
         order_type=state.routing.order_type,
         requests=tuple(_record(request) for request in state.requests.issued.values()),
         held=tuple(sorted(state.held)),
+        instruments_digest=_held_digest(state.run),
         schema_version=LIVE_SNAPSHOT_SCHEMA,
     )
+
+
+def _held_digest(run: Any) -> str | None:
+    """The digest of the registry ``run`` holds, or ``None`` if it holds none (FUT-041)."""
+
+    from alphalab.instrument.snapshot import registry_digest
+
+    registry = run.config.pipeline.instruments
+    return None if registry is None else registry_digest(registry)
 
 
 def _ledger(records: Iterable[IssuedRequestRecord]) -> RequestLedger:
@@ -224,8 +239,17 @@ def _ledger(records: Iterable[IssuedRequestRecord]) -> RequestLedger:
     return ledger
 
 
-def restore(snapshot: LiveRunSnapshot, objects: RunObjects) -> LiveRunState:
+def restore(
+    snapshot: LiveRunSnapshot, objects: RunObjects, *, registry_changed: bool = False
+) -> LiveRunState:
     """Rebuild the live run a snapshot was captured from.
+
+    The instrument registry supplied is held to the terms the payload recorded
+    (FUT-041) and refused if they differ -- unless ``registry_changed``
+    declares that the host updated its reference data between sessions: a live
+    run may continue under new terms, as a historical replay may not, but only
+    when the change is the caller's statement rather than the restore's
+    silence. Its next capture records the new terms.
 
     ``objects`` carries the live objects no payload can hold -- strategy
     instances, the sizing model, the simulator, the instrument registry, the
@@ -243,7 +267,11 @@ def restore(snapshot: LiveRunSnapshot, objects: RunObjects) -> LiveRunState:
 
     broker_state, mapping, log = restore_broker(snapshot.broker)
     return LiveRunState(
-        run=restore_run(snapshot.run, objects),
+        run=restore_run(
+            snapshot.run,
+            objects,
+            instruments_digest=None if registry_changed else snapshot.instruments_digest,
+        ),
         broker=broker_state,
         mapping=mapping,
         reconciliation=log,
@@ -359,6 +387,12 @@ def _v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
     return {**payload, "requests": [], "held": []}
 
 
+def _v2_to_v3(payload: dict[str, Any]) -> dict[str, Any]:
+    """A version-2 live payload recorded no digest of its registry."""
+
+    return {**payload, "instruments_digest": None}
+
+
 #: How every live run payload a release has written is read by this one. See
 #: :mod:`alphalab.persistence.upgrade`.
 LIVE_SCHEMA_HISTORY = SchemaHistory(
@@ -371,6 +405,12 @@ LIVE_SCHEMA_HISTORY = SchemaHistory(
             "for an execution algorithm; version 1 kept its ledger outside the envelope and "
             "recorded neither",
             upgrade=_v1_to_v2,
+        ),
+        SchemaStep(
+            2,
+            "version 3 records the digest of the instrument registry the run held; a "
+            "version-2 payload recorded none, and one it held is checked by type alone",
+            upgrade=_v2_to_v3,
         ),
     ),
 )
@@ -400,5 +440,14 @@ def from_primitives(payload: Mapping[str, Any]) -> LiveRunSnapshot:
         order_type=_order_type(require(payload, "order_type")),
         requests=_requests(payload),
         held=_held(payload),
+        instruments_digest=_optional_digest(require(payload, "instruments_digest")),
         schema_version=LIVE_SNAPSHOT_SCHEMA,
     )
+
+
+def _optional_digest(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise StateDecodeError(f"instruments_digest is a string or null, got {value!r}.")
+    return value

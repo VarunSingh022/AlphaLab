@@ -136,6 +136,87 @@ class CashFlowBooked(PortfolioEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class PositionExchanged(PortfolioEvent):
+    """A holding exchanged by its issuer for other instruments and cash (ledger FUT-021).
+
+    What a reader needs to see why a holding became another: what was held, what
+    it became, what cash moved and what of it was realized.
+
+    Attributes:
+        asset_id: The holding exchanged.
+        quantity: Its signed quantity before.
+        received: ``asset_id`` -> the signed quantity received of each leg.
+        consideration: Currency -> the signed cash it moved: the cash part and
+            any cash in lieu; received positive, paid negative.
+        realized_pnl: The P&L the cash realized, in the holding's currency.
+        retained: Whether the holding stays: a spin-off or a rights issue.
+        reference: The issuer's reference.
+    """
+
+    asset_id: str
+    quantity: Decimal
+    received: Mapping[str, Decimal]
+    consideration: Mapping[str, Decimal]
+    realized_pnl: Decimal
+    retained: bool
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaymentAmended(PortfolioEvent):
+    """A corporate action's payment amended by the issuer's later word (FUT-034, phase 4).
+
+    Attributes:
+        asset_id: The holding the action exchanged.
+        effective_at: The action's effective instant.
+        currency: The payment's currency.
+        change: What changed, by :class:`~alphalab.portfolio.settlement.PaymentChange` name.
+        owed_before: What was owed in ``currency`` before, signed.
+        owed_after: What is owed in it after.
+        settles_at: When what is owed now is paid, or ``None`` if not pending.
+        replacement_currency: The currency a replacement pays in, or ``""``.
+        replacement: What the replacement pays in it.
+        reference: The issuer's reference.
+    """
+
+    asset_id: str
+    effective_at: float
+    currency: str
+    change: str
+    owed_before: Decimal
+    owed_after: Decimal
+    settles_at: float | None
+    replacement_currency: str
+    replacement: Decimal
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveryAmended(PortfolioEvent):
+    """Units an exchange delivers later, amended by a later word (FUT-037, phase 5).
+
+    Attributes:
+        asset_id: The holding the action exchanged.
+        effective_at: The action's effective instant.
+        delivered_asset: The leg delivered.
+        change: What changed, by :class:`~alphalab.portfolio.settlement.PaymentChange` name.
+        owed_before: The units owed before, signed.
+        owed_after: The units owed after.
+        settles_at: When what is owed now is delivered, or ``None``.
+        reference: The issuer's reference.
+    """
+
+    asset_id: str
+    effective_at: float
+    delivered_asset: str
+    change: str
+    owed_before: Decimal
+    owed_after: Decimal
+    settles_at: float | None
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
 class PositionSplit(PortfolioEvent):
     """A split or stock dividend changed a position's quantity, not its value (ACC-006).
 

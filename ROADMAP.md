@@ -159,6 +159,268 @@ names what the release established and the ADR that records the decision.
 - **The contract an application builds on, checked against the artifact**:
   `tests/consumer_contract.py` runs inside every installed wheel and sdist.
 
+## v4.2.0 (in development: the v4.1.1 future-readiness program and phases 2 to 6, its number and scope set by the maintainer; not yet published)
+
+- **One schedule for every timed input** (FUT-004): `alphalab.backtesting.schedule`
+  -- rates, funding, cash flows, per-unit dividends and coupons, perpetual funding
+  rates, splits, timers and contract settlements -- applied by `BacktestEngine.run`,
+  `ReplayBacktest.run` and the facade at each input's instant.
+- **External information on every driver** (OFE-027) and **several datasets in
+  one run** (OFE-028).
+- **A paused replay with information outstanding, kept durably** (FUT-003):
+  replay schema 2.
+- **Contract expiry and cash settlement** (FUT-012) and **bonds** (FUT-010):
+  `InstrumentRecord.last_trade_at`, `ContractSettlement`, `AssetType.BOND`,
+  `alphalab.api.bond_schedule`.
+- **The schedule in a run's manifest** (FUT-005), **the macro engine's series as
+  observations** (FUT-008), and **features and a fitted model on the execution
+  path, evidenced** (FUT-006, FUT-007; examples 72 and 73).
+- **`context.market.bar` returns the bar** (KD-005; broken since v2.10).
+- **Execution algorithms on the historical drivers** (FUT-009):
+  `alphalab.backtesting.algorithmic.ExecutionPlan` on `BacktestEngine.run`,
+  `ReplayBacktest.run` and the facade -- each parent held by the OMS and worked in
+  children at its asset's events, every child filled by the run's own fill policy
+  and cost model and settled on the parent; TWAP, VWAP, slicing, iceberg and
+  participation (example 74).
+- **A derivative's whole lifecycle, declared** (FUT-013): `InstrumentRecord.terms`
+  -- `OptionTerms` (American or European, cash or physical, a deliverable in any
+  quantity, an automatic-exercise rule) and `FutureTerms` (cash or physical
+  delivery) -- carried out by `Exercise`, `Assignment` and `OptionExpiry` on the
+  run's schedule through the portfolio's fill authority; `AssetType.INDEX`;
+  lifecycle instants from a declared market calendar (`session_close`,
+  `settles_at`); example 75.
+- **A queue model for resting limit orders** (the audit's queue-position
+  proposal): `alphalab.execution.queue.PriceTimeQueue` on `BacktestEngine.run`,
+  `ReplayBacktest.run` and the facade (`queue=`) -- each resting limit order keeps
+  its place at its price level from the quote, the signed prints and the bar's
+  range, and fills only as far as reached the front, through the run's own fill
+  policy, costs and books; named in the result's execution assumptions and the
+  run's manifest, kept by a paused replay. Price-time priority over displayed
+  liquidity only: pro-rata books, hidden liquidity and a fill probability are
+  other models of the same protocol.
+- **A strategy exercises its own options from its hooks** (FUT-014): a hook
+  returns `Intent(kind=IntentKind.EXERCISE, ...)`, carried out at the end of the
+  step that asked, at its instant, through the checks a scheduled exercise
+  passes, against the strategy's own contracts; a cash contract settles against
+  the last observed underlying price; a refusal is a recorded `ExerciseRefused`.
+- **Richer contract terms** (FUT-016): baskets and a cash component, cash in
+  lieu of fractions, a consideration in another currency (at the run's rate, or a
+  quanto contract's fixed one), Bermudan windows, and adjusted terms from a
+  declared instant -- a split's, checked against the split, and a merger's.
+- **Settlement-date accounting** (FUT-015): an instrument declares its T+n rule;
+  each fill is booked with its settlement instant by the venue's calendar, and a
+  sale's proceeds stay out of buying power until they settle
+  (`PortfolioEngine.cash_position`: trade-date, settled and available cash).
+- **Margin calls and forced liquidation** (FUT-017): an instrument declares its
+  margin terms -- a rate of value or an amount per contract, initial and
+  maintenance, a collateral haircut and a liquidation priority; after every
+  market step an account below maintenance is called (`MarginCall`) and
+  liquidated through allocation, risk and the OMS at prices the market shows;
+  orders growing a margined position are held to the initial requirement, and a
+  margined future spends its margin of buying power, not its notional; a
+  delivery the cash cannot pay is financed only when its deliverables declare
+  margin terms. Buying on margin and a debit's interest are FUT-018, and
+  portfolio margin FUT-019, both delivered below.
+- **A strategy withdraws its own working orders** (EXE-012, the global gap
+  audit): `Intent(kind=IntentKind.CANCEL)` withdraws every order the strategy
+  alone has working in an instrument, after the event's fills and before the
+  batch's orders, so a cancel and a new limit replace a quote; an order netted
+  with another strategy's, or worked by an execution plan, is left working and
+  recorded as a `CancelRefused`.
+- **Financing and short borrow** (FUT-018): an instrument may allow a purchase
+  on margin, spending its initial requirement of buying power and financing the
+  rest; a `ScheduledInterest` charges a period's declared tiers on a currency's
+  balance by its day count, trade-date or settled; an instrument declares dated
+  borrow availability and fees, a short beyond what is available is refused, and
+  a `ScheduledBorrowFee` charges each short the fee in effect.
+- **A declared portfolio margin model** (FUT-019): the registry declares the
+  account's `MarginModel` -- `PerPositionMargin`, or `ScenarioMargin` over
+  declared scenarios with a floor -- and the margin check, the liquidation's
+  sizing, the pre-trade check and the risk gate's margin limit all read it; a
+  hedge offsets exactly as far as the scenarios say.
+- **Venue price bands and trading halts** (FUT-020): the registry declares a
+  venue's dated `PriceBand`s (refuse or cap beyond them) and `TradingHalt`s, by
+  instrument or venue; nothing trades in a halt or outside the band at any
+  order's turn -- orders rest, a market order to its first turn after -- and a
+  strategy sees what is in force now through `context.universe`.
+- **Mergers, spin-offs and rights issues** (FUT-021): a `HoldingExchange`
+  declares what each unit held becomes -- instruments at ratios, a cash part,
+  the basis apportioned by declared shares, cash in lieu of a fraction -- and
+  is applied at its instant to the books and every strategy's share, with one
+  `PositionExchanged` saying why the holding changed.
+- **Options repriced from a dated volatility surface, over a horizon** (FUT-032,
+  phase 4): a repriced option declaring no volatility reads one from the options
+  `VolatilitySurface` its scenario model declares for its underlying -- the
+  latest as of the margined instant, at its strike and expiry, linear in total
+  variance between expiries, nothing extrapolated -- and is margined by its own
+  terms where the surface gives none; a declared `horizon` values each scenario
+  at the instant plus it.
+- **Elections split between holders, and proration** (FUT-030, phase 4): an
+  `ElectiveExchange` exchanges each holder's share of one holding by its own
+  election -- the whole, or the units it names -- the default taking what is
+  not elected or elected beyond what is held; an alternative the issuer
+  prorates accepts its declared factor, and a record instant bounds each
+  election by the holding recorded then. Each alternative is applied to its
+  electors' part, its basis apportioned by units.
+- **A buy-in's premium, and borrow located per strategy** (FUT-035, phase 4): a
+  borrow entry declares the lender's premium on a buy-in's value and a fixed
+  fee per buy-in order, booked with the cover's fills and attributed to the
+  strategies bought in; and the units it locates for each strategy, each
+  drawing beyond its own only on what is shared, first come, and bought in for
+  its own excess; `borrow_claims` attributes the book's borrow to each.
+- **A corporate action's payment amended by the issuer** (FUT-034, phase 4): a
+  `PaymentAmendment` delays, fails, corrects, reverses or replaces one
+  currency's payment of a declared exchange, each a ledger entry of its own
+  beside the original; a failed payment is never settled cash, a delayed one
+  funds nothing until paid, and `entitlements` reconciles each payment from the
+  ledger as of any instant.
+- **A reopening auction computed from the venue's book** (FUT-033, phase 4): a
+  halt declaring an `AuctionUncross` prices its reopening from the
+  `AuctionInterest` the venue published during the halt and the run's orders
+  that waited -- the most volume, then the smallest imbalance, then a declared
+  tie-break -- and fills only the run's orders there, by price and a declared
+  priority; nothing crosses without a book or a match, or outside the band
+  unless an extension is declared. Each instrument's reopening is recorded, so
+  no market-history bound mistakes a later event for the first.
+- **What an amend holds, exactly** (FUT-036, phase 4): an order reduced in place
+  holds of the account's budget and of its strategy's capital ceiling what the
+  smaller order still adds to each, as its allocation would have reserved, so
+  the headroom it frees is usable at once; an increase is judged with the
+  original released, and a refused one keeps the original's share.
+- **An atomic amend** (FUT-031, phase 4): an amend that replaces an order is
+  prepared and committed -- the replacement judged by allocation, risk and the
+  venue's rules against the book without the order, and the order withdrawn only
+  if the replacement is placed; one refused leaves the order working, its
+  reservations held, with the refusal recorded.
+- **A strategy amends its own order in place** (FUT-029, phase 3):
+  `IntentKind.AMEND` reduces a working order in place, keeping its queue
+  priority, or replaces it -- more quantity, another price -- through
+  allocation, risk and the OMS as a new order; what cannot be amended is an
+  `AmendRefused`.
+- **A halt reopening by auction** (FUT-027, phase 3): a `TradingHalt` declaring
+  `auction=True` reopens by crossing every order that rested through it at the
+  first event's opening print, as makers, within the band in force; what the
+  price does not reach trades on continuously.
+- **Bands around a declared reference price** (FUT-028, phase 3): a venue's
+  `ReferenceBand` rule -- a rate or an amount either side -- around the
+  `BandReference` in effect, dated as published and rounded inward to the tick
+  grid; with no current reference every order rests until one is published.
+- **Holder elections and announcement instants** (FUT-024, phase 3): an
+  `ElectiveExchange` offers a holding's strategies alternatives with a default;
+  each elects with `IntentKind.ELECT` between the announcement and the
+  deadline, and the holding is exchanged by their common election or the
+  default; a contract adjustment's `announced_at` keeps it from a strategy's
+  view until then.
+- **Options repriced in margin scenarios** (FUT-026, phase 3): a
+  `ScenarioMargin` declares `repriced` options -- volatility, rate, carry, and
+  an American contract's lattice -- and each scenario's volatility shifts; each
+  option is revalued from its underlying's move, so a hedged book's gamma and
+  vega are margined, at the call, a liquidation's sizing and before an order.
+- **A corporate action's cash paid on its payment date** (FUT-025, phase 3): a
+  `PaidExchange` books the cash part at the effective instant as an entitlement,
+  unsettled until its payment instant -- out of buying power and settled cash,
+  as a sale's proceeds are -- and a restore rebuilds it from the ledger.
+- **Interest and borrow fees accrued day by day** (FUT-023, phase 3): a
+  `DailyInterest` or `DailyBorrowFee` accrues each calendar day at a declared
+  zone's cutoff on the balance or the short the day leaves, at the rates and
+  marks of that day, recorded exactly in the ledger and posted once a period,
+  rounded once.
+- **A lender's recall, bought in** (FUT-022, phase 3): a borrow entry declares
+  its recall's `buy_in_at` deadline; after it, a short beyond what the lender
+  makes available is bought in -- each short strategy's own cover through
+  allocation, risk and the OMS, filling as the market allows and placed again
+  for what it leaves -- with a `BuyIn` on the risk log.
+- **A venue's price grid where an order meets it** (EXE-013, the phase 2 global
+  gap audit): `InstrumentRecord.tick` declares the instrument's tiered or flat
+  `TickSchedule`; a limit or stop between two ticks is refused at placement,
+  and a band's cap lands on the grid inside the band. The same audit stated each
+  day count's year (NUM-016) and showed a strategy only the borrow in effect now.
+- **A strategy configuration that reads back typed** (FUT-002): a strategy class
+  declaring `configuration_type` (`alphalab.strategy.configuration`) is configured
+  only with a value of that type and reads it back as that type after a restore
+  -- `Decimal`, tuples, enums, `UUID`, typed mapping keys, dataclasses rebuilt
+  through their constructors with their defaults and constraints -- with the
+  payload, and so every run's identity, unchanged. An undeclared configuration
+  reads back as JSON reads it (LIM-004), as before.
+
+## v4.2.0, phase 5
+
+Delivered on the same development branch after the phase 4 checkpoint at
+`cde89f6`; the maintainer assigned it to v4.2.0.
+
+- **Legs delivered after an exchange's effective instant** (FUT-037): a
+  `DeliveredExchange` keeps the effective and delivery instants apart -- each
+  holder's entitlement to the legs recorded at the effective instant, its
+  units owed until each leg's declared delivery, under a declared
+  `DeliveryConvention` (by default neither sold nor counted as collateral
+  before they arrive) -- and a `DeliveryAmendment` delays, corrects or fails a
+  delivery, each a ledger entry beside the original.
+- **An elective action's terms corrected after their announcement** (FUT-038):
+  each `TermsCorrection` is a version of its own, recorded when announced as a
+  `TermsAnnounced`; each election is read against the version in effect when
+  it was made, within that version's window, kept or voided as the correction
+  declares, and the holding exchanged by the version in effect at the action's
+  instant -- its payments and deliveries with it. A correction after that
+  instant is a payment's or a delivery's amendment, never a rewrite.
+- **Volatility surfaces arriving as data during a run** (FUT-039): a scenario
+  model naming a `surface_feed` reads the `ObservedSurface`s the run is
+  delivered -- each kept as it arrived, with its source, version and knowledge
+  instant -- choosing the one known by the check and as of the latest instant,
+  a revision over what it revises, never a late older arrival, never one older
+  than `surface_max_age`; a strategy reads the latest known through
+  `context.risk_view.volatility_surface`; a live session records one as known
+  when it arrived (`LiveSession.deliver_surface`).
+- **A strategy's view of what a venue publishes of an auction** (FUT-040):
+  while a reopening auction is pending -- its halt in force, or ended and not
+  yet held, or extended -- `context.universe.auction` shows the published book
+  and the venue's `AuctionIndication` (an indicative price, matched quantity
+  and imbalance where given, or a withdrawal) last published since the halt
+  began and by the strategy's instant; never a later one, never the run's own
+  uncross, never depth the venue did not publish. An indication never moves
+  the uncross.
+- **The phase 5 engine integration audit**
+  (`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`): an assessment says when a
+  manifest names the registry by type alone (REP-007); a result states the
+  venue conditions its registry declared (`ExecutionAssumptions.venue_conditions`,
+  EXE-014); every feed and venue integration point classified -- interface,
+  tested adapter, production connection (none), synthetic input, verified
+  convention (none) -- and FUT-041 to FUT-043 proposed.
+
+## v4.2.0, phase 6
+
+Delivered on the same development branch after the phase 5 checkpoint at
+`c348e69`; the maintainer assigned it to v4.2.0.
+
+- **A resumed run's registry held to its terms, not its type** (FUT-041): a
+  paused replay's and a live run's payload record the digest of the instrument
+  registry the run held (`registry_digest`, replay and live schemas 3), and a
+  restore refuses a registry of the right type with other terms; a bare run
+  snapshot or checkpoint chain -- the run's identity, which records none -- is
+  held to a digest the caller supplies, a manifest's say. A live restore may
+  declare `registry_changed` when the host updated its reference data; a
+  payload written before phase 6 restores by type alone and says so
+  (`RegistryVerification.UNRECORDED`). No `result_id` moves.
+- **A rerun from a manifest compared like for like** (REP-008):
+  `rerun_from_manifest` records the rerun's registry and schedule as the
+  original's manifest does, so a run that named either can be reproduced.
+- **Auction books and indications delivered during a run** (FUT-043): a
+  `DeliveredAuction` -- a venue's book or indication, its knowledge instant,
+  source and version -- kept on the market state as it arrived and read by the
+  uncross and by `context.universe.auction` beside what was declared, by one
+  rule: known by the instant, published since the halt began, the latest, a
+  correction over what it corrects. `LiveSession.deliver_auction` records one
+  as known when it arrived and refuses one from the future; a replay
+  re-delivers the record (`RunSchedule.of(auctions=)`) and is shown the same.
+  `context.universe.reopening` gives the held auction's result, never before.
+- **FUT-042's options** (ADR-0052, proposed): the default manifest's registry
+  -- opt-in, mandatory or a versioned identity -- left to the maintainer.
+- **The phase 6 engine integration audit**
+  (`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE6.md`): what a live session can be
+  given as it happens, and what a host's adapter must supply; every economic
+  input against the evidence that names it; the research engine checked
+  against tests. A manifest must name the schedule that delivered the
+  surfaces and auctions a run kept (REP-009); three entries proposed.
+
 # Deliberate boundaries
 
 Not built, on purpose. Each has a reason, and most have a regression test that a
@@ -473,7 +735,14 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   v4.1 states that as a tested contract (`docs/STATE_MODEL.md`). Nothing on the
   execution path reads the value, and a run's identities are the same before and
   after a restore; durable strategy state goes through `StrategyStateProtocol`,
-  which round-trips exactly. A lossless typed form is FUT-002, below.
+  which round-trips exactly. Since the v4.2.0 candidate a strategy that declares
+  its configuration's type reads it back typed (FUT-002, above); one that
+  declares nothing reads back as stated here.
+- **An insolvent run compiles no analytics** (LIM-008): a run whose net asset
+  value falls below zero -- reachable through a financed delivery or a short
+  bought back past its cash -- is refused by analytics, whose returns on negative
+  capital are undefined; such a run sets `RunConfig.compile_analytics=False` and
+  keeps its books, fills, margin calls and equity, which state the insolvency.
 - **Transcendental functions in the standalone engines** (LIM-005): since v4.1 a
   run's record -- and so its `result_id` -- is host-independent: money is
   `Decimal`, and every float a run records comes from `+ - * /`, `sqrt`, `fsum`
@@ -502,25 +771,35 @@ Accepted for a later release, each with what it is not yet, what happens in the
 meantime and what closes it. `tests/regression/test_nothing_is_left_for_later.py`
 holds this list to the ledger: an entry may be left for later only here.
 
-## FUT-002 — a strategy configuration that reads back typed (target v5.0, pending the maintainer's decision)
+The program's entries were proposed by the v4.1.1 future-readiness audit
+(`docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`); accepting each, and its
+horizon, is the maintainer's decision. The candidate itself delivered the rest
+of what the audit proposed (section *v4.2.0*, above).
 
-- **Limitation.** `restore(capture(s)) == s` does not hold for a strategy whose
-  `configure` value holds a `Decimal`, a tuple, a non-string mapping key, an
-  enum, a `UUID` or a dataclass: each reads back in the converted form
-  `docs/STATE_MODEL.md` states (LIM-004).
-- **Interim behaviour.** The conversion is exact and tested
-  (`tests/regression/test_strategy_configuration_contract.py`); nothing on the
-  execution path reads the value; identities are unaffected. Keep durable
-  strategy parameters in `StrategyStateProtocol` state, which round-trips
-  exactly, or configure with JSON-native values.
-- **Why not in 4.x.** A typed form changes the pipeline payload and so every
-  run's `result_id`, which `docs/api/PUBLIC_API.md`'s stability policy does not
-  let a minor release do. Taking it in 5.0, or as a stated 4.x exception, is the
-  maintainer's decision.
-- **Acceptance criteria.** `restore(capture(s)) == s` for every value the
-  contract converts; every earlier payload read as it reads today; a migration
-  row for the identity change; the ledger entry closed.
-- **Dependencies.** A pipeline schema step, and frozen v4.x payloads.
+Every entry accepted by the v4.1.1 program, the margin milestone and the v4.2.0
+global gap audit was delivered in v4.2.0. The global gap audit that followed
+those deliveries (phase 2, `docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`)
+proposed eight entries, and phase 3 delivered all of them on the candidate
+branch, after its validation at `350f3f7` -- each is in section *v4.2.0*, above.
+
+The phase 3 global gap audit that followed proposed seven entries; each is a
+boundary of what phase 3 delivered, stated in ADR-0051's known limitations, and
+conservative or refused where it binds. Phase 4 delivers them on the candidate
+branch after its phase 3 checkpoint at `bbc4085`; those still below are not yet
+delivered. The phase 4 global gap audit proposed the others below, each a
+boundary of what phase 4 delivered; the phase 5 engine integration audit
+(`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`) proposed three more, which
+phase 6 takes up in turn; those still below are not yet delivered. The
+phase 6 engine integration audit (`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE6.md`)
+proposed three more.
+Every horizon is a proposal for the maintainer to confirm.
+
+| ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
+|---|---|---|---|---|
+| FUT-042 | **A default manifest that names the registry** (a compatibility decision; options in ADR-0052, proposed) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
+| FUT-044 | **Halts, bands and references delivered during a live run** | deliver the venue's halt messages as observations; declare known halts | v4.4 | venue controls, published auctions |
+| FUT-045 | **An execution model per venue in one simulated run** | one backtest per venue's model; the costliest for a conservative run | v4.4 | described execution models |
+| FUT-046 | **A run's record naming the schedule it was given** (an identity decision) | give `manifest_for_run` the schedule; a paused replay records it | v4.3 | the schedule in the manifest |
 
 ---
 

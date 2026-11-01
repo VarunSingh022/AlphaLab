@@ -90,9 +90,39 @@ def test_accepted_future_work_is_stated_and_on_the_roadmap() -> None:
     roadmap = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
     assert "\n# Future work" in roadmap, "ROADMAP has no Future work section"
     future = roadmap.split("\n# Future work", 1)[1].split("\n# ", 1)[0]
-    accepted = [(i, s) for i, s, _ in _entries() if s.startswith("accepted as future work (")]
-    # v4.0 accepted FUT-001, which v4.1 delivered; v4.1 accepts FUT-002.
-    assert accepted, "a guard on the guard: v4.1 accepts FUT-002"
+    statuses = {i: s for i, s, _ in _entries()}
+    accepted = [(i, s) for i, s in statuses.items() if s.startswith("accepted as future work (")]
+    # A guard on the guard: the statuses are read as written, so an empty list of
+    # accepted work is a fact and not a misread. v4.0 accepted FUT-001, which v4.1
+    # delivered; the v4.2.0 program delivered FUT-002 and FUT-009 to FUT-021, and
+    # its phase 2 global gap audit accepted FUT-022 to FUT-029, which phase 3
+    # delivers in turn: what remains open is whatever the ledger accepts now.
+    assert statuses["FUT-001"].startswith("implemented ("), statuses["FUT-001"]
+    assert statuses["FUT-021"].startswith("implemented ("), statuses["FUT-021"]
+    assert statuses["FUT-022"].startswith("implemented ("), statuses["FUT-022"]
+    assert statuses["FUT-023"].startswith("implemented ("), statuses["FUT-023"]
+    assert statuses["FUT-025"].startswith("implemented ("), statuses["FUT-025"]
+    assert statuses["FUT-026"].startswith("implemented ("), statuses["FUT-026"]
+    assert statuses["FUT-024"].startswith("implemented ("), statuses["FUT-024"]
+    assert statuses["FUT-028"].startswith("implemented ("), statuses["FUT-028"]
+    assert statuses["FUT-027"].startswith("implemented ("), statuses["FUT-027"]
+    assert statuses["FUT-029"].startswith("implemented ("), statuses["FUT-029"]
+    # Phase 3's global gap audit accepted FUT-030 to FUT-036, which phase 4
+    # delivers in turn.
+    assert statuses["FUT-030"].startswith("implemented ("), statuses["FUT-030"]
+    assert statuses["FUT-031"].startswith("implemented ("), statuses["FUT-031"]
+    assert statuses["FUT-032"].startswith("implemented ("), statuses["FUT-032"]
+    # Phase 4's global gap audit accepted FUT-037 to FUT-040, which phase 5
+    # delivers in turn.
+    assert statuses["FUT-037"].startswith("implemented ("), statuses["FUT-037"]
+    assert statuses["FUT-038"].startswith("implemented ("), statuses["FUT-038"]
+    assert statuses["FUT-039"].startswith("implemented ("), statuses["FUT-039"]
+    assert statuses["FUT-040"].startswith("implemented ("), statuses["FUT-040"]
+    # The phase 5 engine integration audit proposed FUT-041 to FUT-043, which
+    # phase 6 takes up in turn.
+    assert statuses["FUT-041"].startswith("implemented ("), statuses["FUT-041"]
+    assert statuses["FUT-043"].startswith("implemented ("), statuses["FUT-043"]
+    assert accepted, "the ledger's accepted future work was misread as none"
     for identifier, _ in accepted:
         entry = text.split(f'\n  - id: "{identifier}"', 1)[1].split('\n  - id: "', 1)[0]
         change = re.search(r'\n    required_change: "([^"]*)"', entry)

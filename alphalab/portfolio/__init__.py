@@ -18,8 +18,14 @@ from .contracts import SettlementExposure as SettlementExposure
 from .contracts import contract_exposures as contract_exposures
 from .contracts import holding_notional as holding_notional
 from .contracts import settlement_exposures as settlement_exposures
+from .corporate_actions import Assignment as Assignment
 from .corporate_actions import CashFlow as CashFlow
 from .corporate_actions import CashFlowKind as CashFlowKind
+from .corporate_actions import ContractSettlement as ContractSettlement
+from .corporate_actions import ExchangeLeg as ExchangeLeg
+from .corporate_actions import Exercise as Exercise
+from .corporate_actions import HoldingExchange as HoldingExchange
+from .corporate_actions import OptionExpiry as OptionExpiry
 from .corporate_actions import Split as Split
 from .engine import PortfolioEngine as PortfolioEngine
 from .engine import PortfolioState as PortfolioState
@@ -60,6 +66,8 @@ from .exceptions import (
     MixedCurrencyValuationError as MixedCurrencyValuationError,
 )
 from .exposure import ExposureEngine as ExposureEngine
+from .financing import BalanceBasis as BalanceBasis
+from .financing import FinancingTier as FinancingTier
 from .fx import NO_RATES as NO_RATES
 from .fx import FutureDatedRateError as FutureDatedRateError
 from .fx import FxConversion as FxConversion
@@ -101,6 +109,12 @@ from .multi_strategy import value_book as value_book
 from .nav import NAVCalculator as NAVCalculator
 from .pnl import PnLEngine as PnLEngine
 from .position import Position as Position
+from .settlement import CashPosition as CashPosition
+from .settlement import DeliveryConvention as DeliveryConvention
+from .settlement import Entitlement as Entitlement
+from .settlement import EntitlementStatus as EntitlementStatus
+from .settlement import PaymentChange as PaymentChange
+from .settlement import PendingSettlement as PendingSettlement
 from .transaction import Transaction as Transaction
 from .types import (
     PositionSide as PositionSide,
@@ -120,23 +134,34 @@ __all__ = [
     "MULTI_STRATEGY_BOOK_SCHEME",
     "NO_RATES",
     "Account",
+    "Assignment",
+    "BalanceBasis",
     "BookValuation",
     "CashDeposited",
     "CashFlow",
     "CashFlowBooked",
     "CashFlowKind",
     "CashLedger",
+    "CashPosition",
     "CashWithdrawn",
     "ContractExposure",
     "ContractHolding",
+    "ContractSettlement",
     "CurrencyAttribution",
     "CurrencyAttributionReport",
+    "DeliveryConvention",
+    "Entitlement",
+    "EntitlementStatus",
+    "ExchangeLeg",
+    "Exercise",
     "ExposureEngine",
+    "FinancingTier",
     "ForwardTerms",
     "FutureDatedRateError",
     "FxConversion",
     "FxRate",
     "FxRates",
+    "HoldingExchange",
     "HoldingValuation",
     "InstrumentHolding",
     "InstrumentValuation",
@@ -148,6 +173,9 @@ __all__ = [
     "MixedCurrencyValuationError",
     "MultiStrategyBook",
     "NAVCalculator",
+    "OptionExpiry",
+    "PaymentChange",
+    "PendingSettlement",
     "PnLEngine",
     "PortfolioEngine",
     "PortfolioEvent",

@@ -51,15 +51,26 @@ Two consequences, both stated rather than worked around:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from types import MappingProxyType
 from uuid import UUID
 
 from alphalab.allocation.state import AllocationState
+from alphalab.execution.auction import AuctionReopening
+from alphalab.instrument.borrow import BorrowAvailability, BorrowTerms
+from alphalab.instrument.controls import (
+    AuctionIndication,
+    AuctionInterest,
+    DeliveredAuction,
+    PublishedAuction,
+    published,
+)
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
+from alphalab.instrument.terms import OptionTerms
 from alphalab.market.bar import Bar
 from alphalab.market.events import (
     BarClosed,
@@ -81,6 +92,7 @@ from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.state import RiskState
+from alphalab.risk.surfaces import ObservedSurface, select
 from alphalab.runtime.exceptions import HistoryNotRetainedError
 
 __all__ = [
@@ -358,6 +370,21 @@ class RiskView:
     def active_limits(self) -> RiskLimits:
         return self._state.active_limits
 
+    def volatility_surface(
+        self, underlying: str, source: str | None = None
+    ) -> ObservedSurface | None:
+        """The latest volatility surface delivered for ``underlying``, or ``None`` (FUT-039).
+
+        Of the surfaces the run has received by now -- never one not yet
+        known -- the one as of the latest instant, a revision preferred to what
+        it revises; only ``source``'s, when named.
+        """
+
+        observed = self._state.surfaces.get(underlying, ())
+        if source is not None:
+            observed = tuple(o for o in observed if o.source == source)
+        return select(observed, math.inf)
+
     @property
     def cash(self) -> Decimal:
         return self._state.cash
@@ -412,7 +439,27 @@ class MarketView:
         return self._market.latest_ticks.get(asset_id)
 
     def bar(self, asset_id: str) -> Bar | None:
-        return self._market.latest_bars.get(asset_id)
+        """The latest bar published for ``asset_id``, of whatever interval, or ``None``.
+
+        The market engine keeps one latest bar per asset *and interval*, keyed
+        ``"<asset_id>_<interval code>"`` (:func:`alphalab.market.views.latest_bar`
+        reads one by both). Until v4.1.1 this looked the bare ``asset_id`` up in
+        that index, which no key ever equals, so it returned ``None`` for every
+        asset in every run since v2.10 -- a strategy reading its context's bars
+        saw none, and no test read one. It now finds the asset's bars by their
+        key and returns the most recent; of two closing at the same instant, the
+        one covering the longer interval, which contains the other. Linear in the
+        bars the market holds, as :attr:`prices` is in the prices.
+        """
+
+        prefix = f"{asset_id}_"
+        latest: Bar | None = None
+        for key, bar in self._market.latest_bars.items():
+            if not key.startswith(prefix) or bar.asset_id != asset_id:
+                continue
+            if latest is None or _bar_order(bar) > _bar_order(latest):
+                latest = bar
+        return latest
 
     def price(self, asset_id: str) -> Decimal | None:
         """The price the run is marking this asset at, or ``None`` if unpriced.
@@ -434,6 +481,13 @@ class MarketView:
         """Assets the run has priced, in sorted order for determinism."""
 
         return tuple(sorted(self._prices))
+
+
+def _bar_order(bar: Bar) -> tuple[float, float]:
+    """Latest first, then the longer interval; a month-counted interval is the longest."""
+
+    seconds = bar.timeframe.seconds
+    return (bar.timestamp, float("inf") if seconds is None else seconds)
 
 
 # ---------------------------------------------------------------------------
@@ -636,6 +690,18 @@ class HistoryView:
 # ---------------------------------------------------------------------------
 
 
+def _announced_terms(record: InstrumentRecord, as_of: float) -> InstrumentRecord:
+    """``record`` with its contract adjustments only as far as announced by ``as_of`` (FUT-024)."""
+
+    terms = record.terms
+    if not isinstance(terms, OptionTerms) or not any(
+        a.announced_at is not None and a.announced_at > as_of for a in terms.adjustments
+    ):
+        return record
+    known = tuple(a for a in terms.adjustments if a.announced_at is None or a.announced_at <= as_of)
+    return replace(record, terms=replace(terms, adjustments=known))
+
+
 @dataclass(frozen=True, slots=True)
 class UniverseView:
     """The instruments this run may trade, as its registry declares them.
@@ -671,6 +737,119 @@ class UniverseView:
     """
 
     _registry: InstrumentRegistry | None
+    _as_of: float | None = None
+    #: Each instrument's last reopening auction (FUT-033): one extended is
+    #: halted until it is held again.
+    _reopened: Mapping[str, AuctionReopening] = field(default_factory=dict)
+    #: What the venues published of their auctions during the run (FUT-043).
+    _delivered: Mapping[str, tuple[DeliveredAuction, ...]] = field(default_factory=dict)
+
+    def halted(self, asset_id: str) -> bool:
+        """Whether ``asset_id`` is halted now, by its venue's declared halts (FUT-020).
+
+        Now only: when a halt ends is the venue's announcement to come, and not
+        a strategy's to read before it is made.
+        """
+
+        controls = None if self._registry is None else self._registry.controls
+        if controls is None or self._as_of is None:
+            return False
+        if self._reopened:
+            # An auction extended past its price band is a halt until it is
+            # held again (FUT-033).
+            held = self._reopened.get(asset_id)
+            if held is not None and held.extended_to is not None and self._as_of < held.extended_to:
+                return True
+        record = self._registry.record_for(asset_id) if self._registry is not None else None
+        venue = "" if record is None else record.exchange
+        return controls.halt(asset_id, venue, self._as_of) is not None
+
+    def auction(self, asset_id: str) -> PublishedAuction | None:
+        """What the venue has published of ``asset_id``'s auction yet to be held (FUT-040).
+
+        ``None`` unless an auction is pending now: a halt reopening by auction
+        in force, one ended whose auction the run has not yet held -- at the
+        instrument's first event after it -- or one extended (FUT-033) and not
+        yet held again. Then the
+        book and the indication last published since the halt began, as of now;
+        never the uncross the run will compute, nor anything published later.
+        """
+
+        controls = None if self._registry is None else self._registry.controls
+        if controls is None or self._as_of is None or not controls.auctions:
+            return None
+        now = self._as_of
+        record = self._registry.record_for(asset_id) if self._registry is not None else None
+        venue = "" if record is None else record.exchange
+        halt = controls.halt(asset_id, venue, now)
+        extended_to = None
+        if halt is None or not halt.auction:
+            ended = controls.reopened_by_auction(asset_id, venue, now)
+            held = self._reopened.get(asset_id)
+            if ended is None:
+                return None
+            if held is not None and held.halt_end == ended.end:
+                if held.extended_to is None:
+                    return None
+                # Extended, and pending until held again at the instrument's
+                # first event from extended_to -- however long after it that is.
+                extended_to = held.extended_to
+            halt = ended
+        delivered = self._delivered.get(asset_id, ())
+        return PublishedAuction(
+            asset_id,
+            now,
+            halt.start,
+            published(
+                controls.auction_book(asset_id, halt.start, now),
+                delivered, AuctionInterest, halt.start, now,
+            ),
+            published(
+                controls.indication(asset_id, halt.start, now),
+                delivered, AuctionIndication, halt.start, now,
+            ),
+            extended_to,
+        )  # fmt: skip
+
+    def reopening(self, asset_id: str) -> AuctionReopening | None:
+        """``asset_id``'s last reopening auction, as the run held it, or ``None`` (FUT-043).
+
+        Its price, matched volume and imbalance, or why nothing crossed, and
+        an extension's instant: the venue's result, published when the auction
+        was held -- so never before. An auction still pending is
+        :meth:`auction`'s.
+        """
+
+        return self._reopened.get(asset_id)
+
+    def price_band(self, asset_id: str) -> tuple[Decimal, Decimal] | None:
+        """The limit down and up in force for ``asset_id`` now, or ``None`` (FUT-020)."""
+
+        controls = None if self._registry is None else self._registry.controls
+        if controls is None or self._as_of is None:
+            return None
+        record = self._registry.record_for(asset_id) if self._registry is not None else None
+        band = controls.band(asset_id, self._as_of, None if record is None else record.tick)
+        return None if band is None else (band.lower, band.upper)
+
+    def borrow(self, asset_id: str) -> tuple[Decimal | None, Decimal] | None:
+        """What a lender offers on ``asset_id`` now: units available and the fee rate.
+
+        ``None`` when the instrument declares no borrow terms -- it is shorted as
+        the run allows, at no fee. Otherwise the entry in effect now, the units
+        ``None`` where the lender states no limit; before the first entry takes
+        effect nothing is available, ``(0, 0)``, as the execution path reads it
+        (FUT-018). Never a later entry: what a lender will offer is its to state.
+        A view with no instant has no "now", and answers ``None``.
+        """
+
+        record = self.instrument(asset_id)
+        if record is None or record.borrow is None or self._as_of is None:
+            return None
+        # The view's terms end at the entry in effect now, or the stand-in for
+        # none yet -- see instrument().
+        entry = record.borrow.entries[-1]
+        return (entry.available, entry.annual_rate)
 
     @property
     def configured(self) -> bool:
@@ -715,9 +894,28 @@ class UniverseView:
         :meth:`~alphalab.instrument.registry.InstrumentRegistry.record_for`,
         which answers ``None`` rather than raising, so a strategy asking about an
         instrument it does not have is not an error.
+
+        Its borrow terms are those in effect by now: a lender's later entries --
+        a rate it will raise, a recall it will make -- are dated inputs the run
+        applies at their instants, not facts a strategy can read before them
+        (FUT-018). A record declaring none, and every other field, is the
+        registry's as declared.
         """
 
-        return None if self._registry is None else self._registry.record_for(asset_id)
+        record = None if self._registry is None else self._registry.record_for(asset_id)
+        if record is None or self._as_of is None:
+            return record
+        record = _announced_terms(record, self._as_of)
+        if record.borrow is None:
+            return record
+        terms = record.borrow
+        known = tuple(e for e in terms.entries if e.effective_at <= self._as_of)
+        if len(known) == len(terms.entries):
+            return record
+        # Before the first entry the lender has stated nothing yet: the view
+        # says so as the execution path reads it, nothing available from now.
+        stated = known or (BorrowAvailability(self._as_of, Decimal("0"), Decimal("0")),)
+        return replace(record, borrow=BorrowTerms(stated, terms.day_count))
 
     def sector(self, asset_id: str) -> str | None:
         """The sector ``asset_id`` is currently classified as, or ``None``.

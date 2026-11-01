@@ -475,26 +475,83 @@ def _random_requirements(rng: random.Random) -> ExecutionRequirements:
     )
 
 
+def _required(rng: random.Random, needed: bool) -> Support:
+    """``SUPPORTED`` where the flow needs it; anything where it does not."""
+
+    return Support.SUPPORTED if needed else _random_support(rng)
+
+
+def _satisfying_declaration(
+    rng: random.Random, requirements: ExecutionRequirements
+) -> CapabilityDeclaration:
+    """A declaration offering everything ``requirements`` needs, and arbitrary otherwise.
+
+    A random declaration is almost never compatible -- at v4.1.0 two draws in
+    600 were, so the status was reached by the luck of the seed, and one more
+    ``AssetType`` member moved the stream past it. This reaches it by
+    construction, so every draw also checks the converse.
+    """
+
+    others = [asset for asset in AssetType if asset is not requirements.asset_class]
+    features = [Capability.CANCEL_REPLACE, Capability.STREAMING]
+    supported = frozenset(requirements.features) | frozenset(
+        f for f in features if rng.random() < 0.5
+    )
+    market = MarketCapability(
+        requirements.asset_class,
+        rng.choice([ANY_LISTING_VENUE, requirements.listing_venue]),
+        frozenset(requirements.order_types) | frozenset(rng.sample(list(OrderType), 1)),
+        frozenset(requirements.time_in_force) | frozenset(rng.sample(list(TimeInForce), 1)),
+        _required(rng, requirements.short_selling),
+        _required(rng, requirements.fractional_quantities),
+        _required(rng, requirements.extended_hours),
+        _required(rng, requirements.bracket_orders),
+    )
+    account = AccountCapability(
+        requirements.account_id,
+        frozenset({requirements.asset_class, *rng.sample(others, rng.randint(0, 2))}),
+        _required(rng, requirements.margin),
+        _required(rng, requirements.short_selling),
+    )
+    return CapabilityDeclaration(
+        "adapter",
+        supported,
+        frozenset(f for f in features if f not in supported and rng.random() < 0.5),
+        (market,),
+        frozenset(rng.sample(others, rng.randint(0, 2))),
+        (account,),
+    )
+
+
+def _check_the_report(
+    requirements: ExecutionRequirements, declaration: CapabilityDeclaration
+) -> Compatibility:
+    report = check_compatibility(requirements, declaration)
+    supports = [check.support for check in report.checks]
+    if report.status is Compatibility.COMPATIBLE:
+        assert all(s is Support.SUPPORTED for s in supports)
+    elif report.status is Compatibility.INCOMPATIBLE:
+        assert Support.UNSUPPORTED in supports
+    else:
+        assert Support.UNDECLARED in supports and Support.UNSUPPORTED not in supports
+    # Every order type and time-in-force required is checked, once.
+    assert {c.requirement for c in report.checks} >= {
+        f"order_type={t}" for t in requirements.order_types
+    }
+    assert check_compatibility(requirements, declaration) == report
+    return report.status
+
+
 def test_compatible_means_every_check_supported_and_nothing_else_does() -> None:
     rng = random.Random(3939)
     seen: set[Compatibility] = set()
     for _ in range(600):
-        declaration = _random_declaration(rng)
         requirements = _random_requirements(rng)
-        report = check_compatibility(requirements, declaration)
-        seen.add(report.status)
-        supports = [check.support for check in report.checks]
-        if report.status is Compatibility.COMPATIBLE:
-            assert all(s is Support.SUPPORTED for s in supports)
-        elif report.status is Compatibility.INCOMPATIBLE:
-            assert Support.UNSUPPORTED in supports
-        else:
-            assert Support.UNDECLARED in supports and Support.UNSUPPORTED not in supports
-        # Every order type and time-in-force required is checked, once.
-        assert {c.requirement for c in report.checks} >= {
-            f"order_type={t}" for t in requirements.order_types
-        }
-        assert check_compatibility(requirements, declaration) == report
+        seen.add(_check_the_report(requirements, _random_declaration(rng)))
+        # A declaration offering everything the flow needs is compatible with it.
+        offered = _check_the_report(requirements, _satisfying_declaration(rng, requirements))
+        assert offered is Compatibility.COMPATIBLE, requirements
+        seen.add(offered)
     assert seen == set(Compatibility)
 
 

@@ -9,4 +9,4 @@ the source actually imported -- and strategy fingerprints and dataset provenance
 recorded that.
 """
 
-__version__ = "4.1.0"
+__version__ = "4.2.0"

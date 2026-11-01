@@ -48,6 +48,12 @@ class OptionContract:
     multiplier: int
 
     def __post_init__(self) -> None:
+        if self.style is ExerciseStyle.BERMUDAN:
+            raise OptionInputError(
+                "The pricers model American and European exercise; a Bermudan contract's "
+                "exercise dates are lifecycle terms (alphalab.instrument.terms.OptionTerms), "
+                "and pricing it as either style would misstate it."
+            )
         if self.strike <= Decimal("0"):
             raise OptionInputError(f"strike must be positive, got {self.strike}.")
         if self.multiplier <= 0:

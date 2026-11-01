@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.execution.auction import AuctionReopening
 from alphalab.execution.events import ExecutionEvent
 from alphalab.execution.report import ExecutionReport
 
@@ -22,3 +23,6 @@ class ExecutionState:
     reports: PersistentMap[str, ExecutionReport] = field(default_factory=PersistentMap)
     history: AppendOnlyLog[ExecutionReport] = field(default_factory=AppendOnlyLog)
     events: AppendOnlyLog[ExecutionEvent] = field(default_factory=AppendOnlyLog)
+    #: Each instrument's last reopening auction (FUT-033, phase 4), by
+    #: ``asset_id``; empty for a run whose venues declare no auction.
+    reopened: PersistentMap[str, AuctionReopening] = field(default_factory=PersistentMap)

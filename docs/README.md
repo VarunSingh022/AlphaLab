@@ -49,6 +49,7 @@ Reference
 | Document | Description |
 |-----------|-------------|
 | `GETTING_STARTED.md` | Installation, the repository, and building, checking and reproducing a first strategy |
+| `COMPOSING_STRATEGIES.md` | Writing a strategy over several assets, datasets, external information and models: the contracts, the time guarantees and the boundaries (v4.1.1) |
 | `EXAMPLES.md` | End-to-end examples covering research, backtesting, portfolio optimization, and production workflows |
 | `api/PUBLIC_API.md` | The public API, its manifest, and the stability policy from v4.0 |
 | `INTEGRATION.md` | Depending on AlphaLab from an application: how to install a release, the tested Python, and what an application may rely on |
@@ -81,7 +82,7 @@ Reference
 | Document | Description |
 |-----------|-------------|
 | `../ROADMAP.md` | What is delivered, what is a deliberate boundary, what is external, what is a stated limitation, and the future work accepted for later |
-| `audit/` | The pre-v4 audit and completion ledger, the v4.0 and v4.1 release audits, the historical inventory, the release certificate and the release runbook (`audit/RELEASE_RUNBOOK.md`) |
+| `audit/` | The pre-v4 audit and completion ledger, the v4.0 and v4.1 release audits, the historical inventory, the release certificate, the release runbook (`audit/RELEASE_RUNBOOK.md`) the phase 5 and phase 6 engine integration audits (`audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`, `audit/ENGINE_INTEGRATION_AUDIT_PHASE6.md`) |
 | `../CHANGELOG.md` | Version history and release notes. Each entry is scoped to its own release |
 | `../nowandfuture.md` | The long-form project reference: ownership, invariants, and what must not change casually |
 | `VISION.md` | Long-term goals and project philosophy |
@@ -313,12 +314,20 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v4.1.0
+v4.2.0
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 -- twelve releases that shipped
 without updating it -- and the v2.17 audit corrected it. Since v3.13
 `tests/regression/test_version_markers_agree.py` holds it to the package.)*
+
+**v4.2.0 -- in development, unpublished: additive on the v4.1 contract.** Every
+timed input on every driver; execution algorithms and a declared queue model on
+the historical drivers; a derivative's lifecycle and richer contract terms;
+strategy-directed exercise and cancellation; settlement-date cash; margin calls
+and forced liquidation on declared margin terms; a strategy configuration read
+back typed. The readiness evidence is `audit/V4_2_0_READINESS.md`; the published
+release is still v4.1.0.
 
 **v4.1.0 -- the first minor release on the v4.0 contract, and additive.** A
 replay pauses between two records and resumes -- in a new process too -- to the

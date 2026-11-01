@@ -79,7 +79,9 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Final, Protocol
 
-from alphalab.backtesting.state import BacktestResult
+from alphalab.backtesting.algorithmic import ExecutionPlan
+from alphalab.backtesting.schedule import RunSchedule, ScheduleKind
+from alphalab.backtesting.state import AlgorithmicResult, BacktestResult
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.fingerprint import (
     EngineBuild,
@@ -90,6 +92,7 @@ from alphalab.lifecycle.fingerprint import (
 from alphalab.persistence.exceptions import PersistenceError
 from alphalab.persistence.serializer import serialize
 from alphalab.research.study import StudyResult, canonical_study_key
+from alphalab.runtime.execution_pipeline import ExecutionRouting
 from alphalab.runtime.run import ExecutionMode
 from alphalab.runtime.run_snapshot import RunSnapshot
 from alphalab.runtime.run_snapshot import capture as capture_run
@@ -403,6 +406,34 @@ class ReproducibilityManifest:
             record one -- which :func:`manifest_gaps` reports. Rendered into the
             identity only when recorded, so a manifest derived before v3.11
             still verifies.
+        schedule_digest: The digest of the run's
+            :class:`~alphalab.backtesting.schedule.RunSchedule` -- every
+            observation, rate, funding, cash flow, split, timer and settlement
+            it was given (v4.1.1, ledger FUT-005) -- or ``None`` where the run
+            was given none, or the producer recorded none. Rendered into the
+            identity only when recorded, as ``build`` is, so every earlier
+            manifest keeps its id.
+        dataset_parts: For a run over a combined dataset
+            (:class:`~alphalab.api.CombinedDataset`), each part's
+            ``(dataset_version, content_hash)`` in the order the run read them
+            (v4.1.1, ledger FUT-005) -- the exact datasets a rerun is given
+            back; empty for a single dataset. Rendered into the identity only
+            when present, and checked by :func:`verify_manifest` to derive the
+            combined version and content hash.
+        execution_plan_id: :attr:`~alphalab.backtesting.algorithmic.ExecutionPlan.plan_id`
+            of the plan whose algorithms worked the run's orders in children
+            (v4.1.1, ledger FUT-009), or ``None`` for a run that filled them
+            whole. Rendered into the identity only when present.
+        queue_model: The queue model that governed the run's resting limit
+            orders, described (v4.1.1, ledger FUT-011), or ``None`` for a run
+            that declared none. Rendered into the identity only when present:
+            the run's configuration does not carry it, so without it two runs
+            whose passive fills were decided differently would share one.
+        instruments_digest: SHA-256 of the instrument registry the run held, as
+            its snapshot writes it -- every record, its terms, controls,
+            borrow, margin model and surfaces -- when the producer asked for it
+            (phase 4), or ``None``. The run's record names the registry by type
+            only (ADR-0023); rendered into the identity only when present.
     """
 
     manifest_id: str
@@ -417,6 +448,11 @@ class ReproducibilityManifest:
     engine: EngineIdentity
     fingerprint: StrategyFingerprint | None
     build: EngineBuild | None = None
+    schedule_digest: str | None = None
+    dataset_parts: tuple[tuple[str, str], ...] = ()
+    execution_plan_id: str | None = None
+    queue_model: str | None = None
+    instruments_digest: str | None = None
 
     @property
     def evidence_kind(self) -> str:
@@ -471,6 +507,11 @@ def canonical_manifest_key(
     engine: EngineIdentity,
     fingerprint: str | None,
     build: EngineBuild | None = None,
+    schedule_digest: str | None = None,
+    dataset_parts: tuple[tuple[str, str], ...] = (),
+    execution_plan_id: str | None = None,
+    queue_model: str | None = None,
+    instruments_digest: str | None = None,
 ) -> str:
     """Render the canonical key a manifest's identity is derived from.
 
@@ -478,7 +519,9 @@ def canonical_manifest_key(
     a manifest. The configuration enters through its digest; the fingerprint
     through its own derived identity, which already commits to the code,
     dependencies, parameters, research configuration and engine it names. The
-    engine build's two lines are appended only when a build was recorded.
+    engine build's two lines are appended only when a build was recorded, and
+    the schedule's line and a combined dataset's part lines only when there are
+    any (v4.1.1).
     """
 
     lines = [
@@ -497,6 +540,18 @@ def canonical_manifest_key(
     if build is not None:
         lines.append(f"engine.source={build.source_digest!r}")
         lines.append(f"engine.tz_database={build.tz_database!r}")
+    if schedule_digest is not None:
+        lines.append(f"inputs.schedule={schedule_digest!r}")
+    lines.extend(
+        f"dataset.part.{index}={version!r},{content!r}"
+        for index, (version, content) in enumerate(dataset_parts)
+    )
+    if execution_plan_id is not None:
+        lines.append(f"inputs.execution_plan={execution_plan_id!r}")
+    if queue_model is not None:
+        lines.append(f"inputs.queue_model={queue_model!r}")
+    if instruments_digest is not None:
+        lines.append(f"inputs.instruments={instruments_digest!r}")
     return "\n".join(lines)
 
 
@@ -511,6 +566,11 @@ def derive_manifest_id(
     engine: EngineIdentity,
     fingerprint: str | None,
     build: EngineBuild | None = None,
+    schedule_digest: str | None = None,
+    dataset_parts: tuple[tuple[str, str], ...] = (),
+    execution_plan_id: str | None = None,
+    queue_model: str | None = None,
+    instruments_digest: str | None = None,
 ) -> str:
     """SHA-256 over :func:`canonical_manifest_key`. Derived, never minted."""
 
@@ -526,6 +586,11 @@ def derive_manifest_id(
             engine,
             fingerprint,
             build,
+            schedule_digest,
+            dataset_parts,
+            execution_plan_id,
+            queue_model,
+            instruments_digest,
         )
     )
 
@@ -541,6 +606,11 @@ def _manifest(
     engine: EngineIdentity,
     fingerprint: StrategyFingerprint | None,
     build: EngineBuild | None,
+    schedule_digest: str | None = None,
+    dataset_parts: tuple[tuple[str, str], ...] = (),
+    execution_plan_id: str | None = None,
+    queue_model: str | None = None,
+    instruments_digest: str | None = None,
 ) -> ReproducibilityManifest:
     configuration_id = _sha256(configuration)
     return ReproducibilityManifest(
@@ -555,6 +625,11 @@ def _manifest(
             engine,
             None if fingerprint is None else fingerprint.fingerprint,
             build,
+            schedule_digest,
+            dataset_parts,
+            execution_plan_id,
+            queue_model,
+            instruments_digest,
         ),
         kind=kind,
         result_id=result_id,
@@ -567,7 +642,52 @@ def _manifest(
         engine=engine,
         fingerprint=fingerprint,
         build=build,
+        schedule_digest=schedule_digest,
+        dataset_parts=dataset_parts,
+        execution_plan_id=execution_plan_id,
+        queue_model=queue_model,
+        instruments_digest=instruments_digest,
     )
+
+
+def _combined_identity(parts: tuple[tuple[str, str], ...]) -> tuple[str, str]:
+    """The version and content hash a combined dataset derives from its parts.
+
+    The derivation :class:`~alphalab.api.CombinedProvenance` states, restated
+    here because the lifecycle does not import the facade; a test holds the two
+    equal.
+    """
+
+    versions = "\n".join(version for version, _ in parts)
+    hashes = "\n".join(content for _, content in parts)
+    return "combined-" + _sha256(versions), _sha256(hashes)
+
+
+def _parts_of(provenance: DatasetProvenanceView) -> tuple[tuple[str, str], ...]:
+    """A combined dataset's parts, read from its provenance; empty for one dataset."""
+
+    parts = getattr(provenance, "parts", ())
+    if not (
+        isinstance(parts, tuple)
+        and all(
+            isinstance(part, tuple) and len(part) == 2 and all(isinstance(x, str) for x in part)
+            for part in parts
+        )
+    ):
+        raise LifecycleInputError(
+            f"Dataset {provenance.dataset_version} states parts that are not "
+            "(dataset_version, content_hash) pairs, so a manifest could not name them."
+        )
+    if parts and _combined_identity(parts) != (
+        provenance.dataset_version,
+        provenance.content_hash,
+    ):
+        raise LifecycleInputError(
+            f"Dataset {provenance.dataset_version} states parts its version and content "
+            "hash were not derived from. A manifest naming them would send a rerun to "
+            "other datasets."
+        )
+    return parts
 
 
 def _identifying(dataset: VersionedDataset) -> DatasetProvenanceView:
@@ -609,6 +729,9 @@ def manifest_for_run(
     engine: EngineIdentity,
     *,
     build: EngineBuild | None,
+    schedule: RunSchedule | None = None,
+    execution: ExecutionPlan | None = None,
+    instruments: bool = False,
 ) -> ReproducibilityManifest:
     """The manifest of a finished run, with every identity read from its owner.
 
@@ -627,6 +750,21 @@ def manifest_for_run(
             :func:`~alphalab.lifecycle.fingerprint.running_build` in the same
             process -- or ``None`` to record none, which is reported as a gap.
             Required, so that not recording one is a statement.
+        schedule: The :class:`~alphalab.backtesting.schedule.RunSchedule` the
+            run was given (v4.1.1, ledger FUT-005), or ``None``. Checked, not
+            trusted: a run that delivered observations is held to a schedule
+            holding them, its last delivery among them; recorded by its digest,
+            which a rerun must be given back.
+        execution: The :class:`~alphalab.backtesting.algorithmic.ExecutionPlan`
+            whose algorithms worked the run's orders in children (v4.1.1, ledger
+            FUT-009), or ``None``. Checked: given exactly when the run routed
+            ``ALGORITHMIC``, and the plan of the book the result carries; recorded
+            by its ``plan_id``.
+        instruments: Whether to record the digest of the instrument registry
+            the run held (phase 4) -- its records, controls, borrow, margin
+            model and surfaces, as the registry snapshot writes them -- read off
+            the run itself, never supplied. ``False`` by default, so a manifest
+            asked for nothing new keeps its identity.
 
     Raises:
         DataValidationError: If ``dataset`` carries no provenance.
@@ -634,7 +772,11 @@ def manifest_for_run(
             payload -- its version then identifies no content -- or if the run
             names no dataset or a different one, is
             unseeded, executed no strategy the fingerprint names, or the
-            fingerprint does not verify.
+            fingerprint does not verify; if ``schedule`` holds fewer
+            observations than the run delivered, or not its last delivery; or
+            if ``execution`` is given for a run that filled its orders whole, is
+            missing for one that worked them in children, or is not the plan
+            its book was produced under.
     """
 
     digest = digest_run(result)
@@ -658,6 +800,8 @@ def manifest_for_run(
             "without a seed would be a claim it cannot keep."
         )
     _require_verified(fingerprint)
+    _require_schedule_of(result, schedule)
+    _require_plan_of(result, execution)
     if fingerprint.strategy_id not in digest.strategy_ids:
         raise LifecycleInputError(
             f"The fingerprint is of strategy {fingerprint.strategy_id!r} and the run "
@@ -675,7 +819,111 @@ def manifest_for_run(
         engine=engine,
         fingerprint=fingerprint,
         build=build,
+        schedule_digest=None if schedule is None or not schedule else schedule.digest,
+        dataset_parts=_parts_of(provenance),
+        execution_plan_id=None if execution is None else execution.plan_id,
+        # Read off the result, which names the model it ran under (FUT-011).
+        queue_model=result.execution_assumptions.queue_model,
+        instruments_digest=_registry_digest(result) if instruments else None,
     )
+
+
+def _registry_digest(result: BacktestResult) -> str | None:
+    """SHA-256 of the instrument registry ``result``'s run held, as its snapshot writes it."""
+
+    from alphalab.instrument.snapshot import registry_digest
+
+    registry = result.run.config.pipeline.instruments
+    return None if registry is None else registry_digest(registry)
+
+
+def _require_plan_of(result: BacktestResult, execution: ExecutionPlan | None) -> None:
+    """The plan a manifest names must be the one the run's orders were worked by."""
+
+    algorithmic = result.config.pipeline.routing is ExecutionRouting.ALGORITHMIC
+    if execution is None:
+        if algorithmic:
+            raise LifecycleInputError(
+                "The run worked its orders in children and no execution plan was given, so a "
+                "rerun could not be told which algorithms to work them by."
+            )
+        return
+    if not algorithmic:
+        raise LifecycleInputError(
+            "An execution plan was given for a run that filled its orders whole; a manifest "
+            "naming it would describe a run that did not happen."
+        )
+    book = result.algorithms if isinstance(result, AlgorithmicResult) else None
+    if book is None or book.plan.plan_id != execution.plan_id:
+        raise LifecycleInputError(
+            f"The run's orders were worked by plan "
+            f"{'(none recorded)' if book is None else book.plan.plan_id}, not "
+            f"{execution.plan_id}."
+        )
+
+
+def _require_schedule_of(result: BacktestResult, schedule: RunSchedule | None) -> None:
+    """The schedule a manifest names must be one the run can have been given.
+
+    A run records how many observations it delivered and the last one's
+    delivery id; a schedule claimed for it must hold that delivery, and hold
+    observations at all if any were delivered. It also keeps every volatility
+    surface (FUT-039) and auction publication (FUT-043) it was delivered, each
+    by source and version: a manifest of such a run must name a schedule, and
+    that schedule must hold each one (phase 6, REP-009). Nothing about a run
+    says whether it was given rates or settlements, so those are taken as given.
+    """
+
+    run = result.run
+    _require_deliveries_of(run, schedule)
+    if schedule is None:
+        return
+    delivered = {
+        entry.identity for entry in schedule.entries if entry.kind is ScheduleKind.OBSERVATION
+    }
+    if run.observations_delivered > len(delivered):
+        raise LifecycleInputError(
+            f"The run delivered {run.observations_delivered} observations and the schedule "
+            f"holds {len(delivered)}: a manifest naming it would claim inputs the run did "
+            "not read."
+        )
+    last = run.last_observation
+    if last is not None and last[1] not in delivered:
+        raise LifecycleInputError(
+            f"The run's last delivery was {last[1]!r}, which the schedule does not hold; "
+            "it is not the schedule this run was given."
+        )
+
+
+def _require_deliveries_of(run: Any, schedule: RunSchedule | None) -> None:
+    """Every surface and auction publication the run kept is one ``schedule`` holds (REP-009)."""
+
+    pipeline = run.pipeline
+    kept = [
+        (ScheduleKind.SURFACE, f"{o.source}|{o.version}|{underlying}")
+        for underlying, items in pipeline.risk.surfaces.items()
+        for o in items
+    ] + [
+        (ScheduleKind.AUCTION, f"{d.source}|{d.version}|{asset}")
+        for asset, items in pipeline.market.auctions.items()
+        for d in items
+    ]
+    if not kept:
+        return
+    if schedule is None:
+        raise LifecycleInputError(
+            f"The run was delivered {len(kept)} surfaces or auction publications and no "
+            "schedule was given: a manifest naming none would claim the run read no input "
+            "beyond its dataset."
+        )
+    held = {(entry.kind, entry.identity) for entry in schedule.entries}
+    missing = [identity for identity in kept if identity not in held]
+    if missing:
+        kind, identity = missing[0]
+        raise LifecycleInputError(
+            f"The run was delivered {kind.value} {identity!r}, which the schedule does not "
+            "hold; it is not the schedule this run was given."
+        )
 
 
 def manifest_for_study(
@@ -770,6 +1018,11 @@ def verify_manifest(manifest: ReproducibilityManifest) -> bool:
     )
     if manifest.seed_role is not expected_role:
         return False
+    if manifest.dataset_parts and _combined_identity(manifest.dataset_parts) != (
+        manifest.dataset_version,
+        manifest.dataset_content_hash,
+    ):
+        return False
     return manifest.manifest_id == derive_manifest_id(
         manifest.kind,
         manifest.result_id,
@@ -781,6 +1034,11 @@ def verify_manifest(manifest: ReproducibilityManifest) -> bool:
         manifest.engine,
         None if manifest.fingerprint is None else manifest.fingerprint.fingerprint,
         manifest.build,
+        manifest.schedule_digest,
+        manifest.dataset_parts,
+        manifest.execution_plan_id,
+        manifest.queue_model,
+        manifest.instruments_digest,
     )
 
 
@@ -822,6 +1080,16 @@ def manifest_gaps(manifest: ReproducibilityManifest) -> tuple[str, ...]:
             "dependency closure is not recorded, so a rerun can resolve different versions."
         )
     return tuple(gaps)
+
+
+def _held_a_registry(manifest: ReproducibilityManifest) -> bool:
+    """Whether a run manifest's recorded configuration names an instrument registry."""
+
+    recorded = _recorded_run(manifest)
+    try:
+        return recorded is not None and recorded["pipeline"]["instruments_type"] is not None
+    except (KeyError, TypeError):
+        return False
 
 
 def _live_objects(manifest: ReproducibilityManifest) -> list[str]:
@@ -866,6 +1134,16 @@ def external_requirements(manifest: ReproducibilityManifest) -> tuple[ExternalRe
             recreatable=True,
         )
     ]
+    requirements.extend(
+        ExternalRequirement(
+            ExternalInput.DATASET_BYTES,
+            f"part {index + 1} of {len(manifest.dataset_parts)} of {manifest.dataset_version}: "
+            f"the bytes of {version} (content digest {content}), with the normalization "
+            "policy it was read under, given back in this order",
+            recreatable=True,
+        )
+        for index, (version, content) in enumerate(manifest.dataset_parts)
+    )
     fingerprint = manifest.fingerprint
     if fingerprint is not None:
         code = fingerprint.code
@@ -923,6 +1201,36 @@ def external_requirements(manifest: ReproducibilityManifest) -> tuple[ExternalRe
                 ),
             )
         )
+        if manifest.schedule_digest is not None:
+            requirements.append(
+                ExternalRequirement(
+                    ExternalInput.AUXILIARY_DATA,
+                    f"the run's schedule with digest {manifest.schedule_digest} -- every "
+                    "observation set, rate, funding, cash flow, split, timer and settlement "
+                    "it was given -- supplied exactly as it was",
+                    recreatable=True,
+                )
+            )
+        if manifest.execution_plan_id is not None:
+            requirements.append(
+                ExternalRequirement(
+                    ExternalInput.AUXILIARY_DATA,
+                    f"the execution plan {manifest.execution_plan_id} whose algorithms worked "
+                    "the run's orders in children -- each algorithm, window, increment and "
+                    "capability check -- supplied exactly as it was",
+                    recreatable=True,
+                )
+            )
+        if manifest.queue_model is not None:
+            requirements.append(
+                ExternalRequirement(
+                    ExternalInput.AUXILIARY_DATA,
+                    f"the queue model {manifest.queue_model} that decided which resting "
+                    "limit orders reached the front of their price level, supplied exactly "
+                    "as it was",
+                    recreatable=True,
+                )
+            )
         if manifest.mode is ExecutionMode.LIVE:
             requirements.append(
                 ExternalRequirement(
@@ -1049,6 +1357,11 @@ def _input_differences(
             repr(None if original.fingerprint is None else original.fingerprint.fingerprint),
             repr(None if rerun.fingerprint is None else rerun.fingerprint.fingerprint),
         ),
+        ("schedule", repr(original.schedule_digest), repr(rerun.schedule_digest)),
+        ("dataset parts", repr(original.dataset_parts), repr(rerun.dataset_parts)),
+        ("execution plan", repr(original.execution_plan_id), repr(rerun.execution_plan_id)),
+        ("queue model", repr(original.queue_model), repr(rerun.queue_model)),
+        ("instruments", repr(original.instruments_digest), repr(rerun.instruments_digest)),
     ):
         if before != after:
             differences.append(f"{label}: {before} -> {after}")
@@ -1095,6 +1408,15 @@ def assess_reproducibility(
         findings.append(
             "a live run: its fills came from a venue, so the manifest identifies the result "
             "and cannot reproduce it."
+        )
+    if manifest.instruments_digest is None and _held_a_registry(manifest):
+        # A finding, not a gap (phase 5): a gap would turn every manifest asked
+        # for nothing new incomplete; whether to is the maintainer's decision.
+        findings.append(
+            "the run held an instrument registry the manifest names by type alone: its terms, "
+            "controls, borrow, margin model and surfaces are not identified, so a rerun given "
+            "different terms whose record agreed would reproduce it. "
+            "manifest_for_run(instruments=True) records them."
         )
 
     identity_verified = verify_manifest(manifest)

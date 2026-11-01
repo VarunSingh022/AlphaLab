@@ -60,7 +60,7 @@ def _job(name: str) -> str:
 
 
 #: The candidate branch a push may validate: named once in the trigger, once in the guard.
-CANDIDATE_BRANCH = "work/v4.1.0-release-hardening"
+CANDIDATE_BRANCH = "work/v4.2.0-release"
 
 
 def _triggers() -> str:
@@ -789,13 +789,13 @@ def test_the_candidate_s_release_is_the_one_the_push_branch_names() -> None:
 @pytest.mark.parametrize(
     ("event", "dispatched", "tree_version", "outcome"),
     [
-        ("push", "", "4.1.1", "but 4.1.0 was expected"),
-        ("pull_request", "", "4.1.1", "but 4.1.0 was expected"),
-        ("push", "", "4.1.0", "version=4.1.0"),
-        ("pull_request", "", "4.1.0", "version=4.1.0"),
-        ("workflow_dispatch", "4.1.1", "4.1.1", "version=4.1.1"),
-        ("workflow_dispatch", "4.1.0", "4.1.1", "but 4.1.0 was expected"),
-        ("workflow_dispatch", "v4.1.0", "4.1.0", "is not MAJOR.MINOR.PATCH"),
+        ("push", "", "4.2.1", "but 4.2.0 was expected"),
+        ("pull_request", "", "4.2.1", "but 4.2.0 was expected"),
+        ("push", "", "4.2.0", "version=4.2.0"),
+        ("pull_request", "", "4.2.0", "version=4.2.0"),
+        ("workflow_dispatch", "4.2.1", "4.2.1", "version=4.2.1"),
+        ("workflow_dispatch", "4.2.0", "4.2.1", "but 4.2.0 was expected"),
+        ("workflow_dispatch", "v4.2.0", "4.2.0", "is not MAJOR.MINOR.PATCH"),
     ],
 )
 def test_push_and_pull_request_runs_require_the_release_and_a_manual_run_names_its_own(
@@ -803,8 +803,8 @@ def test_push_and_pull_request_runs_require_the_release_and_a_manual_run_names_i
 ) -> None:
     """The identity step's own script, in a tree whose every reference says ``tree_version``.
 
-    A push or a labelled pull request must find 4.1.0 (RELEASE_VERSION); a tree
-    that says 4.1.1 throughout fails though it agrees with itself. A manual run
+    A push or a labelled pull request must find 4.2.0 (RELEASE_VERSION); a tree
+    that says 4.2.1 throughout fails though it agrees with itself. A manual run
     keeps its own ``expected_version``, which the tree must match.
     """
 

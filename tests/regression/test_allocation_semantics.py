@@ -264,7 +264,58 @@ def test_an_intent_is_a_delta_by_construction() -> None:
         "delta",
         "target_quantity",
         "target_weight",
+        # v4.2.0 (FUT-014): not an order -- allocation refuses it, below, and the
+        # execution pipeline carries it out.
+        "exercise",
+        # v4.2.0: a strategy withdraws its own working orders; not an order either.
+        "cancel",
+        # Phase 3 (FUT-024): a holder's election in a corporate action; recorded,
+        # never sized.
+        "elect",
+        # Phase 3 (FUT-029): a strategy amends its own working order; not an order.
+        "amend",
     ]
+
+
+def test_an_election_is_refused_by_allocation_and_never_sized() -> None:
+    from alphalab.allocation.events import AllocationRejected
+
+    state = AllocationEngine.initialize(BUDGET)
+    election = Intent(
+        "S1", "AAPL", Decimal("1"), kind=IntentKind.ELECT, metadata={"action": "tender"}
+    )
+    state, orders = AllocationEngine.allocate(
+        state, (election,), PRICES, TargetWeightSizing(), AllocationConstraints(), 1.0
+    )
+    assert orders == ()
+    (rejected,) = [e for e in state.events if isinstance(e, AllocationRejected)]
+    assert "election" in rejected.reason and "not an order" in rejected.reason
+
+
+def test_an_exercise_intent_is_refused_by_allocation_and_never_sized() -> None:
+    state = AllocationEngine.initialize(BUDGET)
+    exercise = Intent("S1", "AAPL", Decimal("1"), kind=IntentKind.EXERCISE)
+    state, orders = AllocationEngine.allocate(
+        state, (exercise,), PRICES, TargetWeightSizing(), AllocationConstraints(), 1.0
+    )
+    assert orders == ()
+    from alphalab.allocation.events import AllocationRejected
+
+    (rejected,) = [e for e in state.events if isinstance(e, AllocationRejected)]
+    assert "is not an order and is not allocated" in rejected.reason
+
+
+def test_a_cancel_intent_is_refused_by_allocation_and_never_sized() -> None:
+    state = AllocationEngine.initialize(BUDGET)
+    cancel = Intent("S1", "AAPL", Decimal("0"), kind=IntentKind.CANCEL)
+    state, orders = AllocationEngine.allocate(
+        state, (cancel,), PRICES, TargetWeightSizing(), AllocationConstraints(), 1.0
+    )
+    assert orders == ()
+    from alphalab.allocation.events import AllocationRejected
+
+    (rejected,) = [e for e in state.events if isinstance(e, AllocationRejected)]
+    assert "cancel in AAPL is not an order and is not allocated" in rejected.reason
 
 
 def test_emitting_the_same_intent_twice_asks_twice() -> None:

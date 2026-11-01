@@ -49,7 +49,7 @@ against its own timestamp, under which no record is ever stale.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -63,17 +63,30 @@ from alphalab.common.evolve import evolve
 from alphalab.common.ids import IdStreamPosition, id_source_for, require_seed, use_id_source
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.policy import FillPolicy, ImmediateFill
+from alphalab.execution.queue import QueueBook
 from alphalab.execution.report import ExecutionReport
+from alphalab.instrument.controls import DeliveredAuction
 from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.normalization import is_stale
 from alphalab.market.record import MarketRecord
 from alphalab.market.source import OrderingGuarantee
 from alphalab.market.state import MarketState
 from alphalab.oms.order import Order as OMSOrder
-from alphalab.portfolio.corporate_actions import CashFlow, Split
+from alphalab.portfolio.corporate_actions import (
+    Assignment,
+    CashFlow,
+    CashFlowKind,
+    ContractSettlement,
+    Exercise,
+    HoldingExchange,
+    OptionExpiry,
+    Split,
+)
 from alphalab.portfolio.fx import NO_RATES, FxRates
+from alphalab.portfolio.settlement import DeliveryConvention, PaymentChange
+from alphalab.risk.surfaces import ObservedSurface
 from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
-from alphalab.runtime.exceptions import AlphaLabRuntimeError
+from alphalab.runtime.exceptions import AlphaLabRuntimeError, RuntimeValidationError
 from alphalab.runtime.execution_pipeline import (
     ContextFactory,
     ExecutionPipeline,
@@ -82,6 +95,7 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineState,
     ExecutionRouting,
     UnpricedAsset,
+    held_past_expiry,
     price_refusal,
     retained,
     wants_slices,
@@ -116,11 +130,28 @@ class ExecutionMode(Enum):
 
     @property
     def routing(self) -> ExecutionRouting:
-        """Where an accepted order executes in this mode."""
+        """Where an accepted order executes in this mode, unless the run works it in children.
+
+        A historical run may instead route
+        :attr:`~alphalab.runtime.execution_pipeline.ExecutionRouting.ALGORITHMIC`
+        (v4.1.1): see :attr:`works_children`.
+        """
 
         return (
             ExecutionRouting.EXTERNAL if self is ExecutionMode.LIVE else ExecutionRouting.SIMULATED
         )
+
+    @property
+    def works_children(self) -> bool:
+        """Whether a run in this mode may have an execution algorithm work its orders in children.
+
+        A backtest and a replay (v4.1.1, ledger FUT-009). A live run's children
+        are the venue's to fill, through
+        :func:`~alphalab.runtime.broker_routing.route_child_order`, and a paper
+        run's are its broker's.
+        """
+
+        return self in {ExecutionMode.BACKTEST, ExecutionMode.REPLAY}
 
     @property
     def is_realtime(self) -> bool:
@@ -230,8 +261,16 @@ class RunConfig:
         if self.seed is not None:
             require_seed(self.seed, "RunConfig.seed")
         # The mode decides routing; a config that disagreed with its own mode
-        # would execute one way and describe itself another.
-        if self.pipeline.routing is not self.mode.routing:
+        # would execute one way and describe itself another. A historical run
+        # may work its orders in children instead (FUT-009); any other run asked
+        # to is refused, not quietly routed some other way.
+        if self.pipeline.routing is ExecutionRouting.ALGORITHMIC:
+            if not self.mode.works_children:
+                raise RuntimeValidationError(
+                    f"A {self.mode.name} run cannot route ALGORITHMIC: its children are its "
+                    "venue's to fill. Route them with route_child_order."
+                )
+        elif self.pipeline.routing is not self.mode.routing:
             object.__setattr__(self, "pipeline", evolve(self.pipeline, routing=self.mode.routing))
 
     @property
@@ -447,6 +486,8 @@ class RunEngine:
         context_factory: ContextFactory,
         now: float | None = None,
         rates: FxRates = NO_RATES,
+        *,
+        queue: QueueBook | None = None,
     ) -> tuple[RunState, ExecutionPipelineResult | None]:
         """Move one record through the execution path, and record what it did.
 
@@ -470,6 +511,14 @@ class RunEngine:
         under which no record is ever stale -- the right answer for a historical
         run. A live or paper run passes its real clock.
 
+        ``queue`` (v4.1.1, ledger FUT-011) is the run's queue book, for a
+        simulated run whose resting limit orders a queue model governs; the
+        book after the step is :attr:`ExecutionPipelineResult.queue
+        <alphalab.runtime.execution_pipeline.ExecutionPipelineResult.queue>`,
+        and a skipped record leaves it as it was. It is the driver's to carry,
+        as an execution plan's book is, so a run without one records exactly
+        what it did before.
+
         Returns the next state and the pipeline result, or ``None`` when the
         record was skipped -- because it was stale, or because its timestamp went
         backwards and the run tolerates that.
@@ -480,8 +529,16 @@ class RunEngine:
                 the portfolio at a price the market has already moved past, and
                 the market engine's ``latest_*`` index would silently take the
                 older quote as current. See ADR-0014.
+            RuntimeValidationError: If a queue book is given to a run that does
+                not simulate its orders: a venue, or an execution plan's
+                children, are filled elsewhere, and no queue governs them.
         """
 
+        if queue is not None and state.config.pipeline.routing is not ExecutionRouting.SIMULATED:
+            raise RuntimeValidationError(
+                f"A queue model governs simulated resting orders; this run routes "
+                f"{state.config.pipeline.routing.name}, so none would be governed by it."
+            )
         clock = record.timestamp if now is None else now
         limit = state.config.max_market_data_age_seconds
         if limit is not None and is_stale(record.timestamp, clock, limit):
@@ -509,7 +566,7 @@ class RunEngine:
             )
 
         result = ExecutionPipeline.process_record(
-            state.pipeline, record, context_factory, state.config.fill_policy, rates
+            state.pipeline, record, context_factory, state.config.fill_policy, rates, queue=queue
         )
         step = RunStep(
             index=state.processed,
@@ -734,6 +791,47 @@ class RunEngine:
 
     @staticmethod
     @in_accounting_context
+    def record_accrual(
+        state: RunState, key: str, amount: Decimal, currency: str, timestamp: float
+    ) -> RunState:
+        """Record one day's accrued interest or fee (FUT-023).
+
+        See :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.record_accrual`.
+        """
+
+        pipeline = ExecutionPipeline.record_accrual(
+            state.pipeline, key, amount, currency, timestamp
+        )
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, timestamp)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def post_accrual(
+        state: RunState,
+        key: str,
+        kind: CashFlowKind,
+        currency: str,
+        asset_id: str,
+        reference: str,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Post a period's accrual once (FUT-023).
+
+        See :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.post_accrual`.
+        """
+
+        pipeline = ExecutionPipeline.post_accrual(
+            state.pipeline, key, kind, currency, asset_id, reference, timestamp, rates
+        )
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, timestamp)
+        )
+
+    @staticmethod
+    @in_accounting_context
     def apply_split(
         state: RunState,
         split: Split,
@@ -748,6 +846,266 @@ class RunEngine:
 
         clock = state.current_timestamp if timestamp is None else timestamp
         pipeline = ExecutionPipeline.apply_split(state.pipeline, split, clock, rates)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def apply_exchange(
+        state: RunState,
+        exchange: HoldingExchange,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+        *,
+        payment_at: float | None = None,
+        part: Mapping[str, Decimal] | None = None,
+        delivers_at: Mapping[str, float] | None = None,
+        delivery: DeliveryConvention | None = None,
+    ) -> RunState:
+        """Exchange a holding by its declared terms at ``timestamp`` (FUT-021).
+
+        ``timestamp`` defaults to the run's current instant; ``payment_at`` is
+        when its cash is paid, if later (FUT-025); ``part`` is each strategy's
+        units of it exchanged, when not the whole (FUT-030); ``delivers_at`` the
+        legs delivered later, under ``delivery`` (FUT-037). See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.apply_exchange`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.apply_exchange(
+            state.pipeline, exchange, clock, rates, payment_at=payment_at, part=part,
+            delivers_at=delivers_at, delivery=delivery,
+        )  # fmt: skip
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_surface(state: RunState, observed: ObservedSurface) -> RunState:
+        """Receive a volatility surface as data at its knowledge instant (FUT-039, phase 5).
+
+        See :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.deliver_surface`.
+        """
+
+        pipeline = ExecutionPipeline.deliver_surface(state.pipeline, observed)
+        return evolve(
+            state,
+            pipeline=pipeline,
+            current_timestamp=max(state.current_timestamp, observed.known_at),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_auction(state: RunState, delivered: DeliveredAuction) -> RunState:
+        """Receive a venue's auction publication as data at its knowledge instant (FUT-043).
+
+        See :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.deliver_auction`.
+        """
+
+        pipeline = ExecutionPipeline.deliver_auction(state.pipeline, delivered)
+        return evolve(
+            state,
+            pipeline=pipeline,
+            current_timestamp=max(state.current_timestamp, delivered.known_at),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def record_terms(
+        state: RunState, asset_id: str, action: str, version: int, timestamp: float | None = None
+    ) -> RunState:
+        """Record a corrected version of an action's terms at its announcement (FUT-038, phase 5).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.record_terms`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.record_terms(state.pipeline, asset_id, action, version, clock)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def record_holders(
+        state: RunState, asset_id: str, action: str, timestamp: float | None = None
+    ) -> RunState:
+        """Record who holds ``asset_id`` at an action's record instant (FUT-030, phase 4).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.record_holders`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.record_holders(state.pipeline, asset_id, action, clock)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def amend_delivery(
+        state: RunState,
+        holding: str,
+        effective_at: float,
+        asset_id: str,
+        change: PaymentChange,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+        *,
+        delivers_at: float | None = None,
+        units: Decimal | None = None,
+        reference: str = "",
+    ) -> RunState:
+        """Book a later word on units an exchange delivers after its instant (FUT-037, phase 5).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.amend_delivery`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.amend_delivery(
+            state.pipeline, holding, effective_at, asset_id, change, clock, rates,
+            delivers_at=delivers_at, units=units, reference=reference,
+        )  # fmt: skip
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def amend_payment(
+        state: RunState,
+        holding: str,
+        effective_at: float,
+        currency: str,
+        change: PaymentChange,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+        *,
+        per_unit: Decimal | None = None,
+        replacement_currency: str | None = None,
+        payment_at: float | None = None,
+        reference: str = "",
+    ) -> RunState:
+        """Book an issuer's later word on a corporate action's payment (FUT-034, phase 4).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.amend_payment`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.amend_payment(
+            state.pipeline, holding, effective_at, currency, change, clock, rates,
+            per_unit=per_unit, replacement_currency=replacement_currency,
+            payment_at=payment_at, reference=reference,
+        )  # fmt: skip
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def fund(
+        state: RunState,
+        amount: Decimal,
+        currency: str,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Deposit cash in a currency this run settles, at ``timestamp`` (v4.1.1).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.fund`: the
+        way a run that settles a second currency gets cash in it, which no fill
+        conjures for itself.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.fund(state.pipeline, amount, currency, clock, rates)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def settle_contract(
+        state: RunState,
+        settlement: ContractSettlement,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Close every position in an expired contract at its final settlement (FUT-012).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.settle_contract`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.settle_contract(state.pipeline, settlement, clock, rates)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def exercise(
+        state: RunState,
+        exercise: Exercise,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Exercise contracts of a long option, by its declared terms (FUT-013).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.exercise`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.exercise(state.pipeline, exercise, clock, rates)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def assign(
+        state: RunState,
+        assignment: Assignment,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Assign contracts of a short option, by its declared terms (FUT-013).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.assign`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.assign(state.pipeline, assignment, clock, rates)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def expire_option(
+        state: RunState,
+        expiry: OptionExpiry,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Resolve every position in an option at its expiry, by its declared terms (FUT-013).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.expire_option`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.expire_option(state.pipeline, expiry, clock, rates)
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )
@@ -786,8 +1144,27 @@ class RunEngine:
         Separate from any driver's result type: a driver turns a finished
         :class:`RunState` into whatever it reports, and this is the last thing
         the runtime itself does to one.
+
+        Raises:
+            RuntimeValidationError: If the book still holds a contract past its
+                declared last trading instant (v4.1.1, FUT-012): a run is not
+                finished with a position no contract could still have.
         """
 
+        # The latest instant the run was handed: a record skipped after expiry
+        # is a record of time passing even though it moved nothing else.
+        latest = state.current_timestamp
+        if len(state.skipped):
+            latest = max(latest, state.skipped[-1].record.timestamp)
+        expired = held_past_expiry(state.pipeline, latest)
+        if expired:
+            raise RuntimeValidationError(
+                f"The run ends holding {len(expired)} contract(s) past their last trading "
+                f"instant ({', '.join(expired)}) with no settlement: a position the contract "
+                "could not have had would be reported as held and marked at its last price. "
+                "Close it before expiry, or apply its ContractSettlement (FUT-012) -- or, for an "
+                "option whose terms are declared, its OptionExpiry (FUT-013)."
+            )
         if not state.config.compile_analytics:
             return state
 

@@ -39,6 +39,10 @@ def test_the_portfolio_snapshot_covers_every_state_field() -> None:
     carried = _names(PortfolioSnapshot) | {
         "cash",  # -> balances + reserved
         "ledger",  # -> transactions
+        # v4.2.0 (FUT-015): derived from the transactions' settlement metadata
+        # and rebuilt from them on restore (settlement.pending_from), never
+        # stored apart -- a second copy of a ledger fact could disagree with it.
+        "unsettled",
     }
     missing = _names(PortfolioState) - carried
 

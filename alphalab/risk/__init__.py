@@ -18,9 +18,11 @@ from alphalab.risk.checks import (
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.engine import RiskEngine
 from alphalab.risk.events import (
+    BuyIn,
     BuyingPowerUpdated,
     DrawdownTriggered,
     ExposureUpdated,
+    MarginCall,
     MarginUpdated,
     RiskApproved,
     RiskCheckStarted,
@@ -50,6 +52,7 @@ from alphalab.risk.projection import (
     project,
 )
 from alphalab.risk.state import RiskState
+from alphalab.risk.surfaces import ObservedSurface
 from alphalab.risk.validation import validate_order_request
 from alphalab.risk.views import (
     active_limits,
@@ -63,6 +66,7 @@ from alphalab.risk.views import (
 __all__ = [
     "NO_WORKING_ORDERS",
     "BucketExposure",
+    "BuyIn",
     "BuyingPowerUpdated",
     "ClassificationLimit",
     "DailyLossLimit",
@@ -72,9 +76,11 @@ __all__ = [
     "ExposureStatus",
     "ExposureUpdated",
     "LeverageLimit",
+    "MarginCall",
     "MarginLimit",
     "MarginStatus",
     "MarginUpdated",
+    "ObservedSurface",
     "OrderRequest",
     "OrderSizeLimit",
     "PositionLimit",
