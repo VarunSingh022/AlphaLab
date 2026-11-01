@@ -412,6 +412,12 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 * **The macro engine's series as observations** [FUT-008].
   `alphalab.api.observations_from_indicator`.
 * **`LiveSession.deliver_observation`** [OFE-027].
+* **Example 78** (*phase 4*) -- a tender split between holders: two strategies
+  holding one position electing apart, the cash prorated, a record instant, and
+  the issuer's delayed then corrected payment reconciled from the ledger
+  [FUT-030, FUT-034] -- held by `tests/integration/test_split_tender_example.py`
+  and run from every built artifact. `tests/integration/test_phase4_interactions.py`
+  holds phase 4's capabilities against each other, replayed from every pause.
 * **Example 77** (*phase 3*) -- a short squeezed by its lender: a recall bought
   in through a halt and its reopening auction, a bid amended in place, a day's
   borrow fee [FUT-022, FUT-023, FUT-027, FUT-029] -- held by

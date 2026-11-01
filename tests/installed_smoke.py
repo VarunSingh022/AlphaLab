@@ -159,6 +159,7 @@ def main(expected_version: str) -> None:
         "75_exercise_assign_and_deliver.py",
         "76_a_financed_long_short_book.py",
         "77_a_short_squeezed_by_its_lender.py",
+        "78_a_tender_split_between_holders.py",
     ):
         # Loaded as a module, registered first: a dataclass with postponed
         # annotations looks its module up in sys.modules while it is built.

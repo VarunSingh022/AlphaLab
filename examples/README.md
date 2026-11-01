@@ -95,6 +95,7 @@ API.
 | 75 | `75_exercise_assign_and_deliver.py` | **Exercise, assign and deliver** (v4.1.1): an option's whole life on a declared market's calendar -- an American physical call exercised early before a dividend, a European cash-settled index put settled at expiry, the shares delivered against the strike, refusals, and the run replayed and resumed |
 | 76 | `76_a_financed_long_short_book.py` | **A financed long-short book** (v4.2.0): a pair margined together by declared scenarios, a margin purchase's debit charged tiered interest, a short on a lender's declared borrow and fee, a halt and a price band on the venue, the short carried through a merger, and the run replayed and resumed |
 | 77 | `77_a_short_squeezed_by_its_lender.py` | **A short squeezed by its lender** (phase 3): a lender's recall bought in after its deadline, the buy-in resting through a halt and crossing at the reopening auction, a bid amended in place, a day's borrow fee accrued and posted once, and the run replayed and resumed |
+| 78 | `78_a_tender_split_between_holders.py` | **A tender split between holders** (phase 4): holders of one position electing apart, a prorated cash alternative, a record instant, and the issuer's delayed then corrected payment, reconciled from the ledger |
 
 ## Reading order
 

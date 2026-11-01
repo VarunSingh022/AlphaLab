@@ -59,6 +59,7 @@ The `examples/` directory contains:
 | `75_exercise_assign_and_deliver.py` | **Exercise, assign and deliver** (v4.1.1): an American physically settled call exercised early before a dividend by a stated policy, a European cash-settled put on an index settled at expiry, every instant from a declared market's calendar; refusals; replayed and resumed |
 | `76_a_financed_long_short_book.py` | **A financed long-short book** (v4.2.0): a pair margined by declared scenarios, the long bought on margin and its debit charged tiered interest, the short sold against a lender's declared borrow and its fee, a bid placed in a halt and re-quoted inside a price band, the short carried through a merger; replayed and resumed |
 | `77_a_short_squeezed_by_its_lender.py` | **A short squeezed by its lender** (phase 3): a recall from its notice, the buy-in after its deadline resting through a halt and crossing at the venue's reopening auction, a resting bid amended in place keeping its priority, the day's borrow fee accrued at a declared cutoff; replayed and resumed |
+| `78_a_tender_split_between_holders.py` | **A tender split between holders** (phase 4): two strategies holding one position, each electing on its own, the oversubscribed cash prorated and the default taking the rest, the record instant bounding each election, and the cash delayed then corrected by the issuer -- each word a ledger entry, reconciled from the ledger (FUT-030, FUT-034) |
 
 ---
 
