@@ -57,7 +57,7 @@ from alphalab.risk.events import BuyIn
 from alphalab.runtime.run_snapshot import RunObjects
 from alphalab.runtime.snapshot import RuntimeObjects
 from alphalab.strategy.context import StrategyContext
-from alphalab.strategy.events import Intent
+from alphalab.strategy.events import Intent, IntentKind
 from tests.integration import test_margin_and_liquidation as margin
 from tests.integration.harness import (
     context_factory,
@@ -424,3 +424,33 @@ def test_a_recall_that_never_binds_leaves_the_runs_identity_as_none_would() -> N
 def test_a_recall_that_cannot_hold_is_refused(build: Any) -> None:
     with pytest.raises(InstrumentInputError):
         build()
+
+
+class TargetShort(margin.Trader):
+    """Holds 100 short, stated as a target, so the run's sizing model reads none of it."""
+
+    def on_quote(self, context: StrategyContext, event: Any) -> Iterable[Intent]:
+        at = event.quote.timestamp
+        if at != 2.0:
+            return ()
+        return (
+            Intent(
+                "S", margin.PLAIN.asset_id, D("-100"), timestamp=at, kind=IntentKind.TARGET_QUANTITY
+            ),
+        )
+
+
+def test_a_buy_in_is_the_excess_whatever_the_runs_sizing_model() -> None:
+    from alphalab.allocation.sizing import FixedDollarSizing
+
+    # A sizing model that reads a delta as an amount of money: a buy-in sized
+    # as a delta of 100 shares would buy 100 of money's worth -- one share.
+    cfg = margin.config(RECALLED)
+    cfg = replace(cfg, pipeline=replace(cfg.pipeline, sizing_model=FixedDollarSizing()))
+    result = BacktestEngine.run(
+        cfg,
+        data(RECALLED, None, None),
+        running_strategy_state("S", TargetShort({})),
+        context_factory,
+    )
+    assert fills(result) == [(2.0, D("-100")), (5.0, D("100"))]

@@ -2586,6 +2586,14 @@ def _route_requests(
             dropped.append((request, refusal.detail))
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
+        # A book settling several currencies pays each fill from the cash of its
+        # own: a purchase that cash cannot pay is refused here, not at the fill
+        # (ACC-017; buying power is the base currency's sum of them all).
+        unpayable = _currency_cash_refusal(current, request, instant)
+        if unpayable is not None:
+            dropped.append((request, unpayable))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
         unworkable = _terms_refusal(current, request, instant)
         if unworkable is not None:
             dropped.append((request, unworkable))
@@ -3468,6 +3476,68 @@ def _buying_power_charge(
     return _unit_margin(state, asset_id, record.margin, unit_value, rates, at)
 
 
+def _currency_cash_refusal(
+    state: ExecutionPipelineState, request: OrderRequest, at: float
+) -> str | None:
+    """Why a purchase's own settlement currency cannot pay for it, or ``None`` (ACC-017).
+
+    Read only in a book settling more than one currency -- in one, buying power
+    is that currency's cash and the risk gate holds it -- and only for a purchase
+    paying its notional in full: not one covering a short, which is financed past
+    the cash (FUT-017), nor one bought on margin (FUT-018). Its cost at the
+    request's price must be within the currency's cash less what is reserved,
+    less proceeds not yet received, less every buy already working in it; cash in
+    another currency is not converted to pay it (ADR-0035).
+    """
+
+    if request.side is not CoreSide.BUY or len(state.config.settlement_currencies) < 2:
+        return None
+    asset_id = request.asset_id
+    economics = _economics_of(state, asset_id)
+    if economics is not None and not economics.settlement.pays_notional:
+        return None
+    position = state.portfolio.positions.get(asset_id)
+    if position is not None and position.quantity < 0:
+        return None  # a cover, financed past the cash
+    if _purchased_on_margin(state, asset_id, request.quantity):
+        return None
+    currency = _settlement_currency_for(state, asset_id)
+    ctx = ACCOUNTING_CONTEXT
+    multiplier = _multiplier(economics)
+    cost = ctx.multiply(ctx.multiply(request.quantity, request.price), multiplier)
+    cash = state.portfolio.cash
+    available = ctx.subtract(cash.balance(currency), cash.reserved.get(currency, Decimal("0")))
+    for entry in state.portfolio.unsettled:
+        if entry.currency == currency and entry.cash > 0 and entry.pending_at(at):
+            available = ctx.subtract(available, entry.cash)
+    for order in _working_buys(state):
+        if _settlement_currency_for(state, order.asset_id) != currency:
+            continue
+        unit = _multiplier(_economics_of(state, order.asset_id))
+        price = order.limit_price or state.market_prices.get(order.asset_id, Decimal("0"))
+        available = ctx.subtract(
+            available, ctx.multiply(ctx.multiply(order.remaining_quantity, price), unit)
+        )
+    if cost <= available:
+        return None
+    return (
+        f"The purchase costs {cost} {currency} and the book can pay {max(available, Decimal(0))} "
+        f"{currency}: a fill settles in its own currency, and cash in another is not converted "
+        "to pay it. Fund the currency first (Funding, RunEngine.fund)."
+    )
+
+
+def _working_buys(state: ExecutionPipelineState) -> tuple[OMSOrder, ...]:
+    """Every buy order working, in the order the OMS keeps them."""
+
+    out: list[OMSOrder] = []
+    for order_id in state.oms.active_orders:
+        order = state.oms.orders.find(order_id)
+        if order.side is OMSSide.BUY:
+            out.append(order)
+    return tuple(out)
+
+
 def _purchased_on_margin(state: ExecutionPipelineState, asset_id: str, quantity: Decimal) -> bool:
     """Whether a fill buying ``quantity`` is booked as a financed debit (FUT-018)."""
 
@@ -3608,17 +3678,21 @@ def _initial_margin_refusal(
 
 
 def _reducing_order_working(state: ExecutionPipelineState, margin: MarginPosition) -> bool:
-    """Whether an order reducing a margined position is working -- a liquidation in progress.
+    """Whether a market order reducing a margined position is working -- a liquidation in progress.
 
     Read off the OMS's working orders, which a snapshot keeps whatever retention
     trims, so a liquidation is never placed twice for one call: a strategy's own
-    order reducing the position defers it the same way.
+    market order reducing the position, trading at its next turn, defers it the
+    same way. A resting limit or stop is a price the strategy waits for and does
+    not (ACC-016: until the phase 3 gap audit any reducing order deferred it).
     """
 
     for holding in margin.holdings:
         for order_id in state.oms.working_orders_for(holding.asset_id):
             order = state.oms.orders.find(order_id)
-            if (order.side is OMSSide.SELL) == (holding.quantity > 0):
+            if order.order_type is OrderType.MARKET and (order.side is OMSSide.SELL) == (
+                holding.quantity > 0
+            ):
                 return True
     return False
 
@@ -3663,7 +3737,7 @@ def _margin_call(
                     Intent(
                         sid,
                         holding.asset_id,
-                        ctx.subtract(share, part),
+                        _forced_target(state, sid, holding.asset_id, share, -part),
                         timestamp=at,
                         kind=IntentKind.TARGET_QUANTITY,
                         metadata={"margin_call": repr(at)},
@@ -3750,19 +3824,16 @@ def _buy_ins(
         placed: tuple[str, ...] = ()
         if shares and asset_id in current.market_prices:
             parts = _strategy_parts(shares, -excess)
-            # A delta, not a target: what the lender requires is bought now,
-            # whatever the strategy has resting -- a target would count a
-            # resting bid as held and buy nothing.
             batch = tuple(
                 Intent(
                     sid,
                     asset_id,
-                    -parts[sid],
+                    _forced_target(current, sid, asset_id, share, -parts[sid]),
                     timestamp=at,
-                    kind=IntentKind.DELTA,
+                    kind=IntentKind.TARGET_QUANTITY,
                     metadata={"buy_in": repr(at)},
                 )
-                for sid, _ in shares
+                for sid, share in shares
                 if parts.get(sid)
             )
             allocation, requests = _allocate(current, batch, current.market_prices, rates, at)
@@ -3791,6 +3862,23 @@ def _buy_ins(
         risk = current.risk
         current = evolve(current, risk=evolve(risk, events=risk.events.append(bought)))
     return current, routed
+
+
+def _forced_target(
+    state: ExecutionPipelineState, strategy_id: str, asset_id: str, share: Decimal, trade: Decimal
+) -> Decimal:
+    """The target that makes allocation trade exactly ``trade`` for a forced reduction.
+
+    A liquidation and a buy-in move what the account requires, whatever the
+    strategy has resting: allocation measures a target against the position and
+    the strategy's working orders, so the target names both, and the order is
+    ``trade`` -- never absorbed by a resting order, and never read through the
+    run's sizing model, as a delta would be (ACC-016).
+    """
+
+    probe = Intent(strategy_id, asset_id, Decimal("0"), kind=IntentKind.TARGET_QUANTITY)
+    working = _working_shares(state, (probe,)).get((strategy_id, asset_id), Decimal("0"))
+    return ACCOUNTING_CONTEXT.add(ACCOUNTING_CONTEXT.add(share, working), trade)
 
 
 def _covering_order_working(state: ExecutionPipelineState, asset_id: str) -> bool:

@@ -380,6 +380,16 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
   declares its adjustment.
 * **A Bermudan contract cannot be priced as American or European** [FUT-016]:
   `OptionContract` refuses `ExerciseStyle.BERMUDAN`.
+* **A strategy's resting order could defer a margin call indefinitely** [ACC-016]
+  (*phase 3*): a call waited on any working order reducing the position, and a
+  liquidation sized as a target counted a far bid as held; a buy-in sized as a
+  delta was read through the sizing model. Only a working market order defers
+  either now, and every forced trade is a target net of the strategy's working
+  orders, trading exactly the reduction required.
+* **A purchase its currency could not pay stopped a multi-currency run** [ACC-017]
+  (*phase 3*): buying power sums every currency, so the fill raised
+  `InsufficientFundsError`. The purchase is now refused when placed, naming the
+  currency, and the run goes on; nothing is converted to pay it.
 * **A restored run could lose fills not yet settled** [ACC-015] (*phase 3*): a
   run bounding its results trimmed the ledger regardless of settlement, and a
   restore rebuilds the unsettled fills from it. The bound now widens, while a

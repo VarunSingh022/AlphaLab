@@ -36,7 +36,7 @@ from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.replay_snapshot import capture as capture_replay
 from alphalab.backtesting.replay_snapshot import from_primitives as replay_from_primitives
 from alphalab.backtesting.replay_snapshot import restore as restore_replay
-from alphalab.common.order_terms import OrderTerms
+from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.conventions.economics import InstrumentEconomics, SettlementModel
 from alphalab.conventions.lot import LotSpecification
 from alphalab.core.enums import AssetType
@@ -728,3 +728,28 @@ def test_a_margined_option_purchase_is_charged_its_premium_not_its_margin() -> N
     assert fills(result, call) == []
     rejected = [d for d in result.state.risk.history if not d.approved]
     assert any(v.rule == "BuyingPowerLimit" for d in rejected for v in d.violations)
+
+
+class FarBid(Trader):
+    """Shorts 100 at 2.0 and rests a bid of 100 at 1, far from the market, at 2.5."""
+
+    def on_quote(self, context: StrategyContext, event: Any) -> Iterable[Intent]:
+        at = event.quote.timestamp
+        if at == 2.0:
+            return (Intent("S", ACME.asset_id, D("-100"), timestamp=at),)
+        if at == 2.5:
+            bid = OrderTerms.limit(D("1"), TimeInForce.GTC)
+            return (Intent("S", ACME.asset_id, D("100"), timestamp=at, terms=bid),)
+        return ()
+
+
+def test_a_resting_bid_far_from_the_market_does_not_defer_the_margin_call() -> None:
+    # Found by the phase 3 gap audit: a call deferred to any working order that
+    # reduced the position, and a liquidation sized as a target counted the
+    # resting bid as held -- a strategy's bid at 1 would have kept the short
+    # from ever being bought in.
+    mids = {ACME.asset_id: {**SQUEEZE, 2.5: "100"}}
+    result = run(mids, strategy=FarBid({}))
+    (call,) = calls(result)
+    assert call.timestamp == 4.0 and call.orders
+    assert fills(result) == [(2.0, D("-100")), (5.0, D("65"))]

@@ -241,3 +241,60 @@ def test_a_payment_before_the_effective_instant_is_refused() -> None:
     held = run(BUY_ALL, RunSchedule.of()).state
     with pytest.raises(RuntimeValidationError, match="before it"):
         ExecutionPipeline.apply_exchange(held, MERGER, 9.0, payment_at=8.5)
+
+
+def test_a_purchase_its_own_currency_cannot_pay_is_refused_and_the_run_goes_on() -> None:
+    # Found by the phase 3 gap audit (ACC-017): base buying power sums every
+    # currency, so a USD purchase backed only by EUR cash passed the gate and
+    # stopped the run at the fill. It is now refused when placed.
+    from alphalab.backtesting import Funding
+    from alphalab.portfolio.fx import FxRate
+
+    rates = [FxRate("EUR", "USD", D("1.25"), 1.0, "t"), FxRate("USD", "EUR", D("0.8"), 1.0, "t")]
+    schedule = RunSchedule.of(rates=rates, fundings=[Funding(D("10000"), "EUR", 1.5)])
+    base = config()
+    pipeline = replace(base.pipeline, also_settles=frozenset({"EUR"}))
+    cfg = replace(base, pipeline=replace(pipeline, budget=pipeline.budget.in_currency("USD")))
+    trader = margin.Trader({**BUY_ALL, (7.0, OTHER.asset_id): D("50")})
+    result = BacktestEngine.run(
+        cfg, data(), running_strategy_state("S", trader), context_factory, schedule=schedule
+    )
+    assert other_fills(result) == []
+    assert any("not converted" in reason and "USD" in reason for reason in trader.rejections)
+    assert result.state.portfolio.cash.balance("EUR") == D("10000.00")
+
+
+def test_an_unpaid_receivable_in_a_currency_does_not_pay_a_purchase_in_it() -> None:
+    from alphalab.backtesting import Funding
+    from alphalab.backtesting.dataset import MarketDataset
+    from alphalab.portfolio.fx import FxRate
+    from tests.integration.harness import quote
+
+    euro = exchanges.EURO
+    # 10 OLDCO bought: 9,000 USD left. The merger pays 1,000 EUR, owed until 6.0.
+    merger = HoldingExchange(OLD.asset_id, cash_per_unit=D("100"), cash_currency="EUR")
+    rates = [FxRate("EUR", "USD", D("1.25"), 1.0, "t"), FxRate("USD", "EUR", D("0.8"), 1.0, "t")]
+    schedule = RunSchedule.of(
+        exchanges=[PaidExchange(merger, 3.0, 6.0)],
+        rates=rates,
+        fundings=[Funding(D("1"), "EUR", 1.5)],
+    )
+    base = backtest_config("S", starting_cash=CASH)
+    pipeline = replace(
+        base.pipeline, instruments=registry_of(OLD, euro), also_settles=frozenset({"EUR"})
+    )
+    cfg = replace(base, pipeline=replace(pipeline, budget=pipeline.budget.in_currency("USD")))
+    quotes = [quote(OLD.asset_id, t, D("100")) for t in margin.series(*["1"] * 7)]
+    quotes += [
+        replace(quote(euro.asset_id, t, D("100")), currency="EUR")
+        for t in margin.series(*["1"] * 7)
+    ]
+    data = MarketDataset.of("PAID", sorted(quotes, key=lambda q: (q.timestamp, q.asset_id)))
+    plan = {(2.0, OLD.asset_id): D("10"), (4.0, euro.asset_id): D("5")}
+    trader = margin.Trader(plan)
+    result = BacktestEngine.run(
+        cfg, data, running_strategy_state("S", trader), context_factory, schedule=schedule
+    )
+    # Buying power in USD would cover 500 EUR; the EUR owed does not pay it.
+    assert margin.fills(result, euro) == []
+    assert any("not converted" in r and "EUR" in r for r in trader.rejections)
