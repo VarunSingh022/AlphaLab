@@ -35,6 +35,7 @@ from alphalab.conventions.tick import RoundingDirection, TickSchedule, round_to_
 from alphalab.instrument.exceptions import InstrumentInputError
 
 __all__ = [
+    "AuctionIndication",
     "AuctionInterest",
     "AuctionPriority",
     "AuctionTieBreak",
@@ -42,6 +43,7 @@ __all__ = [
     "BandAction",
     "BandReference",
     "PriceBand",
+    "PublishedAuction",
     "ReferenceBand",
     "TradingControls",
     "TradingHalt",
@@ -357,6 +359,113 @@ class AuctionInterest:
 
 
 @dataclass(frozen=True, slots=True)
+class AuctionIndication:
+    """What a venue publishes of its auction's indicative uncross (FUT-040, phase 5).
+
+    A venue's indicative price, the quantity it would match there and the
+    imbalance left, as published at ``published_at`` -- each only where the
+    venue provides it -- or the withdrawal of its indication. Information for
+    strategies: the run's uncross is computed from the book (FUT-033) or read
+    from the print, never from an indication.
+
+    Attributes:
+        asset_id: The instrument.
+        published_at: When the venue published it.
+        price: The indicative uncross price, or ``None`` if not published.
+        matched: The quantity the venue would match at it, or ``None``.
+        imbalance: What would be left unmatched, signed (buying positive), or
+            ``None``.
+        withdrawn: Whether the venue withdrew its indication: then it states
+            nothing else.
+    """
+
+    asset_id: str
+    published_at: float
+    price: Decimal | None = None
+    matched: Decimal | None = None
+    imbalance: Decimal | None = None
+    withdrawn: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.asset_id, str) or not self.asset_id:
+            raise InstrumentInputError("An auction indication names its instrument.")
+        object.__setattr__(
+            self, "published_at", _instant(self.published_at, "An auction indication's publication")
+        )
+        stated = (self.price, self.matched, self.imbalance)
+        if not isinstance(self.withdrawn, bool):
+            raise InstrumentInputError(f"withdrawn is a bool, got {self.withdrawn!r}.")
+        if self.withdrawn and any(value is not None for value in stated):
+            raise InstrumentInputError(
+                "A withdrawn indication states nothing else: a price or quantity beside it "
+                "would be published and withdrawn at once."
+            )
+        if not self.withdrawn and all(value is None for value in stated):
+            raise InstrumentInputError(
+                "An auction indication publishes a price, a matched quantity or an imbalance, "
+                "or withdraws one."
+            )
+        for name, value, least in (
+            ("price", self.price, "positive"),
+            ("matched", self.matched, "zero or more"),
+            ("imbalance", self.imbalance, None),
+        ):
+            if value is None:
+                continue
+            if not isinstance(value, Decimal) or not value.is_finite():
+                raise InstrumentInputError(f"An indication's {name} is a finite Decimal.")
+            if (least == "positive" and value <= 0) or (least == "zero or more" and value < 0):
+                raise InstrumentInputError(f"An indication's {name} is {least}, got {value}.")
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedAuction:
+    """What a strategy is shown of an auction yet to be held (FUT-040, phase 5).
+
+    Only what the venue published, by the strategy's instant, for the auction
+    pending: the book and the indication last published since the halt began
+    (FUT-033's book is the one the uncross will read, as published by then),
+    never a later one, never the uncross the run will compute, and never depth
+    the venue did not publish.
+
+    Attributes:
+        asset_id: The instrument.
+        as_of: The strategy's instant.
+        since: When the halt the auction reopens began.
+        book: The book last published since then, or ``None``.
+        indication: The indication last published since then -- a withdrawal
+            among them -- or ``None``.
+        extended_to: When an auction already extended (FUT-033) is held again,
+            or ``None``.
+    """
+
+    asset_id: str
+    as_of: float
+    since: float
+    book: AuctionInterest | None = None
+    indication: AuctionIndication | None = None
+    extended_to: float | None = None
+
+    @property
+    def book_age(self) -> float | None:
+        """Seconds since the book shown was published, or ``None``."""
+
+        return None if self.book is None else self.as_of - self.book.published_at
+
+    @property
+    def indication_age(self) -> float | None:
+        """Seconds since the indication shown was published, or ``None``."""
+
+        return None if self.indication is None else self.as_of - self.indication.published_at
+
+    @property
+    def withdrawn(self) -> bool:
+        """Whether the venue's last indication withdrew it."""
+
+        return self.indication is not None and self.indication.withdrawn
+
+
+@dataclass(frozen=True, slots=True)
 class TradingHalt:
     """An interval in which an instrument, or every instrument of a venue, does not trade.
 
@@ -428,6 +537,8 @@ class TradingControls:
     reference_bands: tuple[ReferenceBand, ...] = ()
     #: What the venues publish of their auction books (FUT-033, phase 4).
     auction_books: tuple[AuctionInterest, ...] = ()
+    #: What the venues publish of their auctions' indicative uncross (FUT-040).
+    indications: tuple[AuctionIndication, ...] = ()
     _bands_by_asset: Mapping[str, tuple[PriceBand, ...]] = field(
         init=False, repr=False, compare=False
     )
@@ -444,6 +555,9 @@ class TradingControls:
         init=False, repr=False, compare=False
     )
     _books_by_asset: Mapping[str, tuple[AuctionInterest, ...]] = field(
+        init=False, repr=False, compare=False
+    )
+    _indications_by_asset: Mapping[str, tuple[AuctionIndication, ...]] = field(
         init=False, repr=False, compare=False
     )
     _auctions: bool = field(init=False, repr=False, compare=False)
@@ -516,6 +630,18 @@ class TradingControls:
                     f"{book.published_at!r}: a later one replaces it when it is published."
                 )
             published_books.append(book)
+        indications = tuple(sorted(self.indications, key=lambda i: (i.asset_id, i.published_at)))
+        if not all(isinstance(i, AuctionIndication) for i in indications):
+            raise InstrumentInputError("Trading controls' indications are AuctionIndications.")
+        by_indication: dict[str, list[AuctionIndication]] = {}
+        for indication in indications:
+            indicated = by_indication.setdefault(indication.asset_id, [])
+            if indicated and indicated[-1].published_at == indication.published_at:
+                raise InstrumentInputError(
+                    f"Two auction indications for {indication.asset_id} are published at "
+                    f"{indication.published_at!r}: a later one replaces it when it is published."
+                )
+            indicated.append(indication)
         for halt in halts:
             if (
                 halt.uncross is not None
@@ -531,6 +657,10 @@ class TradingControls:
         object.__setattr__(self, "halts", halts)
         object.__setattr__(self, "auction_books", books)
         object.__setattr__(self, "_books_by_asset", {a: tuple(b) for a, b in by_book.items()})
+        object.__setattr__(self, "indications", indications)
+        object.__setattr__(
+            self, "_indications_by_asset", {a: tuple(i) for a, i in by_indication.items()}
+        )
         object.__setattr__(self, "_auctions", any(halt.auction for halt in halts))
         object.__setattr__(self, "references", references)
         object.__setattr__(self, "reference_bands", rules)
@@ -553,6 +683,7 @@ class TradingControls:
                 *self._references_by_asset,
                 *self._rules_by_asset,
                 *self._books_by_asset,
+                *self._indications_by_asset,
             )
         )
 
@@ -575,6 +706,20 @@ class TradingControls:
                 break
             if book.published_at >= since:
                 found = book
+        return found
+
+    def indication(self, asset_id: str, since: float, at: float) -> AuctionIndication | None:
+        """The indication for ``asset_id`` last published in ``[since, at]``, or ``None``.
+
+        ``since`` is the halt's start, as for :meth:`auction_book` (FUT-040).
+        """
+
+        found = None
+        for indication in self._indications_by_asset.get(asset_id, ()):
+            if indication.published_at > at:
+                break
+            if indication.published_at >= since:
+                found = indication
         return found
 
     def band(self, asset_id: str, at: float, tick: TickSchedule | None = None) -> PriceBand | None:
@@ -702,6 +847,25 @@ def controls_to_primitives(controls: TradingControls | None) -> dict[str, Any] |
                         "market_sell": str(b.market_sell),
                     }
                     for b in controls.auction_books
+                ]
+            }
+        ),
+        # Written only when declared (FUT-040), so controls without them keep
+        # their form.
+        **(
+            {}
+            if not controls.indications
+            else {
+                "indications": [
+                    {
+                        "asset_id": i.asset_id,
+                        "published_at": i.published_at,
+                        "price": _text(i.price),
+                        "matched": _text(i.matched),
+                        "imbalance": _text(i.imbalance),
+                        **({"withdrawn": True} if i.withdrawn else {}),
+                    }
+                    for i in controls.indications
                 ]
             }
         ),
@@ -835,6 +999,17 @@ def controls_from_primitives(value: Any, where: str = "controls") -> TradingCont
                     Decimal(b["market_sell"]),
                 )
                 for b in value.get("auction_books", ())
+            ),
+            tuple(
+                AuctionIndication(
+                    i["asset_id"],
+                    i["published_at"],
+                    _optional_decimal(i["price"]),
+                    _optional_decimal(i["matched"]),
+                    _optional_decimal(i["imbalance"]),
+                    i.get("withdrawn", False),
+                )
+                for i in value.get("indications", ())
             ),
         )
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:

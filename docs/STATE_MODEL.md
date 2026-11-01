@@ -283,7 +283,8 @@ Trading controls write their `references` and `reference_bands` (phase 3,
 ledger FUT-028) only when declared.
 A halt writes `auction` (phase 3, ledger FUT-027) only when it reopens by one,
 and `uncross` (phase 4, ledger FUT-033) only when it computes one; controls
-write `auction_books` only when declared. The execution record writes
+write `auction_books` only when declared, and `indications` (phase 5, ledger
+FUT-040) likewise. The execution record writes
 `reopened` -- each instrument's last reopening auction, its price, matched
 volume, imbalance and any extension -- only when a run held one, and a payload
 without it reads as none; it is the run's record that an instrument has

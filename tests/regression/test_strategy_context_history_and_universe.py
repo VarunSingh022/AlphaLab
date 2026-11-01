@@ -425,6 +425,9 @@ def test_the_pipeline_overwrites_whatever_the_caller_supplied() -> None:
         def borrow(self, asset_id: str) -> Any:
             return None
 
+        def auction(self, asset_id: str) -> Any:
+            return None
+
         def instrument(self, asset_id: str) -> Any:
             return None
 

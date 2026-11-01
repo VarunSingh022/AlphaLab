@@ -348,6 +348,13 @@ class UniverseProtocol(Protocol):
         """Units available to borrow and the fee in effect now, or ``None`` (v4.2.0, FUT-018)."""
         ...
 
+    def auction(self, asset_id: str) -> Any | None:
+        """What the venue has published of an auction yet to be held, or ``None`` (FUT-040).
+
+        A :class:`~alphalab.instrument.controls.PublishedAuction`.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class NoPortfolio:
@@ -632,6 +639,9 @@ class NoUniverse:
         return None
 
     def borrow(self, asset_id: str) -> tuple[Decimal | None, Decimal] | None:
+        return None
+
+    def auction(self, asset_id: str) -> Any | None:
         return None
 
 

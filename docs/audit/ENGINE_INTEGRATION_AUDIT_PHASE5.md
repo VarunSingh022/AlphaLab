@@ -22,7 +22,8 @@ model, lot), option and corporate-action terms, settlement convention, margin
 terms, borrow terms and tick grid, its classifications, dimensions and dated
 aliases; and, for the account, a margin model -- with its declared surfaces or
 the feed it reads (FUT-039) -- and the venues' trading controls: bands, band
-rules and references, halts, auction uncross rules and published auction books. Every one of them changes what a run does wherever it
+rules and references, halts, auction uncross rules, published auction books and
+indications (FUT-040). Every one of them changes what a run does wherever it
 binds: what may be traded and how much, what a fill costs, what is refused, what
 is margined and liquidated, what a strategy is shown.
 
@@ -96,7 +97,7 @@ convention* is a market's rule shipped and checked against its source.
 | Information during a run | `ObservationDelivery`, `RunSchedule`, `ObservedSurface` (FUT-039) | interface for what the host supplies, point in time; inputs synthetic | `test_surface_feeds.py`, example 72 |
 | Reconciliation | `StateReconciliation`, `SymbolMapping` | tested against the paper venue and the reference adapter's snapshots | `tests/integration/test_real_execution.py` |
 | Calendars, settlement, lots, ticks, day counts | `MarketCalendar`, `TickSchedule`, `InstrumentEconomics`, `DayCount` | declared by the caller; **no market's rules shipped as verified** -- a MIC in the docs is an example (BDY-013) | ROADMAP *Deliberate boundaries* |
-| Venue controls | bands, band rules, halts, auctions, published books | declared inputs; synthetic in every test and example | `alphalab/instrument/controls.py` |
+| Venue controls | bands, band rules, halts, auctions, published books and indications | declared inputs; synthetic in every test and example | `alphalab/instrument/controls.py` |
 
 **What an adapter must supply.** For execution: an implementation of
 `BrokerProtocol` translating the vendor's protocol both ways, its events as
@@ -150,7 +151,7 @@ manifest identity moves; the manifest identifies the terms themselves with
 | A resumed run checks its registry by type alone | 4, design | FUT-041 (proposed v4.3) |
 | A default manifest's registry, as a gap or by default | 4, identity | FUT-042 (proposed v5.0): the maintainer's decision |
 | Auction books and indications delivered during a run, for a live session | 5 | FUT-043 (proposed v4.4) |
-| A strategy's view of a reopening auction's published information | 2 | FUT-040 (accepted by the phase 4 audit), next in phase 5 |
+| A strategy's view of a reopening auction's published information | 2 | FUT-040, **delivered in phase 5** |
 | A real venue, vendor or market's verified rules | 3 | unchanged (BND-001, BDY-013) |
 | Depth beyond the top of book | 3 | unchanged (BDY-003) |
 | Execution costs, latency, fill and queue models identified | 6 | PER-008, FUT-011 |

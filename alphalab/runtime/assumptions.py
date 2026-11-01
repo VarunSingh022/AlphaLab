@@ -262,6 +262,12 @@ def _venue_conditions(registry: InstrumentRegistry | None) -> tuple[str, ...]:
                 f"({_count(len(controls.auction_books), 'book', 'books')}){declared}; no depth "
                 "beyond it is inferred"
             )
+        if controls.indications:
+            assets = len({i.asset_id for i in controls.indications})
+            found.append(
+                f"published auction indications for {_count(assets, 'instrument', 'instruments')} "
+                f"({_count(len(controls.indications), 'indication', 'indications')}){declared}"
+            )
     if registry.margin_model is not None:
         found.append(f"margin model {type(registry.margin_model).__qualname__}{declared}")
     for term, label in (

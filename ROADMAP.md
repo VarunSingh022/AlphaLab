@@ -371,6 +371,14 @@ a later release is the maintainer's decision, and nothing here assigns it.
   than `surface_max_age`; a strategy reads the latest known through
   `context.risk_view.volatility_surface`; a live session records one as known
   when it arrived (`LiveSession.deliver_surface`).
+- **A strategy's view of what a venue publishes of an auction** (FUT-040):
+  while a reopening auction is pending -- its halt in force, or ended and not
+  yet held, or extended -- `context.universe.auction` shows the published book
+  and the venue's `AuctionIndication` (an indicative price, matched quantity
+  and imbalance where given, or a withdrawal) last published since the halt
+  began and by the strategy's instant; never a later one, never the run's own
+  uncross, never depth the venue did not publish. An indication never moves
+  the uncross.
 - **The phase 5 engine integration audit**
   (`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`): an assessment says when a
   manifest names the registry by type alone (REP-007); a result states the
@@ -751,10 +759,9 @@ Every horizon is a proposal for the maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-040 | **A strategy's view of a reopening auction's published book** | deliver the venue's auction messages as observations | v4.4 | computed auctions |
 | FUT-041 | **A resumed run's registry checked by its terms, not its type** | name the registry in the manifest and compare the resumed run's | v4.3 | registry digest (REP-006) |
 | FUT-042 | **A default manifest that names the registry** (a compatibility decision) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
-| FUT-043 | **Auction books and indications delivered during a run** | deliver the venue's auction messages as observations; reopen by the print | v4.4 | computed auctions, surface feeds, FUT-040 |
+| FUT-043 | **Auction books and indications delivered during a run** | deliver the venue's auction messages as observations; reopen by the print | v4.4 | computed auctions, surface feeds, published auctions |
 
 ---
 

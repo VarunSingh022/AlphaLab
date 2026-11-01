@@ -74,6 +74,7 @@ from alphalab.instrument.classification import (
     normalize_dimension,
 )
 from alphalab.instrument.controls import (
+    AuctionIndication,
     AuctionInterest,
     AuctionPriority,
     AuctionTieBreak,
@@ -81,6 +82,7 @@ from alphalab.instrument.controls import (
     BandAction,
     BandReference,
     PriceBand,
+    PublishedAuction,
     ReferenceBand,
     TradingControls,
     TradingHalt,
@@ -155,6 +157,7 @@ __all__ = [
     "INSTRUMENT_KEY_SCHEME",
     "OPERATOR",
     "SECTOR",
+    "AuctionIndication",
     "AuctionInterest",
     "AuctionPriority",
     "AuctionTieBreak",
@@ -189,6 +192,7 @@ __all__ = [
     "OptionTerms",
     "PerPositionMargin",
     "PriceBand",
+    "PublishedAuction",
     "ReferenceBand",
     "ScenarioMargin",
     "SectorClassification",

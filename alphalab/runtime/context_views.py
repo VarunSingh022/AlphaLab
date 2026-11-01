@@ -61,6 +61,7 @@ from uuid import UUID
 from alphalab.allocation.state import AllocationState
 from alphalab.execution.auction import AuctionReopening
 from alphalab.instrument.borrow import BorrowAvailability, BorrowTerms
+from alphalab.instrument.controls import PublishedAuction
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.instrument.terms import OptionTerms
@@ -754,6 +755,46 @@ class UniverseView:
         record = self._registry.record_for(asset_id) if self._registry is not None else None
         venue = "" if record is None else record.exchange
         return controls.halt(asset_id, venue, self._as_of) is not None
+
+    def auction(self, asset_id: str) -> PublishedAuction | None:
+        """What the venue has published of ``asset_id``'s auction yet to be held (FUT-040).
+
+        ``None`` unless an auction is pending now: a halt reopening by auction
+        in force, one ended whose auction the run has not yet held -- at the
+        instrument's first event after it -- or one extended (FUT-033) and not
+        yet held again. Then the
+        book and the indication last published since the halt began, as of now;
+        never the uncross the run will compute, nor anything published later.
+        """
+
+        controls = None if self._registry is None else self._registry.controls
+        if controls is None or self._as_of is None or not controls.auctions:
+            return None
+        now = self._as_of
+        record = self._registry.record_for(asset_id) if self._registry is not None else None
+        venue = "" if record is None else record.exchange
+        halt = controls.halt(asset_id, venue, now)
+        extended_to = None
+        if halt is None or not halt.auction:
+            ended = controls.reopened_by_auction(asset_id, venue, now)
+            held = self._reopened.get(asset_id)
+            if ended is None:
+                return None
+            if held is not None and held.halt_end == ended.end:
+                if held.extended_to is None:
+                    return None
+                # Extended, and pending until held again at the instrument's
+                # first event from extended_to -- however long after it that is.
+                extended_to = held.extended_to
+            halt = ended
+        return PublishedAuction(
+            asset_id,
+            now,
+            halt.start,
+            controls.auction_book(asset_id, halt.start, now),
+            controls.indication(asset_id, halt.start, now),
+            extended_to,
+        )
 
     def price_band(self, asset_id: str) -> tuple[Decimal, Decimal] | None:
         """The limit down and up in force for ``asset_id`` now, or ``None`` (FUT-020)."""

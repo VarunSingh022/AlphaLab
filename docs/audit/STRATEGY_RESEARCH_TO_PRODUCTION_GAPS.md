@@ -253,7 +253,7 @@ and are reused rather than duplicated. Same classes as above.
 | Legs delivered after an exchange's effective instant | 5 | FUT-037, **delivered in phase 5** |
 | An elective action's terms corrected after their announcement | 5 | FUT-038, **delivered in phase 5** |
 | Volatility surfaces delivered as observations during a run | 5 | FUT-039, **delivered in phase 5** |
-| A strategy's view of a reopening auction's published book | 2 | FUT-040 (v4.4) |
+| A strategy's view of a reopening auction's published book | 2 | FUT-040, **delivered in phase 5** |
 | An amend's atomicity at a venue | 3 | stated: `LiveSession.amend` is the venue's request (FUT-031) |
 | An uncross from depth the venue did not publish | 3 | unchanged (BDY-003) |
 | Borrow netted across strategies under per-strategy locates | 4, conservative | stated: netting is the account's (FUT-035) |

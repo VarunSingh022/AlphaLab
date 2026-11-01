@@ -605,6 +605,22 @@ declaration not verified against a venue -- statements, not settings, so no
 fingerprint or manifest identity moves. A live session receives a surface as it
 receives an observation: known when it arrived.
 
+**47. A strategy is shown what the venue published, and nothing the run will
+compute (FUT-040, phase 5).** A venue's indication -- its indicative price,
+matched quantity and imbalance, each where it gives one, or its withdrawal --
+is a declared, dated input beside the book it publishes (FUT-033), and is
+information for strategies only: the uncross is computed from the book or read
+from the print, never from an indication, so a misleading one cannot move a
+fill. The view answers only while an auction is pending -- a halt reopening by
+auction in force, one ended whose auction the run has not yet held, one
+extended and not yet held again -- because before the halt there is no auction
+and after it is held the result is the run's record. What it shows is the book
+and the indication last published since the halt began and by the strategy's
+instant, with their ages; a withdrawal is shown as one, never as silence; and
+nothing is filled in, so a venue publishing only an imbalance is shown only an
+imbalance. When the halt will end is still not shown: it is the venue's
+announcement to come.
+
 ---
 
 # Consequences
@@ -669,7 +685,9 @@ receives an observation: known when it arrived.
   declares an auction (FUT-027), when the orders that waited cross at its
   opening print, or at the uncross computed from the venue's published auction
   book (FUT-033) -- never from depth it did not publish, and an extension held
-  once, a halt to the strategy too; a market order is held
+  once, a halt to the strategy too; a strategy is shown the book and the venue's
+  indications as published by its instant (FUT-040), declared before the run
+  rather than delivered during it (FUT-043); a market order is held
   through a halt rather than rejected, and bands are dated inputs or a rule around a dated, published
   reference (FUT-028) -- never a collar computed from the run's own trades.
 - **An exchange applies its declared outcome at its instant**: an elective one
