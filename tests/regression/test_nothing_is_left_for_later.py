@@ -121,6 +121,7 @@ def test_accepted_future_work_is_stated_and_on_the_roadmap() -> None:
     # The phase 5 engine integration audit proposed FUT-041 to FUT-043, which
     # phase 6 takes up in turn.
     assert statuses["FUT-041"].startswith("implemented ("), statuses["FUT-041"]
+    assert statuses["FUT-043"].startswith("implemented ("), statuses["FUT-043"]
     assert accepted, "the ledger's accepted future work was misread as none"
     for identifier, _ in accepted:
         entry = text.split(f'\n  - id: "{identifier}"', 1)[1].split('\n  - id: "', 1)[0]

@@ -637,6 +637,21 @@ the host says so (`registry_changed`). A payload written before the digest
 existed cannot be verified and is not called verified: it restores by type, as
 it always did, and `registry_verification` reports it `UNRECORDED`.
 
+**49. What a venue publishes during a run is market data, read by one rule with
+what was declared (FUT-043, phase 6).** A book or an indication declared before
+the run (FUT-033, FUT-040) suits a backtest of recorded messages; a live
+session hears them as they come. A delivered one is kept on the market state --
+not the registry, which is configuration -- with its knowledge instant, source
+and version, and the uncross and the strategy's view read declared and
+delivered alike: known by the instant, published since the halt began, the
+latest published, a correction preferred to what it corrects, a late arrival
+of an older one never displacing a newer. A live session stamps each as known
+when it arrived, as it does an observation and a surface, so a replay given
+the session's record re-delivers each at the same instant and the strategy is
+shown the same. The held auction's result is the run's record of it, shown as
+`reopening` from the event it was held at; the halt's end, and the uncross the
+run will compute, are still never shown before.
+
 ---
 
 # Consequences
@@ -703,7 +718,7 @@ it always did, and `registry_verification` reports it `UNRECORDED`.
   book (FUT-033) -- never from depth it did not publish, and an extension held
   once, a halt to the strategy too; a strategy is shown the book and the venue's
   indications as published by its instant (FUT-040), declared before the run
-  rather than delivered during it (FUT-043); a market order is held
+  or delivered during it (FUT-043); a market order is held
   through a halt rather than rejected, and bands are dated inputs or a rule around a dated, published
   reference (FUT-028) -- never a collar computed from the run's own trades.
 - **An exchange applies its declared outcome at its instant**: an elective one

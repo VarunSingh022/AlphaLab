@@ -25,7 +25,7 @@ instrument is halted now and what band is in force now, nothing later.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, auto
@@ -42,6 +42,7 @@ __all__ = [
     "AuctionUncross",
     "BandAction",
     "BandReference",
+    "DeliveredAuction",
     "PriceBand",
     "PublishedAuction",
     "ReferenceBand",
@@ -49,6 +50,9 @@ __all__ = [
     "TradingHalt",
     "controls_from_primitives",
     "controls_to_primitives",
+    "delivered_from_primitives",
+    "delivered_to_primitives",
+    "published",
 ]
 
 
@@ -416,6 +420,87 @@ class AuctionIndication:
                 raise InstrumentInputError(f"An indication's {name} is a finite Decimal.")
             if (least == "positive" and value <= 0) or (least == "zero or more" and value < 0):
                 raise InstrumentInputError(f"An indication's {name} is {least}, got {value}.")
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveredAuction:
+    """A venue's book or indication as a run received it during the run (FUT-043, phase 6).
+
+    What a live session hears from the venue -- or a replay re-delivers from
+    its record -- rather than what was declared before the run: the
+    publication, as of its own ``published_at``; when the run knew it; and
+    who published it and which of its versions it is. A correction is a
+    version of its own published as of the same instant; an update, a later
+    publication; a withdrawal, an indication withdrawn.
+
+    Attributes:
+        published: The book or the indication, as of its ``published_at``.
+        known_at: When the run received it: never read before.
+        source: Who published it, for the record.
+        version: The publisher's version of it, for the record.
+    """
+
+    published: AuctionInterest | AuctionIndication
+    known_at: float
+    source: str
+    version: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.published, AuctionInterest | AuctionIndication):
+            raise InstrumentInputError(
+                "A delivered auction publication is an AuctionInterest or an AuctionIndication."
+            )
+        object.__setattr__(self, "known_at", _instant(self.known_at, "A delivery's knowledge"))
+        if not isinstance(self.source, str) or not self.source:
+            raise InstrumentInputError("A delivered auction publication names its source.")
+        if not isinstance(self.version, str) or not self.version:
+            raise InstrumentInputError("A delivered auction publication names its version.")
+        if self.published.published_at > self.known_at:
+            raise InstrumentInputError(
+                f"A publication as of {self.published.published_at!r} is known at "
+                f"{self.known_at!r}, before it was published."
+            )
+
+    @property
+    def asset_id(self) -> str:
+        """The instrument the publication is of."""
+
+        return self.published.asset_id
+
+
+def published(
+    declared: AuctionInterest | AuctionIndication | None,
+    delivered: Sequence[DeliveredAuction],
+    kind: type[AuctionInterest | AuctionIndication],
+    since: float,
+    at: float,
+) -> Any:
+    """The book or indication a run reads at ``at``, for an auction whose halt began at ``since``.
+
+    One rule for what was declared before the run (FUT-033, FUT-040) and what
+    was delivered during it (FUT-043): of the publications known by ``at`` --
+    ``declared`` is the controls' own reading, known from its publication, a
+    delivered one from its knowledge instant -- and published since the halt
+    began, the one published last; of two as of one instant, a correction, the
+    one known last. ``None`` when nothing qualifies. Never one known after ``at``.
+    """
+
+    best: Any = None
+    key: tuple[float, float] | None = None
+    candidates: list[tuple[float, float, Any]] = (
+        [] if declared is None else [(declared.published_at, declared.published_at, declared)]
+    )
+    candidates.extend(
+        (d.published.published_at, d.known_at, d.published)
+        for d in delivered
+        if isinstance(d.published, kind) and d.known_at <= at
+    )
+    for published_at, known_at, publication in candidates:
+        if published_at < since:
+            continue
+        if key is None or (published_at, known_at) >= key:
+            best, key = publication, (published_at, known_at)
+    return best
 
 
 @dataclass(frozen=True, slots=True)
@@ -836,38 +921,14 @@ def controls_to_primitives(controls: TradingControls | None) -> dict[str, Any] |
         **(
             {}
             if not controls.auction_books
-            else {
-                "auction_books": [
-                    {
-                        "asset_id": b.asset_id,
-                        "published_at": b.published_at,
-                        "bids": [[str(p), str(q)] for p, q in b.bids],
-                        "offers": [[str(p), str(q)] for p, q in b.offers],
-                        "market_buy": str(b.market_buy),
-                        "market_sell": str(b.market_sell),
-                    }
-                    for b in controls.auction_books
-                ]
-            }
+            else {"auction_books": [_book_primitives(b) for b in controls.auction_books]}
         ),
         # Written only when declared (FUT-040), so controls without them keep
         # their form.
         **(
             {}
             if not controls.indications
-            else {
-                "indications": [
-                    {
-                        "asset_id": i.asset_id,
-                        "published_at": i.published_at,
-                        "price": _text(i.price),
-                        "matched": _text(i.matched),
-                        "imbalance": _text(i.imbalance),
-                        **({"withdrawn": True} if i.withdrawn else {}),
-                    }
-                    for i in controls.indications
-                ]
-            }
+            else {"indications": [_indication_primitives(i) for i in controls.indications]}
         ),
         # Written only when declared (FUT-028), so controls without them keep
         # their form.
@@ -927,6 +988,94 @@ def _uncross_from(value: Any) -> AuctionUncross | None:
 
 def _levels(value: Any) -> tuple[tuple[Decimal, Decimal], ...]:
     return tuple((Decimal(price), Decimal(quantity)) for price, quantity in value)
+
+
+def _book_primitives(b: AuctionInterest) -> dict[str, Any]:
+    return {
+        "asset_id": b.asset_id,
+        "published_at": b.published_at,
+        "bids": [[str(p), str(q)] for p, q in b.bids],
+        "offers": [[str(p), str(q)] for p, q in b.offers],
+        "market_buy": str(b.market_buy),
+        "market_sell": str(b.market_sell),
+    }
+
+
+def _book_from(b: Any) -> AuctionInterest:
+    return AuctionInterest(
+        b["asset_id"],
+        b["published_at"],
+        _levels(b["bids"]),
+        _levels(b["offers"]),
+        Decimal(b["market_buy"]),
+        Decimal(b["market_sell"]),
+    )
+
+
+def _indication_primitives(i: AuctionIndication) -> dict[str, Any]:
+    return {
+        "asset_id": i.asset_id,
+        "published_at": i.published_at,
+        "price": _text(i.price),
+        "matched": _text(i.matched),
+        "imbalance": _text(i.imbalance),
+        **({"withdrawn": True} if i.withdrawn else {}),
+    }
+
+
+def _indication_from(i: Any) -> AuctionIndication:
+    return AuctionIndication(
+        i["asset_id"],
+        i["published_at"],
+        _optional_decimal(i["price"]),
+        _optional_decimal(i["matched"]),
+        _optional_decimal(i["imbalance"]),
+        i.get("withdrawn", False),
+    )
+
+
+def delivered_to_primitives(
+    delivered: Mapping[str, tuple[DeliveredAuction, ...]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Delivered auction publications as primitives (FUT-043): a book or an indication each."""
+
+    return {
+        asset: [
+            {
+                "known_at": d.known_at,
+                "source": d.source,
+                "version": d.version,
+                **(
+                    {"book": _book_primitives(d.published)}
+                    if isinstance(d.published, AuctionInterest)
+                    else {"indication": _indication_primitives(d.published)}
+                ),
+            }
+            for d in items
+        ]
+        for asset, items in sorted(delivered.items())
+    }
+
+
+def delivered_from_primitives(value: Any) -> dict[str, tuple[DeliveredAuction, ...]]:
+    """Read publications :func:`delivered_to_primitives` wrote."""
+
+    try:
+        return {
+            asset: tuple(
+                DeliveredAuction(
+                    _book_from(item["book"]) if "book" in item else _indication_from(
+                        item["indication"]),
+                    float(item["known_at"]),
+                    item["source"],
+                    item["version"],
+                )
+                for item in items
+            )
+            for asset, items in value.items()
+        }  # fmt: skip
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise InstrumentInputError(f"delivered auctions are not readable: {exc}.") from exc
 
 
 def _text(value: Decimal | None) -> str | None:
@@ -989,28 +1138,8 @@ def controls_from_primitives(value: Any, where: str = "controls") -> TradingCont
                 )
                 for r in value.get("reference_bands", ())
             ),
-            tuple(
-                AuctionInterest(
-                    b["asset_id"],
-                    b["published_at"],
-                    _levels(b["bids"]),
-                    _levels(b["offers"]),
-                    Decimal(b["market_buy"]),
-                    Decimal(b["market_sell"]),
-                )
-                for b in value.get("auction_books", ())
-            ),
-            tuple(
-                AuctionIndication(
-                    i["asset_id"],
-                    i["published_at"],
-                    _optional_decimal(i["price"]),
-                    _optional_decimal(i["matched"]),
-                    _optional_decimal(i["imbalance"]),
-                    i.get("withdrawn", False),
-                )
-                for i in value.get("indications", ())
-            ),
+            tuple(_book_from(b) for b in value.get("auction_books", ())),
+            tuple(_indication_from(i) for i in value.get("indications", ())),
         )
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise InstrumentInputError(f"{where} is not trading controls: {exc}.") from exc

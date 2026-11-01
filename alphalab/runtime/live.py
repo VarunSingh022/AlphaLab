@@ -128,6 +128,7 @@ from alphalab.common.evolve import evolve
 from alphalab.core.capabilities import CompatibilityReport
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.algorithms import ChildOrder
+from alphalab.instrument.controls import DeliveredAuction
 from alphalab.market.record import MarketRecord
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order as OMSOrder
@@ -698,6 +699,34 @@ class LiveSession:
             )
         arrived = replace(observed, known_at=now)
         return evolve(state, run=RunEngine.deliver_surface(state.run, arrived))
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_auction(
+        state: LiveRunState, delivered: DeliveredAuction, now: float
+    ) -> LiveRunState:
+        """Receive a venue's auction book or indication that has arrived (FUT-043, phase 6).
+
+        :meth:`~alphalab.runtime.run.RunEngine.deliver_auction` with the
+        session's clock ``now``: a publication is known to the session when it
+        arrives, so one stamped as known earlier is recorded as known at
+        ``now`` -- a replay of the record then reads it from the same instant
+        -- and one claiming to be known after ``now`` is refused, and so one
+        published after it, which is never known before it is published. A
+        strategy is shown it at its next event, never the uncross the run will
+        compute. Nothing is routed: a publication moves no order.
+
+        Raises:
+            RuntimeValidationError: If ``delivered`` is known after ``now``.
+        """
+
+        if delivered.known_at > now:
+            raise RuntimeValidationError(
+                f"An auction publication as of {delivered.published.published_at!r}, known at "
+                f"{delivered.known_at!r}, cannot have arrived at {now!r}."
+            )
+        arrived = replace(delivered, known_at=now)
+        return evolve(state, run=RunEngine.deliver_auction(state.run, arrived))
 
     @staticmethod
     @in_accounting_context

@@ -150,7 +150,7 @@ manifest identity moves; the manifest identifies the terms themselves with
 | A live session had no surface delivery | 2 | **Fixed** (LIV-002): `LiveSession.deliver_surface` |
 | A resumed run checks its registry by type alone | 4, design | FUT-041, **delivered in phase 6** |
 | A default manifest's registry, as a gap or by default | 4, identity | FUT-042 (proposed v5.0): the maintainer's decision |
-| Auction books and indications delivered during a run, for a live session | 5 | FUT-043 (proposed v4.4) |
+| Auction books and indications delivered during a run, for a live session | 5 | FUT-043, **delivered in phase 6** |
 | A strategy's view of a reopening auction's published information | 2 | FUT-040, **delivered in phase 5** |
 | A real venue, vendor or market's verified rules | 3 | unchanged (BND-001, BDY-013) |
 | Depth beyond the top of book | 3 | unchanged (BDY-003) |

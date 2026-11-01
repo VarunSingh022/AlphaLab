@@ -126,6 +126,12 @@ from alphalab.execution.fill import FillStatus
 from alphalab.execution.policy import FillTiming
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.state import ExecutionState
+from alphalab.instrument.controls import (
+    DeliveredAuction,
+    delivered_from_primitives,
+    delivered_to_primitives,
+)
+from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.events import (
@@ -1026,6 +1032,24 @@ class MarketRecord:
     latest_bars: Mapping[str, Bar]
     history: tuple[MarketEventRecord, ...]
     events: tuple[MarketEventRecord, ...]
+    #: What the venues published of their auctions during the run (FUT-043,
+    #: phase 6). Written only when a run was delivered some, so every other
+    #: payload keeps its form and its identity, and one written before reads as
+    #: none.
+    auctions: Mapping[str, tuple[DeliveredAuction, ...]] = field(default_factory=dict)
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The record's fields, ``auctions`` among them only when there are any."""
+
+        return {
+            "latest_quotes": self.latest_quotes,
+            "latest_books": self.latest_books,
+            "latest_ticks": self.latest_ticks,
+            "latest_bars": self.latest_bars,
+            "history": self.history,
+            "events": self.events,
+            **({"auctions": delivered_to_primitives(self.auctions)} if self.auctions else {}),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1353,6 +1377,7 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
             latest_bars=dict(state.market.latest_bars),
             history=_tagged(state.market.history, MarketEventRecord),
             events=_tagged(state.market.events, MarketEventRecord),
+            auctions=dict(state.market.auctions),
         ),
         strategy=_capture_strategies(state.strategy),
         strategy_events=_tagged(state.strategy.events, StrategyEventRecord),
@@ -1641,6 +1666,7 @@ def restore(
             latest_bars=PersistentMap(snapshot.market.latest_bars),
             history=AppendOnlyLog(record.event for record in snapshot.market.history),
             events=AppendOnlyLog(record.event for record in snapshot.market.events),
+            auctions=PersistentMap(snapshot.market.auctions),
         ),
         strategy=_restore_strategies(snapshot.strategy, snapshot.strategy_events, objects),
         allocation=restore_allocation(snapshot.allocation),
@@ -2512,7 +2538,15 @@ def _market(value: Any) -> MarketRecord:
         latest_bars=_mapping_of(require(payload, "latest_bars"), f"{where}.latest_bars", _bar),
         history=log("history"),
         events=log("events"),
+        auctions=_delivered_auctions(payload.get("auctions", {}), f"{where}.auctions"),
     )
+
+
+def _delivered_auctions(value: Any, where: str) -> dict[str, tuple[DeliveredAuction, ...]]:
+    try:
+        return delivered_from_primitives(as_mapping(value, where))
+    except InstrumentInputError as refused:
+        raise StateDecodeError(f"{where}: {refused}") from refused
 
 
 def _risk(value: Any) -> RiskRecord:

@@ -76,6 +76,7 @@ from alphalab.common.constants import DEFAULT_ENCODING
 from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year
 from alphalab.data.exceptions import DataValidationError
 from alphalab.data.time import resolve_zone
+from alphalab.instrument.controls import DeliveredAuction
 from alphalab.persistence.serializer import serialize
 from alphalab.portfolio.corporate_actions import (
     Assignment,
@@ -190,6 +191,10 @@ class ScheduleKind(StrEnum):
     #: Phase 5 (FUT-039): a volatility surface delivered as data -- before the
     #: instant's records, so a check at the instant reads it.
     SURFACE = "surface"
+    #: Phase 6 (FUT-043): a venue's auction book or indication delivered as
+    #: data -- before the instant's records, so the uncross and the strategies
+    #: at the instant read it, as a live session delivers it before its next event.
+    AUCTION = "auction"
 
 
 _PLACE: Final = {
@@ -212,6 +217,7 @@ _PLACE: Final = {
     ScheduleKind.PAYMENT: SchedulePlace.BEFORE_RECORDS,
     ScheduleKind.RECORD: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.SURFACE: SchedulePlace.BEFORE_RECORDS,
+    ScheduleKind.AUCTION: SchedulePlace.BEFORE_RECORDS,
 }
 _RANK: Final = {kind: rank for rank, kind in enumerate(ScheduleKind)}
 
@@ -1162,6 +1168,7 @@ class RunSchedule:
         ] = (),
         payments: Iterable[PaymentAmendment | DeliveryAmendment] = (),
         surfaces: Iterable[ObservedSurface] = (),
+        auctions: Iterable[DeliveredAuction] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
 
@@ -1237,6 +1244,17 @@ class RunSchedule:
                     o,
                 )
                 for o in surfaces
+            ),
+            # A venue's auction publication delivered at its knowledge instant
+            # (FUT-043): one source's one version once.
+            *(
+                _entry(
+                    ScheduleKind.AUCTION,
+                    d.known_at,
+                    f"{d.source}|{d.version}|{d.asset_id}",
+                    d,
+                )
+                for d in auctions
             ),
             # One word on one payment at an instant: two are two answers.
             *(_entry(ScheduleKind.PAYMENT, p.at, p.key, p) for p in payments),
@@ -1492,6 +1510,8 @@ def _apply(
         )
     if kind is ScheduleKind.SURFACE:
         return rates, RunEngine.deliver_surface(state, item)
+    if kind is ScheduleKind.AUCTION:
+        return rates, RunEngine.deliver_auction(state, item)
     if kind is ScheduleKind.PAYMENT and isinstance(item, DeliveryAmendment):
         return rates, RunEngine.amend_delivery(
             state, item.holding, item.effective_at, item.asset_id, item.change, item.at, rates,

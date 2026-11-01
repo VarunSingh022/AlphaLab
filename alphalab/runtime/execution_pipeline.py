@@ -61,11 +61,14 @@ from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
 from alphalab.instrument.borrow import BorrowAvailability
 from alphalab.instrument.controls import (
+    AuctionInterest,
     AuctionPriority,
     AuctionTieBreak,
     BandAction,
+    DeliveredAuction,
     TradingControls,
     TradingHalt,
+    published,
 )
 from alphalab.instrument.economics import economics_for
 from alphalab.instrument.exceptions import InstrumentInputError
@@ -699,7 +702,7 @@ def _populate_context(
     risk_view = RiskView(risk)
     market_view = MarketView(market, market_prices)
     history_view = HistoryView(market, as_of, window)
-    universe_view = UniverseView(instruments, as_of, reopened)
+    universe_view = UniverseView(instruments, as_of, reopened, market.auctions)
 
     def populate(strategy_id: str) -> StrategyContext:
         supplied = context_factory(strategy_id)
@@ -1874,6 +1877,37 @@ class ExecutionPipeline:
             state.risk, surfaces=state.risk.surfaces.set(underlying, (*earlier, observed))
         )
         return evolve(state, risk=risk, id_position=current_id_position())
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_auction(
+        state: ExecutionPipelineState, delivered: DeliveredAuction
+    ) -> ExecutionPipelineState:
+        """Receive a venue's auction book or indication as data, at its knowledge instant (FUT-043).
+
+        Kept on the market state as it arrived -- the publication, its
+        instant, source and version -- beside every one before. The uncross
+        reads the book, and a strategy's ``context.universe.auction`` the book
+        and the indication, by one rule with what was declared (the instrument
+        package's ``published``); never one not yet known.
+
+        Raises:
+            RuntimeValidationError: If its knowledge instant is before the last
+                event, or the same source's same version was delivered already.
+        """
+
+        _require_not_before_last_event(state, delivered.known_at, "An auction delivery")
+        asset = delivered.asset_id
+        earlier = state.market.auctions.get(asset, ())
+        if any((d.source, d.version) == (delivered.source, delivered.version) for d in earlier):
+            raise RuntimeValidationError(
+                f"{delivered.source}'s auction publication {delivered.version!r} for {asset} "
+                "was delivered already; a correction is published as a version of its own."
+            )
+        market = evolve(
+            state.market, auctions=state.market.auctions.set(asset, (*earlier, delivered))
+        )
+        return evolve(state, market=market, id_position=current_id_position())
 
     @staticmethod
     @in_accounting_context
@@ -7099,7 +7133,14 @@ def _computed_uncross(
     ctx = ACCOUNTING_CONTEXT
     controls = _controls(state)
     assert controls is not None and halt.uncross is not None
-    book = controls.auction_book(asset_id, halt.start, event.timestamp)
+    # Declared before the run (FUT-033) or delivered during it (FUT-043): one rule.
+    book = published(
+        controls.auction_book(asset_id, halt.start, event.timestamp),
+        state.market.auctions.get(asset_id, ()),
+        AuctionInterest,
+        halt.start,
+        event.timestamp,
+    )
     if book is None:
         return None, None, None, {}, "The venue published no auction book for the halt."
     own = [
@@ -7149,7 +7190,7 @@ def _computed_uncross(
     allotted: dict[str, Decimal] = {}
     for side in (OMSSide.BUY, OMSSide.SELL):
         buying = side is OMSSide.BUY
-        published = sorted(book.bids if buying else book.offers, reverse=buying)
+        levels = sorted(book.bids if buying else book.offers, reverse=buying)
         mine = [o for o in own if o.side is side]
         # Tiers by price priority: at market first, then each limit from the
         # best, down to the clearing price.
@@ -7159,13 +7200,13 @@ def _computed_uncross(
         ]  # fmt: skip
         limits = sorted(
             {o.limit_price for o in mine if o.limit_price is not None and _within_limit(o, price)}
-            | {p for p, _ in published if (p >= price if buying else p <= price)},
+            | {p for p, _ in levels if (p >= price if buying else p <= price)},
             reverse=buying,
         )
         for level in limits:
             tiers.append(
                 (
-                    sum((q for p, q in published if p == level), zero),
+                    sum((q for p, q in levels if p == level), zero),
                     [o for o in mine if o.order_type is OrderType.LIMIT and o.limit_price == level],
                 )
             )

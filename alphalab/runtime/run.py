@@ -65,6 +65,7 @@ from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.policy import FillPolicy, ImmediateFill
 from alphalab.execution.queue import QueueBook
 from alphalab.execution.report import ExecutionReport
+from alphalab.instrument.controls import DeliveredAuction
 from alphalab.market.exceptions import MarketValidationError
 from alphalab.market.normalization import is_stale
 from alphalab.market.record import MarketRecord
@@ -893,6 +894,21 @@ class RunEngine:
             state,
             pipeline=pipeline,
             current_timestamp=max(state.current_timestamp, observed.known_at),
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_auction(state: RunState, delivered: DeliveredAuction) -> RunState:
+        """Receive a venue's auction publication as data at its knowledge instant (FUT-043).
+
+        See :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.deliver_auction`.
+        """
+
+        pipeline = ExecutionPipeline.deliver_auction(state.pipeline, delivered)
+        return evolve(
+            state,
+            pipeline=pipeline,
+            current_timestamp=max(state.current_timestamp, delivered.known_at),
         )
 
     @staticmethod

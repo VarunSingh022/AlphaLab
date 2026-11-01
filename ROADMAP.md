@@ -405,6 +405,17 @@ a later release is the maintainer's decision, and nothing here assigns it.
 - **A rerun from a manifest compared like for like** (REP-008):
   `rerun_from_manifest` records the rerun's registry and schedule as the
   original's manifest does, so a run that named either can be reproduced.
+- **Auction books and indications delivered during a run** (FUT-043): a
+  `DeliveredAuction` -- a venue's book or indication, its knowledge instant,
+  source and version -- kept on the market state as it arrived and read by the
+  uncross and by `context.universe.auction` beside what was declared, by one
+  rule: known by the instant, published since the halt began, the latest, a
+  correction over what it corrects. `LiveSession.deliver_auction` records one
+  as known when it arrived and refuses one from the future; a replay
+  re-delivers the record (`RunSchedule.of(auctions=)`) and is shown the same.
+  `context.universe.reopening` gives the held auction's result, never before.
+- **FUT-042's options** (ADR-0052, proposed): the default manifest's registry
+  -- opt-in, mandatory or a versioned identity -- left to the maintainer.
 
 # Deliberate boundaries
 
@@ -780,7 +791,6 @@ Every horizon is a proposal for the maintainer to confirm.
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
 | FUT-042 | **A default manifest that names the registry** (a compatibility decision; options in ADR-0052, proposed) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
-| FUT-043 | **Auction books and indications delivered during a run** | deliver the venue's auction messages as observations; reopen by the print | v4.4 | computed auctions, surface feeds, published auctions |
 
 ---
 

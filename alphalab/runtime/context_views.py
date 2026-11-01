@@ -61,7 +61,13 @@ from uuid import UUID
 from alphalab.allocation.state import AllocationState
 from alphalab.execution.auction import AuctionReopening
 from alphalab.instrument.borrow import BorrowAvailability, BorrowTerms
-from alphalab.instrument.controls import PublishedAuction
+from alphalab.instrument.controls import (
+    AuctionIndication,
+    AuctionInterest,
+    DeliveredAuction,
+    PublishedAuction,
+    published,
+)
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.instrument.terms import OptionTerms
@@ -735,6 +741,8 @@ class UniverseView:
     #: Each instrument's last reopening auction (FUT-033): one extended is
     #: halted until it is held again.
     _reopened: Mapping[str, AuctionReopening] = field(default_factory=dict)
+    #: What the venues published of their auctions during the run (FUT-043).
+    _delivered: Mapping[str, tuple[DeliveredAuction, ...]] = field(default_factory=dict)
 
     def halted(self, asset_id: str) -> bool:
         """Whether ``asset_id`` is halted now, by its venue's declared halts (FUT-020).
@@ -787,14 +795,32 @@ class UniverseView:
                 # first event from extended_to -- however long after it that is.
                 extended_to = held.extended_to
             halt = ended
+        delivered = self._delivered.get(asset_id, ())
         return PublishedAuction(
             asset_id,
             now,
             halt.start,
-            controls.auction_book(asset_id, halt.start, now),
-            controls.indication(asset_id, halt.start, now),
+            published(
+                controls.auction_book(asset_id, halt.start, now),
+                delivered, AuctionInterest, halt.start, now,
+            ),
+            published(
+                controls.indication(asset_id, halt.start, now),
+                delivered, AuctionIndication, halt.start, now,
+            ),
             extended_to,
-        )
+        )  # fmt: skip
+
+    def reopening(self, asset_id: str) -> AuctionReopening | None:
+        """``asset_id``'s last reopening auction, as the run held it, or ``None`` (FUT-043).
+
+        Its price, matched volume and imbalance, or why nothing crossed, and
+        an extension's instant: the venue's result, published when the auction
+        was held -- so never before. An auction still pending is
+        :meth:`auction`'s.
+        """
+
+        return self._reopened.get(asset_id)
 
     def price_band(self, asset_id: str) -> tuple[Decimal, Decimal] | None:
         """The limit down and up in force for ``asset_id`` now, or ``None`` (FUT-020)."""

@@ -273,7 +273,7 @@ holds the evidence. Same classes as above.
 | A live session had no surface delivery | 2 | **Fixed** (LIV-002): `LiveSession.deliver_surface` |
 | A resumed run checks its registry by type alone | 4, design | FUT-041, **delivered in phase 6** |
 | A default manifest's registry, as a gap or by default | 4, identity | FUT-042 (v5.0), the maintainer's decision |
-| Auction books and indications delivered during a run | 5 | FUT-043 (v4.4) |
+| Auction books and indications delivered during a run | 5 | FUT-043, **delivered in phase 6** |
 | A real venue, vendor or market's verified rules; depth beyond the top of book | 3 | unchanged (BND-001, BDY-013, BDY-003) |
 
 ## Markets

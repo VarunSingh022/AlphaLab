@@ -355,6 +355,13 @@ class UniverseProtocol(Protocol):
         """
         ...
 
+    def reopening(self, asset_id: str) -> Any | None:
+        """The instrument's last reopening auction as held, or ``None`` (FUT-043).
+
+        An :class:`~alphalab.execution.auction.AuctionReopening`.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class NoPortfolio:
@@ -642,6 +649,9 @@ class NoUniverse:
         return None
 
     def auction(self, asset_id: str) -> Any | None:
+        return None
+
+    def reopening(self, asset_id: str) -> Any | None:
         return None
 
 

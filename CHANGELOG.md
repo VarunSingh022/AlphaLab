@@ -69,6 +69,16 @@ maintainer's decision.
   (`RegistryVerification`, `registry_verification`, `verify_registry`) reports
   a payload written before phase 6 `UNRECORDED`: restored by type, as before,
   and not called verified. No `result_id` moves.
+* **Auction books and indications delivered during a run** [FUT-043]
+  (*phase 6*). `alphalab.instrument.DeliveredAuction` -- a book or an
+  indication, its knowledge instant, source and version -- is delivered by
+  `RunSchedule.of(auctions=)`, `ExecutionPipeline.deliver_auction`,
+  `RunEngine.deliver_auction` and `LiveSession.deliver_auction`, which records
+  one as known when it arrived and refuses one from the future. It is kept on
+  `MarketState.auctions` (written only when delivered) and read by the uncross
+  and by `context.universe.auction` beside what was declared, by
+  `alphalab.instrument.controls.published`'s rule. `context.universe.reopening`
+  gives the held auction's result.
 * **The default manifest's registry: the options** [FUT-042] (*phase 6*).
   ADR-0052, *proposed*: keep it opt-in (A), make it mandatory (B), or version
   the manifest identity (C, recommended), with what each does to every
@@ -634,6 +644,7 @@ maintainer's decision.
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
 | `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
 | `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.instrument.DeliveredAuction`; `alphalab.instrument.controls.published`, `delivered_to_primitives`, `delivered_from_primitives`; `alphalab.market.state.MarketState`; `deliver_auction` (`ExecutionPipeline`, `RunEngine`, `LiveSession`); `RunSchedule.of`; `ScheduleKind`; `alphalab.strategy.context.UniverseProtocol`, `NoUniverse`; `alphalab.runtime.context_views.UniverseView` | added; added; field `auctions`, empty by default, appended last, written only when delivered; added; keyword `auctions`; member `AUCTION`; method `reopening`; method `reopening` (FUT-043, phase 6) |
 | `alphalab.instrument.snapshot.registry_digest`; `alphalab.runtime.registry_check` (`RegistryVerification`, `registry_verification`, `verify_registry`); `alphalab.backtesting.replay_snapshot.ReplaySnapshot`, `alphalab.runtime.live_snapshot.LiveRunSnapshot`; `alphalab.runtime.snapshot.restore`, `alphalab.runtime.run_snapshot.restore`, `alphalab.runtime.checkpoint.restore_checkpoints`; `alphalab.runtime.live_snapshot.restore`; `alphalab.lifecycle.rerun_from_manifest` | added; added; field `instruments_digest`, `None` by default, appended before `schema_version`, schemas 2 -> 3; keyword-only `instruments_digest`, `None` by default; keyword-only `registry_changed`, `False` by default; keyword `schedule` and `execution`, `None` by default (FUT-041, REP-008, phase 6) |
 | `alphalab.instrument.TradingControls`; `alphalab.instrument.AuctionIndication`, `PublishedAuction`; `TradingControls.indication`; `alphalab.strategy.context.UniverseProtocol`, `NoUniverse`; `alphalab.runtime.context_views.UniverseView` | field `indications`, empty by default, appended last, written only when declared; added; added; method `auction`; method `auction` (FUT-040, phase 5) |
 | `alphalab.runtime.ExecutionAssumptions`; `alphalab.runtime.live.LiveSession`; `alphalab.lifecycle.assess_reproducibility` | field `venue_conditions`, empty by default, appended last; method `deliver_surface`; one more finding for a run manifest naming its registry by type alone (phase 5 engine integration audit) |

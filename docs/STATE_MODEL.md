@@ -291,7 +291,10 @@ ledger FUT-028) only when declared.
 A halt writes `auction` (phase 3, ledger FUT-027) only when it reopens by one,
 and `uncross` (phase 4, ledger FUT-033) only when it computes one; controls
 write `auction_books` only when declared, and `indications` (phase 5, ledger
-FUT-040) likewise. The execution record writes
+FUT-040) likewise. The market record writes `auctions` (phase 6, ledger
+FUT-043) -- each instrument's delivered books and indications, as they arrived,
+with their knowledge instants, sources and versions -- only when a run was
+delivered one; a payload without it reads as none. The execution record writes
 `reopened` -- each instrument's last reopening auction, its price, matched
 volume, imbalance and any extension -- only when a run held one, and a payload
 without it reads as none; it is the run's record that an instrument has
