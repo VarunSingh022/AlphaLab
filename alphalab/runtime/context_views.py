@@ -58,6 +58,7 @@ from types import MappingProxyType
 from uuid import UUID
 
 from alphalab.allocation.state import AllocationState
+from alphalab.execution.auction import AuctionReopening
 from alphalab.instrument.borrow import BorrowAvailability, BorrowTerms
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
@@ -713,6 +714,9 @@ class UniverseView:
 
     _registry: InstrumentRegistry | None
     _as_of: float | None = None
+    #: Each instrument's last reopening auction (FUT-033): one extended is
+    #: halted until it is held again.
+    _reopened: Mapping[str, AuctionReopening] = field(default_factory=dict)
 
     def halted(self, asset_id: str) -> bool:
         """Whether ``asset_id`` is halted now, by its venue's declared halts (FUT-020).
@@ -724,6 +728,12 @@ class UniverseView:
         controls = None if self._registry is None else self._registry.controls
         if controls is None or self._as_of is None:
             return False
+        if self._reopened:
+            # An auction extended past its price band is a halt until it is
+            # held again (FUT-033).
+            held = self._reopened.get(asset_id)
+            if held is not None and held.extended_to is not None and self._as_of < held.extended_to:
+                return True
         record = self._registry.record_for(asset_id) if self._registry is not None else None
         venue = "" if record is None else record.exchange
         return controls.halt(asset_id, venue, self._as_of) is not None

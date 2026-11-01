@@ -45,6 +45,7 @@ from alphalab.execution.algorithms import (
     schedule_cost,
     start_algorithm,
 )
+from alphalab.execution.auction import AuctionReopening
 from alphalab.execution.capacity import (
     AssetCapacity,
     AssetLiquidity,
@@ -186,6 +187,7 @@ __all__ = [
     "AlgorithmTerms",
     "AssetCapacity",
     "AssetLiquidity",
+    "AuctionReopening",
     "CandidateStatus",
     "CapacityConstraint",
     "CapacityModel",

@@ -471,6 +471,21 @@ something for, the share kept is that of its quantity, because the book may
 move back -- the conservative choice the engine makes elsewhere for a working
 order. Nothing is reserved by a reduction, and what is freed is freed once.
 
+**37. An auction is computed only from what the venue published (FUT-033,
+phase 4).** A venue's uncross depends on its whole book, which the run does
+not see; what it can be given is the venue's published auction interest. So a
+halt declares how its venue computes the price -- the most volume, the
+smallest imbalance, then a stated tie-break -- and the book is the caller's
+dated input, published during the halt; nothing is inferred beyond it, and
+without one nothing crosses rather than a price being invented. The run's own
+orders are the only ones filled, and where they stand among published interest
+at one price is declared: behind it by default, because the run cannot know
+when that interest arrived. Every instrument's reopening is recorded on the
+execution state -- not read back from the market history, which a retention
+bound trims -- and an extension, while it lasts, is a halt in all but name.
+The record is written only when a run holds an auction, so no other run's
+identity moves, and the pipeline state gains no field (ADR-0030's budget).
+
 ---
 
 # Consequences
@@ -532,7 +547,9 @@ order. Nothing is reserved by a reduction, and what is freed is freed once.
   undefined, so such a run keeps its books with `compile_analytics=False`.
 - **A halt's first event after it trades at its own price**, unless the halt
   declares an auction (FUT-027), when the orders that waited cross at its
-  opening print -- not an uncross computed from a book; a market order is held
+  opening print, or at the uncross computed from the venue's published auction
+  book (FUT-033) -- never from depth it did not publish, and an extension held
+  once, a halt to the strategy too; a market order is held
   through a halt rather than rejected, and bands are dated inputs or a rule around a dated, published
   reference (FUT-028) -- never a collar computed from the run's own trades.
 - **An exchange applies its declared outcome at its instant**: an elective one

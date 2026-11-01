@@ -10,7 +10,7 @@ from __future__ import annotations
 import decimal
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from enum import Enum, auto
 from types import MappingProxyType
 from typing import Any, Final
@@ -45,6 +45,7 @@ from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS
 from alphalab.data.feed import TradeAggressor
 from alphalab.execution.algorithms import ChildOrder
 from alphalab.execution.algorithms import _apportion as _largest_remainder
+from alphalab.execution.auction import AuctionReopening
 from alphalab.execution.engine import ExecutionEngine
 from alphalab.execution.fill import FillStatus, OrderInstruction
 from alphalab.execution.policy import (
@@ -58,7 +59,13 @@ from alphalab.execution.queue import QueueBook, QueueObservation, QueuePosition,
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
-from alphalab.instrument.controls import BandAction
+from alphalab.instrument.controls import (
+    AuctionPriority,
+    AuctionTieBreak,
+    BandAction,
+    TradingControls,
+    TradingHalt,
+)
 from alphalab.instrument.economics import economics_for
 from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.margin import (
@@ -627,6 +634,10 @@ class ExecutionPipelineResult:
     queue: QueueBook | None = None
 
 
+#: No instrument has reopened by auction.
+_NO_REOPENINGS: Final[Mapping[str, AuctionReopening]] = MappingProxyType({})
+
+
 def _populate_context(
     context_factory: ContextFactory,
     *,
@@ -638,6 +649,7 @@ def _populate_context(
     instruments: InstrumentRegistry | None,
     as_of: float,
     window: int | None,
+    reopened: Mapping[str, AuctionReopening] = _NO_REOPENINGS,
 ) -> ContextFactory:
     """Wrap a caller's factory so the pipeline owns what only it can know.
 
@@ -674,7 +686,7 @@ def _populate_context(
     risk_view = RiskView(risk)
     market_view = MarketView(market, market_prices)
     history_view = HistoryView(market, as_of, window)
-    universe_view = UniverseView(instruments, as_of)
+    universe_view = UniverseView(instruments, as_of, reopened)
 
     def populate(strategy_id: str) -> StrategyContext:
         supplied = context_factory(strategy_id)
@@ -1215,8 +1227,10 @@ class ExecutionPipeline:
         if (
             update is not None
             and state.config.routing is ExecutionRouting.SIMULATED
-            and current.oms.working_orders_for(update[0])
+            and (current.oms.working_orders_for(update[0]) or _auctions_declared(current))
         ):
+            # With auctions declared, every first event after one is recorded,
+            # orders working or not (FUT-033).
             current, earlier, queue = _fill_working_orders(
                 current, event, update[0], policy, rates, queue
             )
@@ -1239,6 +1253,7 @@ class ExecutionPipeline:
             market_prices=market_prices,
             shares=order_shares_by_strategy(current.oms, current.allocation),
             instruments=state.config.instruments,
+            reopened=current.execution.reopened,
             window=state.config.retention.market_history,
             # The look-ahead bound: this event's own timestamp, never a wall
             # clock. A strategy sees everything up to and including the event it
@@ -1744,6 +1759,7 @@ class ExecutionPipeline:
             market_prices=state.market_prices,
             shares=order_shares_by_strategy(state.oms, state.allocation),
             instruments=state.config.instruments,
+            reopened=state.execution.reopened,
             window=state.config.retention.market_history,
             as_of=timestamp,
         )
@@ -3940,6 +3956,13 @@ def _venue_blocks(state: ExecutionPipelineState, asset_id: str, at: float, price
     venue = "" if record is None else record.exchange
     if controls.halt(asset_id, venue, at) is not None:
         return True
+    if state.execution.reopened:
+        # An auction extended because its price was outside the band: nothing
+        # trades until it is held again (FUT-033).
+        reopening = state.execution.reopened.get(asset_id)
+        extended_to = None if reopening is None else reopening.extended_to
+        if extended_to is not None and at < extended_to:
+            return True
     # A band rule with no current reference: the venue's limits are unknown,
     # so nothing trades until one is published (FUT-028).
     if controls.unbanded(asset_id, at) is not None:
@@ -5646,6 +5669,7 @@ def _deliver_instant(
         market_prices=state.market_prices,
         shares=order_shares_by_strategy(state.oms, state.allocation),
         instruments=state.config.instruments,
+        reopened=state.execution.reopened,
         window=state.config.retention.market_history,
         as_of=at,
     )
@@ -5916,6 +5940,7 @@ def _deliver_feedback(
         market_prices=market_prices,
         shares=order_shares_by_strategy(state.oms, state.allocation),
         instruments=state.config.instruments,
+        reopened=state.execution.reopened,
         window=state.config.retention.market_history,
         as_of=instant,
     )
@@ -6447,38 +6472,245 @@ def _work_order(
     )
 
 
-def _reopening_print(
-    state: ExecutionPipelineState, event: MarketEvent, asset_id: str
-) -> tuple[Decimal, float] | None:
-    """The reopening auction's price at ``event``, when it is the first after one, or ``None``.
+def _auctions_declared(state: ExecutionPipelineState) -> bool:
+    """Whether any of the run's venues reopens a halt by auction (FUT-027)."""
 
-    A halt declaring an auction reopening (FUT-027) has ended by ``event``, and
-    ``event`` is the asset's first since: its opening print -- a bar's open,
-    a quote's or a trade's price -- is the price the auction crosses at, with
-    the halt's end. Read only once a halt declaring an auction has ended, from
-    the market history the run keeps: a market-history bound shorter than the
-    gap between the asset's events cannot tell a later event from the first.
-    """
+    controls = _controls(state)
+    return controls is not None and controls.auctions
+
+
+def _controls(state: ExecutionPipelineState) -> TradingControls | None:
+    """The trading controls the run's venues declare, or ``None``: one read of the registry."""
 
     registry = state.config.instruments
-    if registry is None or registry.controls is None:
+    return None if registry is None else registry.controls
+
+
+def _auction_due(
+    state: ExecutionPipelineState, event: MarketEvent, asset_id: str
+) -> TradingHalt | None:
+    """The halt whose reopening auction is held at ``event``, or ``None``.
+
+    A halt declaring an auction reopening (FUT-027) has ended by ``event``, and
+    the run has not yet held its auction -- or held it and extended it to an
+    instant ``event`` has reached (FUT-033). Read from the reopening the run
+    records for the instrument, never from the market history it keeps, so
+    however short that history is, a later event is never taken for the first.
+    """
+
+    controls = _controls(state)
+    if controls is None:
         return None
     record = _declared(state, asset_id)
     venue = "" if record is None else record.exchange
-    halt = registry.controls.reopened_by_auction(asset_id, venue, event.timestamp)
+    halt = controls.reopened_by_auction(asset_id, venue, event.timestamp)
     if halt is None or halt.end is None:
         return None
-    history = state.market.history.to_tuple()
-    for earlier in reversed(history[:-1] if history and history[-1] is event else history):
-        priced = _market_price(earlier)
-        if priced is not None and priced[0] == asset_id:
-            if earlier.timestamp >= halt.end:
-                return None  # reopened already, at an earlier event
+    held = state.execution.reopened.get(asset_id)
+    if held is None or held.halt_end < halt.end:
+        return halt
+    if held.extended_to is not None and event.timestamp >= held.extended_to:
+        return halt
+    return None
+
+
+def _reopen(
+    state: ExecutionPipelineState,
+    event: MarketEvent,
+    asset_id: str,
+    halt: TradingHalt,
+    policy: FillPolicy,
+    rates: FxRates,
+    queue: QueueBook | None,
+) -> tuple[ExecutionPipelineState, _Routed, QueueBook | None]:
+    """Hold ``halt``'s reopening auction at ``event``, and record it (FUT-027, FUT-033)."""
+
+    assert halt.end is not None  # only an ended halt reopens
+    earlier = state.execution.reopened.get(asset_id)
+    extended = (
+        earlier is not None and earlier.halt_end == halt.end and earlier.extended_to is not None
+    )
+    # The orders that waited for this auction: placed before the halt ended, or
+    # before the extension it was held over to.
+    ended = earlier.extended_to if extended and earlier is not None else halt.end
+    assert ended is not None
+    if halt.uncross is None:
+        price = event.bar.open if isinstance(event, BarClosed) else None
+        if price is None:
+            priced = _market_price(event)
+            price = None if priced is None else priced[1]
+        held = AuctionReopening(halt.end, event.timestamp, price)
+        current = _held_auction(state, asset_id, held)
+        if price is None:
+            return current, _NO_ROUTING, queue
+        return _uncross(current, event, asset_id, price, ended, None, policy, rates, queue)
+    outcome = _computed_uncross(state, event, asset_id, halt, ended)
+    price, matched, imbalance, allotted, reason = outcome
+    if price is not None and _venue_blocks(state, asset_id, event.timestamp, price):
+        extension = halt.uncross.extension
+        if extension is not None and not extended:
+            # Outside the band: the venue extends the auction once, and nothing
+            # trades in the instrument until it is held again.
+            held = AuctionReopening(
+                halt.end,
+                event.timestamp,
+                None,
+                matched,
+                imbalance,
+                event.timestamp + extension,
+                f"The uncross, {price}, was outside the band in force; extended.",
+            )
+            return (
+                _held_auction(state, asset_id, held),
+                _NO_ROUTING,
+                queue,
+            )
+        price, reason = None, f"The uncross, {price}, was outside the band in force."
+    held = AuctionReopening(halt.end, event.timestamp, price, matched, imbalance, None, reason)
+    current = _held_auction(state, asset_id, held)
+    if price is None:
+        # Nothing crossed: every order rests on into continuous trading, from
+        # the next event, as it would after a halt with no auction.
+        return current, _NO_ROUTING, queue
+    return _uncross(current, event, asset_id, price, ended, allotted, policy, rates, queue)
+
+
+def _held_auction(
+    state: ExecutionPipelineState, asset_id: str, held: AuctionReopening
+) -> ExecutionPipelineState:
+    """``state`` recording ``held`` as ``asset_id``'s last reopening auction."""
+
+    execution = state.execution
+    return evolve(
+        state, execution=evolve(execution, reopened=execution.reopened.set(asset_id, held))
+    )
+
+
+def _computed_uncross(
+    state: ExecutionPipelineState,
+    event: MarketEvent,
+    asset_id: str,
+    halt: TradingHalt,
+    ended: float,
+) -> tuple[Decimal | None, Decimal | None, Decimal | None, dict[str, Decimal], str]:
+    """The auction's price, matched volume, imbalance and the run's allotments (FUT-033).
+
+    From the book the venue published for this halt -- its interest at each
+    price and at market -- and the run's own orders that waited for the
+    auction: each market order, and each limit order. The price is the one, of
+    every price stated, that matches the most volume; then the smallest
+    imbalance; then the declared tie-break. Nothing crosses with no book
+    published, with no volume matched, or with a tie the declared rule cannot
+    break. Only the run's own orders are allotted fills: by price, then -- at
+    the marginal price on the side with more interest -- by the declared
+    priority against the published interest there, in the instrument's trading
+    step, the remainder unfilled.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    controls = _controls(state)
+    assert controls is not None and halt.uncross is not None
+    book = controls.auction_book(asset_id, halt.start, event.timestamp)
+    if book is None:
+        return None, None, None, {}, "The venue published no auction book for the halt."
+    own = [
+        order
+        for order in (state.oms.orders.find(i) for i in state.oms.working_orders_for(asset_id))
+        if order.created_at < ended and order.order_type in (OrderType.MARKET, OrderType.LIMIT)
+    ]
+    zero = Decimal("0")
+
+    def interest(price: Decimal) -> tuple[Decimal, Decimal]:
+        demand = book.market_buy + sum((q for p, q in book.bids if p >= price), zero)
+        supply = book.market_sell + sum((q for p, q in book.offers if p <= price), zero)
+        for order in own:
+            reaches = order.order_type is OrderType.MARKET or _within_limit(order, price)
+            if not reaches:
+                continue
+            if order.side is OMSSide.BUY:
+                demand += order.remaining_quantity
+            else:
+                supply += order.remaining_quantity
+        return demand, supply
+
+    prices = sorted({*book.prices, *(o.limit_price for o in own if o.limit_price is not None)})
+    if not prices:
+        return None, None, None, {}, "No price is stated in the auction, so it has none."
+    ranked = []
+    for price in prices:
+        demand, supply = interest(price)
+        ranked.append((min(demand, supply), abs(demand - supply), price, demand - supply))
+    most = max(matched for matched, *_ in ranked)
+    if most <= 0:
+        return None, zero, None, {}, "The auction's interest does not cross."
+    least = min(gap for matched, gap, *_ in ranked if matched == most)
+    tied = [
+        (price, signed) for matched, gap, price, signed in ranked if (matched, gap) == (most, least)
+    ]
+    rule = halt.uncross.tie_break
+    if rule is AuctionTieBreak.HIGHEST:
+        price, signed = tied[-1]
+    elif rule is AuctionTieBreak.LOWEST:
+        price, signed = tied[0]
+    else:
+        reference = controls.reference(asset_id, event.timestamp)
+        if reference is None:
+            return None, most, None, {}, "No reference price is in effect to break the tie by."
+        price, signed = min(tied, key=lambda t: (abs(t[0] - reference.price), t[0]))
+    allotted: dict[str, Decimal] = {}
+    for side in (OMSSide.BUY, OMSSide.SELL):
+        buying = side is OMSSide.BUY
+        published = sorted(book.bids if buying else book.offers, reverse=buying)
+        mine = [o for o in own if o.side is side]
+        # Tiers by price priority: at market first, then each limit from the
+        # best, down to the clearing price.
+        tiers: list[tuple[Decimal, list[OMSOrder]]] = [
+            (book.market_buy if buying else book.market_sell,
+             [o for o in mine if o.order_type is OrderType.MARKET]),
+        ]  # fmt: skip
+        limits = sorted(
+            {o.limit_price for o in mine if o.limit_price is not None and _within_limit(o, price)}
+            | {p for p, _ in published if (p >= price if buying else p <= price)},
+            reverse=buying,
+        )
+        for level in limits:
+            tiers.append(
+                (
+                    sum((q for p, q in published if p == level), zero),
+                    [o for o in mine if o.order_type is OrderType.LIMIT and o.limit_price == level],
+                )
+            )
+        left = most
+        for published_quantity, orders in tiers:
+            wanted = sum((o.remaining_quantity for o in orders), zero)
+            standing = published_quantity + wanted
+            if left >= standing:
+                allotted.update((str(o.order_id.value), o.remaining_quantity) for o in orders)
+                left -= standing
+                continue
+            if halt.uncross.priority is AuctionPriority.PUBLISHED_FIRST:
+                share = max(zero, left - published_quantity)
+                for order in orders:  # by time: the OMS keeps them in placement order
+                    take = min(order.remaining_quantity, share)
+                    take = _in_steps(state, asset_id, take)
+                    allotted[str(order.order_id.value)] = take
+                    share -= take
+            else:
+                for order in orders:
+                    take = ctx.divide(ctx.multiply(order.remaining_quantity, left), standing)
+                    allotted[str(order.order_id.value)] = _in_steps(state, asset_id, take)
+            left = zero
             break
-    if isinstance(event, BarClosed):
-        return event.bar.open, halt.end
-    priced = _market_price(event)
-    return None if priced is None else (priced[1], halt.end)
+    return price, most, signed, allotted, ""
+
+
+def _in_steps(state: ExecutionPipelineState, asset_id: str, quantity: Decimal) -> Decimal:
+    """``quantity`` rounded down to what the instrument trades in: whole lots, or whole units."""
+
+    step = _trading_step(state, asset_id, quantity)
+    if step is None or quantity <= 0:
+        return max(Decimal("0"), quantity)
+    return ACCOUNTING_CONTEXT.multiply((quantity / step).to_integral_value(ROUND_FLOOR), step)
 
 
 def _uncross(
@@ -6487,20 +6719,23 @@ def _uncross(
     asset_id: str,
     price: Decimal,
     ended: float,
+    allotted: Mapping[str, Decimal] | None,
     policy: FillPolicy,
     rates: FxRates,
     queue: QueueBook | None,
 ) -> tuple[ExecutionPipelineState, _Routed, QueueBook | None]:
-    """The reopening auction: every order that rested through the halt crosses at ``price``.
+    """The reopening auction: every order that waited for it crosses at ``price``.
 
     In the order they were placed, each market order, and each limit order whose
-    limit the price reaches, fills at the one price as a maker, as far as the
-    run's fill policy gives it at this event; a market order's remainder is
-    withdrawn, a limit order's rests on into continuous trading, and an order
-    the price does not reach -- a limit beyond it, a stop not reached -- takes
-    no part. Outside a band in force the auction does not cross at this event:
-    every order rests, as through the halt (FUT-020, FUT-028). A queue model
-    does not order an auction: it crosses by time (FUT-011).
+    limit the price reaches, fills at the one price as a maker: under a computed
+    uncross (FUT-033) exactly what it was ``allotted``; read from the print
+    (FUT-027), as far as the run's fill policy gives it at this event. A market
+    order's remainder is withdrawn, a limit order's rests on into continuous
+    trading, and an order the price does not reach -- a limit beyond it, a stop
+    not reached -- takes no part. Outside a band in force the auction does not
+    cross at this event: every order rests, as through the halt (FUT-020,
+    FUT-028). A queue model does not order an auction: it crosses by time
+    (FUT-011).
     """
 
     if _venue_blocks(state, asset_id, event.timestamp, price):
@@ -6526,8 +6761,18 @@ def _uncross(
         market = order.order_type is OrderType.MARKET
         if not market and not (order.order_type is OrderType.LIMIT and _within_limit(order, price)):
             continue
+        given = policy
+        if allotted is not None:
+            allot = min(allotted.get(str(order_id.value), Decimal("0")), order.remaining_quantity)
+            if allot <= 0:
+                if market:
+                    current = _end_unfilled(current, order, event.timestamp)
+                    orders.append(current.oms.orders.find(order_id))
+                continue
+            whole = allot == order.remaining_quantity
+            given = StaticFill(FillStatus.FULL_FILL if whole else FillStatus.PARTIAL_FILL, allot)
         current, new_reports, new_fills, new_trades = _work_resting(
-            current, order, event, policy, rates, price=price, passive=True, one_shot=market
+            current, order, event, given, rates, price=price, passive=True, one_shot=market
         )
         after = current.oms.orders.find(order_id)
         if queue is not None and not after.is_open:
@@ -6563,9 +6808,9 @@ def _fill_working_orders(
     and its turn fills only what that allows (FUT-011).
     """
 
-    reopening = _reopening_print(state, event, asset_id)
-    if reopening is not None:
-        return _uncross(state, event, asset_id, *reopening, policy, rates, queue)
+    halt = _auction_due(state, event, asset_id) if _auctions_declared(state) else None
+    if halt is not None:
+        return _reopen(state, event, asset_id, halt, policy, rates, queue)
     current = state
     observation = None if queue is None else _queue_observation(event)
     orders: list[OMSOrder] = []

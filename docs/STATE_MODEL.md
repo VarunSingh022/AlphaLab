@@ -265,7 +265,13 @@ runtime's event log, tagged by its class name like every strategy event; a
 contract adjustment writes its `announced_at` only when declared.
 Trading controls write their `references` and `reference_bands` (phase 3,
 ledger FUT-028) only when declared.
-A halt writes `auction` (phase 3, ledger FUT-027) only when it reopens by one.
+A halt writes `auction` (phase 3, ledger FUT-027) only when it reopens by one,
+and `uncross` (phase 4, ledger FUT-033) only when it computes one; controls
+write `auction_books` only when declared. The execution record writes
+`reopened` -- each instrument's last reopening auction, its price, matched
+volume, imbalance and any extension -- only when a run held one, and a payload
+without it reads as none; it is the run's record that an instrument has
+reopened, so a resumed run never holds the same auction twice.
 A refused amend (phase 3, ledger FUT-029) is an `AmendRefused` in the strategy
 runtime's event log; an amend made is ordinary OMS transitions. An amend whose
 replacement is refused (phase 4, ledger FUT-031) changes no OMS, allocation or

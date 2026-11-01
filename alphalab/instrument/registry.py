@@ -74,6 +74,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.conventions.tick import is_on_tick
 from alphalab.instrument.classification import (
     OPERATOR,
     SECTOR,
@@ -933,6 +934,17 @@ def declare_trading_controls(
                 raise InstrumentRegistrationError(
                     f"The trading controls name {asset_id}, which the registry does not hold."
                 )
+        for book in controls.auction_books:
+            # A published price is one the venue quotes: on its grid (FUT-033).
+            grid = registry.instruments[book.asset_id].tick
+            if grid is None:
+                continue
+            for price in book.prices:
+                if price < 0 or not is_on_tick(price, grid.tick_size_at(price)):
+                    raise InstrumentRegistrationError(
+                        f"An auction book for {book.asset_id} publishes {price}, which is "
+                        "not on its declared price grid."
+                    )
         venues = {record.exchange for record in registry.instruments.values()}
         for halt in controls.halts:
             if halt.venue is not None and halt.venue not in venues:

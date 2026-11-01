@@ -46,6 +46,17 @@ Entries marked *phase 3* were delivered on the candidate branch after its
 validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10); those
 marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 
+* **A reopening auction computed from the venue's book** [FUT-033] (*phase 4*).
+  `TradingHalt(uncross=AuctionUncross(...))` prices a halt's reopening from the
+  `AuctionInterest` the venue published during it and the run's orders that
+  waited: the price matching the most volume, then the smallest imbalance,
+  then a declared tie-break (`AuctionTieBreak`); only the run's orders fill, by
+  price and then a declared priority against the published interest at the
+  marginal price (`AuctionPriority`). Nothing crosses without a book, without
+  a match, or outside the band, unless an extension is declared, during which
+  nothing trades. Each instrument's reopening is recorded as an
+  `alphalab.execution.AuctionReopening`, so a market-history bound no longer
+  mistakes a later event for the first (FUT-027's caveat).
 * **What an amend holds, exactly** [FUT-036] (*phase 4*). An order reduced in
   place holds, of the account's budget and of a ceilinged strategy's capital,
   the share of its reservations the smaller order still adds -- an order
@@ -467,6 +478,7 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
 | `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
 | `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.instrument.AuctionInterest`, `AuctionPriority`, `AuctionTieBreak`, `AuctionUncross`; `TradingHalt`; `TradingControls`; `alphalab.execution.AuctionReopening`; `alphalab.execution.ExecutionState` | added; field `uncross`, `None` by default; field `auction_books`, empty by default, `auction_book`, `auctions`; added; field `reopened`, empty by default and written only when a run holds an auction (FUT-033, phase 4) |
 | `alphalab.instrument.BandReference`, `ReferenceBand`; `alphalab.instrument.TradingControls` | added; fields `references` and `reference_bands`, empty by default; `band` takes a keyword `tick`, `None` by default; `unbanded`, `reference`, `current_reference` (FUT-028, phase 3) |
 | `alphalab.backtesting.ElectiveExchange`; `alphalab.strategy.IntentKind`; `alphalab.strategy.ElectionMade`; `alphalab.instrument.TermsAdjustment` | added; member `ELECT`; added; field `announced_at`, `None` by default (FUT-024, phase 3) |
 | `alphalab.instrument.OptionPricing`, `OptionRisk`; `ScenarioMargin`, `MarginScenario`, `MarginExposure`; `alphalab.runtime.MarginHolding` | added; fields `repriced`, `volatility_shifts`, `option` (and `MarginHolding.option`, appended last), empty or `None` by default (FUT-026, phase 3) |
@@ -507,7 +519,7 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 ## Accepted as future work
 
 FUT-030 to FUT-036, proposed by the phase 3 global gap audit after FUT-022 to
-FUT-029 were delivered (phase 4 delivers them in turn: FUT-031 and FUT-036 so far): elections split between holders and proration, an
+FUT-029 were delivered (phase 4 delivers them in turn: FUT-031, FUT-036 and FUT-033 so far): elections split between holders and proration, an
 atomic amend, a dated volatility surface and scenario horizons, an auction
 uncross and a retention-proof first event, failed or corrected payments and
 legs delivered later, a buy-in premium and per-strategy borrow, and a capital

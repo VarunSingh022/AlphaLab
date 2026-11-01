@@ -35,6 +35,10 @@ from alphalab.conventions.tick import RoundingDirection, TickSchedule, round_to_
 from alphalab.instrument.exceptions import InstrumentInputError
 
 __all__ = [
+    "AuctionInterest",
+    "AuctionPriority",
+    "AuctionTieBreak",
+    "AuctionUncross",
     "BandAction",
     "BandReference",
     "PriceBand",
@@ -231,6 +235,127 @@ class ReferenceBand:
         return PriceBand(self.asset_id, start, self.end, lower, upper, self.beyond)
 
 
+class AuctionTieBreak(Enum):
+    """How a venue chooses between prices that match the same volume with the same imbalance."""
+
+    #: The highest of them.
+    HIGHEST = auto()
+    #: The lowest of them.
+    LOWEST = auto()
+    #: The one nearest the reference price in effect (FUT-028); the lower of two
+    #: equally near. A halt declaring it needs a reference for its instrument.
+    NEAREST_REFERENCE = auto()
+
+
+class AuctionPriority(Enum):
+    """Where the run's own orders stand among a venue's published interest at one price."""
+
+    #: Behind it: what the venue published at a price fills before the run's own
+    #: orders there, which fill among themselves by time. The run cannot know
+    #: when the published interest arrived, so it assumes it arrived first.
+    PUBLISHED_FIRST = auto()
+    #: Alongside it: the volume left at a price is shared in proportion to
+    #: quantity, the run's own orders and the published interest alike.
+    PRO_RATA = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class AuctionUncross:
+    """How a venue computes its reopening auction from its book (FUT-033, phase 4).
+
+    The price is the one, of the published and the run's own limit prices, that
+    matches the most volume; then the smallest imbalance; then ``tie_break``.
+    Only the run's own orders fill, at that price, as makers, rationed by price,
+    then by ``priority`` among what stands at the marginal price.
+
+    Attributes:
+        tie_break: How a remaining tie between prices is broken.
+        priority: Where the run's orders stand among published interest at one price.
+        extension: Seconds the auction is extended by, once, when its price is
+            outside the band in force: nothing trades in the instrument until
+            then, and the auction is computed again at the first event after,
+            from the book published by then. ``None`` declares no extension.
+    """
+
+    tie_break: AuctionTieBreak
+    priority: AuctionPriority = AuctionPriority.PUBLISHED_FIRST
+    extension: float | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.tie_break, AuctionTieBreak):
+            raise InstrumentInputError(
+                f"An uncross declares its tie-break as an AuctionTieBreak, got {self.tie_break!r}."
+            )
+        if not isinstance(self.priority, AuctionPriority):
+            raise InstrumentInputError(
+                f"An uncross declares its priority as an AuctionPriority, got {self.priority!r}."
+            )
+        if self.extension is not None:
+            extension = _instant(self.extension, "An auction's extension")
+            if extension <= 0:
+                raise InstrumentInputError(
+                    f"An auction's extension is a positive number of seconds, got {extension}."
+                )
+            object.__setattr__(self, "extension", extension)
+
+
+@dataclass(frozen=True, slots=True)
+class AuctionInterest:
+    """What a venue publishes of its auction book, other than the run's own orders (FUT-033).
+
+    The interest at each limit price and at market, on each side, as published
+    at ``published_at``: a venue's indicative book, or the caller's record of
+    it. Nothing is inferred beyond it -- no depth the venue did not publish.
+
+    Attributes:
+        asset_id: The instrument.
+        published_at: When the venue published it.
+        bids: ``(limit, quantity)`` to buy, one per price.
+        offers: ``(limit, quantity)`` to sell, one per price.
+        market_buy: Quantity to buy at any price.
+        market_sell: Quantity to sell at any price.
+    """
+
+    asset_id: str
+    published_at: float
+    bids: tuple[tuple[Decimal, Decimal], ...] = ()
+    offers: tuple[tuple[Decimal, Decimal], ...] = ()
+    market_buy: Decimal = Decimal("0")
+    market_sell: Decimal = Decimal("0")
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.asset_id, str) or not self.asset_id:
+            raise InstrumentInputError("Published auction interest names its instrument.")
+        object.__setattr__(
+            self, "published_at", _instant(self.published_at, "An auction book's publication")
+        )
+        for side, levels in (("bids", self.bids), ("offers", self.offers)):
+            prices = [price for price, _ in levels]
+            if len(set(prices)) != len(prices):
+                raise InstrumentInputError(
+                    f"An auction book's {side} state each price once, got {prices}."
+                )
+            for price, quantity in levels:
+                if not price.is_finite() or not quantity.is_finite() or quantity <= 0:
+                    raise InstrumentInputError(
+                        f"An auction book's {side} are a finite price and a positive quantity, "
+                        f"got {price} for {quantity}."
+                    )
+            object.__setattr__(self, side, tuple(sorted(levels)))
+        for name in ("market_buy", "market_sell"):
+            quantity = getattr(self, name)
+            if not isinstance(quantity, Decimal) or not quantity.is_finite() or quantity < 0:
+                raise InstrumentInputError(
+                    f"An auction book's {name} is a quantity of zero or more, got {quantity!r}."
+                )
+
+    @property
+    def prices(self) -> tuple[Decimal, ...]:
+        """Every limit price the book states, on either side."""
+
+        return tuple(sorted({price for price, _ in (*self.bids, *self.offers)}))
+
+
 @dataclass(frozen=True, slots=True)
 class TradingHalt:
     """An interval in which an instrument, or every instrument of a venue, does not trade.
@@ -245,6 +370,9 @@ class TradingHalt:
             first event after ``end`` the orders that rested through the halt
             cross at one price, that event's opening print, rather than each at
             its own turn. A halt with no ``end`` never reopens.
+        uncross: How the auction's price is computed from the venue's
+            published book (FUT-033, phase 4), instead of read from the first
+            event's print; ``None`` reads the print. Only with ``auction``.
     """
 
     start: float
@@ -253,6 +381,7 @@ class TradingHalt:
     venue: str | None = None
     reason: str = ""
     auction: bool = False
+    uncross: AuctionUncross | None = None
 
     def __post_init__(self) -> None:
         start = _instant(self.start, "A halt's start")
@@ -266,6 +395,14 @@ class TradingHalt:
             )
         if not isinstance(self.auction, bool):
             raise InstrumentInputError(f"auction is a bool, got {self.auction!r}.")
+        if self.uncross is not None:
+            if not isinstance(self.uncross, AuctionUncross):
+                raise InstrumentInputError(f"uncross is an AuctionUncross, got {self.uncross!r}.")
+            if not self.auction:
+                raise InstrumentInputError(
+                    "A halt computes an auction's uncross only when it reopens by one "
+                    "(auction=True)."
+                )
         object.__setattr__(self, "start", start)
         object.__setattr__(self, "end", end)
 
@@ -289,6 +426,8 @@ class TradingControls:
     #: The venues' reference prices and the band rules around them (FUT-028).
     references: tuple[BandReference, ...] = ()
     reference_bands: tuple[ReferenceBand, ...] = ()
+    #: What the venues publish of their auction books (FUT-033, phase 4).
+    auction_books: tuple[AuctionInterest, ...] = ()
     _bands_by_asset: Mapping[str, tuple[PriceBand, ...]] = field(
         init=False, repr=False, compare=False
     )
@@ -304,6 +443,10 @@ class TradingControls:
     _rules_by_asset: Mapping[str, tuple[ReferenceBand, ...]] = field(
         init=False, repr=False, compare=False
     )
+    _books_by_asset: Mapping[str, tuple[AuctionInterest, ...]] = field(
+        init=False, repr=False, compare=False
+    )
+    _auctions: bool = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         bands = tuple(sorted(self.bands, key=lambda b: (b.asset_id, b.start)))
@@ -361,8 +504,34 @@ class TradingControls:
                         f"A declared band and a band rule of {rule.asset_id} are in force "
                         "together: two answers to where it trades."
                     )
+        books = tuple(sorted(self.auction_books, key=lambda b: (b.asset_id, b.published_at)))
+        if not all(isinstance(b, AuctionInterest) for b in books):
+            raise InstrumentInputError("Trading controls' auction books are AuctionInterests.")
+        by_book: dict[str, list[AuctionInterest]] = {}
+        for book in books:
+            published_books = by_book.setdefault(book.asset_id, [])
+            if published_books and published_books[-1].published_at == book.published_at:
+                raise InstrumentInputError(
+                    f"Two auction books for {book.asset_id} are published at "
+                    f"{book.published_at!r}: a later one replaces it when it is published."
+                )
+            published_books.append(book)
+        for halt in halts:
+            if (
+                halt.uncross is not None
+                and halt.uncross.tie_break is AuctionTieBreak.NEAREST_REFERENCE
+                and halt.asset_id is not None
+                and halt.asset_id not in by_reference
+            ):
+                raise InstrumentInputError(
+                    f"A halt of {halt.asset_id} breaks its auction's ties by the reference "
+                    "price, and no reference is declared for it."
+                )
         object.__setattr__(self, "bands", bands)
         object.__setattr__(self, "halts", halts)
+        object.__setattr__(self, "auction_books", books)
+        object.__setattr__(self, "_books_by_asset", {a: tuple(b) for a, b in by_book.items()})
+        object.__setattr__(self, "_auctions", any(halt.auction for halt in halts))
         object.__setattr__(self, "references", references)
         object.__setattr__(self, "reference_bands", rules)
         object.__setattr__(
@@ -383,8 +552,30 @@ class TradingControls:
                 *self._halts_by_asset,
                 *self._references_by_asset,
                 *self._rules_by_asset,
+                *self._books_by_asset,
             )
         )
+
+    @property
+    def auctions(self) -> bool:
+        """Whether any halt reopens by auction: the one test a run without them pays."""
+
+        return self._auctions
+
+    def auction_book(self, asset_id: str, since: float, at: float) -> AuctionInterest | None:
+        """The book for ``asset_id`` last published in ``[since, at]``, or ``None`` (FUT-033).
+
+        ``since`` is the halt's start: a book published before the halt is not
+        this auction's.
+        """
+
+        found = None
+        for book in self._books_by_asset.get(asset_id, ()):
+            if book.published_at > at:
+                break
+            if book.published_at >= since:
+                found = book
+        return found
 
     def band(self, asset_id: str, at: float, tick: TickSchedule | None = None) -> PriceBand | None:
         """The band in force for ``asset_id`` at ``at``, or ``None``.
@@ -491,11 +682,29 @@ def controls_to_primitives(controls: TradingControls | None) -> dict[str, Any] |
                 "asset_id": h.asset_id,
                 "venue": h.venue,
                 "reason": h.reason,
-                # Written only when declared (FUT-027).
+                # Written only when declared (FUT-027, FUT-033).
                 **({"auction": True} if h.auction else {}),
+                **({} if h.uncross is None else {"uncross": _uncross_primitives(h.uncross)}),
             }
             for h in controls.halts
         ],
+        **(
+            {}
+            if not controls.auction_books
+            else {
+                "auction_books": [
+                    {
+                        "asset_id": b.asset_id,
+                        "published_at": b.published_at,
+                        "bids": [[str(p), str(q)] for p, q in b.bids],
+                        "offers": [[str(p), str(q)] for p, q in b.offers],
+                        "market_buy": str(b.market_buy),
+                        "market_sell": str(b.market_sell),
+                    }
+                    for b in controls.auction_books
+                ]
+            }
+        ),
         # Written only when declared (FUT-028), so controls without them keep
         # their form.
         **(
@@ -536,6 +745,26 @@ def controls_to_primitives(controls: TradingControls | None) -> dict[str, Any] |
     }
 
 
+def _uncross_primitives(uncross: AuctionUncross) -> dict[str, Any]:
+    return {
+        "tie_break": uncross.tie_break.name,
+        "priority": uncross.priority.name,
+        "extension": uncross.extension,
+    }
+
+
+def _uncross_from(value: Any) -> AuctionUncross | None:
+    if value is None:
+        return None
+    return AuctionUncross(
+        AuctionTieBreak[value["tie_break"]], AuctionPriority[value["priority"]], value["extension"]
+    )
+
+
+def _levels(value: Any) -> tuple[tuple[Decimal, Decimal], ...]:
+    return tuple((Decimal(price), Decimal(quantity)) for price, quantity in value)
+
+
 def _text(value: Decimal | None) -> str | None:
     return None if value is None else str(value)
 
@@ -574,6 +803,7 @@ def controls_from_primitives(value: Any, where: str = "controls") -> TradingCont
                     h["venue"],
                     h["reason"],
                     bool(h.get("auction", False)),
+                    _uncross_from(h.get("uncross")),
                 )
                 for h in value["halts"]
             ),
@@ -594,6 +824,17 @@ def controls_from_primitives(value: Any, where: str = "controls") -> TradingCont
                     r["stale_after"],
                 )
                 for r in value.get("reference_bands", ())
+            ),
+            tuple(
+                AuctionInterest(
+                    b["asset_id"],
+                    b["published_at"],
+                    _levels(b["bids"]),
+                    _levels(b["offers"]),
+                    Decimal(b["market_buy"]),
+                    Decimal(b["market_sell"]),
+                )
+                for b in value.get("auction_books", ())
             ),
         )
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:

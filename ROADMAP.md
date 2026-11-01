@@ -248,6 +248,14 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **A reopening auction computed from the venue's book** (FUT-033, phase 4): a
+  halt declaring an `AuctionUncross` prices its reopening from the
+  `AuctionInterest` the venue published during the halt and the run's orders
+  that waited -- the most volume, then the smallest imbalance, then a declared
+  tie-break -- and fills only the run's orders there, by price and a declared
+  priority; nothing crosses without a book or a match, or outside the band
+  unless an extension is declared. Each instrument's reopening is recorded, so
+  no market-history bound mistakes a later event for the first.
 - **What an amend holds, exactly** (FUT-036, phase 4): an order reduced in place
   holds of the account's budget and of its strategy's capital ceiling what the
   smaller order still adds to each, as its allocation would have reserved, so
@@ -680,7 +688,6 @@ delivered, and their horizons are proposals for the maintainer to confirm.
 |---|---|---|---|---|
 | FUT-030 | **Elections split between holders, and proration**: one holding takes one alternative | separate books for strategies that elect apart; declare a prorated remainder as a later exchange | v4.4 | holder elections |
 | FUT-032 | **A dated volatility surface and scenario horizons for repricing** | redeclare volatilities per segment, or margin options per position | v4.4 | option repricing, observations |
-| FUT-033 | **An auction uncross from a book or an imbalance, extensions, and a retention-proof first event** | keep the market history unbounded with auction halts | v4.4 | reopening auctions; imbalance data and depth (new) |
 | FUT-034 | **Failed or corrected corporate-action payments, and legs delivered later** | declare the instant actually paid | v4.4 | delayed payments |
 | FUT-035 | **A buy-in premium, and borrow recalled per strategy** | declare the premium as a cash flow | v4.4 | borrow recalls |
 

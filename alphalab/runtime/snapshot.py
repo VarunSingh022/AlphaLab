@@ -113,6 +113,7 @@ from alphalab.core.ids import OrderId as CoreOrderId
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
 from alphalab.data.feed import TradeAggressor
+from alphalab.execution.auction import AuctionReopening
 from alphalab.execution.events import (
     ExecutionCompleted,
     ExecutionEvent,
@@ -1036,6 +1037,20 @@ class ExecutionRecord:
     reports: Mapping[str, ExecutionReport]
     history: tuple[ExecutionReport, ...]
     events: tuple[ExecutionEventRecord, ...]
+    #: Each instrument's last reopening auction (FUT-033, phase 4). Written only
+    #: when a run held one, so every other payload keeps its form -- and its
+    #: identity -- and one written before reads as none.
+    reopened: Mapping[str, AuctionReopening] = field(default_factory=dict)
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The record's fields, ``reopened`` among them only when it holds one."""
+
+        return {
+            "reports": self.reports,
+            "history": self.history,
+            "events": self.events,
+            **({"reopened": self.reopened} if self.reopened else {}),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1322,6 +1337,7 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
             reports=dict(state.execution.reports),
             history=state.execution.history.to_tuple(),
             events=_tagged(state.execution.events, ExecutionEventRecord),
+            reopened=dict(state.execution.reopened),
         ),
         portfolio=capture_portfolio(state.portfolio),
         analytics=AnalyticsRecord(
@@ -1597,6 +1613,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
             reports=PersistentMap(snapshot.execution.reports),
             history=AppendOnlyLog(snapshot.execution.history),
             events=AppendOnlyLog(record.event for record in snapshot.execution.events),
+            reopened=PersistentMap(snapshot.execution.reopened),
         ),
         portfolio=_grouped_book(restore_portfolio(snapshot.portfolio), config),
         analytics=AnalyticsState(
@@ -2172,6 +2189,20 @@ def _unpriced(value: Any, where: str) -> UnpricedAsset:
     )
 
 
+def _reopening(value: Any, where: str) -> AuctionReopening:
+    payload = as_mapping(value, where)
+    extended_to = require(payload, "extended_to")
+    return AuctionReopening(
+        halt_end=as_float(require(payload, "halt_end"), f"{where}.halt_end"),
+        at=as_float(require(payload, "at"), f"{where}.at"),
+        price=as_optional_decimal(require(payload, "price"), f"{where}.price"),
+        matched=as_optional_decimal(require(payload, "matched"), f"{where}.matched"),
+        imbalance=as_optional_decimal(require(payload, "imbalance"), f"{where}.imbalance"),
+        extended_to=None if extended_to is None else as_float(extended_to, f"{where}.extended_to"),
+        reason=as_str(require(payload, "reason"), f"{where}.reason"),
+    )
+
+
 def _id_position(value: Any, where: str = "id_position") -> IdStreamPosition:
     payload = as_mapping(value, where)
     seed = require(payload, "seed")
@@ -2472,6 +2503,7 @@ def _execution(value: Any) -> ExecutionRecord:
             )
             for index, item in enumerate(as_sequence(require(payload, "events"), f"{where}.events"))
         ),
+        reopened=_mapping_of(payload.get("reopened", {}), f"{where}.reopened", _reopening),
     )
 
 

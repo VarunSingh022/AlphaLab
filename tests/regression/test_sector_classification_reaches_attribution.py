@@ -696,11 +696,13 @@ def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -
     # indexed lookups -- a test that none are declared, a band and a halt by
     # instrument -- at an order's turn and at its placement; (phase 3, FUT-027)
     # an order's turn reads them once more for an auction-reopened halt, by its
-    # own indexed lookup -- a test that none are declared, then the halt.
+    # own indexed lookup -- a test that none are declared, then the halt; and
+    # (phase 4, FUT-033) every auction check reads them through `_controls`,
+    # once, where FUT-027's reopening read them twice.
     assert source.count("record_for(") == 8
     assert source.count(".expiring") == 2
     assert source.count(".margined") == 10
-    assert source.count(".controls") == 7
+    assert source.count(".controls") == 6
     assert source.count(".label_of(") == 2
     assert source.count(".bucket_members(") == 1
     assert source.count(".members") == 1
