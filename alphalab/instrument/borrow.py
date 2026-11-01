@@ -55,12 +55,24 @@ class BorrowAvailability:
             allows -- or ``None``, a short already held beyond it is kept and
             only new shorts are refused. At or after ``effective_at``, the
             notice; never on an entry stating no limit.
+        buy_in_premium: What the lender charges on a buy-in beyond its cost
+            (phase 4, ledger FUT-035), a fraction of the bought-in value,
+            booked as a fee with each fill of it; ``None`` charges none.
+        buy_in_fee: A fixed penalty per buy-in order, in the instrument's
+            currency, booked with its first fill; ``None`` charges none.
+        allocations: The units located for each named strategy, out of
+            ``available`` (FUT-035): what each may be short of its own; what
+            is left is shared by every strategy, first come. Empty: the book's
+            borrow, shared and netted across strategies, as before.
     """
 
     effective_at: float
     available: Decimal | None
     annual_rate: Decimal
     buy_in_at: float | None = None
+    buy_in_premium: Decimal | None = None
+    buy_in_fee: Decimal | None = None
+    allocations: tuple[tuple[str, Decimal], ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -107,6 +119,55 @@ class BorrowAvailability:
                     "limit recalls nothing."
                 )
             object.__setattr__(self, "buy_in_at", float(self.buy_in_at))
+        for name in ("buy_in_premium", "buy_in_fee"):
+            value = getattr(self, name)
+            if value is not None and (
+                not isinstance(value, Decimal) or not value.is_finite() or value < _ZERO
+            ):
+                raise InstrumentInputError(
+                    f"A buy-in's {name.removeprefix('buy_in_')} is a non-negative Decimal or "
+                    f"None, got {value!r}."
+                )
+        allocations = tuple(self.allocations)
+        if allocations:
+            if self.available is None:
+                raise InstrumentInputError(
+                    "Borrow is located per strategy out of what is available; an entry stating "
+                    "no limit has nothing to allocate."
+                )
+            names = [name for name, _ in allocations]
+            if len(set(names)) != len(names) or not all(isinstance(n, str) and n for n in names):
+                raise InstrumentInputError(
+                    f"A borrow entry locates for each strategy once, got {names}."
+                )
+            for name, units in allocations:
+                if not isinstance(units, Decimal) or not units.is_finite() or units < _ZERO:
+                    raise InstrumentInputError(
+                        f"The borrow located for {name} is a non-negative Decimal, got {units!r}."
+                    )
+            located = sum((units for _, units in allocations), _ZERO)
+            if located > self.available:
+                raise InstrumentInputError(
+                    f"The borrow located for strategies, {located}, is more than the "
+                    f"{self.available} available: a unit is lent to one of them, never two."
+                )
+            object.__setattr__(self, "allocations", tuple(sorted(allocations)))
+
+    @property
+    def shared(self) -> Decimal | None:
+        """What is available beyond every strategy's own allocation, or ``None`` for no limit."""
+
+        if self.available is None:
+            return None
+        return self.available - sum((units for _, units in self.allocations), _ZERO)
+
+    def allocated(self, strategy_id: str) -> Decimal:
+        """The units located for ``strategy_id``: zero for one the entry does not name."""
+
+        for name, units in self.allocations:
+            if name == strategy_id:
+                return units
+        return _ZERO
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +201,12 @@ class BorrowTerms:
 
         return any(entry.buy_in_at is not None for entry in self.entries)
 
+    @property
+    def per_strategy(self) -> bool:
+        """Whether any entry locates borrow per strategy (FUT-035)."""
+
+        return any(entry.allocations for entry in self.entries)
+
     def in_effect(self, at: float) -> BorrowAvailability | None:
         """The entry in force at ``at``, or ``None`` before the first takes effect."""
 
@@ -166,10 +233,26 @@ def borrow_to_primitives(terms: BorrowTerms | None) -> dict[str, Any] | None:
                 # Written only when declared, so terms without a recall keep
                 # the form they had.
                 **({} if entry.buy_in_at is None else {"buy_in_at": entry.buy_in_at}),
+                # Phase 4 (FUT-035): likewise.
+                **(
+                    {}
+                    if entry.buy_in_premium is None
+                    else {"buy_in_premium": str(entry.buy_in_premium)}
+                ),
+                **({} if entry.buy_in_fee is None else {"buy_in_fee": str(entry.buy_in_fee)}),
+                **(
+                    {}
+                    if not entry.allocations
+                    else {"allocations": [[name, str(q)] for name, q in entry.allocations]}
+                ),
             }
             for entry in terms.entries
         ],
     }
+
+
+def _optional(value: Any) -> Decimal | None:
+    return None if value is None else Decimal(value)
 
 
 def borrow_from_primitives(value: Any, where: str = "borrow") -> BorrowTerms | None:
@@ -189,6 +272,9 @@ def borrow_from_primitives(value: Any, where: str = "borrow") -> BorrowTerms | N
                     None if entry["available"] is None else Decimal(entry["available"]),
                     Decimal(entry["annual_rate"]),
                     None if entry.get("buy_in_at") is None else float(entry["buy_in_at"]),
+                    _optional(entry.get("buy_in_premium")),
+                    _optional(entry.get("buy_in_fee")),
+                    tuple((name, Decimal(q)) for name, q in entry.get("allocations", ())),
                 )
                 for entry in value["entries"]
             ),

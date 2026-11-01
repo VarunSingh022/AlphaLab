@@ -72,6 +72,7 @@ from alphalab.runtime.exceptions import (
     RuntimeValidationError,
 )
 from alphalab.runtime.execution_pipeline import (
+    BorrowClaim,
     ExecutionPipeline,
     ExecutionPipelineConfig,
     ExecutionPipelineResult,
@@ -82,6 +83,7 @@ from alphalab.runtime.execution_pipeline import (
     SettlementRefusal,
     UnpricedAsset,
     UnpricedReason,
+    borrow_claims,
     margin_position,
     wants_slices,
 )
@@ -109,6 +111,7 @@ from alphalab.runtime.session import TradingSession
 __all__ = [
     "CHECKPOINT_SCHEMA",
     "AlphaLabRuntimeError",
+    "BorrowClaim",
     "CheckpointMark",
     "ChildOrderBindings",
     "ChildRoutingResult",
@@ -146,6 +149,7 @@ __all__ = [
     "UnpricedReason",
     "VenueCalendars",
     "apply_broker_execution",
+    "borrow_claims",
     "checkpoint",
     "child_broker_order_id",
     "execution_assumptions",

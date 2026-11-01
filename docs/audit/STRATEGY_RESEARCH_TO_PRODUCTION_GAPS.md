@@ -229,7 +229,7 @@ appear only where two capabilities meet. Same classes as above.
 | A dated volatility surface; scenario horizons | 5 | FUT-032 (v4.4) |
 | An auction uncross from a book; extensions; a retention-proof first event | 5 | FUT-033, **delivered in phase 4** (from the venue's published book) |
 | Failed or corrected corporate-action payments; legs delivered later | 5 | FUT-034, **delivered in phase 4** (payments; legs delivered later remain) |
-| A buy-in premium; borrow recalled per strategy | 5 | FUT-035 (v4.4) |
+| A buy-in premium; borrow recalled per strategy | 5 | FUT-035, **delivered in phase 4** |
 | A capital ceiling's reservation on an in-place amend | 4, conservative | FUT-036, **delivered in phase 4** |
 | Opening and closing auction orders, an operator's live amend, imbalance as observations | 6 | already implemented |
 | Depth beyond the top of book, real venues and data, reference data | 3 | unchanged (BDY-003, BDY-013) |

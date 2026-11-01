@@ -502,6 +502,19 @@ units the exchange recorded. Two words on one payment at one instant, a word
 after a failure or reversal, and a reversal of a payment not yet made are
 refused.
 
+**39. A lender's charges and locates are its declared terms (FUT-035, phase
+4).** A buy-in's premium and fee are what a lender's agreement states, so they
+are declared on the borrow entry in effect at the buy-in -- never inferred --
+and booked as fees with the cover's fills, the premium on each, the fee once per
+buy-in order, attributed to the strategies the cover was placed for. Borrow
+located per strategy is a lender's allocation of what it makes available: each
+strategy is short its own located units and beyond them draws on what is left
+shared, first come -- a short held keeps its draw, so capacity is never claimed
+twice -- and a recall buys each strategy in for its own excess, not in
+proportion to every short. Netting is the account's: an entry locating nothing
+is the book's borrow, netted across strategies, as before, and allocations bind
+only while the book is short.
+
 ---
 
 # Consequences
@@ -547,8 +560,8 @@ refused.
   and the short then, unless the period is declared daily (FUT-023), when each
   calendar day accrues at its cutoff and the period posts once, with no
   compounding within it; the periods are the caller's cadence; borrow is the
-  book's, and a recall's buy-in is priced by the run's fill policy, with no
-  premium a lender might charge.
+  book's unless located per strategy (FUT-035), and a recall's buy-in is priced
+  by the run's fill policy, with the premium and fee its lender declares.
 - **A margin call is checked after each market step and liquidated at the
   asset's next quote**: no grace period and no check between market events; a
   market order's unfilled remainder is cancelled, and a step still in breach

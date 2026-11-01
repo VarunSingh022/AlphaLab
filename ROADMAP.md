@@ -248,6 +248,12 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **A buy-in's premium, and borrow located per strategy** (FUT-035, phase 4): a
+  borrow entry declares the lender's premium on a buy-in's value and a fixed
+  fee per buy-in order, booked with the cover's fills and attributed to the
+  strategies bought in; and the units it locates for each strategy, each
+  drawing beyond its own only on what is shared, first come, and bought in for
+  its own excess; `borrow_claims` attributes the book's borrow to each.
 - **A corporate action's payment amended by the issuer** (FUT-034, phase 4): a
   `PaymentAmendment` delays, fails, corrects, reverses or replaces one
   currency's payment of a declared exchange, each a ledger entry of its own
@@ -694,7 +700,6 @@ delivered, and their horizons are proposals for the maintainer to confirm.
 |---|---|---|---|---|
 | FUT-030 | **Elections split between holders, and proration**: one holding takes one alternative | separate books for strategies that elect apart; declare a prorated remainder as a later exchange | v4.4 | holder elections |
 | FUT-032 | **A dated volatility surface and scenario horizons for repricing** | redeclare volatilities per segment, or margin options per position | v4.4 | option repricing, observations |
-| FUT-035 | **A buy-in premium, and borrow recalled per strategy** | declare the premium as a cash flow | v4.4 | borrow recalls |
 
 ---
 

@@ -279,6 +279,11 @@ portfolio state -- only the refusal and the allocation and risk decisions that
 judged the replacement are recorded -- so a snapshot taken after it restores the
 order working as it was.
 
+A borrow entry writes `buy_in_premium`, `buy_in_fee` and `allocations` (phase
+4, ledger FUT-035) only when declared; a buy-in order whose lender charges for
+it carries `buy_in` -- its instant -- in its OMS metadata, and each charge is a
+`FEE` cash flow whose record names the strategy (`buy-in:<strategy>`).
+
 A payment amendment (phase 4, ledger FUT-034) is an `EXCHANGE` ledger
 transaction naming its entitlement (`entitlement`), its change
 (`payment_change`) and the transactions whose pending cash it re-dates or

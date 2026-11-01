@@ -59,6 +59,7 @@ from alphalab.execution.queue import QueueBook, QueueObservation, QueuePosition,
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
+from alphalab.instrument.borrow import BorrowAvailability
 from alphalab.instrument.controls import (
     AuctionPriority,
     AuctionTieBreak,
@@ -3690,7 +3691,119 @@ def _borrow_refusal(state: ExecutionPipelineState, request: OrderRequest, at: fl
             f"Selling short would leave the book short {after.copy_abs()} {record.symbol}, "
             f"and {entry.available} is available to borrow at {at!r}."
         )
+    if entry.allocations:
+        return _located_refusal(state, request, entry, record.symbol, at)
     return None
+
+
+def _strategy_shorts(state: ExecutionPipelineState, asset_id: str) -> dict[str, Decimal]:
+    """Each strategy's own holding of ``asset_id``: its share, and its share of what is working."""
+
+    held = dict(AllocationEngine.shares_of(state.allocation, asset_id))
+    for order_id in state.oms.working_orders_for(asset_id):
+        order = state.oms.orders.find(order_id)
+        contributions = state.allocation.contributions.get(str(order_id.value), ())
+        signed = (
+            order.remaining_quantity if order.side is OMSSide.BUY else -order.remaining_quantity
+        )
+        for strategy_id, part in split_by_contribution(signed, contributions, _ATTRIBUTION_QUANTUM):
+            held[strategy_id] = ACCOUNTING_CONTEXT.add(held.get(strategy_id, Decimal("0")), part)
+    return held
+
+
+def _drawn(held: Mapping[str, Decimal], entry: BorrowAvailability) -> Decimal:
+    """What the strategies short beyond their own allocations draw on the shared borrow."""
+
+    return sum(
+        (max(Decimal("0"), -h - entry.allocated(sid)) for sid, h in held.items() if h < 0),
+        Decimal("0"),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class BorrowClaim:
+    """One strategy's claim on an instrument's borrow at one instant (FUT-035, phase 4).
+
+    Attributes:
+        strategy_id: The strategy.
+        short: Its own short, filled and working, as a positive number of units.
+        located: What the lender located for it; zero where none is.
+        drawn: What it draws beyond that on the borrow the lender shares.
+        share: Its fraction of the strategies' shorts -- what a fee on the
+            book's borrow is attributed to it by.
+    """
+
+    strategy_id: str
+    short: Decimal
+    located: Decimal
+    drawn: Decimal
+    share: Decimal
+
+
+def borrow_claims(
+    state: ExecutionPipelineState, asset_id: str, at: float
+) -> tuple[BorrowClaim, ...]:
+    """Each short strategy's claim on ``asset_id``'s borrow at ``at`` (FUT-035, phase 4).
+
+    By the borrow entry in effect then: under one locating per strategy, what is
+    located for each and what each draws on what is shared; under the book's
+    borrow, every short drawing on it. Ordered by strategy; empty for an
+    instrument with no declared borrow or no short strategy.
+    """
+
+    record = _declared(state, asset_id)
+    entry = None if record is None or record.borrow is None else record.borrow.in_effect(at)
+    if record is None or record.borrow is None:
+        return ()
+    held = _strategy_shorts(state, asset_id)
+    shorts = {sid: -h for sid, h in sorted(held.items()) if h < 0}
+    total = sum(shorts.values(), Decimal("0"))
+    ctx = ACCOUNTING_CONTEXT
+    claims = []
+    for sid, short in shorts.items():
+        located = Decimal("0") if entry is None else entry.allocated(sid)
+        claims.append(
+            BorrowClaim(
+                sid,
+                short,
+                located,
+                max(Decimal("0"), ctx.subtract(short, located)),
+                ctx.divide(short, total),
+            )
+        )
+    return tuple(claims)
+
+
+def _located_refusal(
+    state: ExecutionPipelineState,
+    request: OrderRequest,
+    entry: BorrowAvailability,
+    symbol: str,
+    at: float,
+) -> str | None:
+    """Why a strategy's short would draw more than the shared borrow left, or ``None`` (FUT-035).
+
+    Borrow located per strategy: each may be short its own allocation, and
+    beyond it draws on what the lender left shared -- first come, so a short
+    already held keeps its draw, and a unit is never claimed twice.
+    """
+
+    held = _strategy_shorts(state, request.asset_id)
+    before = _drawn(held, entry)
+    for contribution in request.contributions:
+        held[contribution.strategy_id] = ACCOUNTING_CONTEXT.add(
+            held.get(contribution.strategy_id, Decimal("0")), contribution.quantity
+        )
+    after = _drawn(held, entry)
+    shared = entry.shared
+    assert shared is not None  # allocations are of a stated availability
+    if after <= before or after <= shared:
+        return None
+    growing = sorted(c.strategy_id for c in request.contributions if c.quantity < 0)
+    return (
+        f"Selling short would leave {', '.join(growing)} short beyond the {symbol} located for "
+        f"it at {at!r}, drawing {after} on the {shared} the lender shares between strategies."
+    )
 
 
 def _initial_margin_refusal(
@@ -3912,9 +4025,18 @@ def _buy_ins(
             continue
         assert entry.available is not None
         short = position.quantity.copy_abs()
-        if short <= entry.available or _covering_order_working(current, asset_id):
+        held = _strategy_shorts(current, asset_id) if entry.allocations else {}
+        if entry.allocations:
+            # Located per strategy (FUT-035): what the strategies short beyond
+            # their own draw on the shared borrow beyond what it holds.
+            shared = entry.shared
+            assert shared is not None
+            account_excess = max(Decimal("0"), ctx.subtract(_drawn(held, entry), shared))
+        else:
+            account_excess = ctx.subtract(short, entry.available)
+        if account_excess <= 0 or _covering_order_working(current, asset_id):
             continue
-        excess = ctx.subtract(short, entry.available)
+        excess = account_excess
         step = _trading_step(current, asset_id, position.quantity)
         if step is not None:
             excess = ctx.multiply(
@@ -3928,7 +4050,17 @@ def _buy_ins(
         )
         placed: tuple[str, ...] = ()
         if shares and asset_id in current.market_prices:
-            parts = _strategy_parts(shares, -excess)
+            if entry.allocations:
+                # Each strategy covers its own need beyond its allocation, in
+                # proportion, never one within its own.
+                needs = tuple(
+                    (sid, -max(Decimal("0"), -h - entry.allocated(sid)))
+                    for sid, h in sorted(held.items())
+                    if h < 0 and -h > entry.allocated(sid)
+                )
+                parts = _strategy_parts(needs, -excess)
+            else:
+                parts = _strategy_parts(shares, -excess)
             batch = tuple(
                 Intent(
                     sid,
@@ -3955,6 +4087,10 @@ def _buy_ins(
             )
             routed = routed.then(step_routed)
             placed = tuple(str(order.order_id.value) for order in step_routed.orders)
+            if entry.buy_in_premium is not None or entry.buy_in_fee is not None:
+                # The lender's charge is booked with each fill of the cover
+                # (FUT-035): the order carries the buy-in it is.
+                current = _marked_buy_ins(current, step_routed.orders, at)
         bought = BuyIn(
             str(new_id()),
             at,
@@ -3984,6 +4120,64 @@ def _forced_target(
     probe = Intent(strategy_id, asset_id, Decimal("0"), kind=IntentKind.TARGET_QUANTITY)
     working = _working_shares(state, (probe,)).get((strategy_id, asset_id), Decimal("0"))
     return ACCOUNTING_CONTEXT.add(ACCOUNTING_CONTEXT.add(share, working), trade)
+
+
+#: The order metadata key naming the buy-in an order covers, by its instant (FUT-035).
+BUY_IN: Final = "buy_in"
+
+
+def _marked_buy_ins(
+    state: ExecutionPipelineState, orders: tuple[OMSOrder, ...], at: float
+) -> ExecutionPipelineState:
+    """``state`` with each of ``orders`` marked as the buy-in at ``at`` it is."""
+
+    oms = state.oms
+    for placed in orders:
+        order = oms.orders.find(placed.order_id)
+        marked = replace(order, metadata={**order.metadata, BUY_IN: repr(at)})
+        oms = evolve(oms, orders=oms.orders.replace(marked))
+    return evolve(state, oms=oms)
+
+
+def _buy_in_charges(
+    state: ExecutionPipelineState, order: OMSOrder, report: ExecutionReport
+) -> ExecutionPipelineState:
+    """The lender's premium on one fill of a buy-in, and its fee on the first (FUT-035).
+
+    By the borrow entry in effect at the buy-in's instant, in the instrument's
+    currency, as ``FEE`` cash flows -- one for each strategy the cover was
+    placed for, in proportion to its part, the reference naming it.
+    """
+
+    record = _declared(state, order.asset_id)
+    assert record is not None and record.borrow is not None
+    entry = record.borrow.in_effect(float(order.metadata[BUY_IN]))
+    if entry is None:
+        return state
+    ctx = ACCOUNTING_CONTEXT
+    value = _unit_value(
+        state, order.asset_id, ctx.multiply(report.fill_quantity, report.fill_price)
+    ).copy_abs()
+    charge = Decimal("0")
+    if entry.buy_in_premium is not None:
+        charge = ctx.add(charge, ctx.multiply(value, entry.buy_in_premium))
+    if entry.buy_in_fee is not None and order.filled_quantity == 0:
+        charge = ctx.add(charge, entry.buy_in_fee)
+    if charge == 0:
+        return state
+    contributions = state.allocation.contributions.get(str(order.order_id.value), ())
+    parts = split_by_contribution(charge, contributions, Decimal("0.01")) or (
+        (order.strategy_id, charge),
+    )
+    portfolio = state.portfolio
+    for strategy_id, part in parts:
+        if part == 0:
+            continue
+        flow = CashFlow(
+            CashFlowKind.FEE, -part, report.currency, order.asset_id, f"buy-in:{strategy_id}"
+        )
+        portfolio = PortfolioEngine.apply_cash_flow(portfolio, flow, report.timestamp)
+    return evolve(state, portfolio=portfolio)
 
 
 def _covering_order_working(state: ExecutionPipelineState, asset_id: str) -> bool:
@@ -7658,9 +7852,12 @@ def _apply_reports(
     trades: list[CoreTrade] = []
 
     for report in reports:
+        before = current.oms.orders.find(order.order_id)
         current = _apply_report_to_oms(current, order.order_id, report)
         fill, trade = _canonical_execution(report, order.side)
         current = _apply_report_to_portfolio(current, report, order.side, rates)
+        if BUY_IN in before.metadata:
+            current = _buy_in_charges(current, before, report)
         # Reconcile allocation budgets with executed notional, expressed in the
         # budget's currency like the reservation it consumes. Converting here
         # rather than inside AllocationEngine is what keeps that package free of
