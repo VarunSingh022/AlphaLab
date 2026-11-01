@@ -490,6 +490,15 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 
 ## Accepted as future work
 
+FUT-030 to FUT-036, proposed by the phase 3 global gap audit after FUT-022 to
+FUT-029 were delivered: elections split between holders and proration, an
+atomic amend, a dated volatility surface and scenario horizons, an auction
+uncross and a retention-proof first event, failed or corrected payments and
+legs delivered later, a buy-in premium and per-strategy borrow, and a capital
+ceiling's reservation reduced in place. Each is on ROADMAP's Future work with
+its interim behaviour and completion criteria; its horizon (v4.3 or v4.4) is a
+proposal for the maintainer to confirm.
+
 FUT-022 to FUT-029, proposed by the phase 2 global gap audit after FUT-018 to
 FUT-021 were delivered, and all delivered by phase 3: borrow recall and buy-in, daily-balance accrual, holder
 elections and announcement instants, a corporate action settling after its

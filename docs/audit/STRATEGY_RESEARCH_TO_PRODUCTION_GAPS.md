@@ -208,6 +208,36 @@ Nothing here claims global completeness: what is declared is applied, what is
 not is refused or stated, and the rules, data and venues of any real market are
 the host's.
 
+## The phase 3 global gap audit
+
+Read after FUT-022 to FUT-029 were delivered, against the brief's areas --
+microstructure, order types, borrow and financing, derivatives, corporate
+actions, margin and collateral, settlement and reconciliation, point-in-time
+integrity, alternative data and models, multi-asset composition, calendars and
+conventions, the public API -- and against each other, since several defects
+appear only where two capabilities meet. Same classes as above.
+
+| Finding | Class | Disposition |
+| --- | --- | --- |
+| A results retention bound could trim a fill still unsettled, and a restore lost it | 1 | **Fixed** (ACC-015) |
+| A strategy's resting bid deferred a margin call indefinitely; a forced trade could be absorbed by it, or read through the sizing model | 1 | **Fixed** (ACC-016) |
+| A purchase its own currency could not pay stopped a multi-currency run at the fill | 1 | **Fixed** (ACC-017): refused when placed |
+| An entitlement's EUR could have paid a EUR purchase before it was paid | 1 | **Fixed** with ACC-017 |
+| The capability matrix did not list holding exchanges | documentation | corrected |
+| Elections split between holders; proration | 2 | FUT-030 (v4.4) |
+| A replacement risk refuses leaves the original withdrawn | 5 | FUT-031 (v4.3) |
+| A dated volatility surface; scenario horizons | 5 | FUT-032 (v4.4) |
+| An auction uncross from a book; extensions; a retention-proof first event | 5 | FUT-033 (v4.4) |
+| Failed or corrected corporate-action payments; legs delivered later | 5 | FUT-034 (v4.4) |
+| A buy-in premium; borrow recalled per strategy | 5 | FUT-035 (v4.4) |
+| A capital ceiling's reservation on an in-place amend | 4, conservative | FUT-036 (v4.3) |
+| Opening and closing auction orders, an operator's live amend, imbalance as observations | 6 | already implemented |
+| Depth beyond the top of book, real venues and data, reference data | 3 | unchanged (BDY-003, BDY-013) |
+
+Nothing here claims global completeness: what is declared is applied, what is
+not is refused or stated, and the rules, data and venues of any real market are
+the host's.
+
 ## Markets
 
 No family above is tied to a market. A market is a declared calendar, a

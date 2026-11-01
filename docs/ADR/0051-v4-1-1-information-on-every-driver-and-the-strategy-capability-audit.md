@@ -527,11 +527,10 @@ FUT-009, FUT-011, FUT-002, FUT-014, FUT-015, FUT-016, FUT-017, FUT-018,
 FUT-019, FUT-020, FUT-021, EXE-012, LIM-008).
 
 Nothing this program accepted is deferred: FUT-002 and FUT-009 to FUT-021 were delivered in
-v4.2.0. What the phase 2 global gap audit that followed found beyond these
-limitations' interim behaviour is accepted as FUT-022 to FUT-029 on the ROADMAP,
-each a new declared capability with its completion criteria; a contract
-adjustment is, meanwhile, visible to a strategy from the run's start, since its
-announcement instant is not declared (FUT-024).
+v4.2.0, and FUT-022 to FUT-029, accepted by the phase 2 global gap audit, by
+phase 3 (decisions 27 to 34). What the phase 3 global gap audit found beyond
+these limitations' interim behaviour is accepted as FUT-030 to FUT-036 on the
+ROADMAP, each with its completion criteria.
 
 ---
 
