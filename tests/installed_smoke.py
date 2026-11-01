@@ -139,10 +139,30 @@ def main(expected_version: str) -> None:
     sys.addaudithook(_refuse_the_network)
     sys.path.insert(0, str(SOURCE_TREE / "examples"))
     # (v4.1) and the replay paused, kept in a file store, restored and resumed.
+    # (v4.1.1) and the multi-asset acceptance scenario: two datasets combined,
+    # sentiment and macro releases delivered at their availability, a hedge in
+    # a future, a manifest, a replay paused and resumed, a run stored and
+    # continued -- every name it imports, from the installed artifact; a
+    # model fitted before a boundary and traded after it; and one decision
+    # executed by four algorithms in children, measured and replayed; and an
+    # option's whole life -- exercised early, delivered, settled -- on a
+    # declared market's calendar; and a financed long-short book on a broker's,
+    # a venue's and an issuer's declared terms; and a short squeezed by its
+    # lender's recall, through a halt and its reopening auction; and a tender
+    # split between holders, prorated, its payment delayed and corrected; and
+    # (phase 5) a bid into a reopening auction from the venue's indications.
     for name in (
         "11_unified_backtest.py",
         "70_build_a_strategy.py",
         "71_pause_and_resume_a_replay.py",
+        "72_compose_a_multi_asset_strategy.py",
+        "73_train_and_trade_a_model.py",
+        "74_evaluate_an_execution_algorithm.py",
+        "75_exercise_assign_and_deliver.py",
+        "76_a_financed_long_short_book.py",
+        "77_a_short_squeezed_by_its_lender.py",
+        "78_a_tender_split_between_holders.py",
+        "79_bid_into_a_reopening_auction.py",
     ):
         # Loaded as a module, registered first: a dataclass with postponed
         # annotations looks its module up in sys.modules while it is built.
@@ -172,7 +192,7 @@ def main(expected_version: str) -> None:
     print(
         f"installed alphalab {installed} at {location.parent}: pip check clean, no runtime "
         f"requirement, {len(imported)} modules, {public} public names as the manifest records, "
-        "py.typed present, examples 11, 70 and 71 and the consumer contract ran with the "
+        "py.typed present, examples 11 and 70 to 79 and the consumer contract ran with the "
         "network refused"
     )
 

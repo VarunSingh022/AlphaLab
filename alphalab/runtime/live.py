@@ -99,9 +99,11 @@ it unchanged.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from typing import Any
 from uuid import UUID
 
+from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.broker.events import BrokerEvent
 from alphalab.broker.execution import BrokerExecution
 from alphalab.broker.protocol import BrokerProtocol
@@ -126,11 +128,13 @@ from alphalab.common.evolve import evolve
 from alphalab.core.capabilities import CompatibilityReport
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.execution.algorithms import ChildOrder
+from alphalab.instrument.controls import DeliveredAuction
 from alphalab.market.record import MarketRecord
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.corporate_actions import CashFlow, Split
 from alphalab.portfolio.fx import NO_RATES, FxRates
+from alphalab.risk.surfaces import ObservedSurface
 from alphalab.runtime.broker_routing import (
     ChildOrderBindings,
     ChildRoutingResult,
@@ -641,6 +645,88 @@ class LiveSession:
         if not route:
             return current, (), ()
         return LiveSession.route_working_orders(current, broker, now)
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_observation(
+        state: LiveRunState,
+        delivery: ObservationDelivery[Any],
+        broker: BrokerProtocol,
+        context_factory: ContextFactory,
+        now: float,
+        rates: FxRates = NO_RATES,
+        *,
+        route: bool = True,
+    ) -> tuple[LiveRunState, tuple[RoutedOrder, ...], tuple[BrokerEvent, ...]]:
+        """Deliver a record that has arrived, and send what the strategies ask for (v4.1.1).
+
+        :meth:`~alphalab.runtime.run.RunEngine.deliver_observation` with the
+        session's clock ``now``: a record that arrives after it became knowable
+        is delivered when it arrived, never earlier, and one delivered before is
+        not delivered again -- across a restart too, since the run's observation
+        cursor is in its snapshot (ledger OFE-009). Then
+        :meth:`route_working_orders` at ``now``, as :meth:`close_slice` does.
+        Until v4.1.1 a live host reached into ``state.run`` to deliver one and
+        had no session call that routed what it produced. ``route=False`` leaves
+        the routing to the caller, as for :meth:`advance`.
+        """
+
+        run = RunEngine.deliver_observation(state.run, delivery, context_factory, rates, now=now)
+        current = evolve(state, run=run)
+        if not route:
+            return current, (), ()
+        return LiveSession.route_working_orders(current, broker, now)
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_surface(state: LiveRunState, observed: ObservedSurface, now: float) -> LiveRunState:
+        """Receive a volatility surface that has arrived (FUT-039, phase 5 integration audit).
+
+        :meth:`~alphalab.runtime.run.RunEngine.deliver_surface` with the
+        session's clock ``now``: a surface is known to the session when it
+        arrives, so one a vendor stamps as known earlier is recorded as known at
+        ``now`` -- a replay of the record then reads it from the same instant --
+        and one claiming to be known after ``now`` is refused. Nothing is routed:
+        a surface moves no order, only the margin checks from ``now`` on.
+
+        Raises:
+            RuntimeValidationError: If ``observed`` is known after ``now``.
+        """
+
+        if observed.known_at > now:
+            raise RuntimeValidationError(
+                f"A surface known at {observed.known_at!r} cannot have arrived at {now!r}."
+            )
+        arrived = replace(observed, known_at=now)
+        return evolve(state, run=RunEngine.deliver_surface(state.run, arrived))
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_auction(
+        state: LiveRunState, delivered: DeliveredAuction, now: float
+    ) -> LiveRunState:
+        """Receive a venue's auction book or indication that has arrived (FUT-043, phase 6).
+
+        :meth:`~alphalab.runtime.run.RunEngine.deliver_auction` with the
+        session's clock ``now``: a publication is known to the session when it
+        arrives, so one stamped as known earlier is recorded as known at
+        ``now`` -- a replay of the record then reads it from the same instant
+        -- and one claiming to be known after ``now`` is refused, and so one
+        published after it, which is never known before it is published. A
+        strategy is shown it at its next event, never the uncross the run will
+        compute. Nothing is routed: a publication moves no order.
+
+        Raises:
+            RuntimeValidationError: If ``delivered`` is known after ``now``.
+        """
+
+        if delivered.known_at > now:
+            raise RuntimeValidationError(
+                f"An auction publication as of {delivered.published.published_at!r}, known at "
+                f"{delivered.known_at!r}, cannot have arrived at {now!r}."
+            )
+        arrived = replace(delivered, known_at=now)
+        return evolve(state, run=RunEngine.deliver_auction(state.run, arrived))
 
     @staticmethod
     @in_accounting_context

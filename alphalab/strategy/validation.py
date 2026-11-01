@@ -64,3 +64,91 @@ def validate_intent(intent: Intent) -> None:
         raise InvalidIntentError(
             f"Intent terms must be OrderTerms, got {type(intent.terms).__name__}."
         )
+    if intent.kind is IntentKind.EXERCISE:
+        _require_exercise(intent)
+    if intent.kind is IntentKind.CANCEL:
+        _require_cancel(intent)
+    if intent.kind is IntentKind.ELECT:
+        _require_election(intent)
+    if intent.kind is IntentKind.AMEND:
+        _require_amend(intent)
+
+
+def _require_amend(intent: Intent) -> None:
+    """An amend names the quantity to leave working, above zero (FUT-029)."""
+
+    if intent.target <= _ZERO:
+        raise InvalidIntentError(
+            f"An amend's target is the quantity to leave working, above zero, got "
+            f"{intent.target}; a cancel withdraws an order."
+        )
+    if intent.strength != _ONE:
+        raise InvalidIntentError(f"An amend's strength must be 1, got {intent.strength}.")
+
+
+def _require_election(intent: Intent) -> None:
+    """An election names an action and one of its alternatives, nothing an order would (FUT-024)."""
+
+    choice = intent.target
+    if choice < _ZERO or choice != choice.to_integral_value():
+        raise InvalidIntentError(
+            f"An election's target is the index of the alternative elected, got {choice}."
+        )
+    action = intent.metadata.get("action")
+    if not isinstance(action, str) or not action:
+        raise InvalidIntentError(
+            "An election names the corporate action it is for in metadata['action']."
+        )
+    units = intent.metadata.get("units")
+    if units is not None:
+        # Part of the holding (FUT-030): a positive number of units.
+        try:
+            elected = Decimal(str(units))
+        except ArithmeticError:
+            elected = Decimal("NaN")
+        if not elected.is_finite() or elected <= _ZERO:
+            raise InvalidIntentError(
+                f"An election's metadata['units'] is a positive number of units, got {units!r}."
+            )
+    if intent.strength != _ONE:
+        raise InvalidIntentError(f"An election's strength must be 1, got {intent.strength}.")
+    if intent.terms != OrderTerms():
+        raise InvalidIntentError(
+            "An election is not an order and states no order terms; leave terms at the default."
+        )
+
+
+def _require_cancel(intent: Intent) -> None:
+    """A cancel instruction names an instrument and nothing an order would."""
+
+    if intent.target != _ZERO:
+        raise InvalidIntentError(
+            f"A cancel intent withdraws the strategy's working orders and sizes nothing: its "
+            f"target must be 0, got {intent.target}."
+        )
+    if intent.strength != _ONE:
+        raise InvalidIntentError(f"A cancel intent's strength must be 1, got {intent.strength}.")
+    if intent.terms != OrderTerms():
+        raise InvalidIntentError(
+            "A cancel intent is not an order and states no order terms; leave terms at the default."
+        )
+
+
+def _require_exercise(intent: Intent) -> None:
+    """An exercise instruction names whole contracts and nothing an order would (FUT-014)."""
+
+    contracts = intent.target
+    if contracts <= _ZERO or contracts != contracts.to_integral_value():
+        raise InvalidIntentError(
+            f"An exercise intent's target is the whole number of contracts to exercise, "
+            f"got {contracts}."
+        )
+    if intent.strength != _ONE:
+        raise InvalidIntentError(
+            f"An exercise intent is exercised whole: its strength must be 1, got {intent.strength}."
+        )
+    if intent.terms != OrderTerms():
+        raise InvalidIntentError(
+            "An exercise intent is not an order and states no order terms; leave terms at the "
+            "default."
+        )

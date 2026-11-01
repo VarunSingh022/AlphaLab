@@ -34,7 +34,7 @@ takes on rates: the mechanism is AlphaLab's, the data is the application's, and 
 table baked in here would be wrong within a year while looking authoritative.
 """
 
-from alphalab.conventions.daycount import DayCount, day_count_days, year_fraction
+from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year, year_fraction
 from alphalab.conventions.economics import (
     CASH_EQUITY,
     InstrumentEconomics,
@@ -89,6 +89,7 @@ __all__ = [
     "compound_factor",
     "contract_notional",
     "day_count_days",
+    "days_in_year",
     "discount_factor",
     "economics_from_primitives",
     "is_on_tick",

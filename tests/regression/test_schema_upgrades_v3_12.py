@@ -82,7 +82,6 @@ def _upgraded_run(payload: dict[str, Any]) -> dict[str, Any]:
         ("oms.json", "alphalab.oms.snapshot"),
         ("allocation.json", "alphalab.allocation.snapshot"),
         ("allocation_eur.json", "alphalab.allocation.snapshot"),
-        ("instrument.json", "alphalab.instrument.snapshot"),
         ("lifecycle.json", "alphalab.lifecycle.snapshot"),
         ("fx_feed.json", "alphalab.portfolio.fx_feed"),
         ("broker.json", "alphalab.broker.snapshot"),
@@ -182,12 +181,14 @@ def test_a_v3_12_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
     payload = _load("live.json")
     snapshot = from_primitives(payload)
 
-    assert snapshot.schema_version == 2
+    assert snapshot.schema_version == 3  # upgraded to the current envelope (FUT-041)
     assert snapshot.run.schema_version == 5
     assert snapshot.run.pipeline.schema_version == 8
     assert snapshot.broker.schema_version == 2
     expected = copy.deepcopy(payload)
     expected["run"] = _upgraded_run(payload["run"])
+    # The envelope's own step (phase 6, FUT-041): a registry digest, none recorded.
+    expected.update(schema_version=3, instruments_digest=None)
     assert deserialize(serialize(snapshot)) == expected
 
 
@@ -217,3 +218,40 @@ def test_the_old_name_is_not_a_second_dialect_of_version_7() -> None:
         StateDecodeError, match=r"is not a StrategyStatus: 'LifecycleState\.RUNNING'"
     ):
         from_primitives(payload)
+
+
+def test_the_v3_12_instrument_registry_reads_with_no_contract_expiring() -> None:
+    """The one v3.12 subsystem payload v4.1.1 moves (schema 3 to 4, ledger FUT-012).
+
+    Read, it is the registry it was; written again, it is the same payload with
+    two fields more on every record -- no last trading instant and no contract
+    terms, which nothing before v4.1.1 could declare -- and the new version.
+    """
+
+    from alphalab.instrument.snapshot import from_primitives, restore
+
+    payload = _load("instrument.json")
+    snapshot = from_primitives(payload)
+    expected = {
+        **payload,
+        "schema_version": 4,
+        # v4.2.0 (FUT-019, FUT-020): no earlier registry declared a margin model
+        # or a venue's controls.
+        "margin_model": None,
+        "controls": None,
+        "instruments": [
+            # v4.2.0 (FUT-015): no earlier instrument declared a settlement rule.
+            {
+                **entry,
+                "last_trade_at": None,
+                "terms": None,
+                "settlement": None,
+                "margin": None,
+                "borrow": None,
+                "tick": None,
+            }
+            for entry in payload["instruments"]
+        ],
+    }
+    assert deserialize(serialize(snapshot)) == expected
+    assert all(record.last_trade_at is None for record in restore(snapshot).instruments.values())

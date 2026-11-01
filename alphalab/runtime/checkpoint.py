@@ -484,12 +484,18 @@ def read_checkpoints(payloads: Sequence[str]) -> RunSnapshot:
     return run_from_primitives(run)
 
 
-def restore_checkpoints(payloads: Sequence[str], objects: RunObjects) -> RunState:
+def restore_checkpoints(
+    payloads: Sequence[str], objects: RunObjects, *, instruments_digest: str | None = None
+) -> RunState:
     """The run state a chain of checkpoints records: :func:`read_checkpoints`, then restore.
+
+    ``instruments_digest`` holds the supplied registry to the terms it names
+    (FUT-041); a chain records none of its own, being the run's snapshot.
 
     Raises:
         StateDecodeError: As :func:`read_checkpoints`, or if a live object is
-            missing or of the wrong type.
+            missing or of the wrong type, or the registry's terms are not the
+            ones named.
     """
 
-    return restore_run(read_checkpoints(payloads), objects)
+    return restore_run(read_checkpoints(payloads), objects, instruments_digest=instruments_digest)

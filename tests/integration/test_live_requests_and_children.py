@@ -271,7 +271,7 @@ def test_the_envelope_carries_the_requests_in_issue_order() -> None:
 
     payload = deserialize(serialize(capture(state)))
 
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3  # phase 6 records the registry digest (FUT-041)
     assert [record["kind"] for record in payload["requests"]] == ["modify", "cancel"]
     assert payload["requests"][0]["request"]["quantity"] == "12"
 

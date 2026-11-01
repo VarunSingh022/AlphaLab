@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.instrument.controls import DeliveredAuction
 from alphalab.market.bar import Bar
 from alphalab.market.events import MarketEvent
 from alphalab.market.quote import Quote
@@ -33,3 +34,9 @@ class MarketState:
     # O(1) amortized instead of rebuilding a tuple on every publish.
     history: AppendOnlyLog[MarketEvent] = field(default_factory=AppendOnlyLog)
     events: AppendOnlyLog[MarketEvent] = field(default_factory=AppendOnlyLog)
+    #: What the venues published of their auctions during the run, by
+    #: ``asset_id``, each delivery as it arrived (FUT-043, phase 6); empty for a
+    #: run delivered none, whose auctions read only what was declared.
+    auctions: PersistentMap[str, tuple[DeliveredAuction, ...]] = field(
+        default_factory=PersistentMap
+    )

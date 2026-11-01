@@ -14,6 +14,727 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [4.2.0] - unreleased (the development target the maintainer approved; not yet published or tagged)
+
+**A researcher-defined strategy over several assets, datasets, sentiment, macro
+releases and fitted models -- every timed input applied at its instant on every
+driver, contracts that expire, are exercised, assigned and delivered by their
+declared terms in any market a calendar describes, bonds that pay coupons and
+redeem, orders worked in children by execution algorithms over historical bars,
+resting limit orders that fill only once a declared queue model puts them at the
+front of their price level, a strategy configuration read back as its declared
+type, settlement-date cash, margin calls and forced liquidation on declared
+margin terms, a paused replay that keeps all of it durably -- and a
+source-derived audit of what
+AlphaLab supports from research to production.**
+
+Additive on the v4.1 contract: against v4.1.0's manifest it adds names, gives
+existing functions keyword-only parameters with no effect unless given, adds
+`AssetType.BOND`, `AssetType.INDEX` and `ExecutionRouting.ALGORITHMIC`, and
+removes or re-signs nothing incompatibly. Three schemas step,
+each reading every earlier payload: instrument 3 -> 4 (a last trading instant
+and contract terms), replay 1 -> 2 -> 3 (the schedule's digest, an execution
+plan's book and a queue model's book; then the instrument registry's digest)
+and live 2 -> 3 (the registry's digest). No run, pipeline or portfolio schema
+moves, and a run of v4.1.0's inputs has the identity it had. Because it adds
+public API it is a minor release under `docs/api/PUBLIC_API.md`'s policy -- see
+`docs/audit/FUTURE_READINESS_V4_1_1.md`. ADR-0051 records the decisions; ledger
+IDs are in brackets.
+
+## Added
+
+Entries marked *phase 3* were delivered on the candidate branch after its
+validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10); those
+marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
+
+Entries marked *phase 5* were added on the same development branch after the
+phase 4 checkpoint at `cde89f6` (section 12), and those marked *phase 6* after
+the phase 5 checkpoint at `c348e69` (section 13). **The maintainer assigned
+phases 3 to 6 to v4.2.0** (section 14).
+
+* **A resumed run's registry held to its terms, not its type** [FUT-041]
+  (*phase 6*). `alphalab.instrument.snapshot.registry_digest` names a
+  registry's terms; a paused replay's and a live run's payload record it
+  (`ReplaySnapshot.instruments_digest`, `LiveRunSnapshot.instruments_digest`;
+  replay and live schemas 2 -> 3, each read through its schema history), and
+  their restores refuse a registry of the right type with other borrow,
+  margin, control, settlement, tick or contract terms. `run_snapshot.restore`,
+  the pipeline's `restore` and `restore_checkpoints` take a keyword
+  `instruments_digest` to hold a bare run to a manifest's.
+  `live_snapshot.restore(registry_changed=True)` continues a live run under
+  reference data the host updated. `alphalab.runtime.registry_check`
+  (`RegistryVerification`, `registry_verification`, `verify_registry`) reports
+  a payload written before phase 6 `UNRECORDED`: restored by type, as before,
+  and not called verified. No `result_id` moves.
+* **Auction books and indications delivered during a run** [FUT-043]
+  (*phase 6*). `alphalab.instrument.DeliveredAuction` -- a book or an
+  indication, its knowledge instant, source and version -- is delivered by
+  `RunSchedule.of(auctions=)`, `ExecutionPipeline.deliver_auction`,
+  `RunEngine.deliver_auction` and `LiveSession.deliver_auction`, which records
+  one as known when it arrived and refuses one from the future. It is kept on
+  `MarketState.auctions` (written only when delivered) and read by the uncross
+  and by `context.universe.auction` beside what was declared, by
+  `alphalab.instrument.controls.published`'s rule. `context.universe.reopening`
+  gives the held auction's result.
+* **A manifest names the schedule that delivered what the run kept** [REP-009]
+  (*phase 6*). `manifest_for_run` refuses a manifest naming no schedule, or
+  one without them, for a run that kept delivered surfaces or auction
+  publications.
+* **The phase 6 engine integration audit** (*phase 6*,
+  `docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE6.md`): the live boundary and an
+  adapter's requirements, every economic input against what names it, the
+  research engine against tests; FUT-044 to FUT-046 proposed.
+* **The default manifest's registry: the options** [FUT-042] (*phase 6*).
+  ADR-0052, *proposed*: keep it opt-in (A), make it mandatory (B), or version
+  the manifest identity (C, recommended), with what each does to every
+  manifest and certification already made and a migration plan. Nothing
+  changes until the maintainer decides; `instruments=True` works as before.
+* **A rerun from a manifest compared like for like** [REP-008] (*phase 6*).
+  `rerun_from_manifest` recorded the rerun's manifest without the registry or
+  the schedule, so a manifest naming either never reproduced; it now names the
+  registry as the original does and takes keyword `schedule` and `execution`.
+
+* **An elective action's late delivery amended by the issuer's word** [ACC-018]
+  (*phase 5*). A `DeliveryAmendment` of an `ElectiveExchange`'s leg delivered
+  later (FUT-038) was refused at declaration, as if undeclared; it now delays,
+  corrects or fails the leg as for a `DeliveredExchange` (FUT-037).
+* **A strategy's view of what a venue publishes of an auction** [FUT-040]
+  (*phase 5*). `TradingControls(indications=)` declares a venue's
+  `alphalab.instrument.AuctionIndication`s -- an indicative price, a matched
+  quantity and a signed imbalance, each only where published, or a withdrawal
+  -- at their publication instants (written only when declared).
+  `context.universe.auction(asset_id)` returns a `PublishedAuction` while a
+  reopening auction is pending: the book and indication last published since
+  the halt began and by the strategy's instant, their ages, a withdrawal as
+  one, an extension's instant; `None` otherwise. Never a later publication,
+  the run's uncross or depth the venue did not publish; an indication never
+  moves the uncross. `ExecutionAssumptions.venue_conditions` states declared
+  indications.
+* **The engine integration audit** (*phase 5*,
+  `docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`). `assess_reproducibility`
+  reports, as a finding, a run manifest naming its instrument registry by type
+  alone -- a rerun under other terms whose record agreed reproduces it -- and
+  certification carries it among its limitations; no outcome and no manifest
+  identity moves (REP-007). `ExecutionAssumptions.venue_conditions` states each
+  venue condition a run's registry declared -- bands, halts, auctions and the
+  books they uncross from, margin, borrow, tick and settlement terms -- as the
+  caller's declaration, not verified against a venue; not one of `settings()`,
+  so no identity moves (EXE-014). `LiveSession.deliver_surface` records a
+  surface as known when the session received it (LIV-002). FUT-041 to FUT-043
+  proposed.
+* **Volatility surfaces arriving as data during a run** [FUT-039] (*phase 5*).
+  `RunSchedule.of(surfaces=)` delivers `alphalab.risk.ObservedSurface`s --
+  an options surface, its knowledge instant, source and version -- kept on
+  `RiskState.surfaces` as they arrived and persisted with it (written only
+  when delivered). `ScenarioMargin(surface_feed=, surface_max_age=)` reads
+  them: the one known by the check and as of the latest instant, a revision
+  over what it revises, never a late older arrival or a stale one, resolved
+  by the execution path into `OptionRisk.volatility`; where none is given the
+  option is margined by its own terms. `context.risk_view.volatility_surface`
+  shows a strategy the latest known. `ExecutionPipeline.deliver_surface`,
+  `RunEngine.deliver_surface`; `alphalab.instrument.margin.read_surface`.
+* **An elective action's terms corrected after their announcement** [FUT-038]
+  (*phase 5*). `ElectiveExchange(corrections=)` declares the issuer's
+  `TermsCorrection`s, each a version of its own (`ElectiveTerms`,
+  `ElectiveExchange.versions`, `terms_at`, `final`) in effect from its
+  announcement and recorded then as an `alphalab.strategy.TermsAnnounced`. Each
+  election is read against the version in effect when it was made, within its
+  window -- a reopened deadline counts none made while closed -- and kept or
+  voided as the correction declares (`EarlierElections`); the holding is
+  exchanged by the version in effect at the action's instant, its payment and
+  its deliveries (`ElectiveExchange.deliveries`, FUT-037) with it.
+* **Legs delivered after an exchange's effective instant** [FUT-037] (*phase 5*).
+  `alphalab.backtesting.DeliveredExchange` declares each leg's delivery
+  instant and an `alphalab.portfolio.DeliveryConvention`: the entitlement is
+  booked at the effective instant and its units owed until delivered -- an
+  `EXCHANGE` ledger entry of its own, pending in the settlement index
+  (`PendingSettlement.delivery`) -- by default neither sold nor counted as
+  margin collateral before they arrive. `DeliveryAmendment` delays, corrects
+  (a partial delivery) or fails one, a shortfall writing off its units and
+  their share of the basis from each strategy by its part
+  (`PortfolioEngine.amend_delivery`, `ExecutionPipeline.amend_delivery`,
+  `RunEngine.amend_delivery`, the `DeliveryAmended` event).
+
+* **Options repriced from a dated volatility surface, over a horizon** [FUT-032]
+  (*phase 4*). `ScenarioMargin(surfaces=, horizon=)`: options
+  `VolatilitySurface`s by underlying, dated by their as-of instant, and the
+  seconds each scenario is valued after the margined instant. An
+  `OptionPricing(volatility=None, ...)` reads the surface as of the margined
+  instant at its strike and expiry through `implied_vol_across_expiries`;
+  where it refuses -- beyond the quotes, a calendar arbitrage -- the option is
+  margined by its own terms. Surfaces and the horizon are written to the
+  registry snapshot only when declared; a model without them keeps its form.
+* **Elections split between holders, and proration** [FUT-030] (*phase 4*).
+  An `ElectiveExchange` exchanges each holder's share by its own election, a
+  part election (`metadata['units']`, recorded as
+  `alphalab.strategy.UnitsElected`) electing that many units; the default takes
+  what is not elected, or elected beyond the holding. `proration` declares the
+  issuer's factor for an oversubscribed alternative, the default taking the
+  rest; `record_at` records each holder's holding then
+  (`alphalab.strategy.HoldersRecorded`) and bounds its election by it. Each
+  alternative is applied to its electors' part through
+  `apply_exchange(part=)`, the basis apportioned by units, fractions paid in
+  lieu per part. Under FUT-024 holders electing differently all took the
+  default; one holder, or holders agreeing, are unchanged.
+* **A buy-in's premium, and borrow located per strategy** [FUT-035] (*phase 4*).
+  `BorrowAvailability(buy_in_premium=, buy_in_fee=)`: the lender's premium on
+  a buy-in's value, booked as a fee with each fill of the cover, and a fixed fee
+  per buy-in order with its first, attributed to the strategies bought in.
+  `BorrowAvailability(allocations=)`: the units located for each strategy, out
+  of what is available and never more; each strategy draws beyond its own only
+  on what is shared, first come, a strategy's resting shorts counted; a recall
+  buys each in for its own excess. `alphalab.runtime.borrow_claims` and
+  `BorrowClaim` attribute the book's borrow, and its fee, to each strategy.
+* **A corporate action's payment amended by the issuer** [FUT-034] (*phase 4*).
+  `alphalab.backtesting.PaymentAmendment` and `RunSchedule.of(payments=)`: a
+  `PaymentChange` -- `DELAYED`, `FAILED`, `CORRECTED`, `REVERSED`,
+  `REPLACED` -- to one currency's payment of a declared exchange, booked by
+  `RunEngine.amend_payment` / `ExecutionPipeline.amend_payment` /
+  `PortfolioEngine.amend_payment` as a ledger entry of its own and a
+  `PaymentAmended` event. A failed payment is never settled cash; a delayed
+  one funds nothing until paid; a correction is per unit exchanged; a
+  replacement pays in another currency. `alphalab.portfolio.settlement.entitlements`
+  reconciles each payment from the ledger as of any instant. Two words on one
+  payment at one instant, or one after a failure, are refused.
+* **A reopening auction computed from the venue's book** [FUT-033] (*phase 4*).
+  `TradingHalt(uncross=AuctionUncross(...))` prices a halt's reopening from the
+  `AuctionInterest` the venue published during it and the run's orders that
+  waited: the price matching the most volume, then the smallest imbalance,
+  then a declared tie-break (`AuctionTieBreak`); only the run's orders fill, by
+  price and then a declared priority against the published interest at the
+  marginal price (`AuctionPriority`). Nothing crosses without a book, without
+  a match, or outside the band, unless an extension is declared, during which
+  nothing trades. Each instrument's reopening is recorded as an
+  `alphalab.execution.AuctionReopening`, so a market-history bound no longer
+  mistakes a later event for the first (FUT-027's caveat).
+* **What an amend holds, exactly** [FUT-036] (*phase 4*). An order reduced in
+  place holds, of the account's budget and of a ceilinged strategy's capital,
+  the share of its reservations the smaller order still adds -- an order
+  partly covering a short only its tail -- so the headroom it frees admits
+  another order in the same batch. Under FUT-029 the account's share was scaled
+  by quantity and the ceiling's held whole until the order ended.
+* **An atomic amend** [FUT-031] (*phase 4*). An amend that replaces an order --
+  more quantity, another limit or stop -- is prepared against the book without
+  the order and committed only if its replacement is placed: one that
+  allocation, risk or the venue's rules refuse leaves the original working, its
+  reservations held, and is an `AmendRefused` naming why, the decisions that
+  refused it kept on the record. The replacement is the quantity asked, never
+  sized by the run's sizing model. Under FUT-029 a refused replacement left the
+  original withdrawn.
+
+* **A strategy amends its own working order** [FUT-029] (*phase 3*).
+  `IntentKind.AMEND`: a reduction at the same prices is made in place and keeps
+  the order's id and queue priority; any other amend withdraws the order and
+  places its replacement through allocation, risk and the OMS (atomically since
+  FUT-031, phase 4). What cannot be amended -- no single order of the strategy's own, a netted or venue-held
+  order, other terms -- is recorded as `alphalab.strategy.AmendRefused`.
+* **A halt reopening by auction** [FUT-027] (*phase 3*). `TradingHalt(auction=True)`:
+  at the first event after the halt, every order that rested through it --
+  market orders, and limits the price reaches -- crosses at that event's
+  opening print, as a maker, by time and ahead of any queue model, within the
+  band in force; a market order's remainder is withdrawn, and what the price
+  does not reach trades on continuously.
+* **Bands around a declared reference price** [FUT-028] (*phase 3*).
+  `alphalab.instrument.BandReference` declares a venue's dated reference, and
+  `ReferenceBand` a rule -- rates or absolute offsets either side, refuse or
+  cap, an optional staleness bound -- in `TradingControls.references` and
+  `reference_bands`. The band is the rule around the reference in effect,
+  rounded inward to the tick grid, read at placement, at every order's turn and
+  in a strategy's view; with no current reference every order rests.
+* **Holder elections and announcement instants** [FUT-024] (*phase 3*).
+  `alphalab.backtesting.ElectiveExchange` offers a holding's strategies
+  alternatives -- each a `HoldingExchange` -- with a default, an announcement, a
+  deadline and an effective instant; a strategy elects with
+  `IntentKind.ELECT`, recorded as `alphalab.strategy.ElectionMade`, and the
+  holding is exchanged by its holders' common election between announcement
+  and deadline, or by the default. `TermsAdjustment.announced_at` keeps an
+  adjustment out of a strategy's view of its contract until it is announced.
+* **Options repriced in margin scenarios** [FUT-026] (*phase 3*).
+  `ScenarioMargin.repriced` declares, per option, an
+  `alphalab.instrument.OptionPricing` -- volatility, rate, carry, and an American
+  contract's lattice steps -- and `MarginScenario.volatility_shifts` each
+  scenario's shifts. Each repriced option is valued from its underlying's move
+  and its shifted volatility (Black-Scholes, the lattice, or intrinsic value at
+  expiry) from the facts the execution path supplies
+  (`alphalab.instrument.OptionRisk`), and its loss is the model value's change:
+  the call, a liquidation's sizing and an order's pre-trade check all read it.
+  An option whose underlying is unpriced is margined by its own terms; a package,
+  quanto or Bermudan contract is refused at declaration.
+* **A corporate action's cash paid on its payment date** [FUT-025] (*phase 3*).
+  `alphalab.backtesting.PaidExchange` declares a `HoldingExchange`'s payment
+  instant beside its effective one: the cash part and any cash in lieu are
+  booked as an entitlement, pending until paid -- out of buying power and
+  settled cash, as a sale's proceeds are -- and a restore rebuilds it.
+  `ExecutionPipeline.apply_exchange` and `RunEngine.apply_exchange` take
+  `payment_at`, keyword-only and `None` by default.
+* **Interest and borrow fees accrued day by day** [FUT-023] (*phase 3*).
+  `alphalab.backtesting.DailyInterest` and `DailyBorrowFee` wrap a period with a
+  `DailyAccrual` -- an IANA zone and a cutoff -- and optional `RateChange`s:
+  each calendar day accrues at its cutoff on the balance (trade-date or
+  settled) or the short (at the day's mark and fee) it leaves, recorded
+  exactly as an `ACCRUAL` ledger transaction moving no cash, and the period
+  posts once, rounded once. `ScheduledInterest` and `ScheduledBorrowFee` are
+  unchanged, so a schedule declaring neither daily form keeps its digest.
+* **A lender's recall, bought in** [FUT-022] (*phase 3*). `BorrowAvailability`
+  declares a recall's `buy_in_at` deadline; after it, a short beyond what the
+  entry makes available is bought in after each market step -- each short
+  strategy's own cover, a delta through allocation, risk and the OMS, a market
+  order resting to the asset's next event, filling as the market allows and
+  placed again for what it leaves -- and recorded as `alphalab.risk.BuyIn`. A
+  working market buy defers it; a resting limit does not. A run declaring no
+  recall records exactly what it did.
+* **Every timed input on the historical drivers** [FUT-004, OFE-027].
+  `alphalab.backtesting.schedule`: a `RunSchedule` of observations, FX rates,
+  fundings, cash flows, per-unit distributions (`ScheduledDistribution`),
+  perpetual funding rates (`ScheduledFundingRate`), splits, timers and contract
+  settlements, applied by one `ScheduleCursor` in `BacktestEngine.run(...,
+  schedule=)`, `ReplayBacktest.run(..., observations=, schedule=)`,
+  `alphalab.api.backtest`/`replay` and any loop written by hand -- each input
+  before or after the records of its instant, the rate table converting every
+  step. A book settling two currencies, an `on_timer` strategy, a dividend sized
+  by the position, a perpetual's funding and a split no longer need a hand loop.
+  `RunEngine.fund`.
+* **A paused replay with information outstanding, kept durably** [FUT-003].
+  Replay schema 2 records the schedule's digest; `replay_snapshot.restore(...,
+  schedule)` takes it back and refuses another or none.
+* **Contracts expire and settle** [FUT-012]. `InstrumentRecord.last_trade_at`;
+  after it the instrument's records are skipped and its requests refused;
+  `ContractSettlement` (`RunEngine.settle_contract`,
+  `ExecutionPipeline.settle_contract`) closes every position at the final price
+  -- a future's last variation, an option's intrinsic value, zero for one
+  expiring worthless (`PortfolioEngine.apply_fill(..., final_settlement=True)`)
+  -- cancels working orders and attributes the settlement
+  (`AllocationEngine.settle_asset`); a run that ends holding an expired contract
+  is refused.
+* **Bonds** [FUT-010]. `AssetType.BOND`, booked by declared economics;
+  `alphalab.api.bond_schedule` turns a `macro.bond.Bond` into per-unit coupons
+  and a redemption settlement.
+* **Several datasets in one run** [OFE-028]. `alphalab.api.CombinedDataset`,
+  `CombinedProvenance`, `CombinedSourceBytes`, `combine_datasets`,
+  `combined_market_dataset`.
+* **The schedule in a run's manifest** [FUT-005].
+  `manifest_for_run(..., schedule=)` checks it against the run's deliveries and
+  records `ReproducibilityManifest.schedule_digest`, rendered into the identity
+  only when given, so every earlier manifest keeps its id. A run over a combined
+  dataset records `ReproducibilityManifest.dataset_parts`, checked against the
+  combined identity and listed part by part by `external_requirements`.
+* **Execution algorithms on the historical drivers** [FUT-009].
+  `alphalab.backtesting.algorithmic`: an `ExecutionPlan` of
+  `AlgorithmAssignment`s (an algorithm, a window, a quantity increment), by
+  asset or for every asset, with an optional `VenueCheck`, given to
+  `BacktestEngine.run(..., execution=)`, `ReplayBacktest.run(..., execution=)`
+  or `alphalab.api.backtest`/`replay`. The run routes
+  `ExecutionRouting.ALGORITHMIC`: each parent is accepted and held, worked in
+  children at its asset's events -- TWAP, VWAP, slicing, iceberg, participation
+  -- each child filled by the run's own fill policy and cost model through
+  `ExecutionPipeline.work_child` and settled on the parent; terms an algorithm
+  cannot work are refused before an order exists. The result is then an
+  `AlgorithmicResult` -- the same projection of the run, and the
+  `AlgorithmBook` beside it: every parent, child and fill (`ReplayResult.algorithms`
+  for a replay). `BacktestResult` itself still stores only the run.
+  A paused replay keeps it (`replay_snapshot.restore(..., execution=)`), and
+  `manifest_for_run(..., execution=)` records the plan's id.
+* **A derivative's lifecycle, declared and carried out** [FUT-013].
+  `InstrumentRecord.terms` declares `alphalab.instrument.OptionTerms` (call or
+  put, strike, `AMERICAN` or `EUROPEAN` with its window, `CASH` or `PHYSICAL`,
+  a `Deliverable` in any quantity per contract, an `AutomaticExercise`
+  threshold or none) or `FutureTerms` (cash, or delivery of a `Deliverable`).
+  `alphalab.portfolio.Exercise`, `Assignment` and `OptionExpiry` -- on the run's
+  schedule as `ScheduledExercise`, `ScheduledAssignment`, `ScheduledExpiry`, or
+  through `RunEngine.exercise` / `assign` / `expire_option` -- move cash, contracts
+  and the deliverable through the portfolio's fill authority and each
+  strategy's share; a physical future delivers at its final price. What cannot
+  be delivered or paid for is refused before anything moves. `AssetType.INDEX`,
+  a reference value never traded. `alphalab.runtime.session_close` and
+  `settles_at` read a lifecycle's instants from a declared market calendar and
+  settlement rule.
+* **A queue model for resting limit orders** [FUT-011].
+  `alphalab.execution.queue`: a `QueueModel` keeps each resting limit order's
+  `QueuePosition` -- the quantity ahead of it at its limit -- from what each
+  event showed (`QueueObservation`: the quote, the print and its reported
+  aggressor, the bar's range), and answers each turn with a `QueueTurn`: the
+  new position and what of the order may fill. `PriceTimeQueue` models
+  price-time priority over displayed liquidity: an order joins behind what was
+  shown at its price, or at the front inside the spread; prints at the limit by
+  the other side consume the queue first; a shrinking displayed level bounds
+  it; the market trading through the limit clears it; a touch fills only an
+  order at the front; an unsigned print counts only with
+  `count_unsigned_trades`. Given to `BacktestEngine.run(..., queue=)`,
+  `ReplayBacktest.run(..., queue=)` or `alphalab.api.backtest`/`replay`, it
+  bounds which passive fills happen -- the fill policy, simulator, costs, OMS,
+  portfolio and attribution are the run's own -- and the result is a
+  `QueuedResult` whose `execution_assumptions.queue_model` names it
+  (`ExecutionAssumptions.passive_fills` states how passive fills were decided,
+  with or without one). The `QueueBook` is driver state threaded through
+  `RunEngine.advance(..., queue=)` and `ExecutionPipeline.process_record` /
+  `process_market_event(..., queue=)`, so no run's record or `result_id`
+  moves; a paused replay keeps it (`alphalab.backtesting.queueing`,
+  `QUEUE_BOOK_SCHEMA = 1`; `replay_snapshot.restore(..., queue=)`), and
+  `manifest_for_run` records the model as `ReproducibilityManifest.queue_model`.
+  Refused beside an execution plan and on a run that routes to a venue.
+* **Settlement-date accounting** [FUT-015]. `InstrumentRecord.settlement` declares
+  an instrument's settlement rule (a `SettlementRule`: trade date, T+n trading or
+  calendar days); each of its fills -- simulated, from a venue, a lifecycle
+  delivery or a final settlement -- is booked with its settlement instant by its
+  venue's declared calendar, holidays and time zone included, as metadata on its
+  own ledger transaction (`alphalab.portfolio.settlement`: `SETTLES_AT`,
+  `SETTLEMENT_CASH`). `PortfolioState.unsettled` (a derived index of
+  `PendingSettlement`s, rebuilt from the ledger on restore) and
+  `PortfolioEngine.cash_position` (a `CashPosition`: trade-date, unsettled credits
+  and debits, settled, available) report it; buying power excludes proceeds not
+  yet received, in the base currency, so an order needing them is refused until
+  they settle. An order in an instrument whose venue declares no calendar for its
+  rule is refused before it is placed. An instrument declaring no rule settles at
+  its trade and writes nothing new; no schema moves.
+* **Margin calls and forced liquidation** [FUT-017]. `InstrumentRecord.margin`
+  declares an instrument's `alphalab.instrument.MarginTerms` -- a `MarginBasis`
+  (a rate of the position's value, or an amount per contract), an initial and a
+  maintenance requirement, a collateral haircut on a long, fully paid holding and
+  a liquidation priority -- kept by the registry snapshot, the registry indexing
+  the instruments that declare one (`InstrumentRegistry.margined`).
+  `alphalab.runtime.margin_position` reports the account's margin in the base
+  currency (a `MarginPosition` of `MarginHolding`s). After every market step an
+  account below maintenance is called -- an `alphalab.risk.MarginCall` on the risk
+  log -- and liquidated: the least that restores the initial requirement, in whole
+  lots or units, by priority, then the largest requirement, each holding
+  strategy's own target through allocation, risk and the OMS, resting to its
+  asset's next event and filling there by the run's fill policy. A step still in
+  breach calls again from the book as it is; a working liquidation is never
+  placed twice. While in breach only an order reducing a position trades; at any
+  time an order growing a margined position is refused unless equity stays at or
+  above the initial requirement, working orders counted. A margined future spends
+  its initial margin of buying power, not its notional. A physical delivery the
+  cash cannot pay is financed -- a debit, the consideration converted on margin in
+  another currency -- only when every deliverable declares margin terms: an
+  assignment, a future's delivery or an expiry's automatic exercise is booked and
+  called; an instructed exercise only within the initial requirement. A run
+  declaring no margin records exactly what it did; no schema moves.
+* **Financing, margin purchases and short borrow** [FUT-018].
+  `MarginTerms.purchase_on_margin` lets a fully paid instrument be bought on
+  margin: the purchase spends its initial requirement of buying power and the
+  cash it lacks is a financed debit. `alphalab.backtesting.ScheduledInterest`
+  charges a period's declared debit tiers (`alphalab.portfolio.FinancingTier`)
+  and optional credit rate on a currency's balance -- trade-date or settled
+  (`BalanceBasis`) -- for the period's dates by a `DayCount`, as an `INTEREST`
+  cash flow. `InstrumentRecord.borrow` declares
+  `alphalab.instrument.BorrowTerms`, a dated series of `BorrowAvailability`
+  (units available, or no stated limit, and an annual fee): a short beyond what
+  is available in effect, working sales counted, is refused before it is placed,
+  and `alphalab.backtesting.ScheduledBorrowFee` charges each short the fee in
+  effect on its value at the last mark. A strategy reads the borrow in effect
+  now through `context.universe.borrow(asset_id)` -- units available and the
+  fee, `(0, 0)` before the lender's first entry -- and never a later entry:
+  `context.universe.instrument` shows a record's borrow terms only as far as
+  they are in effect. A run declaring none of it records exactly what it did;
+  no schema moves.
+* **A declared portfolio margin model** [FUT-019]. `alphalab.instrument.MarginModel`
+  reads every margined position at once; `PerPositionMargin` is FUT-017's sum,
+  and `ScenarioMargin` revalues the positions it covers under each declared
+  `MarginScenario` and requires the worst loss, floored, a position it does not
+  cover margined by its own terms. `alphalab.instrument.declare_margin_model`
+  puts one on the registry (`InstrumentRegistry.margin_model`, kept by its
+  snapshot), refusing one that covers what the registry does not margin. With a
+  model declared, the margin check, the liquidation's sizing (a convex search
+  that leaves a hedge leg alone when selling it would raise the requirement),
+  the pre-trade check and the risk gate's `MarginLimit` all read its figure. A
+  run declaring none is FUT-017's exactly.
+* **Venue price bands and trading halts** [FUT-020]. `alphalab.instrument.TradingControls`,
+  declared on the registry by `declare_trading_controls` and kept by its
+  snapshot, holds dated `PriceBand`s (a limit down and up, and a `BandAction`
+  for an order beyond them, `REFUSE` or `CAP`) and `TradingHalt`s of an
+  instrument or a venue. At every order's turn nothing trades in a halt or at a
+  price outside the band: the order rests -- a market order to its first turn
+  after -- an immediate-or-cancel order is cancelled, a stop is not set off in a
+  halt, and an algorithm's child is withdrawn while its schedule goes on; a limit
+  beyond a band is refused or capped at placement. `context.universe.halted` and
+  `price_band` tell a strategy what is in force now. A run declaring no controls
+  records exactly what it did.
+* **Mergers, spin-offs and rights issues** [FUT-021]. `alphalab.portfolio.HoldingExchange`
+  declares a holding's transformation by its issuer's terms -- `ExchangeLeg`s
+  (an instrument, units per unit held, the share of the basis it carries, an
+  in-lieu price for a fraction), a cash part, a retained basis share -- the
+  shares summing to one. `ExecutionPipeline.apply_exchange` and
+  `RunEngine.apply_exchange` (scheduled as `alphalab.backtesting.ScheduledExchange`)
+  apply it at its instant: the units the book can hold, a fraction in lieu or
+  refused, the basis apportioned and converted at the rate in force, the cash
+  part realizing its share -- a short receiving short legs and paying the cash --
+  each strategy's share carried, working orders cancelled as at a split, and a
+  contract on the instrument refused unless adjusted. `PortfolioEngine.apply_exchange`
+  books it as an `EXCHANGE` ledger transaction and one `PositionExchanged` event.
+* **A venue's price grid on the execution path** [EXE-013].
+  `InstrumentRecord.tick` declares the instrument's `TickSchedule`, tiered or
+  flat, kept by the registry snapshot (`alphalab.conventions.tick.tick_to_primitives`,
+  `tick_from_primitives`). A limit or stop between two ticks of its own band is
+  refused at placement, naming the step, as is a negative one; a market order is
+  never refused for the grid; a band capping a limit lands it on the grid inside
+  the band. A run declaring no grid accepts any price, as before.
+* **A strategy withdraws its own working orders** [EXE-012].
+  `IntentKind.CANCEL`: a hook returns `Intent(kind=IntentKind.CANCEL,
+  instrument=<asset>, target=0)` and every order working in the asset that the
+  strategy alone contributed to is withdrawn at that event, after its fills and
+  before the batch's orders are placed -- a cancel and a new limit in one return
+  replace a quote. Its reservation is freed, a queue model holds nothing for it,
+  and the strategy hears it through `on_order`. An order netted with another
+  strategy's, a parent an execution plan works, or an order at a venue is left
+  working and recorded as an `alphalab.strategy.CancelRefused`. A run asking for
+  no cancel records what it did.
+* **Richer contract terms** [FUT-016]. `OptionTerms` declares a `basket` of
+  further `Deliverable`s and a `cash_per_contract`; a `consideration_currency`,
+  converted at the exercise instant by the run's rates or by a quanto contract's
+  fixed `consideration_rate`; `fractions` (`alphalab.instrument.CashInLieu`) for a
+  fraction of a unit the book cannot hold; `ExerciseStyle.BERMUDAN` with
+  `exercise_windows`; and `adjustments` (`alphalab.instrument.TermsAdjustment`),
+  each effective from its instant -- `OptionTerms.split_adjusted` writes the one a
+  split implies. A physical package is planned before anything moves and booked
+  through the portfolio's fill authority, its cost apportioned by the components'
+  observed values; a cash-settled package, and a package's moneyness at expiry,
+  are valued at observed prices (`OptionExpiry.underlying_value` is optional). A
+  split of an instrument a held or working contract delivers is refused unless the
+  contract declares the adjustment the split implies.
+* **A strategy exercises its own options from its hooks** [FUT-014].
+  `IntentKind.EXERCISE`: any hook returns `Intent(kind=IntentKind.EXERCISE,
+  instrument=<option>, target=<whole contracts>)`. It is not an order --
+  allocation, risk and the OMS never see it, and `AllocationEngine.allocate`
+  refuses one handed to it directly -- but an instruction the execution pipeline
+  carries out at the end of the step that asked, at that event's instant, through
+  the checks a scheduled `Exercise` passes, against the asking strategy's own
+  long contracts, attributed to it alone. A cash-settled contract settles against
+  the last price the run observed for its underlying. A malformed instruction
+  fails the strategy as any malformed intent does; one the run cannot carry out is
+  recorded as `alphalab.strategy.ExerciseRefused` in the strategy runtime's log,
+  moves nothing, and leaves the strategy running. Backtest, replay and a pause
+  agree; a run that asks for no exercise records what it did.
+* **A strategy configuration read back as its declared type** [FUT-002].
+  `alphalab.strategy.configuration`: a strategy class that sets
+  `configuration_type` -- a dataclass, say, with `Decimal`, tuple, enum, `UUID`
+  and typed-mapping fields -- is configured only with a value of that type
+  (`RuntimeSupervisor.configure` raises `StrategyConfigurationError`, naming the
+  field), and a restore reads the recorded value back as that type, equal and of
+  the same types at every depth: dataclasses through their own constructors, so
+  defaults fill a field an older payload lacks and `__post_init__` constraints
+  hold. A type whose values cannot be read back -- a set, a `datetime`, a union
+  of two non-`None` types, a mapping keyed by `Decimal` -- is refused at
+  configure; a recorded value not of the declared type is refused at restore
+  (`StateDecodeError`). The payload is what the encoder always wrote, so no
+  schema, `result_id`, `configuration_id` or manifest moves; a strategy that
+  declares nothing reads back as JSON reads it (LIM-004), as before.
+* **The macro engine's series as observations** [FUT-008].
+  `alphalab.api.observations_from_indicator`.
+* **`LiveSession.deliver_observation`** [OFE-027].
+* **Example 78** (*phase 4*) -- a tender split between holders: two strategies
+  holding one position electing apart, the cash prorated, a record instant, and
+  the issuer's delayed then corrected payment reconciled from the ledger
+  [FUT-030, FUT-034] -- held by `tests/integration/test_split_tender_example.py`
+  and run from every built artifact. `tests/integration/test_phase4_interactions.py`
+  holds phase 4's capabilities against each other, replayed from every pause.
+* **Example 79** (*phase 5*) -- a bid into a reopening auction: the venue's
+  published book and indications, one withdrawn, shown to a strategy as
+  published by its instant, a bid above the indicated price, the uncross the
+  run computes from the book rather than the indication, and the venue
+  conditions the result states [FUT-040, EXE-014] -- held by
+  `tests/integration/test_reopening_bid_example.py` and run from every built
+  artifact. `tests/integration/test_phase5_interactions.py` holds phase 5's
+  capabilities against each other, replayed from every pause.
+* **Example 77** (*phase 3*) -- a short squeezed by its lender: a recall bought
+  in through a halt and its reopening auction, a bid amended in place, a day's
+  borrow fee [FUT-022, FUT-023, FUT-027, FUT-029] -- held by
+  `tests/integration/test_squeezed_short_example.py` and run from every built
+  artifact. `tests/integration/test_phase3_interactions.py` holds phase 3's
+  capabilities against each other, replayed from every pause.
+* **Examples 72 to 76** -- a multi-asset strategy over prices, sentiment and
+  macro releases, a model fitted before a boundary and traded after it
+  [FUT-006, FUT-007], one decision executed whole and by four algorithms,
+  measured as implementation shortfall [FUT-009], an option's whole life on
+  a declared market's calendar [FUT-013], and a financed long-short book --
+  scenario-margined, bought on margin and charged its debit's interest, sold
+  short on declared borrow, halted, banded and merged [FUT-018 to FUT-021,
+  EXE-012] -- each held by an integration
+  test and run from every built artifact by `tests/installed_smoke.py`.
+  `tests/integration/test_v42_milestone_interactions.py` holds the four
+  v4.2.0 milestones together: an exchange into a stricter margined instrument,
+  a liquidation held by a band, a contract adjusted for a merger, and one book
+  using all of them replayed from every pause.
+  `benchmarks/benchmark_algorithmic_execution.py`. **`docs/COMPOSING_STRATEGIES.md`**
+  and three audits: `docs/audit/STRATEGY_CAPABILITY_MATRIX.md`,
+  `docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`,
+  `docs/audit/FUTURE_READINESS_V4_1_1.md`.
+
+## Fixed
+
+* **`context.market.bar(asset_id)` returned `None` for every asset** [KD-005].
+  Since v2.10 `MarketView.bar` looked the bare asset id up in an index the
+  market engine keys `"<asset_id>_<interval>"`. It now returns the asset's latest
+  bar, the longer interval on a tie.
+* **The reinforcement-learning docstrings reported a fixed defect as live**
+  [DOC-012].
+* **A delivery could leave a whole-units book holding a fraction of a share**
+  [FUT-016]. A contract delivering, say, 33.3333 shares a contract was booked
+  as delivered in a run that trades whole units; it is now refused unless the
+  contract declares cash in lieu for the fraction.
+* **A split of a deliverable left the contracts on it unadjusted** [FUT-016]:
+  after a two-for-one split an option delivered the units of before at the strike
+  of before -- half its value. The split is now refused unless the contract
+  declares its adjustment.
+* **A Bermudan contract cannot be priced as American or European** [FUT-016]:
+  `OptionContract` refuses `ExerciseStyle.BERMUDAN`.
+* **A strategy's resting order could defer a margin call indefinitely** [ACC-016]
+  (*phase 3*): a call waited on any working order reducing the position, and a
+  liquidation sized as a target counted a far bid as held; a buy-in sized as a
+  delta was read through the sizing model. Only a working market order defers
+  either now, and every forced trade is a target net of the strategy's working
+  orders, trading exactly the reduction required.
+* **A run's manifest did not identify the instrument registry it held** [REP-006]
+  (*phase 4*). The registry -- records, venue controls, borrow, the margin
+  model and its surfaces -- is a live object the record names by type only
+  (ADR-0023), so runs given different terms shared a manifest wherever their
+  records agreed. `manifest_for_run(instruments=True)` records the SHA-256 of
+  the registry the run held, read off the run, and renders it into the
+  manifest's identity; asked for nothing, a manifest keeps the identity it had.
+* **A purchase its currency could not pay stopped a multi-currency run** [ACC-017]
+  (*phase 3*): buying power sums every currency, so the fill raised
+  `InsufficientFundsError`. The purchase is now refused when placed, naming the
+  currency, and the run goes on; nothing is converted to pay it.
+* **A restored run could lose fills not yet settled** [ACC-015] (*phase 3*): a
+  run bounding its results trimmed the ledger regardless of settlement, and a
+  restore rebuilds the unsettled fills from it. The bound now widens, while a
+  fill is unsettled, to keep it; nothing else trims differently.
+* **A day count's year was chosen by elimination** [NUM-016]: `year_fraction`
+  and `day_fraction` divided every basis but the two 360-day ones by 365, so a
+  basis added later would have been misread silently.
+  `alphalab.conventions.days_in_year` states each basis's year and refuses one
+  not stated; every figure for the three bases is unchanged.
+* **A calendar date could not be serialized** [FUT-018]: the deterministic
+  encoder refused `datetime.date`, so no payload or schedule digest could hold
+  one. It is now written as ISO 8601; a `datetime`, whose clock and zone the
+  text would drop, is still refused.
+* **Buying back a short for more than the cash stopped the run** [FUT-017]: the
+  fill raised `InsufficientFundsError`, with or without margin, even for an
+  account worth more than the cost. A buy covering a short is now booked as the
+  debit it is; a buy past the short still spends only cash the account holds.
+* **A delivery the cash could not pay stopped the run** [FUT-017]: it still does
+  for a deliverable declaring no margin terms, and is financed for one that
+  declares them -- the refusal now names that remedy.
+* **The persisted-enum pins missed every decoder not named `from_primitives`**
+  [FUT-017, PER-004]: a module counted only when its text held `def
+  from_primitives`, so the enums `terms_from_primitives`,
+  `economics_from_primitives` and `book_from_primitives` read -- `ExerciseStyle`,
+  `OptionType`, `SettlementStyle`, `SettlementModel`, `AlgorithmStatus`,
+  `IncompletePolicy`, `MissingVolumePolicy` -- were part of the format and unpinned.
+  The scanner now follows every decoder by the architecture's names, the helpers
+  it reaches and the tables it reads, and pins them, with `MarginBasis`.
+* **A capability invariant reached one of its statuses by the luck of its seed**
+  [TST-023]. Every draw now also checks a declaration built to offer what the
+  flow needs, which must be compatible.
+
+## Public API changes
+
+| Name | Change |
+| --- | --- |
+| `alphalab.api.backtest` | keyword-only `observations`, `schedule`, `execution` and `queue`, empty or `None` by default: no effect unless given |
+| `alphalab.api.replay` | keyword-only `observations`, `schedule`, `execution` and `queue` |
+| `alphalab.backtesting.PausedReplay` | fields `schedule`, empty by default, and `algorithms` and `queue`, `None` by default |
+| `alphalab.backtesting.ReplayResult` | properties `algorithms` and `queue` |
+| `alphalab.backtesting.ReplayBacktest.run` | keyword-only `observations`, `schedule`, `execution` and `queue` |
+| `alphalab.backtesting.BacktestEngine.run` | keyword-only `schedule`, `execution` and `queue` |
+| `alphalab.backtesting.replay_snapshot.restore` | `schedule`, empty by default, and `execution` and `queue`, `None` by default; `ReplaySnapshot.schedule_digest`, `algorithms` and `queue` |
+| `alphalab.runtime.RunEngine.advance`, `ExecutionPipeline.process_record`, `process_market_event` | keyword-only `queue`, `None` by default; `ExecutionPipelineResult.queue`, appended last, `None` by default |
+| `alphalab.strategy.IntentKind` | members `EXERCISE` (FUT-014) and `CANCEL` (EXE-012); `alphalab.strategy.ExerciseRefused` and `CancelRefused` added |
+| `alphalab.instrument.OptionTerms` | fields `basket`, `cash_per_contract`, `consideration_currency`, `fractions`, `exercise_windows`, `adjustments` and `consideration_rate`, empty or `None` by default; `deliverables`, `is_single`, `effective`, `split_adjusted`, `may_exercise`, `package_value`, `basket_intrinsic`; `intrinsic` refuses a package (FUT-016); `alphalab.instrument.CashInLieu` and `TermsAdjustment` added |
+| `alphalab.options.ExerciseStyle` | member `BERMUDAN`; `OptionContract` refuses it |
+| `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `settlement`, `None` by default (FUT-015) |
+| `alphalab.portfolio.PortfolioEngine.apply_fill` | keyword-only `settles_at`, `None` by default; `PortfolioEngine.cash_position` and `PortfolioState.unsettled` added; `alphalab.portfolio.settlement` (`CashPosition`, `PendingSettlement`, `SETTLES_AT`, `SETTLEMENT_CASH`, `pending_from`, `settle_pending`) added |
+| `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `margin`, `None` by default (FUT-017); `alphalab.instrument.MarginBasis`, `MarginTerms` and `alphalab.instrument.margin` (`margin_from_primitives`, `margin_to_primitives`) added |
+| `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `margined`, a derived index, `None` by default and built from the records (FUT-017) |
+| `alphalab.risk.MarginCall`, `alphalab.risk.events.MarginCall` | added (FUT-017) |
+| `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
+| `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
+| `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.instrument.DeliveredAuction`; `alphalab.instrument.controls.published`, `delivered_to_primitives`, `delivered_from_primitives`; `alphalab.market.state.MarketState`; `deliver_auction` (`ExecutionPipeline`, `RunEngine`, `LiveSession`); `RunSchedule.of`; `ScheduleKind`; `alphalab.strategy.context.UniverseProtocol`, `NoUniverse`; `alphalab.runtime.context_views.UniverseView` | added; added; field `auctions`, empty by default, appended last, written only when delivered; added; keyword `auctions`; member `AUCTION`; method `reopening`; method `reopening` (FUT-043, phase 6) |
+| `alphalab.instrument.snapshot.registry_digest`; `alphalab.runtime.registry_check` (`RegistryVerification`, `registry_verification`, `verify_registry`); `alphalab.backtesting.replay_snapshot.ReplaySnapshot`, `alphalab.runtime.live_snapshot.LiveRunSnapshot`; `alphalab.runtime.snapshot.restore`, `alphalab.runtime.run_snapshot.restore`, `alphalab.runtime.checkpoint.restore_checkpoints`; `alphalab.runtime.live_snapshot.restore`; `alphalab.lifecycle.rerun_from_manifest` | added; added; field `instruments_digest`, `None` by default, appended before `schema_version`, schemas 2 -> 3; keyword-only `instruments_digest`, `None` by default; keyword-only `registry_changed`, `False` by default; keyword `schedule` and `execution`, `None` by default (FUT-041, REP-008, phase 6) |
+| `alphalab.instrument.TradingControls`; `alphalab.instrument.AuctionIndication`, `PublishedAuction`; `TradingControls.indication`; `alphalab.strategy.context.UniverseProtocol`, `NoUniverse`; `alphalab.runtime.context_views.UniverseView` | field `indications`, empty by default, appended last, written only when declared; added; added; method `auction`; method `auction` (FUT-040, phase 5) |
+| `alphalab.runtime.ExecutionAssumptions`; `alphalab.runtime.live.LiveSession`; `alphalab.lifecycle.assess_reproducibility` | field `venue_conditions`, empty by default, appended last; method `deliver_surface`; one more finding for a run manifest naming its registry by type alone (phase 5 engine integration audit) |
+| `alphalab.risk.RiskState`; `alphalab.risk.ObservedSurface`, `alphalab.risk.surfaces`; `alphalab.instrument.OptionRisk`; `ScenarioMargin`; `RunSchedule.of`; `ScheduleKind`; `alphalab.strategy.context.RiskViewProtocol`, `NoRiskView`; `alphalab.runtime.context_views.RiskView`; `deliver_surface` (`ExecutionPipeline`, `RunEngine`); `alphalab.instrument.margin.read_surface` | field `surfaces`, empty by default, appended last; added; field `volatility`, appended last, `None` by default; fields `surface_feed`, `surface_max_age`, `None` by default, written only when declared; keyword `surfaces`; member `SURFACE`; method `volatility_surface`; method `volatility_surface`; added; added (FUT-039, phase 5) |
+| `alphalab.backtesting.ElectiveExchange`; `TermsCorrection`, `ElectiveTerms`, `EarlierElections`; `alphalab.strategy.TermsAnnounced`; `ExecutionPipeline.record_terms`, `RunEngine.record_terms` | fields `corrections`, `deliveries`, empty by default, and `convention`, appended last; `versions`, `terms_at`, `final`; added; added; added (FUT-038, phase 5) |
+| `alphalab.backtesting.DeliveredExchange`, `DeliveryAmendment`; `alphalab.portfolio.DeliveryConvention`; `alphalab.portfolio.settlement.PendingSettlement`; `alphalab.portfolio.events.DeliveryAmended`; `apply_exchange` (`ExecutionPipeline`, `RunEngine`, `PortfolioEngine`); `amend_delivery` (each layer) | added; field `delivery`, appended last, `None` by default; added; keyword-only `delivers_at` and `delivery` (`delivers`, `convention`, `effective_at` on the portfolio), `None` by default; added (FUT-037, phase 5) |
+| `alphalab.lifecycle.manifest_for_run`; `ReproducibilityManifest`; `canonical_manifest_key`, `derive_manifest_id` | keyword-only `instruments`, `False` by default; field `instruments_digest`, appended last, `None` by default; trailing `instruments_digest`, `None` by default (REP-006, phase 4) |
+| `alphalab.instrument.OptionPricing`; `ScenarioMargin` | field `volatility` may be `None`, to read a surface; fields `surfaces`, empty by default, and `horizon`, `None` by default, written only when declared; `surface_volatility` (FUT-032, phase 4) |
+| `alphalab.backtesting.ElectiveExchange`; `ScheduleKind`; `alphalab.strategy.UnitsElected`, `HoldersRecorded`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`; `PortfolioEngine.apply_exchange`; `ExecutionPipeline.record_holders`, `RunEngine.record_holders` | fields `proration`, empty by default, and `record_at`, `None` by default; member `RECORD`; added; keyword-only `part`, `None` by default; keyword-only `kept`, `None` by default; added (FUT-030, phase 4) |
+| `alphalab.instrument.BorrowAvailability`; `BorrowTerms`; `alphalab.runtime.BorrowClaim`, `borrow_claims` | fields `buy_in_premium`, `buy_in_fee`, `None` by default, and `allocations`, empty by default, each written only when declared; `shared`, `allocated`; `per_strategy`; added (FUT-035, phase 4) |
+| `alphalab.backtesting.PaymentAmendment`; `RunSchedule.of`; `ScheduleKind`; `alphalab.portfolio.PaymentChange`, `Entitlement`, `EntitlementStatus`; `alphalab.portfolio.settlement`; `alphalab.portfolio.events.PaymentAmended`; `RunEngine.amend_payment`, `ExecutionPipeline.amend_payment`, `PortfolioEngine.amend_payment` | added; keyword `payments`, empty by default; member `PAYMENT`; added; `AFFECTS`, `ENTITLEMENT`, `PAYMENT_CHANGE`, `amend_pending`, `entitlement_key`, `entitlements`, `payment_chain` added; added; added (FUT-034, phase 4) |
+| `alphalab.instrument.AuctionInterest`, `AuctionPriority`, `AuctionTieBreak`, `AuctionUncross`; `TradingHalt`; `TradingControls`; `alphalab.execution.AuctionReopening`; `alphalab.execution.ExecutionState` | added; field `uncross`, `None` by default; field `auction_books`, empty by default, `auction_book`, `auctions`; added; field `reopened`, empty by default and written only when a run holds an auction (FUT-033, phase 4) |
+| `alphalab.instrument.BandReference`, `ReferenceBand`; `alphalab.instrument.TradingControls` | added; fields `references` and `reference_bands`, empty by default; `band` takes a keyword `tick`, `None` by default; `unbanded`, `reference`, `current_reference` (FUT-028, phase 3) |
+| `alphalab.backtesting.ElectiveExchange`; `alphalab.strategy.IntentKind`; `alphalab.strategy.ElectionMade`; `alphalab.instrument.TermsAdjustment` | added; member `ELECT`; added; field `announced_at`, `None` by default (FUT-024, phase 3) |
+| `alphalab.instrument.OptionPricing`, `OptionRisk`; `ScenarioMargin`, `MarginScenario`, `MarginExposure`; `alphalab.runtime.MarginHolding` | added; fields `repriced`, `volatility_shifts`, `option` (and `MarginHolding.option`, appended last), empty or `None` by default (FUT-026, phase 3) |
+| `alphalab.backtesting.PaidExchange`; `RunSchedule.of(exchanges=)`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`, `PortfolioEngine.apply_exchange` | added; accepted beside `ScheduledExchange`; keyword-only `payment_at` (`pays_at` on the portfolio), `None` by default (FUT-025, phase 3) |
+| `alphalab.backtesting.DailyAccrual`, `DailyInterest`, `DailyBorrowFee`, `RateChange`; `RunSchedule.of(interest=, borrow_fees=)` | added, accepted beside the instant forms; `ScheduleKind.ACCRUAL` (FUT-023, phase 3) |
+| `alphalab.portfolio.types.TransactionType`; `alphalab.portfolio.financing` | member `ACCRUAL`; `ACCRUES`, `ACCRUAL_CLOSED` added; `PortfolioEngine.record_accrual`, `accrued`, `close_accrual`; `ExecutionPipeline.record_accrual`, `post_accrual`; `RunEngine.record_accrual`, `post_accrual` (FUT-023, phase 3) |
+| `alphalab.instrument.BorrowAvailability` | field `buy_in_at`, `None` by default, written only when declared; `BorrowTerms.recalls` (FUT-022, phase 3) |
+| `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.registry.InstrumentRegistry` | field `recallable`, a derived index, appended last, `None` by default and built from the records (FUT-022, phase 3) |
+| `alphalab.risk.BuyIn`, `alphalab.risk.events.BuyIn` | added (FUT-022, phase 3) |
+| `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `tick`, `None` by default (EXE-013); `alphalab.conventions.tick.tick_to_primitives`, `tick_from_primitives` added |
+| `alphalab.conventions.days_in_year`, `alphalab.conventions.daycount.days_in_year` | added (NUM-016) |
+| `alphalab.instrument.MarginTerms` | field `purchase_on_margin`, `False` by default and written only when declared (FUT-018) |
+| `alphalab.backtesting.ScheduledInterest`, `ScheduledBorrowFee`; `RunSchedule.of` | added; keyword-only `interest` and `borrow_fees`, empty by default; `ScheduleKind` members `INTEREST` and `BORROW_FEE` (FUT-018) |
+| `alphalab.portfolio.FinancingTier`, `BalanceBasis`, `alphalab.portfolio.financing` | added (FUT-018) |
+| `alphalab.instrument.MarginModel`, `MarginExposure`, `MarginRequirement`, `MarginScenario`, `PerPositionMargin`, `ScenarioMargin`, `declare_margin_model`; `alphalab.instrument.margin.margin_model_to_primitives`, `margin_model_from_primitives` | added (FUT-019) |
+| `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.snapshot.InstrumentRegistrySnapshot` | field `margin_model`, `None` by default (FUT-019) |
+| `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project`, `RiskProjection` | keyword-only `margin`, `None` by default; fields `margin_requirement` and `margin_equity`, `None` by default (FUT-019) |
+| `alphalab.instrument.TradingControls`, `PriceBand`, `TradingHalt`, `BandAction`, `declare_trading_controls`, `alphalab.instrument.controls` | added (FUT-020) |
+| `alphalab.instrument.InstrumentRegistry`, `alphalab.instrument.snapshot.InstrumentRegistrySnapshot` | field `controls`, `None` by default (FUT-020) |
+| `alphalab.strategy.UniverseProtocol`, `alphalab.strategy.context.NoUniverse`, `alphalab.runtime.context_views.UniverseView` | methods `halted` and `price_band`; the view's field `_as_of`, `None` by default (FUT-020); method `borrow`, and `instrument` shows only the borrow entries in effect at the view's instant (FUT-018) |
+| `alphalab.portfolio.HoldingExchange`, `ExchangeLeg`; `alphalab.portfolio.corporate_actions.ExchangedHolding`, `PortfolioEngine.apply_exchange`; `alphalab.portfolio.events.PositionExchanged`; `alphalab.portfolio.types.TransactionType` member `EXCHANGE`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`; `alphalab.backtesting.ScheduledExchange`, `RunSchedule.of(exchanges=)`, `ScheduleKind.EXCHANGE` | added (FUT-021) |
+| `alphalab.runtime.MarginHolding`, `MarginPosition` | fields `unit_value`, `unit_maintenance`, `haircut_rate` and `model`, defaulted; `MarginHolding.exposure`, `haircut`, `MarginPosition.figures` (FUT-019) |
+| `alphalab.runtime.margin_position`, `MarginPosition`, `MarginHolding` | added (FUT-017) |
+| `alphalab.risk.RiskEngine.evaluate`, `alphalab.risk.projection.project` | keyword-only `charge`, `None` by default; `WorkingExposure.charge`, `None` by default (FUT-017) |
+| `alphalab.portfolio.PortfolioEngine.apply_fill`, `convert_cash` | keyword-only `financed`, `False` by default; a buy covering a short is debited past the cash (FUT-017) |
+| `alphalab.portfolio.OptionExpiry` | `underlying_value` optional (`None` by default), refused for a package and required otherwise |
+| `alphalab.strategy.supervisor.RuntimeSupervisor.configure` | raises `StrategyConfigurationError` for a value not of the type its strategy's class declares as `configuration_type`; unchanged for a class that declares none |
+| `alphalab.runtime.ExecutionAssumptions`, `execution_assumptions` | field `queue_model` and trailing parameter `queue_model`, `None` by default; property `passive_fills`; `settings()` adds `execution.queue_model` only when a model is declared |
+| `alphalab.runtime.execution_pipeline.ExecutionRouting` | member `ALGORITHMIC`; `ExecutionMode.works_children` |
+| `alphalab.core.enums.AssetType` | members `BOND` and `INDEX` |
+| `alphalab.broker.BrokerAssetClass` | the same enum as `AssetType`, so members `BOND` and `INDEX` |
+| `alphalab.instrument.snapshot.InstrumentRegistryRecord`, `InstrumentRegistrySnapshot` | the record's fields `last_trade_at` and `terms`, `None` by default, and the snapshot's `schema_version` default 3 -> 4 (instrument schema 4; a version-3 payload upgrades) -- a snapshot a caller obtains from `capture` or `from_primitives`, not builds |
+| `alphalab.instrument.record.InstrumentRecord` | fields `last_trade_at` and `terms`, `None` by default; `InstrumentRegistry.expiring`, a derived index |
+| `alphalab.lifecycle.manifest_for_run`, `canonical_manifest_key`, `derive_manifest_id` | keyword or trailing `schedule` / `schedule_digest` (`None`) and `dataset_parts` (empty) by default, `execution` / `execution_plan_id` and `queue_model` (`None`); `ReproducibilityManifest.schedule_digest`, `dataset_parts`, `execution_plan_id` and `queue_model` |
+| `alphalab.portfolio.engine.PortfolioEngine.apply_fill` | keyword-only `final_settlement`, `False` by default |
+| `alphalab.strategy.configuration` (`CONFIGURATION_ATTRIBUTE`, `StrategyConfigurationError`, `declared_configuration`, `decode_configuration`, `require_configuration`), also exported by `alphalab.strategy`; `alphalab.execution.queue` (`PriceTimeQueue`, `QueueBook`, `QueueModel`, `QueueObservation`, `QueuePosition`, `QueueTurn`) and `alphalab.backtesting.queueing` (`QUEUE_BOOK_SCHEMA`, `QueueModelError`, `capture_queue`, `queue_from_primitives`, `queued_result`, `queued_run`); `alphalab.backtesting.QueuedResult`; `alphalab.backtesting.schedule` (with `ScheduledExercise`, `ScheduledAssignment`, `ScheduledExpiry` and `RunSchedule.of(exercises=, assignments=, expiries=)`), `alphalab.backtesting.algorithmic` and `alphalab.instrument.terms` and their names; `alphalab.portfolio.Exercise`, `Assignment`, `OptionExpiry`; `RunEngine.exercise`, `assign`, `expire_option`; `ExecutionPipeline.exercise`, `assign`, `expire_option`; `AllocationEngine.shares_of`, `apply_lifecycle`; `alphalab.runtime.session_close`, `settles_at`; `AlgorithmicResult`, `ExecutionPipeline.work_child`, `ChildTurn`; `alphalab.portfolio.ContractSettlement`; `alphalab.api.CombinedDataset`, `CombinedProvenance`, `CombinedSourceBytes`, `combine_datasets`, `combined_market_dataset`, `observations_from_indicator`, `bond_schedule`; `RunEngine.fund`, `RunEngine.settle_contract`, `ExecutionPipeline.settle_contract`, `AllocationEngine.settle_asset`, `LiveSession.deliver_observation`, `held_past_expiry` | added |
+
+## Accepted as future work
+
+FUT-037 to FUT-040, proposed by the phase 4 global gap audit after phase 4's
+deliveries: legs delivered after an exchange's instant, an elective action's
+terms corrected after their announcement, volatility surfaces delivered as
+observations, and a strategy's view of a reopening auction's book -- each on
+ROADMAP's Future work with its interim behaviour and completion criteria, its
+horizon a proposal for the maintainer to confirm.
+
+FUT-030 to FUT-036, proposed by the phase 3 global gap audit after FUT-022 to
+FUT-029 were delivered, and all delivered by phase 4 (*Added*, above):
+elections split between holders and proration, an atomic amend, a dated
+volatility surface and scenario horizons, an auction uncross and a
+retention-proof first event, failed or corrected payments, a buy-in premium
+and per-strategy borrow, and a capital ceiling's reservation reduced in place;
+legs delivered later are FUT-037.
+
+FUT-022 to FUT-029, proposed by the phase 2 global gap audit after FUT-018 to
+FUT-021 were delivered, and all delivered by phase 3: borrow recall and buy-in, daily-balance accrual, holder
+elections and announcement instants, a corporate action settling after its
+instant, options repriced in margin scenarios, a halt's reopening auction, bands computed from a
+reference price, and amend in place. Each is new declared capability, on
+ROADMAP's Future work with its interim safe behaviour, horizon (v4.3 or v4.4),
+dependencies and completion criteria; none changes what v4.2.0 does.
+
+FUT-018 to FUT-021, raised by the FUT-017 milestone and the v4.2.0
+global gap audit, were delivered in v4.2.0 with the rest. FUT-009,
+FUT-011, FUT-013 to FUT-017, accepted by the audit and its milestones, and FUT-002,
+accepted by v4.1, were delivered by the candidate's milestones -- FUT-002 by declaration, so an undeclared configuration
+keeps the stated reading (LIM-004); FUT-011's
+model is price-time priority over displayed liquidity, and what it does not
+model -- pro-rata books, hidden liquidity, a fill probability -- is stated on
+the ledger entry.
+
+---
+
 # [4.1.0] - 2026-10-11
 
 **A replay that pauses and resumes to the identical result, CPython 3.12 to 3.14

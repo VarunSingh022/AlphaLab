@@ -92,12 +92,13 @@ def test_a_v3_11_registry_is_upgraded_with_its_sector_as_a_dimension() -> None:
     snapshot = from_primitives(payload)
     registry = restore(snapshot)
 
-    assert snapshot.schema_version == 3
+    # v4.1.1 moved the instrument schema to 4 (a last trading instant, FUT-012).
+    assert snapshot.schema_version == 4
     acme = next(record for record in registry.instruments.values() if record.symbol == "ACME")
     assert registry.label_of(acme.asset_id, SECTOR) == "Technology"
     assert acme.asset_id in registry.bucket_members(SECTOR, "Technology")
     assert acme.dated_aliases, "the v3.11 dated alias is carried"
-    assert deserialize(serialize(snapshot))["schema_version"] == 3
+    assert deserialize(serialize(snapshot))["schema_version"] == 4
 
 
 def _run_objects(strategy_id: str, plan: dict[float, Decimal]) -> Any:
@@ -188,7 +189,7 @@ def test_a_v3_11_live_envelope_is_upgraded_through_both_of_its_halves() -> None:
 
     snapshot = from_primitives(_load("live.json"))
 
-    assert snapshot.schema_version == 2
+    assert snapshot.schema_version == 3  # upgraded to the current envelope (FUT-041)
     assert snapshot.run.schema_version == 5
     assert snapshot.run.pipeline.schema_version == 8
     # Recorded by type alone before v4.0, and upgraded to say so (PER-008).

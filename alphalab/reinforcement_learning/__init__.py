@@ -7,8 +7,10 @@ evaluation metrics.
 
 Building this environment surfaced a real, previously-unreachable bug in
 `alphalab.portfolio.engine.PortfolioEngine.apply_fill` (double-counted realized
-P&L on closing trades) -- see `alphalab.reinforcement_learning.environment`'s module
-docstring for the full explanation. Not fixed here; flagged clearly instead.
+P&L on closing trades). It was fixed upstream in v2.0.0 (CHANGELOG, D1) and is
+pinned by `tests/regression/test_close_fill_cash_accounting.py`; see
+`alphalab.reinforcement_learning.environment`'s module docstring. Until v4.1.1
+this docstring still called it unfixed.
 """
 
 from alphalab.reinforcement_learning.action import Action, action_to_signed_quantity

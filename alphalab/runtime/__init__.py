@@ -58,7 +58,7 @@ from alphalab.runtime.broker_routing import (
     route_order,
     venue_order_type,
 )
-from alphalab.runtime.calendars import VenueCalendars
+from alphalab.runtime.calendars import VenueCalendars, session_close, settles_at
 from alphalab.runtime.checkpoint import (
     CHECKPOINT_SCHEMA,
     CheckpointMark,
@@ -72,14 +72,19 @@ from alphalab.runtime.exceptions import (
     RuntimeValidationError,
 )
 from alphalab.runtime.execution_pipeline import (
+    BorrowClaim,
     ExecutionPipeline,
     ExecutionPipelineConfig,
     ExecutionPipelineResult,
     ExecutionPipelineState,
     ExecutionRouting,
+    MarginHolding,
+    MarginPosition,
     SettlementRefusal,
     UnpricedAsset,
     UnpricedReason,
+    borrow_claims,
+    margin_position,
     wants_slices,
 )
 from alphalab.runtime.live import (
@@ -106,6 +111,7 @@ from alphalab.runtime.session import TradingSession
 __all__ = [
     "CHECKPOINT_SCHEMA",
     "AlphaLabRuntimeError",
+    "BorrowClaim",
     "CheckpointMark",
     "ChildOrderBindings",
     "ChildRoutingResult",
@@ -120,6 +126,8 @@ __all__ = [
     "LiveRunState",
     "LiveSession",
     "LiveStep",
+    "MarginHolding",
+    "MarginPosition",
     "RetentionPolicy",
     "RoutedOrder",
     "RoutingConfig",
@@ -141,15 +149,19 @@ __all__ = [
     "UnpricedReason",
     "VenueCalendars",
     "apply_broker_execution",
+    "borrow_claims",
     "checkpoint",
     "child_broker_order_id",
     "execution_assumptions",
     "execution_report_from_broker",
     "live_health",
+    "margin_position",
     "read_checkpoints",
     "restore_checkpoints",
     "route_child_order",
     "route_order",
+    "session_close",
+    "settles_at",
     "venue_order_type",
     "wants_slices",
 ]

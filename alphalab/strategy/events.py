@@ -39,6 +39,8 @@ from alphalab.common.order_terms import MARKET, OrderTerms
 from alphalab.common.point_in_time import StampedRecord
 
 __all__ = [
+    "CancelRefused",
+    "ExerciseRefused",
     "FillEvent",
     "Intent",
     "IntentKind",
@@ -88,6 +90,45 @@ class IntentKind(StrEnum):
     #: asset, scaled by ``strength`` -- the capital ``TargetWeightSizing`` reads,
     #: valued at the asset's price in the budget's currency.
     TARGET_WEIGHT = "target_weight"
+    #: An instruction to exercise ``target`` whole contracts of the strategy's
+    #: own long position in the option ``instrument`` (v4.2.0, ledger FUT-014).
+    #: Not an order: allocation, risk and the OMS never see it. It takes effect
+    #: at the instant of the event whose hook returned it, at the end of that
+    #: event's step, through the checks a scheduled
+    #: :class:`~alphalab.portfolio.corporate_actions.Exercise` passes -- the
+    #: contract's window, the strategy's own contracts, no working orders, the
+    #: delivery the book can take -- and a cash-settled contract settles
+    #: against the last price the run observed for its underlying, never a value
+    #: the strategy supplies. Refused, it is recorded as an
+    #: :class:`ExerciseRefused` and nothing moves. ``strength`` must be one and
+    #: ``terms`` the default.
+    EXERCISE = "exercise"
+    #: An instruction to withdraw every order the strategy alone has working in
+    #: ``instrument`` (v4.2.0): a resting limit or stop it no longer wants. Not
+    #: an order: it takes effect at once, at the instant of the event whose hook
+    #: returned it -- after that event's fills, before the batch's orders are
+    #: placed, so a cancel and a new limit in one return replace a quote. An
+    #: order netted with another strategy's is not withdrawn, nor is one worked
+    #: by an execution plan or held at a venue; each is recorded as a
+    #: :class:`CancelRefused`. With nothing working it asks for nothing.
+    #: ``target`` must be zero, ``strength`` one and ``terms`` the default.
+    CANCEL = "cancel"
+    #: A holder's election in a corporate action offering alternatives
+    #: (phase 3, ledger FUT-024): ``target`` is the alternative's index, and
+    #: ``metadata["action"]`` the action's reference. Not an order: recorded,
+    #: as an :class:`ElectionMade`, and read when the action takes effect --
+    #: counted only between its announcement and its deadline. ``strength`` must
+    #: be one and ``terms`` the default.
+    ELECT = "elect"
+    #: An instruction to amend the one order the strategy alone has working in
+    #: ``instrument`` (phase 3, ledger FUT-029): ``target`` is the quantity it
+    #: should have left working, and ``terms`` its terms, of the order's own
+    #: type and time in force. A reduction at the same prices is made in place
+    #: and keeps the order's queue priority; any other amend withdraws it and
+    #: places its replacement through allocation, risk and the OMS, at the back
+    #: of its queue. One the run cannot make is recorded as an
+    #: :class:`AmendRefused`. ``strength`` must be one.
+    AMEND = "amend"
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +187,152 @@ class LifecycleTransitioned(StrategyRuntimeEvent):
     old_state: str
     new_state: str
     reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ExerciseRefused(StrategyRuntimeEvent):
+    """A strategy's exercise instruction the run could not carry out (v4.2.0, ledger FUT-014).
+
+    Recorded in the strategy runtime's event log, so a run says what it declined
+    and why; nothing moved. The strategy keeps running: a refused exercise --
+    outside the contract's window, beyond the strategy's own contracts, a
+    delivery the book cannot take -- is a decision the venue turned down, not a
+    malformed intent.
+
+    Attributes:
+        strategy_id: The strategy that asked.
+        asset_id: The option it asked to exercise.
+        contracts: How many it asked to exercise.
+        reason: Why the run refused, in a sentence.
+    """
+
+    strategy_id: str
+    asset_id: str
+    contracts: Decimal
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class AmendRefused(StrategyRuntimeEvent):
+    """A strategy's amend the run could not make (phase 3, ledger FUT-029).
+
+    Attributes:
+        strategy_id: The strategy that asked.
+        asset_id: The instrument it asked to amend an order in.
+        reason: Why, in a sentence: no order or several of its own, one netted
+            or held at a venue, or terms the order cannot take.
+    """
+
+    strategy_id: str
+    asset_id: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ElectionMade(StrategyRuntimeEvent):
+    """A strategy's election in a corporate action, as it made it (phase 3, ledger FUT-024).
+
+    Recorded in the strategy runtime's event log at the instant the strategy
+    returned it. The action reads the latest one each holder made between its
+    announcement and its deadline when it takes effect; one outside them, or
+    naming no alternative the action offers, is kept as made and not counted.
+
+    Attributes:
+        strategy_id: The strategy electing.
+        asset_id: The holding the action is on.
+        action: The action's reference.
+        alternative: The index of the alternative elected.
+    """
+
+    strategy_id: str
+    asset_id: str
+    action: str
+    alternative: int
+
+
+@dataclass(frozen=True, slots=True)
+class UnitsElected(StrategyRuntimeEvent):
+    """A strategy's election of some of its holding, as it made it (phase 4, ledger FUT-030).
+
+    An election naming ``metadata['units']``: that many units of the holding
+    elect the alternative, the rest as the strategy elects them otherwise, or
+    the action's default. Counted, as an :class:`ElectionMade` is, between the
+    action's announcement and its deadline; a later one for the same
+    alternative replaces it, and a whole-holding election replaces them all.
+
+    Attributes:
+        strategy_id: The strategy electing.
+        asset_id: The holding the action is on.
+        action: The action's reference.
+        alternative: The index of the alternative elected.
+        units: How many units of the holding elect it, above zero.
+    """
+
+    strategy_id: str
+    asset_id: str
+    action: str
+    alternative: int
+    units: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class HoldersRecorded(StrategyRuntimeEvent):
+    """Each strategy's holding at a corporate action's record instant (phase 4, ledger FUT-030).
+
+    What the run recorded, at the record instant the action declares, of who
+    held it and how much: what each holder may elect for, however its holding
+    moves after. A strategy holding none then elects for none.
+
+    Attributes:
+        asset_id: The holding the action is on.
+        action: The action's reference.
+        holders: Strategy id to its signed holding at the record instant.
+    """
+
+    asset_id: str
+    action: str
+    holders: Mapping[str, Decimal]
+
+
+@dataclass(frozen=True, slots=True)
+class TermsAnnounced(StrategyRuntimeEvent):
+    """A corrected version of an elective action's terms, recorded at its announcement (FUT-038).
+
+    The run's record of when each version became known: the original is the
+    action's own announcement, and each correction a version of its own, never
+    a rewrite of the one before.
+
+    Attributes:
+        asset_id: The holding the action is on.
+        action: The action's reference.
+        version: The version announced: the first correction is 1.
+    """
+
+    asset_id: str
+    action: str
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
+class CancelRefused(StrategyRuntimeEvent):
+    """A working order a strategy's cancel instruction could not withdraw (v4.2.0).
+
+    Recorded in the strategy runtime's event log; the order works on. The
+    strategy keeps running: an order netted with another strategy's, worked by
+    an execution plan, or held at a venue is not the strategy's alone to
+    withdraw.
+
+    Attributes:
+        strategy_id: The strategy that asked.
+        asset_id: The instrument it asked to cancel in.
+        order_id: The order left working.
+        reason: Why, in a sentence.
+    """
+
+    strategy_id: str
+    asset_id: str
+    order_id: str
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)

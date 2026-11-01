@@ -113,6 +113,24 @@ class StrategyCapital:
             ACCOUNTING_CONTEXT.subtract(self.reserved_total, amount),
         )
 
+    def reduce(self, order_id: str, amount: Decimal) -> StrategyCapital:
+        """Hold at most ``amount`` for a working order cut in place, freeing the rest (FUT-036).
+
+        Never more than the order already reserves: a reduction only frees.
+        """
+
+        held = self.reserved.get(order_id)
+        if held is None or amount >= held:
+            return self
+        ctx = ACCOUNTING_CONTEXT
+        kept = max(_ZERO, amount)
+        return StrategyCapital(
+            self.deployed,
+            self.reserved.set(order_id, kept) if kept > 0 else self.reserved.delete(order_id),
+            self.deployed_total,
+            ctx.subtract(self.reserved_total, ctx.subtract(held, kept)),
+        )
+
     def fill(
         self, order_id: str, asset_id: str, held: Decimal, quantity: Decimal, unit_value: Decimal
     ) -> StrategyCapital:

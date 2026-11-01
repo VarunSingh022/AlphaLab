@@ -66,6 +66,16 @@ def test_an_enum_and_a_uuid_have_explicit_branches() -> None:
     assert serialize({"id": identifier}) == '{"id":"12345678-1234-5678-1234-567812345678"}'
 
 
+def test_a_date_is_iso_and_a_datetime_is_still_refused() -> None:
+    """v4.2.0 (FUT-018): an accrual period's dates; a clock and a zone are not dropped."""
+
+    from datetime import UTC, date, datetime
+
+    assert serialize({"d": date(2024, 2, 29)}) == '{"d":"2024-02-29"}'
+    with pytest.raises(SerializationError, match="No deterministic JSON representation"):
+        serialize({"t": datetime(2024, 2, 29, 9, 30, tzinfo=UTC)})
+
+
 def test_an_unsupported_type_is_refused_rather_than_stringified() -> None:
     """A silent ``str()`` fallback is how ``"AppendOnlyLog([...])"`` got persisted."""
 

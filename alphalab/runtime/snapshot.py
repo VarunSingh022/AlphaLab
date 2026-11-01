@@ -113,6 +113,7 @@ from alphalab.core.ids import OrderId as CoreOrderId
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
 from alphalab.data.feed import TradeAggressor
+from alphalab.execution.auction import AuctionReopening
 from alphalab.execution.events import (
     ExecutionCompleted,
     ExecutionEvent,
@@ -125,6 +126,12 @@ from alphalab.execution.fill import FillStatus
 from alphalab.execution.policy import FillTiming
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.state import ExecutionState
+from alphalab.instrument.controls import (
+    DeliveredAuction,
+    delivered_from_primitives,
+    delivered_to_primitives,
+)
+from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.events import (
@@ -173,9 +180,11 @@ from alphalab.portfolio.snapshot import from_primitives as portfolio_from_primit
 from alphalab.portfolio.snapshot import restore as restore_portfolio
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.events import (
+    BuyIn,
     BuyingPowerUpdated,
     DrawdownTriggered,
     ExposureUpdated,
+    MarginCall,
     MarginUpdated,
     RiskApproved,
     RiskCheckStarted,
@@ -197,6 +206,11 @@ from alphalab.risk.limits import (
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.models import RiskSeverity, RiskViolation
 from alphalab.risk.state import RiskState
+from alphalab.risk.surfaces import (
+    ObservedSurface,
+    observed_from_primitives,
+    observed_to_primitives,
+)
 from alphalab.runtime.assumptions import describe
 from alphalab.runtime.calendars import VenueCalendars, venue_calendars_from_primitives
 from alphalab.runtime.execution_pipeline import (
@@ -209,14 +223,27 @@ from alphalab.runtime.execution_pipeline import (
     _require_classifiable,
     _require_one_account_currency,
 )
+from alphalab.runtime.registry_check import verify_registry
 from alphalab.runtime.retention import RetentionPolicy
+from alphalab.strategy.configuration import (
+    StrategyConfigurationError,
+    declared_configuration,
+    decode_configuration,
+)
 from alphalab.strategy.events import (
+    AmendRefused,
+    CancelRefused,
+    ElectionMade,
+    ExerciseRefused,
     FillEvent,
+    HoldersRecorded,
     LifecycleTransitioned,
     OrderEvent,
     SliceClosed,
     StrategyRuntimeEvent,
+    TermsAnnounced,
     TimerEvent,
+    UnitsElected,
 )
 from alphalab.strategy.protocol import StrategyProtocol, StrategyStateProtocol
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
@@ -811,7 +838,29 @@ _MARKET_EVENTS: Mapping[str, type[MarketEvent]] = _types(
     QuoteReceived, TickReceived, TradeReceived, BarClosed, BookUpdated, SnapshotCreated
 )
 _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
-    LifecycleTransitioned, FillEvent, OrderEvent, TimerEvent, SliceClosed
+    LifecycleTransitioned,
+    FillEvent,
+    OrderEvent,
+    TimerEvent,
+    SliceClosed,
+    # v4.2.0 (ledger FUT-014): written only by a run whose strategy asked for an
+    # exercise the run refused, so no earlier payload holds one.
+    ExerciseRefused,
+    # v4.2.0: written only by a run whose strategy's cancel left an order working.
+    CancelRefused,
+    # Phase 3 (ledger FUT-024): written only by a run whose strategy elected in a
+    # corporate action.
+    ElectionMade,
+    # Phase 3 (ledger FUT-029): written only by a run whose strategy's amend
+    # could not be made.
+    AmendRefused,
+    # Phase 4 (ledger FUT-030): written only by a run whose strategy elected
+    # part of a holding, or whose action declared a record instant.
+    UnitsElected,
+    HoldersRecorded,
+    # Phase 5 (ledger FUT-038): written only by a run whose elective action's
+    # terms were corrected.
+    TermsAnnounced,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -821,6 +870,12 @@ _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     ExposureUpdated,
     BuyingPowerUpdated,
     DrawdownTriggered,
+    # v4.2.0 (ledger FUT-017): written only by a run holding margined positions
+    # that fell below maintenance, so no earlier payload holds one.
+    MarginCall,
+    # v4.2.0 (ledger FUT-022): written only by a run whose recalled short was
+    # bought in.
+    BuyIn,
 )
 _EXECUTION_EVENTS: Mapping[str, type[ExecutionEvent]] = _types(
     ExecutionSubmitted,
@@ -977,6 +1032,24 @@ class MarketRecord:
     latest_bars: Mapping[str, Bar]
     history: tuple[MarketEventRecord, ...]
     events: tuple[MarketEventRecord, ...]
+    #: What the venues published of their auctions during the run (FUT-043,
+    #: phase 6). Written only when a run was delivered some, so every other
+    #: payload keeps its form and its identity, and one written before reads as
+    #: none.
+    auctions: Mapping[str, tuple[DeliveredAuction, ...]] = field(default_factory=dict)
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The record's fields, ``auctions`` among them only when there are any."""
+
+        return {
+            "latest_quotes": self.latest_quotes,
+            "latest_books": self.latest_books,
+            "latest_ticks": self.latest_ticks,
+            "latest_bars": self.latest_bars,
+            "history": self.history,
+            "events": self.events,
+            **({"auctions": delivered_to_primitives(self.auctions)} if self.auctions else {}),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -995,6 +1068,29 @@ class RiskRecord:
     events: tuple[RiskEventRecord, ...]
     trading_day: str | None = None
     day_start_nav: Decimal | None = None
+    #: Each underlying's volatility surfaces as they arrived (FUT-039, phase 5).
+    #: Written only when a run was given one, so every other payload keeps its
+    #: form and its identity, and one written before reads as none.
+    surfaces: Mapping[str, tuple[ObservedSurface, ...]] = field(default_factory=dict)
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The record's fields, ``surfaces`` among them only when there are any."""
+
+        return {
+            "active_limits": self.active_limits,
+            "margin": self.margin,
+            "exposure": self.exposure,
+            "cash": self.cash,
+            "buying_power": self.buying_power,
+            "peak_nav": self.peak_nav,
+            "current_nav": self.current_nav,
+            "daily_loss": self.daily_loss,
+            "history": self.history,
+            "events": self.events,
+            "trading_day": self.trading_day,
+            "day_start_nav": self.day_start_nav,
+            **({"surfaces": observed_to_primitives(self.surfaces)} if self.surfaces else {}),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1004,6 +1100,20 @@ class ExecutionRecord:
     reports: Mapping[str, ExecutionReport]
     history: tuple[ExecutionReport, ...]
     events: tuple[ExecutionEventRecord, ...]
+    #: Each instrument's last reopening auction (FUT-033, phase 4). Written only
+    #: when a run held one, so every other payload keeps its form -- and its
+    #: identity -- and one written before reads as none.
+    reopened: Mapping[str, AuctionReopening] = field(default_factory=dict)
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The record's fields, ``reopened`` among them only when it holds one."""
+
+        return {
+            "reports": self.reports,
+            "history": self.history,
+            "events": self.events,
+            **({"reopened": self.reopened} if self.reopened else {}),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1267,6 +1377,7 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
             latest_bars=dict(state.market.latest_bars),
             history=_tagged(state.market.history, MarketEventRecord),
             events=_tagged(state.market.events, MarketEventRecord),
+            auctions=dict(state.market.auctions),
         ),
         strategy=_capture_strategies(state.strategy),
         strategy_events=_tagged(state.strategy.events, StrategyEventRecord),
@@ -1284,12 +1395,14 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
             events=_tagged(state.risk.events, RiskEventRecord),
             trading_day=state.risk.trading_day,
             day_start_nav=state.risk.day_start_nav,
+            surfaces=dict(state.risk.surfaces),
         ),
         oms=capture_oms(state.oms),
         execution=ExecutionRecord(
             reports=dict(state.execution.reports),
             history=state.execution.history.to_tuple(),
             events=_tagged(state.execution.events, ExecutionEventRecord),
+            reopened=dict(state.execution.reopened),
         ),
         portfolio=capture_portfolio(state.portfolio),
         analytics=AnalyticsRecord(
@@ -1457,6 +1570,27 @@ def _restore_state(record: StrategyRecord, instance: object) -> None:
         ) from exc
 
 
+def _restore_configuration(record: StrategyRecord, instance: object) -> Any:
+    """The strategy's configuration, as its declared type when it declares one (FUT-002).
+
+    The payload holds what the encoder wrote, as it always has; a strategy whose
+    class declares ``configuration_type`` reads it back as that type -- see
+    :mod:`alphalab.strategy.configuration` -- and one that declares nothing
+    reads it back as JSON reads it (LIM-004).
+    """
+
+    declared = declared_configuration(instance)
+    if declared is None:
+        return record.config
+    try:
+        return decode_configuration(record.config, declared, f"{record.strategy_id} config")
+    except StrategyConfigurationError as refused:
+        raise StateDecodeError(
+            f"The configuration recorded for strategy {record.strategy_id!r} is not of the "
+            f"type its class declares: {refused}"
+        ) from refused
+
+
 def _restore_strategies(
     records: tuple[StrategyRecord, ...],
     events: tuple[StrategyEventRecord, ...],
@@ -1476,7 +1610,7 @@ def _restore_strategies(
             strategy_id=record.strategy_id,
             status=record.status,
             instance=instance,
-            config=record.config,
+            config=_restore_configuration(record, instance),
             subscriptions=frozenset(record.subscriptions),
             last_error=record.last_error,
             started=record.started,
@@ -1486,13 +1620,22 @@ def _restore_strategies(
     )
 
 
-def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPipelineState:
+def restore(
+    snapshot: PipelineSnapshot,
+    objects: RuntimeObjects,
+    *,
+    instruments_digest: str | None = None,
+) -> ExecutionPipelineState:
     """Rebuild the state a snapshot was captured from.
 
     Args:
         snapshot: The captured projection.
         objects: The live objects the snapshot recorded but did not carry. Every
             one must be present and of the recorded type.
+        instruments_digest: The digest of the registry the run held, as a
+            paused replay, a live run's payload or a manifest recorded it
+            (FUT-041), or ``None``: the supplied registry is then held to its
+            terms, not only its type -- see :func:`verify_registry`.
 
     Returns:
         The reconstructed state, with ``id_position`` set to the captured
@@ -1501,7 +1644,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
 
     Raises:
         StateDecodeError: If a required live object is missing or of the wrong
-            type.
+            type, or the registry's terms are not the recorded ones.
         RuntimeValidationError: If the restored configuration fails a validation
             :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.initialize`
             enforces -- that its two currencies agree, and that classification
@@ -1510,6 +1653,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
     """
 
     config = _restore_config(snapshot.config, objects)
+    verify_registry(snapshot.config.instruments_type, instruments_digest, config.instruments)
     _require_one_account_currency(config)
     _require_classifiable(config)
 
@@ -1522,6 +1666,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
             latest_bars=PersistentMap(snapshot.market.latest_bars),
             history=AppendOnlyLog(record.event for record in snapshot.market.history),
             events=AppendOnlyLog(record.event for record in snapshot.market.events),
+            auctions=PersistentMap(snapshot.market.auctions),
         ),
         strategy=_restore_strategies(snapshot.strategy, snapshot.strategy_events, objects),
         allocation=restore_allocation(snapshot.allocation),
@@ -1538,12 +1683,14 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
             events=AppendOnlyLog(record.event for record in snapshot.risk.events),
             trading_day=snapshot.risk.trading_day,
             day_start_nav=snapshot.risk.day_start_nav,
+            surfaces=PersistentMap(snapshot.risk.surfaces),
         ),
         oms=restore_oms(snapshot.oms),
         execution=ExecutionState(
             reports=PersistentMap(snapshot.execution.reports),
             history=AppendOnlyLog(snapshot.execution.history),
             events=AppendOnlyLog(record.event for record in snapshot.execution.events),
+            reopened=PersistentMap(snapshot.execution.reopened),
         ),
         portfolio=_grouped_book(restore_portfolio(snapshot.portfolio), config),
         analytics=AnalyticsState(
@@ -2119,6 +2266,20 @@ def _unpriced(value: Any, where: str) -> UnpricedAsset:
     )
 
 
+def _reopening(value: Any, where: str) -> AuctionReopening:
+    payload = as_mapping(value, where)
+    extended_to = require(payload, "extended_to")
+    return AuctionReopening(
+        halt_end=as_float(require(payload, "halt_end"), f"{where}.halt_end"),
+        at=as_float(require(payload, "at"), f"{where}.at"),
+        price=as_optional_decimal(require(payload, "price"), f"{where}.price"),
+        matched=as_optional_decimal(require(payload, "matched"), f"{where}.matched"),
+        imbalance=as_optional_decimal(require(payload, "imbalance"), f"{where}.imbalance"),
+        extended_to=None if extended_to is None else as_float(extended_to, f"{where}.extended_to"),
+        reason=as_str(require(payload, "reason"), f"{where}.reason"),
+    )
+
+
 def _id_position(value: Any, where: str = "id_position") -> IdStreamPosition:
     payload = as_mapping(value, where)
     seed = require(payload, "seed")
@@ -2153,6 +2314,14 @@ _STRATEGY_FIELDS: Mapping[str, Any] = {
     "quantity": as_optional_decimal,
     "filled_quantity": as_optional_decimal,
     "assets": _assets,
+    "contracts": as_decimal,
+    # Phase 3 (FUT-024): an election's alternative, by index.
+    "alternative": as_int,
+    # Phase 4 (FUT-030): the units an election names; the holders recorded.
+    "units": as_decimal,
+    "holders": as_decimal_mapping,
+    # Phase 5 (FUT-038): a corrected version of an action's terms.
+    "version": as_int,
 }
 _RISK_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,
@@ -2164,6 +2333,15 @@ _RISK_FIELDS: Mapping[str, Any] = {
     "buying_power": as_decimal,
     "current_drawdown": as_decimal,
     "max_drawdown": as_decimal,
+    "equity": as_decimal,
+    "initial_requirement": as_decimal,
+    "maintenance_requirement": as_decimal,
+    "deficit": as_decimal,
+    "orders": _assets,
+    # v4.2.0 (ledger FUT-022): a buy-in's short, availability and excess.
+    "short": as_decimal,
+    "available": as_decimal,
+    "excess": as_decimal,
 }
 _EXECUTION_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,
@@ -2360,7 +2538,15 @@ def _market(value: Any) -> MarketRecord:
         latest_bars=_mapping_of(require(payload, "latest_bars"), f"{where}.latest_bars", _bar),
         history=log("history"),
         events=log("events"),
+        auctions=_delivered_auctions(payload.get("auctions", {}), f"{where}.auctions"),
     )
+
+
+def _delivered_auctions(value: Any, where: str) -> dict[str, tuple[DeliveredAuction, ...]]:
+    try:
+        return delivered_from_primitives(as_mapping(value, where))
+    except InstrumentInputError as refused:
+        raise StateDecodeError(f"{where}: {refused}") from refused
 
 
 def _risk(value: Any) -> RiskRecord:
@@ -2386,6 +2572,7 @@ def _risk(value: Any) -> RiskRecord:
         day_start_nav=_optional_decimal(
             require(payload, "day_start_nav"), f"{where}.day_start_nav"
         ),
+        surfaces=observed_from_primitives(payload.get("surfaces", {})),
     )
 
 
@@ -2407,6 +2594,7 @@ def _execution(value: Any) -> ExecutionRecord:
             )
             for index, item in enumerate(as_sequence(require(payload, "events"), f"{where}.events"))
         ),
+        reopened=_mapping_of(payload.get("reopened", {}), f"{where}.reopened", _reopening),
     )
 
 

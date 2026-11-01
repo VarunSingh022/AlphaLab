@@ -47,6 +47,8 @@ from datetime import date, time
 from types import MappingProxyType
 from typing import Any
 
+from alphalab.conventions.exceptions import ConventionInputError, ConventionViolationError
+from alphalab.conventions.settlement import SettlementRule, settlement_date
 from alphalab.data.calendar import MarketCalendar, SessionWindow
 from alphalab.data.exceptions import DataValidationError
 from alphalab.instrument.exceptions import InstrumentInputError
@@ -55,7 +57,7 @@ from alphalab.persistence.decode import as_mapping, as_sequence, as_str, require
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.runtime.exceptions import RuntimeValidationError
 
-__all__ = ["VenueCalendars", "venue_calendars_from_primitives"]
+__all__ = ["VenueCalendars", "session_close", "settles_at", "venue_calendars_from_primitives"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,3 +252,60 @@ def venue_calendars_from_primitives(value: Any, where: str) -> VenueCalendars:
         )
     except RuntimeValidationError as exc:
         raise StateDecodeError(f"{where} could not be declared: {exc}") from exc
+
+
+# --------------------------------------------------------------------------- #
+# A contract's lifecycle instants, from a market's own calendar (FUT-013)
+# --------------------------------------------------------------------------- #
+
+
+def session_close(calendar: MarketCalendar, day: date) -> float:
+    """The instant ``calendar``'s market closes on the local date ``day``.
+
+    The last close of the day -- after a lunch break, the afternoon's. What an
+    expiry "at the close" on a local date is, in Unix seconds, wherever the
+    market is and whatever its daylight-saving rules: the calendar's time zone
+    decides, not the caller.
+
+    Raises:
+        RuntimeValidationError: If the market does not trade on ``day``. Which
+            way a contract's date moves when its market is shut is the
+            contract's convention, and it is not chosen here.
+    """
+
+    bounds = calendar.session_bounds(day)
+    if bounds is None:
+        raise RuntimeValidationError(
+            f"{calendar.calendar_id} does not trade on {day.isoformat()}; whether a date falling "
+            "on a closed day moves earlier or later is the contract's convention, not a default."
+        )
+    return bounds[1]
+
+
+def settles_at(calendar: MarketCalendar, rule: SettlementRule, trade_day: date) -> float:
+    """The instant a lifecycle event struck on ``trade_day`` settles, by ``rule``.
+
+    The settlement date is :func:`~alphalab.conventions.settlement.settlement_date`
+    over ``calendar`` -- the conventions package's one authority on T+n -- and
+    the instant is that date's first session open in the market's own time zone,
+    when cash and the deliverable are treated as having moved.
+
+    Raises:
+        RuntimeValidationError: If the settlement date is one the market does not
+            trade on -- a calendar-day rule landing on a weekend -- since nothing
+            here decides when on a closed day a delivery happens; or the rule
+            cannot be resolved over the calendar.
+    """
+
+    try:
+        settles = settlement_date(rule, trade_day, calendar if rule.needs_calendar else None)
+    except (ConventionInputError, ConventionViolationError) as exc:
+        raise RuntimeValidationError(f"The settlement date cannot be resolved: {exc}") from exc
+    bounds = calendar.session_bounds(settles)
+    if bounds is None:
+        raise RuntimeValidationError(
+            f"{rule.label} from {trade_day.isoformat()} settles on {settles.isoformat()}, which "
+            f"{calendar.calendar_id} does not trade on; when on a closed day a delivery happens "
+            "is not assumed."
+        )
+    return bounds[0]

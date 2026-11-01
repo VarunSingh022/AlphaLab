@@ -74,6 +74,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.conventions.tick import is_on_tick
 from alphalab.instrument.classification import (
     OPERATOR,
     SECTOR,
@@ -83,8 +84,12 @@ from alphalab.instrument.classification import (
     SectorClassification,
     normalize_dimension,
 )
+from alphalab.instrument.controls import TradingControls
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
+from alphalab.instrument.margin import MarginModel, OptionPricing, ScenarioMargin
 from alphalab.instrument.record import DatedAlias, InstrumentRecord, normalize_sector_label
+from alphalab.instrument.terms import OptionTerms
+from alphalab.options.enums import ExerciseStyle
 
 __all__ = [
     "InstrumentRegistry",
@@ -94,6 +99,8 @@ __all__ = [
     "classify_dimensions",
     "classify_instrument",
     "classify_instruments",
+    "declare_margin_model",
+    "declare_trading_controls",
     "dimension_history",
     "get_instrument",
     "label_as_of",
@@ -140,6 +147,30 @@ class InstrumentRegistry:
             An index over the records and ``dimensions`` -- derived, never
             declared: left ``None`` it is built from them, and every write
             here keeps it true.
+        expiring: ``asset_id`` -> last trading instant, for every instrument
+            declaring one (v4.1.1, ledger FUT-012) -- what the execution path
+            reads on every record to refuse an expired contract's price, so a
+            registry with no expiring instrument costs that path nothing. An
+            index, derived like ``members``.
+        margined: ``asset_id`` -> ``None``, for every instrument declaring
+            margin terms (v4.2.0, ledger FUT-017) -- what the execution path
+            reads after every market step, so a registry declaring no margin
+            costs that path nothing. An index, derived like ``expiring``.
+        margin_model: How the account's margin is computed from the positions in
+            the instruments that declare margin terms -- a declared
+            :class:`~alphalab.instrument.margin.MarginModel` -- or ``None``, each
+            position's own terms summed (v4.2.0, ledger FUT-019). Declared with
+            :func:`declare_margin_model`, which checks what it covers.
+        controls: The venues' declared price bands and trading halts -- a
+            :class:`~alphalab.instrument.controls.TradingControls` -- or
+            ``None``: every instrument trades whenever the data shows it does, as
+            before v4.2.0 (ledger FUT-020). Declared with
+            :func:`declare_trading_controls`.
+        recallable: ``asset_id`` -> ``None``, for every instrument whose borrow
+            terms declare a recall's buy-in deadline (v4.2.0, ledger FUT-022) --
+            what the execution path reads after every market step, so a registry
+            declaring no recall costs that path nothing. An index, derived like
+            ``margined``.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -154,6 +185,11 @@ class InstrumentRegistry:
         default_factory=PersistentMap
     )
     members: PersistentMap[str, PersistentMap[str, PersistentMap[str, None]]] | None = None
+    expiring: PersistentMap[str, float] | None = None
+    margined: PersistentMap[str, None] | None = None
+    margin_model: MarginModel | None = None
+    controls: TradingControls | None = None
+    recallable: PersistentMap[str, None] | None = None
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -173,6 +209,42 @@ class InstrumentRegistry:
             # Built once, when a registry is declared from mappings; every write
             # below passes the index on, kept true, so this never runs again.
             object.__setattr__(self, "members", _index(self.instruments, self.dimensions))
+        if self.expiring is None:
+            object.__setattr__(
+                self,
+                "expiring",
+                PersistentMap(
+                    {
+                        asset_id: record.last_trade_at
+                        for asset_id, record in self.instruments.items()
+                        if record.last_trade_at is not None
+                    }
+                ),
+            )
+        if self.margined is None:
+            object.__setattr__(
+                self,
+                "margined",
+                PersistentMap(
+                    {
+                        asset_id: None
+                        for asset_id, record in self.instruments.items()
+                        if record.margin is not None
+                    }
+                ),
+            )
+        if self.recallable is None:
+            object.__setattr__(
+                self,
+                "recallable",
+                PersistentMap(
+                    {
+                        asset_id: None
+                        for asset_id, record in self.instruments.items()
+                        if record.borrow is not None and record.borrow.recalls
+                    }
+                ),
+            )
 
     def resolve(self, provider: str, symbol: str) -> str | None:
         """The ``asset_id`` ``provider`` means by ``symbol``, or ``None``.
@@ -410,6 +482,21 @@ def register_instrument(
             registry,
             instruments=registry.instruments.set(record.asset_id, record),
             members=_relabelled(registry.members, SECTOR, record.asset_id, None, record.sector),
+            expiring=(
+                registry.expiring
+                if record.last_trade_at is None or registry.expiring is None
+                else registry.expiring.set(record.asset_id, record.last_trade_at)
+            ),
+            margined=(
+                registry.margined
+                if record.margin is None or registry.margined is None
+                else registry.margined.set(record.asset_id, None)
+            ),
+            recallable=(
+                registry.recallable
+                if record.borrow is None or not record.borrow.recalls or registry.recallable is None
+                else registry.recallable.set(record.asset_id, None)
+            ),
         )
     )
     for provider, symbol in record.aliases.items():
@@ -762,3 +849,116 @@ def label_as_of(
     if name == SECTOR:
         return sector_as_of(registry, asset_id, timestamp)
     return dimension_history(registry, asset_id, name).label_at(timestamp)
+
+
+def declare_margin_model(
+    registry: InstrumentRegistry, model: MarginModel | None
+) -> InstrumentRegistry:
+    """The registry with ``model`` as the account's margin model (ledger FUT-019).
+
+    A scenario model may cover only instruments the registry holds and that
+    declare their own margin terms -- what a liquidation reduces them by -- so a
+    position is never offset by a model that does not margin it.
+
+    Raises:
+        InstrumentRegistrationError: If the model covers an instrument the
+            registry does not hold, or one declaring no margin terms.
+    """
+
+    if isinstance(model, ScenarioMargin):
+        for asset_id in sorted(model.covered):
+            record = registry.instruments.get(asset_id)
+            if record is None:
+                raise InstrumentRegistrationError(
+                    f"The margin model's scenarios move {asset_id}, which the registry does not "
+                    "hold: register it first."
+                )
+            if record.margin is None:
+                raise InstrumentRegistrationError(
+                    f"The margin model's scenarios move {record.symbol} on {record.exchange}, "
+                    "which declares no margin terms; an instrument a model covers declares how "
+                    "it is margined on its own."
+                )
+        for asset_id, pricing in model.repriced.items():
+            _require_repriceable(registry.instruments[asset_id], pricing, model)
+    return replace(registry, margin_model=model)
+
+
+def _require_repriceable(
+    record: InstrumentRecord, pricing: OptionPricing, model: ScenarioMargin
+) -> None:
+    """A repriced option is one a closed form or a lattice values from one moved deliverable."""
+
+    terms = record.terms
+    if not isinstance(terms, OptionTerms):
+        raise InstrumentRegistrationError(
+            f"The margin model reprices {record.symbol}, which declares no option terms."
+        )
+    if terms.basket or terms.cash_per_contract or terms.consideration_currency is not None:
+        raise InstrumentRegistrationError(
+            f"The margin model reprices {record.symbol}, a package or a quanto contract the "
+            "model cannot value from one underlying: declare its own moves instead."
+        )
+    if terms.exercise_style not in (ExerciseStyle.EUROPEAN, ExerciseStyle.AMERICAN):
+        raise InstrumentRegistrationError(
+            f"The margin model reprices {record.symbol}, a {terms.exercise_style.name} "
+            "contract it has no pricer for: declare its own moves instead."
+        )
+    if terms.exercise_style is ExerciseStyle.AMERICAN and pricing.lattice_steps is None:
+        raise InstrumentRegistrationError(
+            f"{record.symbol} is American: its repricing declares the lattice it is valued on."
+        )
+    underlying = terms.deliverable.asset_id
+    if underlying not in model.scenarios[0].moves:
+        raise InstrumentRegistrationError(
+            f"The margin model reprices {record.symbol} from {underlying}, which its scenarios "
+            "do not move."
+        )
+    if (
+        pricing.volatility is None
+        and model.surface_feed is None
+        and not any(surface.underlying_asset_id == underlying for surface in model.surfaces)
+    ):
+        raise InstrumentRegistrationError(
+            f"{record.symbol} reads its volatility from a surface, and the margin model "
+            f"declares none for {underlying}: no volatility is assumed (FUT-032)."
+        )
+
+
+def declare_trading_controls(
+    registry: InstrumentRegistry, controls: TradingControls | None
+) -> InstrumentRegistry:
+    """The registry with ``controls`` as its venues' price bands and halts (ledger FUT-020).
+
+    Raises:
+        InstrumentRegistrationError: If a band or an instrument's halt names an
+            instrument the registry does not hold, or a venue's halt names a
+            venue no registered instrument lists on -- a halt that could halt
+            nothing is more likely a mistake than a declaration.
+    """
+
+    if controls is not None:
+        for asset_id in sorted(controls.assets):
+            if asset_id not in registry.instruments:
+                raise InstrumentRegistrationError(
+                    f"The trading controls name {asset_id}, which the registry does not hold."
+                )
+        for book in controls.auction_books:
+            # A published price is one the venue quotes: on its grid (FUT-033).
+            grid = registry.instruments[book.asset_id].tick
+            if grid is None:
+                continue
+            for price in book.prices:
+                if price < 0 or not is_on_tick(price, grid.tick_size_at(price)):
+                    raise InstrumentRegistrationError(
+                        f"An auction book for {book.asset_id} publishes {price}, which is "
+                        "not on its declared price grid."
+                    )
+        venues = {record.exchange for record in registry.instruments.values()}
+        for halt in controls.halts:
+            if halt.venue is not None and halt.venue not in venues:
+                raise InstrumentRegistrationError(
+                    f"A halt of venue {halt.venue} names a venue no registered instrument "
+                    f"lists on ({', '.join(sorted(venues))})."
+                )
+    return replace(registry, controls=controls)

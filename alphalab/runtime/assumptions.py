@@ -23,8 +23,10 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from alphalab.execution.policy import FillPolicy, FillTiming, ImmediateFill
+from alphalab.execution.queue import QueueModel
 
 if TYPE_CHECKING:
+    from alphalab.instrument.registry import InstrumentRegistry
     from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig, ExecutionRouting
 
 __all__ = ["ExecutionAssumptions", "describe", "execution_assumptions"]
@@ -94,7 +96,8 @@ class ExecutionAssumptions:
     Attributes:
         routing: Where accepted orders executed. Under ``EXTERNAL`` routing
             nothing was simulated, and the fields below describe a model no
-            order went through.
+            order went through. Under ``ALGORITHMIC`` routing (v4.1.1) each
+            order's children were simulated by them.
         fill_timing: When a simulated order filled.
         fill_policy: The fill policy, described.
         costs: The cost model every simulated fill was priced by, described --
@@ -105,6 +108,17 @@ class ExecutionAssumptions:
             (:attr:`~alphalab.execution.simulator.ExecutionSimulator.is_frictionless`).
         unlimited_liquidity: Whether every order filled in full
             (:class:`~alphalab.execution.policy.ImmediateFill`).
+        queue_model: The queue model that decided which resting limit orders
+            had reached the front of their price level, described, or ``None``
+            when the run declared none (v4.1.1, ledger FUT-011) -- see
+            :attr:`passive_fills`.
+        venue_conditions: What the run's instrument registry declared that
+            shaped execution -- bands, halts, auctions and the books they were
+            uncrossed from, a margin model, per-instrument margin, borrow, tick
+            and settlement terms -- one sentence each, empty when it declared
+            none (phase 5 execution-realism audit). Each is the caller's
+            declaration, not verified against a venue; a manifest identifies
+            them only with ``manifest_for_run(instruments=True)``.
     """
 
     routing: ExecutionRouting
@@ -114,12 +128,14 @@ class ExecutionAssumptions:
     latency: str
     frictionless: bool
     unlimited_liquidity: bool
+    queue_model: str | None = None
+    venue_conditions: tuple[str, ...] = ()
 
     @property
     def simulated(self) -> bool:
-        """Whether a simulator executed the run's orders."""
+        """Whether a simulator executed the run's orders, whole or in children."""
 
-        return self.routing.name == "SIMULATED"
+        return self.routing.name in ("SIMULATED", "ALGORITHMIC")
 
     @property
     def optimistic(self) -> tuple[str, ...]:
@@ -138,6 +154,29 @@ class ExecutionAssumptions:
             found.append("liquidity is unlimited: every order fills in full (ImmediateFill)")
         return tuple(found)
 
+    @property
+    def passive_fills(self) -> str:
+        """How a resting limit order's fills were decided, in a sentence (FUT-011).
+
+        Not one of :attr:`optimistic`, which names what makes *every* simulated
+        fill optimistic: this bears only on orders that rested at a limit, and
+        a run that placed none is not made optimistic by it. Read it beside the
+        figures of any run that did -- a market maker's, or one working passive
+        orders.
+        """
+
+        if not self.simulated:
+            return "resting orders were filled by their venue, not simulated"
+        if self.queue_model is None:
+            return (
+                "a resting limit order filled when the market reached its limit, with no "
+                "queue ahead of it -- optimistic for passive orders (no queue model)"
+            )
+        return (
+            "a resting limit order filled only once its queue model put it at the front "
+            f"of its price level: {self.queue_model}"
+        )
+
     def settings(self) -> Mapping[str, str]:
         """The assumptions as research settings, keyed ``execution.*``.
 
@@ -146,21 +185,26 @@ class ExecutionAssumptions:
         its evidence was measured under, not only the code.
         """
 
-        return MappingProxyType(
-            {
-                "execution.routing": self.routing.name,
-                "execution.fill_timing": self.fill_timing.value,
-                "execution.fill_policy": self.fill_policy,
-                "execution.costs": self.costs,
-                "execution.latency": self.latency,
-            }
-        )
+        settings = {
+            "execution.routing": self.routing.name,
+            "execution.fill_timing": self.fill_timing.value,
+            "execution.fill_policy": self.fill_policy,
+            "execution.costs": self.costs,
+            "execution.latency": self.latency,
+        }
+        if self.queue_model is not None:
+            # Present only when declared, so a run without one is identified
+            # exactly as it was before queue models existed.
+            settings["execution.queue_model"] = self.queue_model
+        return MappingProxyType(settings)
 
 
 def execution_assumptions(
-    pipeline: ExecutionPipelineConfig, fill_policy: FillPolicy
+    pipeline: ExecutionPipelineConfig,
+    fill_policy: FillPolicy,
+    queue_model: QueueModel | None = None,
 ) -> ExecutionAssumptions:
-    """What a pipeline configured this way, with this fill policy, assumes."""
+    """What a pipeline configured this way, with this fill policy and queue model, assumes."""
 
     simulator = pipeline.simulator
     costs = describe(simulator.costs)
@@ -177,4 +221,62 @@ def execution_assumptions(
         latency=describe(simulator.latency_model),
         frictionless=simulator.is_frictionless,
         unlimited_liquidity=isinstance(fill_policy, ImmediateFill),
+        queue_model=None if queue_model is None else describe(queue_model),
+        venue_conditions=_venue_conditions(pipeline.instruments),
     )
+
+
+def _count(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def _venue_conditions(registry: InstrumentRegistry | None) -> tuple[str, ...]:
+    """Each execution condition ``registry`` declares, in a sentence, in a fixed order.
+
+    Not part of :meth:`ExecutionAssumptions.settings`: a statement beside the
+    results, like :attr:`ExecutionAssumptions.passive_fills`, so no identity a
+    fingerprint records moves.
+    """
+
+    if registry is None:
+        return ()
+    declared = " declared by the caller, not verified against a venue"
+    found: list[str] = []
+    controls = registry.controls
+    if controls is not None:
+        if controls.bands or controls.reference_bands:
+            bands = len(controls.bands) + len(controls.reference_bands)
+            found.append(f"{_count(bands, 'price band', 'price bands')}{declared}")
+        if controls.halts:
+            auctions = [h for h in controls.halts if h.auction]
+            computed = sum(1 for h in auctions if h.uncross is not None)
+            found.append(
+                f"{_count(len(controls.halts), 'trading halt', 'trading halts')}, "
+                f"{len(auctions)} reopening by auction ({computed} uncrossed from published "
+                f"interest, {len(auctions) - computed} at the first print){declared}"
+            )
+        if controls.auction_books:
+            assets = len({book.asset_id for book in controls.auction_books})
+            found.append(
+                f"published auction interest for {_count(assets, 'instrument', 'instruments')} "
+                f"({_count(len(controls.auction_books), 'book', 'books')}){declared}; no depth "
+                "beyond it is inferred"
+            )
+        if controls.indications:
+            assets = len({i.asset_id for i in controls.indications})
+            found.append(
+                f"published auction indications for {_count(assets, 'instrument', 'instruments')} "
+                f"({_count(len(controls.indications), 'indication', 'indications')}){declared}"
+            )
+    if registry.margin_model is not None:
+        found.append(f"margin model {type(registry.margin_model).__qualname__}{declared}")
+    for term, label in (
+        ("margin", "margin terms"),
+        ("borrow", "borrow terms"),
+        ("tick", "tick sizes"),
+        ("settlement", "settlement conventions"),
+    ):
+        n = sum(1 for record in registry.instruments.values() if getattr(record, term) is not None)
+        if n:
+            found.append(f"{label} on {_count(n, 'instrument', 'instruments')}{declared}")
+    return tuple(found)

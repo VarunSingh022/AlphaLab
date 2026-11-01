@@ -680,8 +680,29 @@ def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -
     # (v3.11, FEA-001) one in `_instrument_grid`, once per distinct asset a
     # batch of intents names, for the lot grid and minimum notional it declares;
     # and (v3.12, EXE-010) one in `_listing_exchange`, once per simulated resting
-    # day order that states no close, for the venue whose calendar it reads.
-    assert source.count("record_for(") == 6
+    # day order that states no close, for the venue whose calendar it reads;
+    # and (v4.1.1, FUT-012) one in `settle_contract`, once per final settlement,
+    # for the contract's expiry and economics; and (v4.1.1, FUT-013) one in
+    # `_declared`, once per contract or deliverable an exercise, assignment,
+    # expiry or delivery names. The per-record expiry check reads the registry's
+    # `expiring` index instead -- and nothing when it is empty. (v4.2.0,
+    # FUT-017) The margin check after every market step, the buying-power
+    # charge and the pre-trade initial-margin check read the registry's
+    # `margined` index -- an emptiness test, a membership test, and the margined
+    # instruments alone when one is held -- and every record through `_declared`;
+    # (v4.2.0, FUT-018) a fill's margin-purchase check reads it the same way,
+    # and (FUT-019) a projection under a declared model reads the index once.
+    # (v4.2.0, FUT-020) A venue's controls are read through the registry's own
+    # indexed lookups -- a test that none are declared, a band and a halt by
+    # instrument -- at an order's turn and at its placement; (phase 3, FUT-027)
+    # an order's turn reads them once more for an auction-reopened halt, by its
+    # own indexed lookup -- a test that none are declared, then the halt; and
+    # (phase 4, FUT-033) every auction check reads them through `_controls`,
+    # once, where FUT-027's reopening read them twice.
+    assert source.count("record_for(") == 8
+    assert source.count(".expiring") == 2
+    assert source.count(".margined") == 10
+    assert source.count(".controls") == 6
     assert source.count(".label_of(") == 2
     assert source.count(".bucket_members(") == 1
     assert source.count(".members") == 1

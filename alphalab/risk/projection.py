@@ -55,11 +55,16 @@ class WorkingExposure:
         position: The asset's signed *filled* quantity, which decides whether
             the working orders grow the position (and spend buying power) or
             reduce it (and spend none).
+        charge: What one unit of their growth spends of buying power, in the
+            base currency, when that is not ``price``: the declared initial
+            margin of an instrument that pays no notional (v4.2.0, FUT-017).
+            ``None`` charges ``price``, as every working order always was.
     """
 
     quantity: Decimal
     price: Decimal
     position: Decimal
+    charge: Decimal | None = None
 
 
 #: No order is working: every simulated fill that completes on its event.
@@ -104,10 +109,16 @@ class RiskProjection:
         projected_net: The same, after it.
         increasing_notional: The value of the part of the order that grows the
             position's magnitude; zero for a reducing order. What buying power
-            is charged.
+            is charged: its notional, or -- for an instrument that pays no
+            notional and declares margin terms -- the initial margin it
+            requires (FUT-017).
         available_buying_power: Cash, less what working orders will spend
             growing positions.
         nav: Net asset value the ratios are taken over.
+        margin_requirement: The account's declared margin model's initial
+            requirement after the order, when one is declared, which the margin
+            limit reads in place of gross exposure (FUT-019); ``None`` otherwise.
+        margin_equity: The margin equity it is taken over.
     """
 
     asset_id: str
@@ -122,6 +133,8 @@ class RiskProjection:
     increasing_notional: Decimal
     available_buying_power: Decimal
     nav: Decimal
+    margin_requirement: Decimal | None = None
+    margin_equity: Decimal | None = None
 
     @property
     def increases_exposure(self) -> bool:
@@ -149,6 +162,8 @@ def project(
     position: Decimal,
     price: Decimal,
     working: Mapping[str, WorkingExposure] = NO_WORKING_ORDERS,
+    charge: Decimal | None = None,
+    margin: tuple[Decimal, Decimal] | None = None,
 ) -> RiskProjection:
     """Project the book after ``request``, counting ``working`` orders.
 
@@ -159,6 +174,10 @@ def project(
         position: The asset's current signed *filled* quantity.
         price: The order's price in the base currency.
         working: Every asset with working orders, and what they commit.
+        charge: What a unit of the order's growth spends of buying power, when
+            that is not ``price`` -- see :attr:`WorkingExposure.charge`.
+        margin: The declared margin model's initial requirement and margin
+            equity after the order, when the account declares one (FUT-019).
     """
 
     ctx = ACCOUNTING_CONTEXT
@@ -177,7 +196,8 @@ def project(
         )
         committed_net = ctx.add(committed_net, pending_value)
         growth = _growth(pending.position, ctx.add(pending.position, pending.quantity))
-        working_growth = ctx.add(working_growth, ctx.multiply(growth, pending.price))
+        spent = pending.price if pending.charge is None else pending.charge
+        working_growth = ctx.add(working_growth, ctx.multiply(growth, spent))
 
     pending_here = working.get(request.asset_id)
     committed_position = (
@@ -198,7 +218,9 @@ def project(
     )
     projected_net = ctx.add(committed_net, order_value)
 
-    increasing = ctx.multiply(_growth(committed_position, projected_position), price)
+    increasing = ctx.multiply(
+        _growth(committed_position, projected_position), price if charge is None else charge
+    )
 
     return RiskProjection(
         asset_id=request.asset_id,
@@ -213,6 +235,8 @@ def project(
         increasing_notional=increasing,
         available_buying_power=ctx.subtract(state.buying_power, working_growth),
         nav=state.current_nav,
+        margin_requirement=None if margin is None else margin[0],
+        margin_equity=None if margin is None else margin[1],
     )
 
 

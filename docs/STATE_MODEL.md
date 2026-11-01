@@ -192,17 +192,157 @@ and a typed decoder that refuses what it does not understand. Eleven do (v4.1):
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
 | `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 8 |
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 5 |
-| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 3 |
+| `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 4 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
-| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 2 |
+| `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 3 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
-| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 1 |
+| `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 3 |
+
+`InstrumentRegistry` schema 4 (v4.1.1) carries each instrument's last trading
+instant (FUT-012) and its contract terms (FUT-013) -- `OptionTerms` or
+`FutureTerms`, enum members by name and amounts as text -- read back through
+the record's own validation, so a payload stating terms a contract cannot have
+is refused. Neither enters the identity key: every `asset_id` is what it was.
+
+`PausedReplay` schema 3 and `LiveRunState` schema 3 (phase 6, ledger FUT-041)
+record `instruments_digest`, the digest of the instrument registry the run held
+(`instrument.snapshot.registry_digest`) or `null` for one that held none; a
+restore holds the registry supplied back to it. A payload of schema 2 reads as
+recording none, and a registry it held is checked by type alone. Neither the run
+snapshot nor any `result_id` carries it.
 
 `PausedReplay` (v4.1, ledger FUT-001) is a replay stopped between two records:
 its envelope nests the run snapshot unchanged and adds the replay cursor and the
 position of the cursor's own identifier stream. Its `restore` also takes the
 dataset back -- the replay's input, recorded by id, length, the ids at the
-boundary and a digest of every record, and refused when it differs.
+boundary and a digest of every record, and refused when it differs. Since
+v4.1.1 (schema 2) it also records its schedule's digest and, for a replay given
+an execution plan (ledger FUT-009), the plan's algorithm book, written by
+`backtesting.algorithmic.capture_book` (`ALGORITHM_BOOK_SCHEMA = 1`): every
+parent's algorithm with its children, and every child fill. The plan is taken
+back by `restore` and held to the book by its `plan_id`, and each algorithm run
+is rebuilt and checked against its recorded identity. The book is driver state,
+not part of `RunState`, so no run's record or `result_id` moved. For a replay
+given a queue model (ledger FUT-011) it records the queue book on the same
+terms, written by `backtesting.queueing.capture_queue` (`QUEUE_BOOK_SCHEMA = 1`):
+the model's type and configuration, and each resting limit order's limit and
+the quantity ahead of it. The model is taken back by `restore` and refused when
+its type or configuration differs.
+
+Since v4.2.0 (ledger FUT-015) a fill of an instrument that declares a settlement
+rule carries its settlement instant and its signed cash on its own ledger
+`Transaction`, as `metadata` (`settles_at`, `settlement_cash`); the portfolio's
+index of what is unsettled, `PortfolioState.unsettled`, is derived from those
+transactions and rebuilt from them on restore, never stored apart. Every other
+fill writes the empty metadata it always did, so no payload moved.
+
+Since v4.2.0 (ledger FUT-017) an instrument's record may declare `margin`
+(`MarginTerms`, written by `margin_to_primitives`: the basis by name, the amounts
+as text), kept by the registry snapshot and absent -- `None` -- from every payload
+written before; the registry's index of margined instruments is derived from the
+records, never written. A margin call is a `MarginCall` in the risk event log,
+tagged by its class name like every risk event; a liquidation is ordinary
+orders and fills, and a financed delivery an ordinary ledger transaction whose
+cash leaves the balance below zero. A run declaring no margin writes nothing
+new.
+
+Since v4.2.0 (ledger FUT-018) a record may declare `borrow` (`BorrowTerms`,
+written by `borrow_to_primitives`: the day count by name, each entry's instant,
+availability and fee), and `MarginTerms` writes `purchase_on_margin` only when
+it is declared. Interest and borrow fees are ordinary `INTEREST` and `FEE`
+ledger transactions; the schedule entries that charge them are identified by
+the schedule's digest, whose encoder writes a calendar date as ISO 8601. A
+recall (phase 3, ledger FUT-022) writes an entry's `buy_in_at` only when it is
+declared; the registry's index of recallable instruments is derived, never
+written; a buy-in is a `BuyIn` in the risk event log, and its cover ordinary
+orders and fills.
+A daily-accrued period (phase 3, ledger FUT-023) writes each day as an `ACCRUAL`
+ledger transaction -- its exact amount, its period's key under `accrues`, and
+`accrual_closed` on the entry that closes it at the posting -- moving no cash;
+the schedule's digest encodes a daily cutoff's time of day as ISO 8601. A
+schedule declaring no daily period writes nothing new.
+An exchange whose cash is paid later (phase 3, ledger FUT-025) writes its
+`EXCHANGE` transactions with the `settles_at` and `settlement_cash` a fill
+carries, and its pending entry is rebuilt from them as a fill's is.
+A scenario model repricing options (phase 3, ledger FUT-026) writes `repriced`
+-- each option's volatility, rate, carry by kind and yield, and lattice steps --
+and each scenario's `volatility_shifts`, only when declared; a scenario model
+writes its `surfaces` -- each options surface's underlying, as-of instant and
+points -- and its `horizon` only when declared (phase 4, ledger FUT-032), and a
+repriced option a `volatility` of `null` when it reads a surface.
+The risk record writes `surfaces` (phase 5, ledger FUT-039) -- each
+underlying's delivered volatility surfaces, as they arrived, with their
+knowledge instants, sources and versions -- only when a run was given one; a
+payload without it reads as none. A scenario model writes `surface_feed` and
+`surface_max_age` only when declared.
+
+A correction of an elective action's terms (phase 5, ledger FUT-038) is a
+`TermsAnnounced` in the strategy runtime's event log at its announcement,
+naming its version; the elections are kept as made.
+A part election (phase 4, ledger FUT-030) is an `UnitsElected`, and an
+action's record instant a `HoldersRecorded` -- each holder's signed holding
+then -- in the strategy runtime's event log, each tagged by its class name; an
+elective action writes `proration` and `record_at` only when declared.
+An election (phase 3, ledger FUT-024) is an `ElectionMade` in the strategy
+runtime's event log, tagged by its class name like every strategy event; a
+contract adjustment writes its `announced_at` only when declared.
+Trading controls write their `references` and `reference_bands` (phase 3,
+ledger FUT-028) only when declared.
+A halt writes `auction` (phase 3, ledger FUT-027) only when it reopens by one,
+and `uncross` (phase 4, ledger FUT-033) only when it computes one; controls
+write `auction_books` only when declared, and `indications` (phase 5, ledger
+FUT-040) likewise. The market record writes `auctions` (phase 6, ledger
+FUT-043) -- each instrument's delivered books and indications, as they arrived,
+with their knowledge instants, sources and versions -- only when a run was
+delivered one; a payload without it reads as none. The execution record writes
+`reopened` -- each instrument's last reopening auction, its price, matched
+volume, imbalance and any extension -- only when a run held one, and a payload
+without it reads as none; it is the run's record that an instrument has
+reopened, so a resumed run never holds the same auction twice.
+A refused amend (phase 3, ledger FUT-029) is an `AmendRefused` in the strategy
+runtime's event log; an amend made is ordinary OMS transitions. An amend whose
+replacement is refused (phase 4, ledger FUT-031) changes no OMS, allocation or
+portfolio state -- only the refusal and the allocation and risk decisions that
+judged the replacement are recorded -- so a snapshot taken after it restores the
+order working as it was.
+
+A borrow entry writes `buy_in_premium`, `buy_in_fee` and `allocations` (phase
+4, ledger FUT-035) only when declared; a buy-in order whose lender charges for
+it carries `buy_in` -- its instant -- in its OMS metadata, and each charge is a
+`FEE` cash flow whose record names the strategy (`buy-in:<strategy>`).
+
+An exchange leg delivered after its effective instant (phase 5, ledger
+FUT-037) is an `EXCHANGE` ledger transaction of its own carrying `delivers`
+(its units), `delivery_of` (the exchange), `delivery_parts`, `delivery_basis`,
+`delivery_terms` and `settles_at`; a delivery's amendment names `delivery_of`
+and `payment_change`, with a `DeliveryAmended` event. The settlement index a
+restore rebuilds from the ledger holds the units owed until delivered.
+
+A payment amendment (phase 4, ledger FUT-034) is an `EXCHANGE` ledger
+transaction naming its entitlement (`entitlement`), its change
+(`payment_change`) and the transactions whose pending cash it re-dates or
+closes (`affects`), and a `PaymentAmended` portfolio event; nothing it amends
+is rewritten, and the pending index a restore rebuilds from the ledger applies
+the amendments in order, as the run did.
+
+Since v4.2.0 (ledger FUT-019) the registry snapshot carries `margin_model`, the
+account's declared margin model as `margin_model_to_primitives` writes it
+(`per_position`, or `scenario` with its scenarios, maintenance ratio and floor),
+or `None`; a payload written before reads as none. A host's own model is not
+written and is supplied back with the registry.
+
+Since v4.2.0 (ledger FUT-020) the registry snapshot also carries `controls`,
+the venues' declared price bands and halts as `controls_to_primitives` writes
+them (each band's instrument, interval, limits and action by name; each halt's
+interval, instrument or venue, and reason), or `None` for a payload written
+before.
+
+Since v4.2.0 (ledger FUT-021) a holding exchange is a `PositionExchanged` in the
+portfolio's event log -- the holding and its quantity, what it became, the cash
+it moved by currency, the P&L realized, whether it was retained, the issuer's
+reference -- tagged by its class name, and its cash an `EXCHANGE` ledger
+transaction; the holdings it creates are ordinary positions. A run with no
+exchange writes neither.
 
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
@@ -274,7 +414,12 @@ serializable projection, `from_primitives(payload)` → typed snapshot,
 
   `restore(capture(s)) == s` therefore holds for a strategy configured with
   values of the first row, and the run's identities are the same before and
-  after a restore either way. A typed form is FUT-002 (a 5.0 decision).
+  after a restore either way. Since the v4.2.0 candidate (ledger FUT-002) it
+  holds for every row but the last when the strategy's class declares the
+  configuration's type (`configuration_type`; `alphalab.strategy.configuration`):
+  `configure` refuses a value not of that type, and restore reads the recorded
+  form back as it -- the payload is the one this table describes, so no schema
+  or identity moves (`tests/regression/test_typed_strategy_configuration.py`).
 - **Derived indexes are rebuilt, not stored.** The order book's asset and strategy
   indexes and the instrument registry's provider index are reconstructed by
   replaying the records. One fact, one home.

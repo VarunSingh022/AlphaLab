@@ -45,6 +45,7 @@ from alphalab.execution.algorithms import (
     schedule_cost,
     start_algorithm,
 )
+from alphalab.execution.auction import AuctionReopening
 from alphalab.execution.capacity import (
     AssetCapacity,
     AssetLiquidity,
@@ -132,6 +133,14 @@ from alphalab.execution.quality import (
     shortfall_against_model,
     venue_quality,
 )
+from alphalab.execution.queue import (
+    PriceTimeQueue,
+    QueueBook,
+    QueueModel,
+    QueueObservation,
+    QueuePosition,
+    QueueTurn,
+)
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.routing import (
     MAX_SPLIT_FIXED_CHARGE_VENUES,
@@ -178,6 +187,7 @@ __all__ = [
     "AlgorithmTerms",
     "AssetCapacity",
     "AssetLiquidity",
+    "AuctionReopening",
     "CandidateStatus",
     "CapacityConstraint",
     "CapacityModel",
@@ -245,8 +255,14 @@ __all__ = [
     "PerTradeFee",
     "PercentageCommission",
     "PercentageSlippage",
+    "PriceTimeQueue",
     "ProportionalFee",
     "ProportionalTax",
+    "QueueBook",
+    "QueueModel",
+    "QueueObservation",
+    "QueuePosition",
+    "QueueTurn",
     "QuotedHalfSpread",
     "ReferencePrice",
     "RejectionRate",

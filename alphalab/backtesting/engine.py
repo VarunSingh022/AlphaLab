@@ -31,16 +31,21 @@ run one owner; what is left here is a driver.
 
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
-from typing import Any
+from typing import Any, overload
 
 from alphalab.alt_data.streaming import ObservationDelivery
+from alphalab.backtesting.algorithmic import ExecutionPlan, algorithmic_run
+from alphalab.backtesting.algorithmic import finish as finish_children
+from alphalab.backtesting.algorithmic import work as work_children
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
-from alphalab.backtesting.state import BacktestResult
+from alphalab.backtesting.queueing import queued_result, queued_run
+from alphalab.backtesting.schedule import EMPTY_SCHEDULE, RunSchedule, ScheduleCursor
+from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult
 from alphalab.common.evolve import evolve
 from alphalab.common.ids import id_scope, id_source
+from alphalab.execution.queue import QueueModel
 from alphalab.market.state import MarketState
 from alphalab.runtime.execution_pipeline import ContextFactory, ExecutionPipelineResult
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunEngine, RunState
@@ -176,6 +181,7 @@ class BacktestEngine:
 
         return finalize(state)
 
+    @overload
     @staticmethod
     def run(
         config: RunConfig,
@@ -183,6 +189,65 @@ class BacktestEngine:
         strategy_state: StrategyRuntimeState,
         context_factory: ContextFactory,
         observations: Iterable[ObservationDelivery[Any]] = (),
+        *,
+        schedule: RunSchedule = EMPTY_SCHEDULE,
+        execution: None = None,
+        queue: None = None,
+    ) -> BacktestResult: ...
+
+    @overload
+    @staticmethod
+    def run(
+        config: RunConfig,
+        dataset: MarketDataset,
+        strategy_state: StrategyRuntimeState,
+        context_factory: ContextFactory,
+        observations: Iterable[ObservationDelivery[Any]] = (),
+        *,
+        schedule: RunSchedule = EMPTY_SCHEDULE,
+        execution: ExecutionPlan,
+        queue: None = None,
+    ) -> AlgorithmicResult: ...
+
+    @overload
+    @staticmethod
+    def run(
+        config: RunConfig,
+        dataset: MarketDataset,
+        strategy_state: StrategyRuntimeState,
+        context_factory: ContextFactory,
+        observations: Iterable[ObservationDelivery[Any]] = (),
+        *,
+        schedule: RunSchedule = EMPTY_SCHEDULE,
+        execution: None = None,
+        queue: QueueModel,
+    ) -> QueuedResult: ...
+
+    @overload
+    @staticmethod
+    def run(
+        config: RunConfig,
+        dataset: MarketDataset,
+        strategy_state: StrategyRuntimeState,
+        context_factory: ContextFactory,
+        observations: Iterable[ObservationDelivery[Any]] = (),
+        *,
+        schedule: RunSchedule = EMPTY_SCHEDULE,
+        execution: ExecutionPlan | None,
+        queue: QueueModel | None = None,
+    ) -> BacktestResult: ...
+
+    @staticmethod
+    def run(
+        config: RunConfig,
+        dataset: MarketDataset,
+        strategy_state: StrategyRuntimeState,
+        context_factory: ContextFactory,
+        observations: Iterable[ObservationDelivery[Any]] = (),
+        *,
+        schedule: RunSchedule = EMPTY_SCHEDULE,
+        execution: ExecutionPlan | None = None,
+        queue: QueueModel | None = None,
     ) -> BacktestResult:
         """Run ``dataset`` end to end and return the finished result.
 
@@ -198,25 +263,57 @@ class BacktestEngine:
         does with information known at ``t`` rests until a price printed after
         the instant's own -- and an ``on_slice`` at ``t`` sees it. One known
         after the last record is beyond the data, and is not delivered.
+
+        ``schedule`` (v4.1.1, ledger FUT-004) carries every other timed input --
+        exchange rates, funding, cash flows, splits, timers, contract settlements
+        -- applied by :class:`~alphalab.backtesting.schedule.ScheduleCursor` at
+        its instant, the rate table it builds converting every step; the
+        ``observations`` given here are added to it.
+
+        ``execution`` (v4.1.1, ledger FUT-009) works every order in children:
+        the run routes
+        :attr:`~alphalab.runtime.execution_pipeline.ExecutionRouting.ALGORITHMIC`,
+        and the plan's algorithms release, trade and finish each parent at its
+        asset's events, after the run's own step at each -- see
+        :mod:`alphalab.backtesting.algorithmic`. The result is then an
+        :class:`~alphalab.backtesting.state.AlgorithmicResult`, carrying the book.
+
+        ``queue`` (v4.1.1, ledger FUT-011) is a queue model: each resting limit
+        order keeps its place at its price level and fills only as far as the
+        model says has reached the front -- see
+        :mod:`alphalab.backtesting.queueing`. The result is then a
+        :class:`~alphalab.backtesting.state.QueuedResult`, whose execution
+        assumptions name the model. Refused beside ``execution``.
         """
 
-        pending = deque(sorted(observations, key=lambda delivery: delivery.order_key))
+        config, book = algorithmic_run(config, execution, ExecutionMode.BACKTEST)
+        queued = queued_run(config, queue)
+        cursor = ScheduleCursor.start(schedule.with_observations(observations))
         with id_scope(config.seed):
             state = evolve(
                 initialize(evolve(config, mode=ExecutionMode.BACKTEST), strategy_state),
                 source_id=dataset.dataset_id,
             )
             for record in dataset.records:
-                # What became knowable before this record's instant, in order;
-                # an instant's slice closes before anything known after it.
-                while pending and pending[0].known_at < record.timestamp:
-                    delivery = pending.popleft()
-                    state = close_slice(state, context_factory, before=delivery.known_at)
-                    state = RunEngine.deliver_observation(state, delivery, context_factory)
+                # Everything ordered before this record's instant, in order; an
+                # instant's slice closes before anything later than it.
+                cursor, state = cursor.before(state, record.timestamp, context_factory)
                 # The first record of an instant completes the one before it.
-                state = close_slice(state, context_factory, before=record.timestamp)
-                state, _ = advance(state, record, context_factory)
-            last = state.last_record_timestamp
-            while pending and last is not None and pending[0].known_at <= last:
-                state = RunEngine.deliver_observation(state, pending.popleft(), context_factory)
-            return finalize(close_slice(state, context_factory))
+                state = RunEngine.close_slice(
+                    state, context_factory, cursor.rates, before=record.timestamp
+                )
+                state, result = RunEngine.advance(
+                    state, record, context_factory, rates=cursor.rates, queue=queued
+                )
+                if result is not None and result.queue is not None:
+                    queued = result.queue
+                if book is not None and result is not None:
+                    book, state = work_children(book, state, result.market_event, cursor.rates)
+            cursor, state = cursor.finish(state, context_factory, dataset.records[-1].timestamp)
+            state = RunEngine.close_slice(state, context_factory, cursor.rates)
+            if queued is not None:
+                return queued_result(state, queued)
+            if book is None:
+                return finalize(state)
+            book, state = finish_children(book, state)
+            return AlgorithmicResult(run=RunEngine.finalize(state), algorithms=book)

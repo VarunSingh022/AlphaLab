@@ -21,7 +21,7 @@ Examples are intended to be read sequentially by new users and used as reference
 > broker boundary, having used `alphalab.integrations` until that package was
 > removed. `70_build_a_strategy.py` (v4.0) builds a strategy from data to a
 > reproduced result and is checked line by line by an end-to-end test. None of
-> the others are part of the automated test suite, though all seventy-one run as a
+> the others are part of the automated test suite, though all seventy-five run as a
 > release gate.
 > For the integrated market-to-analytics path see
 > `alphalab.backtesting`, `alphalab.runtime.ExecutionPipeline`, and their tests
@@ -53,6 +53,14 @@ The `examples/` directory contains:
 | `16_research_from_dataset.py` | Research access by dataset version, point-in-time selection, and a backtest that names the exact bytes it read |
 | `70_build_a_strategy.py` | **Build your first strategy**: data → strategy → run → fills checked by hand → a stopped run continued to the same result → refusals |
 | `71_pause_and_resume_a_replay.py` | **Pause a replay, keep it, resume it** (v4.1): a replay paused between records, kept in a file store, restored with fresh objects and resumed to the uninterrupted `result_id` |
+| `72_compose_a_multi_asset_strategy.py` | **Compose a multi-asset strategy** (v4.1.1): two price datasets, sentiment and macro releases at their availability, a researcher's strategy with a futures hedge, costs, risk refusals, lineage, replay and continuation |
+| `73_train_and_trade_a_model.py` | **Train a model on the past and trade it forward** (v4.1.1): features defined once, a model fitted before a boundary, the same features and model on the execution path |
+| `74_evaluate_an_execution_algorithm.py` | **Evaluate an execution algorithm in a backtest** (v4.1.1): one decision executed whole and by TWAP, VWAP, participation and iceberg over the same bars, each child through the run's liquidity cap and cost model, measured as implementation shortfall; replayed and resumed |
+| `75_exercise_assign_and_deliver.py` | **Exercise, assign and deliver** (v4.1.1): an American physically settled call exercised early before a dividend by a stated policy, a European cash-settled put on an index settled at expiry, every instant from a declared market's calendar; refusals; replayed and resumed |
+| `76_a_financed_long_short_book.py` | **A financed long-short book** (v4.2.0): a pair margined by declared scenarios, the long bought on margin and its debit charged tiered interest, the short sold against a lender's declared borrow and its fee, a bid placed in a halt and re-quoted inside a price band, the short carried through a merger; replayed and resumed |
+| `77_a_short_squeezed_by_its_lender.py` | **A short squeezed by its lender** (phase 3): a recall from its notice, the buy-in after its deadline resting through a halt and crossing at the venue's reopening auction, a resting bid amended in place keeping its priority, the day's borrow fee accrued at a declared cutoff; replayed and resumed |
+| `78_a_tender_split_between_holders.py` | **A tender split between holders** (phase 4): two strategies holding one position, each electing on its own, the oversubscribed cash prorated and the default taking the rest, the record instant bounding each election, and the cash delayed then corrected by the issuer -- each word a ledger entry, reconciled from the ledger (FUT-030, FUT-034) |
+| `79_bid_into_a_reopening_auction.py` | **Bid into a reopening auction** (phase 5): a halted equity's published book and the venue's indications -- one withdrawn -- shown to a strategy as published by its instant, a bid a tick above the indicated price, the uncross the run computes from the book rather than the indication, and the venue conditions the result states it rested on (FUT-040, EXE-014) |
 
 ---
 
@@ -387,6 +395,68 @@ result. It assumes nothing; read it first if you are here to write a strategy.
 
 `docs/INTEGRATION.md` states the contract it exercises; the installed smoke test
 runs it from every built wheel and sdist.
+
+# Composing a strategy from heterogeneous inputs (v4.1.1)
+
+| # | Shows |
+|---|---|
+| 72 | An equity on New York's sessions and an index future settled an hour later, ingested as two datasets and read as one (`combine_datasets`); posts scored for sentiment and a US CPI series, ingested with the column that says when each row became available and delivered to the strategy at that instant -- one post written on 8 April and collected on 22 April, March's figure revised on 24 April, May's published after the data ends, a post with no stated availability counted and never delivered, a repeated and an unreadable row rejected by line; `CompositeSignal`, written against the protocol, combining five-session momentum, decayed sentiment and the latest-known inflation vintage into an equity position and a futures hedge sized with the contract's declared multiplier, leaving the future alone the day its bar is missing; orders at the next open with a stated cost model and a 10% participation cap; twelve orders refused by the risk gate and reported; the result's manifest over the combined dataset and a fingerprint naming the information sets; the run reproduced, replayed, paused and resumed, and stored and continued to the same `result_id`; and the late values rewritten, with the first changed decision after they became knowable |
+
+`docs/COMPOSING_STRATEGIES.md` explains the contracts it
+uses; `tests/integration/test_multi_asset_composition.py` holds it to eleven
+properties, including a leaking control that the same check catches. Nothing in
+it says sentiment or inflation predicts returns: the prices are synthetic.
+
+| # | Shows |
+|---|---|
+| 73 | A synthetic close series; `mom_5` and `z_10` defined once as `FeatureDefinition`s and computed by the study path; a ridge-regularized linear regression fitted on every sample whose next-session label was knowable before session 80, the sample whose label reaches across it purged; the same definitions evaluated by the strategy on the closes it has been shown, equal to the study's at all 111 instants; the coefficients as the strategy's declared parameters (so its fingerprint hashes them) and its state (restored exactly, refused if another model is built); orders from session 80 on; prices from the boundary on rewritten, changing neither the model nor any earlier decision; the run reproduced |
+
+`tests/integration/test_model_on_the_execution_path.py` holds it.
+
+# Evaluating an execution algorithm in a backtest (v4.1.1)
+
+| # | Shows |
+|---|---|
+| 74 | One hour of synthetic minute bars with a U-shaped volume; one decision to buy 3,000 shares executed whole -- cut to a quarter of the next bar by the liquidity cap, the rest withdrawn -- and by TWAP, VWAP over a stated profile, participation at a tenth of printed volume, and an iceberg of 400, each child released at the bars, filled under the same cap and costed by spread, square-root impact and a commission per fill, and settled on one parent order; each run's implementation shortfall against the open; the TWAP replayed, paused with a child working, written to JSON and resumed to the same replay |
+
+`tests/integration/test_execution_algorithm_example.py` holds it to its figures,
+and `tests/integration/test_algorithms_on_the_historical_path.py` holds the
+mechanism. The bars are synthetic and the profile a stated shape: nothing in it
+says one algorithm is better than another in a real market.
+
+# An option's whole life in a backtest (v4.1.1)
+
+| # | Shows |
+|---|---|
+| 75 | A market declared by its calendar -- Europe/London's zone, weekday sessions, a holiday -- and every instant read from it: expiry at its close, a dividend at an ex-date's open. A researcher's strategy buys two American, physically settled calls when momentum first turns up, and a European, cash-settled put on an index; a stated policy exercises one call at the close before the ex-dividend date, so 100 shares are delivered against the strike and receive the dividend; at expiry the other call is exercised automatically and the put settles in cash against the index's value. A Bermudan style, exercise ending before trading, and a European put exercised early are refused. The run replayed, paused before the exercise, written to JSON and resumed |
+
+`tests/integration/test_lifecycle_example.py` holds it figure for figure;
+`tests/integration/test_option_lifecycle.py` and
+`test_lifecycle_conventions.py` hold the mechanism and the conventions. The
+prices are synthetic and the market is a stated one.
+
+# A financed long-short book (v4.2.0)
+
+| # | Shows |
+|---|---|
+| 76 | A pair -- 1,000 SHORTCO sold short, then 1,500 LONGCO bought on margin -- margined together by a declared scenario model: both 15% up or down, or apart by 5%, the worst loss floored at 4% of the gross, so the hedge needs 17,685.00 where the two legs alone need 107,450.00. The margin purchase spends its initial requirement and leaves a debit of 11,800.00, charged a day's interest by declared tiers on ACT/360; the short is sold only against borrow a lender declares and pays the lender's rate in force. LONGCO is halted for an hour: a bid placed in the halt rests, is withdrawn after it with `IntentKind.CANCEL` and re-quoted, and fills inside its price band. SHORTCO is merged into SHORTNEW one for two by its issuer, the short and its basis carried, one event saying why. The run replayed, paused after the sixth record, written to JSON and resumed |
+
+`tests/integration/test_financed_book_example.py` holds it figure for figure;
+`tests/integration/test_financing_and_borrow.py`, `test_portfolio_margin.py`,
+`test_trading_controls.py`, `test_holding_exchanges.py` and
+`test_v42_milestone_interactions.py` hold the mechanism. Every price, rate and
+term is synthetic -- no broker's, lender's, venue's or issuer's.
+
+# A short squeezed by its lender (phase 3)
+
+| # | Shows |
+|---|---|
+| 77 | 1,000 LENDCO sold short against 1,000 a lender declares. At hour 2 the lender recalls all but 400, with a deadline of hour 3; at hour 3 the 600 beyond what is still lent is bought in -- each short strategy's own cover through allocation, risk and the OMS. The venue halts LENDCO from hour 3.5 to 5.5 and reopens it by auction, so the buy-in rests through the halt and crosses at hour 6's print of 104. A bid of 600 at 90, resting since hour 1, is trimmed to 300 with `IntentKind.AMEND`: reduced in place, its id and queue priority kept, and it takes no part in the auction its price does not reach. The day's borrow fee accrues at 20:30 UTC on the 400 still short at that hour's mark, and posts once. The run replayed, paused after the fifth record, written to JSON and resumed |
+
+`tests/integration/test_squeezed_short_example.py` holds it figure for figure;
+`test_borrow_recall.py`, `test_reopening_auctions.py`, `test_strategy_amends.py`,
+`test_daily_accrual.py` and `test_phase3_interactions.py` hold the mechanism.
+Every price, rate and term is synthetic.
 
 ---
 
