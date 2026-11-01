@@ -459,6 +459,18 @@ the run's own: an order at a venue is amended by the venue's request
 (`LiveSession.amend`), which the venue confirms or refuses later, and nothing
 promises it is atomic there.
 
+**36. A reduced order holds what it still adds (FUT-036, phase 4).** A
+reservation is the exposure an order adds, valued when allocated; an order cut
+in place keeps the share of each of its reservations -- the account's and its
+strategy's ceiling -- that the smaller order still adds to the book as it
+stands, each by its own rule (the account's committed position, the strategy's
+position and working share). Not proportional to quantity: an order that
+partly covers a short adds only its tail, and cut below the short it adds
+nothing. Where the book has moved so that the order adds nothing it held
+something for, the share kept is that of its quantity, because the book may
+move back -- the conservative choice the engine makes elsewhere for a working
+order. Nothing is reserved by a reduction, and what is freed is freed once.
+
 ---
 
 # Consequences

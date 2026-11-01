@@ -46,6 +46,12 @@ Entries marked *phase 3* were delivered on the candidate branch after its
 validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10); those
 marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 
+* **What an amend holds, exactly** [FUT-036] (*phase 4*). An order reduced in
+  place holds, of the account's budget and of a ceilinged strategy's capital,
+  the share of its reservations the smaller order still adds -- an order
+  partly covering a short only its tail -- so the headroom it frees admits
+  another order in the same batch. Under FUT-029 the account's share was scaled
+  by quantity and the ceiling's held whole until the order ended.
 * **An atomic amend** [FUT-031] (*phase 4*). An amend that replaces an order --
   more quantity, another limit or stop -- is prepared against the book without
   the order and committed only if its replacement is placed: one that
@@ -501,7 +507,7 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 ## Accepted as future work
 
 FUT-030 to FUT-036, proposed by the phase 3 global gap audit after FUT-022 to
-FUT-029 were delivered (phase 4 delivers them in turn: FUT-031 so far): elections split between holders and proration, an
+FUT-029 were delivered (phase 4 delivers them in turn: FUT-031 and FUT-036 so far): elections split between holders and proration, an
 atomic amend, a dated volatility surface and scenario horizons, an auction
 uncross and a retention-proof first event, failed or corrected payments and
 legs delivered later, a buy-in premium and per-strategy borrow, and a capital

@@ -15,6 +15,7 @@ ACME (in CNY) quotes from 2.0, one quote a second; the strategy rests a bid of
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any
@@ -418,3 +419,176 @@ def test_a_strategy_holding_the_instrument_has_its_replacement_sized_as_asked() 
     # The 5 bought at 2.0 is held; the replacement is still the 12 asked.
     *_, replacement = orders(result)
     assert (replacement.quantity, replacement.is_open) == (D("12"), True)
+
+
+# --------------------------------------------------------------------------- #
+# What an amend holds of a ceiling and of the account (FUT-036)
+# --------------------------------------------------------------------------- #
+
+
+def ceilinged(ceiling: str, **kw: Any) -> Any:
+    base = controls.config(ACME, **kw)
+    budget = replace(
+        base.pipeline.budget, strategy_budgets={"S": D(ceiling)}, enforce_strategy_budgets=True
+    )
+    return replace(base, pipeline=replace(base.pipeline, budget=budget))
+
+
+def run_ceilinged(
+    script: Mapping[tuple[float, str], tuple[Intent, ...]], ceiling: str, at: tuple[float, ...]
+) -> tuple[Any, controls.Script]:
+    from alphalab.backtesting import BacktestEngine
+
+    strategy = controls.Script(script)
+    result = BacktestEngine.run(
+        ceilinged(ceiling),
+        controls.data({ACME.asset_id: controls.flat(*at)}),
+        running_strategy_state("S", strategy),
+        context_factory,
+        schedule=RunSchedule.of(),
+    )
+    return result, strategy
+
+
+def capital(result: Any) -> Any:
+    return result.state.allocation.strategy_capital.get("S")
+
+
+def test_a_reduction_frees_the_ceiling_by_the_share_it_frees_the_account() -> None:
+    result, _ = run_ceilinged(
+        {**REST, (3.0, ACME.asset_id): (amend(3.0, "4", bid()),)}, "5000", (2.0, 3.0, 4.0)
+    )
+    (order,) = orders(result)
+    # 10 reserved 1,000 at the market's 100, of the ceiling and of the account;
+    # 4 left working holds 400 of each.
+    assert capital(result).reserved_total == D("400")
+    assert dict(capital(result).reserved.items()) == {str(order.order_id.value): D("400")}
+    assert result.state.allocation.notional_allocated == D("400")
+
+
+def test_headroom_a_reduction_frees_admits_another_order_in_the_same_batch() -> None:
+    more = controls.buy(3.0, "10", terms=bid("90"))
+    script = {**REST, (3.0, ACME.asset_id): (amend(3.0, "4", bid()), more)}
+    result, _ = run_ceilinged(script, "1500", (2.0, 3.0, 4.0))
+    # 400 kept and 1,000 for the new bid fit the 1,500; with the whole 1,000
+    # still held the new bid would not.
+    assert sorted(o.limit_price for o in orders(result) if o.is_open) == [D("90"), D("95")]
+    assert capital(result).reserved_total == D("1400")
+
+
+def test_a_reduction_of_an_order_partly_covering_a_short_holds_only_what_it_adds() -> None:
+    script = {
+        (2.0, ACME.asset_id): (controls.buy(2.0, "-4"),),
+        (3.0, ACME.asset_id): (controls.buy(3.0, "10", terms=bid()),),
+        (4.0, ACME.asset_id): (amend(4.0, "5", bid()),),
+    }
+    result, _ = run_ceilinged(script, "5000", (2.0, 3.0, 4.0, 5.0))
+    # Short 4, a bid of 10 crosses to a long of 6: of the ceiling it adds 6
+    # (600), of the account's committed position 2 (200). Cut to 5 it adds 1 to
+    # the strategy (100) and nothing to the account -- it only covers.
+    (order,) = [o for o in orders(result) if o.is_open]
+    assert capital(result).reserved.get(str(order.order_id.value)) == D("100")
+    assert result.state.allocation.reservations.get(str(order.order_id.value)) == D("0")
+    assert result.state.allocation.notional_allocated == D("0")
+
+
+def test_a_reduction_of_an_order_the_book_has_since_covered_keeps_its_share() -> None:
+    script = {
+        **REST,
+        (3.0, ACME.asset_id): (controls.buy(3.0, "-10"),),
+        (4.0, ACME.asset_id): (amend(4.0, "4", bid()),),
+    }
+    result, _ = run_ceilinged(script, "5000", (2.0, 3.0, 4.0, 5.0))
+    # The bid reserved 1,000 while the book was flat; the short sold since
+    # leaves it adding nothing as the book stands. It is held as allocated
+    # until it ends, the book may change back, and cut to 4 it keeps the same
+    # share of it as of its quantity -- 400, never less than it may need.
+    (order,) = [o for o in orders(result) if o.is_open]
+    key = str(order.order_id.value)
+    assert capital(result).reserved.get(key) == D("400")
+    assert result.state.allocation.reservations.get(key) == D("400")
+
+
+def test_an_increase_within_the_ceiling_counts_the_original_as_released() -> None:
+    result, _ = run_ceilinged(
+        {**REST, (3.0, ACME.asset_id): (amend(3.0, "20", bid()),)}, "2500", (2.0, 3.0, 4.0)
+    )
+    # 2,000 for the 20 fits the 2,500 once the original's 1,000 is released; it
+    # would not if both were held. One reservation, the replacement's.
+    first, second = orders(result)
+    assert first.status.name == "CANCELLED" and second.quantity == D("20")
+    assert dict(capital(result).reserved.items()) == {str(second.order_id.value): D("2000")}
+    assert capital(result).reserved_total == D("2000")
+
+
+def test_an_increase_beyond_the_ceiling_is_refused_and_the_original_keeps_its_share() -> None:
+    result, _ = run_ceilinged(
+        {**REST, (3.0, ACME.asset_id): (amend(3.0, "20", bid()),)}, "1500", (2.0, 3.0, 4.0)
+    )
+    (order,) = orders(result)
+    assert order.is_open and order.quantity == D("10")
+    assert dict(capital(result).reserved.items()) == {str(order.order_id.value): D("1000")}
+    assert "ceiling" in refused(result)[0].reason
+
+
+def test_a_reduced_order_releases_its_rest_once_when_it_fills_or_ends() -> None:
+    from alphalab.backtesting import BacktestEngine
+
+    script = {**REST, (3.0, ACME.asset_id): (amend(3.0, "4", bid()),)}
+    filled = BacktestEngine.run(
+        ceilinged("5000"),
+        controls.data({ACME.asset_id: {2.0: "100", 3.0: "100", 4.0: "95"}}),
+        running_strategy_state("S", controls.Script(script)),
+        context_factory,
+        schedule=RunSchedule.of(),
+    )
+    # Filled at 95: the 400 held converts to the 380 the 4 cost, and the rest
+    # is released at the fill; nothing is held, and nothing went below zero.
+    assert controls.trades(filled) == [(4.0, D("4.000000"), D("95"))]
+    assert capital(filled).reserved_total == D("0")
+    assert capital(filled).deployed_total == D("380")
+    assert filled.state.allocation.notional_allocated == D("0")
+    cancel = Intent("S", ACME.asset_id, D("0"), timestamp=4.0, kind=IntentKind.CANCEL)
+    ended, _ = run_ceilinged({**script, (4.0, ACME.asset_id): (cancel,)}, "5000", (2.0, 3.0, 4.0))
+    assert capital(ended).reserved_total == D("0") and not dict(capital(ended).reserved.items())
+    assert ended.state.allocation.notional_allocated == D("0")
+
+
+def test_a_ceilinged_reduction_replays_and_resumes_to_one_result() -> None:
+    from alphalab.backtesting import PausedReplay
+    from alphalab.backtesting.replay_snapshot import capture as capture_replay
+    from alphalab.backtesting.replay_snapshot import from_primitives as replay_from_primitives
+    from alphalab.backtesting.replay_snapshot import restore as restore_replay
+    from alphalab.persistence import deserialize, serialize
+    from alphalab.runtime.run_snapshot import RunObjects
+    from alphalab.runtime.snapshot import RuntimeObjects
+
+    script = {**REST, (3.0, ACME.asset_id): (amend(3.0, "4", bid()),)}
+    cfg = ceilinged("5000")
+    dataset = controls.data({ACME.asset_id: {2.0: "100", 3.0: "100", 4.0: "95", 5.0: "95"}})
+    whole = ReplayBacktest.run(
+        cfg, dataset, running_strategy_state("S", controls.Script(script)), context_factory,
+        schedule=RunSchedule.of(),
+    )  # fmt: skip
+    reference = digest_run(whole.backtest).result_id
+    for boundary in range(1, len(dataset.records)):
+        paused = ReplayBacktest.run(
+            cfg, dataset, running_strategy_state("S", controls.Script(script)), context_factory,
+            schedule=RunSchedule.of(), pause_when=margin._at(boundary),
+        )  # fmt: skip
+        assert isinstance(paused, PausedReplay)
+        payload = deserialize(serialize(capture_replay(paused)))
+        objects = RunObjects(
+            RuntimeObjects(
+                cfg.pipeline.sizing_model,
+                cfg.pipeline.simulator,
+                {"S": controls.Script(script)},
+                cfg.pipeline.instruments,
+            ),
+            cfg.fill_policy,
+        )
+        restored = restore_replay(
+            replay_from_primitives(payload), objects, dataset, RunSchedule.of()
+        )
+        resumed = ReplayBacktest.resume(restored, context_factory).backtest
+        assert digest_run(resumed).result_id == reference, boundary

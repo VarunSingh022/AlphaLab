@@ -17,6 +17,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from alphalab.allocation.budget import CapitalBudget
+from alphalab.allocation.ceilings import adding_exposure
 from alphalab.allocation.constraints import AllocationConstraints
 from alphalab.allocation.engine import AllocationEngine
 from alphalab.allocation.events import AllocationRejected, BudgetExceeded
@@ -5121,7 +5122,17 @@ def _amendable(state: ExecutionPipelineState, intent: Intent) -> tuple[str | Non
 def _reduce_in_place(
     state: ExecutionPipelineState, order: OMSOrder, remaining: Decimal, timestamp: float
 ) -> ExecutionPipelineState:
-    """``order`` with ``remaining`` left working, its id and its queue place kept (FUT-029)."""
+    """``order`` with ``remaining`` left working, its id and its queue place kept (FUT-029).
+
+    What it holds shrinks with what it may still add (FUT-036): the account's
+    reservation by the exposure the order adds to the account's committed
+    position, and a ceilinged strategy's by what it adds to the strategy's --
+    each the share of what it held that the smaller order still adds, so one
+    that only reduces a position holds nothing, and the reservations are the
+    ones its allocation would have made for the smaller order. Nothing is
+    reserved anew, and nothing is released twice: what is released is freed
+    now, and what is kept is released at the order's end as before.
+    """
 
     ctx = ACCOUNTING_CONTEXT
     order_id = str(order.order_id.value)
@@ -5133,10 +5144,14 @@ def _reduce_in_place(
     contributions = allocation.contributions.set(
         order_id, (replace(contribution, quantity=ctx.multiply(sign, total)),)
     )
+    was = ctx.multiply(sign, order.remaining_quantity)
+    now = ctx.multiply(sign, remaining)
     reserved = allocation.reservations.get(order_id)
     if reserved is not None and order.remaining_quantity:
-        # What it holds shrinks with what it may still fill: the same share.
-        kept = ctx.divide(ctx.multiply(reserved, remaining), order.remaining_quantity)
+        # The account's committed position without this order, as allocation
+        # judged it: filled, and every other order working.
+        committed = _committed_positions(state, (_probe(order),)).get(order.asset_id, Decimal("0"))
+        kept = _still_added(reserved, ctx.subtract(committed, was), was, now, _adds_to_account)
         allocation = evolve(
             allocation,
             reservations=allocation.reservations.set(order_id, kept),
@@ -5144,7 +5159,56 @@ def _reduce_in_place(
                 allocation.notional_allocated, ctx.subtract(reserved, kept)
             ),
         )
+    strategy_id = contribution.strategy_id
+    capital = allocation.strategy_capital.get(strategy_id)
+    held_back = None if capital is None else capital.reserved.get(order_id)
+    if capital is not None and held_back is not None:
+        # The strategy's position and its share of its other working orders.
+        own = AllocationEngine.strategy_position(allocation, strategy_id, order.asset_id)
+        working = _working_shares(state, (_probe(order, strategy_id),)).get(
+            (strategy_id, order.asset_id), Decimal("0")
+        )
+        before = ctx.subtract(ctx.add(own, working), was)
+        kept = _still_added(held_back, before, was, now, adding_exposure)
+        allocation = evolve(
+            allocation,
+            strategy_capital=allocation.strategy_capital.set(
+                strategy_id, capital.reduce(order_id, kept)
+            ),
+        )
     return evolve(state, oms=oms, allocation=evolve(allocation, contributions=contributions))
+
+
+def _probe(order: OMSOrder, strategy_id: str = "") -> Intent:
+    """A target intent naming ``order``'s asset: what the position readers are asked by."""
+
+    return Intent(strategy_id, order.asset_id, Decimal("0"), kind=IntentKind.TARGET_QUANTITY)
+
+
+def _adds_to_account(held: Decimal, delta: Decimal) -> Decimal:
+    """What ``delta`` adds to the account's committed position ``held``, as allocation reads it."""
+
+    after = ACCOUNTING_CONTEXT.add(held, delta)
+    return max(Decimal("0"), ACCOUNTING_CONTEXT.subtract(abs(after), abs(held)))
+
+
+def _still_added(
+    reserved: Decimal,
+    before: Decimal,
+    was: Decimal,
+    now: Decimal,
+    adds: Callable[[Decimal, Decimal], Decimal],
+) -> Decimal:
+    """The share of ``reserved`` an order cut from ``was`` to ``now`` still adds to ``before``."""
+
+    ctx = ACCOUNTING_CONTEXT
+    added = adds(before, was)
+    if added == 0:
+        # It adds nothing to the book as it stands, though it held something
+        # when allocated: the book may yet change back, so it keeps the same
+        # share of it as of its quantity -- never less than it may need.
+        return ctx.divide(ctx.multiply(reserved, abs(now)), abs(was))
+    return ctx.divide(ctx.multiply(reserved, adds(before, now)), added)
 
 
 def _refuse_amend(

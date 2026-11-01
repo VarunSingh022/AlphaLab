@@ -248,6 +248,11 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **What an amend holds, exactly** (FUT-036, phase 4): an order reduced in place
+  holds of the account's budget and of its strategy's capital ceiling what the
+  smaller order still adds to each, as its allocation would have reserved, so
+  the headroom it frees is usable at once; an increase is judged with the
+  original released, and a refused one keeps the original's share.
 - **An atomic amend** (FUT-031, phase 4): an amend that replaces an order is
   prepared and committed -- the replacement judged by allocation, risk and the
   venue's rules against the book without the order, and the order withdrawn only
@@ -665,12 +670,11 @@ those deliveries (phase 2, `docs/audit/STRATEGY_RESEARCH_TO_PRODUCTION_GAPS.md`)
 proposed eight entries, and phase 3 delivered all of them on the candidate
 branch, after its validation at `350f3f7` -- each is in section *v4.2.0*, above.
 
-The phase 3 global gap audit that followed proposed seven, FUT-030 to FUT-036;
-each is a boundary of what phase 3 delivered, stated in ADR-0051's known
-limitations, and conservative or refused where it binds. Phase 4 delivers them
-on the candidate branch after its phase 3 checkpoint at `bbc4085`; those still
-below are not yet delivered, and their horizons are proposals for the
-maintainer to confirm.
+The phase 3 global gap audit that followed proposed seven entries; each is a
+boundary of what phase 3 delivered, stated in ADR-0051's known limitations, and
+conservative or refused where it binds. Phase 4 delivers them on the candidate
+branch after its phase 3 checkpoint at `bbc4085`; those still below are not yet
+delivered, and their horizons are proposals for the maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
@@ -679,7 +683,6 @@ maintainer to confirm.
 | FUT-033 | **An auction uncross from a book or an imbalance, extensions, and a retention-proof first event** | keep the market history unbounded with auction halts | v4.4 | reopening auctions; imbalance data and depth (new) |
 | FUT-034 | **Failed or corrected corporate-action payments, and legs delivered later** | declare the instant actually paid | v4.4 | delayed payments |
 | FUT-035 | **A buy-in premium, and borrow recalled per strategy** | declare the premium as a cash flow | v4.4 | borrow recalls |
-| FUT-036 | **A capital ceiling's reservation reduced by an in-place amend** | none needed: it is conservative | v4.3 | strategy amends |
 
 ---
 
