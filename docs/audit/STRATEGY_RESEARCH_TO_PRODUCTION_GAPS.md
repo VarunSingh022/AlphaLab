@@ -226,7 +226,7 @@ appear only where two capabilities meet. Same classes as above.
 | The capability matrix did not list holding exchanges | documentation | corrected |
 | Elections split between holders; proration | 2 | FUT-030, **delivered in phase 4** |
 | A replacement risk refuses leaves the original withdrawn | 5 | FUT-031, **delivered in phase 4** |
-| A dated volatility surface; scenario horizons | 5 | FUT-032 (v4.4) |
+| A dated volatility surface; scenario horizons | 5 | FUT-032, **delivered in phase 4** |
 | An auction uncross from a book; extensions; a retention-proof first event | 5 | FUT-033, **delivered in phase 4** (from the venue's published book) |
 | Failed or corrected corporate-action payments; legs delivered later | 5 | FUT-034, **delivered in phase 4** (payments; legs delivered later remain) |
 | A buy-in premium; borrow recalled per strategy | 5 | FUT-035, **delivered in phase 4** |

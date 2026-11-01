@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum, auto
 from typing import Any, Final, Protocol, runtime_checkable
@@ -35,7 +35,14 @@ from alphalab.options.binomial import BinomialLattice, binomial_value
 from alphalab.options.carry import Carry, CarryKind
 from alphalab.options.contract import OptionContract
 from alphalab.options.enums import ExerciseStyle, OptionType
+from alphalab.options.exceptions import OptionInputError
 from alphalab.options.pricing import black_scholes_value, time_to_expiry_years
+from alphalab.options.volatility_surface import (
+    ExpiryInterpolation,
+    VolatilitySurface,
+    VolPoint,
+    implied_vol_across_expiries,
+)
 
 __all__ = [
     "MarginBasis",
@@ -55,6 +62,8 @@ __all__ = [
 ]
 
 _ZERO = Decimal("0")
+#: A surface's volatility, as the run reads it: to the tenth of a basis point.
+_VOL_QUANT: Final = Decimal("0.000001")
 _ONE = Decimal("1")
 
 
@@ -249,7 +258,9 @@ class OptionPricing:
 
     Attributes:
         volatility: The annual volatility the option is valued at, above zero --
-            an implied volatility the caller observed, declared.
+            an implied volatility the caller observed, declared -- or ``None`` to
+            read it from the model's surface for the underlying in effect at the
+            margined instant (FUT-032).
         rate: The continuously compounded risk-free rate.
         carry: What holding the underlying earns or costs: a dividend yield, a
             foreign rate, or a futures underlying's none.
@@ -257,15 +268,16 @@ class OptionPricing:
             European option is valued in closed form and declares none.
     """
 
-    volatility: Decimal
+    volatility: Decimal | None
     rate: Decimal
     carry: Carry
     lattice_steps: int | None = None
 
     def __post_init__(self) -> None:
-        volatility = _decimal(self.volatility, "A volatility")
-        if volatility <= 0:
-            raise InstrumentInputError(f"A volatility is above zero, got {volatility}.")
+        if self.volatility is not None:
+            volatility = _decimal(self.volatility, "A volatility")
+            if volatility <= 0:
+                raise InstrumentInputError(f"A volatility is above zero, got {volatility}.")
         _decimal(self.rate, "A rate")
         if not isinstance(self.carry, Carry):
             raise InstrumentInputError(f"carry is a Carry, got {self.carry!r}.")
@@ -275,8 +287,17 @@ class OptionPricing:
         if steps is not None and steps < 1:
             raise InstrumentInputError(f"A lattice takes at least one step, got {steps}.")
 
-    def value(self, risk: OptionRisk, spot: Decimal, shift: Decimal) -> Decimal:
+    def value(
+        self,
+        risk: OptionRisk,
+        spot: Decimal,
+        shift: Decimal,
+        volatility: Decimal | None = None,
+    ) -> Decimal:
         """One unit's model value at ``spot`` with the volatility shifted by ``shift``.
+
+        ``volatility`` is the one the option is valued at when it declares none
+        of its own -- read from a surface (FUT-032).
 
         Expired, the value is what exercise pays. American exercise is valued on
         the declared lattice, European in closed form; either is refused where
@@ -293,7 +314,10 @@ class OptionPricing:
         contract = OptionContract(
             risk.underlying, risk.strike, risk.expires_at, risk.option_type, risk.style, 1
         )
-        volatility = float(self.volatility + shift)
+        base = self.volatility if self.volatility is not None else volatility
+        if base is None:
+            raise InstrumentInputError("An option repriced from a surface is given its volatility.")
+        sigma = float(base + shift)
         if risk.style is ExerciseStyle.AMERICAN:
             if self.lattice_steps is None:
                 raise InstrumentInputError(
@@ -302,7 +326,7 @@ class OptionPricing:
             raw = binomial_value(
                 contract,
                 float(spot),
-                volatility,
+                sigma,
                 float(self.rate),
                 risk.as_of,
                 carry=self.carry,
@@ -311,7 +335,7 @@ class OptionPricing:
         elif risk.style is ExerciseStyle.EUROPEAN:
             years = time_to_expiry_years(contract, risk.as_of)
             raw = black_scholes_value(
-                contract, float(spot), volatility, float(self.rate), years, carry=self.carry
+                contract, float(spot), sigma, float(self.rate), years, carry=self.carry
             )
         else:
             raise InstrumentInputError(
@@ -422,7 +446,16 @@ class ScenarioMargin:
     #: Each option the model reprices from its underlying's move, and how
     #: (FUT-026, phase 3); empty, every covered instrument moves by its own move.
     repriced: Mapping[str, OptionPricing] = field(default_factory=dict)
+    #: Each underlying's dated volatility surfaces (FUT-032, phase 4): what a
+    #: repriced option declaring no volatility of its own is valued at.
+    surfaces: tuple[VolatilitySurface, ...] = ()
+    #: Seconds after the margined instant each repriced option is valued at in
+    #: a scenario (FUT-032): its time decay over the horizon. ``None``: now.
+    horizon: float | None = None
     _covered: frozenset[str] = field(init=False, repr=False, compare=False)
+    _surfaces: Mapping[str, tuple[VolatilitySurface, ...]] = field(
+        init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         scenarios = tuple(self.scenarios)
@@ -462,13 +495,43 @@ class ScenarioMargin:
                     "model does not reprice."
                 )
             for asset_id, pricing in repriced.items():
+                if pricing.volatility is None:
+                    continue  # read from a surface when margined
                 if pricing.volatility + scenario.volatility_shifts.get(asset_id, _ZERO) <= 0:
                     raise InstrumentInputError(
                         f"Scenario {scenario.name!r} shifts {asset_id}'s volatility to zero or "
                         "below; a volatility is above zero."
                     )
+        surfaces = tuple(sorted(self.surfaces, key=lambda v: (v.underlying_asset_id, v.timestamp)))
+        if not all(isinstance(v, VolatilitySurface) for v in surfaces):
+            raise InstrumentInputError("A model's surfaces are options VolatilitySurfaces.")
+        by_underlying: dict[str, list[VolatilitySurface]] = {}
+        for surface in surfaces:
+            _require_surface(surface)
+            published = by_underlying.setdefault(surface.underlying_asset_id, [])
+            if published and published[-1].timestamp == surface.timestamp:
+                raise InstrumentInputError(
+                    f"Two surfaces for {surface.underlying_asset_id} are as of "
+                    f"{surface.timestamp!r}: a correction is published at its own instant."
+                )
+            published.append(surface)
+        if any(p.volatility is None for p in repriced.values()) and not surfaces:
+            raise InstrumentInputError(
+                "A repriced option declaring no volatility reads one from a surface, and the "
+                "model declares none: no volatility is assumed."
+            )
+        if self.horizon is not None and (
+            not isinstance(self.horizon, int | float)
+            or not math.isfinite(self.horizon)
+            or self.horizon <= 0
+        ):
+            raise InstrumentInputError(
+                f"A scenario horizon is a positive number of seconds, got {self.horizon!r}."
+            )
         object.__setattr__(self, "scenarios", scenarios)
         object.__setattr__(self, "repriced", repriced)
+        object.__setattr__(self, "surfaces", surfaces)
+        object.__setattr__(self, "_surfaces", {u: tuple(v) for u, v in by_underlying.items()})
         object.__setattr__(self, "_covered", frozenset((*covered, *repriced)))
 
     @property
@@ -477,31 +540,79 @@ class ScenarioMargin:
 
         return self._covered
 
+    def surface_volatility(self, risk: OptionRisk) -> Decimal | None:
+        """The volatility the surface in effect at ``risk.as_of`` gives the option, or ``None``.
+
+        The latest surface for its underlying as of the margined instant or
+        before -- never a later one (FUT-032) -- read at the option's strike and
+        expiry as :func:`~alphalab.options.volatility_surface.implied_vol_across_expiries`
+        reads it: linear between quoted strikes, linear in total variance
+        between quoted expiries. ``None`` where that refuses: a strike or an
+        expiry beyond the quotes, or quotes admitting a calendar arbitrage --
+        nothing is extrapolated, and no volatility assumed.
+        """
+
+        found = None
+        for surface in self._surfaces.get(risk.underlying, ()):
+            if surface.timestamp > risk.as_of:
+                break
+            found = surface
+        if found is None:
+            return None
+        try:
+            volatility = implied_vol_across_expiries(
+                found,
+                float(risk.strike),
+                risk.expires_at,
+                method=ExpiryInterpolation.TOTAL_VARIANCE_LINEAR,
+            )
+        except OptionInputError:
+            return None
+        return Decimal(repr(volatility)).quantize(_VOL_QUANT, rounding=ROUND_HALF_EVEN)
+
     def requirement(self, exposures: tuple[MarginExposure, ...]) -> MarginRequirement:
         covered = self._covered
         repriced = self.repriced
         inside: list[MarginExposure] = []
         outside: list[MarginExposure] = []
+        resolved: dict[str, Decimal | None] = {}
         for e in exposures:
             # A repriced option whose facts the execution path could not state --
-            # its underlying not yet priced -- is margined by its own terms.
+            # its underlying not yet priced -- is margined by its own terms; so is
+            # one whose surface gives it no volatility (FUT-032): none is assumed.
             priced = e.asset_id in covered and (e.option is not None or e.asset_id not in repriced)
+            if priced and e.option is not None and e.asset_id in repriced:
+                pricing = repriced[e.asset_id]
+                vol = pricing.volatility
+                if vol is None:
+                    vol = self.surface_volatility(e.option)
+                    if vol is not None and any(
+                        vol + s.volatility_shifts.get(e.asset_id, _ZERO) <= 0
+                        for s in self.scenarios
+                    ):
+                        vol = None
+                    priced = vol is not None
+                resolved[e.asset_id] = vol
             (inside if priced else outside).append(e)
         initial = sum((e.initial for e in outside), _ZERO)
         maintenance = sum((e.maintenance for e in outside), _ZERO)
         if inside:
             moved = [(e.value, e.asset_id) for e in inside if e.asset_id not in repriced]
-            options = [self._priced(e) for e in inside if e.asset_id in repriced]
+            options = [
+                self._priced(e, resolved[e.asset_id]) for e in inside if e.asset_id in repriced
+            ]
+            horizon = self.horizon
             worst = _ZERO
             for scenario in self.scenarios:
                 moves = scenario.moves
                 loss = _ZERO
                 for value, asset_id in moved:
                     loss -= value * moves[asset_id]
-                for asset_id, risk, pricing, now in options:
+                for asset_id, risk, pricing, now, vol in options:
                     spot = risk.underlying_price * (_ONE + moves[risk.underlying])
                     shift = scenario.volatility_shifts.get(asset_id, _ZERO)
-                    change = pricing.value(risk, spot, shift) - now
+                    later = risk if horizon is None else replace(risk, as_of=risk.as_of + horizon)
+                    change = pricing.value(later, spot, shift, vol) - now
                     loss -= change * risk.units * risk.to_base
                 worst = max(worst, loss)
             gross = _ZERO
@@ -512,8 +623,10 @@ class ScenarioMargin:
             maintenance += scanned * self.maintenance_ratio
         return MarginRequirement(initial, maintenance)
 
-    def _priced(self, exposure: MarginExposure) -> tuple[str, OptionRisk, OptionPricing, Decimal]:
-        """A repriced option's facts, its declared inputs, and its model value now."""
+    def _priced(
+        self, exposure: MarginExposure, vol: Decimal | None
+    ) -> tuple[str, OptionRisk, OptionPricing, Decimal, Decimal | None]:
+        """A repriced option's facts, inputs, model value now, and the volatility it uses."""
 
         risk = exposure.option
         assert risk is not None  # kept outside the scan otherwise
@@ -522,7 +635,8 @@ class ScenarioMargin:
                 f"{exposure.asset_id} is repriced from {risk.underlying}, which no scenario moves."
             )
         pricing = self.repriced[exposure.asset_id]
-        return exposure.asset_id, risk, pricing, pricing.value(risk, risk.underlying_price, _ZERO)
+        now = pricing.value(risk, risk.underlying_price, _ZERO, vol)
+        return exposure.asset_id, risk, pricing, now, vol
 
 
 def margin_model_to_primitives(model: MarginModel | None) -> dict[str, Any] | None:
@@ -563,7 +677,7 @@ def margin_model_to_primitives(model: MarginModel | None) -> dict[str, Any] | No
                 else {
                     "repriced": {
                         a: {
-                            "volatility": str(p.volatility),
+                            "volatility": None if p.volatility is None else str(p.volatility),
                             "rate": str(p.rate),
                             "carry": p.carry.kind.name,
                             "carry_yield": repr(p.carry.yield_rate),
@@ -573,11 +687,63 @@ def margin_model_to_primitives(model: MarginModel | None) -> dict[str, Any] | No
                     }
                 }
             ),
+            # Phase 4 (FUT-032): written only when declared.
+            **(
+                {}
+                if not model.surfaces
+                else {"surfaces": [_surface_primitives(v) for v in model.surfaces]}
+            ),
+            **({} if model.horizon is None else {"horizon": model.horizon}),
         }
     raise InstrumentInputError(
         f"A {type(model).__name__} margin model cannot be written: a registry snapshot "
         "persists PerPositionMargin and ScenarioMargin, and a host's own model is supplied "
         "back with the registry instead."
+    )
+
+
+def _require_surface(surface: VolatilitySurface) -> None:
+    """A surface quotes at least one point, each a positive strike and volatility."""
+
+    if not surface.points:
+        raise InstrumentInputError(
+            f"The surface for {surface.underlying_asset_id} quotes no volatility."
+        )
+    seen = set()
+    for point in surface.points:
+        if (
+            not (
+                math.isfinite(point.strike)
+                and math.isfinite(point.expiry)
+                and math.isfinite(point.implied_vol)
+            )
+            or point.strike <= 0
+            or point.implied_vol <= 0
+        ):
+            raise InstrumentInputError(
+                f"A surface point is a positive strike and volatility at an instant, got {point}."
+            )
+        if (point.strike, point.expiry) in seen:
+            raise InstrumentInputError(
+                f"A surface quotes strike {point.strike} at expiry {point.expiry} once."
+            )
+        seen.add((point.strike, point.expiry))
+
+
+def _surface_primitives(surface: VolatilitySurface) -> dict[str, Any]:
+    points = sorted(surface.points, key=lambda p: (p.expiry, p.strike))
+    return {
+        "underlying": surface.underlying_asset_id,
+        "timestamp": surface.timestamp,
+        "points": [[repr(p.strike), repr(p.expiry), repr(p.implied_vol)] for p in points],
+    }
+
+
+def _surface_from(value: Any) -> VolatilitySurface:
+    return VolatilitySurface(
+        value["underlying"],
+        float(value["timestamp"]),
+        tuple(VolPoint(float(k), float(e), float(v)) for k, e, v in value["points"]),
     )
 
 
@@ -608,13 +774,15 @@ def margin_model_from_primitives(value: Any, where: str = "margin_model") -> Mar
                 Decimal(value["floor_rate"]),
                 {
                     a: OptionPricing(
-                        Decimal(p["volatility"]),
+                        None if p["volatility"] is None else Decimal(p["volatility"]),
                         Decimal(p["rate"]),
                         Carry(CarryKind[p["carry"]], float(p["carry_yield"])),
                         p["lattice_steps"],
                     )
                     for a, p in value.get("repriced", {}).items()
                 },
+                tuple(_surface_from(v) for v in value.get("surfaces", ())),
+                value.get("horizon"),
             )
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise InstrumentInputError(f"{where} is not a margin model: {exc}.") from exc

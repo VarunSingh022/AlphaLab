@@ -259,7 +259,10 @@ An exchange whose cash is paid later (phase 3, ledger FUT-025) writes its
 carries, and its pending entry is rebuilt from them as a fill's is.
 A scenario model repricing options (phase 3, ledger FUT-026) writes `repriced`
 -- each option's volatility, rate, carry by kind and yield, and lattice steps --
-and each scenario's `volatility_shifts`, only when declared.
+and each scenario's `volatility_shifts`, only when declared; a scenario model
+writes its `surfaces` -- each options surface's underlying, as-of instant and
+points -- and its `horizon` only when declared (phase 4, ledger FUT-032), and a
+repriced option a `volatility` of `null` when it reads a surface.
 A part election (phase 4, ledger FUT-030) is an `UnitsElected`, and an
 action's record instant a `HoldersRecorded` -- each holder's signed holding
 then -- in the strategy runtime's event log, each tagged by its class name; an

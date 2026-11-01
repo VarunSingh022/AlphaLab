@@ -46,6 +46,15 @@ Entries marked *phase 3* were delivered on the candidate branch after its
 validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10); those
 marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 
+* **Options repriced from a dated volatility surface, over a horizon** [FUT-032]
+  (*phase 4*). `ScenarioMargin(surfaces=, horizon=)`: options
+  `VolatilitySurface`s by underlying, dated by their as-of instant, and the
+  seconds each scenario is valued after the margined instant. An
+  `OptionPricing(volatility=None, ...)` reads the surface as of the margined
+  instant at its strike and expiry through `implied_vol_across_expiries`;
+  where it refuses -- beyond the quotes, a calendar arbitrage -- the option is
+  margined by its own terms. Surfaces and the horizon are written to the
+  registry snapshot only when declared; a model without them keeps its form.
 * **Elections split between holders, and proration** [FUT-030] (*phase 4*).
   An `ElectiveExchange` exchanges each holder's share by its own election, a
   part election (`metadata['units']`, recorded as
@@ -510,6 +519,7 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
 | `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
 | `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.instrument.OptionPricing`; `ScenarioMargin` | field `volatility` may be `None`, to read a surface; fields `surfaces`, empty by default, and `horizon`, `None` by default, written only when declared; `surface_volatility` (FUT-032, phase 4) |
 | `alphalab.backtesting.ElectiveExchange`; `ScheduleKind`; `alphalab.strategy.UnitsElected`, `HoldersRecorded`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`; `PortfolioEngine.apply_exchange`; `ExecutionPipeline.record_holders`, `RunEngine.record_holders` | fields `proration`, empty by default, and `record_at`, `None` by default; member `RECORD`; added; keyword-only `part`, `None` by default; keyword-only `kept`, `None` by default; added (FUT-030, phase 4) |
 | `alphalab.instrument.BorrowAvailability`; `BorrowTerms`; `alphalab.runtime.BorrowClaim`, `borrow_claims` | fields `buy_in_premium`, `buy_in_fee`, `None` by default, and `allocations`, empty by default, each written only when declared; `shared`, `allocated`; `per_strategy`; added (FUT-035, phase 4) |
 | `alphalab.backtesting.PaymentAmendment`; `RunSchedule.of`; `ScheduleKind`; `alphalab.portfolio.PaymentChange`, `Entitlement`, `EntitlementStatus`; `alphalab.portfolio.settlement`; `alphalab.portfolio.events.PaymentAmended`; `RunEngine.amend_payment`, `ExecutionPipeline.amend_payment`, `PortfolioEngine.amend_payment` | added; keyword `payments`, empty by default; member `PAYMENT`; added; `AFFECTS`, `ENTITLEMENT`, `PAYMENT_CHANGE`, `amend_pending`, `entitlement_key`, `entitlements`, `payment_chain` added; added; added (FUT-034, phase 4) |
@@ -561,7 +571,7 @@ ROADMAP's Future work with its interim behaviour and completion criteria, its
 horizon a proposal for the maintainer to confirm.
 
 FUT-030 to FUT-036, proposed by the phase 3 global gap audit after FUT-022 to
-FUT-029 were delivered (phase 4 delivers them in turn: FUT-031, FUT-036, FUT-033, FUT-034, FUT-035 and FUT-030 so far): elections split between holders and proration, an
+FUT-029 were delivered (phase 4 delivered all seven: FUT-031, FUT-036, FUT-033, FUT-034, FUT-035, FUT-030 and FUT-032): elections split between holders and proration, an
 atomic amend, a dated volatility surface and scenario horizons, an auction
 uncross and a retention-proof first event, failed or corrected payments and
 legs delivered later, a buy-in premium and per-strategy borrow, and a capital

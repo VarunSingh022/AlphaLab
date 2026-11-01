@@ -530,6 +530,20 @@ the default takes the rest. One holder, or holders agreeing, exchange the
 holding whole, so such a run is unchanged; under FUT-024, holders electing
 apart all took the default.
 
+**41. A repriced option reads the surface the options package already has
+(FUT-032, phase 4).** `alphalab.options.volatility_surface` holds an implied
+volatility surface by strike and expiry, reads it linearly between strikes and
+in total variance between expiries by a named method, and refuses an
+extrapolation or a calendar arbitrage; the margin model declares dated
+surfaces of that type rather than a second one. A repriced option declaring no
+volatility reads the surface as of the margined instant -- the latest at or
+before it, never a later one -- and where the surface refuses, the option is
+margined by its own terms: no volatility is assumed, and a shift that would
+take one to zero or below refuses it the same way. A declared horizon values each scenario at the margined instant plus it -- the
+time decay a risk array over a horizon counts -- while the value now is read at
+the instant. Surfaces are coordinates by strike, as the options package's are;
+a moneyness grid is declared at the strikes it implies.
+
 ---
 
 # Consequences
@@ -566,9 +580,9 @@ apart all took the default.
   package with no whole unit, are refused; a quanto contract fixes the rate its
   consideration converts at, not its payoff.
 - **A scenario revalues each covered instrument by its declared move alone**,
-  unless the model reprices an option from its underlying (FUT-026), at one
-  declared volatility per option and instantaneously, with no time decay over a
-  horizon; orders are judged leg by leg against the book as it stands; without a
+  unless the model reprices an option from its underlying (FUT-026), at a
+  declared volatility or one read from a dated surface (FUT-032), at the
+  instant or over a declared horizon; orders are judged leg by leg against the book as it stands; without a
   declared model, margin is each position's own and the gate's `MarginLimit` a
   gross-notional cap.
 - **Interest and fees accrue at each declared period's instant**: on the balance

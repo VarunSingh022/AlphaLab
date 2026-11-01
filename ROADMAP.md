@@ -248,6 +248,13 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **Options repriced from a dated volatility surface, over a horizon** (FUT-032,
+  phase 4): a repriced option declaring no volatility reads one from the options
+  `VolatilitySurface` its scenario model declares for its underlying -- the
+  latest as of the margined instant, at its strike and expiry, linear in total
+  variance between expiries, nothing extrapolated -- and is margined by its own
+  terms where the surface gives none; a declared `horizon` values each scenario
+  at the instant plus it.
 - **Elections split between holders, and proration** (FUT-030, phase 4): an
   `ElectiveExchange` exchanges each holder's share of one holding by its own
   election -- the whole, or the units it names -- the default taking what is
@@ -707,7 +714,6 @@ maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-032 | **A dated volatility surface and scenario horizons for repricing** | redeclare volatilities per segment, or margin options per position | v4.4 | option repricing, observations |
 | FUT-037 | **Legs delivered after an exchange's effective instant** | declare the exchange at the legs' delivery instant, its cash as a PaidExchange | v4.4 | delayed and amended payments |
 | FUT-038 | **An elective action's terms corrected after their announcement** | declare the final terms, announced at the correction's instant | v4.4 | holder elections, split elections |
 | FUT-039 | **Volatility surfaces delivered as observations during a run** | declare each dated surface on the margin model | v4.4 | dated surfaces, observations |

@@ -914,6 +914,13 @@ def _require_repriceable(
             f"The margin model reprices {record.symbol} from {underlying}, which its scenarios "
             "do not move."
         )
+    if pricing.volatility is None and not any(
+        surface.underlying_asset_id == underlying for surface in model.surfaces
+    ):
+        raise InstrumentRegistrationError(
+            f"{record.symbol} reads its volatility from a surface, and the margin model "
+            f"declares none for {underlying}: no volatility is assumed (FUT-032)."
+        )
 
 
 def declare_trading_controls(

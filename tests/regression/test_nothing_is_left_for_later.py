@@ -111,6 +111,9 @@ def test_accepted_future_work_is_stated_and_on_the_roadmap() -> None:
     # delivers in turn.
     assert statuses["FUT-030"].startswith("implemented ("), statuses["FUT-030"]
     assert statuses["FUT-031"].startswith("implemented ("), statuses["FUT-031"]
+    assert statuses["FUT-032"].startswith("implemented ("), statuses["FUT-032"]
+    # Phase 4's global gap audit accepted FUT-037 onward.
+    assert statuses["FUT-037"].startswith("accepted as future work ("), statuses["FUT-037"]
     assert accepted, "the ledger's accepted future work was misread as none"
     for identifier, _ in accepted:
         entry = text.split(f'\n  - id: "{identifier}"', 1)[1].split('\n  - id: "', 1)[0]
