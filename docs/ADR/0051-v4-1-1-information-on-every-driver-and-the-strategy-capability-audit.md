@@ -564,6 +564,20 @@ collateral. A delivery delayed, short or failed is a later word booked beside
 the entitlement -- a shortfall writes off its units and their share of the
 basis, taken from each strategy by its part -- never a rewrite of it.
 
+**44. A correction is a version, read from its announcement (FUT-038, phase
+5).** An issuer correcting an action's terms publishes new terms; the old ones
+were true until then. So each correction is a version of its own, in effect
+from its announcement and recorded then, and an election is read against the
+version in effect when it was made -- within that version's window, so a
+reopened deadline counts no election made while the window was closed. What a
+correction does to elections already made is the issuer's to say, and
+declared: they stand (an election of alternative k is of the corrected k) or
+are void. The holding is exchanged by the version in effect at the action's
+instant. A correction after that instant cannot change an exchange already
+applied; it is a payment's or a delivery's amendment. A run declaring no
+correction is the run it was, so an earlier run's information is reproduced
+by its own schedule.
+
 ---
 
 # Consequences
@@ -633,8 +647,8 @@ basis, taken from each strategy by its part -- never a rewrite of it.
 - **An exchange applies its declared outcome at its instant**: an elective one
   (FUT-024) applies each holder's own election to its part of the holding,
   prorated as the issuer declares and bounded by a declared record instant
-  (FUT-030), though an action's terms corrected after their announcement are
-  not; its cash may be paid at a later declared
+  (FUT-030), its terms corrected by dated versions (FUT-038); its cash may be
+  paid at a later declared
   instant (FUT-025) and delayed, failed, corrected, reversed or replaced by
   the issuer's later word (FUT-034), and its legs delivered at declared later
   instants (FUT-037, phase 5); strategies holding opposite sides of it are

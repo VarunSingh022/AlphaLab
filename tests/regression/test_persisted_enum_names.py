@@ -223,6 +223,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "LifecycleTransitioned",
         "OrderEvent",
         "SliceClosed",
+        # Phase 5 (FUT-038): written only when an action's terms are corrected.
+        "TermsAnnounced",
         "TimerEvent",
         # Phase 4 (FUT-030): written only when a strategy elects part of a holding.
         "UnitsElected",

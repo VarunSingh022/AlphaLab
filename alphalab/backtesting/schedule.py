@@ -64,7 +64,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from enum import IntEnum, StrEnum, unique
+from enum import Enum, IntEnum, StrEnum, auto, unique
 from itertools import pairwise
 from typing import Any, Final
 
@@ -110,7 +110,9 @@ __all__ = [
     "DailyInterest",
     "DeliveredExchange",
     "DeliveryAmendment",
+    "EarlierElections",
     "ElectiveExchange",
+    "ElectiveTerms",
     "Funding",
     "PaidExchange",
     "PaymentAmendment",
@@ -132,6 +134,7 @@ __all__ = [
     "ScheduledInterest",
     "ScheduledSettlement",
     "ScheduledSplit",
+    "TermsCorrection",
 ]
 
 
@@ -558,6 +561,68 @@ class DeliveredExchange:
         object.__setattr__(self, "deliveries", tuple(sorted(self.deliveries)))
 
 
+class EarlierElections(Enum):
+    """What a correction of an elective action's terms does to elections already made (FUT-038)."""
+
+    #: They stand: an election of alternative ``k`` is of the corrected ``k``.
+    KEPT = auto()
+    #: They are void: a holder elects again under the corrected terms, or
+    #: receives the default.
+    VOIDED = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class TermsCorrection:
+    """The issuer's correction of an elective action's terms, known at ``announced_at`` (FUT-038).
+
+    A version of its own, beside the terms it corrects: a field left ``None``
+    keeps what the earlier version said. Announced at or before the action's
+    effective instant -- a correction after it is a payment's or a delivery's
+    (:class:`PaymentAmendment`, :class:`DeliveryAmendment`), never a rewrite of
+    an exchange already applied.
+
+    Attributes:
+        announced_at: When the correction is known, and in effect from.
+        alternatives: The corrected alternatives, as many as before or more, all
+            of the one holding; ``None`` keeps them.
+        default: The corrected default; ``None`` keeps it.
+        deadline: The corrected deadline -- extended, or reopening a window
+            that had closed; ``None`` keeps it.
+        proration: The corrected prorations; ``None`` keeps them.
+        elections: What becomes of elections made before it.
+    """
+
+    announced_at: float
+    alternatives: tuple[HoldingExchange, ...] | None = None
+    default: int | None = None
+    deadline: float | None = None
+    proration: tuple[tuple[int, Decimal], ...] | None = None
+    elections: EarlierElections = EarlierElections.KEPT
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.elections, EarlierElections):
+            raise ScheduleValidationError(
+                f"A correction states what becomes of earlier elections, got {self.elections!r}."
+            )
+        if self.alternatives is not None:
+            object.__setattr__(self, "alternatives", tuple(self.alternatives))
+        if self.proration is not None:
+            object.__setattr__(self, "proration", tuple(sorted(self.proration)))
+
+
+@dataclass(frozen=True, slots=True)
+class ElectiveTerms:
+    """One version of an elective action's terms, as in effect from its announcement (FUT-038)."""
+
+    version: int
+    announced_at: float
+    alternatives: tuple[HoldingExchange, ...]
+    default: int
+    deadline: float
+    proration: tuple[tuple[int, Decimal], ...]
+    voids_earlier: bool
+
+
 @dataclass(frozen=True, slots=True)
 class ElectiveExchange:
     """A corporate action offering its holders alternatives, by election (FUT-024, phase 3).
@@ -594,6 +659,15 @@ class ElectiveExchange:
         record_at: The record instant, at or before ``at``: who holds the
             holding then, and how much, bounds each holder's election; ``None``
             bounds it by the holding at ``at`` alone (FUT-030).
+        corrections: The issuer's corrections of these terms, each announced
+            at its own instant, strictly after the last and at or before ``at``
+            (FUT-038). Each election is read against the version in effect when
+            it was made, within that version's window, and voided by a later
+            correction voiding earlier elections; the holding is exchanged by
+            the version in effect at ``at``.
+        deliveries: ``(asset_id, instant)`` for each leg delivered after ``at``,
+            under ``convention`` (FUT-037).
+        convention: What undelivered units may do before they arrive.
     """
 
     alternatives: tuple[HoldingExchange, ...]
@@ -605,6 +679,9 @@ class ElectiveExchange:
     payment_at: float | None = None
     proration: tuple[tuple[int, Decimal], ...] = ()
     record_at: float | None = None
+    corrections: tuple[TermsCorrection, ...] = ()
+    deliveries: tuple[tuple[str, float], ...] = ()
+    convention: DeliveryConvention = field(default_factory=DeliveryConvention)
 
     def __post_init__(self) -> None:
         alternatives = tuple(self.alternatives)
@@ -655,6 +732,71 @@ class ElectiveExchange:
             )
         object.__setattr__(self, "alternatives", alternatives)
         object.__setattr__(self, "proration", prorated)
+        corrections = tuple(self.corrections)
+        if not all(isinstance(c, TermsCorrection) for c in corrections):
+            raise ScheduleValidationError("An elective action's corrections are TermsCorrections.")
+        last = self.announced_at
+        for correction in corrections:
+            if not last < correction.announced_at <= self.at:
+                raise ScheduleValidationError(
+                    f"A correction announced at {correction.announced_at!r} follows the version "
+                    f"announced at {last!r} and comes at or before the action's {self.at!r}; a "
+                    "correction after it amends a payment or a delivery instead."
+                )
+            last = correction.announced_at
+        object.__setattr__(self, "corrections", corrections)
+        if corrections:
+            for terms in self.versions[1:]:
+                _require_terms(terms, self.at, self.asset_id)
+        if not isinstance(self.convention, DeliveryConvention):
+            raise ScheduleValidationError("A delivery's convention is a DeliveryConvention.")
+        legs = {leg.asset_id for alt in self.final.alternatives for leg in alt.legs}
+        for asset, when in self.deliveries:
+            if asset not in legs or when <= self.at:
+                raise ScheduleValidationError(
+                    f"{asset} is delivered at {when!r}: a leg of an alternative, after {self.at!r}."
+                )
+        object.__setattr__(self, "deliveries", tuple(sorted(self.deliveries)))
+
+    @property
+    def versions(self) -> tuple[ElectiveTerms, ...]:
+        """Every version of the terms, the original first, each in effect from its announcement."""
+
+        current = ElectiveTerms(
+            0, self.announced_at, self.alternatives, self.default, self.deadline,
+            self.proration, False,
+        )  # fmt: skip
+        found = [current]
+        for number, c in enumerate(self.corrections, start=1):
+            current = ElectiveTerms(
+                number,
+                c.announced_at,
+                current.alternatives if c.alternatives is None else c.alternatives,
+                current.default if c.default is None else c.default,
+                current.deadline if c.deadline is None else c.deadline,
+                current.proration if c.proration is None else c.proration,
+                c.elections is EarlierElections.VOIDED,
+            )
+            found.append(current)
+        return tuple(found)
+
+    def terms_at(self, at: float) -> ElectiveTerms | None:
+        """The version in effect at ``at`` -- the latest announced by then -- or ``None``."""
+
+        found = None
+        for terms in self.versions:
+            if terms.announced_at > at:
+                break
+            found = terms
+        return found
+
+    @property
+    def final(self) -> ElectiveTerms:
+        """The version in effect at the action's effective instant: what it is applied by."""
+
+        terms = self.terms_at(self.at)
+        assert terms is not None  # announced before it takes effect
+        return terms
 
     @property
     def asset_id(self) -> str:
@@ -802,6 +944,30 @@ class PaymentAmendment:
         """The payment it names: holding, effective instant and currency."""
 
         return f"{self.holding}|{self.effective_at!r}|{self.currency}"
+
+
+def _require_terms(terms: ElectiveTerms, at: float, asset_id: str) -> None:
+    """A corrected version holds as the original must (FUT-038)."""
+
+    count = len(terms.alternatives)
+    if count < 2 or not all(isinstance(a, HoldingExchange) for a in terms.alternatives):
+        raise ScheduleValidationError("A corrected action offers at least two alternatives.")
+    if {a.asset_id for a in terms.alternatives} != {asset_id}:
+        raise ScheduleValidationError("A corrected action's alternatives are of its one holding.")
+    if isinstance(terms.default, bool) or not 0 <= terms.default < count:
+        raise ScheduleValidationError(
+            f"A corrected default is one of the {count} alternatives, got {terms.default!r}."
+        )
+    if terms.deadline > at:
+        raise ScheduleValidationError(
+            f"A corrected deadline {terms.deadline!r} is after the action's {at!r}."
+        )
+    for index, factor in terms.proration:
+        if not 0 <= index < count or index == terms.default or not 0 < factor <= 1:
+            raise ScheduleValidationError(
+                f"A corrected proration names an alternative other than the default, by a factor "
+                f"above zero and at most one, got {(index, factor)!r}."
+            )
 
 
 def _require_payments(
@@ -1061,6 +1227,19 @@ class RunSchedule:
                 for x in exchanges
                 if isinstance(x, ElectiveExchange) and x.record_at is not None
             ),
+            # Each correction of an elective action's terms, recorded when
+            # announced (FUT-038).
+            *(
+                _entry(
+                    ScheduleKind.RECORD,
+                    v.announced_at,
+                    f"{x.reference}#{v.version}",
+                    _Announcement(x, v.version),
+                )
+                for x in exchanges
+                if isinstance(x, ElectiveExchange)
+                for v in x.versions[1:]
+            ),
         ]
         entries.sort(key=lambda entry: entry.key)
         for previous, current in pairwise(entries):
@@ -1259,18 +1438,26 @@ def _apply(
         return rates, RunEngine.apply_split(state, item.split, item.at, rates)
     if kind is ScheduleKind.EXCHANGE and isinstance(item, ElectiveExchange):
         parts = _election_parts(state, item)
+        final = item.final
+        delivers = dict(item.deliveries) or None
+        convention = item.convention if item.deliveries else None
         if len(parts) <= 1:
             # One holder, or holders agreeing: the holding exchanged whole.
-            chosen = item.alternatives[parts[0][0] if parts else item.default]
+            chosen = final.alternatives[parts[0][0] if parts else final.default]
             return rates, RunEngine.apply_exchange(
-                state, chosen, item.at, rates, payment_at=item.payment_at
-            )
+                state, chosen, item.at, rates, payment_at=item.payment_at,
+                delivers_at=delivers, delivery=convention,
+            )  # fmt: skip
         for index, part in parts:
             state = RunEngine.apply_exchange(
-                state, item.alternatives[index], item.at, rates,
-                payment_at=item.payment_at, part=part,
+                state, final.alternatives[index], item.at, rates,
+                payment_at=item.payment_at, part=part, delivers_at=delivers, delivery=convention,
             )  # fmt: skip
         return rates, state
+    if kind is ScheduleKind.RECORD and isinstance(item, _Announcement):
+        return rates, RunEngine.record_terms(
+            state, item.action.asset_id, item.action.reference, item.version, entry.at
+        )
     if kind is ScheduleKind.RECORD:
         action = item.action
         return rates, RunEngine.record_holders(state, action.asset_id, action.reference, entry.at)
@@ -1391,6 +1578,14 @@ def _interest(state: RunState, item: ScheduledInterest) -> CashFlow | None:
 
 
 @dataclass(frozen=True, slots=True)
+class _Announcement:
+    """A correction of an action's terms, as a schedule entry at its announcement (FUT-038)."""
+
+    action: ElectiveExchange
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
 class _RecordInstant:
     """An elective action's record instant, as a schedule entry (FUT-030)."""
 
@@ -1431,7 +1626,12 @@ def _election_parts(
                 and event.action == action.reference
             ):
                 recorded = event.holders
-    offered = range(len(action.alternatives))
+    final = action.final
+    offered = range(len(final.alternatives))
+    voided_until = max(
+        (v.announced_at for v in action.versions if v.voids_earlier),
+        default=None,
+    )
     elected: dict[str, dict[int, Decimal | None]] = {sid: {} for sid in shares}
     for event in events:
         if not (
@@ -1439,9 +1639,15 @@ def _election_parts(
             and event.strategy_id in shares
             and event.asset_id == action.asset_id
             and event.action == action.reference
-            and action.announced_at <= event.timestamp <= action.deadline
             and event.alternative in offered
         ):
+            continue
+        # Read against the version in effect when it was made (FUT-038): after
+        # its announcement, by its deadline, and not voided by a later one.
+        made_under = action.terms_at(event.timestamp)
+        if made_under is None or event.timestamp > made_under.deadline:
+            continue
+        if voided_until is not None and event.timestamp < voided_until:
             continue
         if isinstance(event, UnitsElected):
             choices = elected[event.strategy_id]
@@ -1449,7 +1655,7 @@ def _election_parts(
             choices[event.alternative] = event.units
         else:
             elected[event.strategy_id] = {event.alternative: None}
-    factors = dict(action.proration)
+    factors = dict(final.proration)
     parts: dict[int, dict[str, Decimal]] = {}
     for sid, share in sorted(shares.items()):
         sign = Decimal("1") if share > 0 else Decimal("-1")
@@ -1465,7 +1671,7 @@ def _election_parts(
         whole = held == held.to_integral_value()
         accepted: dict[int, Decimal] = {}
         for index, units in sorted(asked.items()):
-            if index == action.default:
+            if index == final.default:
                 continue
             taken = ctx.multiply(units, factors.get(index, Decimal("1")))
             if whole:
@@ -1474,7 +1680,7 @@ def _election_parts(
                 accepted[index] = taken
         rest = ctx.subtract(held, sum(accepted.values(), Decimal("0")))
         if rest > 0:
-            accepted[action.default] = rest
+            accepted[final.default] = rest
         for index, units in accepted.items():
             parts.setdefault(index, {})[sid] = ctx.multiply(sign, units)
     return sorted(parts.items())

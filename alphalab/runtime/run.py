@@ -881,6 +881,23 @@ class RunEngine:
 
     @staticmethod
     @in_accounting_context
+    def record_terms(
+        state: RunState, asset_id: str, action: str, version: int, timestamp: float | None = None
+    ) -> RunState:
+        """Record a corrected version of an action's terms at its announcement (FUT-038, phase 5).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.record_terms`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.record_terms(state.pipeline, asset_id, action, version, clock)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
     def record_holders(
         state: RunState, asset_id: str, action: str, timestamp: float | None = None
     ) -> RunState:

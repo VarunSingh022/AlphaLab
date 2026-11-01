@@ -229,6 +229,7 @@ from alphalab.strategy.events import (
     OrderEvent,
     SliceClosed,
     StrategyRuntimeEvent,
+    TermsAnnounced,
     TimerEvent,
     UnitsElected,
 )
@@ -845,6 +846,9 @@ _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
     # part of a holding, or whose action declared a record instant.
     UnitsElected,
     HoldersRecorded,
+    # Phase 5 (ledger FUT-038): written only by a run whose elective action's
+    # terms were corrected.
+    TermsAnnounced,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -2249,6 +2253,8 @@ _STRATEGY_FIELDS: Mapping[str, Any] = {
     # Phase 4 (FUT-030): the units an election names; the holders recorded.
     "units": as_decimal,
     "holders": as_decimal_mapping,
+    # Phase 5 (FUT-038): a corrected version of an action's terms.
+    "version": as_int,
 }
 _RISK_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,

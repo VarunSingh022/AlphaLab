@@ -295,6 +295,25 @@ class HoldersRecorded(StrategyRuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class TermsAnnounced(StrategyRuntimeEvent):
+    """A corrected version of an elective action's terms, recorded at its announcement (FUT-038).
+
+    The run's record of when each version became known: the original is the
+    action's own announcement, and each correction a version of its own, never
+    a rewrite of the one before.
+
+    Attributes:
+        asset_id: The holding the action is on.
+        action: The action's reference.
+        version: The version announced: the first correction is 1.
+    """
+
+    asset_id: str
+    action: str
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
 class CancelRefused(StrategyRuntimeEvent):
     """A working order a strategy's cancel instruction could not withdraw (v4.2.0).
 

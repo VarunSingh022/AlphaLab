@@ -263,6 +263,9 @@ and each scenario's `volatility_shifts`, only when declared; a scenario model
 writes its `surfaces` -- each options surface's underlying, as-of instant and
 points -- and its `horizon` only when declared (phase 4, ledger FUT-032), and a
 repriced option a `volatility` of `null` when it reads a surface.
+A correction of an elective action's terms (phase 5, ledger FUT-038) is a
+`TermsAnnounced` in the strategy runtime's event log at its announcement,
+naming its version; the elections are kept as made.
 A part election (phase 4, ledger FUT-030) is an `UnitsElected`, and an
 action's record instant a `HoldersRecorded` -- each holder's signed holding
 then -- in the strategy runtime's event log, each tagged by its class name; an

@@ -86,6 +86,7 @@ from alphalab.strategy.events import (
     OrderEvent,
     SliceClosed,
     StrategyRuntimeEvent,
+    TermsAnnounced,
     TimerEvent,
     UnitsElected,
 )
@@ -201,6 +202,7 @@ __all__ = [
     "StrategyStatus",
     "StrategyValidationError",
     "Subscriptions",
+    "TermsAnnounced",
     "TimerEvent",
     "Topic",
     "TrailingZScoreRule",

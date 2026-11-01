@@ -182,6 +182,7 @@ from alphalab.strategy.events import (
     OrderEvent,
     SliceClosed,
     StrategyInboundEvent,
+    TermsAnnounced,
     TimerEvent,
     UnitsElected,
 )
@@ -1841,6 +1842,29 @@ class ExecutionPipeline:
             )
         portfolio = PortfolioEngine.apply_cash_flow(state.portfolio, flow, timestamp)
         return _after_book_change(state, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def record_terms(
+        state: ExecutionPipelineState, asset_id: str, action: str, version: int, timestamp: float
+    ) -> ExecutionPipelineState:
+        """Record that a corrected version of an action's terms is announced (FUT-038, phase 5).
+
+        A :class:`~alphalab.strategy.events.TermsAnnounced` in the strategy
+        runtime's log, at the instant the correction became known.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A correction's announcement")
+        announced = TermsAnnounced(str(new_id()), timestamp, asset_id, action, version)
+        strategy = state.strategy
+        return evolve(
+            state,
+            strategy=strategy.evolved(strategy.strategies, (*strategy.events, announced), ()),
+            id_position=current_id_position(),
+        )
 
     @staticmethod
     @in_accounting_context

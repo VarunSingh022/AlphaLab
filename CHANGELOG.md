@@ -51,6 +51,16 @@ phase 4 checkpoint at `cde89f6` (section 12). The package still states 4.2.0
 and they are recorded here for that reason; **whether v4.2.0 or a later
 release carries them is the maintainer's decision**, not made here.
 
+* **An elective action's terms corrected after their announcement** [FUT-038]
+  (*phase 5*). `ElectiveExchange(corrections=)` declares the issuer's
+  `TermsCorrection`s, each a version of its own (`ElectiveTerms`,
+  `ElectiveExchange.versions`, `terms_at`, `final`) in effect from its
+  announcement and recorded then as an `alphalab.strategy.TermsAnnounced`. Each
+  election is read against the version in effect when it was made, within its
+  window -- a reopened deadline counts none made while closed -- and kept or
+  voided as the correction declares (`EarlierElections`); the holding is
+  exchanged by the version in effect at the action's instant, its payment and
+  its deliveries (`ElectiveExchange.deliveries`, FUT-037) with it.
 * **Legs delivered after an exchange's effective instant** [FUT-037] (*phase 5*).
   `alphalab.backtesting.DeliveredExchange` declares each leg's delivery
   instant and an `alphalab.portfolio.DeliveryConvention`: the entitlement is
@@ -549,6 +559,7 @@ release carries them is the maintainer's decision**, not made here.
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
 | `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
 | `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.backtesting.ElectiveExchange`; `TermsCorrection`, `ElectiveTerms`, `EarlierElections`; `alphalab.strategy.TermsAnnounced`; `ExecutionPipeline.record_terms`, `RunEngine.record_terms` | fields `corrections`, `deliveries`, empty by default, and `convention`, appended last; `versions`, `terms_at`, `final`; added; added; added (FUT-038, phase 5) |
 | `alphalab.backtesting.DeliveredExchange`, `DeliveryAmendment`; `alphalab.portfolio.DeliveryConvention`; `alphalab.portfolio.settlement.PendingSettlement`; `alphalab.portfolio.events.DeliveryAmended`; `apply_exchange` (`ExecutionPipeline`, `RunEngine`, `PortfolioEngine`); `amend_delivery` (each layer) | added; field `delivery`, appended last, `None` by default; added; keyword-only `delivers_at` and `delivery` (`delivers`, `convention`, `effective_at` on the portfolio), `None` by default; added (FUT-037, phase 5) |
 | `alphalab.lifecycle.manifest_for_run`; `ReproducibilityManifest`; `canonical_manifest_key`, `derive_manifest_id` | keyword-only `instruments`, `False` by default; field `instruments_digest`, appended last, `None` by default; trailing `instruments_digest`, `None` by default (REP-006, phase 4) |
 | `alphalab.instrument.OptionPricing`; `ScenarioMargin` | field `volatility` may be `None`, to read a surface; fields `surfaces`, empty by default, and `horizon`, `None` by default, written only when declared; `surface_volatility` (FUT-032, phase 4) |

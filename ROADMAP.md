@@ -356,6 +356,13 @@ a later release is the maintainer's decision, and nothing here assigns it.
   `DeliveryConvention` (by default neither sold nor counted as collateral
   before they arrive) -- and a `DeliveryAmendment` delays, corrects or fails a
   delivery, each a ledger entry beside the original.
+- **An elective action's terms corrected after their announcement** (FUT-038):
+  each `TermsCorrection` is a version of its own, recorded when announced as a
+  `TermsAnnounced`; each election is read against the version in effect when
+  it was made, within that version's window, kept or voided as the correction
+  declares, and the holding exchanged by the version in effect at the action's
+  instant -- its payments and deliveries with it. A correction after that
+  instant is a payment's or a delivery's amendment, never a rewrite.
 
 # Deliberate boundaries
 
@@ -728,7 +735,6 @@ maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-038 | **An elective action's terms corrected after their announcement** | declare the final terms, announced at the correction's instant | v4.4 | holder elections, split elections |
 | FUT-039 | **Volatility surfaces delivered as observations during a run** | declare each dated surface on the margin model | v4.4 | dated surfaces, observations |
 | FUT-040 | **A strategy's view of a reopening auction's published book** | deliver the venue's auction messages as observations | v4.4 | computed auctions |
 
