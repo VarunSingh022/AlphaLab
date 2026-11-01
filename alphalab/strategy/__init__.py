@@ -78,6 +78,7 @@ from alphalab.strategy.events import (
     ElectionMade,
     ExerciseRefused,
     FillEvent,
+    HoldersRecorded,
     Intent,
     IntentKind,
     LifecycleTransitioned,
@@ -86,6 +87,7 @@ from alphalab.strategy.events import (
     SliceClosed,
     StrategyRuntimeEvent,
     TimerEvent,
+    UnitsElected,
 )
 from alphalab.strategy.exceptions import (
     AdaptiveOrderingError,
@@ -156,6 +158,7 @@ __all__ = [
     "FillEvent",
     "FixedClock",
     "HistoryAccessorProtocol",
+    "HoldersRecorded",
     "HookExecutionError",
     "Intent",
     "IntentKind",
@@ -202,6 +205,7 @@ __all__ = [
     "Topic",
     "TrailingZScoreRule",
     "TransitionKind",
+    "UnitsElected",
     "UniverseProtocol",
     "UnknownStrategyError",
     "UpdateCadence",

@@ -515,6 +515,21 @@ proportion to every short. Netting is the account's: an entry locating nothing
 is the book's borrow, netted across strategies, as before, and allocations bind
 only while the book is short.
 
+**40. An election is each holder's own, applied to its part of the holding
+(FUT-030, phase 4).** One position can hold several strategies' shares, and
+each elects for its own; so the action is applied once per alternative
+elected, each to its electors' part of the position, the basis apportioned by
+units -- the one exchange path every exchange takes, never a second. A part
+election names its units; a whole one replaces every earlier one, and a part one
+the earlier one for its alternative. What a holder does not elect, or elects
+beyond its holding -- or, when the action declares a record instant, beyond
+what it held then -- goes to the default, so no preference is inferred. A
+proration is the issuer's published factor, declared on the action: it accepts
+that fraction of each election, in whole units where the share is whole, and
+the default takes the rest. One holder, or holders agreeing, exchange the
+holding whole, so such a run is unchanged; under FUT-024, holders electing
+apart all took the default.
+
 ---
 
 # Consequences
@@ -582,8 +597,10 @@ only while the book is short.
   through a halt rather than rejected, and bands are dated inputs or a rule around a dated, published
   reference (FUT-028) -- never a collar computed from the run's own trades.
 - **An exchange applies its declared outcome at its instant**: an elective one
-  (FUT-024) applies its holders' common election or its default, with no split
-  between holders and no proration; its cash may be paid at a later declared
+  (FUT-024) applies each holder's own election to its part of the holding,
+  prorated as the issuer declares and bounded by a declared record instant
+  (FUT-030), though an action's terms corrected after their announcement are
+  not; its cash may be paid at a later declared
   instant (FUT-025) and delayed, failed, corrected, reversed or replaced by
   the issuer's later word (FUT-034), but legs delivered after the effective
   instant are not; strategies holding opposite sides of it are refused.

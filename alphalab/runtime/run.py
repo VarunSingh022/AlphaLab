@@ -49,7 +49,7 @@ against its own timestamp, under which no record is ever stale.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -857,18 +857,37 @@ class RunEngine:
         rates: FxRates = NO_RATES,
         *,
         payment_at: float | None = None,
+        part: Mapping[str, Decimal] | None = None,
     ) -> RunState:
         """Exchange a holding by its declared terms at ``timestamp`` (FUT-021).
 
         ``timestamp`` defaults to the run's current instant; ``payment_at`` is
-        when its cash is paid, if later (FUT-025). See
+        when its cash is paid, if later (FUT-025); ``part`` is each strategy's
+        units of it exchanged, when not the whole (FUT-030). See
         :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.apply_exchange`.
         """
 
         clock = state.current_timestamp if timestamp is None else timestamp
         pipeline = ExecutionPipeline.apply_exchange(
-            state.pipeline, exchange, clock, rates, payment_at=payment_at
+            state.pipeline, exchange, clock, rates, payment_at=payment_at, part=part
         )
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def record_holders(
+        state: RunState, asset_id: str, action: str, timestamp: float | None = None
+    ) -> RunState:
+        """Record who holds ``asset_id`` at an action's record instant (FUT-030, phase 4).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.record_holders`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.record_holders(state.pipeline, asset_id, action, clock)
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )

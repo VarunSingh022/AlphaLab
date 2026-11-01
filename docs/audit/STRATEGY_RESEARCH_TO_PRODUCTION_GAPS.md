@@ -224,7 +224,7 @@ appear only where two capabilities meet. Same classes as above.
 | A purchase its own currency could not pay stopped a multi-currency run at the fill | 1 | **Fixed** (ACC-017): refused when placed |
 | An entitlement's EUR could have paid a EUR purchase before it was paid | 1 | **Fixed** with ACC-017 |
 | The capability matrix did not list holding exchanges | documentation | corrected |
-| Elections split between holders; proration | 2 | FUT-030 (v4.4) |
+| Elections split between holders; proration | 2 | FUT-030, **delivered in phase 4** |
 | A replacement risk refuses leaves the original withdrawn | 5 | FUT-031, **delivered in phase 4** |
 | A dated volatility surface; scenario horizons | 5 | FUT-032 (v4.4) |
 | An auction uncross from a book; extensions; a retention-proof first event | 5 | FUT-033, **delivered in phase 4** (from the venue's published book) |

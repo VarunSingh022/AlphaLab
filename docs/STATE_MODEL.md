@@ -260,6 +260,10 @@ carries, and its pending entry is rebuilt from them as a fill's is.
 A scenario model repricing options (phase 3, ledger FUT-026) writes `repriced`
 -- each option's volatility, rate, carry by kind and yield, and lattice steps --
 and each scenario's `volatility_shifts`, only when declared.
+A part election (phase 4, ledger FUT-030) is an `UnitsElected`, and an
+action's record instant a `HoldersRecorded` -- each holder's signed holding
+then -- in the strategy runtime's event log, each tagged by its class name; an
+elective action writes `proration` and `record_at` only when declared.
 An election (phase 3, ledger FUT-024) is an `ElectionMade` in the strategy
 runtime's event log, tagged by its class name like every strategy event; a
 contract adjustment writes its `announced_at` only when declared.

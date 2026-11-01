@@ -175,6 +175,7 @@ from alphalab.strategy.events import (
     ElectionMade,
     ExerciseRefused,
     FillEvent,
+    HoldersRecorded,
     Intent,
     IntentKind,
     ObservationReceived,
@@ -182,6 +183,7 @@ from alphalab.strategy.events import (
     SliceClosed,
     StrategyInboundEvent,
     TimerEvent,
+    UnitsElected,
 )
 from alphalab.strategy.protocol import defines_on_observation, defines_on_slice
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
@@ -1842,6 +1844,35 @@ class ExecutionPipeline:
 
     @staticmethod
     @in_accounting_context
+    def record_holders(
+        state: ExecutionPipelineState, asset_id: str, action: str, timestamp: float
+    ) -> ExecutionPipelineState:
+        """Record who holds ``asset_id`` at an elective action's record instant (FUT-030, phase 4).
+
+        Each strategy's signed share as it stands, as a
+        :class:`~alphalab.strategy.events.HoldersRecorded` in the strategy
+        runtime's log: what each may elect for when the action takes effect.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A record instant")
+        holders = {
+            sid: share
+            for sid, share in AllocationEngine.shares_of(state.allocation, asset_id)
+            if share
+        }
+        recorded = HoldersRecorded(str(new_id()), timestamp, asset_id, action, holders)
+        strategy = state.strategy
+        return evolve(
+            state,
+            strategy=strategy.evolved(strategy.strategies, (*strategy.events, recorded), ()),
+            id_position=current_id_position(),
+        )
+
+    @staticmethod
+    @in_accounting_context
     def amend_payment(
         state: ExecutionPipelineState,
         holding: str,
@@ -2034,6 +2065,7 @@ class ExecutionPipeline:
         rates: FxRates = NO_RATES,
         *,
         payment_at: float | None = None,
+        part: Mapping[str, Decimal] | None = None,
     ) -> ExecutionPipelineState:
         """Exchange a holding for other instruments and cash by its declared terms (FUT-021).
 
@@ -2041,6 +2073,12 @@ class ExecutionPipeline:
         cash in lieu, when it follows the effective one (FUT-025, phase 3): the
         cash is then an entitlement until it, kept out of buying power and of
         settled cash, and paid at it. ``None`` pays it at ``timestamp``.
+
+        ``part``, when given, is the part of the holding exchanged (FUT-030,
+        phase 4): each strategy's signed units of it, at most its share, the
+        basis apportioned by units; the rest stays held as it was, so the
+        alternatives of an elective action are applied each to its electors'
+        part. A part that is the whole holding is the holding exchanged whole.
 
         Everything is planned before anything moves, and refused whole:
 
@@ -2090,6 +2128,10 @@ class ExecutionPipeline:
         held = current.portfolio.positions.get(exchange.asset_id)
         if held is None or held.quantity == 0:
             return _after_book_change(current, current.portfolio, timestamp, rates)
+        shares = AllocationEngine.shares_of(current.allocation, exchange.asset_id)
+        kept = None
+        if part is not None:
+            held, kept, shares = _exchanged_part(current, held, shares, part, timestamp)
         plan = _exchange_plan(current, exchange, held, timestamp, rates)
         portfolio = PortfolioEngine.apply_exchange(
             current.portfolio,
@@ -2101,9 +2143,9 @@ class ExecutionPipeline:
             timestamp,
             exchange.reference,
             pays_at=payment_at,
+            kept=kept,
         )
         allocation = current.allocation
-        shares = AllocationEngine.shares_of(allocation, exchange.asset_id)
         closed = {} if exchange.retained else dict(shares)
         for index, (leg, holding) in enumerate(plan.legs):
             given = tuple(
@@ -5582,6 +5624,17 @@ def _elections_requested(
             action=str(intent.metadata["action"]),
             alternative=int(intent.target),
         )
+        if "units" not in intent.metadata
+        # Part of the holding (FUT-030): the units the election names.
+        else UnitsElected(
+            event_id=str(new_id()),
+            timestamp=timestamp,
+            strategy_id=intent.strategy_id,
+            asset_id=intent.instrument,
+            action=str(intent.metadata["action"]),
+            alternative=int(intent.target),
+            units=Decimal(str(intent.metadata["units"])),
+        )
         for intent in intents
         if intent.kind is IntentKind.ELECT
     )
@@ -8555,6 +8608,42 @@ def _require_not_before_last_event(
             f"{what} at {timestamp!r} would be booked before the last event this pipeline "
             f"processed, at {last.timestamp!r}."
         )
+
+
+def _exchanged_part(
+    state: ExecutionPipelineState,
+    held: Position,
+    shares: tuple[tuple[str, Decimal], ...],
+    part: Mapping[str, Decimal],
+    timestamp: float,
+) -> tuple[Position, tuple[Decimal, Decimal] | None, tuple[tuple[str, Decimal], ...]]:
+    """The part of ``held`` an exchange takes, what it leaves, and whose it is (FUT-030).
+
+    Raises:
+        RuntimeValidationError: If a strategy's part is not of its own share --
+            another side, or more than it holds.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    own = dict(shares)
+    for strategy_id, units in part.items():
+        share = own.get(strategy_id, Decimal("0"))
+        if units != 0 and ((units > 0) != (share > 0) or units.copy_abs() > share.copy_abs()):
+            raise RuntimeValidationError(
+                f"{strategy_id}'s part of {held.asset_id}, {units}, is not of its holding of "
+                f"{share}."
+            )
+    taken = tuple((sid, units) for sid, units in sorted(part.items()) if units != 0)
+    units = sum((u for _, u in taken), Decimal("0"))
+    if units == held.quantity:
+        return held, None, taken
+    basis = to_money(
+        ctx.divide(ctx.multiply(held.basis, units.copy_abs()), held.quantity.copy_abs()),
+        held.currency,
+        state.portfolio.account.currency_units,
+    )
+    exchanged = held._rebased(units, basis, held.realized_pnl, held.market_price, timestamp)
+    return exchanged, (ctx.subtract(held.quantity, units), ctx.subtract(held.basis, basis)), taken
 
 
 def _units_exchanged(

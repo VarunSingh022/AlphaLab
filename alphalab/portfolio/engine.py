@@ -824,6 +824,7 @@ class PortfolioEngine:
         reference: str = "",
         *,
         pays_at: float | None = None,
+        kept: tuple[Decimal, Decimal] | None = None,
     ) -> PortfolioState:
         """Book a holding exchanged for others and cash, exactly as computed (ledger FUT-021).
 
@@ -840,6 +841,11 @@ class PortfolioEngine:
         phase 3): each currency's consideration is then an entitlement -- booked
         at the effective instant, unsettled until ``pays_at`` -- which buying
         power and settled cash leave out until it is paid.
+
+        ``kept`` is the part of the holding the exchange does not take -- its
+        signed units and their basis -- when it takes only part (FUT-030, phase
+        4): one alternative of an elective action applied to its electors' part
+        of one position. It stays held as it was, beside a retained part.
 
         Raises:
             InvalidTransactionError: If the account holds no position in
@@ -884,13 +890,22 @@ class PortfolioEngine:
                 economics=leg.economics,
             )._rebased(leg.quantity, basis, ZERO_MONEY, leg.price, timestamp, opened_at=timestamp)
             positions = positions.set(leg.asset_id, opened)
-        if retained_basis is None:
+        kept_units, kept_basis = (Decimal("0"), Decimal("0")) if kept is None else kept
+        exchanged = held.quantity - kept_units
+        if retained_basis is None and kept_units == 0:
             positions = positions.delete(asset_id)
         else:
-            kept = to_money(retained_basis, held.currency, units)
+            retained = (
+                Decimal("0")
+                if retained_basis is None
+                else to_money(retained_basis, held.currency, units)
+            )
+            quantity = held.quantity if retained_basis is not None else kept_units
             positions = positions.set(
                 asset_id,
-                held._rebased(held.quantity, kept, held.realized_pnl, held.market_price, timestamp),
+                held._rebased(
+                    quantity, kept_basis + retained, held.realized_pnl, held.market_price, timestamp
+                ),
             )
         cash = state.cash
         ledger = state.ledger
@@ -934,7 +949,7 @@ class PortfolioEngine:
             timestamp,
             state.account.account_id,
             asset_id,
-            held.quantity,
+            exchanged,
             {leg.asset_id: leg.quantity for leg in received},
             moved,
             gain,

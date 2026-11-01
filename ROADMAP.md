@@ -248,6 +248,13 @@ names what the release established and the ADR that records the decision.
   the basis apportioned by declared shares, cash in lieu of a fraction -- and
   is applied at its instant to the books and every strategy's share, with one
   `PositionExchanged` saying why the holding changed.
+- **Elections split between holders, and proration** (FUT-030, phase 4): an
+  `ElectiveExchange` exchanges each holder's share of one holding by its own
+  election -- the whole, or the units it names -- the default taking what is
+  not elected or elected beyond what is held; an alternative the issuer
+  prorates accepts its declared factor, and a record instant bounds each
+  election by the holding recorded then. Each alternative is applied to its
+  electors' part, its basis apportioned by units.
 - **A buy-in's premium, and borrow located per strategy** (FUT-035, phase 4): a
   borrow entry declares the lender's premium on a buy-in's value and a fixed
   fee per buy-in order, booked with the cover's fills and attributed to the
@@ -698,7 +705,6 @@ delivered, and their horizons are proposals for the maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-030 | **Elections split between holders, and proration**: one holding takes one alternative | separate books for strategies that elect apart; declare a prorated remainder as a later exchange | v4.4 | holder elections |
 | FUT-032 | **A dated volatility surface and scenario horizons for repricing** | redeclare volatilities per segment, or margin options per position | v4.4 | option repricing, observations |
 
 ---

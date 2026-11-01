@@ -1,4 +1,4 @@
-"""Holder elections and announcement instants (phase 3, ledger FUT-024).
+"""Holder elections and announcement instants (phase 3 FUT-024; phase 4 FUT-030).
 
 An :class:`ElectiveExchange` offers a holding's strategies alternatives -- here,
 half a NEWCO share or 120 in cash for each OLDCO -- with a default for a holder
@@ -184,7 +184,7 @@ def test_an_election_for_another_action_is_not_counted() -> None:
     assert not took_cash(result)
 
 
-def test_holders_electing_differently_receive_the_default_on_the_one_holding() -> None:
+def test_holders_electing_differently_each_take_their_own_on_the_one_holding() -> None:
     half = {(2.0, OLD.asset_id): D("50")}
     result = exchanges.run(
         STOCK,
@@ -194,7 +194,11 @@ def test_holders_electing_differently_receive_the_default_on_the_one_holding() -
         strategies=strategies(("A", Elector(half, {2.5: 1})), ("B", Elector(half, {2.5: 0}))),
         schedule=RunSchedule.of(exchanges=[action()]),
     )
+    # Each holder's share by its own election (FUT-030; under FUT-024 the
+    # default took the whole holding): A's 50 for cash, B's 50 for 25 NEWCO.
     assert not took_cash(result)
+    assert exchanges.usd(result) == exchanges.START - D("10000") + D("6000")
+    assert exchanges.position(result, NEW).quantity == D("25")
     agreed = exchanges.run(
         STOCK,
         OLD,

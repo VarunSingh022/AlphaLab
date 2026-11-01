@@ -251,6 +251,50 @@ class ElectionMade(StrategyRuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class UnitsElected(StrategyRuntimeEvent):
+    """A strategy's election of some of its holding, as it made it (phase 4, ledger FUT-030).
+
+    An election naming ``metadata['units']``: that many units of the holding
+    elect the alternative, the rest as the strategy elects them otherwise, or
+    the action's default. Counted, as an :class:`ElectionMade` is, between the
+    action's announcement and its deadline; a later one for the same
+    alternative replaces it, and a whole-holding election replaces them all.
+
+    Attributes:
+        strategy_id: The strategy electing.
+        asset_id: The holding the action is on.
+        action: The action's reference.
+        alternative: The index of the alternative elected.
+        units: How many units of the holding elect it, above zero.
+    """
+
+    strategy_id: str
+    asset_id: str
+    action: str
+    alternative: int
+    units: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class HoldersRecorded(StrategyRuntimeEvent):
+    """Each strategy's holding at a corporate action's record instant (phase 4, ledger FUT-030).
+
+    What the run recorded, at the record instant the action declares, of who
+    held it and how much: what each holder may elect for, however its holding
+    moves after. A strategy holding none then elects for none.
+
+    Attributes:
+        asset_id: The holding the action is on.
+        action: The action's reference.
+        holders: Strategy id to its signed holding at the record instant.
+    """
+
+    asset_id: str
+    action: str
+    holders: Mapping[str, Decimal]
+
+
+@dataclass(frozen=True, slots=True)
 class CancelRefused(StrategyRuntimeEvent):
     """A working order a strategy's cancel instruction could not withdraw (v4.2.0).
 

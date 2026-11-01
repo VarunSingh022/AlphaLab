@@ -218,10 +218,14 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         # v4.2.0 (FUT-014): written only when a strategy's exercise is refused.
         "ExerciseRefused",
         "FillEvent",
+        # Phase 4 (FUT-030): written only when an action records its holders.
+        "HoldersRecorded",
         "LifecycleTransitioned",
         "OrderEvent",
         "SliceClosed",
         "TimerEvent",
+        # Phase 4 (FUT-030): written only when a strategy elects part of a holding.
+        "UnitsElected",
     ),
     "alphalab.runtime.snapshot._RISK_EVENTS": (
         # v4.2.0 (ledger FUT-022): a recalled short bought in.

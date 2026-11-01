@@ -46,6 +46,18 @@ Entries marked *phase 3* were delivered on the candidate branch after its
 validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10); those
 marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 
+* **Elections split between holders, and proration** [FUT-030] (*phase 4*).
+  An `ElectiveExchange` exchanges each holder's share by its own election, a
+  part election (`metadata['units']`, recorded as
+  `alphalab.strategy.UnitsElected`) electing that many units; the default takes
+  what is not elected, or elected beyond the holding. `proration` declares the
+  issuer's factor for an oversubscribed alternative, the default taking the
+  rest; `record_at` records each holder's holding then
+  (`alphalab.strategy.HoldersRecorded`) and bounds its election by it. Each
+  alternative is applied to its electors' part through
+  `apply_exchange(part=)`, the basis apportioned by units, fractions paid in
+  lieu per part. Under FUT-024 holders electing differently all took the
+  default; one holder, or holders agreeing, are unchanged.
 * **A buy-in's premium, and borrow located per strategy** [FUT-035] (*phase 4*).
   `BorrowAvailability(buy_in_premium=, buy_in_fee=)`: the lender's premium on
   a buy-in's value, booked as a fee with each fill of the cover, and a fixed fee
@@ -498,6 +510,7 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
 | `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
 | `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.backtesting.ElectiveExchange`; `ScheduleKind`; `alphalab.strategy.UnitsElected`, `HoldersRecorded`; `ExecutionPipeline.apply_exchange`, `RunEngine.apply_exchange`; `PortfolioEngine.apply_exchange`; `ExecutionPipeline.record_holders`, `RunEngine.record_holders` | fields `proration`, empty by default, and `record_at`, `None` by default; member `RECORD`; added; keyword-only `part`, `None` by default; keyword-only `kept`, `None` by default; added (FUT-030, phase 4) |
 | `alphalab.instrument.BorrowAvailability`; `BorrowTerms`; `alphalab.runtime.BorrowClaim`, `borrow_claims` | fields `buy_in_premium`, `buy_in_fee`, `None` by default, and `allocations`, empty by default, each written only when declared; `shared`, `allocated`; `per_strategy`; added (FUT-035, phase 4) |
 | `alphalab.backtesting.PaymentAmendment`; `RunSchedule.of`; `ScheduleKind`; `alphalab.portfolio.PaymentChange`, `Entitlement`, `EntitlementStatus`; `alphalab.portfolio.settlement`; `alphalab.portfolio.events.PaymentAmended`; `RunEngine.amend_payment`, `ExecutionPipeline.amend_payment`, `PortfolioEngine.amend_payment` | added; keyword `payments`, empty by default; member `PAYMENT`; added; `AFFECTS`, `ENTITLEMENT`, `PAYMENT_CHANGE`, `amend_pending`, `entitlement_key`, `entitlements`, `payment_chain` added; added; added (FUT-034, phase 4) |
 | `alphalab.instrument.AuctionInterest`, `AuctionPriority`, `AuctionTieBreak`, `AuctionUncross`; `TradingHalt`; `TradingControls`; `alphalab.execution.AuctionReopening`; `alphalab.execution.ExecutionState` | added; field `uncross`, `None` by default; field `auction_books`, empty by default, `auction_book`, `auctions`; added; field `reopened`, empty by default and written only when a run holds an auction (FUT-033, phase 4) |
@@ -541,7 +554,7 @@ marked *phase 4* after its phase 3 checkpoint at `bbc4085` (section 11).
 ## Accepted as future work
 
 FUT-030 to FUT-036, proposed by the phase 3 global gap audit after FUT-022 to
-FUT-029 were delivered (phase 4 delivers them in turn: FUT-031, FUT-036, FUT-033, FUT-034 and FUT-035 so far): elections split between holders and proration, an
+FUT-029 were delivered (phase 4 delivers them in turn: FUT-031, FUT-036, FUT-033, FUT-034, FUT-035 and FUT-030 so far): elections split between holders and proration, an
 atomic amend, a dated volatility surface and scenario horizons, an auction
 uncross and a retention-proof first event, failed or corrected payments and
 legs delivered later, a buy-in premium and per-strategy borrow, and a capital

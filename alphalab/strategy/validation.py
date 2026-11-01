@@ -99,6 +99,17 @@ def _require_election(intent: Intent) -> None:
         raise InvalidIntentError(
             "An election names the corporate action it is for in metadata['action']."
         )
+    units = intent.metadata.get("units")
+    if units is not None:
+        # Part of the holding (FUT-030): a positive number of units.
+        try:
+            elected = Decimal(str(units))
+        except ArithmeticError:
+            elected = Decimal("NaN")
+        if not elected.is_finite() or elected <= _ZERO:
+            raise InvalidIntentError(
+                f"An election's metadata['units'] is a positive number of units, got {units!r}."
+            )
     if intent.strength != _ONE:
         raise InvalidIntentError(f"An election's strength must be 1, got {intent.strength}.")
     if intent.terms != OrderTerms():

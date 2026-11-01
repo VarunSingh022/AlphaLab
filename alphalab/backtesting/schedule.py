@@ -58,6 +58,7 @@ Nothing here reads a clock or contacts anything.
 
 from __future__ import annotations
 
+import decimal
 import hashlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -100,7 +101,7 @@ from alphalab.portfolio.settlement import PaymentChange
 from alphalab.portfolio.types import TransactionType
 from alphalab.runtime.execution_pipeline import ContextFactory
 from alphalab.runtime.run import RunEngine, RunState
-from alphalab.strategy.events import ElectionMade, TimerEvent
+from alphalab.strategy.events import ElectionMade, HoldersRecorded, TimerEvent, UnitsElected
 
 __all__ = [
     "EMPTY_SCHEDULE",
@@ -177,6 +178,9 @@ class ScheduleKind(StrEnum):
     #: Phase 4 (FUT-034): the issuer's later word on an exchange's payment --
     #: before the instant's records, and after an exchange at the same instant.
     PAYMENT = "payment"
+    #: Phase 4 (FUT-030): an elective action's record instant -- after the
+    #: instant's records, on the holders they left.
+    RECORD = "record"
 
 
 _PLACE: Final = {
@@ -197,6 +201,7 @@ _PLACE: Final = {
     ScheduleKind.BORROW_FEE: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.EXCHANGE: SchedulePlace.BEFORE_RECORDS,
     ScheduleKind.PAYMENT: SchedulePlace.BEFORE_RECORDS,
+    ScheduleKind.RECORD: SchedulePlace.AFTER_RECORDS,
 }
 _RANK: Final = {kind: rank for rank, kind in enumerate(ScheduleKind)}
 
@@ -506,11 +511,17 @@ class ElectiveExchange:
     :attr:`~alphalab.strategy.events.IntentKind.ELECT` between the announcement
     and the deadline; the announcement itself reaches a strategy as the caller's
     data delivers it, at its knowledge instant, and an election before
-    ``announced_at`` or after ``deadline`` is not counted. At ``at`` the
-    holding is exchanged by the alternative every strategy holding it elected,
-    or by the default when one did not, or when they elected differently: the
-    book holds one position, and the action is applied to it once. The cash part
-    is paid at ``payment_at`` when stated (FUT-025).
+    ``announced_at`` or after ``deadline`` is not counted. At ``at`` each
+    holder's share of the holding is exchanged by its own election (FUT-030,
+    phase 4) -- the whole of it, or the units each election names
+    (``metadata['units']``) -- and what it did not elect, or elected for more
+    units than it may, by the default. A ``record_at`` instant records who
+    holds it then, and each may elect for no more than it held then and holds
+    still; what it holds beyond is exchanged by the default. An alternative the
+    issuer prorates accepts its ``proration`` factor of each election, in whole
+    units where the shares are whole, and the default takes the rest. One
+    holder, or holders agreeing, exchange the holding whole, as before. The
+    cash part is paid at ``payment_at`` when stated (FUT-025).
 
     Attributes:
         alternatives: At least two, all of one holding.
@@ -520,6 +531,12 @@ class ElectiveExchange:
         at: The effective instant.
         reference: The issuer's reference; holders' elections name it.
         payment_at: When the cash part is paid, or ``None`` for at ``at``.
+        proration: ``(alternative, factor)`` for each alternative the issuer
+            prorates: the fraction of each election it accepts, above zero and
+            at most one; never the default (FUT-030).
+        record_at: The record instant, at or before ``at``: who holds the
+            holding then, and how much, bounds each holder's election; ``None``
+            bounds it by the holding at ``at`` alone (FUT-030).
     """
 
     alternatives: tuple[HoldingExchange, ...]
@@ -529,6 +546,8 @@ class ElectiveExchange:
     at: float
     reference: str
     payment_at: float | None = None
+    proration: tuple[tuple[int, Decimal], ...] = ()
+    record_at: float | None = None
 
     def __post_init__(self) -> None:
         alternatives = tuple(self.alternatives)
@@ -556,7 +575,29 @@ class ElectiveExchange:
             raise ScheduleValidationError(
                 "An elective exchange has the reference holders elect by."
             )
+        prorated = tuple(sorted(self.proration))
+        if len({index for index, _ in prorated}) != len(prorated):
+            raise ScheduleValidationError("An alternative is prorated by one factor.")
+        for index, factor in prorated:
+            if isinstance(index, bool) or not 0 <= index < len(alternatives):
+                raise ScheduleValidationError(
+                    f"A proration names one of the {len(alternatives)} alternatives, got {index!r}."
+                )
+            if index == self.default:
+                raise ScheduleValidationError(
+                    "The default takes what a proration does not accept, and is not prorated."
+                )
+            if not isinstance(factor, Decimal) or not factor.is_finite() or not 0 < factor <= 1:
+                raise ScheduleValidationError(
+                    f"A proration factor is above zero and at most one, got {factor!r}."
+                )
+        if self.record_at is not None and self.record_at > self.at:
+            raise ScheduleValidationError(
+                f"An elective exchange's record instant {self.record_at!r} is after it takes "
+                f"effect at {self.at!r}."
+            )
         object.__setattr__(self, "alternatives", alternatives)
+        object.__setattr__(self, "proration", prorated)
 
     @property
     def asset_id(self) -> str:
@@ -888,6 +929,12 @@ class RunSchedule:
             ),
             # One word on one payment at an instant: two are two answers.
             *(_entry(ScheduleKind.PAYMENT, p.at, p.key, p) for p in payments),
+            # An elective action's record instant (FUT-030), when it declares one.
+            *(
+                _entry(ScheduleKind.RECORD, x.record_at, x.reference, _RecordInstant(x))
+                for x in exchanges
+                if isinstance(x, ElectiveExchange) and x.record_at is not None
+            ),
         ]
         entries.sort(key=lambda entry: entry.key)
         for previous, current in pairwise(entries):
@@ -1085,10 +1132,22 @@ def _apply(
     if kind is ScheduleKind.SPLIT:
         return rates, RunEngine.apply_split(state, item.split, item.at, rates)
     if kind is ScheduleKind.EXCHANGE and isinstance(item, ElectiveExchange):
-        chosen = item.chosen(_elections(state, item))
-        return rates, RunEngine.apply_exchange(
-            state, chosen, item.at, rates, payment_at=item.payment_at
-        )
+        parts = _election_parts(state, item)
+        if len(parts) <= 1:
+            # One holder, or holders agreeing: the holding exchanged whole.
+            chosen = item.alternatives[parts[0][0] if parts else item.default]
+            return rates, RunEngine.apply_exchange(
+                state, chosen, item.at, rates, payment_at=item.payment_at
+            )
+        for index, part in parts:
+            state = RunEngine.apply_exchange(
+                state, item.alternatives[index], item.at, rates,
+                payment_at=item.payment_at, part=part,
+            )  # fmt: skip
+        return rates, state
+    if kind is ScheduleKind.RECORD:
+        action = item.action
+        return rates, RunEngine.record_holders(state, action.asset_id, action.reference, entry.at)
     if kind is ScheduleKind.EXCHANGE:
         paid = item.payment_at if isinstance(item, PaidExchange) else None
         return rates, RunEngine.apply_exchange(
@@ -1193,6 +1252,96 @@ def _interest(state: RunState, item: ScheduledInterest) -> CashFlow | None:
     if amount == 0:
         return None
     return CashFlow(CashFlowKind.INTEREST, amount, item.currency, "", item.reference)
+
+
+@dataclass(frozen=True, slots=True)
+class _RecordInstant:
+    """An elective action's record instant, as a schedule entry (FUT-030)."""
+
+    action: ElectiveExchange
+
+
+def _election_parts(
+    state: RunState, action: ElectiveExchange
+) -> list[tuple[int, dict[str, Decimal]]]:
+    """Each alternative the holding's holders elected, and each holder's units of it (FUT-030).
+
+    A holder is a strategy with a share as the action takes effect. Its counted
+    elections -- between the announcement and the deadline, naming one of the
+    alternatives -- are folded in order: a whole-holding election replaces
+    every earlier one, a part election replaces an earlier one for its
+    alternative. It may elect for no more than it holds, and no more than the
+    record instant recorded, when the action declares one; elections for more
+    are not counted, and the default takes the whole. An alternative prorated
+    accepts its factor of each election, rounded down to whole units where the
+    share is whole; the default takes what is not elected or not accepted.
+    Ordered by alternative, each part signed as its holder's share.
+    """
+
+    ctx = ACCOUNTING_CONTEXT
+    shares = {
+        sid: share
+        for sid, share in AllocationEngine.shares_of(state.pipeline.allocation, action.asset_id)
+        if share
+    }
+    recorded: Mapping[str, Decimal] | None = None
+    events = state.pipeline.strategy.events
+    if action.record_at is not None:
+        recorded = {}
+        for event in events:
+            if (
+                isinstance(event, HoldersRecorded)
+                and event.asset_id == action.asset_id
+                and event.action == action.reference
+            ):
+                recorded = event.holders
+    offered = range(len(action.alternatives))
+    elected: dict[str, dict[int, Decimal | None]] = {sid: {} for sid in shares}
+    for event in events:
+        if not (
+            isinstance(event, ElectionMade | UnitsElected)
+            and event.strategy_id in shares
+            and event.asset_id == action.asset_id
+            and event.action == action.reference
+            and action.announced_at <= event.timestamp <= action.deadline
+            and event.alternative in offered
+        ):
+            continue
+        if isinstance(event, UnitsElected):
+            choices = elected[event.strategy_id]
+            choices.pop(next((k for k, v in choices.items() if v is None), -1), None)
+            choices[event.alternative] = event.units
+        else:
+            elected[event.strategy_id] = {event.alternative: None}
+    factors = dict(action.proration)
+    parts: dict[int, dict[str, Decimal]] = {}
+    for sid, share in sorted(shares.items()):
+        sign = Decimal("1") if share > 0 else Decimal("-1")
+        held = share.copy_abs()
+        eligible = held
+        if recorded is not None:
+            then = recorded.get(sid, Decimal("0"))
+            eligible = min(held, then.copy_abs()) if (then > 0) == (share > 0) else Decimal("0")
+        choices = elected[sid]
+        asked = {k: eligible if v is None else v for k, v in choices.items()}
+        if sum(asked.values(), Decimal("0")) > eligible:
+            asked = {}  # elected for more than it may: not counted
+        whole = held == held.to_integral_value()
+        accepted: dict[int, Decimal] = {}
+        for index, units in sorted(asked.items()):
+            if index == action.default:
+                continue
+            taken = ctx.multiply(units, factors.get(index, Decimal("1")))
+            if whole:
+                taken = taken.to_integral_value(rounding=decimal.ROUND_FLOOR)
+            if taken > 0:
+                accepted[index] = taken
+        rest = ctx.subtract(held, sum(accepted.values(), Decimal("0")))
+        if rest > 0:
+            accepted[action.default] = rest
+        for index, units in accepted.items():
+            parts.setdefault(index, {})[sid] = ctx.multiply(sign, units)
+    return sorted(parts.items())
 
 
 def _elections(state: RunState, action: ElectiveExchange) -> dict[str, int | None]:

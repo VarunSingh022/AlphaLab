@@ -224,11 +224,13 @@ from alphalab.strategy.events import (
     ElectionMade,
     ExerciseRefused,
     FillEvent,
+    HoldersRecorded,
     LifecycleTransitioned,
     OrderEvent,
     SliceClosed,
     StrategyRuntimeEvent,
     TimerEvent,
+    UnitsElected,
 )
 from alphalab.strategy.protocol import StrategyProtocol, StrategyStateProtocol
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
@@ -839,6 +841,10 @@ _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
     # Phase 3 (ledger FUT-029): written only by a run whose strategy's amend
     # could not be made.
     AmendRefused,
+    # Phase 4 (ledger FUT-030): written only by a run whose strategy elected
+    # part of a holding, or whose action declared a record instant.
+    UnitsElected,
+    HoldersRecorded,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -2240,6 +2246,9 @@ _STRATEGY_FIELDS: Mapping[str, Any] = {
     "contracts": as_decimal,
     # Phase 3 (FUT-024): an election's alternative, by index.
     "alternative": as_int,
+    # Phase 4 (FUT-030): the units an election names; the holders recorded.
+    "units": as_decimal,
+    "holders": as_decimal_mapping,
 }
 _RISK_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,
