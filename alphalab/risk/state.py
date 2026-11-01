@@ -5,11 +5,13 @@ from decimal import Decimal
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
+from alphalab.common.persistent_map import PersistentMap
 from alphalab.risk.decision import RiskDecision
 from alphalab.risk.events import RiskEvent
 from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
+from alphalab.risk.surfaces import ObservedSurface
 
 _ZERO = Decimal("0")
 
@@ -32,6 +34,8 @@ class RiskState:
             no daily loss limit.
         day_start_nav: Net asset value when that trading day began: the value
             the book closed the previous day at, or its first mark.
+        surfaces: Each underlying's volatility surfaces as they arrived during
+            the run, in order (FUT-039, phase 5); empty for a run given none.
     """
 
     active_limits: RiskLimits
@@ -49,6 +53,8 @@ class RiskState:
 
     trading_day: str | None = None
     day_start_nav: Decimal | None = None
+
+    surfaces: PersistentMap[str, tuple[ObservedSurface, ...]] = field(default_factory=PersistentMap)
 
     @property
     def current_drawdown_pct(self) -> Decimal:

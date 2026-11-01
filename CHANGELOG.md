@@ -51,6 +51,17 @@ phase 4 checkpoint at `cde89f6` (section 12). The package still states 4.2.0
 and they are recorded here for that reason; **whether v4.2.0 or a later
 release carries them is the maintainer's decision**, not made here.
 
+* **Volatility surfaces arriving as data during a run** [FUT-039] (*phase 5*).
+  `RunSchedule.of(surfaces=)` delivers `alphalab.risk.ObservedSurface`s --
+  an options surface, its knowledge instant, source and version -- kept on
+  `RiskState.surfaces` as they arrived and persisted with it (written only
+  when delivered). `ScenarioMargin(surface_feed=, surface_max_age=)` reads
+  them: the one known by the check and as of the latest instant, a revision
+  over what it revises, never a late older arrival or a stale one, resolved
+  by the execution path into `OptionRisk.volatility`; where none is given the
+  option is margined by its own terms. `context.risk_view.volatility_surface`
+  shows a strategy the latest known. `ExecutionPipeline.deliver_surface`,
+  `RunEngine.deliver_surface`; `alphalab.instrument.margin.read_surface`.
 * **An elective action's terms corrected after their announcement** [FUT-038]
   (*phase 5*). `ElectiveExchange(corrections=)` declares the issuer's
   `TermsCorrection`s, each a version of its own (`ElectiveTerms`,
@@ -559,6 +570,7 @@ release carries them is the maintainer's decision**, not made here.
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
 | `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
 | `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.risk.RiskState`; `alphalab.risk.ObservedSurface`, `alphalab.risk.surfaces`; `alphalab.instrument.OptionRisk`; `ScenarioMargin`; `RunSchedule.of`; `ScheduleKind`; `alphalab.strategy.context.RiskViewProtocol`, `NoRiskView`; `alphalab.runtime.context_views.RiskView`; `deliver_surface` (`ExecutionPipeline`, `RunEngine`); `alphalab.instrument.margin.read_surface` | field `surfaces`, empty by default, appended last; added; field `volatility`, appended last, `None` by default; fields `surface_feed`, `surface_max_age`, `None` by default, written only when declared; keyword `surfaces`; member `SURFACE`; method `volatility_surface`; method `volatility_surface`; added; added (FUT-039, phase 5) |
 | `alphalab.backtesting.ElectiveExchange`; `TermsCorrection`, `ElectiveTerms`, `EarlierElections`; `alphalab.strategy.TermsAnnounced`; `ExecutionPipeline.record_terms`, `RunEngine.record_terms` | fields `corrections`, `deliveries`, empty by default, and `convention`, appended last; `versions`, `terms_at`, `final`; added; added; added (FUT-038, phase 5) |
 | `alphalab.backtesting.DeliveredExchange`, `DeliveryAmendment`; `alphalab.portfolio.DeliveryConvention`; `alphalab.portfolio.settlement.PendingSettlement`; `alphalab.portfolio.events.DeliveryAmended`; `apply_exchange` (`ExecutionPipeline`, `RunEngine`, `PortfolioEngine`); `amend_delivery` (each layer) | added; field `delivery`, appended last, `None` by default; added; keyword-only `delivers_at` and `delivery` (`delivers`, `convention`, `effective_at` on the portfolio), `None` by default; added (FUT-037, phase 5) |
 | `alphalab.lifecycle.manifest_for_run`; `ReproducibilityManifest`; `canonical_manifest_key`, `derive_manifest_id` | keyword-only `instruments`, `False` by default; field `instruments_digest`, appended last, `None` by default; trailing `instruments_digest`, `None` by default (REP-006, phase 4) |

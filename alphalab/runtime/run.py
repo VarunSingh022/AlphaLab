@@ -83,6 +83,7 @@ from alphalab.portfolio.corporate_actions import (
 )
 from alphalab.portfolio.fx import NO_RATES, FxRates
 from alphalab.portfolio.settlement import DeliveryConvention, PaymentChange
+from alphalab.risk.surfaces import ObservedSurface
 from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.exceptions import AlphaLabRuntimeError, RuntimeValidationError
 from alphalab.runtime.execution_pipeline import (
@@ -877,6 +878,21 @@ class RunEngine:
         )  # fmt: skip
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_surface(state: RunState, observed: ObservedSurface) -> RunState:
+        """Receive a volatility surface as data at its knowledge instant (FUT-039, phase 5).
+
+        See :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.deliver_surface`.
+        """
+
+        pipeline = ExecutionPipeline.deliver_surface(state.pipeline, observed)
+        return evolve(
+            state,
+            pipeline=pipeline,
+            current_timestamp=max(state.current_timestamp, observed.known_at),
         )
 
     @staticmethod

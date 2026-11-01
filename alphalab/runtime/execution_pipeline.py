@@ -76,6 +76,7 @@ from alphalab.instrument.margin import (
     MarginTerms,
     OptionRisk,
     ScenarioMargin,
+    read_surface,
 )
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
@@ -153,6 +154,7 @@ from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.projection import NO_WORKING_ORDERS, BucketExposure, WorkingExposure
 from alphalab.risk.state import RiskState
+from alphalab.risk.surfaces import ObservedSurface, select
 from alphalab.runtime.calendars import VenueCalendars, settles_at
 from alphalab.runtime.context_views import (
     HistoryView,
@@ -1842,6 +1844,36 @@ class ExecutionPipeline:
             )
         portfolio = PortfolioEngine.apply_cash_flow(state.portfolio, flow, timestamp)
         return _after_book_change(state, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_surface(
+        state: ExecutionPipelineState, observed: ObservedSurface
+    ) -> ExecutionPipelineState:
+        """Receive a volatility surface as data, at its knowledge instant (FUT-039, phase 5).
+
+        Kept on the risk state as it arrived -- its surface, instant, source
+        and version -- beside every one before; which one a margin check reads
+        is :func:`~alphalab.risk.surfaces.select`'s rule, never one not yet
+        known. A risk view shows a strategy the latest known.
+
+        Raises:
+            RuntimeValidationError: If its knowledge instant is before the last
+                event, or the same source's same version was delivered already.
+        """
+
+        _require_not_before_last_event(state, observed.known_at, "A surface delivery")
+        underlying = observed.surface.underlying_asset_id
+        earlier = state.risk.surfaces.get(underlying, ())
+        if any((o.source, o.version) == (observed.source, observed.version) for o in earlier):
+            raise RuntimeValidationError(
+                f"{observed.source}'s surface version {observed.version!r} for {underlying} "
+                "was delivered already; a revision is published as a version of its own."
+            )
+        risk = evolve(
+            state.risk, surfaces=state.risk.surfaces.set(underlying, (*earlier, observed))
+        )
+        return evolve(state, risk=risk, id_position=current_id_position())
 
     @staticmethod
     @in_accounting_context
@@ -3645,7 +3677,38 @@ def _option_risk(
         as_of,
         effective.deliverable.units,
         in_base(Decimal("1"), currency),
+        _observed_volatility(state, underlying, effective.strike, effective.expires_at, as_of),
     )
+
+
+def _observed_volatility(
+    state: ExecutionPipelineState,
+    underlying: str,
+    strike: Decimal,
+    expires_at: float,
+    as_of: float,
+) -> Decimal | None:
+    """The volatility the surfaces delivered so far give an option, or ``None`` (FUT-039).
+
+    Read only when the account's model reads a feed: of the feed's surfaces for
+    the underlying known by ``as_of``, :func:`~alphalab.risk.surfaces.select`'s
+    choice, at the option's strike and expiry; ``None`` where none is known, it
+    is older than the model allows, or it quotes nothing there.
+    """
+
+    registry = state.config.instruments
+    model = None if registry is None else registry.margin_model
+    if not isinstance(model, ScenarioMargin) or model.surface_feed is None:
+        return None
+    feed = model.surface_feed
+    chosen = select(
+        (o for o in state.risk.surfaces.get(underlying, ()) if o.source == feed),
+        as_of,
+        model.surface_max_age,
+    )
+    if chosen is None:
+        return None
+    return read_surface(chosen.surface, strike, expires_at)
 
 
 def _increases(state: ExecutionPipelineState, request: OrderRequest) -> bool:

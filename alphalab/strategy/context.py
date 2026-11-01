@@ -208,6 +208,10 @@ class RiskViewProtocol(Protocol):
         """Current exposure status, including the sector breakdown."""
         ...
 
+    def volatility_surface(self, underlying: str, source: str | None = None) -> Any:
+        """The latest volatility surface delivered for ``underlying``, or ``None`` (FUT-039)."""
+        ...
+
 
 class OrderFacadeProtocol(Protocol):
     """Constrained facade for order queries, NOT for direct placement.
@@ -493,6 +497,9 @@ class NoRiskView:
 
     @property
     def exposure(self) -> Any:
+        return None
+
+    def volatility_surface(self, underlying: str, source: str | None = None) -> Any:
         return None
 
     def __bool__(self) -> bool:

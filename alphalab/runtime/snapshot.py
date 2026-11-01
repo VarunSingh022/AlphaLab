@@ -200,6 +200,11 @@ from alphalab.risk.limits import (
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.models import RiskSeverity, RiskViolation
 from alphalab.risk.state import RiskState
+from alphalab.risk.surfaces import (
+    ObservedSurface,
+    observed_from_primitives,
+    observed_to_primitives,
+)
 from alphalab.runtime.assumptions import describe
 from alphalab.runtime.calendars import VenueCalendars, venue_calendars_from_primitives
 from alphalab.runtime.execution_pipeline import (
@@ -1038,6 +1043,29 @@ class RiskRecord:
     events: tuple[RiskEventRecord, ...]
     trading_day: str | None = None
     day_start_nav: Decimal | None = None
+    #: Each underlying's volatility surfaces as they arrived (FUT-039, phase 5).
+    #: Written only when a run was given one, so every other payload keeps its
+    #: form and its identity, and one written before reads as none.
+    surfaces: Mapping[str, tuple[ObservedSurface, ...]] = field(default_factory=dict)
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The record's fields, ``surfaces`` among them only when there are any."""
+
+        return {
+            "active_limits": self.active_limits,
+            "margin": self.margin,
+            "exposure": self.exposure,
+            "cash": self.cash,
+            "buying_power": self.buying_power,
+            "peak_nav": self.peak_nav,
+            "current_nav": self.current_nav,
+            "daily_loss": self.daily_loss,
+            "history": self.history,
+            "events": self.events,
+            "trading_day": self.trading_day,
+            "day_start_nav": self.day_start_nav,
+            **({"surfaces": observed_to_primitives(self.surfaces)} if self.surfaces else {}),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1341,6 +1369,7 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
             events=_tagged(state.risk.events, RiskEventRecord),
             trading_day=state.risk.trading_day,
             day_start_nav=state.risk.day_start_nav,
+            surfaces=dict(state.risk.surfaces),
         ),
         oms=capture_oms(state.oms),
         execution=ExecutionRecord(
@@ -1617,6 +1646,7 @@ def restore(snapshot: PipelineSnapshot, objects: RuntimeObjects) -> ExecutionPip
             events=AppendOnlyLog(record.event for record in snapshot.risk.events),
             trading_day=snapshot.risk.trading_day,
             day_start_nav=snapshot.risk.day_start_nav,
+            surfaces=PersistentMap(snapshot.risk.surfaces),
         ),
         oms=restore_oms(snapshot.oms),
         execution=ExecutionState(
@@ -2497,6 +2527,7 @@ def _risk(value: Any) -> RiskRecord:
         day_start_nav=_optional_decimal(
             require(payload, "day_start_nav"), f"{where}.day_start_nav"
         ),
+        surfaces=observed_from_primitives(payload.get("surfaces", {})),
     )
 
 

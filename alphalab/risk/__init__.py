@@ -52,6 +52,7 @@ from alphalab.risk.projection import (
     project,
 )
 from alphalab.risk.state import RiskState
+from alphalab.risk.surfaces import ObservedSurface
 from alphalab.risk.validation import validate_order_request
 from alphalab.risk.views import (
     active_limits,
@@ -79,6 +80,7 @@ __all__ = [
     "MarginLimit",
     "MarginStatus",
     "MarginUpdated",
+    "ObservedSurface",
     "OrderRequest",
     "OrderSizeLimit",
     "PositionLimit",

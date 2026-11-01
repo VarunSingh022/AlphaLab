@@ -263,6 +263,12 @@ and each scenario's `volatility_shifts`, only when declared; a scenario model
 writes its `surfaces` -- each options surface's underlying, as-of instant and
 points -- and its `horizon` only when declared (phase 4, ledger FUT-032), and a
 repriced option a `volatility` of `null` when it reads a surface.
+The risk record writes `surfaces` (phase 5, ledger FUT-039) -- each
+underlying's delivered volatility surfaces, as they arrived, with their
+knowledge instants, sources and versions -- only when a run was given one; a
+payload without it reads as none. A scenario model writes `surface_feed` and
+`surface_max_age` only when declared.
+
 A correction of an elective action's terms (phase 5, ledger FUT-038) is a
 `TermsAnnounced` in the strategy runtime's event log at its announcement,
 naming its version; the elections are kept as made.

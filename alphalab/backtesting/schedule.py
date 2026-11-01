@@ -99,6 +99,7 @@ from alphalab.portfolio.financing import (
 from alphalab.portfolio.fx import FxRate, FxRates
 from alphalab.portfolio.settlement import DeliveryConvention, PaymentChange
 from alphalab.portfolio.types import TransactionType
+from alphalab.risk.surfaces import ObservedSurface
 from alphalab.runtime.execution_pipeline import ContextFactory
 from alphalab.runtime.run import RunEngine, RunState
 from alphalab.strategy.events import ElectionMade, HoldersRecorded, TimerEvent, UnitsElected
@@ -186,6 +187,9 @@ class ScheduleKind(StrEnum):
     #: Phase 4 (FUT-030): an elective action's record instant -- after the
     #: instant's records, on the holders they left.
     RECORD = "record"
+    #: Phase 5 (FUT-039): a volatility surface delivered as data -- before the
+    #: instant's records, so a check at the instant reads it.
+    SURFACE = "surface"
 
 
 _PLACE: Final = {
@@ -207,6 +211,7 @@ _PLACE: Final = {
     ScheduleKind.EXCHANGE: SchedulePlace.BEFORE_RECORDS,
     ScheduleKind.PAYMENT: SchedulePlace.BEFORE_RECORDS,
     ScheduleKind.RECORD: SchedulePlace.AFTER_RECORDS,
+    ScheduleKind.SURFACE: SchedulePlace.BEFORE_RECORDS,
 }
 _RANK: Final = {kind: rank for rank, kind in enumerate(ScheduleKind)}
 
@@ -1154,6 +1159,7 @@ class RunSchedule:
             ScheduledExchange | PaidExchange | ElectiveExchange | DeliveredExchange
         ] = (),
         payments: Iterable[PaymentAmendment | DeliveryAmendment] = (),
+        surfaces: Iterable[ObservedSurface] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
 
@@ -1218,6 +1224,17 @@ class RunSchedule:
                     x,
                 )
                 for x in exchanges
+            ),
+            # A surface delivered as data at its knowledge instant (FUT-039): one
+            # source's one version once.
+            *(
+                _entry(
+                    ScheduleKind.SURFACE,
+                    o.known_at,
+                    f"{o.source}|{o.version}|{o.surface.underlying_asset_id}",
+                    o,
+                )
+                for o in surfaces
             ),
             # One word on one payment at an instant: two are two answers.
             *(_entry(ScheduleKind.PAYMENT, p.at, p.key, p) for p in payments),
@@ -1471,6 +1488,8 @@ def _apply(
         return rates, RunEngine.apply_exchange(
             state, item.exchange, item.at, rates, payment_at=paid
         )
+    if kind is ScheduleKind.SURFACE:
+        return rates, RunEngine.deliver_surface(state, item)
     if kind is ScheduleKind.PAYMENT and isinstance(item, DeliveryAmendment):
         return rates, RunEngine.amend_delivery(
             state, item.holding, item.effective_at, item.asset_id, item.change, item.at, rates,

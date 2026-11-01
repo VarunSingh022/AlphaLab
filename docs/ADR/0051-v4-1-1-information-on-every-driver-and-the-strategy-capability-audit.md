@@ -578,6 +578,19 @@ applied; it is a payment's or a delivery's amendment. A run declaring no
 correction is the run it was, so an earlier run's information is reproduced
 by its own schedule.
 
+**45. A surface delivered is state, chosen at each check (FUT-039, phase 5).**
+The margin model is configuration; a surface arriving during a run is data,
+so it is kept on the risk state -- every delivery as it arrived, its source,
+version and knowledge instant -- and persisted with it, and the model names
+only the feed it reads. Which surface a check reads is one rule: known by the
+check, as of the latest instant, a revision preferred to what it revises; a
+late arrival older than a known surface does not displace it, and a declared
+greatest age makes a stale one unread. The execution path resolves the
+volatility and hands it to the model with the option's other facts now, so the
+model never assumes one; where none is given, the option is margined by its own
+terms. A model reads declared surfaces or a feed, not both -- two answers to
+which is in effect.
+
 ---
 
 # Consequences
@@ -615,8 +628,9 @@ by its own schedule.
   consideration converts at, not its payoff.
 - **A scenario revalues each covered instrument by its declared move alone**,
   unless the model reprices an option from its underlying (FUT-026), at a
-  declared volatility or one read from a dated surface (FUT-032), at the
-  instant or over a declared horizon; orders are judged leg by leg against the book as it stands; without a
+  declared volatility or one read from a dated surface, declared (FUT-032) or
+  delivered during the run (FUT-039), at the instant or over a declared
+  horizon; orders are judged leg by leg against the book as it stands; without a
   declared model, margin is each position's own and the gate's `MarginLimit` a
   gross-notional cap.
 - **Interest and fees accrue at each declared period's instant**: on the balance

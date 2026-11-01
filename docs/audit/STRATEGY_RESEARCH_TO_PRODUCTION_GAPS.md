@@ -252,7 +252,7 @@ and are reused rather than duplicated. Same classes as above.
 | A margin-model volatility surface would have duplicated the options package's | design | the options `VolatilitySurface` reused (FUT-032) |
 | Legs delivered after an exchange's effective instant | 5 | FUT-037, **delivered in phase 5** |
 | An elective action's terms corrected after their announcement | 5 | FUT-038, **delivered in phase 5** |
-| Volatility surfaces delivered as observations during a run | 5 | FUT-039 (v4.4) |
+| Volatility surfaces delivered as observations during a run | 5 | FUT-039, **delivered in phase 5** |
 | A strategy's view of a reopening auction's published book | 2 | FUT-040 (v4.4) |
 | An amend's atomicity at a venue | 3 | stated: `LiveSession.amend` is the venue's request (FUT-031) |
 | An uncross from depth the venue did not publish | 3 | unchanged (BDY-003) |

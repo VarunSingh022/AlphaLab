@@ -363,6 +363,13 @@ a later release is the maintainer's decision, and nothing here assigns it.
   declares, and the holding exchanged by the version in effect at the action's
   instant -- its payments and deliveries with it. A correction after that
   instant is a payment's or a delivery's amendment, never a rewrite.
+- **Volatility surfaces arriving as data during a run** (FUT-039): a scenario
+  model naming a `surface_feed` reads the `ObservedSurface`s the run is
+  delivered -- each kept as it arrived, with its source, version and knowledge
+  instant -- choosing the one known by the check and as of the latest instant,
+  a revision over what it revises, never a late older arrival, never one older
+  than `surface_max_age`; a strategy reads the latest known through
+  `context.risk_view.volatility_surface`.
 
 # Deliberate boundaries
 
@@ -735,7 +742,6 @@ maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-039 | **Volatility surfaces delivered as observations during a run** | declare each dated surface on the margin model | v4.4 | dated surfaces, observations |
 | FUT-040 | **A strategy's view of a reopening auction's published book** | deliver the venue's auction messages as observations | v4.4 | computed auctions |
 
 ---

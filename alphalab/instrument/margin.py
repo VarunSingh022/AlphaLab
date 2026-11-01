@@ -59,6 +59,7 @@ __all__ = [
     "margin_model_from_primitives",
     "margin_model_to_primitives",
     "margin_to_primitives",
+    "read_surface",
 ]
 
 _ZERO = Decimal("0")
@@ -215,6 +216,9 @@ class OptionRisk:
         units: The units of the underlying the position controls, signed:
             contracts held times the units each delivers; negative short.
         to_base: One unit of the option's currency in the base currency.
+        volatility: The volatility the surface delivered to the run gives it at
+            ``as_of`` -- when the model reads a surface feed (FUT-039, phase 5)
+            -- or ``None`` where the run has none for it.
     """
 
     underlying: str
@@ -226,6 +230,7 @@ class OptionRisk:
     as_of: float
     units: Decimal
     to_base: Decimal
+    volatility: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -452,6 +457,13 @@ class ScenarioMargin:
     #: Seconds after the margined instant each repriced option is valued at in
     #: a scenario (FUT-032): its time decay over the horizon. ``None``: now.
     horizon: float | None = None
+    #: The source of the surfaces delivered during the run that a repriced
+    #: option declaring no volatility reads (FUT-039, phase 5), in place of
+    #: declared ``surfaces``; ``None`` reads none.
+    surface_feed: str | None = None
+    #: The oldest a delivered surface may be, in seconds before the margined
+    #: instant, to be read; ``None`` bounds nothing.
+    surface_max_age: float | None = None
     _covered: frozenset[str] = field(init=False, repr=False, compare=False)
     _surfaces: Mapping[str, tuple[VolatilitySurface, ...]] = field(
         init=False, repr=False, compare=False
@@ -515,10 +527,28 @@ class ScenarioMargin:
                     f"{surface.timestamp!r}: a correction is published at its own instant."
                 )
             published.append(surface)
-        if any(p.volatility is None for p in repriced.values()) and not surfaces:
+        if self.surface_feed is not None and surfaces:
+            raise InstrumentInputError(
+                "A model reads declared surfaces or a feed delivered during the run, not both: "
+                "two answers to which surface is in effect."
+            )
+        if self.surface_feed is not None and not self.surface_feed:
+            raise InstrumentInputError("A surface feed is named.")
+        if any(p.volatility is None for p in repriced.values()) and not (
+            surfaces or self.surface_feed
+        ):
             raise InstrumentInputError(
                 "A repriced option declaring no volatility reads one from a surface, and the "
-                "model declares none: no volatility is assumed."
+                "model declares none and no feed: no volatility is assumed."
+            )
+        if self.surface_max_age is not None and (
+            self.surface_feed is None
+            or not isinstance(self.surface_max_age, int | float)
+            or not math.isfinite(self.surface_max_age)
+            or self.surface_max_age <= 0
+        ):
+            raise InstrumentInputError(
+                "A surface's greatest age is a positive number of seconds, for a feed."
             )
         if self.horizon is not None and (
             not isinstance(self.horizon, int | float)
@@ -559,16 +589,7 @@ class ScenarioMargin:
             found = surface
         if found is None:
             return None
-        try:
-            volatility = implied_vol_across_expiries(
-                found,
-                float(risk.strike),
-                risk.expires_at,
-                method=ExpiryInterpolation.TOTAL_VARIANCE_LINEAR,
-            )
-        except OptionInputError:
-            return None
-        return Decimal(repr(volatility)).quantize(_VOL_QUANT, rounding=ROUND_HALF_EVEN)
+        return read_surface(found, risk.strike, risk.expires_at)
 
     def requirement(self, exposures: tuple[MarginExposure, ...]) -> MarginRequirement:
         covered = self._covered
@@ -585,7 +606,11 @@ class ScenarioMargin:
                 pricing = repriced[e.asset_id]
                 vol = pricing.volatility
                 if vol is None:
-                    vol = self.surface_volatility(e.option)
+                    vol = (
+                        e.option.volatility
+                        if self.surface_feed is not None
+                        else self.surface_volatility(e.option)
+                    )
                     if vol is not None and any(
                         vol + s.volatility_shifts.get(e.asset_id, _ZERO) <= 0
                         for s in self.scenarios
@@ -637,6 +662,27 @@ class ScenarioMargin:
         pricing = self.repriced[exposure.asset_id]
         now = pricing.value(risk, risk.underlying_price, _ZERO, vol)
         return exposure.asset_id, risk, pricing, now, vol
+
+
+def read_surface(surface: VolatilitySurface, strike: Decimal, expires_at: float) -> Decimal | None:
+    """The volatility ``surface`` gives an option of ``strike`` expiring at ``expires_at``.
+
+    Read as :func:`~alphalab.options.volatility_surface.implied_vol_across_expiries`
+    reads it: linear between quoted strikes, linear in total variance between
+    quoted expiries; ``None`` where that refuses -- beyond the quotes, or quotes
+    admitting a calendar arbitrage. Nothing is extrapolated (FUT-032, FUT-039).
+    """
+
+    try:
+        volatility = implied_vol_across_expiries(
+            surface,
+            float(strike),
+            expires_at,
+            method=ExpiryInterpolation.TOTAL_VARIANCE_LINEAR,
+        )
+    except OptionInputError:
+        return None
+    return Decimal(repr(volatility)).quantize(_VOL_QUANT, rounding=ROUND_HALF_EVEN)
 
 
 def margin_model_to_primitives(model: MarginModel | None) -> dict[str, Any] | None:
@@ -694,6 +740,9 @@ def margin_model_to_primitives(model: MarginModel | None) -> dict[str, Any] | No
                 else {"surfaces": [_surface_primitives(v) for v in model.surfaces]}
             ),
             **({} if model.horizon is None else {"horizon": model.horizon}),
+            # Phase 5 (FUT-039): written only when declared.
+            **({} if model.surface_feed is None else {"surface_feed": model.surface_feed}),
+            **({} if model.surface_max_age is None else {"surface_max_age": model.surface_max_age}),
         }
     raise InstrumentInputError(
         f"A {type(model).__name__} margin model cannot be written: a registry snapshot "
@@ -783,6 +832,8 @@ def margin_model_from_primitives(value: Any, where: str = "margin_model") -> Mar
                 },
                 tuple(_surface_from(v) for v in value.get("surfaces", ())),
                 value.get("horizon"),
+                value.get("surface_feed"),
+                value.get("surface_max_age"),
             )
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise InstrumentInputError(f"{where} is not a margin model: {exc}.") from exc

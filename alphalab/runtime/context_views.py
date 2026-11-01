@@ -51,6 +51,7 @@ Two consequences, both stated rather than worked around:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
@@ -84,6 +85,7 @@ from alphalab.risk.exposure import ExposureStatus
 from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.state import RiskState
+from alphalab.risk.surfaces import ObservedSurface, select
 from alphalab.runtime.exceptions import HistoryNotRetainedError
 
 __all__ = [
@@ -360,6 +362,21 @@ class RiskView:
     @property
     def active_limits(self) -> RiskLimits:
         return self._state.active_limits
+
+    def volatility_surface(
+        self, underlying: str, source: str | None = None
+    ) -> ObservedSurface | None:
+        """The latest volatility surface delivered for ``underlying``, or ``None`` (FUT-039).
+
+        Of the surfaces the run has received by now -- never one not yet
+        known -- the one as of the latest instant, a revision preferred to what
+        it revises; only ``source``'s, when named.
+        """
+
+        observed = self._state.surfaces.get(underlying, ())
+        if source is not None:
+            observed = tuple(o for o in observed if o.source == source)
+        return select(observed, math.inf)
 
     @property
     def cash(self) -> Decimal:
