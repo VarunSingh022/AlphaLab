@@ -263,6 +263,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "CashDeposited",
         "CashFlowBooked",
         "CashWithdrawn",
+        # Phase 5 (FUT-037): written only when a delivery is amended.
+        "DeliveryAmended",
         "MarketValueUpdated",
         # Phase 4 (FUT-034): written only by a run whose payment was amended.
         "PaymentAmended",

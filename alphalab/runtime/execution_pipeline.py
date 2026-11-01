@@ -136,7 +136,7 @@ from alphalab.portfolio.fx import (
 from alphalab.portfolio.money import to_money
 from alphalab.portfolio.nav import NAVCalculator
 from alphalab.portfolio.position import Position
-from alphalab.portfolio.settlement import PaymentChange, payment_chain
+from alphalab.portfolio.settlement import DeliveryConvention, PaymentChange, payment_chain
 from alphalab.portfolio.types import TransactionType
 from alphalab.portfolio.valuation import (
     PortfolioValuation,
@@ -1873,6 +1873,47 @@ class ExecutionPipeline:
 
     @staticmethod
     @in_accounting_context
+    def amend_delivery(
+        state: ExecutionPipelineState,
+        holding: str,
+        effective_at: float,
+        asset_id: str,
+        change: PaymentChange,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+        *,
+        delivers_at: float | None = None,
+        units: Decimal | None = None,
+        reference: str = "",
+    ) -> ExecutionPipelineState:
+        """Book a later word on units an exchange delivers after its instant (FUT-037, phase 5).
+
+        See :meth:`~alphalab.portfolio.engine.PortfolioEngine.amend_delivery`;
+        units written off are taken from each strategy by its part of the
+        delivery, and the risk state is resynced as for any change to the book.
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event, or
+                the amendment does not hold against the book.
+        """
+
+        _require_not_before_last_event(state, timestamp, "A delivery amendment")
+        try:
+            portfolio, lost = PortfolioEngine.amend_delivery(
+                state.portfolio, holding, effective_at, asset_id, change, timestamp,
+                delivers_at=delivers_at, units=units, reference=reference,
+            )  # fmt: skip
+        except InvalidTransactionError as exc:
+            raise RuntimeValidationError(str(exc)) from exc
+        if portfolio is state.portfolio:
+            return state  # the run was owed none of it
+        allocation = state.allocation
+        if lost:
+            allocation = AllocationEngine.apply_lifecycle(allocation, asset_id, lost)
+        return _after_book_change(evolve(state, allocation=allocation), portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
     def amend_payment(
         state: ExecutionPipelineState,
         holding: str,
@@ -2066,6 +2107,8 @@ class ExecutionPipeline:
         *,
         payment_at: float | None = None,
         part: Mapping[str, Decimal] | None = None,
+        delivers_at: Mapping[str, float] | None = None,
+        delivery: DeliveryConvention | None = None,
     ) -> ExecutionPipelineState:
         """Exchange a holding for other instruments and cash by its declared terms (FUT-021).
 
@@ -2079,6 +2122,11 @@ class ExecutionPipeline:
         basis apportioned by units; the rest stays held as it was, so the
         alternatives of an elective action are applied each to its electors'
         part. A part that is the whole holding is the holding exchanged whole.
+
+        ``delivers_at`` names the legs delivered after ``timestamp`` (FUT-037,
+        phase 5) and their delivery instants: each is its holders' entitlement
+        from ``timestamp``, owed until then, under ``delivery`` -- by default
+        neither sold nor counted as margin collateral until it arrives.
 
         Everything is planned before anything moves, and refused whole:
 
@@ -2133,6 +2181,19 @@ class ExecutionPipeline:
         if part is not None:
             held, kept, shares = _exchanged_part(current, held, shares, part, timestamp)
         plan = _exchange_plan(current, exchange, held, timestamp, rates)
+        leg_parts = {
+            leg.asset_id: (
+                _strategy_parts(given, holding.quantity)
+                if (
+                    given := tuple(
+                        (sid, ACCOUNTING_CONTEXT.multiply(share, leg.ratio))
+                        for sid, share in shares
+                    )
+                )
+                else {}
+            )
+            for leg, holding in plan.legs
+        }
         portfolio = PortfolioEngine.apply_exchange(
             current.portfolio,
             exchange.asset_id,
@@ -2144,14 +2205,15 @@ class ExecutionPipeline:
             exchange.reference,
             pays_at=payment_at,
             kept=kept,
+            delivers=None
+            if not delivers_at
+            else {a: (when, leg_parts.get(a, {})) for a, when in delivers_at.items()},
+            convention=delivery,
         )
         allocation = current.allocation
         closed = {} if exchange.retained else dict(shares)
         for index, (leg, holding) in enumerate(plan.legs):
-            given = tuple(
-                (sid, ACCOUNTING_CONTEXT.multiply(share, leg.ratio)) for sid, share in shares
-            )
-            parts = _strategy_parts(given, holding.quantity) if given else {}
+            parts = leg_parts[leg.asset_id]
             unit_value = _in_budget_currency(
                 current,
                 ACCOUNTING_CONTEXT.multiply(holding.price, _multiplier(holding.economics)),
@@ -2740,6 +2802,12 @@ def _route_requests(
         unpayable = _currency_cash_refusal(current, request, instant)
         if unpayable is not None:
             dropped.append((request, unpayable))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
+        # Units an exchange has not yet delivered are not sold (FUT-037).
+        undelivered = _undelivered_refusal(current, request, instant)
+        if undelivered is not None:
+            dropped.append((request, undelivered))
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
         unworkable = _terms_refusal(current, request, instant)
@@ -3486,6 +3554,23 @@ def margin_position(
         )
     if not holdings:
         return None
+    if portfolio.unsettled:
+        # Units an exchange owes and has not delivered are the holder's, and
+        # valued, but not collateral unless their convention says (FUT-037).
+        for entry in portfolio.unsettled:
+            if (
+                entry.delivery is None
+                or not entry.pending_at(as_of)
+                or "collateral" in entry.delivery.split(",")
+            ):
+                continue
+            owed = portfolio.positions.get(entry.asset_id)
+            if owed is None or entry.quantity <= 0:
+                continue
+            haircuts += in_base(
+                ctx.multiply(ctx.multiply(entry.quantity, owed.market_price), owed.multiplier),
+                owed.currency,
+            )
     nav = NAVCalculator.calculate(portfolio.cash, portfolio.positions, base, rates, as_of)
     holdings.sort(key=lambda h: (h.terms.priority, -h.initial, h.asset_id))
     if model is None:
@@ -8644,6 +8729,55 @@ def _exchanged_part(
     )
     exchanged = held._rebased(units, basis, held.realized_pnl, held.market_price, timestamp)
     return exchanged, (ctx.subtract(held.quantity, units), ctx.subtract(held.basis, basis)), taken
+
+
+def _undelivered(state: ExecutionPipelineState, asset_id: str, at: float, use: str) -> Decimal:
+    """Units of ``asset_id`` an exchange owes, undelivered at ``at`` and not usable for ``use``.
+
+    The pending deliveries whose convention does not allow ``use`` -- "sellable"
+    or "collateral" (FUT-037).
+    """
+
+    total = Decimal("0")
+    for entry in state.portfolio.unsettled:
+        if (
+            entry.delivery is not None
+            and entry.asset_id == asset_id
+            and entry.pending_at(at)
+            and use not in entry.delivery.split(",")
+        ):
+            total = ACCOUNTING_CONTEXT.add(total, entry.quantity)
+    return total
+
+
+def _undelivered_refusal(
+    state: ExecutionPipelineState, request: OrderRequest, at: float
+) -> str | None:
+    """Why ``request`` would sell units an exchange has not yet delivered, or ``None`` (FUT-037).
+
+    Read only for a sale in an instrument with a delivery pending: the holding
+    after it -- filled, every working order and this one -- must keep the units
+    owed and not yet delivered, unless their convention lets them be sold.
+    """
+
+    if request.side is not CoreSide.SELL or not state.portfolio.unsettled:
+        return None
+    owed = _undelivered(state, request.asset_id, at, "sellable")
+    if owed <= 0:
+        return None
+    position = state.portfolio.positions.get(request.asset_id)
+    held = Decimal("0") if position is None else position.quantity
+    for order_id in state.oms.working_orders_for(request.asset_id):
+        order = state.oms.orders.find(order_id)
+        if order.side is OMSSide.SELL:
+            held = ACCOUNTING_CONTEXT.subtract(held, order.remaining_quantity)
+    after = ACCOUNTING_CONTEXT.subtract(held, request.quantity)
+    if after >= owed:
+        return None
+    return (
+        f"Selling {request.quantity} {request.asset_id} would sell units an exchange owes and "
+        f"has not delivered: {owed} are pending delivery, and are not sold before they arrive."
+    )
 
 
 def _units_exchanged(

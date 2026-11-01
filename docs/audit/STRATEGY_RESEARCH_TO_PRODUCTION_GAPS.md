@@ -228,7 +228,7 @@ appear only where two capabilities meet. Same classes as above.
 | A replacement risk refuses leaves the original withdrawn | 5 | FUT-031, **delivered in phase 4** |
 | A dated volatility surface; scenario horizons | 5 | FUT-032, **delivered in phase 4** |
 | An auction uncross from a book; extensions; a retention-proof first event | 5 | FUT-033, **delivered in phase 4** (from the venue's published book) |
-| Failed or corrected corporate-action payments; legs delivered later | 5 | FUT-034, **delivered in phase 4** (payments; legs delivered later remain) |
+| Failed or corrected corporate-action payments; legs delivered later | 5 | FUT-034, **delivered in phase 4**; legs delivered later FUT-037, **delivered in phase 5** |
 | A buy-in premium; borrow recalled per strategy | 5 | FUT-035, **delivered in phase 4** |
 | A capital ceiling's reservation on an in-place amend | 4, conservative | FUT-036, **delivered in phase 4** |
 | Opening and closing auction orders, an operator's live amend, imbalance as observations | 6 | already implemented |
@@ -250,7 +250,7 @@ and are reused rather than duplicated. Same classes as above.
 | --- | --- | --- |
 | A run's manifest could not identify the instrument registry it held: controls, borrow, margin model and surfaces | 1 | **Fixed** (REP-006): `manifest_for_run(instruments=True)` |
 | A margin-model volatility surface would have duplicated the options package's | design | the options `VolatilitySurface` reused (FUT-032) |
-| Legs delivered after an exchange's effective instant | 5 | FUT-037 (v4.4) |
+| Legs delivered after an exchange's effective instant | 5 | FUT-037, **delivered in phase 5** |
 | An elective action's terms corrected after their announcement | 5 | FUT-038 (v4.4) |
 | Volatility surfaces delivered as observations during a run | 5 | FUT-039 (v4.4) |
 | A strategy's view of a reopening auction's published book | 2 | FUT-040 (v4.4) |

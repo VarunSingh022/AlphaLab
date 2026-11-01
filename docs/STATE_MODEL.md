@@ -291,6 +291,13 @@ A borrow entry writes `buy_in_premium`, `buy_in_fee` and `allocations` (phase
 it carries `buy_in` -- its instant -- in its OMS metadata, and each charge is a
 `FEE` cash flow whose record names the strategy (`buy-in:<strategy>`).
 
+An exchange leg delivered after its effective instant (phase 5, ledger
+FUT-037) is an `EXCHANGE` ledger transaction of its own carrying `delivers`
+(its units), `delivery_of` (the exchange), `delivery_parts`, `delivery_basis`,
+`delivery_terms` and `settles_at`; a delivery's amendment names `delivery_of`
+and `payment_change`, with a `DeliveryAmended` event. The settlement index a
+restore rebuilds from the ledger holds the units owed until delivered.
+
 A payment amendment (phase 4, ledger FUT-034) is an `EXCHANGE` ledger
 transaction naming its entitlement (`entitlement`), its change
 (`payment_change`) and the transactions whose pending cash it re-dates or

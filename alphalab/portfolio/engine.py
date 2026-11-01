@@ -65,6 +65,7 @@ from alphalab.portfolio.events import (
     CashDeposited,
     CashFlowBooked,
     CashWithdrawn,
+    DeliveryAmended,
     MarketValueUpdated,
     PaymentAmended,
     PortfolioEvent,
@@ -84,11 +85,17 @@ from alphalab.portfolio.money import ZERO_MONEY, notional, to_money
 from alphalab.portfolio.position import Position
 from alphalab.portfolio.settlement import (
     AFFECTS,
+    DELIVERS,
+    DELIVERY_BASIS,
+    DELIVERY_OF,
+    DELIVERY_PARTS,
+    DELIVERY_TERMS,
     ENTITLEMENT,
     PAYMENT_CHANGE,
     SETTLEMENT_CASH,
     SETTLES_AT,
     CashPosition,
+    DeliveryConvention,
     PaymentChange,
     PendingSettlement,
     amend_pending,
@@ -825,6 +832,9 @@ class PortfolioEngine:
         *,
         pays_at: float | None = None,
         kept: tuple[Decimal, Decimal] | None = None,
+        delivers: Mapping[str, tuple[float, Mapping[str, Decimal]]] | None = None,
+        convention: DeliveryConvention | None = None,
+        effective_at: float | None = None,
     ) -> PortfolioState:
         """Book a holding exchanged for others and cash, exactly as computed (ledger FUT-021).
 
@@ -846,6 +856,15 @@ class PortfolioEngine:
         signed units and their basis -- when it takes only part (FUT-030, phase
         4): one alternative of an elective action applied to its electors' part
         of one position. It stays held as it was, beside a retained part.
+
+        ``delivers`` names each received leg delivered after ``timestamp``
+        (FUT-037, phase 5): its delivery instant and each strategy's part. The
+        leg is the holder's entitlement from ``timestamp`` -- booked, valued and
+        attributed -- and an ``EXCHANGE`` ledger transaction of its own records
+        its units owed (:data:`~alphalab.portfolio.settlement.DELIVERS`), pending
+        until the instant under ``convention``: by default neither sold nor
+        counted as collateral until delivered. ``effective_at`` is the action's
+        effective instant the deliveries are keyed by, ``timestamp`` unless given.
 
         Raises:
             InvalidTransactionError: If the account holds no position in
@@ -944,6 +963,28 @@ class PortfolioEngine:
                         pays_at,
                     ),
                 )  # fmt: skip
+        key = entitlement_key(asset_id, timestamp if effective_at is None else effective_at)
+        for leg in received:
+            planned = None if delivers is None else delivers.get(leg.asset_id)
+            if planned is None or planned[0] <= timestamp:
+                continue
+            when, parts = planned
+            metadata = {
+                SETTLES_AT: when,
+                SETTLEMENT_CASH: "0",
+                DELIVERS: str(leg.quantity),
+                DELIVERY_OF: key,
+                DELIVERY_PARTS: ";".join(f"{sid}={units}" for sid, units in sorted(parts.items())),
+                DELIVERY_BASIS: str(to_money(leg.basis, leg.currency, units)),
+                DELIVERY_TERMS: (convention or DeliveryConvention()).terms,
+                **({"exchange": reference} if reference else {}),
+            }
+            tx = Transaction(
+                str(new_id()), timestamp, state.account.account_id, TransactionType.EXCHANGE,
+                leg.asset_id, Decimal("0"), Decimal("0"), Decimal("0.0"), leg.currency, metadata,
+            )  # fmt: skip
+            ledger = ledger.append(tx)
+            unsettled = settle_pending(unsettled, timestamp, _delivery_entry(tx, when))
         gain = to_money(realized, held.currency, units)
         evt = PositionExchanged(
             timestamp,
@@ -1151,6 +1192,169 @@ class PortfolioEngine:
 
     @staticmethod
     @in_accounting_context
+    def amend_delivery(
+        state: PortfolioState,
+        holding: str,
+        effective_at: float,
+        asset_id: str,
+        change: PaymentChange,
+        timestamp: float,
+        *,
+        delivers_at: float | None = None,
+        units: Decimal | None = None,
+        reference: str = "",
+    ) -> tuple[PortfolioState, Mapping[str, Decimal]]:
+        """Book a later word on units an exchange delivers after its instant (FUT-037, phase 5).
+
+        The delivery is ``asset_id``'s leg of the exchange of ``holding``
+        effective at ``effective_at``; each amendment is a ledger transaction of
+        its own, naming it, so the original stays as booked:
+
+        * ``DELAYED`` -- delivered at ``delivers_at`` instead, after ``timestamp``;
+          the units are owed until then, though the clock had delivered them.
+        * ``CORRECTED`` -- ``units`` delivered, fewer than owed: the shortfall
+          and its share of the basis are written off, out of the position and
+          realized P&L, and the rest is owed as before.
+        * ``FAILED`` -- not delivered: every unit owed and its basis written off,
+          none of it ever held.
+
+        Returns the book and each strategy's units written off, by its part of
+        the delivery, for the allocation ledger to follow. A book owed no such
+        delivery -- the run held none of the action -- is returned as it is.
+
+        Raises:
+            InvalidTransactionError: If the delivery failed already, a delay names
+                no later instant, a correction names no fewer units than owed, or
+                the change is not one a delivery takes.
+        """
+
+        key = entitlement_key(holding, effective_at)
+        chain = [
+            t
+            for t in state.ledger.transactions
+            if t.type is TransactionType.EXCHANGE
+            and t.asset_id == asset_id
+            and t.metadata.get(DELIVERY_OF) == key
+        ]
+        if not chain:
+            return state, {}
+        if any(t.metadata.get(PAYMENT_CHANGE) == PaymentChange.FAILED.name for t in chain):
+            raise InvalidTransactionError(
+                f"The delivery of {asset_id} for {holding}'s action failed already; nothing "
+                "amends it after."
+            )
+        owed = sum(
+            (Decimal(str(t.metadata[DELIVERS])) for t in chain if DELIVERS in t.metadata),
+            Decimal("0"),
+        )
+        basis = sum(
+            (
+                Decimal(str(t.metadata[DELIVERY_BASIS]))
+                for t in chain
+                if DELIVERY_BASIS in t.metadata
+            ),
+            Decimal("0"),
+        )
+        original = next(t for t in chain if DELIVERY_PARTS in t.metadata)
+        parts = _parts_of(original)
+        by_id = {t.transaction_id: t for t in chain}
+        unit_ids = [t.transaction_id for t in chain if DELIVERS in t.metadata]
+        name = change.name
+
+        def booked(extra: Mapping[str, Any]) -> Transaction:
+            metadata: dict[str, Any] = {DELIVERY_OF: key, PAYMENT_CHANGE: name, **extra}
+            if reference:
+                metadata["exchange"] = reference
+            return Transaction(
+                str(new_id()), timestamp, state.account.account_id, TransactionType.EXCHANGE,
+                asset_id, Decimal("0"), Decimal("0"), Decimal("0.0"), original.currency, metadata,
+            )  # fmt: skip
+
+        ledger, unsettled = state.ledger, state.unsettled
+        written_off = Decimal("0")
+        if change is PaymentChange.DELAYED:
+            if delivers_at is None or delivers_at <= timestamp:
+                raise InvalidTransactionError(
+                    f"A delayed delivery arrives after the delay is known ({timestamp!r}), got "
+                    f"{delivers_at!r}."
+                )
+            tx = booked({AFFECTS: ",".join(unit_ids), SETTLES_AT: delivers_at})
+            ledger = ledger.append(tx)
+            unsettled = amend_pending(settle_pending(unsettled, timestamp), tx, by_id)
+            settles: float | None = delivers_at
+        elif change is PaymentChange.CORRECTED:
+            if (
+                units is None
+                or units.copy_abs() >= owed.copy_abs()
+                or (units != 0 and (units > 0) != (owed > 0))
+            ):
+                raise InvalidTransactionError(
+                    f"A corrected delivery delivers fewer than the {owed} owed, got {units!r}."
+                )
+            written_off = owed - units
+            waiting = [e for e in state.unsettled if e.transaction_id in unit_ids]
+            settles = max((e.settles_at for e in waiting), default=timestamp)
+            tx = booked(
+                {
+                    DELIVERS: str(-written_off),
+                    DELIVERY_TERMS: str(original.metadata.get(DELIVERY_TERMS, "")),
+                    DELIVERY_BASIS: str(-_share_of(basis, written_off, owed)),
+                    SETTLES_AT: settles,
+                    SETTLEMENT_CASH: "0",
+                }
+            )
+            ledger = ledger.append(tx)
+            if settles > timestamp:
+                unsettled = settle_pending(unsettled, timestamp, _delivery_entry(tx, settles))
+        elif change is PaymentChange.FAILED:
+            written_off = owed
+            tx = booked({AFFECTS: ",".join(unit_ids)})
+            ledger = ledger.append(tx)
+            unsettled = amend_pending(unsettled, tx, by_id)
+            settles = None
+        else:
+            raise InvalidTransactionError(
+                f"A delivery is delayed, corrected or failed, not {name}."
+            )
+        positions, realized = state.book, state.realized_pnl
+        if written_off:
+            position = positions.get(asset_id)
+            lost = _share_of(basis, written_off, owed)
+            if position is not None:
+                remaining = position.quantity - written_off
+                if remaining == 0:
+                    positions = positions.delete(asset_id)
+                else:
+                    positions = positions.set(
+                        asset_id,
+                        position._rebased(
+                            remaining, position.basis - lost, position.realized_pnl,
+                            position.market_price, timestamp,
+                        ),
+                    )  # fmt: skip
+            realized = realized.add(-lost, original.currency)
+        evt = DeliveryAmended(
+            timestamp, state.account.account_id, holding, effective_at, asset_id, name, owed,
+            owed - written_off, settles, reference,
+        )  # fmt: skip
+        lost_parts = {
+            sid: (part * written_off / owed if owed else Decimal("0"))
+            for sid, part in parts.items()
+        }
+        return (
+            evolve(
+                state,
+                positions=positions,
+                ledger=ledger,
+                unsettled=unsettled,
+                realized_pnl=realized,
+                events=state.events.append(evt),
+            ),
+            {sid: part for sid, part in lost_parts.items() if part},
+        )
+
+    @staticmethod
+    @in_accounting_context
     def apply_split(state: PortfolioState, split: Split, timestamp: float) -> PortfolioState:
         """Apply a split, reverse split or stock dividend to a holding (ledger ACC-006).
 
@@ -1177,6 +1381,36 @@ class PortfolioEngine:
             positions=state.book.set(split.asset_id, after),
             events=state.events.append(evt),
         )
+
+
+def _delivery_entry(transaction: Transaction, settles_at: float) -> PendingSettlement:
+    """An exchange leg's units owed until ``settles_at`` (FUT-037)."""
+
+    return PendingSettlement(
+        transaction.transaction_id,
+        transaction.asset_id,
+        transaction.currency,
+        Decimal("0"),
+        Decimal(str(transaction.metadata[DELIVERS])),
+        transaction.timestamp,
+        settles_at,
+        str(transaction.metadata.get(DELIVERY_TERMS, "")),
+    )
+
+
+def _parts_of(transaction: Transaction) -> dict[str, Decimal]:
+    """Each strategy's part of a delivery, as its ledger transaction records it."""
+
+    text = str(transaction.metadata.get(DELIVERY_PARTS, ""))
+    parts = {}
+    for item in text.split(";") if text else ():
+        sid, _, units = item.rpartition("=")
+        parts[sid] = Decimal(units)
+    return parts
+
+
+def _share_of(total: Decimal, part: Decimal, whole: Decimal) -> Decimal:
+    return Decimal("0") if whole == 0 else total * part / whole
 
 
 #: The payment changes after which nothing more amends a payment (FUT-034).

@@ -343,6 +343,20 @@ names what the release established and the ADR that records the decision.
   payload, and so every run's identity, unchanged. An undeclared configuration
   reads back as JSON reads it (LIM-004), as before.
 
+## After the v4.2.0 candidate: phase 5 (the release that carries it is the maintainer's decision)
+
+Delivered on the same development branch after the phase 4 checkpoint at
+`cde89f6`. The package still states 4.2.0; whether this work ships in v4.2.0 or
+a later release is the maintainer's decision, and nothing here assigns it.
+
+- **Legs delivered after an exchange's effective instant** (FUT-037): a
+  `DeliveredExchange` keeps the effective and delivery instants apart -- each
+  holder's entitlement to the legs recorded at the effective instant, its
+  units owed until each leg's declared delivery, under a declared
+  `DeliveryConvention` (by default neither sold nor counted as collateral
+  before they arrive) -- and a `DeliveryAmendment` delays, corrects or fails a
+  delivery, each a ledger entry beside the original.
+
 # Deliberate boundaries
 
 Not built, on purpose. Each has a reason, and most have a regression test that a
@@ -714,7 +728,6 @@ maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-037 | **Legs delivered after an exchange's effective instant** | declare the exchange at the legs' delivery instant, its cash as a PaidExchange | v4.4 | delayed and amended payments |
 | FUT-038 | **An elective action's terms corrected after their announcement** | declare the final terms, announced at the correction's instant | v4.4 | holder elections, split elections |
 | FUT-039 | **Volatility surfaces delivered as observations during a run** | declare each dated surface on the margin model | v4.4 | dated surfaces, observations |
 | FUT-040 | **A strategy's view of a reopening auction's published book** | deliver the venue's auction messages as observations | v4.4 | computed auctions |

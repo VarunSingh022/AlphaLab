@@ -552,6 +552,18 @@ so a manifest asked for it records the digest of the registry the run held, as
 its snapshot writes it, read off the run and never supplied. Opt-in, so no
 existing manifest identity moves.
 
+**43. Units owed are held, not delivered (FUT-037, phase 5).** A holding
+converted at its effective instant becomes its holder's entitlement then --
+booked, valued and attributed, so the equity curve shows what the holder owns
+-- while the units themselves arrive at each leg's declared delivery instant.
+The settlement index already carries units pending; an undelivered leg is a
+ledger entry of its own there, so a restore rebuilds it as it rebuilds a fill.
+What owed units may do before they arrive is a market's or custodian's
+convention, declared: by default they are not sold and not counted as margin
+collateral. A delivery delayed, short or failed is a later word booked beside
+the entitlement -- a shortfall writes off its units and their share of the
+basis, taken from each strategy by its part -- never a rewrite of it.
+
 ---
 
 # Consequences
@@ -624,8 +636,9 @@ existing manifest identity moves.
   (FUT-030), though an action's terms corrected after their announcement are
   not; its cash may be paid at a later declared
   instant (FUT-025) and delayed, failed, corrected, reversed or replaced by
-  the issuer's later word (FUT-034), but legs delivered after the effective
-  instant are not; strategies holding opposite sides of it are refused.
+  the issuer's later word (FUT-034), and its legs delivered at declared later
+  instants (FUT-037, phase 5); strategies holding opposite sides of it are
+  refused.
 - **The queue model reads the displayed top of the book**: depth beyond it,
   hidden and iceberg liquidity, self-trade prevention and keep-priority amends
   are not modelled; the run's own resting orders are not in the feed, so each is

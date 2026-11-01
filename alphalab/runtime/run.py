@@ -82,7 +82,7 @@ from alphalab.portfolio.corporate_actions import (
     Split,
 )
 from alphalab.portfolio.fx import NO_RATES, FxRates
-from alphalab.portfolio.settlement import PaymentChange
+from alphalab.portfolio.settlement import DeliveryConvention, PaymentChange
 from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.exceptions import AlphaLabRuntimeError, RuntimeValidationError
 from alphalab.runtime.execution_pipeline import (
@@ -858,19 +858,23 @@ class RunEngine:
         *,
         payment_at: float | None = None,
         part: Mapping[str, Decimal] | None = None,
+        delivers_at: Mapping[str, float] | None = None,
+        delivery: DeliveryConvention | None = None,
     ) -> RunState:
         """Exchange a holding by its declared terms at ``timestamp`` (FUT-021).
 
         ``timestamp`` defaults to the run's current instant; ``payment_at`` is
         when its cash is paid, if later (FUT-025); ``part`` is each strategy's
-        units of it exchanged, when not the whole (FUT-030). See
+        units of it exchanged, when not the whole (FUT-030); ``delivers_at`` the
+        legs delivered later, under ``delivery`` (FUT-037). See
         :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.apply_exchange`.
         """
 
         clock = state.current_timestamp if timestamp is None else timestamp
         pipeline = ExecutionPipeline.apply_exchange(
-            state.pipeline, exchange, clock, rates, payment_at=payment_at, part=part
-        )
+            state.pipeline, exchange, clock, rates, payment_at=payment_at, part=part,
+            delivers_at=delivers_at, delivery=delivery,
+        )  # fmt: skip
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )
@@ -888,6 +892,36 @@ class RunEngine:
 
         clock = state.current_timestamp if timestamp is None else timestamp
         pipeline = ExecutionPipeline.record_holders(state.pipeline, asset_id, action, clock)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def amend_delivery(
+        state: RunState,
+        holding: str,
+        effective_at: float,
+        asset_id: str,
+        change: PaymentChange,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+        *,
+        delivers_at: float | None = None,
+        units: Decimal | None = None,
+        reference: str = "",
+    ) -> RunState:
+        """Book a later word on units an exchange delivers after its instant (FUT-037, phase 5).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.amend_delivery`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.amend_delivery(
+            state.pipeline, holding, effective_at, asset_id, change, clock, rates,
+            delivers_at=delivers_at, units=units, reference=reference,
+        )  # fmt: skip
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )

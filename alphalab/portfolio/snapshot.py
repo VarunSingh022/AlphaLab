@@ -85,6 +85,7 @@ from alphalab.portfolio.events import (
     CashDeposited,
     CashFlowBooked,
     CashWithdrawn,
+    DeliveryAmended,
     MarketValueUpdated,
     PaymentAmended,
     PortfolioEvent,
@@ -178,6 +179,8 @@ _EVENT_TYPES: Mapping[str, type[PortfolioEvent]] = {
         PositionExchanged,
         # Phase 4 (FUT-034): written only by a run whose payment was amended.
         PaymentAmended,
+        # Phase 5 (FUT-037): written only by a run whose delivery was amended.
+        DeliveryAmended,
     )
 }
 

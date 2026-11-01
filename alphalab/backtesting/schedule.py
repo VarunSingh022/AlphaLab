@@ -61,7 +61,7 @@ from __future__ import annotations
 import decimal
 import hashlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import IntEnum, StrEnum, unique
@@ -97,7 +97,7 @@ from alphalab.portfolio.financing import (
     require_tiers,
 )
 from alphalab.portfolio.fx import FxRate, FxRates
-from alphalab.portfolio.settlement import PaymentChange
+from alphalab.portfolio.settlement import DeliveryConvention, PaymentChange
 from alphalab.portfolio.types import TransactionType
 from alphalab.runtime.execution_pipeline import ContextFactory
 from alphalab.runtime.run import RunEngine, RunState
@@ -108,6 +108,8 @@ __all__ = [
     "DailyAccrual",
     "DailyBorrowFee",
     "DailyInterest",
+    "DeliveredExchange",
+    "DeliveryAmendment",
     "ElectiveExchange",
     "Funding",
     "PaidExchange",
@@ -502,6 +504,61 @@ class PaidExchange:
 
 
 @dataclass(frozen=True, slots=True)
+class DeliveredExchange:
+    """A holding exchanged at ``at`` whose legs are delivered later (FUT-037, phase 5).
+
+    The issuer's three instants, kept apart: at ``at`` -- effective -- the
+    holding is exchanged and each holder's entitlement to the legs recorded,
+    its basis and its strategies' parts; at each leg's delivery instant the
+    units arrive; the cash part is paid at ``payment_at``, when stated
+    (FUT-025). Until delivered, units are owed -- valued, and attributed --
+    but, under the declared ``convention``, by default neither sold nor counted
+    as margin collateral. Markets deliver on their own schedules, so each leg's
+    instant is declared, never assumed: a leg named in none is delivered at
+    ``at``.
+
+    Attributes:
+        exchange: The terms.
+        at: The effective instant.
+        deliveries: ``(asset_id, instant)`` for each leg delivered after ``at``.
+        payment_at: When the cash part is paid, or ``None`` for at ``at``.
+        convention: What undelivered units may do before they arrive.
+    """
+
+    exchange: HoldingExchange
+    at: float
+    deliveries: tuple[tuple[str, float], ...]
+    payment_at: float | None = None
+    convention: DeliveryConvention = field(default_factory=DeliveryConvention)
+
+    def __post_init__(self) -> None:
+        legs = {leg.asset_id for leg in self.exchange.legs}
+        named = [asset for asset, _ in self.deliveries]
+        if not named or len(set(named)) != len(named):
+            raise ScheduleValidationError(
+                "A delivered exchange names each leg delivered later once, and at least one."
+            )
+        stray = sorted(set(named) - legs)
+        if stray:
+            raise ScheduleValidationError(
+                f"A delivered exchange delivers {stray}, which its terms do not exchange for."
+            )
+        for asset, when in self.deliveries:
+            if when <= self.at:
+                raise ScheduleValidationError(
+                    f"{asset} is delivered at {when!r}, not after the exchange's {self.at!r}: "
+                    "a leg delivered at its instant is no delivery to declare."
+                )
+        if self.payment_at is not None and self.payment_at < self.at:
+            raise ScheduleValidationError(
+                f"An exchange effective at {self.at!r} pays at {self.payment_at!r}, before it."
+            )
+        if not isinstance(self.convention, DeliveryConvention):
+            raise ScheduleValidationError("A delivery's convention is a DeliveryConvention.")
+        object.__setattr__(self, "deliveries", tuple(sorted(self.deliveries)))
+
+
+@dataclass(frozen=True, slots=True)
 class ElectiveExchange:
     """A corporate action offering its holders alternatives, by election (FUT-024, phase 3).
 
@@ -617,6 +674,59 @@ class ElectiveExchange:
 
 
 @dataclass(frozen=True, slots=True)
+class DeliveryAmendment:
+    """A later word on a leg an exchange delivers after its instant, at ``at`` (FUT-037).
+
+    Names ``asset_id``'s delivery of the exchange of ``holding`` effective at
+    ``effective_at`` -- a :class:`DeliveredExchange` the schedule declares --
+    and what became of it: ``DELAYED`` to ``delivers_at``; ``CORRECTED`` to
+    ``units`` delivered, fewer than owed; ``FAILED``, none delivered. ``at``
+    is when the run learns of it.
+    """
+
+    holding: str
+    effective_at: float
+    asset_id: str
+    at: float
+    change: PaymentChange
+    delivers_at: float | None = None
+    units: Decimal | None = None
+    reference: str = ""
+
+    def __post_init__(self) -> None:
+        if self.change not in (
+            PaymentChange.DELAYED,
+            PaymentChange.CORRECTED,
+            PaymentChange.FAILED,
+        ):
+            raise ScheduleValidationError(
+                f"A delivery is delayed, corrected or failed, got {self.change!r}."
+            )
+        if self.at < self.effective_at:
+            raise ScheduleValidationError(
+                f"A delivery of an action effective at {self.effective_at!r} is amended at "
+                f"{self.at!r}, before it."
+            )
+        delayed = self.change is PaymentChange.DELAYED
+        if delayed != (self.delivers_at is not None) or (
+            delayed and self.delivers_at is not None and self.delivers_at <= self.at
+        ):
+            raise ScheduleValidationError(
+                "A delayed delivery, and only one, names its new instant, after the word."
+            )
+        if (self.change is PaymentChange.CORRECTED) != (self.units is not None):
+            raise ScheduleValidationError(
+                "A corrected delivery, and only one, names the units delivered."
+            )
+
+    @property
+    def key(self) -> str:
+        """The delivery it names: holding, effective instant and leg."""
+
+        return f"delivery:{self.holding}|{self.effective_at!r}|{self.asset_id}"
+
+
+@dataclass(frozen=True, slots=True)
 class PaymentAmendment:
     """The issuer's later word on a corporate action's payment, at ``at`` (FUT-034, phase 4).
 
@@ -695,8 +805,8 @@ class PaymentAmendment:
 
 
 def _require_payments(
-    payments: tuple[PaymentAmendment, ...],
-    exchanges: tuple[ScheduledExchange | PaidExchange | ElectiveExchange, ...],
+    payments: tuple[PaymentAmendment | DeliveryAmendment, ...],
+    exchanges: tuple[ScheduledExchange | PaidExchange | ElectiveExchange | DeliveredExchange, ...],
 ) -> None:
     """Each amendment names an exchange the schedule declares, none after a terminal one."""
 
@@ -704,8 +814,22 @@ def _require_payments(
         (x.asset_id if isinstance(x, ElectiveExchange) else x.exchange.asset_id, x.at)
         for x in exchanges
     }
-    by_payment: dict[str, list[PaymentAmendment]] = {}
+    delivered = {
+        (x.exchange.asset_id, x.at, asset)
+        for x in exchanges
+        if isinstance(x, DeliveredExchange)
+        for asset, _ in x.deliveries
+    }
+    by_payment: dict[str, list[PaymentAmendment | DeliveryAmendment]] = {}
     for amendment in payments:
+        if isinstance(amendment, DeliveryAmendment) and (
+            (amendment.holding, amendment.effective_at, amendment.asset_id) not in delivered
+        ):
+            raise ScheduleValidationError(
+                f"A delivery amendment names {amendment.asset_id}'s delivery for the exchange "
+                f"of {amendment.holding} at {amendment.effective_at!r}, which the schedule "
+                "does not declare."
+            )
         if (amendment.holding, amendment.effective_at) not in declared:
             raise ScheduleValidationError(
                 f"A payment amendment names the exchange of {amendment.holding} at "
@@ -860,8 +984,10 @@ class RunSchedule:
         expiries: Iterable[ScheduledExpiry] = (),
         interest: Iterable[ScheduledInterest | DailyInterest] = (),
         borrow_fees: Iterable[ScheduledBorrowFee | DailyBorrowFee] = (),
-        exchanges: Iterable[ScheduledExchange | PaidExchange | ElectiveExchange] = (),
-        payments: Iterable[PaymentAmendment] = (),
+        exchanges: Iterable[
+            ScheduledExchange | PaidExchange | ElectiveExchange | DeliveredExchange
+        ] = (),
+        payments: Iterable[PaymentAmendment | DeliveryAmendment] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
 
@@ -1148,11 +1274,21 @@ def _apply(
     if kind is ScheduleKind.RECORD:
         action = item.action
         return rates, RunEngine.record_holders(state, action.asset_id, action.reference, entry.at)
+    if kind is ScheduleKind.EXCHANGE and isinstance(item, DeliveredExchange):
+        return rates, RunEngine.apply_exchange(
+            state, item.exchange, item.at, rates, payment_at=item.payment_at,
+            delivers_at=dict(item.deliveries), delivery=item.convention,
+        )  # fmt: skip
     if kind is ScheduleKind.EXCHANGE:
         paid = item.payment_at if isinstance(item, PaidExchange) else None
         return rates, RunEngine.apply_exchange(
             state, item.exchange, item.at, rates, payment_at=paid
         )
+    if kind is ScheduleKind.PAYMENT and isinstance(item, DeliveryAmendment):
+        return rates, RunEngine.amend_delivery(
+            state, item.holding, item.effective_at, item.asset_id, item.change, item.at, rates,
+            delivers_at=item.delivers_at, units=item.units, reference=item.reference,
+        )  # fmt: skip
     if kind is ScheduleKind.PAYMENT:
         return rates, RunEngine.amend_payment(
             state, item.holding, item.effective_at, item.currency, item.change, item.at, rates,

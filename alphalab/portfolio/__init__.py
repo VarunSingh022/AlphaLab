@@ -110,6 +110,7 @@ from .nav import NAVCalculator as NAVCalculator
 from .pnl import PnLEngine as PnLEngine
 from .position import Position as Position
 from .settlement import CashPosition as CashPosition
+from .settlement import DeliveryConvention as DeliveryConvention
 from .settlement import Entitlement as Entitlement
 from .settlement import EntitlementStatus as EntitlementStatus
 from .settlement import PaymentChange as PaymentChange
@@ -148,6 +149,7 @@ __all__ = [
     "ContractSettlement",
     "CurrencyAttribution",
     "CurrencyAttributionReport",
+    "DeliveryConvention",
     "Entitlement",
     "EntitlementStatus",
     "ExchangeLeg",

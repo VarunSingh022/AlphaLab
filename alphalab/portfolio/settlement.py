@@ -37,6 +37,12 @@ Each amendment is a ledger transaction of its own, naming the entitlement it
 amends and the pending entries it re-dates or closes, so the original stays as
 booked, the index a restore rebuilds equals the one a run kept, and
 :func:`entitlements` reconciles each payment from the ledger alone.
+
+An exchange's legs may be delivered after its effective instant (FUT-037,
+phase 5): each undelivered leg is a ledger transaction of its own (:data:`DELIVERS`)
+whose units are pending until their delivery instant, under a declared
+:class:`DeliveryConvention` -- by default neither sellable nor collateral
+until they arrive.
 """
 
 from __future__ import annotations
@@ -52,11 +58,17 @@ from alphalab.portfolio.types import TransactionType
 
 __all__ = [
     "AFFECTS",
+    "DELIVERS",
+    "DELIVERY_BASIS",
+    "DELIVERY_OF",
+    "DELIVERY_PARTS",
+    "DELIVERY_TERMS",
     "ENTITLEMENT",
     "PAYMENT_CHANGE",
     "SETTLEMENT_CASH",
     "SETTLES_AT",
     "CashPosition",
+    "DeliveryConvention",
     "Entitlement",
     "EntitlementStatus",
     "PaymentChange",
@@ -81,6 +93,50 @@ PAYMENT_CHANGE: Final = "payment_change"
 #: The metadata key of the ledger transactions whose pending cash an amendment
 #: re-dates or closes, comma-separated.
 AFFECTS: Final = "affects"
+#: The metadata key of an exchange leg's units delivered after its effective
+#: instant (FUT-037): the units, signed; a correction books its own difference.
+DELIVERS: Final = "delivers"
+#: The metadata key naming the exchange a delivery or its amendment is of:
+#: :func:`entitlement_key` of the holding and the effective instant.
+DELIVERY_OF: Final = "delivery_of"
+#: The metadata key of each strategy's part of a delivery, "sid=units;...".
+DELIVERY_PARTS: Final = "delivery_parts"
+#: The metadata key of the basis a delivery's units carry.
+DELIVERY_BASIS: Final = "delivery_basis"
+#: The metadata key of a delivery's convention: "sellable", "collateral", both or neither.
+DELIVERY_TERMS: Final = "delivery_terms"
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveryConvention:
+    """What undelivered units may do before they arrive (FUT-037, phase 5).
+
+    A market's or a custodian's convention, declared: nothing is assumed. By
+    default an entitlement to units is held -- valued, and the holder's -- but
+    neither sold nor counted as collateral until delivered.
+
+    Attributes:
+        sellable: Whether the units may be sold before delivery, as on a market
+            trading them when issued.
+        collateral: Whether margin equity counts them before delivery.
+    """
+
+    sellable: bool = False
+    collateral: bool = False
+
+    @property
+    def terms(self) -> str:
+        """The convention as the ledger records it."""
+
+        return ",".join(
+            name
+            for name, on in (("sellable", self.sellable), ("collateral", self.collateral))
+            if on
+        )
+
+
+def _is_delivery(transaction: Transaction) -> bool:
+    return DELIVERS in transaction.metadata or DELIVERY_OF in transaction.metadata
 
 
 class PaymentChange(Enum):
@@ -171,6 +227,9 @@ class PendingSettlement:
         traded_at: The trade instant.
         settles_at: The settlement instant, by its instrument's declared rule and
             its venue's calendar.
+        delivery: For an exchange's units delivered later (FUT-037), its
+            convention's terms -- "" for neither sellable nor collateral; ``None``
+            for a fill's or a payment's settlement.
     """
 
     transaction_id: str
@@ -180,6 +239,7 @@ class PendingSettlement:
     quantity: Decimal
     traded_at: float
     settles_at: float
+    delivery: str | None = None
 
     def pending_at(self, at: float) -> bool:
         """Whether it is still unsettled at ``at``."""
@@ -243,6 +303,19 @@ def _entry_of(transaction: Transaction, settles_at: float) -> PendingSettlement:
 
     exchange = transaction.type is TransactionType.EXCHANGE
     cash = transaction.metadata.get(SETTLEMENT_CASH)
+    delivered = transaction.metadata.get(DELIVERS)
+    if delivered is not None:
+        # Units an exchange delivers later (FUT-037): no cash, the units owed.
+        return PendingSettlement(
+            transaction.transaction_id,
+            transaction.asset_id,
+            transaction.currency,
+            Decimal("0"),
+            Decimal(str(delivered)),
+            transaction.timestamp,
+            settles_at,
+            str(transaction.metadata.get(DELIVERY_TERMS, "")),
+        )
     return PendingSettlement(
         transaction.transaction_id,
         transaction.asset_id,
@@ -339,7 +412,7 @@ def entitlements(transactions: Iterable[Transaction], at: float) -> tuple[Entitl
     pending = pending_from(ledger)
     keys: dict[tuple[str, float, str], None] = {}
     for transaction in ledger:
-        if transaction.type is not TransactionType.EXCHANGE:
+        if transaction.type is not TransactionType.EXCHANGE or _is_delivery(transaction):
             continue
         named = transaction.metadata.get(ENTITLEMENT)
         if named is None:

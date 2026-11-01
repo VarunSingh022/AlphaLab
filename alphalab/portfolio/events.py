@@ -192,6 +192,31 @@ class PaymentAmended(PortfolioEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class DeliveryAmended(PortfolioEvent):
+    """Units an exchange delivers later, amended by a later word (FUT-037, phase 5).
+
+    Attributes:
+        asset_id: The holding the action exchanged.
+        effective_at: The action's effective instant.
+        delivered_asset: The leg delivered.
+        change: What changed, by :class:`~alphalab.portfolio.settlement.PaymentChange` name.
+        owed_before: The units owed before, signed.
+        owed_after: The units owed after.
+        settles_at: When what is owed now is delivered, or ``None``.
+        reference: The issuer's reference.
+    """
+
+    asset_id: str
+    effective_at: float
+    delivered_asset: str
+    change: str
+    owed_before: Decimal
+    owed_after: Decimal
+    settles_at: float | None
+    reference: str
+
+
+@dataclass(frozen=True, slots=True)
 class PositionSplit(PortfolioEvent):
     """A split or stock dividend changed a position's quantity, not its value (ACC-006).
 
