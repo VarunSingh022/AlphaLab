@@ -94,6 +94,7 @@ API.
 | 74 | `74_evaluate_an_execution_algorithm.py` | **Evaluate an execution algorithm in a backtest** (v4.1.1): one decision executed whole and by TWAP, VWAP, participation and iceberg over the same minute bars; every child through the run's liquidity cap, spread, impact and commission, settled on one parent order; implementation shortfall for each; the replay paused with a child working and resumed from JSON |
 | 75 | `75_exercise_assign_and_deliver.py` | **Exercise, assign and deliver** (v4.1.1): an option's whole life on a declared market's calendar -- an American physical call exercised early before a dividend, a European cash-settled index put settled at expiry, the shares delivered against the strike, refusals, and the run replayed and resumed |
 | 76 | `76_a_financed_long_short_book.py` | **A financed long-short book** (v4.2.0): a pair margined together by declared scenarios, a margin purchase's debit charged tiered interest, a short on a lender's declared borrow and fee, a halt and a price band on the venue, the short carried through a merger, and the run replayed and resumed |
+| 77 | `77_a_short_squeezed_by_its_lender.py` | **A short squeezed by its lender** (phase 3): a lender's recall bought in after its deadline, the buy-in resting through a halt and crossing at the reopening auction, a bid amended in place, a day's borrow fee accrued and posted once, and the run replayed and resumed |
 
 ## Reading order
 

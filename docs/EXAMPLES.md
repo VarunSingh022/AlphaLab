@@ -58,6 +58,7 @@ The `examples/` directory contains:
 | `74_evaluate_an_execution_algorithm.py` | **Evaluate an execution algorithm in a backtest** (v4.1.1): one decision executed whole and by TWAP, VWAP, participation and iceberg over the same bars, each child through the run's liquidity cap and cost model, measured as implementation shortfall; replayed and resumed |
 | `75_exercise_assign_and_deliver.py` | **Exercise, assign and deliver** (v4.1.1): an American physically settled call exercised early before a dividend by a stated policy, a European cash-settled put on an index settled at expiry, every instant from a declared market's calendar; refusals; replayed and resumed |
 | `76_a_financed_long_short_book.py` | **A financed long-short book** (v4.2.0): a pair margined by declared scenarios, the long bought on margin and its debit charged tiered interest, the short sold against a lender's declared borrow and its fee, a bid placed in a halt and re-quoted inside a price band, the short carried through a merger; replayed and resumed |
+| `77_a_short_squeezed_by_its_lender.py` | **A short squeezed by its lender** (phase 3): a recall from its notice, the buy-in after its deadline resting through a halt and crossing at the venue's reopening auction, a resting bid amended in place keeping its priority, the day's borrow fee accrued at a declared cutoff; replayed and resumed |
 
 ---
 
@@ -443,6 +444,17 @@ prices are synthetic and the market is a stated one.
 `test_trading_controls.py`, `test_holding_exchanges.py` and
 `test_v42_milestone_interactions.py` hold the mechanism. Every price, rate and
 term is synthetic -- no broker's, lender's, venue's or issuer's.
+
+# A short squeezed by its lender (phase 3)
+
+| # | Shows |
+|---|---|
+| 77 | 1,000 LENDCO sold short against 1,000 a lender declares. At hour 2 the lender recalls all but 400, with a deadline of hour 3; at hour 3 the 600 beyond what is still lent is bought in -- each short strategy's own cover through allocation, risk and the OMS. The venue halts LENDCO from hour 3.5 to 5.5 and reopens it by auction, so the buy-in rests through the halt and crosses at hour 6's print of 104. A bid of 600 at 90, resting since hour 1, is trimmed to 300 with `IntentKind.AMEND`: reduced in place, its id and queue priority kept, and it takes no part in the auction its price does not reach. The day's borrow fee accrues at 20:30 UTC on the 400 still short at that hour's mark, and posts once. The run replayed, paused after the fifth record, written to JSON and resumed |
+
+`tests/integration/test_squeezed_short_example.py` holds it figure for figure;
+`test_borrow_recall.py`, `test_reopening_auctions.py`, `test_strategy_amends.py`,
+`test_daily_accrual.py` and `test_phase3_interactions.py` hold the mechanism.
+Every price, rate and term is synthetic.
 
 ---
 

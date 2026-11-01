@@ -344,6 +344,12 @@ validation at `350f3f7` (`docs/audit/V4_2_0_READINESS.md`, section 10).
 * **The macro engine's series as observations** [FUT-008].
   `alphalab.api.observations_from_indicator`.
 * **`LiveSession.deliver_observation`** [OFE-027].
+* **Example 77** (*phase 3*) -- a short squeezed by its lender: a recall bought
+  in through a halt and its reopening auction, a bid amended in place, a day's
+  borrow fee [FUT-022, FUT-023, FUT-027, FUT-029] -- held by
+  `tests/integration/test_squeezed_short_example.py` and run from every built
+  artifact. `tests/integration/test_phase3_interactions.py` holds phase 3's
+  capabilities against each other, replayed from every pause.
 * **Examples 72 to 76** -- a multi-asset strategy over prices, sentiment and
   macro releases, a model fitted before a boundary and traded after it
   [FUT-006, FUT-007], one decision executed whole and by four algorithms,
