@@ -242,3 +242,38 @@ def test_a_rerun_from_a_manifest_naming_its_registry_reproduces_under_the_same_t
         build=running_build(), schedule=data.schedule(),
     )  # fmt: skip
     assert other.outcome is RerunOutcome.INPUTS_DIFFER
+
+
+def test_a_manifest_names_the_schedule_that_delivered_what_the_run_kept(
+    example: ModuleType, data: Any
+) -> None:
+    from alphalab.backtesting import RunSchedule
+    from alphalab.instrument import AuctionIndication, DeliveredAuction
+    from alphalab.lifecycle import LifecycleInputError
+
+    acme = example.ACME.asset_id
+    first_bar = min(r.timestamp for r in combined_market_dataset(data.prices).records)
+    sent = DeliveredAuction(
+        AuctionIndication(acme, first_bar, imbalance=Decimal("5")), first_bar, "venue", "v1"
+    )
+    given = RunSchedule.of(observations=data.deliveries(), auctions=(sent,))
+    config = example.run_config()
+    result = BacktestEngine.run(
+        config, combined_market_dataset(data.prices), example.running(data), example.CONTEXTS,
+        schedule=given,
+    )  # fmt: skip
+    assert result.state.market.auctions[acme] == (sent,)
+
+    def named(schedule: Any) -> Any:
+        return manifest_for_run(
+            result, data.prices, example.fingerprint(data), running_engine(),
+            build=running_build(), schedule=schedule,
+        )  # fmt: skip
+
+    # REP-009: a manifest naming no schedule, or one without the delivery the
+    # run kept, would claim inputs the run did not read.
+    with pytest.raises(LifecycleInputError, match="no schedule was given"):
+        named(None)
+    with pytest.raises(LifecycleInputError, match="does not hold"):
+        named(data.schedule())
+    assert named(given).schedule_digest == given.digest

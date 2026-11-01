@@ -79,6 +79,14 @@ maintainer's decision.
   and by `context.universe.auction` beside what was declared, by
   `alphalab.instrument.controls.published`'s rule. `context.universe.reopening`
   gives the held auction's result.
+* **A manifest names the schedule that delivered what the run kept** [REP-009]
+  (*phase 6*). `manifest_for_run` refuses a manifest naming no schedule, or
+  one without them, for a run that kept delivered surfaces or auction
+  publications.
+* **The phase 6 engine integration audit** (*phase 6*,
+  `docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE6.md`): the live boundary and an
+  adapter's requirements, every economic input against what names it, the
+  research engine against tests; FUT-044 to FUT-046 proposed.
 * **The default manifest's registry: the options** [FUT-042] (*phase 6*).
   ADR-0052, *proposed*: keep it opt-in (A), make it mandatory (B), or version
   the manifest identity (C, recommended), with what each does to every

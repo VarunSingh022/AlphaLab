@@ -867,13 +867,17 @@ def _require_schedule_of(result: BacktestResult, schedule: RunSchedule | None) -
 
     A run records how many observations it delivered and the last one's
     delivery id; a schedule claimed for it must hold that delivery, and hold
-    observations at all if any were delivered. Nothing about a run says whether
-    it was given rates or settlements, so those are taken as given.
+    observations at all if any were delivered. It also keeps every volatility
+    surface (FUT-039) and auction publication (FUT-043) it was delivered, each
+    by source and version: a manifest of such a run must name a schedule, and
+    that schedule must hold each one (phase 6, REP-009). Nothing about a run
+    says whether it was given rates or settlements, so those are taken as given.
     """
 
+    run = result.run
+    _require_deliveries_of(run, schedule)
     if schedule is None:
         return
-    run = result.run
     delivered = {
         entry.identity for entry in schedule.entries if entry.kind is ScheduleKind.OBSERVATION
     }
@@ -888,6 +892,37 @@ def _require_schedule_of(result: BacktestResult, schedule: RunSchedule | None) -
         raise LifecycleInputError(
             f"The run's last delivery was {last[1]!r}, which the schedule does not hold; "
             "it is not the schedule this run was given."
+        )
+
+
+def _require_deliveries_of(run: Any, schedule: RunSchedule | None) -> None:
+    """Every surface and auction publication the run kept is one ``schedule`` holds (REP-009)."""
+
+    pipeline = run.pipeline
+    kept = [
+        (ScheduleKind.SURFACE, f"{o.source}|{o.version}|{underlying}")
+        for underlying, items in pipeline.risk.surfaces.items()
+        for o in items
+    ] + [
+        (ScheduleKind.AUCTION, f"{d.source}|{d.version}|{asset}")
+        for asset, items in pipeline.market.auctions.items()
+        for d in items
+    ]
+    if not kept:
+        return
+    if schedule is None:
+        raise LifecycleInputError(
+            f"The run was delivered {len(kept)} surfaces or auction publications and no "
+            "schedule was given: a manifest naming none would claim the run read no input "
+            "beyond its dataset."
+        )
+    held = {(entry.kind, entry.identity) for entry in schedule.entries}
+    missing = [identity for identity in kept if identity not in held]
+    if missing:
+        kind, identity = missing[0]
+        raise LifecycleInputError(
+            f"The run was delivered {kind.value} {identity!r}, which the schedule does not "
+            "hold; it is not the schedule this run was given."
         )
 
 

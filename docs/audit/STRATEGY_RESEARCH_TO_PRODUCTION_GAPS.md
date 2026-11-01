@@ -95,7 +95,7 @@ adapter over real HTTP (matrix 2.24). This is not repeated in each row.
 
 | Family | Class | Evidence / what is missing |
 | --- | --- | --- |
-| Options volatility, skew, dispersion, Greeks | **A** in research (pricing, Greeks, IV, surfaces, American lattice: examples 35, 36, 66; Hull's references certified); **A** for trading cash-settled options to expiry -- premium times multiplier booked, exercise or assignment at intrinsic value, worthless expiry (`test_contract_expiry.py::test_an_option_is_settled_at_its_intrinsic_value`); **A** for options whose terms are declared -- American and European, cash or physical, exercised early in part, assigned by a supplied input, auto-exercised by a declared threshold, an adjusted deliverable, an option on a future (`test_option_lifecycle.py`, example 75); **D** for baskets, cash in lieu, quanto and Bermudan (FUT-016). Volatility and dispersion strategies themselves are researcher code over these. |
+| Options volatility, skew, dispersion, Greeks | **A** in research (pricing, Greeks, IV, surfaces, American lattice: examples 35, 36, 66; Hull's references certified); **A** for trading cash-settled options to expiry -- premium times multiplier booked, exercise or assignment at intrinsic value, worthless expiry (`test_contract_expiry.py::test_an_option_is_settled_at_its_intrinsic_value`); **A** for options whose terms are declared -- American and European, cash or physical, exercised early in part, assigned by a supplied input, auto-exercised by a declared threshold, an adjusted deliverable, an option on a future (`test_option_lifecycle.py`, example 75); **A** for baskets, cash in lieu, quanto consideration and Bermudan exercise since FUT-016 (`test_advanced_contract_terms.py`). Volatility and dispersion strategies themselves are researcher code over these. |
 | Futures spreads, curve models, rolls, transitions | **A** in research (chains, roll schedules, continuous contracts: examples 33, 34); legs trade as instruments; **A** for cash-settled contract transitions on the path -- records after the last trading instant skipped, requests refused, positions settled and attributed (`test_contract_expiry.py`); **A** for physical delivery of one deliverable (`test_option_lifecycle.py`). |
 | Fixed income, rates, credit, duration | **A** for fixed-rate bonds | `AssetType.BOND` booked by declared economics; `api.bond_schedule` turns `macro.Bond` terms into coupons and a redemption the run applies to whoever holds (`test_bonds_on_the_path.py`); analytics (yield, duration, convexity) in `alphalab.macro.bond`. Accrual is carried by trading full (dirty) prices; no separate accrued-interest entry (ADR-0051). Floating-rate and callable bonds are researcher-built schedules (**C**); credit models are excluded on purpose (ROADMAP boundaries). |
 | Cross-currency strategies | **A** | Scheduled rates on both historical drivers and the facade; a missing rate is refused, never assumed (`test_scheduled_inputs.py`). |
@@ -275,6 +275,21 @@ holds the evidence. Same classes as above.
 | A default manifest's registry, as a gap or by default | 4, identity | FUT-042 (v5.0), the maintainer's decision |
 | Auction books and indications delivered during a run | 5 | FUT-043, **delivered in phase 6** |
 | A real venue, vendor or market's verified rules; depth beyond the top of book | 3 | unchanged (BND-001, BDY-013, BDY-003) |
+
+## The phase 6 engine integration audit
+
+Read after FUT-041 and FUT-043 were delivered:
+[`ENGINE_INTEGRATION_AUDIT_PHASE6.md`](ENGINE_INTEGRATION_AUDIT_PHASE6.md)
+holds the evidence. Same classes as above.
+
+| Finding | Class | Disposition |
+| --- | --- | --- |
+| A rerun from a manifest compared without its registry or schedule | 1 | **Fixed** (REP-008) |
+| A manifest omitting the schedule that delivered surfaces or auctions the run kept | 1 | **Fixed** (REP-009) |
+| Halts, bands and references delivered during a live run | 2 | FUT-044 (v4.4) |
+| An execution model per venue in one simulated run | 2 | FUT-045 (v4.4) |
+| A run's record naming the schedule it was given | 4, identity | FUT-046 (v4.3) |
+| Options on baskets, cash in lieu, quanto, Bermudan (row above) | documentation | corrected: delivered by FUT-016 |
 
 ## Markets
 

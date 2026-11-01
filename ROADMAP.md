@@ -416,6 +416,12 @@ a later release is the maintainer's decision, and nothing here assigns it.
   `context.universe.reopening` gives the held auction's result, never before.
 - **FUT-042's options** (ADR-0052, proposed): the default manifest's registry
   -- opt-in, mandatory or a versioned identity -- left to the maintainer.
+- **The phase 6 engine integration audit**
+  (`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE6.md`): what a live session can be
+  given as it happens, and what a host's adapter must supply; every economic
+  input against the evidence that names it; the research engine checked
+  against tests. A manifest must name the schedule that delivered the
+  surfaces and auctions a run kept (REP-009); three entries proposed.
 
 # Deliberate boundaries
 
@@ -785,12 +791,17 @@ branch after its phase 3 checkpoint at `bbc4085`; those still below are not yet
 delivered. The phase 4 global gap audit proposed the others below, each a
 boundary of what phase 4 delivered; the phase 5 engine integration audit
 (`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`) proposed three more, which
-phase 6 takes up in turn; those still below are not yet delivered.
+phase 6 takes up in turn; those still below are not yet delivered. The
+phase 6 engine integration audit (`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE6.md`)
+proposed three more.
 Every horizon is a proposal for the maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
 | FUT-042 | **A default manifest that names the registry** (a compatibility decision; options in ADR-0052, proposed) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
+| FUT-044 | **Halts, bands and references delivered during a live run** | deliver the venue's halt messages as observations; declare known halts | v4.4 | venue controls, published auctions |
+| FUT-045 | **An execution model per venue in one simulated run** | one backtest per venue's model; the costliest for a conservative run | v4.4 | described execution models |
+| FUT-046 | **A run's record naming the schedule it was given** (an identity decision) | give `manifest_for_run` the schedule; a paused replay records it | v4.3 | the schedule in the manifest |
 
 ---
 
