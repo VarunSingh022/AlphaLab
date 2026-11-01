@@ -31,6 +31,10 @@ limitations of section 5 stand. AlphaLab ships no market's rules, data or venue:
 a market is supported when its calendar, settlement rule, currency, contracts,
 margin, borrow, venue controls and corporate actions are declared.
 
+**Phase 3** (section 10) was added after this validation and has its own: all
+eight FUT-022 to FUT-029 delivered, three correctness fixes, FUT-030 to FUT-036
+accepted.
+
 **Release readiness is the maintainer's call, and the evidence supports it as a
 minor release candidate**: every gate this report lists passes on the final
 tree, on three interpreters, in a clean mirror and on hosted CI, with every
@@ -253,3 +257,74 @@ recorded on the PR.
   benchmark and compatibility comparisons read the tag through `git archive`.
 * No tag was created or moved, no release published, no artifact uploaded, and
   no merge performed. PR #18 is a draft.
+
+---
+
+## 10. Phase 3, after the validation at `350f3f7`
+
+Sections 1 to 9 describe the candidate validated at `350f3f7`. Phase 3 was added
+to the same branch afterwards, and is **not** part of that validation; what
+follows is its own. It started at `350f3f7`, aligned with the remote, with PR #18
+a draft and hosted CI green on it.
+
+| Item | Commit | What it delivers | Evidence |
+| --- | --- | --- | --- |
+| FUT-022 | `30f5daa` | a lender's recall: the short beyond what is lent bought in after the deadline, as the market allows | 21 integration tests; 14 of 14 mutants caught |
+| ACC-015 | `90b0152` | a results bound never trims a fill still unsettled (a restore had lost it) | 1 regression test; 3 of 3 |
+| FUT-023 | `06a76de` | interest and borrow fees accrued day by day at a declared cutoff, posted once | 20 + 1 tests; 14 of 14 |
+| FUT-025 | `6aa9c43` | a corporate action's cash paid on its payment date: an entitlement until then | 8 tests; 9 of 9 |
+| FUT-026 | `e4eaae1` | options repriced from their underlying in margin scenarios, with volatility shifts | 21 tests; 14 of 14 |
+| FUT-024 | `4a71ebd` | holder elections, and an adjustment seen from its announcement | 22 + 1 tests; 12 of 12 |
+| FUT-028 | `0fc5772` | bands around a declared reference price, rounded inward to the grid | 20 tests; 10 of 11, the eleventh equivalent |
+| FUT-027 | `1d4c873` | a halt reopening by auction at the venue's print | 9 tests; 10 of 10 |
+| FUT-029 | `5d4cb71` | a strategy amends its own order: in place keeping priority, or replaced | 11 + 1 tests; 10 of 10 |
+| ACC-016, ACC-017 | `35c9b46` | forced trades never deferred or absorbed by a resting order; a purchase its currency cannot pay refused when placed | 5 tests; 4 of 4 |
+| integration | `d34c96e` | phase 3's capabilities together, replayed from every pause; example 77 | 2 + 4 tests |
+| gap audit | `b600ba7` | the phase 3 audit's findings; FUT-030 to FUT-036 | -- |
+
+**Correctness found and fixed.** ACC-015 (since FUT-015), ACC-016 (FUT-017, and
+FUT-022 before its fix) and ACC-017 (since multi-currency settlement, ADR-0035,
+so also in the published v4.1.0) were found by tests written for phase 3 and
+fixed with regression tests; each ledger entry says what it was and what the
+tree did before.
+
+**Open.** FUT-030 to FUT-036 (ROADMAP, *Future work*), each stated with its
+interim behaviour; horizons are proposals.
+
+**Validation on the tree `b600ba7`**, in the checkout's dev venv unless stated:
+
+| Gate | Result |
+| --- | --- |
+| Lint, format, types | ruff clean; mypy: no issues in 1,243 source files |
+| Workflows | actionlint with shellcheck clean; no workflow changed in phase 3 |
+| Tests | **10,562 passed, 0 failed, 0 skipped** under `-W error`, on a fresh CPython 3.12.4, 3.13.18 and 3.14.10 from the clean mirror |
+| Examples | all 77 exit 0 under `-W error` |
+| Certification | 11 checks passed, matching the certificate; each phase 3 re-certification moved only the source digest, the manifest's digest and the export count -- no determinism, parity, reproducibility or numerical figure, and no `result_id` |
+| Public API | 2,730 exports, 35 shared names; additions, defaulted fields appended last and keyword-only parameters, each in CHANGELOG `[4.2.0]` |
+| Build and artifacts | `alphalab-4.2.0` sdist and wheel built in the clean mirror, `twine check --strict` PASSED for both; each installed alone, `pip check` clean, 617 modules, 2,730 public names, examples 11 and 70 to 77 and the consumer contract run with the network refused; wheel `24f537fa...ba45`, sdist `d255f2ac...b72` (scratchpad; `dist/` untouched) |
+| Compatibility | 202 passed: the frozen v4.1.0 replay payload reads, re-captures byte-identically and resumes to its reference outcome; the fixture is byte-identical to the `v4.1.0` tag's; no schema stepped in phase 3 |
+| Mutation | 100 of 101 mutants caught across phase 3, the one survivor shown equivalent |
+
+**Performance**, against `git archive v4.1.0`, the run benchmarks under `-W
+error` (CPU time, collector paused, fastest of three): backtest scaling 4.00x
+against 4.01x, replay 1.03x the backtest against 1.03x, pipeline scaling 4.01x
+against 4.01x, every parity line identical; the run layer's cost over the bare
+step +2.12% against +1.52%, within the spread section 6 records. A run declaring
+the new capabilities pays for them: on 4,000 records of a two-instrument
+financed book, per-position margin with borrow +16%, a scenario model +24%,
+venue controls +2%, everything +27%. Profiled before optimizing: the margin
+check reads only the margined index, with no full-position scan; a tighter
+scenario loop gained under 1%, and caching the check between steps is not safe,
+since a margin call is recorded at every step it finds -- so none was made.
+
+**Identity.** Every phase 3 capability is opt-in through state outside a run's
+record -- borrow entries, controls, schedule items written as new classes so
+existing schedules keep their digests, ledger and strategy events written only
+when used -- and a run of v4.1.0's inputs has the identity it had.
+
+**Release target -- the maintainer's decision.** Nothing is tagged or
+published. Phase 3 adds public API and fixes three correctness defects the
+`350f3f7` candidate carries (one, ACC-017, also in v4.1.0). The recommendation is
+to release this branch, phase 3 included, as v4.2.0 once reviewed, rather than
+`350f3f7`; and, if a v4.1.x maintenance release is wanted, ACC-017 is the
+candidate for it.
