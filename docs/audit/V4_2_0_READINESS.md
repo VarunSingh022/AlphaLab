@@ -35,6 +35,10 @@ margin, borrow, venue controls and corporate actions are declared.
 eight FUT-022 to FUT-029 delivered, three correctness fixes, FUT-030 to FUT-036
 accepted.
 
+**Phase 4** (section 11) was added after phase 3's checkpoint at `bbc4085` and
+has its own: all seven FUT-030 to FUT-036 delivered, one reproducibility fix
+(REP-006), FUT-037 to FUT-040 accepted.
+
 **Release readiness is the maintainer's call, and the evidence supports it as a
 minor release candidate**: every gate this report lists passes on the final
 tree, on three interpreters, in a clean mirror and on hosted CI, with every
@@ -328,3 +332,81 @@ published. Phase 3 adds public API and fixes three correctness defects the
 to release this branch, phase 3 included, as v4.2.0 once reviewed, rather than
 `350f3f7`; and, if a v4.1.x maintenance release is wanted, ACC-017 is the
 candidate for it.
+
+## 11. Phase 4, after the phase 3 checkpoint at `bbc4085`
+
+Phase 4 started at `bbc4085`, aligned with the remote, with PR #18 a draft and
+hosted CI green on it, and is not part of the validations above; what follows
+is its own. The order followed the dependencies: the atomic amend before the
+reservation it adjusts, the auction and payments before the borrow and
+elections that compose with them, the surface last.
+
+| Item | Commit | What it delivers | Evidence |
+| --- | --- | --- | --- |
+| FUT-031 | `123f98b` | an amend prepared against the book without the order and committed only if its replacement is placed; a refusal leaves the original working | 12 tests (one restated); 9 of 9 mutants caught |
+| FUT-036 | `0a706ec` | an order reduced in place holds, of the account and of its ceiling, only what it still adds | 8 tests; 8 of 8 |
+| FUT-033 | `601d5a3` | a reopening auction computed from the venue's published book; extensions; the first event after a halt recorded, retention-proof | 30 tests; 15 of 15 |
+| FUT-034 | `e91da11` | a payment delayed, failed, corrected, reversed or replaced, each a ledger entry beside the original, reconciled from the ledger | 27 tests; 10 of 10 |
+| FUT-035 | `454c029` | a buy-in's declared premium and fee; borrow located per strategy, drawn first come, recalled from each | 18 tests; 11 of 11 |
+| FUT-030 | `522047c` | each holder's own election applied to its part of one holding; part elections, proration, a record instant | 21 tests (one restated); 10 of 10 |
+| gap audit | `69b5b84` | FUT-037 to FUT-040 accepted, each verified against the code | -- |
+| FUT-032 | `8a6b8b5` | options repriced from the options package's dated volatility surface, over a declared horizon | 21 tests; 6 of 6 |
+| integration | `1e942a8` | phase 4's capabilities together, replayed from every pause; example 78 | 7 + 3 tests |
+| REP-006 | `03937ea` | a manifest can name the instrument registry a run held | 3 tests |
+
+**Behaviour changed on purpose, each test restated.** A refused amend now
+leaves the original working (FUT-031); holders electing apart now each take
+their own election rather than the default (FUT-030). Both changes are to
+phase 3 behaviour, which no release has published.
+
+**Reused, not duplicated.** A volatility surface already existed in
+`alphalab.options` and is what the margin model reads (FUT-032); a live
+venue's amend stays `LiveSession.amend`, with no atomicity promised there.
+
+**Found and fixed.** REP-006: a manifest could not identify the registry --
+controls, borrow, margin model, surfaces -- a run held, which the record names
+by type only (ADR-0023); `manifest_for_run(instruments=True)` now records its
+digest, opt-in so no manifest identity moves.
+
+**Open.** FUT-037 to FUT-040 (ROADMAP, *Future work*): legs delivered after an
+exchange's instant, an elective action's terms corrected after announcement,
+surfaces delivered as observations, and a strategy's view of a reopening
+auction's book -- each with its interim behaviour; horizons are proposals.
+
+**Validation on the tree `03937ea`** (plus this section), in the checkout's dev
+venv unless stated:
+
+| Gate | Result |
+| --- | --- |
+| Lint, format, types | ruff clean; mypy: no issues in 1,253 source files |
+| Tests | **10,713 passed, 0 failed, 0 skipped** under `-W error`, on a fresh CPython 3.12.4, 3.13.18 and 3.14.10 from the clean mirror |
+| Examples | all 78 exit 0 under `-W error` |
+| Certification | 11 checks passed, matching the certificate; each phase 4 re-certification moved only the source digest, the manifest's digest and the export count -- no determinism, parity, reproducibility or numerical figure, and no `result_id` |
+| Public API | 2,743 exports, 35 shared names; additions, defaulted fields appended last and keyword-only parameters, each in CHANGELOG `[4.2.0]` |
+| Build and artifacts | `alphalab-4.2.0` sdist and wheel built in the clean mirror, `twine check --strict` PASSED for both; installed alone, `pip check` clean, 618 modules, 2,743 public names, examples 11 and 70 to 78 and the consumer contract run with the network refused; wheel `4fac6a63...303f`, sdist `71bfe704...e605` (scratchpad; `dist/` untouched) |
+| Compatibility | 349 schema, checkpoint, replay-payload and persisted-name tests passed; the frozen v4.1.0 replay payload fixture is byte-identical to the `v4.1.0` tag's; no schema stepped in phase 4 |
+| Mutation | 69 of 69 mutants caught across phase 4, after each milestone's survivors led to a test the milestone lacked |
+
+**Performance**, against `git archive v4.1.0` (CPU time, collector paused,
+fastest of three): backtest scaling 4.00x against 4.02x, replay 1.03x the
+backtest against 1.02x, pipeline scaling 3.99x against 4.01x, every parity line
+identical; the run layer +1.71% over the bare step against +2.74%. Declared
+features cost what phase 3 measured -- per-leg margin with borrow +16%, a
+scenario model +24%, controls +2%, all +26% on 4,000 records -- and phase 4
+adds nothing to a run that declares none of its features. Profiled again: the
+scenario model's cost is the margin check after every step, spread with no
+single hotspot (its largest part, the scan, is about a seventh of it); caching
+it across steps would need invalidation on every price and could move a margin
+call, so nothing was changed. A book of 80 options reads its surfaces at 1.8 ms
+a check against 1.3 ms with declared volatilities; a memo of readings was
+measured faster but refused by the frozen-state guard, and not kept.
+
+**Identity.** Every phase 4 capability is opt-in through declarations outside a
+run's record or written only when used -- the reopening record, payment
+amendments, part elections and recorded holders, borrow charges and locates,
+surfaces -- and a run of v4.1.0's inputs, or of phase 3's that uses none of
+them, has the identity it had. The pipeline state keeps its sixteen fields.
+
+**Release target -- the maintainer's decision.** Nothing is tagged or
+published, and PR #18 stays a draft. The recommendation stands: release this
+branch, phases 3 and 4 included, as v4.2.0 once reviewed.

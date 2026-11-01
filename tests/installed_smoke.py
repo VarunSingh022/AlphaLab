@@ -148,7 +148,8 @@ def main(expected_version: str) -> None:
     # option's whole life -- exercised early, delivered, settled -- on a
     # declared market's calendar; and a financed long-short book on a broker's,
     # a venue's and an issuer's declared terms; and a short squeezed by its
-    # lender's recall, through a halt and its reopening auction.
+    # lender's recall, through a halt and its reopening auction; and a tender
+    # split between holders, prorated, its payment delayed and corrected.
     for name in (
         "11_unified_backtest.py",
         "70_build_a_strategy.py",
@@ -189,7 +190,7 @@ def main(expected_version: str) -> None:
     print(
         f"installed alphalab {installed} at {location.parent}: pip check clean, no runtime "
         f"requirement, {len(imported)} modules, {public} public names as the manifest records, "
-        "py.typed present, examples 11 and 70 to 77 and the consumer contract ran with the "
+        "py.typed present, examples 11 and 70 to 78 and the consumer contract ran with the "
         "network refused"
     )
 
