@@ -39,6 +39,12 @@ accepted.
 has its own: all seven FUT-030 to FUT-036 delivered, one reproducibility fix
 (REP-006), FUT-037 to FUT-040 accepted.
 
+**Phase 5** (section 12) was added after phase 4's checkpoint at `cde89f6` and
+has its own: all four FUT-037 to FUT-040 delivered, the engine integration
+audit's three fixes (REP-007, EXE-014, LIV-002) and an integration defect
+(ACC-018), FUT-041 to FUT-043 proposed. Which release carries it is the
+maintainer's decision.
+
 **Release readiness is the maintainer's call, and the evidence supports it as a
 minor release candidate**: every gate this report lists passes on the final
 tree, on three interpreters, in a clean mirror and on hosted CI, with every
@@ -410,3 +416,96 @@ them, has the identity it had. The pipeline state keeps its sixteen fields.
 **Release target -- the maintainer's decision.** Nothing is tagged or
 published, and PR #18 stays a draft. The recommendation stands: release this
 branch, phases 3 and 4 included, as v4.2.0 once reviewed.
+
+---
+
+## 12. Phase 5, after the phase 4 checkpoint at `cde89f6`
+
+Phase 5 started at `cde89f6`, aligned with the remote, PR #18 a draft and hosted
+CI green on it (Continuous Integration and CodeQL both succeeded on `cde89f6`),
+and is not part of the validations above; what follows is its own. The package
+still declares 4.2.0 and nothing was re-versioned: **whether v4.2.0 or a later
+release carries phase 5 is the maintainer's decision** (CHANGELOG marks each
+entry *phase 5*; the ledger's statuses say so).
+
+| Item | Commit | What it delivers | Evidence |
+| --- | --- | --- | --- |
+| FUT-037 | `ec18817` | legs an exchange delivers after its effective instant: owed, not held, until delivered; delayed, corrected or failed by the issuer's word; excluded from buying power and collateral unless a convention allows | 21 tests; 8 of 8 mutants caught |
+| FUT-038 | `fa7a713` | an elective action's terms corrected after announcement, each a version recorded at its announcement; elections read against the version in effect when made, kept or voided, a window reopened | 19 tests; 7 of 7 |
+| FUT-039 | `004a713` | volatility surfaces delivered during a run, kept with source, version and knowledge instant, read point in time by the margin model and shown to strategies | 18 tests; 7 of 7 |
+| audit | `a605289` | the engine integration audit: REP-007, EXE-014, LIV-002 fixed; FUT-041 to FUT-043 proposed | 10 tests; 4 of 4 |
+| FUT-040 | `e1f878e` | a strategy's view of a venue's published auction book and indications while an auction is pending; never the run's uncross | 18 tests; 8 of 8 |
+| ACC-018 | `b2f2f6a` | an elective action's late delivery amended by the issuer's word | 1 test (and the interactions test) |
+| integration | `1542c4e` | phase 5's capabilities together, replayed from every pause; example 79 | 2 + 4 tests |
+
+**Found and fixed.** Three by the audit and one by the integration test:
+- REP-007: a default manifest names the registry by type alone, and no
+  assessment said so. It is now an assessment finding.
+- EXE-014: a result's execution assumptions omitted the venue conditions its
+  registry declared. They are now `venue_conditions`.
+- LIV-002: a live session had no surface delivery.
+- ACC-018: an elective action's late leg could not be amended. FUT-038 had
+  claimed it could, and the phase 5 interactions test found it could not.
+
+The FUT-040 mutation pass found a fifth defect before commit. An extended
+auction past its extension's instant was shown to a strategy as held, when it
+stays pending until it is held again.
+
+**Reused, not duplicated.** FUT-037's deliveries are the settlement index's
+entries and FUT-034's amendment path. FUT-038's versions feed FUT-030's
+per-holder parts. FUT-039 reads the options package's `VolatilitySurface` and
+FUT-032's interpolation. FUT-040 shows FUT-033's published books.
+
+**The audits** ([`ENGINE_INTEGRATION_AUDIT_PHASE5.md`](ENGINE_INTEGRATION_AUDIT_PHASE5.md)):
+- *Registry identity.* Every registry field that changes a result is in the
+  registry snapshot. `manifest_for_run(instruments=True)` identifies all of
+  them, and genuine reruns pin which differences each manifest tells apart.
+  The default still omits the registry, and so does a resume's check. Changing
+  either would move published behaviour, which is left to the maintainer
+  (FUT-041, FUT-042).
+- *Feeds and venues.* Every integration point is classified. There is no
+  production connection and no verified market convention, by design.
+- *Execution realism.* Synthetic models are identified in configuration and
+  assumptions. Venue conditions now are too.
+
+**Open.** FUT-041 to FUT-043 (ROADMAP, *Future work*), each with its interim
+behaviour; the horizons are proposals.
+
+**Validation on the tree `1542c4e`**:
+
+| Gate | Result |
+| --- | --- |
+| Lint, format, types | ruff clean; mypy: no issues in 1,263 source files |
+| Tests | **10,807 passed, 0 failed, 0 skipped** under `-W error`, on a fresh CPython 3.12.4, 3.13.18 and 3.14.10 from the clean mirror |
+| Examples | all 79 exit 0 under `-W error` |
+| Certification | 11 checks passed, matching the certificate; each phase 5 re-certification moved only the source digest, the manifest's digest and the export count |
+| Public API | 2,752 exports, 35 shared names; additions, defaulted fields appended last and keyword-only parameters, each in CHANGELOG `[4.2.0]` marked *phase 5* |
+| Build and artifacts | `alphalab-4.2.0` sdist and wheel built in the clean mirror, `twine check --strict` PASSED for both; installed alone, `pip check` clean, 619 modules, 2,752 public names, examples 11 and 70 to 79 and the consumer contract run with the network refused; wheel `3998a107...148c`, sdist `29eb391c...8443` (scratchpad; `dist/` untouched) |
+| Compatibility | 534 schema, checkpoint, replay-payload and persisted-name tests (`-k "schema or checkpoint or payload or persisted"`) passed; every frozen fixture, the v4.1.0 replay payload among them, is byte-identical to the `v4.1.0` tag's (`git diff v4.1.0 -- tests/fixtures` is empty); no schema stepped in phase 5 |
+| Mutation | 34 of 34 mutants caught across phase 5, after each milestone's survivors led to a test it lacked -- one exposing the FUT-040 defect above |
+| Hosted CI | Continuous Integration and CodeQL succeeded on every phase 5 commit, `ec18817` to `1542c4e` |
+
+**Performance**, against `git archive v4.1.0` (CPU time, collector paused,
+fastest of three): backtest scaling 3.99x against 4.00x, replay 1.03x the
+backtest against 1.03x, pipeline scaling 4.00x against 4.02x, every parity line
+identical; the run layer +1.63% over the bare step against +2.90%. Declared
+features cost what phase 4 measured -- per-leg margin with borrow +16%, a
+scenario model +24%, controls +2%, all +26% on 4,000 records -- and phase 5
+adds nothing to a run that declares none of its features. A book of 80 options
+under 5 scenarios is margined in 1.4 ms a check with declared volatilities and
+2.1 ms reading a feed holding 20 versions (FUT-039).
+
+**Identity.** Every phase 5 capability is opt-in through declarations or
+deliveries, or written only when used -- deliveries owed, term versions and
+their announcements, delivered surfaces, indications -- and a run of v4.1.0's
+inputs, or of phase 4's that uses none of them, has the identity it had. The
+pipeline state keeps its sixteen fields. No manifest identity moved; the
+registry's place in identity is section *The audits*, above.
+
+**Release target -- the maintainer's decision.** Nothing is tagged or
+published, and PR #18 stays a draft. Recommendation, not decision: release
+phases 3 to 5 together as v4.2.0 once reviewed, since every phase 5 change is
+additive and opt-in, and the only behaviour change to a published call is one
+more assessment finding (REP-007), which moves no outcome. FUT-041 suits v4.3
+and FUT-043 v4.4. FUT-042 changes what a default manifest identifies, so it
+belongs in a major release or behind a manifest version.
