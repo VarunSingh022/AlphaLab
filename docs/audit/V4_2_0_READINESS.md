@@ -45,6 +45,12 @@ audit's three fixes (REP-007, EXE-014, LIV-002) and an integration defect
 (ACC-018), FUT-041 to FUT-043 proposed. Which release carries it is the
 maintainer's decision.
 
+**Phase 6** (section 13) was added after phase 5's checkpoint at `c348e69` and
+has its own: FUT-041 and FUT-043 delivered, FUT-042's options written up for
+the maintainer (ADR-0052), two reproducibility fixes (REP-008, REP-009),
+FUT-044 to FUT-046 proposed. Which release carries it is the maintainer's
+decision.
+
 **Release readiness is the maintainer's call, and the evidence supports it as a
 minor release candidate**: every gate this report lists passes on the final
 tree, on three interpreters, in a clean mirror and on hosted CI, with every
@@ -509,3 +515,89 @@ additive and opt-in, and the only behaviour change to a published call is one
 more assessment finding (REP-007), which moves no outcome. FUT-041 suits v4.3
 and FUT-043 v4.4. FUT-042 changes what a default manifest identifies, so it
 belongs in a major release or behind a manifest version.
+
+---
+
+## 13. Phase 6, after the phase 5 checkpoint at `c348e69`
+
+Phase 6 started at `c348e69`, aligned with the remote, PR #18 a draft, and
+hosted CI on `c348e69` succeeded (Continuous Integration and CodeQL). The
+package still declares 4.2.0 and nothing was re-versioned: **whether v4.2.0 or
+a later release carries phase 6 is the maintainer's decision**, and CHANGELOG
+marks each entry *phase 6*.
+
+| Item | Commit | What it delivers | Evidence |
+| --- | --- | --- | --- |
+| FUT-041, REP-008 | `eb4a384` | a resumed run's registry held to its terms (replay and live schemas 2 -> 3); a rerun from a manifest compared with its registry and schedule | 15 tests; 8 of 8 mutants caught |
+| FUT-042 | `53dd414` | ADR-0052 (proposed): opt-in, mandatory or a versioned manifest identity; nothing changed | -- |
+| FUT-043 | `4715c72` | auction books and indications delivered during a run, live and replayed; the held auction's result shown once held | 18 tests; 9 of 9 |
+| audit, REP-009 | `462ec32` | the phase 6 engine integration audit; a manifest names the schedule that delivered what its run kept; FUT-044 to FUT-046 proposed | 1 test; 3 of 3 |
+
+**Found and fixed.**
+- REP-008: `rerun_from_manifest` built the rerun's manifest without the
+  registry or the schedule, so a manifest naming either could never be
+  reported reproduced.
+- REP-009: a manifest could omit the schedule that delivered surfaces or
+  auctions its run kept.
+
+Each FUT-043 survivor led to a test, or showed a clause that could never
+fire, which was removed.
+
+**Identity.**
+- **No `result_id` moved.** Examples 72 and 76 to 79 give the same
+  `result_id` at HEAD as at `c348e69`. Example 70 gives the same at HEAD as
+  under `v4.1.0`, and the frozen v4.1.0 replay payload resumes to its
+  reference outcome.
+- **The registry digest is outside identity.** It lives in the paused-replay
+  and live envelopes, which are not identity, and their schemas each stepped
+  once with an upgrade.
+- **Pipeline state.** It keeps its sixteen fields. Delivered auctions are
+  market state, written only when delivered.
+
+**FUT-042, the maintainer's decision.** The question is whether a default
+reproducibility manifest should identify the instrument registry, and if so
+under which identity contract and from which release. ADR-0052 recommends a
+versioned manifest identity (C), additive, with version 1 the default until
+the maintainer chooses the release that makes version 2 the default.
+
+**Open.** FUT-042, FUT-044, FUT-045 and FUT-046 (ROADMAP, *Future work*), each
+with its interim behaviour; the horizons are proposals.
+
+**Validation on the tree `462ec32`** (plus this section):
+
+| Gate | Result |
+| --- | --- |
+| Lint, format, types | ruff clean; mypy: no issues in 1,266 source files |
+| Tests | **10,841 passed, 0 failed, 0 skipped** under `-W error`, on a fresh CPython 3.12.4, 3.13.18 and 3.14.10 from the clean mirror |
+| Examples | all 79 exit 0 under `-W error` |
+| Certification | 11 checks passed, matching the certificate; each phase 6 re-certification moved only the source digest, the manifest's digest and the export count |
+| Public API | 2,754 exports, 35 shared names; additions, defaulted fields appended last, keyword-only parameters, a new module (`alphalab.runtime.registry_check`), each in CHANGELOG `[4.2.0]` marked *phase 6* |
+| Build and artifacts | `alphalab-4.2.0` sdist and wheel built in the clean mirror, `twine check --strict` PASSED for both; installed alone, `pip check` clean, 620 modules, 2,754 public names, examples 11 and 70 to 79 and the consumer contract run with the network refused; wheel `c39f29df...3f1f`, sdist `942779ae...ed71` (scratchpad; `dist/` untouched) |
+| Compatibility | 537 schema, checkpoint, replay-payload and persisted-name tests passed; every frozen fixture byte-identical to the `v4.1.0` tag's (`git diff v4.1.0 -- tests/fixtures` empty); replay and live schemas stepped 2 -> 3, each read through its history |
+| Result identity | examples 72 and 76 to 79: the same `result_id` at HEAD as at `c348e69`; example 70: the same as under `v4.1.0` |
+| Mutation | 20 of 20 mutants caught across phase 6, after each survivor led to a test or showed a clause that could never fire |
+| Hosted CI | Continuous Integration and CodeQL succeeded on `53dd414`, `4715c72` and `462ec32`. On `eb4a384` one job failed: `test_broker_containers_complexity.py::test_recording_decisions_over_a_session_stays_linear` read 8.7x for a 4x workload, against a bound of 8, on macOS / Python 3.13. The code it guards was not touched; measured locally it is linear (2.3 us per decision from 1,000 to 32,000) and the ratio stays under 6.1 under twelve CPU-hog processes. It is reported as a timing flake, and the bound is unchanged |
+
+**Performance**, against `git archive v4.1.0` (CPU time, collector paused,
+fastest of three):
+- **Scaling and parity.** Backtest scaling is 3.99x against 4.02x, replay
+  1.02x the backtest against 1.02x, and pipeline scaling 4.02x against
+  4.01x. Every parity line is identical.
+- **The run layer** costs +1.50% over the bare step, against +4.42%.
+- **Declared features** cost what phase 5 measured, on 4,000 records:
+  per-leg margin with borrow +16%, a scenario model +23%, controls +1%, all
+  +25%.
+- **The registry digest** costs 16.5 ms for 1,000 instruments, once per
+  replay pause or live capture.
+- **Delivered auctions** add nothing to a run delivered none.
+
+**Release target -- the maintainer's decision.** Nothing is tagged or
+published, and PR #18 stays a draft. Recommendation, not decision:
+- **Phases 3 to 6 together as v4.2.0**, once reviewed. Every phase 6 change
+  is additive or confined to unreleased capabilities, and each schema step
+  reads every earlier payload.
+- **The two behaviour changes to published calls**: REP-008 makes
+  reproducible a rerun that could never reproduce before, and REP-009
+  refuses only manifests of runs using unreleased capabilities.
+- **The proposed entries**: FUT-046 suits v4.3, FUT-044 and FUT-045
+  v4.4, and FUT-042's default change a release the maintainer names.
