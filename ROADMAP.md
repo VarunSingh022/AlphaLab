@@ -369,7 +369,15 @@ a later release is the maintainer's decision, and nothing here assigns it.
   instant -- choosing the one known by the check and as of the latest instant,
   a revision over what it revises, never a late older arrival, never one older
   than `surface_max_age`; a strategy reads the latest known through
-  `context.risk_view.volatility_surface`.
+  `context.risk_view.volatility_surface`; a live session records one as known
+  when it arrived (`LiveSession.deliver_surface`).
+- **The phase 5 engine integration audit**
+  (`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`): an assessment says when a
+  manifest names the registry by type alone (REP-007); a result states the
+  venue conditions its registry declared (`ExecutionAssumptions.venue_conditions`,
+  EXE-014); every feed and venue integration point classified -- interface,
+  tested adapter, production connection (none), synthetic input, verified
+  convention (none) -- and FUT-041 to FUT-043 proposed.
 
 # Deliberate boundaries
 
@@ -737,12 +745,16 @@ boundary of what phase 3 delivered, stated in ADR-0051's known limitations, and
 conservative or refused where it binds. Phase 4 delivers them on the candidate
 branch after its phase 3 checkpoint at `bbc4085`; those still below are not yet
 delivered. The phase 4 global gap audit proposed the others below, each a
-boundary of what phase 4 delivered. Every horizon is a proposal for the
-maintainer to confirm.
+boundary of what phase 4 delivered; the phase 5 engine integration audit
+(`docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`) proposed FUT-041 to FUT-043.
+Every horizon is a proposal for the maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
 | FUT-040 | **A strategy's view of a reopening auction's published book** | deliver the venue's auction messages as observations | v4.4 | computed auctions |
+| FUT-041 | **A resumed run's registry checked by its terms, not its type** | name the registry in the manifest and compare the resumed run's | v4.3 | registry digest (REP-006) |
+| FUT-042 | **A default manifest that names the registry** (a compatibility decision) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
+| FUT-043 | **Auction books and indications delivered during a run** | deliver the venue's auction messages as observations; reopen by the print | v4.4 | computed auctions, surface feeds, FUT-040 |
 
 ---
 

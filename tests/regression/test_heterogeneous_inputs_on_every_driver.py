@@ -483,3 +483,33 @@ def test_a_live_session_delivers_an_observation_when_it_arrived_and_routes_it() 
     )
     assert nothing == ()
     assert held.unrouted_orders
+
+
+def test_a_live_session_records_a_surface_as_known_when_it_arrived() -> None:
+    from alphalab.risk import ObservedSurface
+    from alphalab.runtime.exceptions import RuntimeValidationError
+    from tests.integration import test_volatility_surfaces as surfaces
+
+    config = workload.config()
+    live = RunConfig(
+        pipeline=replace(config.pipeline, routing=ExecutionRouting.EXTERNAL),
+        mode=ExecutionMode.LIVE,
+        seed=7,
+        start_timestamp=1.0,
+        compile_analytics=False,
+    )
+    state = LiveSession.initialize(
+        live,
+        running_strategy_state(workload.STRATEGY_ID, InformedStrategy(), frozenset({"*"})),
+        BrokerEngine.initialize("VENUE-X", Decimal("1000000"), "USD"),
+        RoutingConfig(venue="VENUE-X", currency="USD"),
+    )
+    published = surfaces.surface(("100", 90 * surfaces.DAY, "0.30"), at=8.0)
+    # Stamped known at 9.0 by its vendor; the session received it at 10.5.
+    state = LiveSession.deliver_surface(
+        state, ObservedSurface(published, 9.0, "vendor", "v1"), 10.5
+    )
+    (kept,) = state.run.pipeline.risk.surfaces[published.underlying_asset_id]
+    assert (kept.known_at, kept.version, kept.surface) == (10.5, "v1", published)
+    with pytest.raises(RuntimeValidationError, match="cannot have arrived"):
+        LiveSession.deliver_surface(state, ObservedSurface(published, 12.0, "vendor", "v2"), 11.0)

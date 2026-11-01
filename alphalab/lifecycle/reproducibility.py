@@ -1049,6 +1049,16 @@ def manifest_gaps(manifest: ReproducibilityManifest) -> tuple[str, ...]:
     return tuple(gaps)
 
 
+def _held_a_registry(manifest: ReproducibilityManifest) -> bool:
+    """Whether a run manifest's recorded configuration names an instrument registry."""
+
+    recorded = _recorded_run(manifest)
+    try:
+        return recorded is not None and recorded["pipeline"]["instruments_type"] is not None
+    except (KeyError, TypeError):
+        return False
+
+
 def _live_objects(manifest: ReproducibilityManifest) -> list[str]:
     """``role=Type`` for every object the recorded configuration names by type."""
 
@@ -1365,6 +1375,15 @@ def assess_reproducibility(
         findings.append(
             "a live run: its fills came from a venue, so the manifest identifies the result "
             "and cannot reproduce it."
+        )
+    if manifest.instruments_digest is None and _held_a_registry(manifest):
+        # A finding, not a gap (phase 5): a gap would turn every manifest asked
+        # for nothing new incomplete; whether to is the maintainer's decision.
+        findings.append(
+            "the run held an instrument registry the manifest names by type alone: its terms, "
+            "controls, borrow, margin model and surfaces are not identified, so a rerun given "
+            "different terms whose record agreed would reproduce it. "
+            "manifest_for_run(instruments=True) records them."
         )
 
     identity_verified = verify_manifest(manifest)

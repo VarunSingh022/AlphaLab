@@ -259,6 +259,23 @@ and are reused rather than duplicated. Same classes as above.
 | Borrow netted across strategies under per-strategy locates | 4, conservative | stated: netting is the account's (FUT-035) |
 | A moneyness-indexed surface | 5 | stated: declared at the strikes it implies (FUT-032) |
 
+## The phase 5 engine integration audit
+
+Read after FUT-037 to FUT-039 were delivered: the registry's place in a run's
+identity, every external feed and venue integration point, and execution
+realism -- [`ENGINE_INTEGRATION_AUDIT_PHASE5.md`](ENGINE_INTEGRATION_AUDIT_PHASE5.md)
+holds the evidence. Same classes as above.
+
+| Finding | Class | Disposition |
+| --- | --- | --- |
+| A manifest asked for nothing new names the registry by type alone, and no assessment said so | 1 | **Fixed** (REP-007): an assessment finding |
+| A result's execution assumptions omitted its venue conditions | 2 | **Fixed** (EXE-014): `ExecutionAssumptions.venue_conditions` |
+| A live session had no surface delivery | 2 | **Fixed** (LIV-002): `LiveSession.deliver_surface` |
+| A resumed run checks its registry by type alone | 4, design | FUT-041 (v4.3) |
+| A default manifest's registry, as a gap or by default | 4, identity | FUT-042 (v5.0), the maintainer's decision |
+| Auction books and indications delivered during a run | 5 | FUT-043 (v4.4) |
+| A real venue, vendor or market's verified rules; depth beyond the top of book | 3 | unchanged (BND-001, BDY-013, BDY-003) |
+
 ## Markets
 
 No family above is tied to a market. A market is a declared calendar, a

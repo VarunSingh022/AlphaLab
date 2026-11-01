@@ -26,6 +26,7 @@ from alphalab.execution.policy import FillPolicy, FillTiming, ImmediateFill
 from alphalab.execution.queue import QueueModel
 
 if TYPE_CHECKING:
+    from alphalab.instrument.registry import InstrumentRegistry
     from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig, ExecutionRouting
 
 __all__ = ["ExecutionAssumptions", "describe", "execution_assumptions"]
@@ -111,6 +112,13 @@ class ExecutionAssumptions:
             had reached the front of their price level, described, or ``None``
             when the run declared none (v4.1.1, ledger FUT-011) -- see
             :attr:`passive_fills`.
+        venue_conditions: What the run's instrument registry declared that
+            shaped execution -- bands, halts, auctions and the books they were
+            uncrossed from, a margin model, per-instrument margin, borrow, tick
+            and settlement terms -- one sentence each, empty when it declared
+            none (phase 5 execution-realism audit). Each is the caller's
+            declaration, not verified against a venue; a manifest identifies
+            them only with ``manifest_for_run(instruments=True)``.
     """
 
     routing: ExecutionRouting
@@ -121,6 +129,7 @@ class ExecutionAssumptions:
     frictionless: bool
     unlimited_liquidity: bool
     queue_model: str | None = None
+    venue_conditions: tuple[str, ...] = ()
 
     @property
     def simulated(self) -> bool:
@@ -213,4 +222,55 @@ def execution_assumptions(
         frictionless=simulator.is_frictionless,
         unlimited_liquidity=isinstance(fill_policy, ImmediateFill),
         queue_model=None if queue_model is None else describe(queue_model),
+        venue_conditions=_venue_conditions(pipeline.instruments),
     )
+
+
+def _count(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def _venue_conditions(registry: InstrumentRegistry | None) -> tuple[str, ...]:
+    """Each execution condition ``registry`` declares, in a sentence, in a fixed order.
+
+    Not part of :meth:`ExecutionAssumptions.settings`: a statement beside the
+    results, like :attr:`ExecutionAssumptions.passive_fills`, so no identity a
+    fingerprint records moves.
+    """
+
+    if registry is None:
+        return ()
+    declared = " declared by the caller, not verified against a venue"
+    found: list[str] = []
+    controls = registry.controls
+    if controls is not None:
+        if controls.bands or controls.reference_bands:
+            bands = len(controls.bands) + len(controls.reference_bands)
+            found.append(f"{_count(bands, 'price band', 'price bands')}{declared}")
+        if controls.halts:
+            auctions = [h for h in controls.halts if h.auction]
+            computed = sum(1 for h in auctions if h.uncross is not None)
+            found.append(
+                f"{_count(len(controls.halts), 'trading halt', 'trading halts')}, "
+                f"{len(auctions)} reopening by auction ({computed} uncrossed from published "
+                f"interest, {len(auctions) - computed} at the first print){declared}"
+            )
+        if controls.auction_books:
+            assets = len({book.asset_id for book in controls.auction_books})
+            found.append(
+                f"published auction interest for {_count(assets, 'instrument', 'instruments')} "
+                f"({_count(len(controls.auction_books), 'book', 'books')}){declared}; no depth "
+                "beyond it is inferred"
+            )
+    if registry.margin_model is not None:
+        found.append(f"margin model {type(registry.margin_model).__qualname__}{declared}")
+    for term, label in (
+        ("margin", "margin terms"),
+        ("borrow", "borrow terms"),
+        ("tick", "tick sizes"),
+        ("settlement", "settlement conventions"),
+    ):
+        n = sum(1 for record in registry.instruments.values() if getattr(record, term) is not None)
+        if n:
+            found.append(f"{label} on {_count(n, 'instrument', 'instruments')}{declared}")
+    return tuple(found)

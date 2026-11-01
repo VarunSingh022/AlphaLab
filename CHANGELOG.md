@@ -51,6 +51,18 @@ phase 4 checkpoint at `cde89f6` (section 12). The package still states 4.2.0
 and they are recorded here for that reason; **whether v4.2.0 or a later
 release carries them is the maintainer's decision**, not made here.
 
+* **The engine integration audit** (*phase 5*,
+  `docs/audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`). `assess_reproducibility`
+  reports, as a finding, a run manifest naming its instrument registry by type
+  alone -- a rerun under other terms whose record agreed reproduces it -- and
+  certification carries it among its limitations; no outcome and no manifest
+  identity moves (REP-007). `ExecutionAssumptions.venue_conditions` states each
+  venue condition a run's registry declared -- bands, halts, auctions and the
+  books they uncross from, margin, borrow, tick and settlement terms -- as the
+  caller's declaration, not verified against a venue; not one of `settings()`,
+  so no identity moves (EXE-014). `LiveSession.deliver_surface` records a
+  surface as known when the session received it (LIV-002). FUT-041 to FUT-043
+  proposed.
 * **Volatility surfaces arriving as data during a run** [FUT-039] (*phase 5*).
   `RunSchedule.of(surfaces=)` delivers `alphalab.risk.ObservedSurface`s --
   an options surface, its knowledge instant, source and version -- kept on
@@ -570,6 +582,7 @@ release carries them is the maintainer's decision**, not made here.
 | `alphalab.instrument.InstrumentRecord`, `alphalab.instrument.snapshot.InstrumentRegistryRecord` | field `borrow`, `None` by default (FUT-018); `alphalab.instrument.BorrowTerms`, `BorrowAvailability` and `alphalab.instrument.borrow` added |
 | `alphalab.strategy.IntentKind`; `alphalab.strategy.AmendRefused` | member `AMEND`; added (FUT-029, phase 3) |
 | `alphalab.instrument.TradingHalt` | field `auction`, `False` by default, written only when declared; `TradingControls.reopened_by_auction` (FUT-027, phase 3) |
+| `alphalab.runtime.ExecutionAssumptions`; `alphalab.runtime.live.LiveSession`; `alphalab.lifecycle.assess_reproducibility` | field `venue_conditions`, empty by default, appended last; method `deliver_surface`; one more finding for a run manifest naming its registry by type alone (phase 5 engine integration audit) |
 | `alphalab.risk.RiskState`; `alphalab.risk.ObservedSurface`, `alphalab.risk.surfaces`; `alphalab.instrument.OptionRisk`; `ScenarioMargin`; `RunSchedule.of`; `ScheduleKind`; `alphalab.strategy.context.RiskViewProtocol`, `NoRiskView`; `alphalab.runtime.context_views.RiskView`; `deliver_surface` (`ExecutionPipeline`, `RunEngine`); `alphalab.instrument.margin.read_surface` | field `surfaces`, empty by default, appended last; added; field `volatility`, appended last, `None` by default; fields `surface_feed`, `surface_max_age`, `None` by default, written only when declared; keyword `surfaces`; member `SURFACE`; method `volatility_surface`; method `volatility_surface`; added; added (FUT-039, phase 5) |
 | `alphalab.backtesting.ElectiveExchange`; `TermsCorrection`, `ElectiveTerms`, `EarlierElections`; `alphalab.strategy.TermsAnnounced`; `ExecutionPipeline.record_terms`, `RunEngine.record_terms` | fields `corrections`, `deliveries`, empty by default, and `convention`, appended last; `versions`, `terms_at`, `final`; added; added; added (FUT-038, phase 5) |
 | `alphalab.backtesting.DeliveredExchange`, `DeliveryAmendment`; `alphalab.portfolio.DeliveryConvention`; `alphalab.portfolio.settlement.PendingSettlement`; `alphalab.portfolio.events.DeliveryAmended`; `apply_exchange` (`ExecutionPipeline`, `RunEngine`, `PortfolioEngine`); `amend_delivery` (each layer) | added; field `delivery`, appended last, `None` by default; added; keyword-only `delivers_at` and `delivery` (`delivers`, `convention`, `effective_at` on the portfolio), `None` by default; added (FUT-037, phase 5) |

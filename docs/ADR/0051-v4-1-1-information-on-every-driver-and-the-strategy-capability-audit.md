@@ -591,6 +591,20 @@ model never assumes one; where none is given, the option is margined by its own
 terms. A model reads declared surfaces or a feed, not both -- two answers to
 which is in effect.
 
+**46. What a result rests on is said, and identity is not moved to say it
+(phase 5 engine integration audit).** A manifest asked for nothing new names
+the instrument registry by type alone, and a resumed run checks it by type
+alone. Both are kept: recording the registry by default, or calling its
+absence a gap, would change what published calls return -- a new manifest
+identity for the same run, certifications that passed failing -- and a refusal
+at resume would refuse a live host's reference-data update; those are the
+maintainer's (FUT-041, FUT-042). What changes is what is said: an assessment
+reports a registry named by type alone as a finding, and a result's execution
+assumptions state each venue condition its registry declared, as the caller's
+declaration not verified against a venue -- statements, not settings, so no
+fingerprint or manifest identity moves. A live session receives a surface as it
+receives an observation: known when it arrived.
+
 ---
 
 # Consequences

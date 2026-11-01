@@ -99,7 +99,7 @@ it unchanged.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
 
@@ -133,6 +133,7 @@ from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.corporate_actions import CashFlow, Split
 from alphalab.portfolio.fx import NO_RATES, FxRates
+from alphalab.risk.surfaces import ObservedSurface
 from alphalab.runtime.broker_routing import (
     ChildOrderBindings,
     ChildRoutingResult,
@@ -674,6 +675,29 @@ class LiveSession:
         if not route:
             return current, (), ()
         return LiveSession.route_working_orders(current, broker, now)
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_surface(state: LiveRunState, observed: ObservedSurface, now: float) -> LiveRunState:
+        """Receive a volatility surface that has arrived (FUT-039, phase 5 integration audit).
+
+        :meth:`~alphalab.runtime.run.RunEngine.deliver_surface` with the
+        session's clock ``now``: a surface is known to the session when it
+        arrives, so one a vendor stamps as known earlier is recorded as known at
+        ``now`` -- a replay of the record then reads it from the same instant --
+        and one claiming to be known after ``now`` is refused. Nothing is routed:
+        a surface moves no order, only the margin checks from ``now`` on.
+
+        Raises:
+            RuntimeValidationError: If ``observed`` is known after ``now``.
+        """
+
+        if observed.known_at > now:
+            raise RuntimeValidationError(
+                f"A surface known at {observed.known_at!r} cannot have arrived at {now!r}."
+            )
+        arrived = replace(observed, known_at=now)
+        return evolve(state, run=RunEngine.deliver_surface(state.run, arrived))
 
     @staticmethod
     @in_accounting_context

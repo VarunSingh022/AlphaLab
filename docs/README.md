@@ -82,7 +82,7 @@ Reference
 | Document | Description |
 |-----------|-------------|
 | `../ROADMAP.md` | What is delivered, what is a deliberate boundary, what is external, what is a stated limitation, and the future work accepted for later |
-| `audit/` | The pre-v4 audit and completion ledger, the v4.0 and v4.1 release audits, the historical inventory, the release certificate and the release runbook (`audit/RELEASE_RUNBOOK.md`) |
+| `audit/` | The pre-v4 audit and completion ledger, the v4.0 and v4.1 release audits, the historical inventory, the release certificate, the release runbook (`audit/RELEASE_RUNBOOK.md`) and the phase 5 engine integration audit (`audit/ENGINE_INTEGRATION_AUDIT_PHASE5.md`) |
 | `../CHANGELOG.md` | Version history and release notes. Each entry is scoped to its own release |
 | `../nowandfuture.md` | The long-form project reference: ownership, invariants, and what must not change casually |
 | `VISION.md` | Long-term goals and project philosophy |
