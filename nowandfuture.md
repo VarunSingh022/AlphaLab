@@ -1,6 +1,6 @@
 # AlphaLab — Now and Future
 
-**A long-term project reference, written at v3.0.0 and updated at v4.2.0.**
+**A long-term project reference, written at v3.0.0 and updated at v4.2.1.**
 
 This document exists so that a future engineer — including a future version of
 the person who wrote AlphaLab — can answer these questions without reconstructing
@@ -42,12 +42,12 @@ database, and why a security review of AlphaLab is a review of AlphaLab.
 
 | | |
 | --- | --- |
-| Version | **4.2.0** |
+| Version | **4.2.1** |
 | Python | 3.12+ |
 | License | MIT |
 | Author | Varun Kumar Singh |
 | Repository | https://github.com/VarunSingh022/AlphaLab |
-| Status | **v4.0.0 freezes the universal engine contract (ADR-0049): the architecture frozen at v3.0.0, v3.1.0 through v3.9.0 additive to it, v3.10.0 through v3.13.0 the four pre-v4 releases, and v4.0 the release that read the whole history, re-audited the canonical path and holds the public API stable until 5.0. v4.1.0, the first minor release on that contract, delivered the one item v4.0 accepted as future work -- a replay that pauses and resumes (FUT-001) -- and added CPython 3.13 and 3.14. One item is accepted future work, for the maintainer's decision (FUT-002, `ROADMAP.md`).** |
+| Status | **v4.0.0 freezes the universal engine contract (ADR-0049): the architecture frozen at v3.0.0, v3.1.0 through v3.9.0 additive to it, v3.10.0 through v3.13.0 the four pre-v4 releases, and v4.0 the release that read the whole history, re-audited the canonical path and holds the public API stable until 5.0. v4.1.0, the first minor release on that contract, delivered the one item v4.0 accepted as future work -- a replay that pauses and resumes (FUT-001) -- and added CPython 3.13 and 3.14. v4.2.0, published 2026-11-01, delivered FUT-002 and the rest of its program (`CHANGELOG.md`), and v4.2.1 corrected its release documents and the checks that missed them. Four items are accepted future work, each with its horizon (FUT-042, FUT-044, FUT-045 and FUT-046, `ROADMAP.md`).** |
 
 ---
 

@@ -14,7 +14,89 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
-# [4.2.0] - unreleased (the development target the maintainer approved; not yet published or tagged)
+# [4.2.1] - 2026-11-08
+
+**A documentation and release-integrity patch: the 4.2 release's own documents
+corrected where they described it as unpublished, the release checks that let
+them through extended, and the trust boundary of `alphalab.cloud_research`'s task
+resolution stated. The engine's behaviour, its public API, its persisted formats
+and every run's `result_id` and `configuration_id` are the 4.2.0 release's.**
+
+v4.2.0 was published on 2026-11-01 with its CHANGELOG heading, its README, its
+`docs/README.md` and `docs/INTEGRATION.md`, ROADMAP and the API history's index
+still describing it as unreleased, a release candidate or not yet published, and
+naming v4.1.0 as the published release. The release checks read version numbers,
+and every number agreed. Ledger IDs are given in brackets.
+
+## Fixed
+
+* **The release status in every release-facing document** [DOC-013]. The 4.2.0
+  heading is dated 2026-11-01; `README.md`, `docs/README.md`,
+  `docs/INTEGRATION.md`, `ROADMAP.md`, `docs/api/history/README.md`,
+  `nowandfuture.md` and the ledger's status say what is true now. The `[4.2.0]`
+  entry below is otherwise as it was written: its *Accepted as future work*
+  section predates phases 5 and 6, and the work accepted when 4.2.0 was
+  published is FUT-042, FUT-044, FUT-045 and FUT-046 (ROADMAP, *Future work*).
+* **The API history's copy of 4.2.0's manifest** [TST-024].
+  `docs/api/history/4.2.0.json` held the manifest as it stood at phase 3 of the
+  4.2.0 program -- 2,730 exports of the 2,754 released, 23 of them since
+  rebound -- so this release would have been compared with it and its CHANGELOG
+  held to 23 changes it does not make. It is now the released manifest, the
+  `v4.2.0` tag's `docs/api/public_api.json`.
+* **`SECURITY.md`** named `alphalab.broker.transport.HttpVenueTransport`, HMAC
+  request signing and `VenueCredentials` as part of the library. All three left
+  it in v3.11 [BRK-007] and are the reference adapter under
+  `tests/reference_adapter`. The TLS paragraph now names the two transports the
+  library has, `alphalab.marketdata.transport` and `alphalab.marketdata.websocket`,
+  and says that TLS covers their `https://` and `wss://` connections, not the
+  `http://` and `ws://` URLs they also accept.
+
+## Changed
+
+* **The release checks read the release's status, not only its number**
+  [TST-024]. `docs/audit/scripts/release_preflight.py version` -- which the
+  release preflight and release validation run, and the suite on every push --
+  now also requires the CHANGELOG heading of the release to carry its date
+  (`# [X.Y.Z] - YYYY-MM-DD`), refuses a release-facing line naming the release
+  that calls it unreleased, a release candidate, unpublished or not yet
+  published, refuses one naming another release as the published one, and
+  refuses a history copy that is not the manifest it copies.
+  `tests/regression/test_release_facing_versions.py` reads every version on a
+  line that calls a version current, not only the first. The wording v4.2.0 was
+  published with is held as regression cases and refused.
+
+## Security
+
+* **The trust boundary of task resolution is stated** [BDY-028].
+  `alphalab.cloud_research` runs a job by importing the module its `task_path`
+  names and calling the callable it names with the job's `kwargs`, and nothing
+  restricts which: `task_path` and `kwargs` must never come from untrusted
+  input, because they select code to execute. `SECURITY.md` says so under
+  *Trust boundaries*, and so do the docstrings of `resolve_task`, `run_task`,
+  `submit_research_job` and `submit_parameter_sweep`. Their signatures and
+  behaviour are unchanged.
+
+## Public API changes
+
+None. Against 4.2.0's manifest (`docs/api/history/4.2.0.json`) nothing is added,
+removed or rebound; `docs/api/public_api.json` differs only in naming this
+release.
+
+## Migrating from 4.2.0
+
+Nothing to migrate: no schema moved, no persisted format changed, and a run's
+`result_id` and `configuration_id` are what a 4.2.0 build computes for it. A
+strategy fingerprint and a reproducibility manifest name the engine they were
+made by, so those made by this build name 4.2.1, as every release's do. A
+manifest a 4.2.0 build made still verifies (`verify_manifest`), and
+`rerun_from_manifest` checks it against the engine it names: run on this build it
+reports `INPUTS_DIFFER` (engine 4.2.0 -> 4.2.1) and runs nothing, as between any
+two releases. Pin `alphalab-4.2.1-py3-none-any.whl` by its hash as
+`docs/INTEGRATION.md` describes.
+
+---
+
+# [4.2.0] - 2026-11-01
 
 **A researcher-defined strategy over several assets, datasets, sentiment, macro
 releases and fitted models -- every timed input applied at its instant on every

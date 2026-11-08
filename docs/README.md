@@ -314,20 +314,26 @@ These principles are applied consistently across every module.
 # Version
 
 ```
-v4.2.0
+v4.2.1
 ```
 
 *(This block read `v2.5.0` from v2.5 through v2.16 -- twelve releases that shipped
 without updating it -- and the v2.17 audit corrected it. Since v3.13
 `tests/regression/test_version_markers_agree.py` holds it to the package.)*
 
-**v4.2.0 -- in development, unpublished: additive on the v4.1 contract.** Every
+**v4.2.1 -- a documentation and release-integrity patch.** The release-facing
+documents the 4.2 release shipped with corrected where they described it as
+unpublished, the release checks that let them through extended, and the trust
+boundary of `alphalab.cloud_research`'s task resolution stated (`SECURITY.md`).
+The engine's behaviour, its public API, its persisted formats and every run's
+`result_id` are unchanged.
+
+**v4.2.0 -- additive on the v4.1 contract** (published 2026-11-01). Every
 timed input on every driver; execution algorithms and a declared queue model on
 the historical drivers; a derivative's lifecycle and richer contract terms;
 strategy-directed exercise and cancellation; settlement-date cash; margin calls
 and forced liquidation on declared margin terms; a strategy configuration read
-back typed. The readiness evidence is `audit/V4_2_0_READINESS.md`; the published
-release is still v4.1.0.
+back typed. The readiness evidence is `audit/V4_2_0_READINESS.md`.
 
 **v4.1.0 -- the first minor release on the v4.0 contract, and additive.** A
 replay pauses between two records and resumes -- in a new process too -- to the

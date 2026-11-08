@@ -24,7 +24,11 @@ beside a local build -- so a hosted run and a local one check the same things.
     MAJOR.MINOR.PATCH``, or as the release tag, ``--tag vMAJOR.MINOR.PATCH``:
     every AlphaLab release is tagged ``v`` and the version, and a tag of any
     other shape (``4.0.0``, ``V4.0.0``, ``v4.0.0-rc1``) is refused rather than
-    read.
+    read. Since v4.2.1 (ledger DOC-013, TST-024) the release is also what the
+    tree says it is: the CHANGELOG's heading for it carries the date it is
+    published, no release-facing document calls it unreleased, a candidate or
+    not yet published, or names another release as the published one, and the
+    history's copy of the manifest is the manifest.
 
 ``distributions``
     ``DIST`` holds exactly ``alphalab-<version>.tar.gz`` and
@@ -78,6 +82,7 @@ import tarfile
 import tempfile
 import zipfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import date
 from email.parser import HeaderParser
 from pathlib import Path
 from typing import Any
@@ -119,13 +124,109 @@ def tag_version(tag: str) -> str:
     return match.group(1)
 
 
+#: The documents a reader takes as describing the release they hold: the release-facing
+#: set ``tests/regression/test_release_facing_versions.py`` holds to the version, and the
+#: index of the API history (v4.2.1, ledger DOC-013).
+RELEASE_FACING = (
+    "README.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "ROADMAP.md",
+    "nowandfuture.md",
+    "configs/README.md",
+    "examples/README.md",
+    "docs/README.md",
+    "docs/GETTING_STARTED.md",
+    "docs/INTEGRATION.md",
+    "docs/ENGINEERING_GUIDELINES.md",
+    "docs/EXAMPLES.md",
+    "docs/ARCHITECTURE.md",
+    "docs/STATE_MODEL.md",
+    "docs/SYSTEM_DESIGN.md",
+    "docs/EVENT_MODEL.md",
+    "docs/VISION.md",
+    "docs/api/PUBLIC_API.md",
+    "docs/api/history/README.md",
+)
+
+#: A CHANGELOG heading for a published release: its version and the date it was published.
+_RELEASE_HEADING = re.compile(r"# \[(?P<version>\d+\.\d+\.\d+)\] - (?P<date>\d{4}-\d{2}-\d{2})")
+
+#: Wording that says a release has not been made. On a line naming the release it is wrong
+#: once the release is published, and it ships in every artifact built from the tree.
+_UNRELEASED = re.compile(
+    r"(?i)\b(?:unreleased|unpublished|release candidate|not yet (?:published|released|tagged)"
+    r"|development target|in development)\b"
+)
+
+#: A statement of which release is the published one; it must name the release being made.
+_PUBLISHED_IS = re.compile(
+    r"(?i)\bpublished\s+(?:tag|release)\s+is\s+(?:still\s+)?v?(\d+\.\d+\.\d+)\b"
+)
+
+
+def _is_date(text: str) -> bool:
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def release_status_problems(version: str, root: Path = ROOT) -> Problems:
+    """Every place that would still call ``version`` unreleased once it is published (v4.2.1).
+
+    v4.2.0 was published with its CHANGELOG heading reading "unreleased ... not
+    yet published or tagged", and with its README, ``docs/README.md`` and
+    ``docs/INTEGRATION.md`` calling it a release candidate whose published tag was
+    v4.1.0 (ledger DOC-013). The version checks read numbers, and every number
+    agreed (TST-024). So the release is dated in the tree it is built from, and
+    nothing that ships in it calls it unreleased, a candidate or not yet
+    published, or names another release as the published one. Only the heading
+    of the release's own CHANGELOG entry is read: the other entries are history.
+    """
+
+    problems: Problems = []
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    heading = next(
+        (line for line in changelog.splitlines() if line.startswith(f"# [{version}]")), None
+    )
+    if heading is not None:
+        dated = _RELEASE_HEADING.fullmatch(heading)
+        if dated is None or not _is_date(dated["date"]):
+            problems.append(
+                f"CHANGELOG.md's heading for {version} is not '# [{version}] - YYYY-MM-DD', "
+                f"the date it is published: {heading!r}"
+            )
+    named = re.compile(rf"(?<![\w.])v?{re.escape(version)}(?!\.?\d)")
+    for document in RELEASE_FACING:
+        path = root / document
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for number, line in enumerate(text.splitlines(), start=1):
+            if named.search(line) and _UNRELEASED.search(line):
+                problems.append(
+                    f"{document}:{number} calls {version} unreleased: {line.strip()[:100]}"
+                )
+        for claim in _PUBLISHED_IS.finditer(text):
+            if claim.group(1) != version:
+                number = text.count("\n", 0, claim.start()) + 1
+                problems.append(
+                    f"{document}:{number} names {claim.group(1)} the published release, "
+                    f"not {version}"
+                )
+    return problems
+
+
 def version_problems(expected: str | None, root: Path = ROOT) -> Problems:
     """Every place this release's identity disagrees with the package's version.
 
     ``expected`` is a bare ``MAJOR.MINOR.PATCH``; a tag goes through
     :func:`tag_version` first. ``None`` checks only that the references agree,
     which the command line does not offer: a release is checked against the
-    version it is meant to be.
+    version it is meant to be. Since v4.2.1 the release's status is held too
+    (:func:`release_status_problems`), and its history copy to the manifest.
     """
 
     version = package_version(root)
@@ -144,15 +245,27 @@ def version_problems(expected: str | None, root: Path = ROOT) -> Problems:
         problems.append(
             f"CHANGELOG.md leads with {first.group(1) if first else 'no release'}, not {version}"
         )
+    manifest = root / "docs" / "api" / "public_api.json"
     for name, path in (
         ("the release certificate", root / "docs" / "audit" / "release_certification.json"),
-        ("the public-API manifest", root / "docs" / "api" / "public_api.json"),
+        ("the public-API manifest", manifest),
     ):
         recorded = json.loads(path.read_text(encoding="utf-8")).get("release")
         if recorded != version:
             problems.append(f"{name} ({path.relative_to(root)}) is {recorded}'s, not {version}'s")
-    if not (root / "docs" / "api" / "history" / f"{version}.json").is_file():
+    history = root / "docs" / "api" / "history" / f"{version}.json"
+    if not history.is_file():
         problems.append(f"docs/api/history/{version}.json is missing")
+    elif json.loads(history.read_text(encoding="utf-8")) != json.loads(
+        manifest.read_text(encoding="utf-8")
+    ):
+        # v4.2.0 shipped a copy refreshed last at its phase 3, 24 names short of its
+        # manifest, and the next release's CHANGELOG would have been held to that.
+        problems.append(
+            f"docs/api/history/{version}.json is not docs/api/public_api.json: the release's "
+            "copy of its manifest is the manifest (ledger TST-024)"
+        )
+    problems += release_status_problems(version, root)
     return problems
 
 

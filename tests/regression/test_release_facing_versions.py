@@ -64,11 +64,23 @@ _RELEASE_REFERENCES = (
     re.compile(r"\balphalab==(\d+\.\d+\.\d+)"),
 )
 
-#: A line that calls a version the current or latest one.
+#: A line that calls a version the current or latest one. Every version on it is read, not
+#: only the first: v4.2.0's README said "Current Release: v4.2.0 (release candidate, not yet
+#: published; the published tag is v4.1.0)", and its first version agreed (ledger TST-024).
 _CURRENT_CLAIM = re.compile(
     r"(?i)\b(?:current|latest|newest)\s+(?:stable\s+)?(?:release|version)\b"
-    r"[^\n]*?\bv?(\d+\.\d+\.\d+)\b"
 )
+
+#: Every version a line names.
+_VERSION_NAMED = re.compile(r"\bv?(\d+\.\d+\.\d+)\b")
+
+
+def _other_versions_claimed_current(line: str) -> list[str]:
+    """The versions other than this release on a line that calls a version current."""
+
+    if not _CURRENT_CLAIM.search(line):
+        return []
+    return [found for found in _VERSION_NAMED.findall(line) if found != VERSION]
 
 
 def _lines(document: str) -> list[tuple[int, str]]:
@@ -106,10 +118,27 @@ def test_every_release_link_and_pin_names_this_release(document: str) -> None:
 
 @pytest.mark.parametrize("document", RELEASE_FACING)
 def test_no_document_calls_another_version_current(document: str) -> None:
-    breaches = _breaches(document, _CURRENT_CLAIM)
+    breaches = [
+        f"{document}:{number}: {line.strip()[:120]}"
+        for number, line in _lines(document)
+        if _other_versions_claimed_current(line)
+    ]
     assert not breaches, f"'current'/'latest' claims for another version than {VERSION}:\n" + (
         "\n".join(breaches)
     )
+
+
+def test_every_version_on_a_current_release_line_is_read() -> None:
+    """v4.2.0's README line, with this release first: the version after it is found (TST-024)."""
+
+    published = (
+        f"**Current Release:** **v{VERSION} (release candidate, not yet published; the "
+        "published tag is v4.1.0) — every timed input on every driver**"
+    )
+
+    assert _other_versions_claimed_current(published) == ["4.1.0"]
+    assert _other_versions_claimed_current(f"**Current Release:** **v{VERSION} — additive**") == []
+    assert _other_versions_claimed_current("v4.1.0 added replay pause and resume.") == []
 
 
 @pytest.mark.parametrize("document", ["README.md", "docs/README.md", "docs/INTEGRATION.md"])
@@ -154,6 +183,31 @@ def test_the_security_policy_supports_this_major_line_alone() -> None:
     assert supported == [f"{MAJOR}.x"], (
         f"SECURITY.md supports {supported}; the package is {VERSION}"
     )
+
+
+def test_the_security_policy_states_that_a_task_path_selects_code() -> None:
+    """SECURITY.md and the code it describes state the task-resolution boundary (BDY-028).
+
+    ``cloud_research`` imports the module a job's ``task_path`` names and calls
+    what it names with the job's ``kwargs``; nothing restricts which. Only the
+    statement protects a host from taking either from untrusted input, so the
+    statement is held here, in the policy and in the docstrings installed users
+    read.
+    """
+
+    from alphalab.cloud_research import cluster, sweep, task
+
+    policy = " ".join((ROOT / "SECURITY.md").read_text(encoding="utf-8").split())
+    assert "**`task_path` and `kwargs` must never come from untrusted input**" in policy
+    for documented in (
+        task,
+        task.resolve_task,
+        task.run_task,
+        cluster.submit_research_job,
+        sweep.submit_parameter_sweep,
+    ):
+        text = " ".join((documented.__doc__ or "").split())
+        assert "untrusted input" in text and "BDY-028" in text, documented
 
 
 def test_no_document_says_the_library_installs_from_a_public_index() -> None:
