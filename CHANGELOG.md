@@ -36,7 +36,13 @@ and `configuration_id` are 4.2.1's until an entry below says otherwise.
   79 and the workloads of the queue model, delivered surfaces, delivered
   auctions and point-in-time observations, each paused mid-run and recorded
   with the `result_id` of the run that never paused. The certificate's REP-3
-  reads them with every other release's.
+  reads them with every other release's, and
+  `tests/regression/test_schema_upgrades_v4_2_1.py` holds every later build
+  to them: each payload read and written back byte for byte, each file the
+  bytes v4.2.1 wrote, each paused replay and the checkpoint chain resumed --
+  in the test's process and in a fresh one -- to the `result_id` v4.2.1
+  computed, each registry's digest the one its replay recorded, and the
+  stored manifest the one this build makes.
 
 ---
 
