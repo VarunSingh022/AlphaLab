@@ -122,10 +122,17 @@ Statuses: Not started · In progress · Blocked · Implemented locally · Local 
 
 ### WS-01: Compatibility and historical-contract integrity
 
-- [In progress] M0: v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3
-- [Not started] M0: Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed
+- [Implemented locally] M0: v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3
+- [In progress] M0: Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed
 - [Not started] M0: Golden RunSchedule.digest per entry kind and the persisted kind values pinned
 - [Not started] M0: RUN_SCHEDULE_DIGEST_SCHEME constant (waits for item 6, ADR-0053)
+
+Evidence:
+
+- tests/fixtures/snapshots/v4.2.1: 42 files written by docs/audit/scripts/generate_v4_2_1_snapshot_fixtures.py from the v4.2.1 tag; two runs and a run against v4.2.0 wrote identical bytes (D-C1).
+- Every durable kind of STATE_MODEL's table and its three envelopes: 11 base payloads, 11 paused replays with the 9 registries they held, a checkpoint chain, the run-state store and an evidence store.
+- The generator held v4.2.1 to its contract before writing: each paused replay and the chain, read back and resumed with fresh objects, finished with the uninterrupted run's result_id (expected/identities.json).
+- Certificate REP-3 reads v4.2.1 (read_v4.2.1: 31); the source digest and every other check unchanged.
 
 ### WS-02: Deterministic identity and provenance
 
@@ -159,7 +166,7 @@ Statuses: Not started · In progress · Blocked · Implemented locally · Local 
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
 | GAP-05 | SEC-001 dotted-path resolution | H/P0 | Open | WS-23, WS-05 | M4 |
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open | WS-23 | M0 |
-| GAP-07 | v4.2.x formats not frozen | H/P0 | Open | WS-01 | M0 |
+| GAP-07 | v4.2.x formats not frozen | H/P0 | Open: v4.2.1 payloads frozen; the reading tests and schedule-digest pins follow in M0 | WS-01 | M0 |
 | GAP-08 | Return extraction; → retention trims equity | H/P0 | Open (scope = ADR-0055) | WS-04 | M3 |
 | GAP-09 | Selection statistics missing | C/P1 | Open | WS-06 | M2 (bridge M3) |
 | GAP-10 | No numerical foundation | C/P1 | Open | WS-03 | M2 |

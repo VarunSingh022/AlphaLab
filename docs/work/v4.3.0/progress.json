@@ -536,12 +536,12 @@
         {
           "milestone": "M0",
           "item": "v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3",
-          "status": "In progress"
+          "status": "Implemented locally"
         },
         {
           "milestone": "M0",
           "item": "Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed",
-          "status": "Not started"
+          "status": "In progress"
         },
         {
           "milestone": "M0",
@@ -554,7 +554,12 @@
           "status": "Not started"
         }
       ],
-      "evidence": []
+      "evidence": [
+        "tests/fixtures/snapshots/v4.2.1: 42 files written by docs/audit/scripts/generate_v4_2_1_snapshot_fixtures.py from the v4.2.1 tag; two runs and a run against v4.2.0 wrote identical bytes (D-C1).",
+        "Every durable kind of STATE_MODEL's table and its three envelopes: 11 base payloads, 11 paused replays with the 9 registries they held, a checkpoint chain, the run-state store and an evidence store.",
+        "The generator held v4.2.1 to its contract before writing: each paused replay and the chain, read back and resumed with fresh objects, finished with the uninterrupted run's result_id (expected/identities.json).",
+        "Certificate REP-3 reads v4.2.1 (read_v4.2.1: 31); the source digest and every other check unchanged."
+      ]
     },
     {
       "id": "WS-02",
@@ -887,7 +892,7 @@
       "problem": "No experiment or trial ledger",
       "severity": "C/P0",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-05"
       ],
@@ -899,7 +904,7 @@
       "problem": "Validation not over backtests",
       "severity": "C/P0",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-24"
       ],
@@ -911,7 +916,7 @@
       "problem": "DET-007 ambient ids",
       "severity": "H/P0",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-02"
       ],
@@ -923,7 +928,7 @@
       "problem": "FUT-046 schedule provenance (P1, P2)",
       "severity": "H/P0",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-02"
       ],
@@ -935,7 +940,7 @@
       "problem": "SEC-001 dotted-path resolution",
       "severity": "H/P0",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-23",
         "WS-05"
@@ -948,7 +953,7 @@
       "problem": "SEC-002 `HttpTransport` any scheme",
       "severity": "M/P0",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-23"
       ],
@@ -960,7 +965,7 @@
       "problem": "v4.2.x formats not frozen",
       "severity": "H/P0",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "Open: v4.2.1 payloads frozen; the reading tests and schedule-digest pins follow in M0",
       "workstreams": [
         "WS-01"
       ],
@@ -972,7 +977,7 @@
       "problem": "Return extraction; → retention trims equity",
       "severity": "H/P0",
       "status": "Open",
-      "plan_status": "Open (scope = ADR-0055)",
+      "status_note": "Open (scope = ADR-0055)",
       "workstreams": [
         "WS-04"
       ],
@@ -984,7 +989,7 @@
       "problem": "Selection statistics missing",
       "severity": "C/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-06"
       ],
@@ -996,7 +1001,7 @@
       "problem": "No numerical foundation",
       "severity": "C/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-03"
       ],
@@ -1008,7 +1013,7 @@
       "problem": "No econometrics",
       "severity": "H/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-07"
       ],
@@ -1020,7 +1025,7 @@
       "problem": "No model protocol",
       "severity": "C/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-08"
       ],
@@ -1032,7 +1037,7 @@
       "problem": "ML dataset not PIT",
       "severity": "H/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-08"
       ],
@@ -1044,7 +1049,7 @@
       "problem": "Throughput",
       "severity": "H/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-15"
       ],
@@ -1056,7 +1061,7 @@
       "problem": "Charter conflict",
       "severity": "H/P0",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-00"
       ],
@@ -1068,7 +1073,7 @@
       "problem": "No reference-data packs",
       "severity": "H/P2",
       "status": "Open",
-      "plan_status": "Open (D-V3)",
+      "status_note": "Open (D-V3)",
       "workstreams": [
         "WS-13"
       ],
@@ -1080,7 +1085,7 @@
       "problem": "One execution model per run",
       "severity": "H/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-26"
       ],
@@ -1092,7 +1097,7 @@
       "problem": "No run-level or intraday next-open",
       "severity": "L-M/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-11"
       ],
@@ -1104,7 +1109,7 @@
       "problem": "Latency costs nothing",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-11"
       ],
@@ -1116,7 +1121,7 @@
       "problem": "Optimiser not on the path",
       "severity": "M/P1",
       "status": "Open",
-      "plan_status": "Open (D-V3)",
+      "status_note": "Open (D-V3)",
       "workstreams": [
         "WS-12"
       ],
@@ -1128,7 +1133,7 @@
       "problem": "DL and RL not end to end",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-16"
       ],
@@ -1140,7 +1145,7 @@
       "problem": "No depth, L2 or ns time",
       "severity": "M/P3",
       "status": "Open",
-      "plan_status": "Open (after M13; ns in 5.0)",
+      "status_note": "Open (after M13; ns in 5.0)",
       "workstreams": [
         "WS-17"
       ],
@@ -1152,7 +1157,7 @@
       "problem": "FX booked as units",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-27"
       ],
@@ -1164,7 +1169,7 @@
       "problem": "Fixed income foundation only",
       "severity": "H/P2",
       "status": "Open",
-      "plan_status": "Open (D-V3)",
+      "status_note": "Open (D-V3)",
       "workstreams": [
         "WS-14"
       ],
@@ -1176,7 +1181,7 @@
       "problem": "No volatility models",
       "severity": "M/P3 → P2 (needed for S-04)",
       "status": "Open",
-      "plan_status": "Open (D-V3)",
+      "status_note": "Open (D-V3)",
       "workstreams": [
         "WS-28"
       ],
@@ -1188,7 +1193,7 @@
       "problem": "No combo orders",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-11"
       ],
@@ -1200,7 +1205,7 @@
       "problem": "No hypothesis record",
       "severity": "L/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-05"
       ],
@@ -1212,7 +1217,7 @@
       "problem": "Researcher boilerplate",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-19"
       ],
@@ -1224,7 +1229,7 @@
       "problem": "REL-001 v4.2.1 assets",
       "severity": "—",
       "status": "Closed",
-      "plan_status": "Closed (D-V5): historical limitation",
+      "status_note": "Closed (D-V5): historical limitation",
       "workstreams": [],
       "milestone": "—",
       "acceptance": "No work on v4.2.1. Recurrence is prevented for v4.3.0 by RQ-01..09 (§W, WS-29)"
@@ -1234,7 +1239,7 @@
       "problem": "Stale documentation (CON-A/N/V/X)",
       "severity": "M/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-20"
       ],
@@ -1246,7 +1251,7 @@
       "problem": "Three orchestration layers unbound",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-05"
       ],
@@ -1258,7 +1263,7 @@
       "problem": "No vectorised screening",
       "severity": "M/P3",
       "status": "Open",
-      "plan_status": "Open (D-V3 via L4)",
+      "status_note": "Open (D-V3 via L4)",
       "workstreams": [
         "WS-09",
         "WS-15"
@@ -1271,7 +1276,7 @@
       "problem": "Non-normal distributions missing",
       "severity": "M/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-03"
       ],
@@ -1283,7 +1288,7 @@
       "problem": "9,248-line pipeline module",
       "severity": "L/P3",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-15"
       ],
@@ -1295,7 +1300,7 @@
       "problem": "Windows untested",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-21"
       ],
@@ -1307,7 +1312,7 @@
       "problem": "US-centric day counts",
       "severity": "H/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-13"
       ],
@@ -1319,7 +1324,7 @@
       "problem": "Closed construction objectives; one solver",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open (D-V3)",
+      "status_note": "Open (D-V3)",
       "workstreams": [
         "WS-12"
       ],
@@ -1331,7 +1336,7 @@
       "problem": "Remainders cancelled; size-less fills",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-11"
       ],
@@ -1343,7 +1348,7 @@
       "problem": "(candidate) silent zero fill",
       "severity": "—",
       "status": "Discarded",
-      "plan_status": "Discarded",
+      "status_note": "Discarded",
       "workstreams": [],
       "milestone": "—",
       "acceptance": "—"
@@ -1353,7 +1358,7 @@
       "problem": "(candidate) no history accessor",
       "severity": "—",
       "status": "Discarded",
-      "plan_status": "Discarded",
+      "status_note": "Discarded",
       "workstreams": [],
       "milestone": "—",
       "acceptance": "—"
@@ -1363,7 +1368,7 @@
       "problem": "(candidate) no fill or order hooks",
       "severity": "—",
       "status": "Discarded",
-      "plan_status": "Discarded",
+      "status_note": "Discarded",
       "workstreams": [],
       "milestone": "—",
       "acceptance": "—"
@@ -1373,7 +1378,7 @@
       "problem": "(candidate) no multi-currency trading",
       "severity": "—",
       "status": "Discarded",
-      "plan_status": "Discarded",
+      "status_note": "Discarded",
       "workstreams": [],
       "milestone": "—",
       "acceptance": "—"
@@ -1383,7 +1388,7 @@
       "problem": "No PIT universe membership",
       "severity": "H/P1",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-13"
       ],
@@ -1395,7 +1400,7 @@
       "problem": "Plan + queue mutually exclusive",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-11"
       ],
@@ -1407,7 +1412,7 @@
       "problem": "Child fills don't reach `on_fill`",
       "severity": "L-M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-10",
         "WS-11"
@@ -1420,7 +1425,7 @@
       "problem": "RL environment invents limits",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-16"
       ],
@@ -1432,7 +1437,7 @@
       "problem": "No incremental feature evaluator",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-25"
       ],
@@ -1444,7 +1449,7 @@
       "problem": "→ Expanded: duplicate authorities in `ml`: `ml.linalg` *and* a second walk-forward splitter",
       "severity": "L/P3",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-03",
         "WS-08"
@@ -1457,7 +1462,7 @@
       "problem": "No ML/DL/RL/distributed guides",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "Open",
+      "status_note": "",
       "workstreams": [
         "WS-20"
       ],
@@ -1469,7 +1474,7 @@
       "problem": "No lot-relief methods (FIFO, LIFO, specific identification, pooling); proportional cost basis only",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "New (audit §F \"to verify\": verified absent)",
+      "status_note": "New (audit §F \"to verify\": verified absent)",
       "workstreams": [
         "WS-13"
       ],
@@ -1481,7 +1486,7 @@
       "problem": "Missing instrument classes: swaps (IRS, CDS, TRS), non-FX forwards, funds/ETFs as a booking class, inflation-linked, repos, securities lending as an instrument, structured products",
       "severity": "M/P2",
       "status": "Open",
-      "plan_status": "New (audit §F row \"Missing classes\")",
+      "status_note": "New (audit §F row \"Missing classes\")",
       "workstreams": [
         "WS-14",
         "WS-28",
@@ -1495,7 +1500,7 @@
       "problem": "No native pegged or trailing orders (trailing is strategy logic by design)",
       "severity": "L/P3",
       "status": "Open",
-      "plan_status": "New (audit §H)",
+      "status_note": "New (audit §H)",
       "workstreams": [
         "WS-20",
         "WS-26"
@@ -1508,7 +1513,7 @@
       "problem": "Optimistic default execution choices (same-event, frictionless, fill-on-touch, static full fill), all stated in `execution_assumptions`",
       "severity": "M/P1",
       "status": "Open",
-      "plan_status": "New (audit §H grouping)",
+      "status_note": "New (audit §H grouping)",
       "workstreams": [
         "WS-11"
       ],

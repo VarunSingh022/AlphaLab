@@ -367,12 +367,13 @@ serializable projection, `from_primitives(payload)` → typed snapshot,
   version, or the reason no honest upgrade exists. An upgrade supplies a value
   only when it is what the older payload already meant, and a version no
   release wrote is refused, naming the versions this build reads. The payloads
-  v3.9.0, v3.11.0, v3.12.0 and v3.13.0 wrote are frozen under
-  `tests/fixtures/snapshots/` and read by every build, and the release
-  certificate's REP-3 reads every release frozen there; v4.0 moved the pipeline
-  from 7 to 8 and the run from 4 to 5, and reads a payload v3.13 wrote as one
-  that did not record how its live objects were configured (ledger PER-008,
-  `tests/regression/test_schema_upgrades_v3_13.py`).
+  v3.9.0, v3.11.0, v3.12.0, v3.13.0, v4.1.0 and v4.2.1 wrote are frozen under
+  `tests/fixtures/snapshots/` and read by every build -- v4.2.1's are every
+  durable kind and envelope above, and byte for byte what v4.2.0 wrote -- and
+  the release certificate's REP-3 reads every release frozen there; v4.0 moved
+  the pipeline from 7 to 8 and the run from 4 to 5, and reads a payload v3.13
+  wrote as one that did not record how its live objects were configured
+  (ledger PER-008, `tests/regression/test_schema_upgrades_v3_13.py`).
 - **A plain enum's class name is part of the format.** A `StrEnum` member is
   written as its value (`"market"`); a plain `Enum` member as
   `ClassName.MEMBER` (`"StrategyStatus.RUNNING"`), and the decoder reads only

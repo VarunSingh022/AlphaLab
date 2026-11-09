@@ -80,7 +80,7 @@
     },
     {
       "id": "REP-3",
-      "claim": "Every payload v3.9.0, v3.11.0, v3.12.0, v3.13.0 and v4.1.0 wrote is read by this build, or refused for the reason its upgrade documents.",
+      "claim": "Every payload v3.9.0, v3.11.0, v3.12.0, v3.13.0, v4.1.0 and v4.2.1 wrote is read by this build, or refused for the reason its upgrade documents.",
       "passed": true,
       "evidence": {
         "read_v3.9.0": 9,
@@ -88,6 +88,7 @@
         "read_v3.12.0": 11,
         "read_v3.13.0": 11,
         "read_v4.1.0": 1,
+        "read_v4.2.1": 31,
         "refused_as_documented": 1,
         "upgrade_warnings": 6
       }

@@ -310,7 +310,7 @@ def render(register: Mapping[str, Any]) -> str:
         "| --- | --- | --- | --- | --- | --- |",
     ]
     for gap in register["gaps"]:
-        status = gap["status"] if gap["plan_status"] in ("", "Open") else gap["plan_status"]
+        status = gap["status_note"] or gap["status"]
         lines.append(
             _row(
                 gap["id"],

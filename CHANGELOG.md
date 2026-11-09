@@ -14,6 +14,32 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [Unreleased]
+
+The 4.3.0 development programme, on `work/v4.3.0-development` and following the
+approved v4.3.0 development plan; where it stands is in
+`docs/work/v4.3.0/PROGRESS.md`. Nothing here is released. The engine's
+behaviour, its public API, its persisted formats and every run's `result_id`
+and `configuration_id` are 4.2.1's until an entry below says otherwise.
+
+## Added
+
+* **The payloads v4.2.1 wrote, frozen** [plan WS-01, GAP-07]. Every durable
+  kind -- portfolio, OMS, allocation, the instrument registry, lifecycle, the
+  FX feed, the run, the live session and its broker, and eleven paused
+  replays with the registry each held -- and the three envelopes -- the
+  run-state store, a checkpoint chain and an evidence store -- are frozen in
+  `tests/fixtures/snapshots/v4.2.1`, written by
+  `docs/audit/scripts/generate_v4_2_1_snapshot_fixtures.py` against the
+  `v4.2.1` tag. Against the `v4.2.0` tag the script writes the same bytes, so
+  the set is what both releases wrote. The paused replays are examples 74 to
+  79 and the workloads of the queue model, delivered surfaces, delivered
+  auctions and point-in-time observations, each paused mid-run and recorded
+  with the `result_id` of the run that never paused. The certificate's REP-3
+  reads them with every other release's.
+
+---
+
 # [4.2.1] - 2026-11-09
 
 **A documentation and release-integrity patch: the 4.2 release's own documents
