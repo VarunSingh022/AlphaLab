@@ -1,0 +1,1681 @@
+{
+  "register_version": 1,
+  "programme": "AlphaLab v4.3.0 development programme",
+  "objective": "A complete universal, strategy-agnostic, global quantitative research engine: the researcher brings the idea, AlphaLab gives it a deterministic, reproducible, auditable path from data to validated result. The version number is not a ceiling on the agreed scope.",
+  "plan": {
+    "title": "AlphaLab v4.3.0 Master Development Plan (sections A-Z, AA)",
+    "sha256": "b4a6775db5607a23a6125112286dac6e4a7aa129c21f52f900ba220ac448e047",
+    "approved": "2026-11-09",
+    "held": "by the owner, outside the repository"
+  },
+  "decision_record": {
+    "title": "AlphaLab v4.3.0 G0 decision register",
+    "sha256": "724a60b1c3175221dc22109e631ebf61cbef365964b2adb160035a904e287291"
+  },
+  "baseline": {
+    "release": "4.2.1",
+    "tag": "v4.2.1",
+    "commit": "8f33234fe64e0558b3a0146fe23e1364fc6b802f",
+    "tree": "cb7b743ae4f8e9a431590f322efc8ffd09274119"
+  },
+  "branch": "work/v4.3.0-development",
+  "pull_request": null,
+  "statuses": [
+    "Not started",
+    "In progress",
+    "Blocked",
+    "Implemented locally",
+    "Local validation passed",
+    "Pushed",
+    "Hosted CI passed",
+    "Accepted",
+    "Deferred by owner"
+  ],
+  "decisions": [
+    {
+      "item": 1,
+      "ref": "Plan",
+      "title": "The master development plan as the implementation blueprint",
+      "status": "Approved",
+      "due": "G0",
+      "note": "Approved on 2026-11-09 with its 30 workstreams and M0-M13 milestones. Every existing identifier, dependency and acceptance criterion is preserved. The plan may evolve on verified implementation findings; each change is recorded under plan_changes with its reason."
+    },
+    {
+      "item": 2,
+      "ref": "D-V1",
+      "title": "Universal quantitative-engine charter revision",
+      "status": "Approved",
+      "due": "G0; its documents in M0",
+      "note": "Reconcile the five documents that state the product's direction -- ROADMAP.md, docs/VISION.md, nowandfuture.md, docs/ARCHITECTURE.md and docs/SYSTEM_DESIGN.md -- around one authoritative product vision, preserving the no-single-runtime architectural boundary. The charter ADR's number waits for item 16."
+    },
+    {
+      "item": 3,
+      "ref": "D-V2",
+      "title": "Optional, separately installable research and computational dependencies",
+      "status": "Approved",
+      "due": "M7",
+      "note": "The AlphaLab core stays free of mandatory runtime dependencies; optional packages integrate through stable core interfaces (AC-38)."
+    },
+    {
+      "item": 4,
+      "ref": "D-V3",
+      "title": "Boundary reopenings (plan section P.2)",
+      "status": "Pending",
+      "due": "Each before its milestone (M2-M10)",
+      "note": "Each reopening gets its own ADR before its milestone. Not to be assumed."
+    },
+    {
+      "item": 5,
+      "ref": "D-V4",
+      "title": "Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0",
+      "status": "Pending",
+      "due": "Before M8",
+      "note": ""
+    },
+    {
+      "item": 6,
+      "ref": "ADR-0053",
+      "title": "ADR-0053 revised (R53-1..8, CR-53-1..9)",
+      "status": "Pending",
+      "due": "Before M1",
+      "note": "M0's golden schedule-digest tests do not need it; the RUN_SCHEDULE_DIGEST_SCHEME constant does."
+    },
+    {
+      "item": 7,
+      "ref": "ADR-0054",
+      "title": "ADR-0054 split into 0054A and 0054B; D-54-5 revised",
+      "status": "Pending",
+      "due": "0054A before M2; 0054B before M4",
+      "note": ""
+    },
+    {
+      "item": 8,
+      "ref": "ADR-0055",
+      "title": "Streaming capture and trace identity",
+      "status": "Pending",
+      "due": "Before M3",
+      "note": ""
+    },
+    {
+      "item": 9,
+      "ref": "D-54-R3",
+      "title": "Researcher entry point alphalab.lab",
+      "status": "Pending",
+      "due": "Before M4",
+      "note": ""
+    },
+    {
+      "item": 10,
+      "ref": "D-F45",
+      "title": "FUT-045 in M8",
+      "status": "Confirmed by the owner's brief",
+      "due": "Before M8",
+      "note": "The implementation brief (Part 18) places FUT-045 in its agreed programme position. The owner is asked to confirm this reading."
+    },
+    {
+      "item": 11,
+      "ref": "D-F42",
+      "title": "FUT-042 opt-in in 4.3; default flip in 5.0",
+      "status": "Pending",
+      "due": "Before M1",
+      "note": ""
+    },
+    {
+      "item": 12,
+      "ref": "D-F44",
+      "title": "FUT-044 in M13",
+      "status": "Confirmed by the owner's brief",
+      "due": "Before M13",
+      "note": "Inclusion confirmed by the brief (Part 18). Whether it is the cut line stays the owner's decision."
+    },
+    {
+      "item": 13,
+      "ref": "D-W1",
+      "title": "Release Preflight by label or dispatch at release time",
+      "status": "Pending",
+      "due": "Before the first release candidate",
+      "note": ""
+    },
+    {
+      "item": 14,
+      "ref": "D-W2",
+      "title": "Release rehearsal: fake-API tests and a scratch-repository rehearsal",
+      "status": "Pending",
+      "due": "M13",
+      "note": ""
+    },
+    {
+      "item": 15,
+      "ref": "D-W3",
+      "title": "Residual UI-publish risk; release permissions; optional distributions",
+      "status": "Pending",
+      "due": "M13",
+      "note": ""
+    },
+    {
+      "item": 16,
+      "ref": "ADR numbering",
+      "title": "ADR numbers 0055-0071 are provisional",
+      "status": "Pending",
+      "due": "When the first new ADR is drafted",
+      "note": "Asked at the first checkpoint, before the charter ADR is added."
+    },
+    {
+      "item": 17,
+      "ref": "Register",
+      "title": "Progress register location and form",
+      "status": "Applied under item 1; confirmation requested",
+      "due": "M0",
+      "note": "The approved plan names docs/work/v4.3.0/PROGRESS.md (section U.5). This register adds the machine-readable progress.json and the brief's status vocabulary (G0 register C-03)."
+    },
+    {
+      "item": 18,
+      "ref": "GR-8",
+      "title": "Windows CI cell",
+      "status": "Pending",
+      "due": "M11",
+      "note": ""
+    },
+    {
+      "item": 19,
+      "ref": "WS-17",
+      "title": "Depth and microstructure timing",
+      "status": "Pending",
+      "due": "Before M11 ends",
+      "note": ""
+    },
+    {
+      "item": 20,
+      "ref": "Memo",
+      "title": "Decisions carried from the 2026-11-07 memo",
+      "status": "Partly resolved",
+      "due": "M0 and later",
+      "note": "Each part is listed with its own status.",
+      "parts": [
+        {
+          "ref": "D-S1",
+          "status": "Resolved",
+          "note": "Resolved by BDY-028 in v4.2.1."
+        },
+        {
+          "ref": "D-S2",
+          "status": "Pending",
+          "note": "Recommended: a registry runner in 4.3, removal at 5.0 (WS-23)."
+        },
+        {
+          "ref": "D-C1",
+          "status": "Applied under item 1; confirmation requested",
+          "note": "The approved plan freezes v4.2.1 payloads; the generator also proves that v4.2.0 writes the same bytes, so one fixture set covers both releases."
+        },
+        {
+          "ref": "D-C2",
+          "status": "Pending",
+          "note": "Recommended: accept v4.2.0's F4 and F7 as v4.1.0 coverage."
+        },
+        {
+          "ref": "D-C3",
+          "status": "Pending",
+          "note": "Recommended: keep reading replay schema 2, which no release wrote, and document it."
+        },
+        {
+          "ref": "D-K2",
+          "status": "Pending",
+          "note": "Recommended: approve (WS-20)."
+        },
+        {
+          "ref": "D-K3",
+          "status": "Pending",
+          "note": "Folded into WS-20 as a documentation task."
+        }
+      ]
+    },
+    {
+      "item": 21,
+      "ref": "Branch model",
+      "title": "Write the integration-branch model into CONTRIBUTING and ENGINEERING_GUIDELINES",
+      "status": "Pending",
+      "due": "M0",
+      "note": "Correcting CON-X14 does not depend on it."
+    },
+    {
+      "item": 22,
+      "ref": "Authority",
+      "title": "Branch, Draft PR, commits and pushes",
+      "status": "Confirmed by the owner's brief",
+      "due": "M0",
+      "note": "One branch work/v4.3.0-development from the verified v4.2.1 baseline; focused local commits; the owner pushes, or authorises a specific push; one long-lived Draft PR after the first pushed increment; no merge, tag, release or publication without the owner's explicit approval."
+    },
+    {
+      "item": 23,
+      "ref": "D-G0-1",
+      "title": "Isolation of untrusted researcher code",
+      "status": "Approved (direction)",
+      "due": "M4",
+      "note": "AlphaLab provides safe research-execution interfaces and process orchestration; the isolation of untrusted researcher code is enforced by the host or deployment environment. A separate Python process alone is never represented as a secure sandbox."
+    },
+    {
+      "item": 24,
+      "ref": "D-G0-2",
+      "title": "Numerical precision and canonical serialization policy",
+      "status": "Approved (direction)",
+      "due": "M2",
+      "note": "A documented policy: deterministic calculations first, appropriate precision preserved, rounding only where numerical error analysis justifies it, cross-platform behaviour proved by reference tests. No arbitrary fixed rounding to conceal numerical differences."
+    }
+  ],
+  "plan_changes": [
+    {
+      "id": "PC-01",
+      "date": "2026-11-09",
+      "decision": "Item 17",
+      "change": "The progress register is docs/work/v4.3.0/progress.json, the source, rendered to PROGRESS.md by docs/audit/scripts/progress_register.py, with the brief's nine statuses in place of the plan's five (section U.5).",
+      "reason": "The brief requires a machine-readable and a human-readable register; one source rendered to the other cannot disagree with it."
+    },
+    {
+      "id": "PC-02",
+      "date": "2026-11-09",
+      "decision": "Item 24",
+      "change": "AC-37 ('identity-bearing statistics rounded to decimal strings, cross-host equal') is read through the approved precision policy: rounding only where numerical error analysis justifies it, never a fixed rounding that conceals a difference. The policy ADR states the rule before M2's statistics fix any identity.",
+      "reason": "The owner's direction on item 24 (2026-11-09)."
+    }
+  ],
+  "milestones": [
+    {
+      "id": "G0",
+      "workstreams": [
+        "WS-00"
+      ],
+      "entry": "Plan approved",
+      "deliverables": "Charter ADR-0056. ADR-0053 rev3, 0054A, 0055, 0057, 0071 accepted. D-V1..D-V4, D-54-R3, D-F42/44/45, D-W1..3 recorded",
+      "exit_gate": "§Z G0 items all decided",
+      "size": "S",
+      "status": "In progress",
+      "evidence": [],
+      "note": "Items 1, 2, 3 approved and the directions of items 23 and 24 approved on 2026-11-09, with M0 authorised; every other item stays gated at its milestone."
+    },
+    {
+      "id": "M0",
+      "workstreams": [
+        "WS-01",
+        "WS-02",
+        "WS-23",
+        "WS-20",
+        "WS-29",
+        "WS-21"
+      ],
+      "entry": "G0",
+      "deliverables": "v4.2.1 fixtures for every durable kind; golden pins; isolated id scopes; scheme allowlist; High documentation fixes; VERIFICATION names commit and tree",
+      "exit_gate": "v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged",
+      "size": "M",
+      "status": "In progress",
+      "evidence": []
+    },
+    {
+      "id": "M1",
+      "workstreams": [
+        "WS-02"
+      ],
+      "entry": "M0",
+      "deliverables": "ADR-0053 revised: provenance, restores, checkpoint 3, vocabulary, opt-in manifest v2",
+      "exit_gate": "S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9",
+      "size": "M",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M2",
+      "workstreams": [
+        "WS-03",
+        "WS-13",
+        "WS-06"
+      ],
+      "entry": "M0",
+      "deliverables": "Numerical foundation; global day counts; selection statistics (pure)",
+      "exit_gate": "Published-table tests; GR-2; oracle suite; cross-host identity equality",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M3",
+      "workstreams": [
+        "WS-04",
+        "WS-06",
+        "WS-13"
+      ],
+      "entry": "M0, ADR-0055, ADR-0059",
+      "deliverables": "Capture and trace identity; `keep_equity`; selection bridge; dated membership; pack format",
+      "exit_gate": "16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5",
+      "size": "M",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M4",
+      "workstreams": [
+        "WS-05",
+        "WS-23",
+        "WS-19"
+      ],
+      "entry": "M1, M3, ADR-0054B",
+      "deliverables": "Ledger, identities, outcomes (`INSOLVENT`), executor, lockbox, resume; `research_assistant` and `cloud_research` as consumers",
+      "exit_gate": "48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M5",
+      "workstreams": [
+        "WS-24",
+        "WS-06"
+      ],
+      "entry": "M2, M4",
+      "deliverables": "WF, CV and CPCV over backtests; promotion `ValidationMethod`; ledger DSR, SPA, PBO",
+      "exit_gate": "S-13; leak mutants caught; promotion refusal",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M6",
+      "workstreams": [
+        "WS-07",
+        "WS-25"
+      ],
+      "entry": "M2",
+      "deliverables": "`econometrics`; Fama–MacBeth; PCA factors",
+      "exit_gate": "Known-DGP recovery; MacKinnon values; S-02 screening stage",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M7",
+      "workstreams": [
+        "WS-08",
+        "WS-09",
+        "WS-20"
+      ],
+      "entry": "M3, M4, ADR-0064, D-V2",
+      "deliverables": "Model protocol and artifacts; PIT datasets and labels; HPO samplers; adapters",
+      "exit_gate": "S-07 with a boosting adapter; counterfactual tests",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M8",
+      "workstreams": [
+        "WS-11",
+        "WS-26",
+        "WS-10"
+      ],
+      "entry": "M0, ADR-0060/0061/0062",
+      "deliverables": "`NEXT_OPEN`; intraday opening; `RemainderPolicy`; latency pricing; plan + queue; child fills; combos; per-venue models",
+      "exit_gate": "S-09; GR-4; leg atomicity; certificate unchanged for default runs",
+      "size": "XL",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M9",
+      "workstreams": [
+        "WS-12"
+      ],
+      "entry": "M8, M2, ADR-0063",
+      "deliverables": "`rebalancing`; certified LP; objective protocol",
+      "exit_gate": "A rebalancing backtest with CVaR, certified",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M10",
+      "workstreams": [
+        "WS-13",
+        "WS-27",
+        "WS-14",
+        "WS-28"
+      ],
+      "entry": "M2, M3, ADR-0059/0065/0066/0067",
+      "deliverables": "Packs; FX instruments; rates; vol models; roll-aware futures; lot relief",
+      "exit_gate": "S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6",
+      "size": "XL",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M11",
+      "workstreams": [
+        "WS-15",
+        "WS-09",
+        "WS-25",
+        "WS-21"
+      ],
+      "entry": "M7",
+      "deliverables": "≥ 2× spine with identical ids; backend with cross-check; columnar reader; incremental features",
+      "exit_gate": "Benchmarks; the 500-asset × 10-year run ≤ 5 minutes with the same `result_id`",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M12",
+      "workstreams": [
+        "WS-16",
+        "WS-18",
+        "WS-20"
+      ],
+      "entry": "M4, M7, ADR-0069",
+      "deliverables": "RL episodes; DL through N8; stress families; regimes",
+      "exit_gate": "S-08; a stress family reproduced",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "M13",
+      "workstreams": [
+        "WS-19",
+        "WS-22",
+        "WS-29",
+        "WS-20",
+        "WS-01"
+      ],
+      "entry": "M5, M9, M10, M12",
+      "deliverables": "`alphalab.lab`; FUT-044; release machinery; v4.3 fixtures frozen; re-certification; CHANGELOG; API history",
+      "exit_gate": "S-01, S-10, S-12; FUT-044 criteria; RQ-01..09 rehearsal",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    },
+    {
+      "id": "After M13",
+      "workstreams": [
+        "WS-17"
+      ],
+      "entry": "M8, M11, ADR-0070",
+      "deliverables": "Depth and microstructure",
+      "exit_gate": "Depth oracles",
+      "size": "L",
+      "status": "Not started",
+      "evidence": []
+    }
+  ],
+  "workstreams": [
+    {
+      "id": "WS-00",
+      "title": "Governance, charter and decision records",
+      "milestones": [
+        "G0"
+      ],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "G0",
+          "item": "Record the G0 approvals in this register",
+          "status": "In progress"
+        },
+        {
+          "milestone": "G0",
+          "item": "Charter reconciliation of the five direction documents and its ADR (number per item 16)",
+          "status": "Not started"
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "id": "WS-01",
+      "title": "Compatibility and historical-contract integrity",
+      "milestones": [
+        "M0",
+        "M13"
+      ],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M0",
+          "item": "v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3",
+          "status": "In progress"
+        },
+        {
+          "milestone": "M0",
+          "item": "Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M0",
+          "item": "Golden RunSchedule.digest per entry kind and the persisted kind values pinned",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M0",
+          "item": "RUN_SCHEDULE_DIGEST_SCHEME constant (waits for item 6, ADR-0053)",
+          "status": "Not started"
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "id": "WS-02",
+      "title": "Deterministic identity and provenance",
+      "milestones": [
+        "M0",
+        "M1"
+      ],
+      "status": "Not started",
+      "items": [
+        {
+          "milestone": "M0",
+          "item": "DET-007: isolated identifier scopes, with nested, parallel and repeated probes",
+          "status": "Not started"
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "id": "WS-03",
+      "title": "Scientific computing and numerical foundations",
+      "milestones": [
+        "M2"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-04",
+      "title": "Streaming research-result capture",
+      "milestones": [
+        "M3"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-05",
+      "title": "Experiment and trial ledger, executor, runner registry",
+      "milestones": [
+        "M4"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-06",
+      "title": "Statistical research functions",
+      "milestones": [
+        "M2",
+        "M3",
+        "M5"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-07",
+      "title": "Econometrics and time series",
+      "milestones": [
+        "M6"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-08",
+      "title": "Research model interfaces, ML datasets, hyperparameter search",
+      "milestones": [
+        "M7"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-09",
+      "title": "Optional distributions and backends",
+      "milestones": [
+        "M7",
+        "M11"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-10",
+      "title": "Strategy authoring and safe extensibility",
+      "milestones": [
+        "M8"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-11",
+      "title": "Execution realism: fills, partial fills, latency, plan+queue, combos",
+      "milestones": [
+        "M8"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-12",
+      "title": "Portfolio construction and rebalancing",
+      "milestones": [
+        "M9"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-13",
+      "title": "Global conventions, reference data and historical universes",
+      "milestones": [
+        "M2",
+        "M3",
+        "M10"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-14",
+      "title": "Fixed income and rates",
+      "milestones": [
+        "M10"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-15",
+      "title": "Performance and scale",
+      "milestones": [
+        "M11"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-16",
+      "title": "ML/DL/RL research environments",
+      "milestones": [
+        "M12"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-17",
+      "title": "Market microstructure (depth, L2/L3)",
+      "milestones": [
+        "After M13"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-18",
+      "title": "Robustness, stress and regime analysis",
+      "milestones": [
+        "M12"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-19",
+      "title": "Researcher entry points, composition, reproducibility APIs",
+      "milestones": [
+        "M4",
+        "M13"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-20",
+      "title": "Documentation, guides and examples",
+      "milestones": [
+        "M0",
+        "M7",
+        "M12",
+        "M13"
+      ],
+      "status": "Not started",
+      "items": [
+        {
+          "milestone": "M0",
+          "item": "High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15",
+          "status": "Not started"
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "id": "WS-21",
+      "title": "Platform, CI and test infrastructure",
+      "milestones": [
+        "M0",
+        "M11"
+      ],
+      "status": "Not started",
+      "items": [
+        {
+          "milestone": "M0",
+          "item": "v4.3 mutation and stress scaffolds",
+          "status": "Not started"
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "id": "WS-22",
+      "title": "Live venue controls (FUT-044)",
+      "milestones": [
+        "M13"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-23",
+      "title": "Security and trust boundaries",
+      "milestones": [
+        "M0",
+        "M4"
+      ],
+      "status": "Not started",
+      "items": [
+        {
+          "milestone": "M0",
+          "item": "SEC-002: HttpTransport refuses every scheme but http and https",
+          "status": "Not started"
+        }
+      ],
+      "evidence": []
+    },
+    {
+      "id": "WS-24",
+      "title": "Validation over actual backtests",
+      "milestones": [
+        "M5"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-25",
+      "title": "Factor and feature research",
+      "milestones": [
+        "M6",
+        "M11"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-26",
+      "title": "Per-venue execution (FUT-045)",
+      "milestones": [
+        "M8"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-27",
+      "title": "FX and multi-currency correctness",
+      "milestones": [
+        "M10"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-28",
+      "title": "Options and futures depth",
+      "milestones": [
+        "M10"
+      ],
+      "status": "Not started",
+      "items": [],
+      "evidence": []
+    },
+    {
+      "id": "WS-29",
+      "title": "Release engineering and v4.3.0 artifacts",
+      "milestones": [
+        "M0",
+        "M13"
+      ],
+      "status": "Not started",
+      "items": [
+        {
+          "milestone": "M0",
+          "item": "VERIFICATION record names the commit and tree; reproducible build",
+          "status": "Not started"
+        }
+      ],
+      "evidence": []
+    }
+  ],
+  "gaps": [
+    {
+      "id": "GAP-01",
+      "problem": "No experiment or trial ledger",
+      "severity": "C/P0",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-05"
+      ],
+      "milestone": "M4",
+      "acceptance": "§K.3"
+    },
+    {
+      "id": "GAP-02",
+      "problem": "Validation not over backtests",
+      "severity": "C/P0",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-24"
+      ],
+      "milestone": "M5",
+      "acceptance": "§K.4"
+    },
+    {
+      "id": "GAP-03",
+      "problem": "DET-007 ambient ids",
+      "severity": "H/P0",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-02"
+      ],
+      "milestone": "M0",
+      "acceptance": "WS-02 AC"
+    },
+    {
+      "id": "GAP-04",
+      "problem": "FUT-046 schedule provenance (P1, P2)",
+      "severity": "H/P0",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-02"
+      ],
+      "milestone": "M1",
+      "acceptance": "§N"
+    },
+    {
+      "id": "GAP-05",
+      "problem": "SEC-001 dotted-path resolution",
+      "severity": "H/P0",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-23",
+        "WS-05"
+      ],
+      "milestone": "M4",
+      "acceptance": "Spy-on-import refusal"
+    },
+    {
+      "id": "GAP-06",
+      "problem": "SEC-002 `HttpTransport` any scheme",
+      "severity": "M/P0",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-23"
+      ],
+      "milestone": "M0",
+      "acceptance": "`file://` / `ftp://` / `data:` refused"
+    },
+    {
+      "id": "GAP-07",
+      "problem": "v4.2.x formats not frozen",
+      "severity": "H/P0",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-01"
+      ],
+      "milestone": "M0",
+      "acceptance": "REP-3 reads v4.2.1 payloads"
+    },
+    {
+      "id": "GAP-08",
+      "problem": "Return extraction; → retention trims equity",
+      "severity": "H/P0",
+      "status": "Open",
+      "plan_status": "Open (scope = ADR-0055)",
+      "workstreams": [
+        "WS-04"
+      ],
+      "milestone": "M3",
+      "acceptance": "§K.1"
+    },
+    {
+      "id": "GAP-09",
+      "problem": "Selection statistics missing",
+      "severity": "C/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-06"
+      ],
+      "milestone": "M2 (bridge M3)",
+      "acceptance": "Oracle tests"
+    },
+    {
+      "id": "GAP-10",
+      "problem": "No numerical foundation",
+      "severity": "C/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-03"
+      ],
+      "milestone": "M2",
+      "acceptance": "§H.1"
+    },
+    {
+      "id": "GAP-11",
+      "problem": "No econometrics",
+      "severity": "H/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-07"
+      ],
+      "milestone": "M6",
+      "acceptance": "§H.3"
+    },
+    {
+      "id": "GAP-12",
+      "problem": "No model protocol",
+      "severity": "C/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-08"
+      ],
+      "milestone": "M7",
+      "acceptance": "§I.2"
+    },
+    {
+      "id": "GAP-13",
+      "problem": "ML dataset not PIT",
+      "severity": "H/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-08"
+      ],
+      "milestone": "M7",
+      "acceptance": "Counterfactual test"
+    },
+    {
+      "id": "GAP-14",
+      "problem": "Throughput",
+      "severity": "H/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-15"
+      ],
+      "milestone": "M11",
+      "acceptance": "≥ 2× spine, same ids"
+    },
+    {
+      "id": "GAP-15",
+      "problem": "Charter conflict",
+      "severity": "H/P0",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-00"
+      ],
+      "milestone": "G0",
+      "acceptance": "§P D-V1"
+    },
+    {
+      "id": "GAP-16",
+      "problem": "No reference-data packs",
+      "severity": "H/P2",
+      "status": "Open",
+      "plan_status": "Open (D-V3)",
+      "workstreams": [
+        "WS-13"
+      ],
+      "milestone": "M10",
+      "acceptance": "GR-1"
+    },
+    {
+      "id": "GAP-17",
+      "problem": "One execution model per run",
+      "severity": "H/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-26"
+      ],
+      "milestone": "M8",
+      "acceptance": "GR-4"
+    },
+    {
+      "id": "GAP-18",
+      "problem": "No run-level or intraday next-open",
+      "severity": "L-M/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-11"
+      ],
+      "milestone": "M8",
+      "acceptance": "§J"
+    },
+    {
+      "id": "GAP-19",
+      "problem": "Latency costs nothing",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-11"
+      ],
+      "milestone": "M8",
+      "acceptance": "§J"
+    },
+    {
+      "id": "GAP-20",
+      "problem": "Optimiser not on the path",
+      "severity": "M/P1",
+      "status": "Open",
+      "plan_status": "Open (D-V3)",
+      "workstreams": [
+        "WS-12"
+      ],
+      "milestone": "M9",
+      "acceptance": "Rebalancing backtest"
+    },
+    {
+      "id": "GAP-21",
+      "problem": "DL and RL not end to end",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-16"
+      ],
+      "milestone": "M12",
+      "acceptance": "S-08"
+    },
+    {
+      "id": "GAP-22",
+      "problem": "No depth, L2 or ns time",
+      "severity": "M/P3",
+      "status": "Open",
+      "plan_status": "Open (after M13; ns in 5.0)",
+      "workstreams": [
+        "WS-17"
+      ],
+      "milestone": "After M13",
+      "acceptance": "Depth oracles"
+    },
+    {
+      "id": "GAP-23",
+      "problem": "FX booked as units",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-27"
+      ],
+      "milestone": "M10",
+      "acceptance": "GR-3"
+    },
+    {
+      "id": "GAP-24",
+      "problem": "Fixed income foundation only",
+      "severity": "H/P2",
+      "status": "Open",
+      "plan_status": "Open (D-V3)",
+      "workstreams": [
+        "WS-14"
+      ],
+      "milestone": "M10",
+      "acceptance": "GR-6"
+    },
+    {
+      "id": "GAP-25",
+      "problem": "No volatility models",
+      "severity": "M/P3 → P2 (needed for S-04)",
+      "status": "Open",
+      "plan_status": "Open (D-V3)",
+      "workstreams": [
+        "WS-28"
+      ],
+      "milestone": "M10",
+      "acceptance": "Recovery tests"
+    },
+    {
+      "id": "GAP-26",
+      "problem": "No combo orders",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-11"
+      ],
+      "milestone": "M8",
+      "acceptance": "Leg atomicity"
+    },
+    {
+      "id": "GAP-27",
+      "problem": "No hypothesis record",
+      "severity": "L/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-05"
+      ],
+      "milestone": "M4",
+      "acceptance": "Hashed hypothesis"
+    },
+    {
+      "id": "GAP-28",
+      "problem": "Researcher boilerplate",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-19"
+      ],
+      "milestone": "M13",
+      "acceptance": "60-line example"
+    },
+    {
+      "id": "GAP-29",
+      "problem": "REL-001 v4.2.1 assets",
+      "severity": "—",
+      "status": "Closed",
+      "plan_status": "Closed (D-V5): historical limitation",
+      "workstreams": [],
+      "milestone": "—",
+      "acceptance": "No work on v4.2.1. Recurrence is prevented for v4.3.0 by RQ-01..09 (§W, WS-29)"
+    },
+    {
+      "id": "GAP-30",
+      "problem": "Stale documentation (CON-A/N/V/X)",
+      "severity": "M/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-20"
+      ],
+      "milestone": "M0 (High) + every M",
+      "acceptance": "Each CON fixed; counts held by tests"
+    },
+    {
+      "id": "GAP-31",
+      "problem": "Three orchestration layers unbound",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-05"
+      ],
+      "milestone": "M4",
+      "acceptance": "One executor path"
+    },
+    {
+      "id": "GAP-32",
+      "problem": "No vectorised screening",
+      "severity": "M/P3",
+      "status": "Open",
+      "plan_status": "Open (D-V3 via L4)",
+      "workstreams": [
+        "WS-09",
+        "WS-15"
+      ],
+      "milestone": "M11",
+      "acceptance": "Agreement with the event path"
+    },
+    {
+      "id": "GAP-33",
+      "problem": "Non-normal distributions missing",
+      "severity": "M/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-03"
+      ],
+      "milestone": "M2",
+      "acceptance": "Published tables"
+    },
+    {
+      "id": "GAP-34",
+      "problem": "9,248-line pipeline module",
+      "severity": "L/P3",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-15"
+      ],
+      "milestone": "M11",
+      "acceptance": "No API or identity change"
+    },
+    {
+      "id": "GAP-35",
+      "problem": "Windows untested",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-21"
+      ],
+      "milestone": "M11 [OD]",
+      "acceptance": "All gates on Windows"
+    },
+    {
+      "id": "GAP-36",
+      "problem": "US-centric day counts",
+      "severity": "H/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-13"
+      ],
+      "milestone": "M2",
+      "acceptance": "GR-2"
+    },
+    {
+      "id": "GAP-37",
+      "problem": "Closed construction objectives; one solver",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open (D-V3)",
+      "workstreams": [
+        "WS-12"
+      ],
+      "milestone": "M9",
+      "acceptance": "Certified LP"
+    },
+    {
+      "id": "GAP-38",
+      "problem": "Remainders cancelled; size-less fills",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-11"
+      ],
+      "milestone": "M8",
+      "acceptance": "§J"
+    },
+    {
+      "id": "GAP-39",
+      "problem": "(candidate) silent zero fill",
+      "severity": "—",
+      "status": "Discarded",
+      "plan_status": "Discarded",
+      "workstreams": [],
+      "milestone": "—",
+      "acceptance": "—"
+    },
+    {
+      "id": "GAP-40",
+      "problem": "(candidate) no history accessor",
+      "severity": "—",
+      "status": "Discarded",
+      "plan_status": "Discarded",
+      "workstreams": [],
+      "milestone": "—",
+      "acceptance": "—"
+    },
+    {
+      "id": "GAP-41",
+      "problem": "(candidate) no fill or order hooks",
+      "severity": "—",
+      "status": "Discarded",
+      "plan_status": "Discarded",
+      "workstreams": [],
+      "milestone": "—",
+      "acceptance": "—"
+    },
+    {
+      "id": "GAP-42",
+      "problem": "(candidate) no multi-currency trading",
+      "severity": "—",
+      "status": "Discarded",
+      "plan_status": "Discarded",
+      "workstreams": [],
+      "milestone": "—",
+      "acceptance": "—"
+    },
+    {
+      "id": "GAP-43",
+      "problem": "No PIT universe membership",
+      "severity": "H/P1",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-13"
+      ],
+      "milestone": "M3",
+      "acceptance": "GR-5"
+    },
+    {
+      "id": "GAP-44",
+      "problem": "Plan + queue mutually exclusive",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-11"
+      ],
+      "milestone": "M8",
+      "acceptance": "§J"
+    },
+    {
+      "id": "GAP-45",
+      "problem": "Child fills don't reach `on_fill`",
+      "severity": "L-M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-10",
+        "WS-11"
+      ],
+      "milestone": "M8",
+      "acceptance": "§J"
+    },
+    {
+      "id": "GAP-46",
+      "problem": "RL environment invents limits",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-16"
+      ],
+      "milestone": "M12",
+      "acceptance": "Refusal of undeclared limits"
+    },
+    {
+      "id": "GAP-47",
+      "problem": "No incremental feature evaluator",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-25"
+      ],
+      "milestone": "M11",
+      "acceptance": "Equality at every instant"
+    },
+    {
+      "id": "GAP-48",
+      "problem": "→ Expanded: duplicate authorities in `ml`: `ml.linalg` *and* a second walk-forward splitter",
+      "severity": "L/P3",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-03",
+        "WS-08"
+      ],
+      "milestone": "M7",
+      "acceptance": "Delegation tests; deprecation in 5.0"
+    },
+    {
+      "id": "GAP-49",
+      "problem": "No ML/DL/RL/distributed guides",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "Open",
+      "workstreams": [
+        "WS-20"
+      ],
+      "milestone": "M7, M12",
+      "acceptance": "A guide and example per engine"
+    },
+    {
+      "id": "GAP-50",
+      "problem": "No lot-relief methods (FIFO, LIFO, specific identification, pooling); proportional cost basis only",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "New (audit §F \"to verify\": verified absent)",
+      "workstreams": [
+        "WS-13"
+      ],
+      "milestone": "M10",
+      "acceptance": "Hand-calculated P&L per method; average cost unchanged"
+    },
+    {
+      "id": "GAP-51",
+      "problem": "Missing instrument classes: swaps (IRS, CDS, TRS), non-FX forwards, funds/ETFs as a booking class, inflation-linked, repos, securities lending as an instrument, structured products",
+      "severity": "M/P2",
+      "status": "Open",
+      "plan_status": "New (audit §F row \"Missing classes\")",
+      "workstreams": [
+        "WS-14",
+        "WS-28",
+        "WS-13"
+      ],
+      "milestone": "M10",
+      "acceptance": "Each added class books by declared terms, with tests; `AssetType` additions by ADR"
+    },
+    {
+      "id": "GAP-52",
+      "problem": "No native pegged or trailing orders (trailing is strategy logic by design)",
+      "severity": "L/P3",
+      "status": "Open",
+      "plan_status": "New (audit §H)",
+      "workstreams": [
+        "WS-20",
+        "WS-26"
+      ],
+      "milestone": "After M13",
+      "acceptance": "Recipes held by tests"
+    },
+    {
+      "id": "GAP-53",
+      "problem": "Optimistic default execution choices (same-event, frictionless, fill-on-touch, static full fill), all stated in `execution_assumptions`",
+      "severity": "M/P1",
+      "status": "Open",
+      "plan_status": "New (audit §H grouping)",
+      "workstreams": [
+        "WS-11"
+      ],
+      "milestone": "M8",
+      "acceptance": "Conservative builders documented; 5.0 required timing (D-V4)"
+    }
+  ],
+  "adrs": [
+    {
+      "id": "ADR-0053",
+      "subject": "Run and input provenance",
+      "plan_section": "§N",
+      "workstream": "WS-02",
+      "needed": "G0",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0054A",
+      "subject": "Selection statistics (pure)",
+      "plan_section": "§O",
+      "workstream": "WS-06",
+      "needed": "G0",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0054B",
+      "subject": "Experiments and trial ledger",
+      "plan_section": "§O",
+      "workstream": "WS-05",
+      "needed": "Before M4",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0055",
+      "subject": "Streaming research capture, extractor identity, trace identity, retention",
+      "plan_section": "§K",
+      "workstream": "WS-04",
+      "needed": "Before M3",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0056",
+      "subject": "Product charter (D-V1)",
+      "plan_section": "§P",
+      "workstream": "WS-00",
+      "needed": "G0",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0057",
+      "subject": "Optional distributions and backend protocols (D-V2); includes the screening evaluator (B9)",
+      "plan_section": "§P",
+      "workstream": "WS-09",
+      "needed": "G0",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0058",
+      "subject": "Numerical foundation, record-path host independence, estimation identity (reopens OFE-007, OFE-010 under identity)",
+      "plan_section": "§H",
+      "workstream": "WS-03",
+      "needed": "Before M2",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0059",
+      "subject": "Historical universes and reference-data packs (reopens BDY-013 \"permanently\")",
+      "plan_section": "§G",
+      "workstream": "WS-13",
+      "needed": "Before M3",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0060",
+      "subject": "Fill timing `NEXT_OPEN`, intraday opening, `RemainderPolicy`, latency pricing (D-V4)",
+      "plan_section": "§J",
+      "workstream": "WS-11",
+      "needed": "Before M8",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0061",
+      "subject": "Per-venue execution (FUT-045) and plan+queue composition",
+      "plan_section": "§J, §T",
+      "workstream": "WS-26",
+      "needed": "Before M8",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0062",
+      "subject": "Combo and multi-leg intents (N16)",
+      "plan_section": "§J",
+      "workstream": "WS-11",
+      "needed": "Before M8",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0063",
+      "subject": "Rebalancing bridge and certified additional solvers (reopens ADR-0043's non-goal and §19)",
+      "plan_section": "§J",
+      "workstream": "WS-12",
+      "needed": "Before M9",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0064",
+      "subject": "Research model protocol and artifacts (N8)",
+      "plan_section": "§I",
+      "workstream": "WS-08",
+      "needed": "Before M7",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0065",
+      "subject": "Fixed income and rates (reopens BDY-014)",
+      "plan_section": "§G",
+      "workstream": "WS-14",
+      "needed": "Before M10",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0066",
+      "subject": "Volatility models (reopens BDY-015)",
+      "plan_section": "§G",
+      "workstream": "WS-28",
+      "needed": "Before M10",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0067",
+      "subject": "FX instruments and value dates (N15)",
+      "plan_section": "§G",
+      "workstream": "WS-27",
+      "needed": "Before M10",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0068",
+      "subject": "Researcher entry module `alphalab.lab` (D-54-R3, N20)",
+      "plan_section": "§E.9",
+      "workstream": "WS-19",
+      "needed": "Before M13 (its documented-module part before M4)",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0069",
+      "subject": "RL and DL episode driver (N24)",
+      "plan_section": "§I",
+      "workstream": "WS-16",
+      "needed": "Before M12",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0070",
+      "subject": "Depth protocol and microstructure (reopens BDY-003; ns time stays 5.0)",
+      "plan_section": "§J",
+      "workstream": "WS-17",
+      "needed": "After M13",
+      "status": "Not drafted in the repository"
+    },
+    {
+      "id": "ADR-0071",
+      "subject": "Release integrity and guarded publication",
+      "plan_section": "§W",
+      "workstream": "WS-29",
+      "needed": "G0",
+      "status": "Not drafted in the repository"
+    }
+  ]
+}
