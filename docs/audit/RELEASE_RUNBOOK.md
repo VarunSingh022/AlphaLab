@@ -1,4 +1,4 @@
-# Release runbook: tagging and publishing AlphaLab 4.2.0
+# Release runbook: tagging and publishing AlphaLab 4.2.1
 
 For the maintainer, after the candidate has been reviewed. Every command below
 runs as pasted in `zsh` or `bash` -- no value is typed into a command by hand;
@@ -6,32 +6,37 @@ each is read from Git or GitHub into a shell variable first -- and
 `tests/regression/test_documented_commands_parse.py` holds every block here to
 that. Run the steps **in one terminal session**, from the repository root: later
 steps read variables earlier steps set. Nothing here moves, deletes or recreates
-an existing tag; `v4.0.0`, `v4.1.0` and their records stay as they are.
+an existing tag; `v4.0.0`, `v4.1.0`, `v4.2.0` and their records stay as they are.
 
 What the workflows guarantee, and what they do not:
 
 * **Release Preflight** (`.github/workflows/preflight.yml`) runs every gate --
   CI on CPython 3.12, 3.13 and 3.14 on Linux and macOS, the benchmarks on all
   three, CodeQL, and a build checked, hashed, installed and smoke-tested -- on one
-  exact commit, and keeps the artifacts as `alphalab-4.2.0-<commit>` for 90 days.
+  exact commit, and keeps the artifacts as `alphalab-4.2.1-<commit>` for 90 days.
   A green preflight is evidence about that commit **before** publication; it is
   not a passing post-publication validation.
 * **Release Validation** (`.github/workflows/release.yml`) runs when the release
-  is published: the tag must be `v4.2.0`, name the package's version, be the
+  is published: the tag must be `v4.2.1`, name the package's version, be the
   commit checked out, and be source a passing preflight approved (that commit,
   or one with the same tree); it then rebuilds and verifies the artifacts on
   all three interpreters with the same command CI runs on every push.
+* **The release's own identity** (`release_preflight.py version`, run by both):
+  since v4.2.1 the CHANGELOG heading of the release must carry the date it is
+  published, `# [4.2.1] - YYYY-MM-DD`. If the tag is made on another day than
+  the one the heading names, correct the heading on the branch first, so that
+  the commit tagged says the day it was released.
 
 ---
 
 ## 1. The candidate is what was reviewed
 
-The candidate is draft pull request #18's head, on
-`work/v4.1.1-future-readiness` (the branch was named before the release number
-was chosen); its evidence is `docs/audit/V4_2_0_READINESS.md`.
+The candidate is the head of `work/v4.2.1-release`, a documentation and
+release-integrity patch on v4.2.0; its record is `CHANGELOG.md`, section
+`[4.2.1]`.
 
 ```bash
-git switch work/v4.1.1-future-readiness
+git switch work/v4.2.1-release
 git status --short --branch
 git log -3 --oneline --decorate
 CANDIDATE="$(git rev-parse HEAD)"
@@ -41,15 +46,17 @@ echo "candidate ${CANDIDATE}"
 `git status` must show no change. If it shows one, stop: the candidate is the
 commit, not the working tree.
 
-## 2. Run the preflight on the pull request
+## 2. Run the preflight on the candidate
 
-The preflight runs on a pull request into `main` once it carries the
-`release-preflight` label, on its head commit exactly. Labelling it is the
-maintainer's step:
+A push to `work/v4.2.1-release` runs the preflight on the commit pushed
+(labelling a pull request into `main` with `release-preflight` would run it
+too, on its head commit exactly; the push alone is enough here). Pushing and
+opening the pull request are the maintainer's steps:
 
 ```bash
-git push origin work/v4.1.1-future-readiness
-gh pr edit 18 --add-label release-preflight
+git push origin work/v4.2.1-release
+gh pr create --base main --head work/v4.2.1-release --draft --title "AlphaLab 4.2.1" --body "AlphaLab 4.2.1: see CHANGELOG.md, section [4.2.1]."
+PR="$(gh pr list --head work/v4.2.1-release --json number --jq '.[0].number')"
 ```
 
 Then follow the preflight run for exactly that commit, and wait for it:
@@ -67,9 +74,9 @@ and `CANDIDATE` is read again from step 1.
 ## 3. Mark the pull request ready and let CI run
 
 ```bash
-gh pr ready 18
-gh pr comment 18 --body "AlphaLab 4.2.0 candidate ${CANDIDATE}. Evidence: docs/audit/V4_2_0_READINESS.md. Preflight run: ${PREFLIGHT_RUN}."
-gh pr checks 18 --watch
+gh pr ready "${PR}"
+gh pr comment "${PR}" --body "AlphaLab 4.2.1 candidate ${CANDIDATE}. Record: CHANGELOG.md, section [4.2.1]. Preflight run: ${PREFLIGHT_RUN}."
+gh pr checks "${PR}" --watch
 ```
 
 Every check must pass -- the six Quality Gates cells and CodeQL among them.
@@ -79,7 +86,7 @@ Every check must pass -- the six Quality Gates cells and CodeQL among them.
 Merge with a merge commit, from the GitHub page or:
 
 ```bash
-gh pr merge 18 --merge --delete-branch=false
+gh pr merge "${PR}" --merge --delete-branch=false
 ```
 
 Then read `main`'s new commit and compare its tree with the approved candidate's:
@@ -95,7 +102,7 @@ if [ "$(git rev-parse "${APPROVED}^{tree}")" = "$(git rev-parse "${CANDIDATE}^{t
 ## 5. Only if main's tree differs: approve main itself
 
 ```bash
-gh workflow run preflight.yml --ref main -f candidate=main -f expected_version=4.2.0
+gh workflow run preflight.yml --ref main -f candidate=main -f expected_version=4.2.1
 ```
 
 Wait for that run (`gh run list --workflow preflight.yml --branch main --limit 1`,
@@ -109,21 +116,21 @@ CANDIDATE="${APPROVED}"
 ## 6. Tag the approved commit
 
 ```bash
-python docs/audit/scripts/release_preflight.py version --tag v4.2.0 && git tag -a v4.2.0 -m "AlphaLab 4.2.0" "${APPROVED}" && git rev-parse "v4.2.0^{commit}"
+python docs/audit/scripts/release_preflight.py version --tag v4.2.1 && git tag -a v4.2.1 -m "AlphaLab 4.2.1" "${APPROVED}" && git rev-parse "v4.2.1^{commit}"
 ```
 
 The printed commit must be `APPROVED`. Then push the tag alone:
 
 ```bash
-git push origin v4.2.0
+git push origin v4.2.1
 ```
 
 ## 7. Fetch the artifacts the preflight built and checked
 
 ```bash
 ASSETS_RUN="$(gh run list --workflow preflight.yml --commit "${CANDIDATE}" --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
-gh run download "${ASSETS_RUN}" --name "alphalab-4.2.0-${CANDIDATE}" --dir release-assets
-(cd release-assets && shasum -a 256 -c SHA256SUMS-4.2.0 && cat VERIFICATION-4.2.0.txt)
+gh run download "${ASSETS_RUN}" --name "alphalab-4.2.1-${CANDIDATE}" --dir release-assets
+(cd release-assets && shasum -a 256 -c SHA256SUMS-4.2.1 && cat VERIFICATION-4.2.1.txt)
 ```
 
 Both lines of `shasum -c` must read `OK`, and the record must read `PASSED`.
@@ -131,7 +138,7 @@ Both lines of `shasum -c` must read `OK`, and the record must read `PASSED`.
 ## 8. Publish the release
 
 ```bash
-gh release create v4.2.0 --verify-tag --title "AlphaLab 4.2.0" --notes "AlphaLab 4.2.0 -- see CHANGELOG.md, section [4.2.0], and docs/audit/V4_2_0_READINESS.md." release-assets/alphalab-4.2.0-py3-none-any.whl release-assets/alphalab-4.2.0.tar.gz release-assets/SHA256SUMS-4.2.0 release-assets/VERIFICATION-4.2.0.txt
+gh release create v4.2.1 --verify-tag --title "AlphaLab 4.2.1" --notes "AlphaLab 4.2.1 -- a documentation and release-integrity patch; see CHANGELOG.md, section [4.2.1]." release-assets/alphalab-4.2.1-py3-none-any.whl release-assets/alphalab-4.2.1.tar.gz release-assets/SHA256SUMS-4.2.1 release-assets/VERIFICATION-4.2.1.txt
 ```
 
 ## 9. The post-publication validation must pass
@@ -142,7 +149,7 @@ gh run watch "${VALIDATION_RUN}" --exit-status
 ```
 
 Only now is the release published **and verified**. If it fails, do not move or
-delete the tag: read the failure, fix it on a new branch, and release 4.2.1.
+delete the tag: read the failure, fix it on a new branch, and release 4.2.2.
 
 ## 10. Install it as an application will
 

@@ -61,20 +61,45 @@ Examples of security-related issues include:
 - Unsafe default behavior
 - Arbitrary file access
 
-Two areas are worth naming because AlphaLab implements them itself rather than
+One area is worth naming because AlphaLab implements it itself rather than
 taking a dependency:
 
 - **TLS.** `alphalab.common.tls` states a protocol floor of TLS 1.2 explicitly
   rather than inheriting whatever the host's OpenSSL allows, verifies
   certificates and checks hostnames. There is deliberately no parameter that
-  lowers the floor and no retry-on-older-protocol fallback. Every outbound
-  connection — the venue transport, the WebSocket feed and the provider REST
-  client — goes through it.
-- **Venue request signing.** `alphalab.broker.transport.HttpVenueTransport` signs
-  requests with HMAC-SHA256 and carries a timestamp window and an idempotency
-  key.
+  lowers the floor and no retry-on-older-protocol fallback. Every encrypted
+  connection the library makes uses it: an `https://` request from its HTTP
+  transport (`alphalab.marketdata.transport`) and a `wss://` connection from its
+  RFC 6455 WebSocket client (`alphalab.marketdata.websocket`). Both also accept
+  an unencrypted `http://` or `ws://` URL, which TLS does not cover; the URL is
+  the caller's choice.
+
+Venue request signing is not in the library. The HMAC-signed venue transport
+and its credentials (`HttpVenueTransport`, `VenueCredentials`) left
+`alphalab.broker` in v3.11 (ledger BRK-007) and are the reference adapter under
+`tests/reference_adapter`, which ships with the source distribution's tests and
+is not installed with the package. A venue adapter, its request signing and its
+credentials are the host application's.
 
 General bugs, feature requests, and documentation issues should be reported through the normal GitHub issue tracker.
+
+---
+
+# Trust Boundaries
+
+AlphaLab runs in the caller's process with the caller's privileges and
+sandboxes nothing.
+
+**A task path selects code to execute** (ledger BDY-028).
+`alphalab.cloud_research` runs a job by importing the module its `task_path`
+names and calling the callable it names with the job's `kwargs`: `resolve_task`
+and `run_task` do, for the jobs `submit_research_job` and
+`submit_parameter_sweep` queue. Nothing restricts which importable module or
+callable a path may name. **`task_path` and `kwargs` must never come from
+untrusted input**: whoever chooses them chooses the code a worker runs, with the
+host's privileges. A task's return value reaches the caller through the
+executor the caller supplies -- a process pool pickles it -- so a worker is
+inside the caller's trust boundary as well.
 
 ---
 
@@ -82,8 +107,8 @@ General bugs, feature requests, and documentation issues should be reported thro
 
 **AlphaLab declares no runtime dependencies.** `pyproject.toml` sets
 `dependencies = []`, and every package is built on the Python standard library
-alone — including the HTTP transport, the RFC 6455 WebSocket client and the HMAC
-request signing. There is no third-party code in an installed AlphaLab.
+alone — including the HTTP transport and the RFC 6455 WebSocket client. There is
+no third-party code in an installed AlphaLab.
 
 The `[dev]` extra installs a toolchain (`build`, `hatchling`, `mypy`,
 `pre-commit`, `pytest`, `pytest-cov`, `ruff`, `twine`) used to develop and
@@ -104,11 +129,13 @@ Users are encouraged to:
   dependency surface.
 - Keep the `[dev]` toolchain updated if you develop against the repository.
 - Review configuration before deploying to production.
-- Avoid storing credentials directly in source code. AlphaLab accepts venue
-  credentials as `VenueCredentials` passed in at the call site and stores none of
-  them. Principals, roles and secret storage are the host application's
-  (`alphalab.enterprise`, which held secret *references*, moved out with it in
-  v3.11, ADR-0046).
+- Avoid storing credentials directly in source code. AlphaLab holds no venue
+  credential and defines no credential type: a venue adapter and its credentials
+  are the host application's (`tests/reference_adapter` shows one). Principals,
+  roles and secret storage are the host application's too (`alphalab.enterprise`,
+  which held secret *references*, moved out with it in v3.11, ADR-0046).
+- Never build a `cloud_research` job's `task_path` or `kwargs` from untrusted
+  input (*Trust Boundaries*, above).
 
 ---
 

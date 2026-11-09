@@ -66,6 +66,10 @@ def submit_parameter_sweep(
     base_kwargs supplies anything constant across the sweep (e.g. the dataset),
     the space supplies what varies (e.g. l2_penalty candidates).
 
+    ``task_path``, ``base_kwargs`` and ``param_grid`` select the code every worker
+    runs and what it is called with: none may come from untrusted input (ledger
+    BDY-028, :mod:`alphalab.cloud_research.task`).
+
     Returns:
         The state, and the job ids in the space's order -- the order
         :func:`collect_sweep` reads them back in.

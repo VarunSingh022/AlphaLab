@@ -159,7 +159,7 @@ names what the release established and the ADR that records the decision.
 - **The contract an application builds on, checked against the artifact**:
   `tests/consumer_contract.py` runs inside every installed wheel and sdist.
 
-## v4.2.0 (in development: the v4.1.1 future-readiness program and phases 2 to 6, its number and scope set by the maintainer; not yet published)
+## v4.2.0 (published 2026-11-01: the v4.1.1 future-readiness program and phases 2 to 6, its number and scope set by the maintainer)
 
 - **One schedule for every timed input** (FUT-004): `alphalab.backtesting.schedule`
   -- rates, funding, cash flows, per-unit dividends and coupons, perpetual funding
@@ -420,6 +420,25 @@ Delivered on the same development branch after the phase 5 checkpoint at
   input against the evidence that names it; the research engine checked
   against tests. A manifest must name the schedule that delivered the
   surfaces and auctions a run kept (REP-009); three entries proposed.
+
+## v4.2.1
+
+A documentation and release-integrity patch; the engine's behaviour, its public
+API, its persisted formats and every run's `result_id` are 4.2.0's.
+
+- **The 4.2 release's documents say it is published** (DOC-013): its CHANGELOG
+  heading is dated, and the README, `docs/README.md`, `docs/INTEGRATION.md`,
+  this ROADMAP, the API history's index and the ledger no longer call it a
+  candidate, unreleased or not yet published.
+- **The release checks read the release's status** (TST-024): `release_preflight.py
+  version` requires a dated heading, refuses a release-facing line naming the
+  release that calls it unreleased or names another release as published, and
+  refuses an API history copy that is not the manifest; a line calling a
+  version current has every version on it read. The API history's copy of
+  4.2.0's manifest, refreshed last at phase 3, is the released one again.
+- **The trust boundary of task resolution is stated** (BDY-028): a
+  `cloud_research` job's `task_path` and `kwargs` select the code its worker
+  runs, so they must never come from untrusted input (`SECURITY.md`).
 
 # Deliberate boundaries
 

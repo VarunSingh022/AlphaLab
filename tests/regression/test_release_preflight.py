@@ -60,7 +60,7 @@ def _job(name: str) -> str:
 
 
 #: The candidate branch a push may validate: named once in the trigger, once in the guard.
-CANDIDATE_BRANCH = "work/v4.2.0-release"
+CANDIDATE_BRANCH = "work/v4.2.1-release"
 
 
 def _triggers() -> str:
@@ -758,7 +758,9 @@ def _release_tree(root: Path, version: str) -> Path:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         (root / relative).write_text(json.dumps({"release": version}), encoding="utf-8")
     (root / "docs" / "api" / "history").mkdir()
-    (root / "docs" / "api" / "history" / f"{version}.json").write_text("{}", encoding="utf-8")
+    (root / "docs" / "api" / "history" / f"{version}.json").write_text(
+        json.dumps({"release": version}), encoding="utf-8"
+    )
     scripts = root / "docs" / "audit" / "scripts"
     scripts.mkdir(parents=True)
     source = ROOT / "docs" / "audit" / "scripts" / "release_preflight.py"
@@ -789,13 +791,13 @@ def test_the_candidate_s_release_is_the_one_the_push_branch_names() -> None:
 @pytest.mark.parametrize(
     ("event", "dispatched", "tree_version", "outcome"),
     [
-        ("push", "", "4.2.1", "but 4.2.0 was expected"),
-        ("pull_request", "", "4.2.1", "but 4.2.0 was expected"),
-        ("push", "", "4.2.0", "version=4.2.0"),
-        ("pull_request", "", "4.2.0", "version=4.2.0"),
-        ("workflow_dispatch", "4.2.1", "4.2.1", "version=4.2.1"),
-        ("workflow_dispatch", "4.2.0", "4.2.1", "but 4.2.0 was expected"),
-        ("workflow_dispatch", "v4.2.0", "4.2.0", "is not MAJOR.MINOR.PATCH"),
+        ("push", "", "4.2.2", "but 4.2.1 was expected"),
+        ("pull_request", "", "4.2.2", "but 4.2.1 was expected"),
+        ("push", "", "4.2.1", "version=4.2.1"),
+        ("pull_request", "", "4.2.1", "version=4.2.1"),
+        ("workflow_dispatch", "4.2.2", "4.2.2", "version=4.2.2"),
+        ("workflow_dispatch", "4.2.1", "4.2.2", "but 4.2.1 was expected"),
+        ("workflow_dispatch", "v4.2.1", "4.2.1", "is not MAJOR.MINOR.PATCH"),
     ],
 )
 def test_push_and_pull_request_runs_require_the_release_and_a_manual_run_names_its_own(
@@ -803,8 +805,8 @@ def test_push_and_pull_request_runs_require_the_release_and_a_manual_run_names_i
 ) -> None:
     """The identity step's own script, in a tree whose every reference says ``tree_version``.
 
-    A push or a labelled pull request must find 4.2.0 (RELEASE_VERSION); a tree
-    that says 4.2.1 throughout fails though it agrees with itself. A manual run
+    A push or a labelled pull request must find 4.2.1 (RELEASE_VERSION); a tree
+    that says 4.2.2 throughout fails though it agrees with itself. A manual run
     keeps its own ``expected_version``, which the tree must match.
     """
 
@@ -826,11 +828,229 @@ def test_push_and_pull_request_runs_require_the_release_and_a_manual_run_names_i
 # --------------------------------------------------------------------------- #
 
 
+#: Release-facing lines v4.2.0 was published with, word for word (ledger DOC-013, TST-024):
+#: each document's text, every line of which the version checks of v4.2.0 passed.
+V4_2_0_AS_PUBLISHED = {
+    "CHANGELOG.md": (
+        "# [4.2.0] - unreleased (the development target the maintainer approved; "
+        "not yet published or tagged)\n"
+    ),
+    "README.md": (
+        "**Current Release:** **v4.2.0 (release candidate, not yet published; the published tag is "
+        "v4.1.0) — every timed input on every driver, several datasets in one run, contracts "
+        "declared and carried through exercise, assignment, expiry and delivery, execution "
+        "algorithms and a queue model on the historical drivers, settlement, margin, financing and "
+        "borrow on declared terms, venue controls and auctions, corporate actions and their "
+        "corrections, volatility surfaces and auction information delivered during a run, typed "
+        "strategy configuration -- additive on the v4.0 contract**\n"
+    ),
+    "docs/INTEGRATION.md": (
+        "**4.2.0 is the development target and is not yet published.** Until its tag\n"
+        "and release exist, the download and `@v4.2.0` references below resolve to\n"
+        "nothing; the published tag is v4.1.0, whose own `docs/INTEGRATION.md` describes\n"
+        "it.\n"
+    ),
+    "docs/README.md": (
+        "**v4.2.0 -- in development, unpublished: additive on the v4.1 contract.** Every\n"
+        "timed input on every driver; execution algorithms and a declared queue model on\n"
+        "the historical drivers; a derivative's lifecycle and richer contract terms;\n"
+        "strategy-directed exercise and cancellation; settlement-date cash; margin calls\n"
+        "and forced liquidation on declared margin terms; a strategy configuration read\n"
+        "back typed. The readiness evidence is `audit/V4_2_0_READINESS.md`; the published\n"
+        "release is still v4.1.0.\n"
+    ),
+    "ROADMAP.md": (
+        "## v4.2.0 (in development: the v4.1.1 future-readiness program and phases 2 to 6, "
+        "its number and scope set by the maintainer; not yet published)\n"
+    ),
+    "docs/api/history/README.md": (
+        "| `4.2.0.json` | v4.2.0 (development; unpublished) | `docs/api/public_api.json` of the "
+        "v4.2.0 development tree, copied when the maintainer set 4.2.0 as the development version "
+        "and refreshed with it until 4.2.0 is published -- the release preflight requires the "
+        "release's own manifest here. Against 4.1.0: names added and defaulted keywords or fields "
+        "only (CHANGELOG `[4.2.0]`). |\n"
+    ),
+}
+
+#: The same places worded as a published 4.2.0 should have had them, shortened: what v4.2.1
+#: corrects them to, in a tree that is still 4.2.0's.
+V4_2_0_AS_CORRECTED = {
+    "CHANGELOG.md": "# [4.2.0] - 2026-11-01\n",
+    "README.md": (
+        "**Current Release:** **v4.2.0 — every timed input on every driver, several "
+        "datasets in one run**\n"
+    ),
+    "docs/INTEGRATION.md": "Download the `v4.2.0` release's `SHA256SUMS-4.2.0`.\n",
+    "docs/README.md": (
+        "**v4.2.0 -- additive on the v4.1 contract** (published 2026-11-01). Every\n"
+        "timed input on every driver.\n"
+    ),
+    "ROADMAP.md": "## v4.2.0 (published 2026-11-01: the v4.1.1 future-readiness program)\n",
+    "docs/api/history/README.md": (
+        "| `4.2.0.json` | v4.2.0 (commit `0fea4c7`) | `docs/api/public_api.json` as released |\n"
+    ),
+}
+
+
+def _with_documents(tree: Path, documents: dict[str, str]) -> Path:
+    for relative, text in documents.items():
+        (tree / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tree / relative).write_text(text, encoding="utf-8")
+    return tree
+
+
+@pytest.mark.parametrize("document", sorted(V4_2_0_AS_PUBLISHED))
+def test_each_document_v4_2_0_was_published_with_is_refused(document: str, tmp_path: Path) -> None:
+    """The v4.2.0 wording, one document at a time, in a tree that otherwise agrees on 4.2.0."""
+
+    tree = _with_documents(
+        _release_tree(tmp_path / "tree", "4.2.0"),
+        {**V4_2_0_AS_CORRECTED, document: V4_2_0_AS_PUBLISHED[document]},
+    )
+
+    problems = _script().version_problems("4.2.0", tree)
+
+    assert problems, f"v4.2.0's {document} passed the release checks again"
+    # A problem names its document first; "README.md" is also the end of two other paths.
+    assert all(problem.startswith(document) for problem in problems), problems
+
+
+def test_v4_2_0_as_published_is_refused_in_every_place_it_was_wrong(tmp_path: Path) -> None:
+    tree = _with_documents(_release_tree(tmp_path / "tree", "4.2.0"), V4_2_0_AS_PUBLISHED)
+
+    problems = _script().release_status_problems("4.2.0", tree)
+
+    assert [problem.split(" ", 1)[0] for problem in problems] == [
+        "CHANGELOG.md's",
+        "README.md:1",
+        "README.md:1",
+        "ROADMAP.md:1",
+        "docs/README.md:1",
+        "docs/README.md:6",
+        "docs/INTEGRATION.md:1",
+        "docs/INTEGRATION.md:3",
+        "docs/api/history/README.md:1",
+    ], problems
+    assert problems[0].startswith("CHANGELOG.md's heading for 4.2.0 is not '# [4.2.0] - ")
+    published = "names 4.1.0 the published release, not 4.2.0"
+    kinds = [problem.split(" ", 1)[1] for problem in problems[1:]]
+    assert [
+        "unreleased" if kind.startswith("calls 4.2.0 unreleased: ") else kind for kind in kinds
+    ] == [
+        "unreleased",
+        published,
+        "unreleased",
+        "unreleased",
+        published,
+        "unreleased",
+        published,
+        "unreleased",
+    ], problems
+
+
+def test_the_corrected_wording_passes(tmp_path: Path) -> None:
+    tree = _with_documents(_release_tree(tmp_path / "tree", "4.2.0"), V4_2_0_AS_CORRECTED)
+
+    assert _script().version_problems("4.2.0", tree) == []
+
+
+@pytest.mark.parametrize("wording", ["as-published", "as-corrected"])
+def test_release_yml_refuses_a_tag_whose_documents_call_the_release_unpublished(
+    wording: str, tmp_path: Path
+) -> None:
+    """``release.yml``'s tag step, run at publication, on v4.2.0's documents (ledger TST-024).
+
+    v4.2.0 was published through this step with every document below calling it
+    unreleased, a candidate or not yet published. The step now refuses that tag
+    before it hands any version on, and passes the same places once they say what
+    is true.
+    """
+
+    as_published = wording == "as-published"
+    documents = V4_2_0_AS_PUBLISHED if as_published else V4_2_0_AS_CORRECTED
+    tree = _with_documents(_release_tree(tmp_path / "tree", "4.2.0"), documents)
+    script, fixed = _step(RELEASE, "tag")
+
+    done, written = _run_step(script, {**fixed, "TAG": "v4.2.0"}, tree, tmp_path)
+
+    if as_published:
+        assert done.returncode != 0 and written == "", (done.returncode, written)
+        assert "FAILED: CHANGELOG.md's heading for 4.2.0 is not" in done.stderr, done.stderr
+        assert "FAILED: README.md:1 names 4.1.0 the published release, not 4.2.0" in done.stderr
+    else:
+        assert done.returncode == 0, done.stdout + done.stderr
+        assert written == "version=4.2.0"
+
+
+@pytest.mark.parametrize(
+    ("heading", "dated"),
+    [
+        ("# [4.2.0] - 2026-11-01", True),
+        ("# [4.2.0]", False),
+        ("# [4.2.0] - unreleased", False),
+        ("# [4.2.0] - 2026-02-30", False),
+        ("# [4.2.0] - 2026-11-01 (release candidate)", False),
+        ("# [4.2.0] - 01-11-2026", False),
+    ],
+)
+def test_a_release_heading_carries_the_date_it_was_published(
+    heading: str, dated: bool, tmp_path: Path
+) -> None:
+    tree = _with_documents(
+        _release_tree(tmp_path / "tree", "4.2.0"), {"CHANGELOG.md": f"{heading}\n"}
+    )
+
+    problems = _script().version_problems("4.2.0", tree)
+
+    assert problems == (
+        []
+        if dated
+        else [
+            f"CHANGELOG.md's heading for 4.2.0 is not '# [4.2.0] - YYYY-MM-DD', the date it is "
+            f"published: {heading!r}"
+        ]
+    )
+
+
+def test_a_history_copy_that_is_not_the_manifest_is_refused(tmp_path: Path) -> None:
+    """v4.2.0's copy was its manifest at phase 3: 2,730 exports of the 2,754 released."""
+
+    tree = _release_tree(tmp_path / "tree", "4.2.0")
+    (tree / "docs" / "api" / "history" / "4.2.0.json").write_text("{}", encoding="utf-8")
+
+    assert _script().version_problems("4.2.0", tree) == [
+        "docs/api/history/4.2.0.json is not docs/api/public_api.json: the release's copy of "
+        "its manifest is the manifest (ledger TST-024)"
+    ]
+
+
+def test_another_release_named_and_the_release_itself_are_told_apart(tmp_path: Path) -> None:
+    """Only the release being made is read for its status; history about others is not."""
+
+    tree = _with_documents(
+        _release_tree(tmp_path / "tree", "4.2.1"),
+        {
+            "README.md": "v4.2.0 was a release candidate before it was published.\n",
+            "docs/README.md": "the published release is v4.2.1, and v4.2.10 is not one\n",
+        },
+    )
+
+    assert _script().release_status_problems("4.2.1", tree) == []
+
+
+def test_the_release_facing_documents_are_the_ones_the_version_test_holds() -> None:
+    from tests.regression.test_release_facing_versions import RELEASE_FACING
+
+    held = (*RELEASE_FACING, "docs/api/history/README.md")
+    assert held == _script().RELEASE_FACING
+
+
 def test_this_release_identity_agrees_everywhere() -> None:
     script = _script()
     version = script.package_version()
 
     assert script.version_problems(version) == []
+    assert script.release_status_problems(version) == []
     assert script.version_problems("0.0.1") == [f"the package is {version}, but 0.0.1 was expected"]
     assert script.version_problems(f"v{version}") == [
         f"the expected version 'v{version}' is not MAJOR.MINOR.PATCH (a release tag such as "

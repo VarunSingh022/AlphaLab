@@ -6,6 +6,12 @@ Python object -- multiprocessing pickles whatever is submitted to a worker
 process, and closures/lambdas/bound methods generally aren't picklable across
 process boundaries. Only top-level, importable module functions work as tasks,
 the same real constraint any process-pool-based task system has to work within.
+
+Trust boundary (ledger BDY-028): a task path selects code to execute. The worker
+imports the module it names and calls the callable it names with the job's
+``kwargs``, and nothing restricts which importable module or callable that is.
+``task_path`` and ``kwargs`` must therefore never come from untrusted input:
+whoever chooses them chooses the code a worker runs, with the host's privileges.
 """
 
 import importlib
@@ -17,6 +23,10 @@ from alphalab.cloud_research.exceptions import CloudResearchInputError
 
 def resolve_task(task_path: str) -> Callable[..., Any]:
     """Resolves a dotted path into the callable it names.
+
+    The path selects code to execute: its module is imported, which runs that
+    module's top-level code, and any callable attribute is returned. It must
+    never come from untrusted input (module docstring, ledger BDY-028).
 
     Raises:
         CloudResearchInputError: If task_path is malformed, its module cannot be
@@ -42,6 +52,9 @@ def resolve_task(task_path: str) -> Callable[..., Any]:
 
 def run_task(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Executes a task described by payload: {"task_path": str, "kwargs": dict}.
+
+    The payload selects the code that runs and what it is called with, so it must
+    never come from untrusted input (module docstring, ledger BDY-028).
 
     This function itself is what gets submitted to a ProcessPoolExecutor -- it is
     a top-level module function, satisfying the same picklability constraint it

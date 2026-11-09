@@ -87,6 +87,10 @@ def submit_research_job(
 ) -> tuple[CloudResearchState, str]:
     """Submits one job for a real, importable task.
 
+    ``task_path`` and ``kwargs`` select the code the worker runs and what it is
+    called with: neither may come from untrusted input (ledger BDY-028,
+    :mod:`alphalab.cloud_research.task`).
+
     Returns the updated state and the new job's id.
     """
     job_id = str(new_id())

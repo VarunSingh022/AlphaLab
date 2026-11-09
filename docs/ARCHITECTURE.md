@@ -5327,7 +5327,7 @@ The architecture documented here serves as the reference implementation for all 
 
 ```
 Architecture Specification
-Version: v4.2.0
+Version: v4.2.1
 Status: Implementation Status (v4.2) describes what is built and is authoritative.
         From "Design Goals" onward the document describes the architectural model
         and long-term target. Both halves name only packages that exist.
