@@ -14,7 +14,7 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
-# [4.2.1] - 2026-11-08
+# [4.2.1] - 2026-11-09
 
 **A documentation and release-integrity patch: the 4.2 release's own documents
 corrected where they described it as unpublished, the release checks that let
