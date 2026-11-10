@@ -140,10 +140,12 @@ Evidence:
 ### WS-02: Deterministic identity and provenance
 
 - [Implemented locally] M0: DET-007: isolated identifier scopes, with nested, parallel and repeated probes
+- [Implemented locally] M0: DET-007 and D-54-7: the experiment tracker's run ids and the research cluster's job ids derived (uuid5 over a canonical key), never drawn from the ambient stream
 
 Evidence:
 
 - DET-007: id_scope(None) installs uuid4 instead of inheriting the stream around it (alphalab/common/ids.py). tests/regression/test_unseeded_scopes_are_isolated.py (12 tests): for the backtest, replay and session, a nested unseeded run draws nothing from the outer scope, the outer scope mints what it would have without it (also in fresh interpreters), two nested unseeded runs differ, and a seeded run is its seed's anywhere. 11 of the 12 fail on the parent dc61a75. Certificate: source digest re-made; no evidence moved.
+- Registries: experiment_tracking.start_run and cloud_research.submit_research_job derive their ids (schemes alphalab.experiment_run.v1 and alphalab.research_job.v1). tests/regression/test_registries_derive_their_ids.py (11 tests; 5 fail on the parent 58920fc): zero draws for a run start, one draw (the queue's event stamp) for a submission, scope independence, fresh-interpreter equality, every declared field in the key. An unseeded lifecycle now reproduces byte for byte; test_lifecycle_serialization held the old limit and now holds the guarantee. Certificate: source digest re-made; no evidence moved.
 
 ### WS-20: Documentation, guides and examples
 
@@ -169,7 +171,7 @@ Evidence:
 | --- | --- | --- | --- | --- | --- |
 | GAP-01 | No experiment or trial ledger | C/P0 | Open | WS-05 | M4 |
 | GAP-02 | Validation not over backtests | C/P0 | Open | WS-24 | M5 |
-| GAP-03 | DET-007 ambient ids | H/P0 | Open: unseeded scopes isolated; the registries' identifiers follow in M0 | WS-02 | M0 |
+| GAP-03 | DET-007 ambient ids | H/P0 | Open: scopes isolated and registry ids derived; awaiting hosted CI | WS-02 | M0 |
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
 | GAP-05 | SEC-001 dotted-path resolution | H/P0 | Open | WS-23, WS-05 | M4 |
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open | WS-23 | M0 |

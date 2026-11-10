@@ -66,6 +66,21 @@ and `configuration_id` are 4.2.1's until an entry below says otherwise.
   identity: the certificate's evidence did not move, only the source digest it
   names. An unseeded run that relied on an outer scope for reproducible
   identifiers now mints from `uuid4`; give it its own seed instead.
+* **A tracker run and a research job are identified by what they are**
+  [DET-007, plan D-54-7]. `experiment_tracking.start_run` and
+  `cloud_research.submit_research_job` drew their identifiers from the
+  ambient stream: inside a seeded scope each consumed one of that scope's
+  identifiers, and outside one the same record had a new identity every time
+  it was made. Both now derive the identifier as an instrument's `asset_id`
+  is derived (ADR-0016): `uuid5` over a canonical key holding a scheme tag
+  (`alphalab.experiment_run.v1`, `alphalab.research_job.v1`), the record's
+  place in its tracker or cluster, and what it declares (a job's arguments
+  excepted). Starting a run draws nothing from any stream; a submission draws
+  only the stamp of its queue event, as every engine's events are stamped. A
+  lifecycle that tracks experiments now reproduces byte for byte without a
+  seed (`tests/regression/test_registries_derive_their_ids.py`,
+  `tests/unit/lifecycle/test_lifecycle_serialization.py`). Identifiers
+  already recorded are read as they were; new ones are derived.
 
 ---
 
