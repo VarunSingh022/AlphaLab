@@ -82,6 +82,31 @@ entry below says otherwise.
   (`tests/regression/test_release_correspondence.py`). `--no-source` checks
   artifacts away from their source -- downloaded assets -- and the record then
   says the source was not checked; no workflow may pass it.
+* **A run held to the schedule it was given, and its provenance** [ADR-0053,
+  plan WS-02, FUT-046]. A backtest's schedule is a driver input its record
+  does not name, so a checkpoint chain could be continued under another
+  schedule with nothing to refuse it. `RUN_SCHEDULE_DIGEST_SCHEME` names the
+  existing digest formula without changing it. `ScheduleBinding` names a
+  schedule by its scheme and digest (`RunSchedule.binding`,
+  `ScheduleCursor.binding`), and `ScheduleVerification` says how far a check
+  went -- `VERIFIED`, `DECLARED`, `UNRECORDED` or `NONE_GIVEN` -- never more.
+  `ScheduleCursor.start` takes a keyword-only `expected` binding and refuses
+  another schedule before applying anything. `checkpoint` takes a
+  keyword-only `schedule` binding and records it in the envelope, as
+  `CHECKPOINT_SCHEMA` 3; given none it writes version 2, byte for byte.
+  `restore_checkpoints` takes a keyword-only `schedule_binding`, and refuses
+  another schedule -- or none -- for a chain that recorded one.
+  `checkpoint_schedule` and `chain_schedule_verification` read a chain's
+  binding. `RunProvenance`, from `run_provenance(result, schedule=...)` or
+  `payload_provenance(payload, schedule=...)`, records beside a run what its
+  record does not name: its subject's digest, the effective schedule's
+  binding and its registry's digest. `verify_provenance` re-derives each of
+  them, and the record files in an evidence store
+  (`RUN_PROVENANCE_SCHEMA` 1). No driver's signature or return type changes,
+  creating provenance draws no identifier and serializes nothing twice, and
+  no `result_id`, `configuration_id`, `manifest_id` or digest moves
+  (`tests/integration/test_run_provenance.py`). Provenance is
+  tamper-evident, not substitution-proof (LIM-009).
 
 ## Changed
 

@@ -176,6 +176,10 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ("0051", "A halt's first event after it trades at its own price"): "FUT-020",
     # FUT-021 delivered holding exchanges; its stated limitation.
     ("0051", "An exchange applies its declared outcome at its instant"): "FUT-021",
+    # ADR-0053, v4.3: run and input provenance.
+    ("0053", "A matching digest is evidence of integrity, not of authenticity"): "LIM-009",
+    ("0053", "Only a run given its provenance is held to its schedule"): "FUT-047",
+    ("0053", "A default manifest still names the registry by type"): "FUT-042",
 }
 
 

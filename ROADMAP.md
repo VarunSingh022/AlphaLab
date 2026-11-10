@@ -758,6 +758,10 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   which round-trips exactly. Since the v4.2.0 candidate a strategy that declares
   its configuration's type reads it back typed (FUT-002, above); one that
   declares nothing reads back as stated here.
+- **Run provenance is evidence of integrity, not of authenticity** (LIM-009): a
+  digest match shows the schedule supplied is the one bound, not that it is
+  authentic; a consistent forgery by someone who can run code is detected only
+  by a rerun, and the vocabulary never claims more (ADR-0053).
 - **An insolvent run compiles no analytics** (LIM-008): a run whose net asset
   value falls below zero -- reachable through a financed delivery or a short
   bought back past its cash -- is refused by analytics, whose returns on negative
@@ -820,6 +824,7 @@ Every horizon is a proposal for the maintainer to confirm.
 | FUT-044 | **Halts, bands and references delivered during a live run** | deliver the venue's halt messages as observations; declare known halts | v4.4 | venue controls, published auctions |
 | FUT-045 | **An execution model per venue in one simulated run** | one backtest per venue's model; the costliest for a conservative run | v4.4 | described execution models |
 | FUT-046 | **A run's record naming the schedule it was given** (an identity decision) | give `manifest_for_run` the schedule; a paused replay records it | v4.3 | the schedule in the manifest |
+| FUT-047 | **Every run held to its schedule by its own record** (option B of ADR-0053; an identity reset) | `run_provenance` beside each result; checkpoints written with `schedule=` | v5.0 | run provenance (FUT-046) |
 
 ---
 

@@ -77,6 +77,7 @@ from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year
 from alphalab.data.exceptions import DataValidationError
 from alphalab.data.time import resolve_zone
 from alphalab.instrument.controls import DeliveredAuction
+from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.serializer import serialize
 from alphalab.portfolio.corporate_actions import (
     Assignment,
@@ -103,10 +104,12 @@ from alphalab.portfolio.types import TransactionType
 from alphalab.risk.surfaces import ObservedSurface
 from alphalab.runtime.execution_pipeline import ContextFactory
 from alphalab.runtime.run import RunEngine, RunState
+from alphalab.runtime.schedule_check import ScheduleBinding, verify_schedule_binding
 from alphalab.strategy.events import ElectionMade, HoldersRecorded, TimerEvent, UnitsElected
 
 __all__ = [
     "EMPTY_SCHEDULE",
+    "RUN_SCHEDULE_DIGEST_SCHEME",
     "DailyAccrual",
     "DailyBorrowFee",
     "DailyInterest",
@@ -138,6 +141,15 @@ __all__ = [
     "ScheduledSplit",
     "TermsCorrection",
 ]
+
+#: The formula of :attr:`RunSchedule.digest`, named (ADR-0053, R53-6): SHA-256 over
+#: ``repr`` of the rate table's maximum age, then one line per entry, ``kind|repr(at)|``
+#: and the entry's canonical JSON. The name is never part of the digest, so every
+#: digest a paused replay or a manifest recorded before it was named stays valid; a
+#: change to the formula, to an entry kind's persisted value or to an item's encoded
+#: fields is a new scheme, and ``tests/regression/test_schedule_digest_pins.py``
+#: holds this one to the digests v4.2.1 computed.
+RUN_SCHEDULE_DIGEST_SCHEME: Final = "alphalab.run_schedule.v1"
 
 
 class ScheduleValidationError(BacktestError):
@@ -1324,6 +1336,16 @@ class RunSchedule:
             digest.update(line.encode(DEFAULT_ENCODING))
         return digest.hexdigest()
 
+    @property
+    def binding(self) -> ScheduleBinding:
+        """This schedule as a run is bound to it (ADR-0053): its scheme and digest.
+
+        An empty schedule binds as none, ``digest`` ``None``, which is how a
+        manifest has always recorded a run given no schedule.
+        """
+
+        return ScheduleBinding(RUN_SCHEDULE_DIGEST_SCHEME, self.digest if self else None)
+
     def position_after(self, after: float | None) -> int:
         """How many entries a run handed records up to ``after`` has applied.
 
@@ -1384,16 +1406,43 @@ class ScheduleCursor:
     rates: FxRates
 
     @classmethod
-    def start(cls, schedule: RunSchedule, after: float | None = None) -> ScheduleCursor:
+    def start(
+        cls,
+        schedule: RunSchedule,
+        after: float | None = None,
+        *,
+        expected: ScheduleBinding | None = None,
+    ) -> ScheduleCursor:
         """A cursor for a run handed records up to ``after`` -- none, by default.
 
         ``after`` is the timestamp of the last record the run was handed,
         processed or skipped: to continue a run from a snapshot or a pause, pass
         the timestamp of the record it stopped after.
+
+        ``expected`` (v4.3, ADR-0053) is the binding the run was given -- from
+        its :class:`~alphalab.backtesting.provenance.RunProvenance`, or kept
+        beside its snapshot -- and holds ``schedule`` to it before any entry is
+        applied: a continuation under another schedule, or under none where it
+        had one, is refused. Not given, nothing is checked, as before.
+
+        Raises:
+            ScheduleValidationError: If ``schedule`` is not the one ``expected``
+                binds.
         """
 
+        if expected is not None:
+            try:
+                verify_schedule_binding(expected, schedule.binding)
+            except StateDecodeError as refused:
+                raise ScheduleValidationError(str(refused)) from None
         position = schedule.position_after(after)
         return cls(schedule, position, schedule.rates_through(position))
+
+    @property
+    def binding(self) -> ScheduleBinding:
+        """The binding of the schedule this cursor applies -- the effective one (ADR-0053)."""
+
+        return self.schedule.binding
 
     @property
     def pending(self) -> Sequence[ScheduleEntry]:

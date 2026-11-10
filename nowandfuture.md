@@ -1152,9 +1152,12 @@ constant and **one** typed decoder.
 
 Plus `persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, which versions what
 the *store* records about a payload and nothing inside it, and the envelopes of
-an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 2`; v3.12, and
-2 since v3.13 writes per-order state by its changes) and of the evidence store
-(`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12). The
+an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 3`; v3.12,
+2 since v3.13 writes per-order state by its changes, and 3 since v4.3 records a
+schedule binding when given -- a checkpoint given none is written as 2) and of
+the evidence store (`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12), and
+a run's provenance record (`backtesting.provenance.RUN_PROVENANCE_SCHEMA = 1`,
+v4.3). The
 values are v4.0's -- pipeline 8 and run 5 since v4.0 record how each live object
 was configured (PER-008) -- and `tests/regression/test_documented_schemas_are_current.py`
 keeps them so.

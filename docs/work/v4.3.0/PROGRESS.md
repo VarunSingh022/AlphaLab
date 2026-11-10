@@ -80,6 +80,8 @@ Never:
 - **2026-11-10** The development-version state (TD-05, PC-04): the package is 4.3.0 while 4.3.0 is developed, the release gate refuses the tree, and the release-facing documents describe 4.2.1 until the release commit.
 - **2026-11-10** M0's six findings recorded in the completion ledger under v4.3.0: DET-007, SEC-002, DOC-014, TST-025, TST-026 and PKG-004.
 - **2026-11-10** M0 closed locally: the mutation series ran (23 of 24 caught; the N04 survivor's gap closed in 31324fd), the stress scenario passed, and the full gate passed on 31324fd. The M0 commits after 1593381 are pushed next, then M1 begins with ADR-0053 revision 3.
+- **2026-11-10** M1 begun: ADR-0053 revision 3 accepted under G0 item 6's delegation (TD-06 records where it departs from R53-1's letter); its three known limitations classified in the ledger (LIM-009, FUT-047, FUT-042).
+- **2026-11-10** M1's first increment built: the schedule binding and vocabulary, checkpoint schema 3, run provenance; ADR-0053's limitations in the ledger (LIM-009, FUT-047).
 
 ## Milestones
 
@@ -87,7 +89,7 @@ Never:
 | --- | --- | --- | --- |
 | G0 | In progress | WS-00 | §Z G0 items all decided |
 | M0 | Local validation passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
-| M1 | Not started | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
+| M1 | In progress | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
 | M2 | Not started | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Not started | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Not started | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
@@ -114,7 +116,7 @@ Never:
 | 3 | D-V2 | Optional, separately installable research and computational dependencies | Approved | M7 | The AlphaLab core stays free of mandatory runtime dependencies; optional packages integrate through stable core interfaces (AC-38). |
 | 4 | D-V3 | Boundary reopenings (plan section P.2) | Delegated (2026-11-10): decided at its milestone | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. |
 | 5 | D-V4 | Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0 | Delegated (2026-11-10): decided at its milestone | Before M8 | — |
-| 6 | ADR-0053 | ADR-0053 revised (R53-1..8, CR-53-1..9) | Delegated (2026-11-10): decided at its milestone | Before M1 | M0's golden schedule-digest tests do not need it; the RUN_SCHEDULE_DIGEST_SCHEME constant does. |
+| 6 | ADR-0053 | ADR-0053 revised (R53-1..8, CR-53-1..9) | Decided under delegation (2026-11-10) | Before M1 | ADR-0053 revision 3 accepted: the draft's option C-e with R53-1 to R53-8 applied and CR-53-1 to CR-53-9 held, departing from R53-1's letter where TD-06 records. Implemented in M1. |
 | 7 | ADR-0054 | ADR-0054 split into 0054A and 0054B; D-54-5 revised | Delegated (2026-11-10): decided at its milestone | 0054A before M2; 0054B before M4 | — |
 | 8 | ADR-0055 | Streaming capture and trace identity | Delegated (2026-11-10): decided at its milestone | Before M3 | — |
 | 9 | D-54-R3 | Researcher entry point alphalab.lab | Delegated (2026-11-10): decided at its milestone | Before M4 | — |
@@ -195,6 +197,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** CHANGELOG [4.3.0] Changed; ENGINEERING_GUIDELINES (Pull Requests); RELEASE_RUNBOOK (the release commit); docs/api/history/README.md; plan change PC-04.
 - **Tests:** tests/regression/test_release_preflight.py (development-tree, incoherent-tree and release-tree cases; the state-aware identity test); test_release_facing_versions.py and test_version_markers_agree.py, held to the documented release. Shown on a scratch clone with the version alone bumped: 29 version-keyed tests failed there, and no identity, fixture or evidence test.
 
+### TD-06: ADR-0053 revision 3: where a continuation is held to its schedule (WS-02, 2026-11-10)
+
+- **Problem:** R53-1 asks for a supplied schedule digest on run_snapshot.restore and restore_checkpoints, as FUT-041 does for the registry. A bare run snapshot records no binding, so the parameter would have nothing to check there, and a caller could believe a continuation was held to its schedule when it was not. A bare digest also drops the scheme it was computed under.
+- **Alternatives:** (a) Add schedule_digest to both restores, as written; on a bare snapshot it checks nothing. (b) Hold a chain by its own envelope (checkpoint schema 3), and a bare snapshot by the cursor given the binding its provenance records; pass a ScheduleBinding, not a digest. (c) Put the binding into the run snapshot; this moves identity, which is option B, 5.0.
+- **Decision:** (b): ScheduleCursor.start(expected=), checkpoint(schedule=) and restore_checkpoints(schedule_binding=) take a ScheduleBinding, and run_snapshot.restore gains nothing. VERIFIED needs a result whose own delivery record is read; a payload's or a chain's check answers DECLARED. ScheduleBinding and ScheduleVerification live in alphalab.runtime, beside RegistryVerification, since a checkpoint (runtime) records a binding and runtime may not import backtesting.
+- **Rationale:** Every check named is one that actually happens, the scheme is compared with the digest, and no package edge is added.
+- **Compatibility:** Additive only: keyword-only parameters defaulting to None on checkpoint, restore_checkpoints and ScheduleCursor.start. Version-2 chains are byte-identical and restore as before. No identity moves.
+- **Recorded in:** docs/ADR/0053-run-and-input-provenance.md (Departures from the plan's text); CHANGELOG [4.3.0].
+- **Tests:** tests/integration/test_run_provenance.py (25 tests).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -254,7 +266,7 @@ Evidence:
 - [Hosted CI passed] M0: v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3
 - [Hosted CI passed] M0: Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed
 - [Hosted CI passed] M0: Golden RunSchedule.digest per entry kind and the persisted kind values pinned
-- [Not started] M0: RUN_SCHEDULE_DIGEST_SCHEME constant (waits for item 6, ADR-0053)
+- [Local validation passed] M0: RUN_SCHEDULE_DIGEST_SCHEME constant (waits for item 6, ADR-0053)
 
 Evidence:
 
@@ -266,11 +278,18 @@ Evidence:
 - tests/regression/test_schedule_digest_pins.py (34 tests): a golden RunSchedule.digest for each of the 20 entry kinds, computed identically by v4.2.1 and v4.2.0; the persisted kind values; the formula as documented; each frozen replay's recorded schedule digest. Seen to fail on a renamed kind value and on two changes to the formula.
 - Pushed by the owner as dc61a75 on work/v4.3.0-development (2026-11-10); Draft PR #22 opened; its hosted CI and CodeQL runs are recorded once they finish.
 - Hosted CI passed on dc61a75 (PR #22): Continuous Integration run 42758278604, all six quality-gate cells (ubuntu-latest and macos-latest, Python 3.12, 3.13, 3.14); CodeQL run 42758278243.
+- RUN_SCHEDULE_DIGEST_SCHEME = 'alphalab.run_schedule.v1' (M1, ADR-0053 section 1) names the formula M0's golden digests pin, and is never rendered into a digest.
 
 ### WS-02: Deterministic identity and provenance
 
 - [Hosted CI passed] M0: DET-007: isolated identifier scopes, with nested, parallel and repeated probes
 - [Hosted CI passed] M0: DET-007 and D-54-7: the experiment tracker's run ids and the research cluster's job ids derived (uuid5 over a canonical key), never drawn from the ambient stream
+- [Local validation passed] M1: ADR-0053 revision 3 accepted (R53-1 to R53-8, CR-53-1 to CR-53-9; TD-06)
+- [Local validation passed] M1: ScheduleBinding and the verification vocabulary (VERIFIED, DECLARED, UNRECORDED, NONE_GIVEN); RunSchedule.binding, ScheduleCursor.binding
+- [Local validation passed] M1: A continuation held to its schedule: ScheduleCursor.start(expected=), checkpoint schema 3 written only when given, restore_checkpoints(schedule_binding=)
+- [Local validation passed] M1: Run provenance: RunProvenance, run_provenance, payload_provenance, verify_provenance, filed as evidence (RUN_PROVENANCE_SCHEMA 1)
+- [In progress] M1: manifest_for_run(provenance=) with the D-53-3 refusals, and the opt-in identity version 2 (ADR-0052 option C, FUT-042)
+- [Not started] M1: S-11 end to end: a rerun in a fresh process REPRODUCED against pinned identities on Linux and macOS; a wrong schedule refused at continuation
 
 Evidence:
 
@@ -279,6 +298,7 @@ Evidence:
 - Parallel probe: three unseeded runs in worker threads given the scope's context (copy_context) leave the outer stream untouched; fails on dc61a75 (before the fix), stable over 15 repeated runs.
 - Local gate on c48f5f7 (clean clone, CPython 3.12.4): ruff, format, strict mypy, pytest -W error (10,987 passed), every example under -W error, certificate check, register check, build, twine --strict, fresh-environment install and smoke of the wheel and the sdist. New tests also pass on CPython 3.13.18 and 3.14.10, where the certificate check matches.
 - Hosted CI passed on 643d947 (CI run 42763156527, six cells; CodeQL 42763156687), carrying 58920fc, 04b3e10 and c48f5f7.
+- M1, first increment: alphalab/runtime/schedule_check.py, alphalab/backtesting/provenance.py, ScheduleCursor.start(expected=), checkpoint schema 3. tests/integration/test_run_provenance.py (25 tests): chains checkpointed after 1, 3 and 4 records continue under their schedule to the uninterrupted result_id; another schedule, none, and two bindings in one chain are refused; an unbound chain is UNRECORDED; provenance is the result's id, draws nothing, refuses another schedule, run, registry and an edit; a payload's provenance is DECLARED; round trip and evidence filing. The public API grew by 13 names (2,767 exports); checkpoint and restore_checkpoints each gained one keyword-only parameter defaulting to None (CR-53-2). Certificate: the source digest and API-1's manifest digest and count moved; no DET, REP or PAR evidence did (CR-53-8). Suite: 11,097 passed once the two schema-constant inventories admitted RUN_PROVENANCE_SCHEMA.
 
 ### WS-20: Documentation, guides and examples
 
@@ -390,7 +410,7 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 
 | ADR | Subject | Workstream | Needed | Status |
 | --- | --- | --- | --- | --- |
-| ADR-0053 | Run and input provenance | WS-02 | G0 | Not drafted in the repository |
+| ADR-0053 | Run and input provenance | WS-02 | G0 | Accepted (2026-11-10), revision 3; implemented in M1 |
 | ADR-0054 | Selection statistics (pure) (plan 0054A) | WS-06 | G0 | Not drafted in the repository |
 | ADR-0072 | Experiments and trial ledger (plan 0054B) | WS-05 | Before M4 | Not drafted in the repository |
 | ADR-0055 | Streaming research capture, extractor identity, trace identity, retention | WS-04 | Before M3 | Not drafted in the repository |

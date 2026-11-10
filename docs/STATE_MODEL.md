@@ -346,7 +346,13 @@ exchange writes neither.
 
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
-incremental checkpoint, 2) and `EVIDENCE_SCHEMA` (the evidence store, 1).
+incremental checkpoint, 3: since v4.3 a checkpoint given its run's schedule
+binding records it, and one given none is written as version 2, byte for byte;
+ADR-0053) and `EVIDENCE_SCHEMA` (the evidence store, 1). A run's provenance
+record (`backtesting.provenance.RUN_PROVENANCE_SCHEMA = 1`, v4.3) names its
+subject -- a result by its `result_id`, a payload by the digest of its text --
+and the schedule and registry the run was given; it is evidence, filed in the
+evidence store, and is not part of any run's record or identity.
 `tests/regression/test_documented_schemas_are_current.py` holds this table to
 the constants.
 

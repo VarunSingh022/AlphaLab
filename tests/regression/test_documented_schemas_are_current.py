@@ -44,6 +44,8 @@ CONSTANTS: dict[str, str] = {
     # v4.1.1 (ledger FUT-011): a queue model's book, carried inside a paused
     # replay's payload on the same terms.
     "QUEUE_BOOK_SCHEMA": "alphalab.backtesting.queueing",
+    # v4.3 (ADR-0053): a run's provenance record, filed as evidence beside a run.
+    "RUN_PROVENANCE_SCHEMA": "alphalab.backtesting.provenance",
 }
 
 #: The eleven durable states' constants: every table must list each of them.
