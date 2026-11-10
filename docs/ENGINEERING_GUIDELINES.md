@@ -569,7 +569,7 @@ candidate commit **before** publication, and publishes nothing:
 | CI gates | `ci.yml`, called with that commit as `ref` -- every checkout in it takes the given SHA, never the event's (under a pull request, the merge) -- ruff, `mypy .`, `pytest -W error`, every example, `certify_release.py --check`, the build, `twine check --strict`, both artifacts installed and smoke-tested |
 | Benchmarks | `benchmarks.yml`, called for that commit |
 | CodeQL gate | an analysis of that commit, not uploaded; fails on an error-level or high-severity finding |
-| Distributions | a fresh build; `twine check --strict`; `release_preflight.py distributions`: the two expected file names and no others, the archives' metadata and contents, `SHA256SUMS-<version>`, each artifact installed alone and run through `tests/installed_smoke.py` from outside the checkout; uploaded as the run's artifact for 30 days |
+| Distributions | a fresh build; `twine check --strict`; `release_preflight.py distributions`: the two expected file names and no others, the archives' metadata and contents, `SHA256SUMS-<version>`; since v4.3 the commit and tree the artifacts were built from, named in the record, every file of the wheel's package and of the sdist held to that commit's bytes, and both artifacts rebuilt from `git archive` of the commit alone to the same bytes; each artifact installed alone and run through `tests/installed_smoke.py` from outside the checkout; uploaded as the run's artifact for 30 days |
 | Verdict | fails unless every job above succeeded |
 
 **Three ways to run it, each on one exact commit.**

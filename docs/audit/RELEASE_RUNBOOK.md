@@ -134,6 +134,9 @@ gh run download "${ASSETS_RUN}" --name "alphalab-4.2.1-${CANDIDATE}" --dir relea
 ```
 
 Both lines of `shasum -c` must read `OK`, and the record must read `PASSED`.
+Since v4.3 the record also names the commit and tree the artifacts were built
+from -- it must be `${CANDIDATE}` -- and states that both artifacts, rebuilt from
+that commit alone, were byte-identical.
 
 ## 8. Publish the release
 

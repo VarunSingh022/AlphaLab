@@ -67,6 +67,20 @@ and `configuration_id` are 4.2.1's until an entry below says otherwise.
   programme is delivered on one integration branch (G0 item 21).
   `tests/regression/test_charter_is_stated_consistently.py` holds all of it.
 
+* **Release artifacts held to the commit they were built from** [plan WS-29,
+  RQ-05]. `release_preflight.py distributions` -- run by CI, the preflight
+  and release validation -- names the commit and tree in the verification
+  record (`--commit`, or the checkout's `HEAD`; outside a checkout it fails
+  rather than skip). Every file in the wheel's `alphalab/` must be the
+  commit's, byte for byte, with none added or left out, and every file of the
+  sdist but its generated `PKG-INFO` must be the commit's. Both artifacts are
+  then rebuilt from `git archive` of the commit alone, in a fresh directory,
+  and must be the same bytes. On a build of this branch the 627 package files
+  and 1,528 source files correspond, and the rebuild is byte-identical
+  (`tests/regression/test_release_correspondence.py`). `--no-source` checks
+  artifacts away from their source -- downloaded assets -- and the record then
+  says the source was not checked; no workflow may pass it.
+
 ## Fixed
 
 * **An unseeded run no longer borrows the identifier stream around it**

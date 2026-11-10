@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `643d947c0f4fad2cb2a149bd5f446ab53dc32545` |
+| Remote head | `b48bfc333160f55ffbac1d88b667d338dac17130` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M0: the release record (WS-29: VERIFICATION names the commit and tree; reproducible build) and the test scaffolds (WS-21); then the full M0 gate and acceptance evidence. |
+| Next | M0: the v4.3 mutation and stress scaffolds (WS-21); then the full M0 gate, hosted CI and acceptance evidence. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -69,6 +69,7 @@ Never:
 - **2026-11-10** SEC-002 (WS-23) committed: HttpTransport refuses every scheme but http/https, and redirects to any other; SECURITY.md corrected (CON-X16).
 - **2026-11-10** WS-20 High documentation corrections committed (CON-X4, CON-X1, CON-N2, CON-X14, CON-A5, CON-A15, VISION's venue transport) with a guard test.
 - **2026-11-10** Charter (WS-00) committed: ADR-0056 accepted, the five direction documents reconciled, the integration-branch model written (item 21), and the charter guard added.
+- **2026-11-10** WS-29 M0 item committed: the verification record names the commit and tree, artifacts are held to the commit's bytes, and the build is shown reproducible.
 
 ## Milestones
 
@@ -171,7 +172,7 @@ Never:
 | WS-26 | Per-venue execution (FUT-045) | M8 | Not started |
 | WS-27 | FX and multi-currency correctness | M10 | Not started |
 | WS-28 | Options and futures depth | M10 | Not started |
-| WS-29 | Release engineering and v4.3.0 artifacts | M0, M13 | Not started |
+| WS-29 | Release engineering and v4.3.0 artifacts | M0, M13 | In progress |
 
 ### WS-00: Governance, charter and decision records
 
@@ -235,7 +236,11 @@ Evidence:
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
-- [Not started] M0: VERIFICATION record names the commit and tree; reproducible build
+- [Implemented locally] M0: VERIFICATION record names the commit and tree; reproducible build
+
+Evidence:
+
+- release_preflight.py distributions: commit_identity, commit_files (from the object store), correspondence_problems (wheel package exactly the commit's; every sdist file but PKG-INFO the commit's), reproduction_problems (both artifacts rebuilt from git archive of the commit in a fresh directory, same bytes); the record names the commit and tree; an unresolvable commit fails before anything is installed. Real build of b48bfc3: 627 package and 1,528 source files correspond, rebuild byte-identical, installs smoke-tested. tests/regression/test_release_correspondence.py (11 tests on repositories made in the test, no network).
 
 ## Gaps
 
