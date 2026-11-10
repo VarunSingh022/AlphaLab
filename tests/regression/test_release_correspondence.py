@@ -212,8 +212,18 @@ def test_the_record_names_the_commit_and_tree(script: ModuleType, tmp_path: Path
     assert hashlib.sha256((dist / f"alphalab-{VERSION}.tar.gz").read_bytes()).hexdigest() in text
 
 
+@pytest.mark.parametrize(
+    ("commit", "refusal"),
+    [
+        ("0" * 40, "{commit!r} is not a commit {root} can resolve"),
+        # The command line's default, outside a checkout: an unpacked sdist, a scratch copy.
+        ("HEAD", "{root} is not a git checkout: name the commit the artifacts were built from "
+         "with --commit"),
+    ],
+    ids=["unknown commit", "no checkout"],
+)  # fmt: skip
 def test_artifacts_whose_commit_cannot_be_resolved_are_refused_before_installing(
-    script: ModuleType, tmp_path: Path
+    script: ModuleType, tmp_path: Path, commit: str, refusal: str
 ) -> None:
     dist = tmp_path / "dist"
     _artifacts(dist, PACKAGE, SOURCE)
@@ -228,10 +238,26 @@ def test_artifacts_whose_commit_cannot_be_resolved_are_refused_before_installing
         wheel.writestr(f"alphalab-{VERSION}.dist-info/licenses/LICENSE", "MIT")
 
     problems = script.distributions(
-        dist, VERSION, None, sys.executable, commit="0" * 40, root=tmp_path
+        dist, VERSION, None, sys.executable, commit=commit, root=tmp_path
     )
 
-    assert problems[-1] == f"{'0' * 40!r} is not a commit {tmp_path} can resolve"
+    assert problems[-1] == refusal.format(commit=commit, root=tmp_path)
+
+
+def test_outside_a_checkout_a_missing_dist_is_still_refused_by_name(
+    script: ModuleType, tmp_path: Path
+) -> None:
+    """The paths are checked before the source is resolved (the v4.1 rule).
+
+    Until this was fixed, ``distributions dist`` run outside a checkout said only
+    that there was no checkout; the scratch copies of the v4.3 mutation run found
+    it, where ``test_release_paths``'s missing-directory test failed.
+    """
+
+    with pytest.raises(script.PathRefused, match=r"the distribution directory .* does not exist"):
+        script.distributions(
+            tmp_path / "dist", VERSION, None, sys.executable, commit="HEAD", root=tmp_path
+        )
 
 
 def test_no_workflow_checks_artifacts_without_their_source() -> None:

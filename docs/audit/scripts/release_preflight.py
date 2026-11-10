@@ -750,10 +750,18 @@ def distributions(
     if commit is None:
         lines.append("source: not checked -- no commit was given (--no-source)")
     else:
+        # Resolved only now, after every path was checked: a missing DIST is named as
+        # such outside a checkout too -- in an unpacked sdist, say.
         source = commit_identity(root, commit)
         if source is None:
             # Nothing is installed for artifacts whose source cannot be named.
-            return [*problems, f"{commit!r} is not a commit {root} can resolve"]
+            return [
+                *problems,
+                f"{root} is not a git checkout: name the commit the artifacts were built from "
+                "with --commit"
+                if commit == "HEAD" and commit_identity(root) is None
+                else f"{commit!r} is not a commit {root} can resolve",
+            ]
         else:
             lines.append(f"source: commit {source[0]}, tree {source[1]}")
             found, log = correspondence_problems(dist, version, commit_files(source[0], root))
@@ -987,21 +995,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not problems:
             print(f"release approval: {arguments.version} at {arguments.sha}")
     elif arguments.command == "distributions":
-        commit = arguments.commit
-        if commit is None and not arguments.no_source:
-            identity = commit_identity()
-            commit = identity[0] if identity is not None else None
+        # The checkout's HEAD unless a commit is named; resolved after the paths are checked.
+        commit = None if arguments.no_source else (arguments.commit or "HEAD")
         try:
-            if commit is None and not arguments.no_source:
-                problems = [
-                    f"{ROOT} is not a git checkout: name the commit the artifacts were built "
-                    "from with --commit"
-                ]
-            else:
-                problems = distributions(
-                    arguments.dist, arguments.version, arguments.record, arguments.python,
-                    commit=commit,
-                )  # fmt: skip
+            problems = distributions(
+                arguments.dist, arguments.version, arguments.record, arguments.python,
+                commit=commit,
+            )  # fmt: skip
         except PathRefused as refused:
             problems = [str(refused)]
     else:
