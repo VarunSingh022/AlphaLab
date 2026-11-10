@@ -19,11 +19,13 @@ two of them differ. A seeded run is its seed's wherever it starts.
 
 from __future__ import annotations
 
+import contextvars
 import os
 import subprocess
 import sys
 import textwrap
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -110,6 +112,27 @@ def test_the_outer_scope_mints_what_it_would_have_minted_without_the_nested_run(
     driver: str,
 ) -> None:
     assert outer_identifiers(driver) == outer_identifiers(None)
+
+
+def test_unseeded_runs_in_parallel_draw_nothing_from_the_scope_they_started_in() -> None:
+    """Workers handed the scope's context share its source; each unseeded run installs its own.
+
+    ``contextvars.copy_context()`` gives a worker thread the scope's source
+    object itself, not a copy of its position. Before v4.3, unseeded runs
+    started that way drew from that one object, in whatever order their threads
+    happened to interleave.
+    """
+
+    runs = [DRIVERS[driver](None) for driver in sorted(DRIVERS)]
+    with id_scope(OUTER):
+        before = current_id_position()
+        with ThreadPoolExecutor(max_workers=len(runs)) as pool:
+            futures = [pool.submit(contextvars.copy_context().run, run) for run in runs]
+            for future in futures:
+                future.result()
+        after = current_id_position()
+
+    assert after == before
 
 
 @pytest.mark.parametrize("driver", ["backtest", "replay"])
