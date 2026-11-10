@@ -98,6 +98,15 @@ def test_every_declared_field_enters_the_identifier(changed: dict[str, Any]) -> 
     assert other != original
 
 
+def test_the_order_a_declaration_was_written_in_does_not_enter_the_identifier() -> None:
+    """Parameters and tags are mappings: the same ones given in another order are one run."""
+
+    _, forward = _start(parameters={"lookback": 20, "threshold": 0.5}, tags={"a": "1", "b": "2"})
+    _, reverse = _start(parameters={"threshold": 0.5, "lookback": 20}, tags={"b": "2", "a": "1"})
+
+    assert forward == reverse
+
+
 def test_a_new_version_is_identified_by_its_parent_as_well() -> None:
     tracker, parent = _start()
     tracker, version = new_version(tracker, parent, {"lookback": 30}, 2000.0)
