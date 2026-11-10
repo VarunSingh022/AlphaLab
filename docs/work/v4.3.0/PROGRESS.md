@@ -48,7 +48,7 @@ Never:
 | Remote head | `643d947c0f4fad2cb2a149bd5f446ab53dc32545` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M0: the charter reconciliation and its ADR (WS-00, ADR-0056), the integration-branch model (item 21), the release record (WS-29) and the test scaffolds (WS-21); then the M0 gate. |
+| Next | M0: the release record (WS-29: VERIFICATION names the commit and tree; reproducible build) and the test scaffolds (WS-21); then the full M0 gate and acceptance evidence. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -68,6 +68,7 @@ Never:
 - **2026-11-10** G0 item 16 decided under delegation: the plan's ADR numbers are final; plan 0054A is ADR-0054 and plan 0054B is ADR-0072.
 - **2026-11-10** SEC-002 (WS-23) committed: HttpTransport refuses every scheme but http/https, and redirects to any other; SECURITY.md corrected (CON-X16).
 - **2026-11-10** WS-20 High documentation corrections committed (CON-X4, CON-X1, CON-N2, CON-X14, CON-A5, CON-A15, VISION's venue transport) with a guard test.
+- **2026-11-10** Charter (WS-00) committed: ADR-0056 accepted, the five direction documents reconciled, the integration-branch model written (item 21), and the charter guard added.
 
 ## Milestones
 
@@ -90,7 +91,7 @@ Never:
 | M13 | Not started | WS-19, WS-22, WS-29, WS-20, WS-01 | S-01, S-10, S-12; FUT-044 criteria; RQ-01..09 rehearsal |
 | After M13 | Not started | WS-17 | Depth oracles |
 
-- **G0:** Items 1, 2, 3 approved and the directions of items 23 and 24 approved on 2026-11-09, with M0 authorised; every other item stays gated at its milestone.
+- **G0:** Items 1-3 and the directions of 23-24 approved by the owner; the charter accepted as ADR-0056; the rest delegated on 2026-11-10 and decided at their milestones (PC-03).
 - **M0:** Group 1 (WS-01) pushed as dc61a75 and green on hosted CI; group 2 (DET-007, WS-02) validated locally. v4.3 findings such as DET-007 are recorded here, not in the ledger, until the version decision: the ledger's guard refuses an entry for a release beyond the package's (4.2.1).
 
 ## Decisions (G0 sign-off)
@@ -98,7 +99,7 @@ Never:
 | # | Ref | Decision | Status | Due | Note |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Plan | The master development plan as the implementation blueprint | Approved | G0 | Approved on 2026-11-09 with its 30 workstreams and M0-M13 milestones. Every existing identifier, dependency and acceptance criterion is preserved. The plan may evolve on verified implementation findings; each change is recorded under plan_changes with its reason. |
-| 2 | D-V1 | Universal quantitative-engine charter revision | Approved | G0; its documents in M0 | Reconcile the five documents that state the product's direction -- ROADMAP.md, docs/VISION.md, nowandfuture.md, docs/ARCHITECTURE.md and docs/SYSTEM_DESIGN.md -- around one authoritative product vision, preserving the no-single-runtime architectural boundary. The charter ADR's number waits for item 16. |
+| 2 | D-V1 | Universal quantitative-engine charter revision | Approved | G0; its documents in M0 | Reconcile the five documents that state the product's direction -- ROADMAP.md, docs/VISION.md, nowandfuture.md, docs/ARCHITECTURE.md and docs/SYSTEM_DESIGN.md -- around one authoritative product vision, preserving the no-single-runtime architectural boundary. The charter ADR's number waits for item 16. Delivered as ADR-0056 (accepted 2026-11-10). |
 | 3 | D-V2 | Optional, separately installable research and computational dependencies | Approved | M7 | The AlphaLab core stays free of mandatory runtime dependencies; optional packages integrate through stable core interfaces (AC-38). |
 | 4 | D-V3 | Boundary reopenings (plan section P.2) | Delegated (2026-11-10): decided at its milestone | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. |
 | 5 | D-V4 | Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0 | Delegated (2026-11-10): decided at its milestone | Before M8 | — |
@@ -124,7 +125,7 @@ Never:
 | — | D-C3 | (part of item 20) | Delegated (2026-11-10): decided at its milestone | — | Recommended: keep reading replay schema 2, which no release wrote, and document it. |
 | — | D-K2 | (part of item 20) | Delegated (2026-11-10): decided at its milestone | — | Recommended: approve (WS-20). |
 | — | D-K3 | (part of item 20) | Delegated (2026-11-10): decided at its milestone | — | Folded into WS-20 as a documentation task. |
-| 21 | Branch model | Write the integration-branch model into CONTRIBUTING and ENGINEERING_GUIDELINES | Delegated (2026-11-10): decided at its milestone | M0 | Correcting CON-X14 does not depend on it. |
+| 21 | Branch model | Write the integration-branch model into CONTRIBUTING and ENGINEERING_GUIDELINES | Decided under delegation (2026-11-10) | M0 | Written into CONTRIBUTING (Pull Requests) and ENGINEERING_GUIDELINES: an approved programme is delivered on one long-lived integration branch through one Draft PR, every commit one logical change that leaves every gate green; merging and releasing stay the maintainer's decision. |
 | 22 | Authority | Branch, Draft PR, commits and pushes | Superseded (2026-11-10) | M0 | Superseded by the owner's autonomous authorization: Claude pushes coherent commit groups, maintains Draft PR #22 and monitors CI; never merges, tags, publishes or force-pushes. |
 | 23 | D-G0-1 | Isolation of untrusted researcher code | Approved (direction) | M4 | AlphaLab provides safe research-execution interfaces and process orchestration; the isolation of untrusted researcher code is enforced by the host or deployment environment. A separate Python process alone is never represented as a secure sandbox. |
 | 24 | D-G0-2 | Numerical precision and canonical serialization policy | Approved (direction) | M2 | A documented policy: deterministic calculations first, appropriate precision preserved, rounding only where numerical error analysis justifies it, cross-platform behaviour proved by reference tests. No arbitrary fixed rounding to conceal numerical differences. |
@@ -135,6 +136,7 @@ Never:
 | --- | --- | --- | --- | --- |
 | PC-01 | 2026-11-09 | Item 17 | The progress register is docs/work/v4.3.0/progress.json, the source, rendered to PROGRESS.md by docs/audit/scripts/progress_register.py, with the brief's nine statuses in place of the plan's five (section U.5). | The brief requires a machine-readable and a human-readable register; one source rendered to the other cannot disagree with it. |
 | PC-02 | 2026-11-09 | Item 24 | AC-37 ('identity-bearing statistics rounded to decimal strings, cross-host equal') is read through the approved precision policy: rounding only where numerical error analysis justifies it, never a fixed rounding that conceals a difference. The policy ADR states the rule before M2's statistics fix any identity. | The owner's direction on item 24 (2026-11-09). |
+| PC-03 | 2026-11-10 | Delegated authority | G0's ADR deliverables other than the charter are written before the milestone that first needs each, as the plan's own ADR table already dates most of them: ADR-0053 before M1, ADR-0054 before M2, ADR-0055 before M3, ADR-0057 before the first optional distribution (M7), ADR-0071 before the release machinery (M13). M0 proceeded on the owner's authorisation of 2026-11-09. | An ADR accepted long before its first implementation is decided on less evidence; each is decided with the code that tests it. |
 
 ## Workstreams
 
@@ -173,8 +175,12 @@ Never:
 
 ### WS-00: Governance, charter and decision records
 
-- [In progress] G0: Record the G0 approvals in this register
-- [Not started] G0: Charter reconciliation of the five direction documents and its ADR (number per item 16)
+- [Hosted CI passed] G0: Record the G0 approvals in this register
+- [Implemented locally] G0: Charter reconciliation of the five direction documents and its ADR (ADR-0056), with the integration-branch model (item 21)
+
+Evidence:
+
+- ADR-0056 (accepted 2026-11-10): the objective, the stable contract, growing capability, boundaries reopened only by their own ADR under six binding principles, and the bridge-or-library rule. ROADMAP's long-term vision and boundary preamble, VISION's statement and long-term direction, nowandfuture sections 14, 17 and 19, ARCHITECTURE's reading note and SYSTEM_DESIGN (CON-X2) cite it. CONTRIBUTING and ENGINEERING_GUIDELINES state the integration-branch model. tests/regression/test_charter_is_stated_consistently.py: each document cites the charter, none repeats a retired claim, the no-single-runtime boundary is still stated, the principles bind.
 
 ### WS-01: Compatibility and historical-contract integrity
 
@@ -251,7 +257,7 @@ Evidence:
 | GAP-12 | No model protocol | C/P1 | Open | WS-08 | M7 |
 | GAP-13 | ML dataset not PIT | H/P1 | Open | WS-08 | M7 |
 | GAP-14 | Throughput | H/P2 | Open | WS-15 | M11 |
-| GAP-15 | Charter conflict | H/P0 | Open | WS-00 | G0 |
+| GAP-15 | Charter conflict | H/P0 | Open: the charter is accepted and the five documents reconciled; closes when G0 and M0 are accepted | WS-00 | G0 |
 | GAP-16 | No reference-data packs | H/P2 | Open (D-V3) | WS-13 | M10 |
 | GAP-17 | One execution model per run | H/P1 | Open | WS-26 | M8 |
 | GAP-18 | No run-level or intraday next-open | L-M/P1 | Open | WS-11 | M8 |
@@ -301,7 +307,7 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR-0054 | Selection statistics (pure) (plan 0054A) | WS-06 | G0 | Not drafted in the repository |
 | ADR-0072 | Experiments and trial ledger (plan 0054B) | WS-05 | Before M4 | Not drafted in the repository |
 | ADR-0055 | Streaming research capture, extractor identity, trace identity, retention | WS-04 | Before M3 | Not drafted in the repository |
-| ADR-0056 | Product charter (D-V1) | WS-00 | G0 | Not drafted in the repository |
+| ADR-0056 | Product charter (D-V1) | WS-00 | G0 | Accepted (2026-11-10) |
 | ADR-0057 | Optional distributions and backend protocols (D-V2); includes the screening evaluator (B9) | WS-09 | G0 | Not drafted in the repository |
 | ADR-0058 | Numerical foundation, record-path host independence, estimation identity (reopens OFE-007, OFE-010 under identity) | WS-03 | Before M2 | Not drafted in the repository |
 | ADR-0059 | Historical universes and reference-data packs (reopens BDY-013 "permanently") | WS-13 | Before M3 | Not drafted in the repository |

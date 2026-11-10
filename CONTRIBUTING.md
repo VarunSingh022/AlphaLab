@@ -251,6 +251,15 @@ Please keep pull requests:
 - Fully tested
 - Limited to a single logical change
 
+**A programme of work is the one exception.** A plan the maintainer has approved
+as a whole -- such as the v4.3.0 development programme -- is delivered on one
+long-lived integration branch (`work/v4.3.0-development`) through one pull
+request kept as a Draft until the programme's end-to-end acceptance is met. The
+single-change rule then applies to each commit instead: every commit is one
+logical change with its tests, documentation and ledger or register update, and
+leaves every gate green. The pull request is merged, and the release tagged and
+published, only on the maintainer's explicit decision.
+
 ---
 
 # Pull Request Checklist

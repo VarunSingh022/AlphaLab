@@ -8,6 +8,8 @@ The project combines deterministic execution, immutable state management, event-
 
 Rather than being a collection of independent tools, AlphaLab is designed as a unified ecosystem where research, portfolio construction, execution, production systems, and future AI capabilities operate through a consistent architecture.
 
+Its charter is ADR-0056: a universal, strategy-agnostic quantitative research engine for global markets, where the researcher brings the hypothesis and AlphaLab supplies a deterministic, reproducible path from data to a validated result -- growing in capability on a contract that stays stable.
+
 ---
 
 # Mission
@@ -125,10 +127,15 @@ remaining — wiring `replay` into the execution path, mark-to-market repricing,
 and consolidating the overlapping data surfaces — were delivered in **v2.2**,
 **v2.1** and **v2.3** respectively, and the entry stood unchanged until v3.0.
 
-What remains is not a missing layer. `../ROADMAP.md` classifies it as deliberate
-boundaries that should stay, external dependencies that are somebody else's to
-supply (FX data, classification data, a vendor's request shapes, credentials),
-and optional evolution that nothing is waiting on.
+What comes next is set by the charter (ADR-0056), not by a list of missing
+layers: capability grows toward the universal objective on a contract that stays
+stable, and the v4.3.0 programme is its next stage -- research validation over
+real backtests, experiments that count every trial, numerical and statistical
+foundations, global reference data, deeper execution realism, and machine
+learning through stable interfaces. `../ROADMAP.md` keeps the boundaries, each
+standing until its own ADR reopens it, and the external dependencies that are
+somebody else's to supply (FX data, classification data, a vendor's request
+shapes, credentials).
 
 ---
 
@@ -149,7 +156,7 @@ result; v3.1.0 to v3.13.0 showed what the freeze permits, adding capability
 inside the packages without moving a boundary; and v4.0.0 classified the
 history, re-audited the engine and froze the public API.
 
-A frozen architecture is not a finished project. What it changes is the bar: a
+A frozen architecture is not a finished project (ADR-0056). What it changes is the bar: a
 contribution that moves an ownership boundary, a schema contract or a documented
 invariant, or the public API incompatibly, now needs an ADR and a major
 release, while a new standalone engine, a strategy or a benchmark follows the

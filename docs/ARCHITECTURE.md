@@ -11,7 +11,9 @@ Every subsystem follows the same engineering principles (immutable state, pure f
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
 > v3.10.0 both halves name only packages that exist; where the target half shows a
-> capability AlphaLab does not implement, it says so.
+> capability AlphaLab does not implement, it says so. The product's direction is
+> ADR-0056's charter: a universal research engine whose capability grows on a
+> stable contract, with no single runtime spanning its engines (ADR-0009).
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 

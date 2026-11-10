@@ -858,7 +858,7 @@ and `workbench`, `studio` and `enterprise` in v3.11 — ADR-0046.)
 
 Each is deterministic, individually tested and individually benchmarked. **A
 package with no in-repo consumer is a standalone engine by design, not an
-orphan** — pinned by
+orphan**, until a tested bridge joins it to the research path (ADR-0056) — pinned by
 `test_every_zero_consumer_production_package_is_a_standalone_engine`.
 
 `portfolio_optimizer` stayed on this list in v3.8 while gaining one edge — the
@@ -1560,7 +1560,8 @@ with the optimizer in v3.12 (OFE-013).
 # 14. What must not be changed casually
 
 **These are the frozen invariants.** Changing any of them is a major release with
-an ADR.
+an ADR. Each stands until its own ADR changes it, under the principles ADR-0056
+binds every such decision to; capability grows around them.
 
 1. **One owner per responsibility.** The step is `ExecutionPipeline`'s, the run is
    `RunEngine`'s, and drivers hold no state. Do not give a driver a field.
@@ -1934,8 +1935,9 @@ integration does not.**
 Until v3.10 this section listed what could be built with no commitment. The
 pre-v4 audit re-classified every item; the ledger
 (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) holds each with its disposition
-and release, and `ROADMAP.md` has the table. **Nothing is planned any more:
-every item was delivered by v3.13 or is kept, with its reason.** In short:
+and release, and `ROADMAP.md` has the table. **Every item planned before v4 was
+delivered by v3.13 or is kept, with its reason**; what is planned now is in
+`ROADMAP.md`'s *Future work* and the v4.3.0 programme (ADR-0056). In short:
 
 - **Delivered in v3.11**: richer construction (OFE-002); multi-exposure
   neutralization (OFE-004); a deflated Sharpe ratio and corrections beyond
@@ -2005,8 +2007,10 @@ superseding ADR's Status block; read the Status block first.
 **Adding a standalone engine.** Follow the existing shape: `__init__.py` with an
 honest `__all__`, `engine.py`, `state.py`, `events.py`, `validation.py`,
 `exceptions.py`, `views.py`. Immutable state, pure functions, its own tests under
-`tests/unit/<package>/` and its own benchmark. It will have no in-repo consumer,
-and that is correct.
+`tests/unit/<package>/` and its own benchmark. Then integrate it through a
+tested bridge -- into the execution path or a research workflow, with an
+end-to-end test of the composition -- or keep it a library by stated choice, with
+the reason in an ADR (ADR-0056 section 5).
 
 **Adding a vendor adapter.** Implement `BrokerProtocol` (one venue) or a
 `MarketDataSource` in your own package, and normalize into the canonical types on

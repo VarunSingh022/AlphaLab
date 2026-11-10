@@ -51,6 +51,22 @@ and `configuration_id` are 4.2.1's until an entry below says otherwise.
   (`tests/regression/test_schedule_digest_pins.py`). The values are what
   v4.2.1 and v4.2.0 compute, and each frozen replay recorded its workload's.
 
+* **The product charter, and the documents that state AlphaLab's direction
+  reconciled to it** [plan WS-00, G0 item 2, D-V1; ADR-0056]. AlphaLab is a
+  universal, strategy-agnostic research engine for global markets whose
+  capability grows on a contract that stays stable: the public API, every
+  recorded identity and every persisted format. A boundary stands until its
+  own ADR reopens it under six binding principles (zero mandatory runtime
+  dependencies, optional dependencies through stable interfaces, no
+  process-as-sandbox, precision by error analysis, no single runtime across
+  the engines, no silent identity or format change). ROADMAP no longer calls
+  the engine "complete and frozen", `nowandfuture.md` no longer says nothing
+  is planned or that an engine needs no consumer, SYSTEM_DESIGN states the
+  bridge-or-library rule (CON-X2), and VISION and ARCHITECTURE cite the
+  charter. CONTRIBUTING and ENGINEERING_GUIDELINES describe how an approved
+  programme is delivered on one integration branch (G0 item 21).
+  `tests/regression/test_charter_is_stated_consistently.py` holds all of it.
+
 ## Fixed
 
 * **An unseeded run no longer borrows the identifier stream around it**

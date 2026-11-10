@@ -442,8 +442,9 @@ API, its persisted formats and every run's `result_id` are 4.2.0's.
 
 # Deliberate boundaries
 
-Not built, on purpose. Each has a reason, and most have a regression test that a
-future "simplification" would have to break first —
+Not built, on purpose. Each has a reason, and each stands until its own ADR
+reopens it under the principles ADR-0056 binds every such decision to; most
+have a regression test that a future "simplification" would have to break first —
 `tests/regression/test_shared_names_stay_distinct.py` and
 `test_venue_concepts_stay_distinct.py` hold the reasons.
 
@@ -1055,17 +1056,23 @@ tenancy are the host application's, and the lifecycle takes a
 
 # Long-Term Vision
 
-AlphaLab set out to be a complete quantitative research platform -- market data,
-feature engineering, research, portfolio construction, machine learning,
-execution and reproducibility -- while preserving determinism, immutability,
-modular architecture and production readiness. At v4.0 that engine is complete
-and frozen: one execution spine with one run owner and four drivers, a lifecycle
-path joined to it, durable state that round-trips across processes, and a public
-API held stable from here.
+AlphaLab is a universal, strategy-agnostic quantitative research engine for
+global markets (ADR-0056, the product charter). The researcher brings the
+hypothesis; AlphaLab supplies a deterministic, reproducible and auditable path
+from data to a validated result -- original strategy construction, the
+mathematical, statistical and machine-learning methods the research needs,
+realistic execution, systematic experimentation, validation that accounts for
+selection, and the reproduction of every result, in any market the researcher
+declares.
 
-What remains is what this document lists: boundaries that should stay, external
-dependencies that are somebody else's to supply, limitations stated with their
-reasons, and the future work above.
+What v4.0 froze is the contract, not the capability: one execution spine with
+one run owner and four drivers, a lifecycle path joined to it, durable state that
+round-trips across processes, recorded identities that keep their meaning, and a
+public API held stable until 5.0. Capability keeps growing on that contract, and
+the v4.3.0 programme is its next stage. The rest of this document -- boundaries
+that stand until their own ADR reopens them, external dependencies that are
+somebody else's to supply, limitations stated with their reasons, and the future
+work above -- is read through that charter.
 
 ---
 

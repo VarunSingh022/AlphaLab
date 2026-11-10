@@ -507,6 +507,13 @@ Every pull request should
 
 Large unrelated changes should be split into multiple pull requests.
 
+An approved programme of work is delivered differently: on one long-lived
+integration branch, through one Draft pull request, in many commits that are each
+one logical change and each leave every gate green (`CONTRIBUTING.md`, *Pull
+Requests*). The programme's progress register (`docs/work/<version>/`) records
+what each commit delivered, its validation and the hosted results, and the pull
+request's description mirrors it.
+
 ---
 
 # Release Checklist
