@@ -64,7 +64,12 @@ KEYS = (
     "workstreams",
     "gaps",
     "adrs",
+    "authority",
+    "state",
+    "log",
 )
+#: What the current-state record must say, so a new session resumes from it.
+STATE_KEYS = ("updated", "remote_head", "pull_request", "hosted_ci", "monitoring", "next")
 
 
 def load(path: Path = REGISTER) -> dict[str, Any]:
@@ -159,6 +164,16 @@ def problems(register: Mapping[str, Any], rendered: str | None = None) -> list[s
     for adr in register["adrs"]:
         if adr["workstream"] not in WORKSTREAMS:
             found.append(f"{adr['id']}: names an unknown workstream {adr['workstream']}")
+    missing_state = [key for key in STATE_KEYS if key not in register["state"]]
+    if missing_state:
+        found.append(f"the current-state record lacks {missing_state}")
+    if not register["log"]:
+        found.append("the continuation log is empty")
+    dates = [entry["date"] for entry in register["log"]]
+    if dates != sorted(dates):
+        found.append("the continuation log is not in date order")
+    if not register["authority"]["binding"] or not register["authority"]["forbidden"]:
+        found.append("the authority record must state what binds it and what it forbids")
 
     if rendered is not None and rendered != render(register):
         found.append(
@@ -210,6 +225,7 @@ def render(register: Mapping[str, Any]) -> str:
         "",
         "Statuses: " + " · ".join(register["statuses"]) + ".",
         "",
+        *_authority_and_state(register),
         "## Milestones",
         "",
         "| Milestone | Status | Workstreams | Exit gate (end-to-end proof) |",
@@ -325,7 +341,8 @@ def render(register: Mapping[str, Any]) -> str:
         "",
         "## ADR programme",
         "",
-        "Numbers after ADR-0054 are provisional until G0 item 16 is decided.",
+        "Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan "
+        "0054B as ADR-0072.",
         "",
         "| ADR | Subject | Workstream | Needed | Status |",
         "| --- | --- | --- | --- | --- |",
@@ -335,6 +352,50 @@ def render(register: Mapping[str, Any]) -> str:
             _row(adr["id"], adr["subject"], adr["workstream"], adr["needed"], adr["status"])
         )
     return "\n".join(lines) + "\n"
+
+
+def _authority_and_state(register: Mapping[str, Any]) -> list[str]:
+    """The delegated authority, where the programme stands now, and how it got there."""
+
+    authority, state = register["authority"], register["state"]
+    lines = [
+        f"## Authority (delegated {authority['granted']})",
+        "",
+        authority["summary"],
+        "",
+        "Binding:",
+        "",
+        *[f"- {rule}" for rule in authority["binding"]],
+        "",
+        "Never:",
+        "",
+        *[f"- {rule}" for rule in authority["forbidden"]],
+        "",
+        f"## Current state ({state['updated']})",
+        "",
+        "| | |",
+        "| --- | --- |",
+        _row("Remote head", f"`{state['remote_head']}`"),
+        _row("Pull request", state["pull_request"]),
+        _row("Monitoring", state["monitoring"]),
+        _row("Next", state["next"]),
+        "",
+        "| Commit | Workflow | Run | Result |",
+        "| --- | --- | --- | --- |",
+        *[
+            _row(f"`{check['sha']}`", check["workflow"], check["run"], check["result"])
+            for check in state["hosted_ci"]
+        ],
+        "",
+    ]
+    if state.get("open_questions"):
+        lines += ["Open questions:", ""]
+        lines += [f"- {question}" for question in state["open_questions"]]
+        lines.append("")
+    lines += ["## Continuation log", ""]
+    lines += [f"- **{entry['date']}** {entry['entry']}" for entry in register["log"]]
+    lines.append("")
+    return lines
 
 
 def main(argv: Sequence[str] | None = None) -> int:

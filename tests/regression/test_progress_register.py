@@ -60,6 +60,10 @@ def test_only_the_owners_approvals_are_recorded_as_approved(script: ModuleType) 
         (lambda r: r["milestones"][1]["workstreams"].append("WS-12"), "disagree"),
         (lambda r: r["gaps"][2].update(status="Fixed"), "GAP-03"),
         (lambda r: r["workstreams"][1]["items"][0].update(milestone="M7"), "not one of its own"),
+        (lambda r: r["log"].clear(), "continuation log is empty"),
+        (lambda r: r["log"].reverse(), "not in date order"),
+        (lambda r: r["state"].pop("remote_head"), "current-state record lacks"),
+        (lambda r: r["authority"].update(forbidden=[]), "what it forbids"),
     ],
 )
 def test_a_broken_register_is_refused(script: ModuleType, edit: object, found: str) -> None:

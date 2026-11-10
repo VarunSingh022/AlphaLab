@@ -60,7 +60,7 @@
       "item": 4,
       "ref": "D-V3",
       "title": "Boundary reopenings (plan section P.2)",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "Each before its milestone (M2-M10)",
       "note": "Each reopening gets its own ADR before its milestone. Not to be assumed."
     },
@@ -68,7 +68,7 @@
       "item": 5,
       "ref": "D-V4",
       "title": "Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "Before M8",
       "note": ""
     },
@@ -76,7 +76,7 @@
       "item": 6,
       "ref": "ADR-0053",
       "title": "ADR-0053 revised (R53-1..8, CR-53-1..9)",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "Before M1",
       "note": "M0's golden schedule-digest tests do not need it; the RUN_SCHEDULE_DIGEST_SCHEME constant does."
     },
@@ -84,7 +84,7 @@
       "item": 7,
       "ref": "ADR-0054",
       "title": "ADR-0054 split into 0054A and 0054B; D-54-5 revised",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "0054A before M2; 0054B before M4",
       "note": ""
     },
@@ -92,7 +92,7 @@
       "item": 8,
       "ref": "ADR-0055",
       "title": "Streaming capture and trace identity",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "Before M3",
       "note": ""
     },
@@ -100,7 +100,7 @@
       "item": 9,
       "ref": "D-54-R3",
       "title": "Researcher entry point alphalab.lab",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "Before M4",
       "note": ""
     },
@@ -116,7 +116,7 @@
       "item": 11,
       "ref": "D-F42",
       "title": "FUT-042 opt-in in 4.3; default flip in 5.0",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "Before M1",
       "note": ""
     },
@@ -126,13 +126,13 @@
       "title": "FUT-044 in M13",
       "status": "Confirmed by the owner's brief",
       "due": "Before M13",
-      "note": "Inclusion confirmed by the brief (Part 18). Whether it is the cut line stays the owner's decision."
+      "note": "Inclusion confirmed by the brief (Part 18). Whether it is the cut line stays the owner's decision. The cut-line clause is delegated (2026-11-10)."
     },
     {
       "item": 13,
       "ref": "D-W1",
       "title": "Release Preflight by label or dispatch at release time",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "Before the first release candidate",
       "note": ""
     },
@@ -140,7 +140,7 @@
       "item": 14,
       "ref": "D-W2",
       "title": "Release rehearsal: fake-API tests and a scratch-repository rehearsal",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "M13",
       "note": ""
     },
@@ -148,7 +148,7 @@
       "item": 15,
       "ref": "D-W3",
       "title": "Residual UI-publish risk; release permissions; optional distributions",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "M13",
       "note": ""
     },
@@ -156,15 +156,15 @@
       "item": 16,
       "ref": "ADR numbering",
       "title": "ADR numbers 0055-0071 are provisional",
-      "status": "Pending",
+      "status": "Decided under delegation (2026-11-10)",
       "due": "When the first new ADR is drafted",
-      "note": "Asked at the first checkpoint, before the charter ADR is added."
+      "note": "The plan's ADR numbers are final, because the plan, the audit, this register and the drafts already cite them: ADR-0053 and ADR-0055 to ADR-0071 as planned. Plan 0054A (selection statistics) is ADR-0054 and plan 0054B (experiments and trial ledger) is ADR-0072, one file per number. No test requires contiguous numbers; an ADR is created when it is drafted, so numbers may land out of order."
     },
     {
       "item": 17,
       "ref": "Register",
       "title": "Progress register location and form",
-      "status": "Applied under item 1; confirmation requested",
+      "status": "Applied; confirmed by delegation (2026-11-10)",
       "due": "M0",
       "note": "The approved plan names docs/work/v4.3.0/PROGRESS.md (section U.5). This register adds the machine-readable progress.json and the brief's status vocabulary (G0 register C-03)."
     },
@@ -172,7 +172,7 @@
       "item": 18,
       "ref": "GR-8",
       "title": "Windows CI cell",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "M11",
       "note": ""
     },
@@ -180,7 +180,7 @@
       "item": 19,
       "ref": "WS-17",
       "title": "Depth and microstructure timing",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "Before M11 ends",
       "note": ""
     },
@@ -188,7 +188,7 @@
       "item": 20,
       "ref": "Memo",
       "title": "Decisions carried from the 2026-11-07 memo",
-      "status": "Partly resolved",
+      "status": "Partly resolved; the rest delegated (2026-11-10)",
       "due": "M0 and later",
       "note": "Each part is listed with its own status.",
       "parts": [
@@ -199,32 +199,32 @@
         },
         {
           "ref": "D-S2",
-          "status": "Pending",
+          "status": "Delegated (2026-11-10): decided at its milestone",
           "note": "Recommended: a registry runner in 4.3, removal at 5.0 (WS-23)."
         },
         {
           "ref": "D-C1",
-          "status": "Applied under item 1; confirmation requested",
+          "status": "Applied; confirmed by delegation (2026-11-10)",
           "note": "The approved plan freezes v4.2.1 payloads; the generator also proves that v4.2.0 writes the same bytes, so one fixture set covers both releases."
         },
         {
           "ref": "D-C2",
-          "status": "Pending",
+          "status": "Delegated (2026-11-10): decided at its milestone",
           "note": "Recommended: accept v4.2.0's F4 and F7 as v4.1.0 coverage."
         },
         {
           "ref": "D-C3",
-          "status": "Pending",
+          "status": "Delegated (2026-11-10): decided at its milestone",
           "note": "Recommended: keep reading replay schema 2, which no release wrote, and document it."
         },
         {
           "ref": "D-K2",
-          "status": "Pending",
+          "status": "Delegated (2026-11-10): decided at its milestone",
           "note": "Recommended: approve (WS-20)."
         },
         {
           "ref": "D-K3",
-          "status": "Pending",
+          "status": "Delegated (2026-11-10): decided at its milestone",
           "note": "Folded into WS-20 as a documentation task."
         }
       ]
@@ -233,7 +233,7 @@
       "item": 21,
       "ref": "Branch model",
       "title": "Write the integration-branch model into CONTRIBUTING and ENGINEERING_GUIDELINES",
-      "status": "Pending",
+      "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "M0",
       "note": "Correcting CON-X14 does not depend on it."
     },
@@ -241,9 +241,9 @@
       "item": 22,
       "ref": "Authority",
       "title": "Branch, Draft PR, commits and pushes",
-      "status": "Confirmed by the owner's brief",
+      "status": "Superseded (2026-11-10)",
       "due": "M0",
-      "note": "One branch work/v4.3.0-development from the verified v4.2.1 baseline; focused local commits; the owner pushes, or authorises a specific push; one long-lived Draft PR after the first pushed increment; no merge, tag, release or publication without the owner's explicit approval."
+      "note": "Superseded by the owner's autonomous authorization: Claude pushes coherent commit groups, maintains Draft PR #22 and monitors CI; never merges, tags, publishes or force-pushes."
     },
     {
       "item": 23,
@@ -1546,16 +1546,16 @@
       "status": "Not drafted in the repository"
     },
     {
-      "id": "ADR-0054A",
-      "subject": "Selection statistics (pure)",
+      "id": "ADR-0054",
+      "subject": "Selection statistics (pure) (plan 0054A)",
       "plan_section": "§O",
       "workstream": "WS-06",
       "needed": "G0",
       "status": "Not drafted in the repository"
     },
     {
-      "id": "ADR-0054B",
-      "subject": "Experiments and trial ledger",
+      "id": "ADR-0072",
+      "subject": "Experiments and trial ledger (plan 0054B)",
       "plan_section": "§O",
       "workstream": "WS-05",
       "needed": "Before M4",
@@ -1696,6 +1696,97 @@
       "workstream": "WS-29",
       "needed": "G0",
       "status": "Not drafted in the repository"
+    }
+  ],
+  "authority": {
+    "granted": "2026-11-10",
+    "summary": "The owner delegated implementation of the approved plan: technical and architectural decisions (the open G0 items included), commits and pushes to work/v4.3.0-development, maintaining Draft PR #22, and monitoring and fixing hosted CI, through M0-M13 and all 30 workstreams. Each significant decision is recorded with its problem, alternatives, rationale and compatibility consequences, in an ADR where it is architectural.",
+    "binding": [
+      "AlphaLab stays a universal, strategy-agnostic quantitative research engine.",
+      "Global markets; no American-market default.",
+      "The core keeps zero mandatory runtime dependencies.",
+      "Optional numerical, statistical, ML and DL dependencies integrate separately through stable interfaces.",
+      "A separate process alone is not a secure sandbox.",
+      "The host or deployment environment enforces the isolation of untrusted research code.",
+      "Numerical precision follows error analysis, not arbitrary fixed rounding.",
+      "The no-single-runtime boundary holds.",
+      "No silent change to a historical result_id, configuration_id, schema or persisted format.",
+      "No breaking change for convenience: stage it, migrate it, or hold it for 5.0."
+    ],
+    "forbidden": [
+      "Merging PR #22.",
+      "Publishing a v4.3.0 GitHub Release or a PyPI distribution.",
+      "Creating the final v4.3.0 tag.",
+      "Changing the v4.2.1 tag or release.",
+      "Modifying other repositories (iluvtrade, RedDesk).",
+      "Deleting Git history or force-pushing.",
+      "Disabling security controls or rulesets to bypass a failure."
+    ]
+  },
+  "state": {
+    "updated": "2026-11-10",
+    "remote_head": "643d947c0f4fad2cb2a149bd5f446ab53dc32545",
+    "pull_request": "#22, Draft, mergeable",
+    "hosted_ci": [
+      {
+        "sha": "dc61a75",
+        "workflow": "Continuous Integration",
+        "run": 42758278604,
+        "result": "success: all six quality-gate cells"
+      },
+      {
+        "sha": "dc61a75",
+        "workflow": "CodeQL",
+        "run": 42758278243,
+        "result": "success"
+      },
+      {
+        "sha": "643d947",
+        "workflow": "CodeQL",
+        "run": 42763156687,
+        "result": "success"
+      },
+      {
+        "sha": "643d947",
+        "workflow": "Release Preflight",
+        "run": 42763156539,
+        "result": "all six jobs skipped by design: they run only with the release-preflight label or by dispatch (D-W1); not a pass"
+      },
+      {
+        "sha": "643d947",
+        "workflow": "Continuous Integration",
+        "run": 42763156527,
+        "result": "in progress when recorded"
+      }
+    ],
+    "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
+    "next": "M0: SEC-002 (WS-23), then the High documentation corrections (WS-20), the charter (WS-00), the release record (WS-29) and the test scaffolds (WS-21).",
+    "open_questions": []
+  },
+  "log": [
+    {
+      "date": "2026-11-09",
+      "entry": "G0: the owner approved items 1-3 and the directions of items 23 and 24, and authorised M0. Branch work/v4.3.0-development created from 8f33234."
+    },
+    {
+      "date": "2026-11-09",
+      "entry": "M0 group 1 (WS-01) committed: 19169cb register, 06e8847 v4.2.1 fixtures, b1a2c93 reading tests, dc61a75 schedule-digest pins; full local gate green."
+    },
+    {
+      "date": "2026-11-10",
+      "entry": "The owner pushed dc61a75; Draft PR #22 opened; hosted CI (6 cells) and CodeQL green."
+    },
+    {
+      "date": "2026-11-10",
+      "entry": "M0 group 2 (DET-007, WS-02) committed: 58920fc scope isolation, 04b3e10 derived registry ids, c48f5f7 parallel probe, 643d947 register; full local gate green."
+    },
+    {
+      "date": "2026-11-10",
+      "entry": "The owner delegated autonomous implementation (register 'authority'). Claude pushed 643d947 as a fast-forward; ruleset 'protect' disabled, no rules on the branch."
+    },
+    {
+      "date": "2026-11-10",
+      "entry": "G0 item 16 decided under delegation: the plan's ADR numbers are final; plan 0054A is ADR-0054 and plan 0054B is ADR-0072."
     }
   ]
 }

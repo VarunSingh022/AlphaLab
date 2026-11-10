@@ -14,6 +14,59 @@ A complete universal, strategy-agnostic, global quantitative research engine: th
 
 Statuses: Not started · In progress · Blocked · Implemented locally · Local validation passed · Pushed · Hosted CI passed · Accepted · Deferred by owner.
 
+## Authority (delegated 2026-11-10)
+
+The owner delegated implementation of the approved plan: technical and architectural decisions (the open G0 items included), commits and pushes to work/v4.3.0-development, maintaining Draft PR #22, and monitoring and fixing hosted CI, through M0-M13 and all 30 workstreams. Each significant decision is recorded with its problem, alternatives, rationale and compatibility consequences, in an ADR where it is architectural.
+
+Binding:
+
+- AlphaLab stays a universal, strategy-agnostic quantitative research engine.
+- Global markets; no American-market default.
+- The core keeps zero mandatory runtime dependencies.
+- Optional numerical, statistical, ML and DL dependencies integrate separately through stable interfaces.
+- A separate process alone is not a secure sandbox.
+- The host or deployment environment enforces the isolation of untrusted research code.
+- Numerical precision follows error analysis, not arbitrary fixed rounding.
+- The no-single-runtime boundary holds.
+- No silent change to a historical result_id, configuration_id, schema or persisted format.
+- No breaking change for convenience: stage it, migrate it, or hold it for 5.0.
+
+Never:
+
+- Merging PR #22.
+- Publishing a v4.3.0 GitHub Release or a PyPI distribution.
+- Creating the final v4.3.0 tag.
+- Changing the v4.2.1 tag or release.
+- Modifying other repositories (iluvtrade, RedDesk).
+- Deleting Git history or force-pushing.
+- Disabling security controls or rulesets to bypass a failure.
+
+## Current state (2026-11-10)
+
+| | |
+| --- | --- |
+| Remote head | `643d947c0f4fad2cb2a149bd5f446ab53dc32545` |
+| Pull request | #22, Draft, mergeable |
+| Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
+| Next | M0: SEC-002 (WS-23), then the High documentation corrections (WS-20), the charter (WS-00), the release record (WS-29) and the test scaffolds (WS-21). |
+
+| Commit | Workflow | Run | Result |
+| --- | --- | --- | --- |
+| `dc61a75` | Continuous Integration | 42758278604 | success: all six quality-gate cells |
+| `dc61a75` | CodeQL | 42758278243 | success |
+| `643d947` | CodeQL | 42763156687 | success |
+| `643d947` | Release Preflight | 42763156539 | all six jobs skipped by design: they run only with the release-preflight label or by dispatch (D-W1); not a pass |
+| `643d947` | Continuous Integration | 42763156527 | in progress when recorded |
+
+## Continuation log
+
+- **2026-11-09** G0: the owner approved items 1-3 and the directions of items 23 and 24, and authorised M0. Branch work/v4.3.0-development created from 8f33234.
+- **2026-11-09** M0 group 1 (WS-01) committed: 19169cb register, 06e8847 v4.2.1 fixtures, b1a2c93 reading tests, dc61a75 schedule-digest pins; full local gate green.
+- **2026-11-10** The owner pushed dc61a75; Draft PR #22 opened; hosted CI (6 cells) and CodeQL green.
+- **2026-11-10** M0 group 2 (DET-007, WS-02) committed: 58920fc scope isolation, 04b3e10 derived registry ids, c48f5f7 parallel probe, 643d947 register; full local gate green.
+- **2026-11-10** The owner delegated autonomous implementation (register 'authority'). Claude pushed 643d947 as a fast-forward; ruleset 'protect' disabled, no rules on the branch.
+- **2026-11-10** G0 item 16 decided under delegation: the plan's ADR numbers are final; plan 0054A is ADR-0054 and plan 0054B is ADR-0072.
+
 ## Milestones
 
 | Milestone | Status | Workstreams | Exit gate (end-to-end proof) |
@@ -45,32 +98,32 @@ Statuses: Not started · In progress · Blocked · Implemented locally · Local 
 | 1 | Plan | The master development plan as the implementation blueprint | Approved | G0 | Approved on 2026-11-09 with its 30 workstreams and M0-M13 milestones. Every existing identifier, dependency and acceptance criterion is preserved. The plan may evolve on verified implementation findings; each change is recorded under plan_changes with its reason. |
 | 2 | D-V1 | Universal quantitative-engine charter revision | Approved | G0; its documents in M0 | Reconcile the five documents that state the product's direction -- ROADMAP.md, docs/VISION.md, nowandfuture.md, docs/ARCHITECTURE.md and docs/SYSTEM_DESIGN.md -- around one authoritative product vision, preserving the no-single-runtime architectural boundary. The charter ADR's number waits for item 16. |
 | 3 | D-V2 | Optional, separately installable research and computational dependencies | Approved | M7 | The AlphaLab core stays free of mandatory runtime dependencies; optional packages integrate through stable core interfaces (AC-38). |
-| 4 | D-V3 | Boundary reopenings (plan section P.2) | Pending | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. |
-| 5 | D-V4 | Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0 | Pending | Before M8 | — |
-| 6 | ADR-0053 | ADR-0053 revised (R53-1..8, CR-53-1..9) | Pending | Before M1 | M0's golden schedule-digest tests do not need it; the RUN_SCHEDULE_DIGEST_SCHEME constant does. |
-| 7 | ADR-0054 | ADR-0054 split into 0054A and 0054B; D-54-5 revised | Pending | 0054A before M2; 0054B before M4 | — |
-| 8 | ADR-0055 | Streaming capture and trace identity | Pending | Before M3 | — |
-| 9 | D-54-R3 | Researcher entry point alphalab.lab | Pending | Before M4 | — |
+| 4 | D-V3 | Boundary reopenings (plan section P.2) | Delegated (2026-11-10): decided at its milestone | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. |
+| 5 | D-V4 | Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0 | Delegated (2026-11-10): decided at its milestone | Before M8 | — |
+| 6 | ADR-0053 | ADR-0053 revised (R53-1..8, CR-53-1..9) | Delegated (2026-11-10): decided at its milestone | Before M1 | M0's golden schedule-digest tests do not need it; the RUN_SCHEDULE_DIGEST_SCHEME constant does. |
+| 7 | ADR-0054 | ADR-0054 split into 0054A and 0054B; D-54-5 revised | Delegated (2026-11-10): decided at its milestone | 0054A before M2; 0054B before M4 | — |
+| 8 | ADR-0055 | Streaming capture and trace identity | Delegated (2026-11-10): decided at its milestone | Before M3 | — |
+| 9 | D-54-R3 | Researcher entry point alphalab.lab | Delegated (2026-11-10): decided at its milestone | Before M4 | — |
 | 10 | D-F45 | FUT-045 in M8 | Confirmed by the owner's brief | Before M8 | The implementation brief (Part 18) places FUT-045 in its agreed programme position. The owner is asked to confirm this reading. |
-| 11 | D-F42 | FUT-042 opt-in in 4.3; default flip in 5.0 | Pending | Before M1 | — |
-| 12 | D-F44 | FUT-044 in M13 | Confirmed by the owner's brief | Before M13 | Inclusion confirmed by the brief (Part 18). Whether it is the cut line stays the owner's decision. |
-| 13 | D-W1 | Release Preflight by label or dispatch at release time | Pending | Before the first release candidate | — |
-| 14 | D-W2 | Release rehearsal: fake-API tests and a scratch-repository rehearsal | Pending | M13 | — |
-| 15 | D-W3 | Residual UI-publish risk; release permissions; optional distributions | Pending | M13 | — |
-| 16 | ADR numbering | ADR numbers 0055-0071 are provisional | Pending | When the first new ADR is drafted | Asked at the first checkpoint, before the charter ADR is added. |
-| 17 | Register | Progress register location and form | Applied under item 1; confirmation requested | M0 | The approved plan names docs/work/v4.3.0/PROGRESS.md (section U.5). This register adds the machine-readable progress.json and the brief's status vocabulary (G0 register C-03). |
-| 18 | GR-8 | Windows CI cell | Pending | M11 | — |
-| 19 | WS-17 | Depth and microstructure timing | Pending | Before M11 ends | — |
-| 20 | Memo | Decisions carried from the 2026-11-07 memo | Partly resolved | M0 and later | Each part is listed with its own status. |
+| 11 | D-F42 | FUT-042 opt-in in 4.3; default flip in 5.0 | Delegated (2026-11-10): decided at its milestone | Before M1 | — |
+| 12 | D-F44 | FUT-044 in M13 | Confirmed by the owner's brief | Before M13 | Inclusion confirmed by the brief (Part 18). Whether it is the cut line stays the owner's decision. The cut-line clause is delegated (2026-11-10). |
+| 13 | D-W1 | Release Preflight by label or dispatch at release time | Delegated (2026-11-10): decided at its milestone | Before the first release candidate | — |
+| 14 | D-W2 | Release rehearsal: fake-API tests and a scratch-repository rehearsal | Delegated (2026-11-10): decided at its milestone | M13 | — |
+| 15 | D-W3 | Residual UI-publish risk; release permissions; optional distributions | Delegated (2026-11-10): decided at its milestone | M13 | — |
+| 16 | ADR numbering | ADR numbers 0055-0071 are provisional | Decided under delegation (2026-11-10) | When the first new ADR is drafted | The plan's ADR numbers are final, because the plan, the audit, this register and the drafts already cite them: ADR-0053 and ADR-0055 to ADR-0071 as planned. Plan 0054A (selection statistics) is ADR-0054 and plan 0054B (experiments and trial ledger) is ADR-0072, one file per number. No test requires contiguous numbers; an ADR is created when it is drafted, so numbers may land out of order. |
+| 17 | Register | Progress register location and form | Applied; confirmed by delegation (2026-11-10) | M0 | The approved plan names docs/work/v4.3.0/PROGRESS.md (section U.5). This register adds the machine-readable progress.json and the brief's status vocabulary (G0 register C-03). |
+| 18 | GR-8 | Windows CI cell | Delegated (2026-11-10): decided at its milestone | M11 | — |
+| 19 | WS-17 | Depth and microstructure timing | Delegated (2026-11-10): decided at its milestone | Before M11 ends | — |
+| 20 | Memo | Decisions carried from the 2026-11-07 memo | Partly resolved; the rest delegated (2026-11-10) | M0 and later | Each part is listed with its own status. |
 | — | D-S1 | (part of item 20) | Resolved | — | Resolved by BDY-028 in v4.2.1. |
-| — | D-S2 | (part of item 20) | Pending | — | Recommended: a registry runner in 4.3, removal at 5.0 (WS-23). |
-| — | D-C1 | (part of item 20) | Applied under item 1; confirmation requested | — | The approved plan freezes v4.2.1 payloads; the generator also proves that v4.2.0 writes the same bytes, so one fixture set covers both releases. |
-| — | D-C2 | (part of item 20) | Pending | — | Recommended: accept v4.2.0's F4 and F7 as v4.1.0 coverage. |
-| — | D-C3 | (part of item 20) | Pending | — | Recommended: keep reading replay schema 2, which no release wrote, and document it. |
-| — | D-K2 | (part of item 20) | Pending | — | Recommended: approve (WS-20). |
-| — | D-K3 | (part of item 20) | Pending | — | Folded into WS-20 as a documentation task. |
-| 21 | Branch model | Write the integration-branch model into CONTRIBUTING and ENGINEERING_GUIDELINES | Pending | M0 | Correcting CON-X14 does not depend on it. |
-| 22 | Authority | Branch, Draft PR, commits and pushes | Confirmed by the owner's brief | M0 | One branch work/v4.3.0-development from the verified v4.2.1 baseline; focused local commits; the owner pushes, or authorises a specific push; one long-lived Draft PR after the first pushed increment; no merge, tag, release or publication without the owner's explicit approval. |
+| — | D-S2 | (part of item 20) | Delegated (2026-11-10): decided at its milestone | — | Recommended: a registry runner in 4.3, removal at 5.0 (WS-23). |
+| — | D-C1 | (part of item 20) | Applied; confirmed by delegation (2026-11-10) | — | The approved plan freezes v4.2.1 payloads; the generator also proves that v4.2.0 writes the same bytes, so one fixture set covers both releases. |
+| — | D-C2 | (part of item 20) | Delegated (2026-11-10): decided at its milestone | — | Recommended: accept v4.2.0's F4 and F7 as v4.1.0 coverage. |
+| — | D-C3 | (part of item 20) | Delegated (2026-11-10): decided at its milestone | — | Recommended: keep reading replay schema 2, which no release wrote, and document it. |
+| — | D-K2 | (part of item 20) | Delegated (2026-11-10): decided at its milestone | — | Recommended: approve (WS-20). |
+| — | D-K3 | (part of item 20) | Delegated (2026-11-10): decided at its milestone | — | Folded into WS-20 as a documentation task. |
+| 21 | Branch model | Write the integration-branch model into CONTRIBUTING and ENGINEERING_GUIDELINES | Delegated (2026-11-10): decided at its milestone | M0 | Correcting CON-X14 does not depend on it. |
+| 22 | Authority | Branch, Draft PR, commits and pushes | Superseded (2026-11-10) | M0 | Superseded by the owner's autonomous authorization: Claude pushes coherent commit groups, maintains Draft PR #22 and monitors CI; never merges, tags, publishes or force-pushes. |
 | 23 | D-G0-1 | Isolation of untrusted researcher code | Approved (direction) | M4 | AlphaLab provides safe research-execution interfaces and process orchestration; the isolation of untrusted researcher code is enforced by the host or deployment environment. A separate Python process alone is never represented as a secure sandbox. |
 | 24 | D-G0-2 | Numerical precision and canonical serialization policy | Approved (direction) | M2 | A documented policy: deterministic calculations first, appropriate precision preserved, rounding only where numerical error analysis justifies it, cross-platform behaviour proved by reference tests. No arbitrary fixed rounding to conceal numerical differences. |
 
@@ -229,13 +282,13 @@ Evidence:
 
 ## ADR programme
 
-Numbers after ADR-0054 are provisional until G0 item 16 is decided.
+Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan 0054B as ADR-0072.
 
 | ADR | Subject | Workstream | Needed | Status |
 | --- | --- | --- | --- | --- |
 | ADR-0053 | Run and input provenance | WS-02 | G0 | Not drafted in the repository |
-| ADR-0054A | Selection statistics (pure) | WS-06 | G0 | Not drafted in the repository |
-| ADR-0054B | Experiments and trial ledger | WS-05 | Before M4 | Not drafted in the repository |
+| ADR-0054 | Selection statistics (pure) (plan 0054A) | WS-06 | G0 | Not drafted in the repository |
+| ADR-0072 | Experiments and trial ledger (plan 0054B) | WS-05 | Before M4 | Not drafted in the repository |
 | ADR-0055 | Streaming research capture, extractor identity, trace identity, retention | WS-04 | Before M3 | Not drafted in the repository |
 | ADR-0056 | Product charter (D-V1) | WS-00 | G0 | Not drafted in the repository |
 | ADR-0057 | Optional distributions and backend protocols (D-V2); includes the screening evaluator (B9) | WS-09 | G0 | Not drafted in the repository |
