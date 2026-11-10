@@ -546,7 +546,7 @@
         {
           "milestone": "M0",
           "item": "Golden RunSchedule.digest per entry kind and the persisted kind values pinned",
-          "status": "In progress"
+          "status": "Implemented locally"
         },
         {
           "milestone": "M0",
@@ -559,7 +559,8 @@
         "Every durable kind of STATE_MODEL's table and its three envelopes: 11 base payloads, 11 paused replays with the 9 registries they held, a checkpoint chain, the run-state store and an evidence store.",
         "The generator held v4.2.1 to its contract before writing: each paused replay and the chain, read back and resumed with fresh objects, finished with the uninterrupted run's result_id (expected/identities.json).",
         "Certificate REP-3 reads v4.2.1 (read_v4.2.1: 31); the source digest and every other check unchanged.",
-        "tests/regression/test_schema_upgrades_v4_2_1.py (57 tests, under 2 s): every payload read and written back byte for byte; every file the bytes v4.2.1 wrote; each of the 11 paused replays and the checkpoint chain resumed to the result_id v4.2.1 computed, one of them in a fresh process under another hash seed; each registry's digest the one its replay recorded; the stored manifest the one this build makes."
+        "tests/regression/test_schema_upgrades_v4_2_1.py (57 tests, under 2 s): every payload read and written back byte for byte; every file the bytes v4.2.1 wrote; each of the 11 paused replays and the checkpoint chain resumed to the result_id v4.2.1 computed, one of them in a fresh process under another hash seed; each registry's digest the one its replay recorded; the stored manifest the one this build makes.",
+        "tests/regression/test_schedule_digest_pins.py (34 tests): a golden RunSchedule.digest for each of the 20 entry kinds, computed identically by v4.2.1 and v4.2.0; the persisted kind values; the formula as documented; each frozen replay's recorded schedule digest. Seen to fail on a renamed kind value and on two changes to the formula."
       ]
     },
     {
@@ -966,7 +967,7 @@
       "problem": "v4.2.x formats not frozen",
       "severity": "H/P0",
       "status": "Open",
-      "status_note": "Open: v4.2.1 payloads frozen and read; the schedule-digest pins follow in M0",
+      "status_note": "Open: v4.2.1 payloads frozen and read, schedule digests pinned; the RUN_SCHEDULE_DIGEST_SCHEME constant waits for G0 item 6",
       "workstreams": [
         "WS-01"
       ],

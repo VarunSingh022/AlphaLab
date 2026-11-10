@@ -124,7 +124,7 @@ Statuses: Not started · In progress · Blocked · Implemented locally · Local 
 
 - [Implemented locally] M0: v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3
 - [Implemented locally] M0: Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed
-- [In progress] M0: Golden RunSchedule.digest per entry kind and the persisted kind values pinned
+- [Implemented locally] M0: Golden RunSchedule.digest per entry kind and the persisted kind values pinned
 - [Not started] M0: RUN_SCHEDULE_DIGEST_SCHEME constant (waits for item 6, ADR-0053)
 
 Evidence:
@@ -134,6 +134,7 @@ Evidence:
 - The generator held v4.2.1 to its contract before writing: each paused replay and the chain, read back and resumed with fresh objects, finished with the uninterrupted run's result_id (expected/identities.json).
 - Certificate REP-3 reads v4.2.1 (read_v4.2.1: 31); the source digest and every other check unchanged.
 - tests/regression/test_schema_upgrades_v4_2_1.py (57 tests, under 2 s): every payload read and written back byte for byte; every file the bytes v4.2.1 wrote; each of the 11 paused replays and the checkpoint chain resumed to the result_id v4.2.1 computed, one of them in a fresh process under another hash seed; each registry's digest the one its replay recorded; the stored manifest the one this build makes.
+- tests/regression/test_schedule_digest_pins.py (34 tests): a golden RunSchedule.digest for each of the 20 entry kinds, computed identically by v4.2.1 and v4.2.0; the persisted kind values; the formula as documented; each frozen replay's recorded schedule digest. Seen to fail on a renamed kind value and on two changes to the formula.
 
 ### WS-02: Deterministic identity and provenance
 
@@ -167,7 +168,7 @@ Evidence:
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
 | GAP-05 | SEC-001 dotted-path resolution | H/P0 | Open | WS-23, WS-05 | M4 |
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open | WS-23 | M0 |
-| GAP-07 | v4.2.x formats not frozen | H/P0 | Open: v4.2.1 payloads frozen and read; the schedule-digest pins follow in M0 | WS-01 | M0 |
+| GAP-07 | v4.2.x formats not frozen | H/P0 | Open: v4.2.1 payloads frozen and read, schedule digests pinned; the RUN_SCHEDULE_DIGEST_SCHEME constant waits for G0 item 6 | WS-01 | M0 |
 | GAP-08 | Return extraction; → retention trims equity | H/P0 | Open (scope = ADR-0055) | WS-04 | M3 |
 | GAP-09 | Selection statistics missing | C/P1 | Open | WS-06 | M2 (bridge M3) |
 | GAP-10 | No numerical foundation | C/P1 | Open | WS-03 | M2 |

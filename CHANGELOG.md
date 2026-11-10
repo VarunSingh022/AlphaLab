@@ -43,6 +43,13 @@ and `configuration_id` are 4.2.1's until an entry below says otherwise.
   in the test's process and in a fresh one -- to the `result_id` v4.2.1
   computed, each registry's digest the one its replay recorded, and the
   stored manifest the one this build makes.
+* **A schedule's digest, pinned** [plan WS-01, R53-6]. `RunSchedule.digest`
+  -- what a paused replay holds its continuation to -- has a golden value for
+  each of its twenty kinds of entry, every kind's persisted value is pinned,
+  and the formula is held as documented: SHA-256 over the maximum rate age's
+  `repr`, then `kind|instant|JSON` for each entry in order
+  (`tests/regression/test_schedule_digest_pins.py`). The values are what
+  v4.2.1 and v4.2.0 compute, and each frozen replay recorded its workload's.
 
 ---
 
