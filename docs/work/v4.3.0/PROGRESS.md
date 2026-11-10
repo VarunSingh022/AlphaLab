@@ -48,7 +48,7 @@ Never:
 | Remote head | `643d947c0f4fad2cb2a149bd5f446ab53dc32545` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M0: SEC-002 (WS-23), then the High documentation corrections (WS-20), the charter (WS-00), the release record (WS-29) and the test scaffolds (WS-21). |
+| Next | M0: the High documentation corrections (WS-20: CON-X4, CON-X1, CON-N2, CON-X14, CON-A5, CON-A15), then the charter (WS-00), the release record (WS-29) and the test scaffolds (WS-21). |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -66,6 +66,7 @@ Never:
 - **2026-11-10** M0 group 2 (DET-007, WS-02) committed: 58920fc scope isolation, 04b3e10 derived registry ids, c48f5f7 parallel probe, 643d947 register; full local gate green.
 - **2026-11-10** The owner delegated autonomous implementation (register 'authority'). Claude pushed 643d947 as a fast-forward; ruleset 'protect' disabled, no rules on the branch.
 - **2026-11-10** G0 item 16 decided under delegation: the plan's ADR numbers are final; plan 0054A is ADR-0054 and plan 0054B is ADR-0072.
+- **2026-11-10** SEC-002 (WS-23) committed: HttpTransport refuses every scheme but http/https, and redirects to any other; SECURITY.md corrected (CON-X16).
 
 ## Milestones
 
@@ -158,10 +159,10 @@ Never:
 | WS-17 | Market microstructure (depth, L2/L3) | After M13 | Not started |
 | WS-18 | Robustness, stress and regime analysis | M12 | Not started |
 | WS-19 | Researcher entry points, composition, reproducibility APIs | M4, M13 | Not started |
-| WS-20 | Documentation, guides and examples | M0, M7, M12, M13 | Not started |
+| WS-20 | Documentation, guides and examples | M0, M7, M12, M13 | In progress |
 | WS-21 | Platform, CI and test infrastructure | M0, M11 | Not started |
 | WS-22 | Live venue controls (FUT-044) | M13 | Not started |
-| WS-23 | Security and trust boundaries | M0, M4 | Not started |
+| WS-23 | Security and trust boundaries | M0, M4 | In progress |
 | WS-24 | Validation over actual backtests | M5 | Not started |
 | WS-25 | Factor and feature research | M6, M11 | Not started |
 | WS-26 | Per-venue execution (FUT-045) | M8 | Not started |
@@ -206,7 +207,11 @@ Evidence:
 
 ### WS-20: Documentation, guides and examples
 
-- [Not started] M0: High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15
+- [In progress] M0: High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15
+
+Evidence:
+
+- CON-X16 corrected with SEC-002: SECURITY.md states the HTTP transport's scheme and redirect rule.
 
 ### WS-21: Platform, CI and test infrastructure
 
@@ -214,7 +219,11 @@ Evidence:
 
 ### WS-23: Security and trust boundaries
 
-- [Not started] M0: SEC-002: HttpTransport refuses every scheme but http and https
+- [Implemented locally] M0: SEC-002: HttpTransport opens http:// and https:// only, and follows a redirect only to one of them
+
+Evidence:
+
+- alphalab/marketdata/transport.py: _require_http refuses every other scheme and a URL with no host before anything is opened; _HttpRedirectsOnly refuses a redirect to any other scheme before urllib's own rules (which follow ftp://). tests/unit/marketdata/test_http_transport.py (15 tests against a loopback provider; 11 fail on the parent): seven refused URL forms with no opener used, a hostless URL, a local file never returned, http with its query, a followed http redirect, refused ftp/data/file redirects, and an https request carrying tls_context(). Certificate: source digest re-made; no evidence moved.
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -231,7 +240,7 @@ Evidence:
 | GAP-03 | DET-007 ambient ids | H/P0 | Open: scopes isolated and registry ids derived; awaiting hosted CI | WS-02 | M0 |
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
 | GAP-05 | SEC-001 dotted-path resolution | H/P0 | Open | WS-23, WS-05 | M4 |
-| GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open | WS-23 | M0 |
+| GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open: refused in code and documented; closes when M0 is accepted | WS-23 | M0 |
 | GAP-07 | v4.2.x formats not frozen | H/P0 | Open: acceptance met (REP-3 reads v4.2.1; hosted CI passed on dc61a75); closes when M0 is accepted | WS-01 | M0 |
 | GAP-08 | Return extraction; → retention trims equity | H/P0 | Open (scope = ADR-0055) | WS-04 | M3 |
 | GAP-09 | Selection statistics missing | C/P1 | Open | WS-06 | M2 (bridge M3) |

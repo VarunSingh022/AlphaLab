@@ -778,15 +778,17 @@
         "M12",
         "M13"
       ],
-      "status": "Not started",
+      "status": "In progress",
       "items": [
         {
           "milestone": "M0",
           "item": "High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15",
-          "status": "Not started"
+          "status": "In progress"
         }
       ],
-      "evidence": []
+      "evidence": [
+        "CON-X16 corrected with SEC-002: SECURITY.md states the HTTP transport's scheme and redirect rule."
+      ]
     },
     {
       "id": "WS-21",
@@ -822,15 +824,17 @@
         "M0",
         "M4"
       ],
-      "status": "Not started",
+      "status": "In progress",
       "items": [
         {
           "milestone": "M0",
-          "item": "SEC-002: HttpTransport refuses every scheme but http and https",
-          "status": "Not started"
+          "item": "SEC-002: HttpTransport opens http:// and https:// only, and follows a redirect only to one of them",
+          "status": "Implemented locally"
         }
       ],
-      "evidence": []
+      "evidence": [
+        "alphalab/marketdata/transport.py: _require_http refuses every other scheme and a URL with no host before anything is opened; _HttpRedirectsOnly refuses a redirect to any other scheme before urllib's own rules (which follow ftp://). tests/unit/marketdata/test_http_transport.py (15 tests against a loopback provider; 11 fail on the parent): seven refused URL forms with no opener used, a hostless URL, a local file never returned, http with its query, a followed http redirect, refused ftp/data/file redirects, and an https request carrying tls_context(). Certificate: source digest re-made; no evidence moved."
+      ]
     },
     {
       "id": "WS-24",
@@ -968,7 +972,7 @@
       "problem": "SEC-002 `HttpTransport` any scheme",
       "severity": "M/P0",
       "status": "Open",
-      "status_note": "",
+      "status_note": "Open: refused in code and documented; closes when M0 is accepted",
       "workstreams": [
         "WS-23"
       ],
@@ -1760,7 +1764,7 @@
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M0: SEC-002 (WS-23), then the High documentation corrections (WS-20), the charter (WS-00), the release record (WS-29) and the test scaffolds (WS-21).",
+    "next": "M0: the High documentation corrections (WS-20: CON-X4, CON-X1, CON-N2, CON-X14, CON-A5, CON-A15), then the charter (WS-00), the release record (WS-29) and the test scaffolds (WS-21).",
     "open_questions": []
   },
   "log": [
@@ -1787,6 +1791,10 @@
     {
       "date": "2026-11-10",
       "entry": "G0 item 16 decided under delegation: the plan's ADR numbers are final; plan 0054A is ADR-0054 and plan 0054B is ADR-0072."
+    },
+    {
+      "date": "2026-11-10",
+      "entry": "SEC-002 (WS-23) committed: HttpTransport refuses every scheme but http/https, and redirects to any other; SECURITY.md corrected (CON-X16)."
     }
   ]
 }

@@ -82,6 +82,21 @@ and `configuration_id` are 4.2.1's until an entry below says otherwise.
   `tests/unit/lifecycle/test_lifecycle_serialization.py`). Identifiers
   already recorded are read as they were; new ones are derived.
 
+## Security
+
+* **The HTTP transport opens `http://` and `https://` only** [SEC-002, plan
+  WS-23]. `alphalab.marketdata.HttpTransport.get` passed its URL to `urllib`,
+  which also opens `file://`, `ftp://` and `data:` URLs: given
+  `file:///etc/hosts` it returned the file's bytes as if a provider had sent
+  them. A transport's URL is configuration, so this is a trust boundary of
+  the class BDY-028 named. Every other URL, and one with no host, is now
+  refused with a `MarketDataError` before anything is opened, and a redirect
+  is followed only to `http://` or `https://`, checked before `urllib`'s own
+  rules (which would follow `ftp://`). An `https://` request still carries
+  AlphaLab's TLS policy. `SECURITY.md` says so (CON-X16), and
+  `tests/unit/marketdata/test_http_transport.py` holds it against a loopback
+  provider; it fails on the parent commit.
+
 ---
 
 # [4.2.1] - 2026-11-09
