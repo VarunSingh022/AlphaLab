@@ -48,7 +48,7 @@ Never:
 | Remote head | `1593381784309502724eff8cc0b6249c6a6e08b5` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | Finish M0's evidence: the mutation series' results (24 mutations) and the M0 acceptance record; then M1 (WS-02): ADR-0053 revised and its implementation. |
+| Next | Push M0's remaining commits (7dacb33..31324fd and this register update) and record their hosted CI. Then M1 (WS-02): ADR-0053 revision 3, accepted under G0 item 6's delegation; the schedule binding and verification vocabulary; checkpoint schema 3; run provenance; manifest provenance and the opt-in identity version 2. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -79,13 +79,14 @@ Never:
 - **2026-11-10** M0 checkpoint 2 pushed (d2426ef..1593381); hosted CI green on 1593381, the first hosted run of the commit check and rebuild. The mutation run's baseline found the distributions path-ordering defect, fixed in 7dacb33. The register records the technical decisions taken under the delegated authority (TD-01 to TD-04, M0's).
 - **2026-11-10** The development-version state (TD-05, PC-04): the package is 4.3.0 while 4.3.0 is developed, the release gate refuses the tree, and the release-facing documents describe 4.2.1 until the release commit.
 - **2026-11-10** M0's six findings recorded in the completion ledger under v4.3.0: DET-007, SEC-002, DOC-014, TST-025, TST-026 and PKG-004.
+- **2026-11-10** M0 closed locally: the mutation series ran (23 of 24 caught; the N04 survivor's gap closed in 31324fd), the stress scenario passed, and the full gate passed on 31324fd. The M0 commits after 1593381 are pushed next, then M1 begins with ADR-0053 revision 3.
 
 ## Milestones
 
 | Milestone | Status | Workstreams | Exit gate (end-to-end proof) |
 | --- | --- | --- | --- |
 | G0 | In progress | WS-00 | §Z G0 items all decided |
-| M0 | In progress | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
+| M0 | Local validation passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
 | M1 | Not started | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
 | M2 | Not started | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Not started | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
@@ -228,7 +229,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-18 | Robustness, stress and regime analysis | M12 | Not started |
 | WS-19 | Researcher entry points, composition, reproducibility APIs | M4, M13 | Not started |
 | WS-20 | Documentation, guides and examples | M0, M7, M12, M13 | In progress |
-| WS-21 | Platform, CI and test infrastructure | M0, M11 | Not started |
+| WS-21 | Platform, CI and test infrastructure | M0, M11 | In progress |
 | WS-22 | Live venue controls (FUT-044) | M13 | Not started |
 | WS-23 | Security and trust boundaries | M0, M4 | In progress |
 | WS-24 | Validation over actual backtests | M5 | Not started |
@@ -241,11 +242,12 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 ### WS-00: Governance, charter and decision records
 
 - [Hosted CI passed] G0: Record the G0 approvals in this register
-- [Implemented locally] G0: Charter reconciliation of the five direction documents and its ADR (ADR-0056), with the integration-branch model (item 21)
+- [Hosted CI passed] G0: Charter reconciliation of the five direction documents and its ADR (ADR-0056), with the integration-branch model (item 21)
 
 Evidence:
 
 - ADR-0056 (accepted 2026-11-10): the objective, the stable contract, growing capability, boundaries reopened only by their own ADR under six binding principles, and the bridge-or-library rule. ROADMAP's long-term vision and boundary preamble, VISION's statement and long-term direction, nowandfuture sections 14, 17 and 19, ARCHITECTURE's reading note and SYSTEM_DESIGN (CON-X2) cite it. CONTRIBUTING and ENGINEERING_GUIDELINES state the integration-branch model. tests/regression/test_charter_is_stated_consistently.py: each document cites the charter, none repeats a retired claim, the no-single-runtime boundary is still stated, the principles bind.
+- Hosted CI passed on b48bfc3 (CI run 42765682898, six cells; CodeQL 42765683356).
 
 ### WS-01: Compatibility and historical-contract integrity
 
@@ -267,8 +269,8 @@ Evidence:
 
 ### WS-02: Deterministic identity and provenance
 
-- [Local validation passed] M0: DET-007: isolated identifier scopes, with nested, parallel and repeated probes
-- [Local validation passed] M0: DET-007 and D-54-7: the experiment tracker's run ids and the research cluster's job ids derived (uuid5 over a canonical key), never drawn from the ambient stream
+- [Hosted CI passed] M0: DET-007: isolated identifier scopes, with nested, parallel and repeated probes
+- [Hosted CI passed] M0: DET-007 and D-54-7: the experiment tracker's run ids and the research cluster's job ids derived (uuid5 over a canonical key), never drawn from the ambient stream
 
 Evidence:
 
@@ -276,31 +278,42 @@ Evidence:
 - Registries: experiment_tracking.start_run and cloud_research.submit_research_job derive their ids (schemes alphalab.experiment_run.v1 and alphalab.research_job.v1). tests/regression/test_registries_derive_their_ids.py (11 tests; 5 fail on the parent 58920fc): zero draws for a run start, one draw (the queue's event stamp) for a submission, scope independence, fresh-interpreter equality, every declared field in the key. An unseeded lifecycle now reproduces byte for byte; test_lifecycle_serialization held the old limit and now holds the guarantee. Certificate: source digest re-made; no evidence moved.
 - Parallel probe: three unseeded runs in worker threads given the scope's context (copy_context) leave the outer stream untouched; fails on dc61a75 (before the fix), stable over 15 repeated runs.
 - Local gate on c48f5f7 (clean clone, CPython 3.12.4): ruff, format, strict mypy, pytest -W error (10,987 passed), every example under -W error, certificate check, register check, build, twine --strict, fresh-environment install and smoke of the wheel and the sdist. New tests also pass on CPython 3.13.18 and 3.14.10, where the certificate check matches.
+- Hosted CI passed on 643d947 (CI run 42763156527, six cells; CodeQL 42763156687), carrying 58920fc, 04b3e10 and c48f5f7.
 
 ### WS-20: Documentation, guides and examples
 
-- [Implemented locally] M0: High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15
+- [Hosted CI passed] M0: High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15
 
 Evidence:
 
 - CON-X16 corrected with SEC-002: SECURITY.md states the HTTP transport's scheme and redirect rule.
 - High corrections against the code: CON-X4 (COMPOSING: a refused amend keeps the order working), CON-N2 (nowandfuture: all ten hooks delivered), CON-X1 (capability matrix 2.5(10) and examples/_strategy_evidence.py: the position check is correct since v3.10), CON-X14 (CONTRIBUTING: no vendor adapters as first contributions), CON-A5 (ARCHITECTURE and nowandfuture name cloud_research.resolve_task), CON-A15 (ARCHITECTURE's status section gains v4.2), CON-X16 (with SEC-002), and VISION's current state (no HMAC venue transport; eleven snapshot owners). tests/regression/test_corrected_statements_stay_corrected.py pins each false statement absent and the status section and security policy present.
+- Hosted CI passed on b48bfc3 (CI run 42765682898, six cells), carrying 144ad78.
 
 ### WS-21: Platform, CI and test infrastructure
 
-- [Not started] M0: v4.3 mutation and stress scaffolds
+- [Hosted CI passed] M0: v4.3 mutation and stress scaffolds, and M0's series
+
+Evidence:
+
+- docs/audit/scripts/mutation_v4_3.py (40b0d0a): v4.1's 236 mutations, with X15, A04 and G02 re-targeted to code v4.2.0 restructured, and M0's series J01-J04 (payloads and schedule digest), K01-K05 (DET-007 and the registries), L01-L04 (SEC-002), N01-N05 (release correspondence) and O01-O03 (corrected statements and the charter).
+- M0's run (24 mutations, three workers, from 7dacb33's tree): the unmutated baseline passed, 10,968 tests with the 90 clock-reading tests deselected, and 23 of the 24 were caught. N04, the rebuild never called by distributions(), survived; the test that closes it (31324fd) fails under N04. Results in the session's scratch record, summarised here.
+- The run's first attempt was refused at its baseline: its scratch copies are not git checkouts, which exposed the distributions path-ordering defect, fixed in 7dacb33.
+- docs/audit/scripts/stress_v4_3.py (1593381): v4.1's scenarios and M0's registries scenario. 10,000 and 100,000 experiment-run starts in one seeded scope: 12.2 and 12.1 microseconds of CPU a start, every id distinct, the scope's stream unmoved, a cost ratio of 0.99 at ten times the tracker.
+- Hosted CI passed on 1593381 (CI run 42813534367): both scripts held to ruff, format and strict mypy with the rest of the tree.
 
 ### WS-23: Security and trust boundaries
 
-- [Implemented locally] M0: SEC-002: HttpTransport opens http:// and https:// only, and follows a redirect only to one of them
+- [Hosted CI passed] M0: SEC-002: HttpTransport opens http:// and https:// only, and follows a redirect only to one of them
 
 Evidence:
 
 - alphalab/marketdata/transport.py: _require_http refuses every other scheme and a URL with no host before anything is opened; _HttpRedirectsOnly refuses a redirect to any other scheme before urllib's own rules (which follow ftp://). tests/unit/marketdata/test_http_transport.py (15 tests against a loopback provider; 11 fail on the parent): seven refused URL forms with no opener used, a hostless URL, a local file never returned, http with its query, a followed http redirect, refused ftp/data/file redirects, and an https request carrying tls_context(). Certificate: source digest re-made; no evidence moved.
+- Hosted CI passed on 7574b87 (CI run 42764459914, six cells; CodeQL 42764459942).
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
-- [Implemented locally] M0: VERIFICATION record names the commit and tree; reproducible build
+- [Hosted CI passed] M0: VERIFICATION record names the commit and tree; reproducible build
 - [Local validation passed] M0: The development-version state: the package is 4.3.0 while 4.3.0 is developed; the release gate refuses the tree; release-facing documents describe the published release (TD-05, PC-04)
 
 Evidence:
@@ -308,6 +321,8 @@ Evidence:
 - release_preflight.py distributions: commit_identity, commit_files (from the object store), correspondence_problems (wheel package exactly the commit's; every sdist file but PKG-INFO the commit's), reproduction_problems (both artifacts rebuilt from git archive of the commit in a fresh directory, same bytes); the record names the commit and tree; an unresolvable commit fails before anything is installed. Real build of b48bfc3: 627 package and 1,528 source files correspond, rebuild byte-identical, installs smoke-tested. tests/regression/test_release_correspondence.py (11 tests on repositories made in the test, no network).
 - Development-version state (TD-05): release_preflight.developing, documented_release and development_problems. The version moved to 4.3.0; the CHANGELOG leads with '# [4.3.0] - Unreleased'; public_api.json was regenerated, with no export added, removed or rebound, and copied to docs/api/history/4.3.0.json; the certificate was re-made, moving only its release labels, its source digest and API-1's manifest digest. Preflight.yml expects 4.3.0. With the version alone bumped on a scratch clone, 29 version-keyed tests failed and nothing else: no identity, fixture or evidence test.
 - The v4.3 mutation run's scratch copies are not git checkouts, and there 'distributions dist' reported the missing checkout before the missing directory. Fixed in 7dacb33: the commit is resolved after every path is checked, and both refusals are tested outside a checkout.
+- Hosted CI passed on 1593381 (CI run 42813534367, six cells): CI's distributions step resolved the checkout's commit, held both artifacts to it and rebuilt them.
+- Mutation N04 (the rebuild never called) survived M0's run; the gap is closed by test_the_distributions_check_holds_and_rebuilds_from_the_commit_it_names (31324fd), which fails under N04 and passes on the code.
 
 ## Gaps
 
