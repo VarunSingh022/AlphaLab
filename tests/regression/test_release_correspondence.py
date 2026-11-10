@@ -25,6 +25,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -268,3 +269,44 @@ def test_no_workflow_checks_artifacts_without_their_source() -> None:
     assert workflows
     for workflow in workflows:
         assert "--no-source" not in workflow.read_text(encoding="utf-8"), workflow.name
+
+
+def test_the_distributions_check_holds_and_rebuilds_from_the_commit_it_names(
+    script: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The command wires both checks in, and the record and verdict carry what they found.
+
+    The checks themselves are tested above; this holds ``distributions`` to running
+    them on the resolved commit -- the v4.3 mutation run found nothing in the suite
+    noticed when the rebuild was never called (its N04). The rebuild and the
+    installs are replaced here by recorders, so nothing is built or installed.
+    """
+
+    repository = tmp_path / "repo"
+    commit = _project(repository, FILES)
+    dist = tmp_path / "dist"
+    _artifacts(dist, PACKAGE, SOURCE)
+    rebuilt: list[tuple[Any, ...]] = []
+
+    def rebuild(*arguments: Any, **keywords: Any) -> tuple[list[str], list[str]]:
+        rebuilt.append((*arguments, keywords))
+        return ["the rebuild differed"], ["rebuilt from the commit alone: recorded"]
+
+    monkeypatch.setattr(script, "reproduction_problems", rebuild)
+    monkeypatch.setattr(script, "archive_problems", lambda dist, version: [])
+    monkeypatch.setattr(
+        script, "install_and_smoke", lambda artifact, *rest: ([], [f"{artifact.name}: smoked"])
+    )
+    record = tmp_path / "VERIFICATION.txt"
+
+    problems = script.distributions(
+        dist, VERSION, record, sys.executable, commit="HEAD", root=repository
+    )
+
+    assert rebuilt == [(dist, VERSION, commit, sys.executable, {"root": repository})]
+    assert problems == ["the rebuild differed"]
+    text = record.read_text(encoding="utf-8")
+    assert f"- source: commit {commit}, tree " in text
+    assert "- wheel: 3 package files, each the commit's, none missing" in text
+    assert "- rebuilt from the commit alone: recorded" in text
+    assert text.startswith(f"AlphaLab {VERSION} -- distribution verification: FAILED")
