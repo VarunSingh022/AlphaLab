@@ -36,6 +36,7 @@ Statuses: Not started · In progress · Blocked · Implemented locally · Local 
 | After M13 | Not started | WS-17 | Depth oracles |
 
 - **G0:** Items 1, 2, 3 approved and the directions of items 23 and 24 approved on 2026-11-09, with M0 authorised; every other item stays gated at its milestone.
+- **M0:** Group 1 (WS-01) pushed as dc61a75 and green on hosted CI; group 2 (DET-007, WS-02) validated locally. v4.3 findings such as DET-007 are recorded here, not in the ledger, until the version decision: the ledger's guard refuses an entry for a release beyond the package's (4.2.1).
 
 ## Decisions (G0 sign-off)
 
@@ -122,9 +123,9 @@ Statuses: Not started · In progress · Blocked · Implemented locally · Local 
 
 ### WS-01: Compatibility and historical-contract integrity
 
-- [Pushed] M0: v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3
-- [Pushed] M0: Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed
-- [Pushed] M0: Golden RunSchedule.digest per entry kind and the persisted kind values pinned
+- [Hosted CI passed] M0: v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3
+- [Hosted CI passed] M0: Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed
+- [Hosted CI passed] M0: Golden RunSchedule.digest per entry kind and the persisted kind values pinned
 - [Not started] M0: RUN_SCHEDULE_DIGEST_SCHEME constant (waits for item 6, ADR-0053)
 
 Evidence:
@@ -136,17 +137,19 @@ Evidence:
 - tests/regression/test_schema_upgrades_v4_2_1.py (57 tests, under 2 s): every payload read and written back byte for byte; every file the bytes v4.2.1 wrote; each of the 11 paused replays and the checkpoint chain resumed to the result_id v4.2.1 computed, one of them in a fresh process under another hash seed; each registry's digest the one its replay recorded; the stored manifest the one this build makes.
 - tests/regression/test_schedule_digest_pins.py (34 tests): a golden RunSchedule.digest for each of the 20 entry kinds, computed identically by v4.2.1 and v4.2.0; the persisted kind values; the formula as documented; each frozen replay's recorded schedule digest. Seen to fail on a renamed kind value and on two changes to the formula.
 - Pushed by the owner as dc61a75 on work/v4.3.0-development (2026-11-10); Draft PR #22 opened; its hosted CI and CodeQL runs are recorded once they finish.
+- Hosted CI passed on dc61a75 (PR #22): Continuous Integration run 42758278604, all six quality-gate cells (ubuntu-latest and macos-latest, Python 3.12, 3.13, 3.14); CodeQL run 42758278243.
 
 ### WS-02: Deterministic identity and provenance
 
-- [Implemented locally] M0: DET-007: isolated identifier scopes, with nested, parallel and repeated probes
-- [Implemented locally] M0: DET-007 and D-54-7: the experiment tracker's run ids and the research cluster's job ids derived (uuid5 over a canonical key), never drawn from the ambient stream
+- [Local validation passed] M0: DET-007: isolated identifier scopes, with nested, parallel and repeated probes
+- [Local validation passed] M0: DET-007 and D-54-7: the experiment tracker's run ids and the research cluster's job ids derived (uuid5 over a canonical key), never drawn from the ambient stream
 
 Evidence:
 
 - DET-007: id_scope(None) installs uuid4 instead of inheriting the stream around it (alphalab/common/ids.py). tests/regression/test_unseeded_scopes_are_isolated.py (12 tests): for the backtest, replay and session, a nested unseeded run draws nothing from the outer scope, the outer scope mints what it would have without it (also in fresh interpreters), two nested unseeded runs differ, and a seeded run is its seed's anywhere. 11 of the 12 fail on the parent dc61a75. Certificate: source digest re-made; no evidence moved.
 - Registries: experiment_tracking.start_run and cloud_research.submit_research_job derive their ids (schemes alphalab.experiment_run.v1 and alphalab.research_job.v1). tests/regression/test_registries_derive_their_ids.py (11 tests; 5 fail on the parent 58920fc): zero draws for a run start, one draw (the queue's event stamp) for a submission, scope independence, fresh-interpreter equality, every declared field in the key. An unseeded lifecycle now reproduces byte for byte; test_lifecycle_serialization held the old limit and now holds the guarantee. Certificate: source digest re-made; no evidence moved.
 - Parallel probe: three unseeded runs in worker threads given the scope's context (copy_context) leave the outer stream untouched; fails on dc61a75 (before the fix), stable over 15 repeated runs.
+- Local gate on c48f5f7 (clean clone, CPython 3.12.4): ruff, format, strict mypy, pytest -W error (10,987 passed), every example under -W error, certificate check, register check, build, twine --strict, fresh-environment install and smoke of the wheel and the sdist. New tests also pass on CPython 3.13.18 and 3.14.10, where the certificate check matches.
 
 ### WS-20: Documentation, guides and examples
 
@@ -176,7 +179,7 @@ Evidence:
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
 | GAP-05 | SEC-001 dotted-path resolution | H/P0 | Open | WS-23, WS-05 | M4 |
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open | WS-23 | M0 |
-| GAP-07 | v4.2.x formats not frozen | H/P0 | Open: v4.2.1 payloads frozen and read, schedule digests pinned; the RUN_SCHEDULE_DIGEST_SCHEME constant waits for G0 item 6 | WS-01 | M0 |
+| GAP-07 | v4.2.x formats not frozen | H/P0 | Open: acceptance met (REP-3 reads v4.2.1; hosted CI passed on dc61a75); closes when M0 is accepted | WS-01 | M0 |
 | GAP-08 | Return extraction; → retention trims equity | H/P0 | Open (scope = ADR-0055) | WS-04 | M3 |
 | GAP-09 | Selection statistics missing | C/P1 | Open | WS-06 | M2 (bridge M3) |
 | GAP-10 | No numerical foundation | C/P1 | Open | WS-03 | M2 |
