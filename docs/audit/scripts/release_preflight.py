@@ -28,7 +28,13 @@ beside a local build -- so a hosted run and a local one check the same things.
     tree says it is: the CHANGELOG's heading for it carries the date it is
     published, no release-facing document calls it unreleased, a candidate or
     not yet published, or names another release as the published one, and the
-    history's copy of the manifest is the manifest.
+    history's copy of the manifest is the manifest. Since v4.3 a release is
+    developed under its own version, in a tree whose CHANGELOG leads with
+    ``# [V] - Unreleased``: this check refuses that heading, so a development
+    tree is never tagged or published, and ``development_problems`` -- which the
+    suite runs -- holds such a tree to everything else a release is held to,
+    with its documents still describing the release before it
+    (``documented_release``).
 
 ``distributions``
     ``DIST`` holds exactly ``alphalab-<version>.tar.gz`` and
@@ -280,6 +286,83 @@ def version_problems(expected: str | None, root: Path = ROOT) -> Problems:
             "copy of its manifest is the manifest (ledger TST-024)"
         )
     problems += release_status_problems(version, root)
+    return problems
+
+
+def _development_heading(version: str) -> str:
+    """The CHANGELOG heading of a release being developed: its version, and no date yet."""
+
+    return f"# [{version}] - Unreleased"
+
+
+def _numbers(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def developing(version: str, root: Path = ROOT) -> bool:
+    """Whether the tree is ``version`` in development: the CHANGELOG leads with its undated head."""
+
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    first = next((line for line in changelog.splitlines() if line.startswith("# [")), None)
+    return first == _development_heading(version)
+
+
+def documented_release(root: Path = ROOT) -> str | None:
+    """The release the release-facing documents describe: the newest one the CHANGELOG dates (v4.3).
+
+    In a release's tree that is the package's version, whose heading carries the
+    date it is published (:func:`version_problems`). In a development tree
+    (:func:`development_problems`) it is the published release the next one
+    builds on: the documents a reader installs from describe what can be
+    installed, until the release commit dates the new heading and moves them.
+    """
+
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    for line in changelog.splitlines():
+        dated = _RELEASE_HEADING.fullmatch(line)
+        if dated is not None and _is_date(dated["date"]):
+            return dated["version"]
+    return None
+
+
+def development_problems(version: str, root: Path = ROOT) -> Problems:
+    """Every place a tree developing ``version`` is not coherently that (v4.3, plan WS-29).
+
+    A programme delivered on one long-lived branch must leave every gate green
+    at every commit, and a release's records move with its code: a name added
+    while 4.3.0 is developed is recorded in 4.3.0's public-API manifest, and the
+    ledger takes 4.3.0's findings as they are fixed. Until v4.3 the suite held
+    every commit to the release state (ledger DOC-013, TST-024), so such a
+    commit failed it until the version was bumped at the end.
+
+    So a release is developed under its own version, in a state the tree
+    states: the CHANGELOG leads with ``# [V] - Unreleased``. Everything
+    :func:`version_problems` holds a release to holds, but for that heading's
+    date -- which is what the release gate, ``version``, still refuses, so a
+    development tree is never tagged or published. The documents a reader
+    installs from keep describing the newest dated release, which must be older
+    than V (:func:`documented_release`); a statement of which release is
+    published names that one, and no release-facing line calls V unreleased or
+    a candidate, as v4.2.0's did when it shipped (DOC-013).
+    """
+
+    problems: Problems = []
+    if not developing(version, root):
+        problems.append(f"CHANGELOG.md does not lead with {_development_heading(version)!r}")
+    documented = documented_release(root)
+    if documented is None:
+        problems.append("CHANGELOG.md dates no release for this one to follow")
+    elif _VERSION.fullmatch(version) is not None and _numbers(documented) >= _numbers(version):
+        problems.append(
+            f"{version} is not later than {documented}, the newest release CHANGELOG.md dates"
+        )
+    undated = f"CHANGELOG.md's heading for {version} is not "
+    published = f" names {documented} the published release, not {version}"
+    problems += [
+        problem
+        for problem in version_problems(version, root)
+        if not (problem.startswith(undated) or problem.endswith(published))
+    ]
     return problems
 
 

@@ -14,13 +14,15 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
-# [Unreleased]
+# [4.3.0] - Unreleased
 
 The 4.3.0 development programme, on `work/v4.3.0-development` and following the
 approved v4.3.0 development plan; where it stands is in
-`docs/work/v4.3.0/PROGRESS.md`. Nothing here is released. The engine's
-behaviour, its public API, its persisted formats and every run's `result_id`
-and `configuration_id` are 4.2.1's until an entry below says otherwise.
+`docs/work/v4.3.0/PROGRESS.md`. Nothing here is released: this heading carries
+no date until the release commit, and the release gate refuses the tree until
+then (*Changed*, below). The engine's behaviour, its public API, its persisted
+formats and every run's `result_id` and `configuration_id` are 4.2.1's until an
+entry below says otherwise.
 
 ## Added
 
@@ -80,6 +82,29 @@ and `configuration_id` are 4.2.1's until an entry below says otherwise.
   (`tests/regression/test_release_correspondence.py`). `--no-source` checks
   artifacts away from their source -- downloaded assets -- and the record then
   says the source was not checked; no workflow may pass it.
+
+## Changed
+
+* **A release is developed under its own version** [plan WS-29]. The package
+  reports 4.3.0 while 4.3.0 is developed, so the records that move with the
+  code are this release's as they change: the public-API manifest and its
+  history copy (`docs/api/history/4.3.0.json`), the release certificate, and
+  the ledger, which takes no finding for a release beyond the package's.
+  Until now the suite held every commit to the release state (ledger DOC-013,
+  TST-024), so a name added during development failed it until the version was
+  bumped at the end. The tree states which it is: a development tree leads its
+  CHANGELOG with `# [4.3.0] - Unreleased`, and
+  `release_preflight.development_problems` -- run by the suite -- holds it to
+  everything a release is held to but that heading's date. The release gate,
+  `release_preflight.py version`, is unchanged and refuses the tree for that
+  heading, so a development tree is never tagged or published. The documents
+  a reader installs from -- the README, `docs/INTEGRATION.md`, the version
+  markers -- keep describing 4.2.1, the release that can be installed, until
+  the release commit dates the heading and moves them; none may call 4.3.0
+  unreleased or a candidate, which is what v4.2.0 was published saying.
+  `.github/workflows/preflight.yml` expects 4.3.0, and its push route names
+  `work/v4.3.0-release`: the development branch never triggers it (plan
+  decision D-W1).
 
 ## Fixed
 

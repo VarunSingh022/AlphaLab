@@ -514,6 +514,21 @@ Requests*). The programme's progress register (`docs/work/<version>/`) records
 what each commit delivered, its validation and the hosted results, and the pull
 request's description mirrors it.
 
+Such a release is developed under its own version (since v4.3). The package,
+the public-API manifest and its history copy, the release certificate and the
+ledger are the release's from the commit that sets the version, so every
+commit after it can record what it changes; the CHANGELOG leads with
+`# [<version>] - Unreleased`. `release_preflight.development_problems`, which
+the suite runs, holds that tree to everything a release is held to but the
+heading's date, and `release_preflight.py version` -- the release gate --
+refuses it for that heading, so a development tree is never tagged. Until the
+release commit, the documents a reader installs from (the README,
+`docs/INTEGRATION.md`, the version markers) keep describing the newest release
+the CHANGELOG dates, which is the one that can be installed; none calls the
+release being developed unreleased or a candidate. The release commit dates the
+heading and moves those documents in one change, and the suite then holds the
+tree to the release state.
+
 ---
 
 # Release Checklist

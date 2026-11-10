@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-import alphalab
+from tests.regression.test_release_facing_versions import DOCUMENTED
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -76,7 +76,7 @@ def test_a_corrected_statement_does_not_return(
 def test_the_status_section_describes_the_current_minor_release() -> None:
     """ARCHITECTURE's authoritative section omitted v4.2.0 (CON-A15); it names each minor now."""
 
-    major, minor, _ = alphalab.__version__.split(".")
+    major, minor, _ = DOCUMENTED.split(".")
     text = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
     section = text.split("# Implementation Status", 1)[1].split("\n# ", 1)[0]
 

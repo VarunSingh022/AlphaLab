@@ -48,7 +48,7 @@ Never:
 | Remote head | `1593381784309502724eff8cc0b6249c6a6e08b5` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | Finish M0's evidence: the mutation series' results (24 mutations) and the M0 acceptance record; then the development-version state, M1's prerequisite; then M1 (WS-02): ADR-0053 revised and its implementation. |
+| Next | Finish M0's evidence: the mutation series' results (24 mutations) and the M0 acceptance record; then M1 (WS-02): ADR-0053 revised and its implementation. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -77,6 +77,7 @@ Never:
 - **2026-11-10** Charter (WS-00) committed: ADR-0056 accepted, the five direction documents reconciled, the integration-branch model written (item 21), and the charter guard added.
 - **2026-11-10** WS-29 M0 item committed: the verification record names the commit and tree, artifacts are held to the commit's bytes, and the build is shown reproducible.
 - **2026-11-10** M0 checkpoint 2 pushed (d2426ef..1593381); hosted CI green on 1593381, the first hosted run of the commit check and rebuild. The mutation run's baseline found the distributions path-ordering defect, fixed in 7dacb33. The register records the technical decisions taken under the delegated authority (TD-01 to TD-04, M0's).
+- **2026-11-10** The development-version state (TD-05, PC-04): the package is 4.3.0 while 4.3.0 is developed, the release gate refuses the tree, and the release-facing documents describe 4.2.1 until the release commit.
 
 ## Milestones
 
@@ -182,6 +183,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** CHANGELOG [4.3.0] Added; ENGINEERING_GUIDELINES (Distributions); RELEASE_RUNBOOK step 7. ADR-0071 (M13) will cite it.
 - **Tests:** tests/regression/test_release_correspondence.py (14 tests on repositories made in the test); mutations N01 to N05.
 
+### TD-05: A release is developed under its own version (WS-29, 2026-11-10)
+
+- **Problem:** From M1 the programme changes the public API and records v4.3 findings, and the records that take them are keyed to the package version: the manifest and its history copy, the certificate, and the ledger guard. Since v4.2.1 the suite also held every commit to the release state. At 4.2.1, an API change would have rewritten history/4.2.1.json, the record of what 4.2.1 shipped, and a 4.3 ledger entry fails the guard.
+- **Alternatives:** (a) Stay at 4.2.1 and bump at the end, with gates red or records wrong meanwhile. (b) A PEP 440 development version, 4.3.0.dev0; every gate, artifact name and tag check assumes MAJOR.MINOR.PATCH. (c) 4.3.0 everywhere at once; the README and INTEGRATION would name a current release, and download URLs, that do not exist until publication. (d) 4.3.0 in an explicit development state.
+- **Decision:** (d). The package and its records are 4.3.0, and the CHANGELOG leads with '# [4.3.0] - Unreleased'. release_preflight.development_problems (run by the suite) holds the tree to everything a release is held to but that heading's date, and the documents a reader installs from describe 4.2.1, the newest dated release, until the release commit. The release gate (release_preflight.py version) is unchanged and refuses the tree for the undated heading.
+- **Rationale:** Every commit stays green and truthful, and the gate that matters is untouched. No document ever names a release that cannot be installed, and no line calls 4.3.0 unreleased (DOC-013). The release commit is one explicit step that the suite verifies.
+- **Compatibility:** No identity moves: the engine keeps its version out of every identity, and the certificate moved only its release labels, its source digest and API-1's digest of the manifest file. running_engine() and dataset provenance record 4.3.0 for runs this tree makes, which is true. Preflight.yml expects 4.3.0, and its push route names work/v4.3.0-release; the development branch never triggers it (D-W1).
+- **Recorded in:** CHANGELOG [4.3.0] Changed; ENGINEERING_GUIDELINES (Pull Requests); RELEASE_RUNBOOK (the release commit); docs/api/history/README.md; plan change PC-04.
+- **Tests:** tests/regression/test_release_preflight.py (development-tree, incoherent-tree and release-tree cases; the state-aware identity test); test_release_facing_versions.py and test_version_markers_agree.py, held to the documented release. Shown on a scratch clone with the version alone bumped: 29 version-keyed tests failed there, and no identity, fixture or evidence test.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -189,6 +200,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | PC-01 | 2026-11-09 | Item 17 | The progress register is docs/work/v4.3.0/progress.json, the source, rendered to PROGRESS.md by docs/audit/scripts/progress_register.py, with the brief's nine statuses in place of the plan's five (section U.5). | The brief requires a machine-readable and a human-readable register; one source rendered to the other cannot disagree with it. |
 | PC-02 | 2026-11-09 | Item 24 | AC-37 ('identity-bearing statistics rounded to decimal strings, cross-host equal') is read through the approved precision policy: rounding only where numerical error analysis justifies it, never a fixed rounding that conceals a difference. The policy ADR states the rule before M2's statistics fix any identity. | The owner's direction on item 24 (2026-11-09). |
 | PC-03 | 2026-11-10 | Delegated authority | G0's ADR deliverables other than the charter are written before the milestone that first needs each, as the plan's own ADR table already dates most of them: ADR-0053 before M1, ADR-0054 before M2, ADR-0055 before M3, ADR-0057 before the first optional distribution (M7), ADR-0071 before the release machinery (M13). M0 proceeded on the owner's authorisation of 2026-11-09. | An ADR accepted long before its first implementation is decided on less evidence; each is decided with the code that tests it. |
+| PC-04 | 2026-11-10 | Delegated authority (TD-05) | The package version moves to 4.3.0 before M1, in a development state the release gate refuses: the CHANGELOG leads with '# [4.3.0] - Unreleased', the package and its records are 4.3.0's, and the release-facing documents describe 4.2.1. The release commit at M13 dates the heading and moves those documents (W.3 runbook, before step 1). | The plan did not say when the version moves, and M1 is the first milestone to change the public API. Since v4.2.1 the suite held every commit to the release state, so no commit after it could have passed before the version moved. |
 
 ## Workstreams
 
@@ -288,10 +300,12 @@ Evidence:
 ### WS-29: Release engineering and v4.3.0 artifacts
 
 - [Implemented locally] M0: VERIFICATION record names the commit and tree; reproducible build
+- [Local validation passed] M0: The development-version state: the package is 4.3.0 while 4.3.0 is developed; the release gate refuses the tree; release-facing documents describe the published release (TD-05, PC-04)
 
 Evidence:
 
 - release_preflight.py distributions: commit_identity, commit_files (from the object store), correspondence_problems (wheel package exactly the commit's; every sdist file but PKG-INFO the commit's), reproduction_problems (both artifacts rebuilt from git archive of the commit in a fresh directory, same bytes); the record names the commit and tree; an unresolvable commit fails before anything is installed. Real build of b48bfc3: 627 package and 1,528 source files correspond, rebuild byte-identical, installs smoke-tested. tests/regression/test_release_correspondence.py (11 tests on repositories made in the test, no network).
+- Development-version state (TD-05): release_preflight.developing, documented_release and development_problems. The version moved to 4.3.0; the CHANGELOG leads with '# [4.3.0] - Unreleased'; public_api.json was regenerated, with no export added, removed or rebound, and copied to docs/api/history/4.3.0.json; the certificate was re-made, moving only its release labels, its source digest and API-1's manifest digest. Preflight.yml expects 4.3.0. With the version alone bumped on a scratch clone, 29 version-keyed tests failed and nothing else: no identity, fixture or evidence test.
 - The v4.3 mutation run's scratch copies are not git checkouts, and there 'distributions dist' reported the missing checkout before the missing directory. Fixed in 7dacb33: the commit is resolved after every path is checked, and both refusals are tested outside a checkout.
 
 ## Gaps
