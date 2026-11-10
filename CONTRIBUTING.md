@@ -311,8 +311,9 @@ Examples include:
 - Documentation improvements
 - Additional examples
 - Benchmark scenarios
-- New market data providers
-- Additional broker adapters
+- Contract tests for the market-data and venue protocols AlphaLab defines (a
+  provider or broker adapter itself belongs to the application that connects
+  to it -- see above and ADR-0046)
 - Portfolio optimization algorithms
 - Testing improvements
 - Performance optimizations

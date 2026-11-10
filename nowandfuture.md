@@ -1275,13 +1275,16 @@ decision.
 `BaseStrategy` is an optional convenience ABC. A strategy may implement the
 Protocol directly.
 
-**Of the ten hooks, seven are routed and three are not.** `Dispatcher` routes
-`on_tick` / `on_quote` / `on_trade` / `on_bar` by **module and name together**
-(never the bare name — three packages define a `TickReceived`, and matching the
-name alone routed the wrong class and then blamed the strategy for the resulting
-`AttributeError`), and routes `on_fill` / `on_order` / `on_timer` when a caller
-supplies those events. `on_start` / `on_stop` / `on_shutdown` are declared and
-**never invoked by the runtime**.
+**All ten hooks are delivered** (since v3.11, ledger EXE-005). `Dispatcher`
+routes `on_tick` / `on_quote` / `on_trade` / `on_bar` by **module and name
+together** (never the bare name — three packages define a `TickReceived`, and
+matching the name alone routed the wrong class and then blamed the strategy for
+the resulting `AttributeError`). The execution path delivers `on_fill` and
+`on_order` for a strategy's own orders and fills, and `on_timer` from a run's
+schedule. `on_start` is delivered once, before a strategy's first event, and
+`on_shutdown` then `on_stop` when a run stops its strategies
+(`RunEngine.stop_strategies`); a hook that raises fails its strategy, as an
+event hook does.
 
 `BookUpdated` and `SnapshotCreated` reach no hook at all. NON-GOAL, stated and
 pinned.
@@ -1299,7 +1302,9 @@ Easy to confuse; they are not the same thing.
 The class registry is deliberately **not** in `lifecycle`, which still constructs
 nothing. It stores an identity and a factory and nothing about what a strategy
 *is*. It **never resolves a name to code** — no `importlib`, no class-name
-derivation, because a name is not a type. A duplicate registration is refused
+derivation, because a name is not a type. (One package does:
+`cloud_research.resolve_task` imports the module a job's task path names, the
+trust boundary ledger BDY-028 states.) A duplicate registration is refused
 naming both incumbent and challenger; an unknown identity is refused listing what
 *is* registered; a factory returning something undispatchable is refused at
 construction rather than at its first market event.

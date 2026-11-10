@@ -48,8 +48,10 @@ cancel, a new target counts a resting order as held: a target of zero beside a
 resting buy sells against it. `AMEND` (phase 3) changes the one order the strategy alone has
 working in an instrument: its target the quantity to leave working, its terms
 the order's own type and time in force. A reduction at the same price keeps
-the order's queue priority; any other amend is a cancel and a new order, judged
-by risk as one -- if risk refuses it, the original is gone.
+the order's queue priority; any other amend prepares a replacement, judged by
+allocation, risk and routing as a new order is, and commits it only if it is
+placed. If any of them refuses it, the original keeps working with its
+reservations held, and an `AmendRefused` records why (FUT-031).
 
 ## 2. Several assets, several datasets
 

@@ -31,6 +31,21 @@ its target-architecture half — see the v3.0.0 entry in `CHANGELOG.md` for the
 full list. The release checklist now has to touch `README.md`, this section and
 `docs/README.md` together.)*
 
+**v4.2** (v4.1.1 and v4.2.0) moved no boundary. One `RunSchedule` applies every
+timed input at its instant on every driver: observations, rates, fundings, cash
+flows, distributions, splits, timers, exercises, assignments, expiries,
+settlements, financing and borrow periods, holding exchanges and their payment
+amendments, elections' record instants, and volatility surfaces and auction books
+delivered as data. Contracts expire and are exercised, assigned and delivered by
+their declared terms in any market a calendar describes; bonds pay coupons and
+redeem; settlement-date cash, margin calls and forced liquidation follow declared
+terms; venues' bands, halts and reopening auctions gate orders; execution plans
+work orders in children, and queue models hold resting limits until they reach
+the front. Three schemas stepped, each reading every earlier payload --
+instrument 3 -> 4, replay 1 -> 2 -> 3, live 2 -> 3 -- and no run, pipeline or
+portfolio schema moved, so a run of v4.1.0's inputs keeps its identity
+(ADR-0051).
+
 **v4.1** moved no boundary and no existing schema. The replay driver
 (`alphalab.backtesting.replay`) pauses between two records and resumes, and the
 paused replay is a durable state of its own -- `PausedReplay`, captured by
@@ -2229,6 +2244,11 @@ loader's `execute()` was a placeholder and the state it kept was read by
 nothing, so it extended nothing. Loading third-party code is the host
 application's, and AlphaLab is extended the way a library is: by passing an
 object that satisfies one of its protocols (see "Plugin Architecture" below).
+One package is the exception, and states it: `cloud_research.resolve_task`
+imports the module a job's `task_path` names and calls the callable in it, so a
+task path selects code to execute and must never come from untrusted input
+(ledger BDY-028, `SECURITY.md`). The strategy class registry, by contrast,
+never resolves a name to code (ADR-0035).
 **Removed in v3.12** with `alphalab/optimizer` (ledger SCF-003, ADR-0047).
 
 ---

@@ -81,6 +81,21 @@ and `configuration_id` are 4.2.1's until an entry below says otherwise.
   seed (`tests/regression/test_registries_derive_their_ids.py`,
   `tests/unit/lifecycle/test_lifecycle_serialization.py`). Identifiers
   already recorded are read as they were; new ones are derived.
+* **Documents that told strategy authors and security readers what the code
+  does not do** [plan WS-20, GAP-30's High items]. COMPOSING said a refused
+  amend loses the original order; the order keeps working (CON-X4,
+  FUT-031). `nowandfuture.md` said three strategy hooks are never invoked;
+  all ten are delivered (CON-N2, EXE-005). The capability matrix, and an
+  example's comment, described the position check's v3.10-era defect as
+  current (CON-X1, KD-001). VISION listed an HMAC-signed venue transport the
+  library no longer ships. CONTRIBUTING invited broker and data-provider
+  adapters, which belong to the host (CON-X14). ARCHITECTURE said loading
+  code is the host's without naming `cloud_research.resolve_task`, the one
+  exception (CON-A5, BDY-028), and its authoritative status section had no
+  word on v4.2 (CON-A15). Each statement was corrected against the code, and
+  `tests/regression/test_corrected_statements_stay_corrected.py` keeps the
+  false ones out and requires the status section to describe the current
+  minor release.
 
 ## Security
 

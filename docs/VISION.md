@@ -44,12 +44,15 @@ AlphaLab provides:
   candidate to a deployment and back, with governance on every act that changes
   what is live, and refuses a run that would serve a version the ledger does not
   name.
-- **Durable, typed state.** Ten snapshot owners, ten schema constants, typed
+- **Durable, typed state.** Eleven snapshot owners, eleven schema constants, typed
   decoding that names the field it rejects, and a run that can stop in one
   process and finish byte-identically in another.
-- **Real connectivity.** An HMAC-signed venue transport, an RFC 6455 WebSocket
-  client, and a content-addressed artifact store — written to protocol and
-  exercised over real sockets, and **not** verified against any commercial venue.
+- **Real connectivity.** An RFC 6455 WebSocket client and an HTTP transport
+  that opens only `http://` and `https://`, both held to one TLS policy, and a
+  content-addressed artifact store — written to protocol and exercised over real
+  sockets, and **not** verified against any commercial venue. A venue adapter
+  and its request signing are the host application's; the HMAC-signed reference
+  adapter ships with the tests.
 - **Money that refuses rather than guesses.** Per-currency settlement, a
   reporting currency converted on demand with every rate recorded, and no
   default, triangulated, inverted or stale rate anywhere.

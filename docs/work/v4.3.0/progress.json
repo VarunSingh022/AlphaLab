@@ -783,11 +783,12 @@
         {
           "milestone": "M0",
           "item": "High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15",
-          "status": "In progress"
+          "status": "Implemented locally"
         }
       ],
       "evidence": [
-        "CON-X16 corrected with SEC-002: SECURITY.md states the HTTP transport's scheme and redirect rule."
+        "CON-X16 corrected with SEC-002: SECURITY.md states the HTTP transport's scheme and redirect rule.",
+        "High corrections against the code: CON-X4 (COMPOSING: a refused amend keeps the order working), CON-N2 (nowandfuture: all ten hooks delivered), CON-X1 (capability matrix 2.5(10) and examples/_strategy_evidence.py: the position check is correct since v3.10), CON-X14 (CONTRIBUTING: no vendor adapters as first contributions), CON-A5 (ARCHITECTURE and nowandfuture name cloud_research.resolve_task), CON-A15 (ARCHITECTURE's status section gains v4.2), CON-X16 (with SEC-002), and VISION's current state (no HMAC venue transport; eleven snapshot owners). tests/regression/test_corrected_statements_stay_corrected.py pins each false statement absent and the status section and security policy present."
       ]
     },
     {
@@ -1258,7 +1259,7 @@
       "problem": "Stale documentation (CON-A/N/V/X)",
       "severity": "M/P1",
       "status": "Open",
-      "status_note": "",
+      "status_note": "Open: the seven High items corrected and guarded in M0; Medium and Low items follow by M13",
       "workstreams": [
         "WS-20"
       ],
@@ -1764,7 +1765,7 @@
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M0: the High documentation corrections (WS-20: CON-X4, CON-X1, CON-N2, CON-X14, CON-A5, CON-A15), then the charter (WS-00), the release record (WS-29) and the test scaffolds (WS-21).",
+    "next": "M0: the charter reconciliation and its ADR (WS-00, ADR-0056), the integration-branch model (item 21), the release record (WS-29) and the test scaffolds (WS-21); then the M0 gate.",
     "open_questions": []
   },
   "log": [
@@ -1795,6 +1796,10 @@
     {
       "date": "2026-11-10",
       "entry": "SEC-002 (WS-23) committed: HttpTransport refuses every scheme but http/https, and redirects to any other; SECURITY.md corrected (CON-X16)."
+    },
+    {
+      "date": "2026-11-10",
+      "entry": "WS-20 High documentation corrections committed (CON-X4, CON-X1, CON-N2, CON-X14, CON-A5, CON-A15, VISION's venue transport) with a guard test."
     }
   ]
 }

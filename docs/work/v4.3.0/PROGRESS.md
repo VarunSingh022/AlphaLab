@@ -48,7 +48,7 @@ Never:
 | Remote head | `643d947c0f4fad2cb2a149bd5f446ab53dc32545` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M0: the High documentation corrections (WS-20: CON-X4, CON-X1, CON-N2, CON-X14, CON-A5, CON-A15), then the charter (WS-00), the release record (WS-29) and the test scaffolds (WS-21). |
+| Next | M0: the charter reconciliation and its ADR (WS-00, ADR-0056), the integration-branch model (item 21), the release record (WS-29) and the test scaffolds (WS-21); then the M0 gate. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -67,6 +67,7 @@ Never:
 - **2026-11-10** The owner delegated autonomous implementation (register 'authority'). Claude pushed 643d947 as a fast-forward; ruleset 'protect' disabled, no rules on the branch.
 - **2026-11-10** G0 item 16 decided under delegation: the plan's ADR numbers are final; plan 0054A is ADR-0054 and plan 0054B is ADR-0072.
 - **2026-11-10** SEC-002 (WS-23) committed: HttpTransport refuses every scheme but http/https, and redirects to any other; SECURITY.md corrected (CON-X16).
+- **2026-11-10** WS-20 High documentation corrections committed (CON-X4, CON-X1, CON-N2, CON-X14, CON-A5, CON-A15, VISION's venue transport) with a guard test.
 
 ## Milestones
 
@@ -207,11 +208,12 @@ Evidence:
 
 ### WS-20: Documentation, guides and examples
 
-- [In progress] M0: High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15
+- [Implemented locally] M0: High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15
 
 Evidence:
 
 - CON-X16 corrected with SEC-002: SECURITY.md states the HTTP transport's scheme and redirect rule.
+- High corrections against the code: CON-X4 (COMPOSING: a refused amend keeps the order working), CON-N2 (nowandfuture: all ten hooks delivered), CON-X1 (capability matrix 2.5(10) and examples/_strategy_evidence.py: the position check is correct since v3.10), CON-X14 (CONTRIBUTING: no vendor adapters as first contributions), CON-A5 (ARCHITECTURE and nowandfuture name cloud_research.resolve_task), CON-A15 (ARCHITECTURE's status section gains v4.2), CON-X16 (with SEC-002), and VISION's current state (no HMAC venue transport; eleven snapshot owners). tests/regression/test_corrected_statements_stay_corrected.py pins each false statement absent and the status section and security policy present.
 
 ### WS-21: Platform, CI and test infrastructure
 
@@ -264,7 +266,7 @@ Evidence:
 | GAP-27 | No hypothesis record | L/P1 | Open | WS-05 | M4 |
 | GAP-28 | Researcher boilerplate | M/P2 | Open | WS-19 | M13 |
 | GAP-29 | REL-001 v4.2.1 assets | — | Closed (D-V5): historical limitation | — | — |
-| GAP-30 | Stale documentation (CON-A/N/V/X) | M/P1 | Open | WS-20 | M0 (High) + every M |
+| GAP-30 | Stale documentation (CON-A/N/V/X) | M/P1 | Open: the seven High items corrected and guarded in M0; Medium and Low items follow by M13 | WS-20 | M0 (High) + every M |
 | GAP-31 | Three orchestration layers unbound | M/P2 | Open | WS-05 | M4 |
 | GAP-32 | No vectorised screening | M/P3 | Open (D-V3 via L4) | WS-09, WS-15 | M11 |
 | GAP-33 | Non-normal distributions missing | M/P1 | Open | WS-03 | M2 |
