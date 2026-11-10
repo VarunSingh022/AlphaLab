@@ -78,6 +78,7 @@ Never:
 - **2026-11-10** WS-29 M0 item committed: the verification record names the commit and tree, artifacts are held to the commit's bytes, and the build is shown reproducible.
 - **2026-11-10** M0 checkpoint 2 pushed (d2426ef..1593381); hosted CI green on 1593381, the first hosted run of the commit check and rebuild. The mutation run's baseline found the distributions path-ordering defect, fixed in 7dacb33. The register records the technical decisions taken under the delegated authority (TD-01 to TD-04, M0's).
 - **2026-11-10** The development-version state (TD-05, PC-04): the package is 4.3.0 while 4.3.0 is developed, the release gate refuses the tree, and the release-facing documents describe 4.2.1 until the release commit.
+- **2026-11-10** M0's six findings recorded in the completion ledger under v4.3.0: DET-007, SEC-002, DOC-014, TST-025, TST-026 and PKG-004.
 
 ## Milestones
 
@@ -101,7 +102,7 @@ Never:
 | After M13 | Not started | WS-17 | Depth oracles |
 
 - **G0:** Items 1-3 and the directions of 23-24 approved by the owner; the charter accepted as ADR-0056; the rest delegated on 2026-11-10 and decided at their milestones (PC-03).
-- **M0:** Group 1 (WS-01) pushed as dc61a75 and green on hosted CI; group 2 (DET-007, WS-02) validated locally. v4.3 findings such as DET-007 are recorded here, not in the ledger, until the version decision: the ledger's guard refuses an entry for a release beyond the package's (4.2.1).
+- **M0:** M0's findings are in the completion ledger under v4.3.0 (DET-007, SEC-002, DOC-014, TST-025, TST-026, PKG-004), which the development-version state (TD-05) made possible: the ledger's guard refuses an entry for a release beyond the package's.
 
 ## Decisions (G0 sign-off)
 

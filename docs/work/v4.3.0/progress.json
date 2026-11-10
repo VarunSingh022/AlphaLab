@@ -389,7 +389,7 @@
       "size": "M",
       "status": "In progress",
       "evidence": [],
-      "note": "Group 1 (WS-01) pushed as dc61a75 and green on hosted CI; group 2 (DET-007, WS-02) validated locally. v4.3 findings such as DET-007 are recorded here, not in the ledger, until the version decision: the ledger's guard refuses an entry for a release beyond the package's (4.2.1)."
+      "note": "M0's findings are in the completion ledger under v4.3.0 (DET-007, SEC-002, DOC-014, TST-025, TST-026, PKG-004), which the development-version state (TD-05) made possible: the ledger's guard refuses an entry for a release beyond the package's."
     },
     {
       "id": "M1",
@@ -1944,6 +1944,10 @@
     {
       "date": "2026-11-10",
       "entry": "The development-version state (TD-05, PC-04): the package is 4.3.0 while 4.3.0 is developed, the release gate refuses the tree, and the release-facing documents describe 4.2.1 until the release commit."
+    },
+    {
+      "date": "2026-11-10",
+      "entry": "M0's six findings recorded in the completion ledger under v4.3.0: DET-007, SEC-002, DOC-014, TST-025, TST-026 and PKG-004."
     }
   ]
 }
