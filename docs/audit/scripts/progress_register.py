@@ -6,9 +6,12 @@ Usage, from the repository root::
     python docs/audit/scripts/progress_register.py --check   # fail when stale or inconsistent
 
 ``docs/work/v4.3.0/progress.json`` is the register: the decisions the owner
-took at G0, how the plan changed and why, and where every milestone,
-workstream, gap and ADR of the programme stands. ``PROGRESS.md`` beside it is
-its rendering and is never edited by hand, so the two cannot disagree.
+took at G0, the technical decisions taken under the authority the owner
+delegated -- each with its problem, the alternatives weighed, the rationale and
+what it does to compatibility -- how the plan changed and why, and where every
+milestone, workstream, gap and ADR of the programme stands. ``PROGRESS.md``
+beside it is its rendering and is never edited by hand, so the two cannot
+disagree.
 
 ``--check`` -- which ``tests/regression/test_progress_register.py`` runs --
 fails when the rendering is stale, or when the register uses a status outside
@@ -59,6 +62,7 @@ KEYS = (
     "pull_request",
     "statuses",
     "decisions",
+    "technical_decisions",
     "plan_changes",
     "milestones",
     "workstreams",
@@ -70,6 +74,20 @@ KEYS = (
 )
 #: What the current-state record must say, so a new session resumes from it.
 STATE_KEYS = ("updated", "remote_head", "pull_request", "hosted_ci", "monitoring", "next")
+#: What every delegated technical decision states (the owner's authorization, 2026-11-10).
+TECHNICAL_KEYS = (
+    "id",
+    "date",
+    "workstream",
+    "title",
+    "problem",
+    "alternatives",
+    "decision",
+    "rationale",
+    "compatibility",
+    "record",
+    "tests",
+)
 
 
 def load(path: Path = REGISTER) -> dict[str, Any]:
@@ -117,6 +135,18 @@ def problems(register: Mapping[str, Any], rendered: str | None = None) -> list[s
     found += _ordered(
         "plan changes", changes, [f"PC-{number:02d}" for number in range(1, len(changes) + 1)]
     )
+    technical = _ids(register["technical_decisions"])
+    found += _ordered(
+        "technical decisions",
+        technical,
+        [f"TD-{number:02d}" for number in range(1, len(technical) + 1)],
+    )
+    for decision in register["technical_decisions"]:
+        unstated = [key for key in TECHNICAL_KEYS if not decision.get(key)]
+        if unstated:
+            found.append(f"{decision.get('id')}: does not state {unstated}")
+        if decision.get("workstream") not in WORKSTREAMS:
+            found.append(f"{decision.get('id')}: names an unknown workstream")
     adrs = _ids(register["adrs"])
     if len(set(adrs)) != len(adrs):
         found.append(f"an ADR is listed twice: {adrs}")
@@ -273,6 +303,27 @@ def render(register: Mapping[str, Any]) -> str:
                     part["note"],
                 )
             )
+    lines += [
+        "",
+        "## Technical decisions (delegated)",
+        "",
+        "Taken under the authority the owner delegated on 2026-11-10; each is the "
+        "programme's to revisit, and none reopens a G0 decision.",
+    ]
+    for decision in register["technical_decisions"]:
+        lines += [
+            "",
+            f"### {decision['id']}: {decision['title']} ({decision['workstream']}, "
+            f"{decision['date']})",
+            "",
+            f"- **Problem:** {decision['problem']}",
+            f"- **Alternatives:** {decision['alternatives']}",
+            f"- **Decision:** {decision['decision']}",
+            f"- **Rationale:** {decision['rationale']}",
+            f"- **Compatibility:** {decision['compatibility']}",
+            f"- **Recorded in:** {decision['record']}",
+            f"- **Tests:** {decision['tests']}",
+        ]
     lines += [
         "",
         "## Plan changes",

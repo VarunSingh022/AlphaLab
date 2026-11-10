@@ -64,6 +64,9 @@ def test_only_the_owners_approvals_are_recorded_as_approved(script: ModuleType) 
         (lambda r: r["log"].reverse(), "not in date order"),
         (lambda r: r["state"].pop("remote_head"), "current-state record lacks"),
         (lambda r: r["authority"].update(forbidden=[]), "what it forbids"),
+        (lambda r: r["technical_decisions"][0].update(alternatives=""), "does not state"),
+        (lambda r: r["technical_decisions"].reverse(), "technical decisions"),
+        (lambda r: r["technical_decisions"][0].update(workstream="WS-30"), "unknown workstream"),
     ],
 )
 def test_a_broken_register_is_refused(script: ModuleType, edit: object, found: str) -> None:

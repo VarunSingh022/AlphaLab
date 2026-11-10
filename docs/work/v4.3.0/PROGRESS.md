@@ -45,18 +45,24 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `b48bfc333160f55ffbac1d88b667d338dac17130` |
+| Remote head | `1593381784309502724eff8cc0b6249c6a6e08b5` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M0: the v4.3 mutation and stress scaffolds (WS-21); then the full M0 gate, hosted CI and acceptance evidence. |
+| Next | Finish M0's evidence: the mutation series' results (24 mutations) and the M0 acceptance record; then the development-version state, M1's prerequisite; then M1 (WS-02): ADR-0053 revised and its implementation. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
 | `dc61a75` | Continuous Integration | 42758278604 | success: all six quality-gate cells |
 | `dc61a75` | CodeQL | 42758278243 | success |
+| `643d947` | Continuous Integration | 42763156527 | success: all six quality-gate cells |
 | `643d947` | CodeQL | 42763156687 | success |
-| `643d947` | Release Preflight | 42763156539 | all six jobs skipped by design: they run only with the release-preflight label or by dispatch (D-W1); not a pass |
-| `643d947` | Continuous Integration | 42763156527 | in progress when recorded |
+| `7574b87` | Continuous Integration | 42764459914 | success: all six quality-gate cells |
+| `7574b87` | CodeQL | 42764459942 | success |
+| `b48bfc3` | Continuous Integration | 42765682898 | success: all six quality-gate cells |
+| `b48bfc3` | CodeQL | 42765683356 | success |
+| `1593381` | Continuous Integration | 42813534367 | success: all six quality-gate cells, the distributions step holding the artifacts to the checkout's commit and rebuilding them |
+| `1593381` | CodeQL | 42813534369 | success |
+| `every push` | Release Preflight | 42813534381 | skipped by design on every push: it runs only with the release-preflight label or by dispatch (D-W1); not a pass |
 
 ## Continuation log
 
@@ -70,6 +76,7 @@ Never:
 - **2026-11-10** WS-20 High documentation corrections committed (CON-X4, CON-X1, CON-N2, CON-X14, CON-A5, CON-A15, VISION's venue transport) with a guard test.
 - **2026-11-10** Charter (WS-00) committed: ADR-0056 accepted, the five direction documents reconciled, the integration-branch model written (item 21), and the charter guard added.
 - **2026-11-10** WS-29 M0 item committed: the verification record names the commit and tree, artifacts are held to the commit's bytes, and the build is shown reproducible.
+- **2026-11-10** M0 checkpoint 2 pushed (d2426ef..1593381); hosted CI green on 1593381, the first hosted run of the commit check and rebuild. The mutation run's baseline found the distributions path-ordering defect, fixed in 7dacb33. The register records the technical decisions taken under the delegated authority (TD-01 to TD-04, M0's).
 
 ## Milestones
 
@@ -130,6 +137,50 @@ Never:
 | 22 | Authority | Branch, Draft PR, commits and pushes | Superseded (2026-11-10) | M0 | Superseded by the owner's autonomous authorization: Claude pushes coherent commit groups, maintains Draft PR #22 and monitors CI; never merges, tags, publishes or force-pushes. |
 | 23 | D-G0-1 | Isolation of untrusted researcher code | Approved (direction) | M4 | AlphaLab provides safe research-execution interfaces and process orchestration; the isolation of untrusted researcher code is enforced by the host or deployment environment. A separate Python process alone is never represented as a secure sandbox. |
 | 24 | D-G0-2 | Numerical precision and canonical serialization policy | Approved (direction) | M2 | A documented policy: deterministic calculations first, appropriate precision preserved, rounding only where numerical error analysis justifies it, cross-platform behaviour proved by reference tests. No arbitrary fixed rounding to conceal numerical differences. |
+
+## Technical decisions (delegated)
+
+Taken under the authority the owner delegated on 2026-11-10; each is the programme's to revisit, and none reopens a G0 decision.
+
+### TD-01: An unseeded identifier scope is isolated (DET-007) (WS-02, 2026-11-10)
+
+- **Problem:** id_scope(None) returned a null context, so a run started without a seed inside a seeded scope drew its identifiers from that scope's stream: the enclosing run's later identifiers depended on whether, and how much, a nested run had drawn.
+- **Alternatives:** (a) Keep inheriting and document it. (b) An unseeded scope installs its own uuid4 source. (c) An unseeded scope derives a child stream from the enclosing one.
+- **Decision:** (b): id_scope(None) installs use_id_source(id_source(None)), a uuid4 source of its own.
+- **Rationale:** A scope must draw nothing from the scope around it. (c) still advances or depends on the outer stream; (a) leaves a seeded run's identifiers hostage to unrelated code.
+- **Compatibility:** A seeded run's identifiers are unchanged, and the enclosing scope now mints exactly what it would have without the nested run. An unseeded run's identifiers were never reproducible. No recorded result_id, configuration_id, schema or format moves; the certificate's evidence is unchanged.
+- **Recorded in:** CHANGELOG [4.3.0] Fixed; the ledger, once the package version admits v4.3.0 entries.
+- **Tests:** tests/regression/test_unseeded_scopes_are_isolated.py (backtest, replay and session drivers; nested, repeated, fresh-interpreter and parallel copy_context probes); mutation K01.
+
+### TD-02: Registries derive their identifiers (DET-007, plan D-54-7) (WS-02, 2026-11-10)
+
+- **Problem:** experiment_tracking.start_run and cloud_research.submit_research_job drew their identifiers from the ambient stream, so starting a run or queuing a job inside a seeded backtest moved that backtest's stream, and neither identifier could be recomputed from what was declared.
+- **Alternatives:** (a) A dedicated seeded stream per registry. (b) uuid5 over a canonical, scheme-tagged key of the declaration and its place in the registry (ADR-0016's pattern). (c) A content hash of the declaration alone.
+- **Decision:** (b), with schemes alphalab.experiment_run.v1 and alphalab.research_job.v1. A run's key holds its place (runs already held), name, canonical parameters, timestamp, parent and canonical tags. A job's key holds the cluster, its submission count, type, task path, priority and instant, and not its kwargs, which may be any objects with no canonical text.
+- **Rationale:** A derived identifier draws nothing and is recomputable anywhere. (c) collides when a declaration is repeated, and (a) still depends on the order in which unrelated registries are used.
+- **Compatibility:** New runs and jobs get UUID strings as before, now derived; identifiers already recorded are read as written. No recorded result_id, configuration_id, schema or format moves.
+- **Recorded in:** CHANGELOG [4.3.0] Fixed; the ledger, once the package version admits v4.3.0 entries.
+- **Tests:** tests/regression/test_registries_derive_their_ids.py (12 tests); stress scenario registries (stress_v4_3.py); mutations K02 to K05.
+
+### TD-03: The HTTP transport opens http and https only (SEC-002) (WS-23, 2026-11-10)
+
+- **Problem:** HttpTransport.get handed any URL to urllib, which opens file:// (a local file read) and follows a redirect to ftp://.
+- **Alternatives:** (a) Document the risk. (b) Allow http and https, refuse a URL with no host, and check every redirect's scheme before urllib's own rules. (c) Allow https only.
+- **Decision:** (b), with https requests carrying tls_context().
+- **Rationale:** (a) leaves the file read open. (c) refuses loopback and plain-http providers that the transport legitimately serves.
+- **Compatibility:** A caller passing another scheme now gets an error before anything is opened. Reading another scheme was never a stated capability (SECURITY.md stated TLS only), so nothing documented changes.
+- **Recorded in:** CHANGELOG [4.3.0] Security; SECURITY.md; the ledger, once the package version admits v4.3.0 entries.
+- **Tests:** tests/unit/marketdata/test_http_transport.py (15 tests against a loopback provider); mutations L01 to L04.
+
+### TD-04: Release artifacts held to their commit, and the build shown reproducible (WS-29, 2026-11-10)
+
+- **Problem:** The verification record named no commit, and nothing showed that the artifacts held the tagged source or that another builder could produce them (plan W.1, RQ-04, RQ-07).
+- **Alternatives:** (a) Record the commit only. (b) Also hold every archived file to the commit's object store. (c) (b), plus a rebuild from git archive of the commit, compared byte for byte.
+- **Decision:** (c). The default source is the checkout's HEAD. Outside a checkout the command fails rather than skip the check, after every path is checked. --no-source, for downloaded assets, records that the source was not checked, and no workflow may pass it.
+- **Rationale:** RQ-07 compares published assets with a rebuild, which needs byte reproducibility; a fresh rebuild of v4.2.1 was already byte-identical (W.1).
+- **Compatibility:** The command line gains --commit and --no-source. The workflows' commands are unchanged (their checkouts are git), and hosted CI passed with the check on 1593381.
+- **Recorded in:** CHANGELOG [4.3.0] Added; ENGINEERING_GUIDELINES (Distributions); RELEASE_RUNBOOK step 7. ADR-0071 (M13) will cite it.
+- **Tests:** tests/regression/test_release_correspondence.py (14 tests on repositories made in the test); mutations N01 to N05.
 
 ## Plan changes
 
@@ -241,6 +292,7 @@ Evidence:
 Evidence:
 
 - release_preflight.py distributions: commit_identity, commit_files (from the object store), correspondence_problems (wheel package exactly the commit's; every sdist file but PKG-INFO the commit's), reproduction_problems (both artifacts rebuilt from git archive of the commit in a fresh directory, same bytes); the record names the commit and tree; an unresolvable commit fails before anything is installed. Real build of b48bfc3: 627 package and 1,528 source files correspond, rebuild byte-identical, installs smoke-tested. tests/regression/test_release_correspondence.py (11 tests on repositories made in the test, no network).
+- The v4.3 mutation run's scratch copies are not git checkouts, and there 'distributions dist' reported the missing checkout before the missing directory. Fixed in 7dacb33: the commit is resolved after every path is checked, and both refusals are tested outside a checkout.
 
 ## Gaps
 
