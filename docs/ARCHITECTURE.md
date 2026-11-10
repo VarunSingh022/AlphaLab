@@ -292,7 +292,10 @@ runs of one workload agreed on every number and disagreed on every identity.
 `RunConfig.seed` installs a `DeterministicIdSource` for the run and is
 recorded on the result. With a seed, repeated runs are identical field for
 field — orders, fills, positions, cash, realized and unrealized P&L, analytics.
-Without one, identifiers stay on `uuid4` and only the economics reproduce.
+Without one, identifiers stay on `uuid4` and only the economics reproduce. Either
+way the run's scope is its own: an unseeded run started inside another seeded
+scope installs `uuid4` rather than inheriting that stream, so it neither mints
+from it nor moves it (DET-007; until v4.3 it did both).
 
 The source is an ambient `ContextVar`, deliberately: threading an id-source
 parameter through every engine method would put a reproducibility argument on

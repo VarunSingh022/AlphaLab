@@ -51,6 +51,22 @@ and `configuration_id` are 4.2.1's until an entry below says otherwise.
   (`tests/regression/test_schedule_digest_pins.py`). The values are what
   v4.2.1 and v4.2.0 compute, and each frozen replay recorded its workload's.
 
+## Fixed
+
+* **An unseeded run no longer borrows the identifier stream around it**
+  [DET-007, plan WS-02]. `id_scope(None)` -- how every driver opens an
+  unseeded run's scope -- did nothing, so a run declared unseeded but started
+  inside another seeded scope minted from that scope's stream. Its
+  identifiers looked reproducible and were not its own, and every identifier
+  the outer scope minted after it moved. The scope now installs `uuid4`, as
+  its docstring and ARCHITECTURE said it did, and the outer stream advances by
+  exactly zero across it, for the backtest, the replay and the session
+  (`tests/regression/test_unseeded_scopes_are_isolated.py`, which fails on the
+  parent commit). Seeded runs are unchanged, and so is every certified
+  identity: the certificate's evidence did not move, only the source digest it
+  names. An unseeded run that relied on an outer scope for reproducible
+  identifiers now mints from `uuid4`; give it its own seed instead.
+
 ---
 
 # [4.2.1] - 2026-11-09

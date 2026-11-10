@@ -7,7 +7,7 @@ A complete universal, strategy-agnostic, global quantitative research engine: th
 | | |
 | --- | --- |
 | Branch | `work/v4.3.0-development` |
-| Pull request | Not opened (opened after the first pushed increment) |
+| Pull request | https://github.com/VarunSingh022/AlphaLab/pull/22 (Draft, opened 2026-11-10) |
 | Baseline | v4.2.1 (AlphaLab 4.2.1), commit `8f33234fe64e0558b3a0146fe23e1364fc6b802f`, tree `cb7b743ae4f8e9a431590f322efc8ffd09274119` |
 | Plan | AlphaLab v4.3.0 Master Development Plan (sections A-Z, AA), sha256 `b4a6775db5607a23a6125112286dac6e4a7aa129c21f52f900ba220ac448e047`, approved 2026-11-09, held by the owner, outside the repository |
 | Decision record | AlphaLab v4.3.0 G0 decision register, sha256 `724a60b1c3175221dc22109e631ebf61cbef365964b2adb160035a904e287291` |
@@ -86,7 +86,7 @@ Statuses: Not started · In progress · Blocked · Implemented locally · Local 
 | --- | --- | --- | --- |
 | WS-00 | Governance, charter and decision records | G0 | In progress |
 | WS-01 | Compatibility and historical-contract integrity | M0, M13 | In progress |
-| WS-02 | Deterministic identity and provenance | M0, M1 | Not started |
+| WS-02 | Deterministic identity and provenance | M0, M1 | In progress |
 | WS-03 | Scientific computing and numerical foundations | M2 | Not started |
 | WS-04 | Streaming research-result capture | M3 | Not started |
 | WS-05 | Experiment and trial ledger, executor, runner registry | M4 | Not started |
@@ -122,9 +122,9 @@ Statuses: Not started · In progress · Blocked · Implemented locally · Local 
 
 ### WS-01: Compatibility and historical-contract integrity
 
-- [Implemented locally] M0: v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3
-- [Implemented locally] M0: Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed
-- [Implemented locally] M0: Golden RunSchedule.digest per entry kind and the persisted kind values pinned
+- [Pushed] M0: v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3
+- [Pushed] M0: Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed
+- [Pushed] M0: Golden RunSchedule.digest per entry kind and the persisted kind values pinned
 - [Not started] M0: RUN_SCHEDULE_DIGEST_SCHEME constant (waits for item 6, ADR-0053)
 
 Evidence:
@@ -135,10 +135,15 @@ Evidence:
 - Certificate REP-3 reads v4.2.1 (read_v4.2.1: 31); the source digest and every other check unchanged.
 - tests/regression/test_schema_upgrades_v4_2_1.py (57 tests, under 2 s): every payload read and written back byte for byte; every file the bytes v4.2.1 wrote; each of the 11 paused replays and the checkpoint chain resumed to the result_id v4.2.1 computed, one of them in a fresh process under another hash seed; each registry's digest the one its replay recorded; the stored manifest the one this build makes.
 - tests/regression/test_schedule_digest_pins.py (34 tests): a golden RunSchedule.digest for each of the 20 entry kinds, computed identically by v4.2.1 and v4.2.0; the persisted kind values; the formula as documented; each frozen replay's recorded schedule digest. Seen to fail on a renamed kind value and on two changes to the formula.
+- Pushed by the owner as dc61a75 on work/v4.3.0-development (2026-11-10); Draft PR #22 opened; its hosted CI and CodeQL runs are recorded once they finish.
 
 ### WS-02: Deterministic identity and provenance
 
-- [Not started] M0: DET-007: isolated identifier scopes, with nested, parallel and repeated probes
+- [Implemented locally] M0: DET-007: isolated identifier scopes, with nested, parallel and repeated probes
+
+Evidence:
+
+- DET-007: id_scope(None) installs uuid4 instead of inheriting the stream around it (alphalab/common/ids.py). tests/regression/test_unseeded_scopes_are_isolated.py (12 tests): for the backtest, replay and session, a nested unseeded run draws nothing from the outer scope, the outer scope mints what it would have without it (also in fresh interpreters), two nested unseeded runs differ, and a seeded run is its seed's anywhere. 11 of the 12 fail on the parent dc61a75. Certificate: source digest re-made; no evidence moved.
 
 ### WS-20: Documentation, guides and examples
 
@@ -164,7 +169,7 @@ Evidence:
 | --- | --- | --- | --- | --- | --- |
 | GAP-01 | No experiment or trial ledger | C/P0 | Open | WS-05 | M4 |
 | GAP-02 | Validation not over backtests | C/P0 | Open | WS-24 | M5 |
-| GAP-03 | DET-007 ambient ids | H/P0 | Open | WS-02 | M0 |
+| GAP-03 | DET-007 ambient ids | H/P0 | Open: unseeded scopes isolated; the registries' identifiers follow in M0 | WS-02 | M0 |
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
 | GAP-05 | SEC-001 dotted-path resolution | H/P0 | Open | WS-23, WS-05 | M4 |
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open | WS-23 | M0 |

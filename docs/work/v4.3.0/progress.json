@@ -19,7 +19,7 @@
     "tree": "cb7b743ae4f8e9a431590f322efc8ffd09274119"
   },
   "branch": "work/v4.3.0-development",
-  "pull_request": null,
+  "pull_request": "https://github.com/VarunSingh022/AlphaLab/pull/22 (Draft, opened 2026-11-10)",
   "statuses": [
     "Not started",
     "In progress",
@@ -536,17 +536,17 @@
         {
           "milestone": "M0",
           "item": "v4.2.1 payloads of every durable kind frozen, generated from the tag, read by REP-3",
-          "status": "Implemented locally"
+          "status": "Pushed"
         },
         {
           "milestone": "M0",
           "item": "Reading tests: every v4.2.1 payload decoded and re-captured byte for byte; paused replays and a checkpoint chain resumed to the result_id v4.2.1 computed",
-          "status": "Implemented locally"
+          "status": "Pushed"
         },
         {
           "milestone": "M0",
           "item": "Golden RunSchedule.digest per entry kind and the persisted kind values pinned",
-          "status": "Implemented locally"
+          "status": "Pushed"
         },
         {
           "milestone": "M0",
@@ -560,7 +560,8 @@
         "The generator held v4.2.1 to its contract before writing: each paused replay and the chain, read back and resumed with fresh objects, finished with the uninterrupted run's result_id (expected/identities.json).",
         "Certificate REP-3 reads v4.2.1 (read_v4.2.1: 31); the source digest and every other check unchanged.",
         "tests/regression/test_schema_upgrades_v4_2_1.py (57 tests, under 2 s): every payload read and written back byte for byte; every file the bytes v4.2.1 wrote; each of the 11 paused replays and the checkpoint chain resumed to the result_id v4.2.1 computed, one of them in a fresh process under another hash seed; each registry's digest the one its replay recorded; the stored manifest the one this build makes.",
-        "tests/regression/test_schedule_digest_pins.py (34 tests): a golden RunSchedule.digest for each of the 20 entry kinds, computed identically by v4.2.1 and v4.2.0; the persisted kind values; the formula as documented; each frozen replay's recorded schedule digest. Seen to fail on a renamed kind value and on two changes to the formula."
+        "tests/regression/test_schedule_digest_pins.py (34 tests): a golden RunSchedule.digest for each of the 20 entry kinds, computed identically by v4.2.1 and v4.2.0; the persisted kind values; the formula as documented; each frozen replay's recorded schedule digest. Seen to fail on a renamed kind value and on two changes to the formula.",
+        "Pushed by the owner as dc61a75 on work/v4.3.0-development (2026-11-10); Draft PR #22 opened; its hosted CI and CodeQL runs are recorded once they finish."
       ]
     },
     {
@@ -570,15 +571,17 @@
         "M0",
         "M1"
       ],
-      "status": "Not started",
+      "status": "In progress",
       "items": [
         {
           "milestone": "M0",
           "item": "DET-007: isolated identifier scopes, with nested, parallel and repeated probes",
-          "status": "Not started"
+          "status": "Implemented locally"
         }
       ],
-      "evidence": []
+      "evidence": [
+        "DET-007: id_scope(None) installs uuid4 instead of inheriting the stream around it (alphalab/common/ids.py). tests/regression/test_unseeded_scopes_are_isolated.py (12 tests): for the backtest, replay and session, a nested unseeded run draws nothing from the outer scope, the outer scope mints what it would have without it (also in fresh interpreters), two nested unseeded runs differ, and a seeded run is its seed's anywhere. 11 of the 12 fail on the parent dc61a75. Certificate: source digest re-made; no evidence moved."
+      ]
     },
     {
       "id": "WS-03",
@@ -918,7 +921,7 @@
       "problem": "DET-007 ambient ids",
       "severity": "H/P0",
       "status": "Open",
-      "status_note": "",
+      "status_note": "Open: unseeded scopes isolated; the registries' identifiers follow in M0",
       "workstreams": [
         "WS-02"
       ],
