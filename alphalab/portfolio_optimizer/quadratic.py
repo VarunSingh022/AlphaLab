@@ -96,6 +96,7 @@ from itertools import pairwise
 from types import MappingProxyType
 from typing import Final, Protocol
 
+from alphalab.common.linalg import CholeskyFactor, NotPositiveDefiniteError, cholesky
 from alphalab.portfolio_optimizer.exceptions import OptimizationError
 
 __all__ = [
@@ -364,55 +365,22 @@ class _State:
     iterations: int = 0
 
 
-def _cholesky(hessian: Sequence[Sequence[float]]) -> tuple[list[list[float]], float] | None:
-    """Lower-triangular ``L`` with ``G = L L'``, and the pivot ratio; ``None`` if not PD."""
+def _cholesky(hessian: Sequence[Sequence[float]]) -> CholeskyFactor | None:
+    """The Hessian's Cholesky factor, ``None`` if it is not numerically positive definite.
 
-    size = len(hessian)
-    largest = max(hessian[index][index] for index in range(size))
-    floor = size * _EPSILON * largest
-    lower = [[0.0] * size for _ in range(size)]
-    smallest_pivot = math.inf
-    largest_pivot = 0.0
-    for row in range(size):
-        for column in range(row + 1):
-            total = hessian[row][column] - math.fsum(
-                lower[row][k] * lower[column][k] for k in range(column)
-            )
-            if row == column:
-                if total <= floor:
-                    return None
-                smallest_pivot = min(smallest_pivot, total)
-                largest_pivot = max(largest_pivot, total)
-                lower[row][row] = math.sqrt(total)
-            else:
-                lower[row][column] = total / lower[column][column]
-    return lower, smallest_pivot / largest_pivot
-
-
-def _cholesky_solve(lower: Sequence[Sequence[float]], rhs: Sequence[float]) -> list[float]:
-    """``x`` with ``L L' x = rhs``: forward then back substitution on a Cholesky factor.
-
-    The one triangular solve in this package, used by
-    :mod:`~alphalab.portfolio_optimizer.black_litterman` on the factor
-    :func:`_cholesky` produces -- so the package holds one positive-definite
-    factorization rather than two.
+    :func:`alphalab.common.linalg.cholesky`, the library's one factorization of
+    a positive definite matrix (ADR-0058). It was written here in v3.8 and moved
+    there in v4.3 unchanged, so every program's factor, and every solution built
+    on it, is the same to the last bit.
     """
 
-    size = len(lower)
-    forward = [0.0] * size
-    for row in range(size):
-        forward[row] = (
-            rhs[row] - math.fsum(lower[row][k] * forward[k] for k in range(row))
-        ) / lower[row][row]
-    solution = [0.0] * size
-    for row in range(size - 1, -1, -1):
-        solution[row] = (
-            forward[row] - math.fsum(lower[k][row] * solution[k] for k in range(row + 1, size))
-        ) / lower[row][row]
-    return solution
+    try:
+        return cholesky(hessian)
+    except NotPositiveDefiniteError:
+        return None
 
 
-def _initial_columns(lower: list[list[float]]) -> list[list[float]]:
+def _initial_columns(lower: Sequence[Sequence[float]]) -> list[list[float]]:
     """``J = L^-T`` column by column: column ``j`` of ``J`` is row ``j`` of ``L^-1``."""
 
     size = len(lower)
@@ -760,7 +728,7 @@ def solve_quadratic_program(
             "The Hessian is not numerically positive definite: a Cholesky pivot fell to the "
             "floor n * eps * max(diag). The program has no unique minimum in double precision.",
         )
-    lower, pivot_ratio = factored
+    lower, pivot_ratio = factored.lower, factored.pivot_ratio
     size = len(program.linear)
     columns = _initial_columns(lower)
     projected_linear = [

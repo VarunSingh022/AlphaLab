@@ -298,9 +298,10 @@ def test_the_two_matrix_inversions_are_not_a_shared_numerical_layer() -> None:
     general-purpose linear algebra library".
 
     v3.8's constrained construction does not invert at all: it factors the
-    Hessian by Cholesky (``quadratic._cholesky``), below. The v1 closed forms
-    keep their Gauss-Jordan inverse, because their published weights are
-    pinned float for float and a different factorization would move them.
+    Hessian by Cholesky (``quadratic._cholesky``, since v4.3 a call to
+    ``common.linalg.cholesky``), below. The v1 closed forms keep their
+    Gauss-Jordan inverse, because their published weights are pinned float for
+    float and a different factorization would move them.
     """
 
     import alphalab.portfolio_optimizer.optimizer as construction
@@ -343,24 +344,36 @@ def test_each_inversion_is_correct_on_the_input_it_documents() -> None:
     assert residual(construction._invert_matrix(ill_conditioned), ill_conditioned) > 0.5
 
 
-def test_the_two_cholesky_factorizations_do_two_jobs() -> None:
-    """``analytics.risk_model`` **diagnoses** a covariance; ``quadratic`` **solves** with one.
+def test_the_three_cholesky_factorizations_do_three_jobs() -> None:
+    """One **solves**, one **diagnoses**, one **skips** -- and the one that solves is shared.
 
-    The risk model's factorization pivots on the largest remaining diagonal and
-    stops at the ``n * eps * max(diag)`` floor, so it reveals a rank and says
-    *which* kind of matrix it was given -- positive definite, singular, or
-    indefinite -- for ``CovarianceMatrix.definiteness()``. The solver's
-    factorization keeps the natural order, because the dual active-set method
-    starts from ``J = L^-T`` of the Hessian it is handed -- which is not always a
-    covariance (maximum diversification solves in a homogenized space) -- and it
-    refuses outright, returning nothing, on a Hessian that is not positive
-    definite. Black-Litterman reuses the solver's factor rather than keeping a
-    third one.
+    ``common.linalg.cholesky`` (v4.3, ADR-0058) solves with a positive definite
+    matrix. It keeps the natural order, because the dual active-set method
+    starts from ``J = L^-T`` of the Hessian it is handed -- which is not always
+    a covariance (maximum diversification solves in a homogenized space) -- and
+    it refuses outright on a matrix that is not positive definite. It was
+    ``quadratic._cholesky`` from v3.8 and moved unchanged; the optimizer and
+    Black-Litterman both call it, so the library holds one such factorization.
+
+    ``analytics.risk_model`` **diagnoses** a covariance: it pivots on the largest
+    remaining diagonal and stops at the ``n * eps * max(diag)`` floor, so it
+    reveals a rank and says *which* kind of matrix it was given -- positive
+    definite, singular, or indefinite -- for ``CovarianceMatrix.definiteness()``.
+
+    ``factor_quadratic._Cholesky`` **skips**: it factors the Gram matrix of a
+    set of binding constraint rows, which is only semidefinite when one row
+    repeats the others, and treats a row whose pivot falls to a fraction of its
+    own diagonal as redundant, its unknown zero. That is the standard treatment
+    of a dependent constraint, and the wrong one for a covariance, where it
+    would hide a singular matrix. Its arithmetic (``math.sumprod`` in a fixed
+    order) is part of the factor optimizer's pinned results.
     """
 
     import importlib
 
     from alphalab.analytics.risk_model import DefinitenessKind, _definiteness
+    from alphalab.common.linalg import NotPositiveDefiniteError, cholesky
+    from alphalab.portfolio_optimizer.factor_quadratic import _Cholesky
     from alphalab.portfolio_optimizer.quadratic import _cholesky
 
     covariance = ((0.04, 0.01), (0.01, 0.09))
@@ -371,19 +384,30 @@ def test_the_two_cholesky_factorizations_do_two_jobs() -> None:
     assert _definiteness(("A", "B"), singular).kind is DefinitenessKind.SINGULAR
     assert _definiteness(("A", "B"), singular).rank == 1
 
-    factored = _cholesky(covariance)
-    assert factored is not None
-    lower, _ = factored
+    factored = cholesky(covariance)
+    lower = factored.lower
     rebuilt = [sum(lower[i][k] * lower[j][k] for k in range(2)) for i in range(2) for j in range(2)]
     assert rebuilt == pytest.approx([value for row in covariance for value in row], rel=1e-15)
-    assert _cholesky(singular) is None
+    with pytest.raises(NotPositiveDefiniteError):
+        cholesky(singular)
 
-    # The package re-exports the function under the module's name, so the
-    # module is read from the import system rather than as an attribute.
+    # The optimizer's own name is the shared factorization, refusal for refusal.
+    assert _cholesky(covariance) == factored
+    assert _cholesky(singular) is None
+    assert "math.sqrt" not in inspect.getsource(_cholesky)
+
+    # The constraint factorization skips the repeated row instead of refusing it.
+    skipping = _Cholesky.of(singular)
+    assert skipping.skipped == [False, True]
+
+    # Black-Litterman calls the shared one and keeps none of its own. The
+    # package re-exports a function under the module's name, so the module is
+    # read from the import system rather than as an attribute.
     source = inspect.getsource(
         importlib.import_module("alphalab.portfolio_optimizer.black_litterman")
     )
-    assert "_cholesky" in source and "def _cholesky" not in source
+    assert "from alphalab.common.linalg import" in source
+    assert "def _cholesky" not in source and "math.sqrt(total)" not in source
 
 
 # --------------------------------------------------------------------------- #

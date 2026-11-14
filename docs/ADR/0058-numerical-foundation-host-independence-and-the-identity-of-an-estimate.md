@@ -83,7 +83,7 @@ criterion that stopped it.
 | Class | Arithmetic | Host-independent? | May enter an identity? |
 | --- | --- | --- | --- |
 | **1. Exact** | Integers, `Fraction`, `Decimal` under a stated context, hash-counter integers (SHA-256 of a seed and a counter, read as integers) | Yes | Yes |
-| **2. Correctly rounded** | IEEE 754 binary64 `+ - * /` and `sqrt`; `math.fsum`; `math.fma` where available; conversions from exact values; a power with a small integer exponent by repeated multiplication | Yes, on every IEEE 754 host and every CPython this supports | Yes |
+| **2. Correctly rounded** | IEEE 754 binary64 `+ - * /` and `sqrt`; `math.fsum`; `math.fma` where available; conversions from exact values; a power with a small integer exponent by repeated multiplication; `math.hypot`, which CPython computes itself from these rather than through the platform's libm -- not always correctly rounded, but the same bits on every host, held by a pinned test | Yes, on every IEEE 754 host and every CPython this supports | Yes |
 | **3. Host libm** | `exp`, `log`, `pow` with a non-integer exponent, trigonometric functions, `erf`, `erfc`, `lgamma`, anything iterating over them | Not to the last bit | **No** |
 
 **The rule.** A value that enters an identity is computed on class 1 or 2 paths
@@ -168,11 +168,15 @@ class 3.
   through `erf`, or a likelihood maximised through `log`, agrees across hosts
   only to the tolerance its error analysis states. That is LIM-005's
   limitation, made a rule rather than an accident.
-- **Pure-Python numerics are slow at scale.** An eigensystem of a 500 × 500
-  matrix by cyclic Jacobi takes tens of seconds, and the plan's budget is 30.
-  The core takes no array dependency. Speed for large problems is the optional
-  compute backends' (ADR-0057, M11), each held to this record's identities by a
-  cross-check.
+- **Pure-Python numerics are slow at scale.** On the reference machine
+  (CPython 3.12, Apple arm64), an eigensystem of a 500 × 500 matrix takes
+  20.7 s by Householder tridiagonalization and implicit QL, within the plan's
+  budget of 30. Cyclic Jacobi, measured first, took 147.5 s and was not
+  adopted. The thin SVD stays one-sided Jacobi for its accuracy and takes
+  240.8 s at 500 × 500. `benchmarks/benchmark_numerical_foundation.py`
+  measures them. The core takes no array dependency. Speed for large problems
+  is the optional compute backends' (ADR-0057, M11), each held to this
+  record's identities by a cross-check.
 
 # Consequences
 

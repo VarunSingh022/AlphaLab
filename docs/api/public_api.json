@@ -628,6 +628,7 @@
       "AvailabilityBasis": "enum alphalab.common.point_in_time.AvailabilityBasis[DECLARED, DERIVED, UNKNOWN]",
       "BaseEvent": "class alphalab.common.events.BaseEvent(event_id: str, timestamp: float) -> None",
       "ConvergenceError": "class alphalab.common.exceptions.ConvergenceError(method: str, tolerance: float, limit: int, reached: float) -> None",
+      "ConvergenceReport": "class alphalab.common.convergence.ConvergenceReport(method: 'str', criterion: 'str', tolerance: 'float', limit: 'int', iterations: 'int', reached: 'float') -> None",
       "ConversionRecord": "class alphalab.common.currency.ConversionRecord(*args, **kwargs)",
       "CurrencyConverter": "class alphalab.common.currency.CurrencyConverter(*args, **kwargs)",
       "DEFAULT_ENCODING": "value builtins.str",

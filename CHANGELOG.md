@@ -156,6 +156,38 @@ entry below says otherwise.
   bound, and to published tables at the digits the tables print
   (`tests/unit/common/test_distributions.py`).
 
+* **Factorizations and decompositions with vectors, and one Cholesky**
+  [ADR-0058, plan WS-03]. `alphalab.common.linalg` gains `cholesky`, which
+  returns a `CholeskyFactor` (its `lower` factor, its `pivots`, its
+  `pivot_ratio` and a `solve`) and refuses a matrix that is not positive
+  definite with `NotPositiveDefiniteError`, naming the pivot and the floor.
+  It also gains `symmetric_eigensystem` (Householder tridiagonalization and
+  implicit QL, returning a `SymmetricEigensystem`),
+  `singular_value_decomposition` (the thin decomposition by one-sided Jacobi,
+  returning a `SingularValueDecomposition`) and `pseudo_inverse` (returning a
+  `PseudoInverse` with the rank it kept). The iterative ones take a
+  `tolerance` and an iteration limit (`max_iterations`, `max_sweeps`) as
+  required keyword arguments, and `pseudo_inverse` its `relative_cutoff`: each
+  decides the answer, so none has a default. Each
+  result carries a `ConvergenceReport`, the new type exported from
+  `alphalab.common` that says which criterion stopped the method, what it
+  reached and in how many iterations; a method short of its criterion raises
+  `ConvergenceError`. They compute with `+ - * /`, `sqrt` and `fsum` only,
+  after an exact scaling by a power of two, so their results are the same
+  bits on every host and every supported CPython. A symmetric matrix is read
+  from its lower triangle. Each eigenvector and each right singular vector
+  has its largest-magnitude component positive. They are held to exact
+  oracles (Sturm bisection in `Decimal` for Wilkinson's `W21+`, whose two
+  largest eigenvalues are 1e-13 apart; closed forms; exact `Fraction`
+  inverses), to Higham's error bounds and Krylov-Weinstein's exact residual
+  bound, and to pinned values, which also pin `least_squares` and
+  `singular_values` (`tests/unit/common/test_linalg_factorizations.py`).
+  The constrained optimizer's own factorization moved there: `quadratic` and
+  Black-Litterman both call `cholesky`, and the private copy and its solve
+  are gone. Every factor, pivot ratio and solve is v4.2.1's float for float
+  (`tests/regression/test_cholesky_moved_unchanged.py`), so no portfolio
+  moves.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

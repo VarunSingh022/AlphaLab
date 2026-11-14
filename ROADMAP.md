@@ -762,9 +762,11 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   Check and SPA treat a sample as stationary; a regime change inside it violates
   them, and the result states the assumption rather than testing it (ADR-0054).
 - **Pure-Python numerics at scale** (LIM-010): the core's eigensystems,
-  optimisers and distributions are pure Python, and slow for large problems;
-  speed is the optional backends', each cross-checked against the core
-  (ADR-0057, ADR-0058).
+  optimisers and distributions are pure Python, and slow for large problems:
+  a 500 x 500 eigensystem takes about 21 s, and a thin SVD of that size about
+  four minutes (`benchmarks/benchmark_numerical_foundation.py`). Speed is the
+  optional backends', each cross-checked against the core (ADR-0057,
+  ADR-0058).
 - **Run provenance is evidence of integrity, not of authenticity** (LIM-009): a
   digest match shows the schedule supplied is the one bound, not that it is
   authentic; a consistent forgery by someone who can run code is detected only

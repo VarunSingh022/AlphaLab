@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `01cfc3c46903e5e378a4743c4a048f421ce5928b` |
+| Remote head | `9ef9bce468463d63ac214d2afd12f1059a2ec2b0` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M2 (WS-03, WS-06 math, WS-13 N21): ADR-0058 (the numerical foundation and the precision policy, G0 item 24's direction) and ADR-0054 (plan 0054A, selection statistics); then common.distributions and special functions, the eigensystem and SVD with vectors, Cholesky as one authority, optimisers and quadrature, the Estimate type; the selection statistics; global day counts. |
+| Next | M2 (WS-03, WS-06 math, WS-13 N21): common.optimize and common.quadrature with required tolerances; the Estimate type and its identity; ml.linalg and ml's splits delegating (GAP-48); the selection statistics (TrialMatrix, the stationary bootstrap, RC and SPA, PBO by CSCV, MinTRL, the adjusted PSR); global day counts; then M2's exit evidence. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -67,6 +67,10 @@ Never:
 | `01cfc3c` | Continuous Integration | 43560463598 | success: all six quality-gate cells, S-11's pinned identities held on Linux and macOS |
 | `01cfc3c` | CodeQL | 43560463619 | success |
 | `every push` | Release Preflight | 43560463601 | skipped by design on every push: it runs only with the release-preflight label or by dispatch (D-W1); not a pass |
+| `6ec40e9` | Continuous Integration | 43561357148 | success: all six quality-gate cells, carrying ADR-0058 and ADR-0054 and M1's close |
+| `6ec40e9` | CodeQL | 43561357132 | success |
+| `9ef9bce` | Continuous Integration | 43581793865 | success: all six quality-gate cells, carrying common.distributions (4d63dfb), NUM-017 (d28d306) and EXE-015 (9ef9bce) |
+| `9ef9bce` | CodeQL | 43581793898 | success |
 
 ## Continuation log
 
@@ -93,6 +97,7 @@ Never:
 - **2026-11-14** M2's first module: common.distributions with the special functions, 186 oracle tests; ADR-0058 section 2 restated to the implemented line between caller tolerances and stated constants.
 - **2026-11-14** NUM-017 fixed: the normal CDF keeps its lower tail (it returned 0 below about -8.3).
 - **2026-11-14** EXE-015 fixed: a TWAP or VWAP schedule allocates the same for every caller, whatever the decimal context; FUT-048 accepted for 5.0.
+- **2026-11-14** common.linalg: one Cholesky (the optimizer's, moved unchanged), the eigensystem by Householder and implicit QL (20.7 s at 500 x 500 against a 30 s budget; cyclic Jacobi took 147.5 s), the thin SVD by one-sided Jacobi, the pseudo-inverse, and ConvergenceReport (TD-11).
 
 ## Milestones
 
@@ -259,6 +264,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0054-selection-statistics-measuring-a-search-over-backtests.md.
 - **Tests:** The oracle suite built in M2 (exact-enumeration CSCV, closed forms, published examples).
 
+### TD-11: The core's linear algebra: one Cholesky, QL for the eigensystem, Jacobi for the SVD, and their conventions (WS-03, 2026-11-14)
+
+- **Problem:** ADR-0058 makes common.linalg the one authority for a symmetric eigensystem and a thin SVD with vectors, Cholesky and a pseudo-inverse, with caller tolerances (section 2) and class-2 arithmetic for anything that may enter an identity (section 3). The constrained optimizer's private Cholesky had to move without moving a portfolio, the plan budgets a 500 x 500 eigensystem at 30 s in pure Python, and the conventions every caller relies on were open: which triangle of a symmetric matrix is read, the sign of a vector, what a result says about its convergence.
+- **Alternatives:** Eigensystem: (a) cyclic Jacobi, accurate to high relative precision on graded matrices with one global stopping criterion, measured at 147.5 s for 500 x 500; (b) Householder tridiagonalization and implicit QL (tql2), backward stable with orthonormal vectors, measured at 20.7 s. SVD: one-sided Jacobi, or Golub-Kahan bidiagonalization and implicit QR. Cholesky: a new factorization, or the optimizer's moved verbatim. Symmetry: refuse an asymmetric input exactly, refuse it beyond a tolerance, or read one triangle as LAPACK does.
+- **Decision:** (b) for the eigensystem, with the split criterion |e_m| <= tolerance (|d_m| + |d_m+1|) and max_iterations per eigenvalue, both required; one-sided Jacobi for the SVD (max_sweeps required), whose accuracy the plan sets no budget against; the optimizer's Cholesky moved verbatim, quadratic._cholesky delegating and Black-Litterman calling it directly, the private solve removed; the lower triangle read; each eigenvector and right singular vector with its largest-magnitude component positive, the left vector following; a ConvergenceReport on every iterative result; + - * /, sqrt and fsum only, after an exact power-of-two scaling, with no math.hypot or pow in the new code.
+- **Rationale:** Only (b) meets the plan's budget, and its accuracy is the normwise accuracy every caller of an eigensystem relies on. The SVD keeps Jacobi's relative accuracy, and its cost is stated (240.8 s at 500 x 500) with speed left to the optional backends (ADR-0057, LIM-010). Reading one triangle is the convention every library uses and the one the optimizer's factorization already had, which Black-Litterman's view system, symmetric only to rounding, depends on; an exact refusal would have broken it, and a tolerance would be a policy nobody chose. A fixed sign makes a result reproducible bit for bit, so it can be pinned and, as a class-2 value, enter an estimate's identity.
+- **Compatibility:** Additive. No public name is removed; the optimizer's private _cholesky keeps its name and _cholesky_solve, private, is gone. Every factor, pivot ratio and solve is v4.2.1's float for float, so no portfolio, result_id or figure moves. alphalab.common exports one new name, ConvergenceReport (API manifest 2,800 to 2,801 exports). ADR-0058's class-2 row now names math.hypot, which CPython computes itself, held by a pinned test.
+- **Recorded in:** CHANGELOG [4.3.0] Added; ADR-0058 section 3 and its known limitation (measured times); ledger LIM-010; ROADMAP Known limitations; tests/regression/test_shared_names_stay_distinct.py (three Cholesky factorizations, three jobs).
+- **Tests:** tests/unit/common/test_linalg_factorizations.py (108), tests/unit/common/test_convergence.py (25), tests/regression/test_cholesky_moved_unchanged.py (85), tests/regression/test_one_research_authority_per_concept.py (eleven new concepts), benchmarks/benchmark_numerical_foundation.py.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -361,7 +376,7 @@ Evidence:
 
 - [Local validation passed] M2: ADR-0058 accepted: one authority, required tolerances, three numerical classes, precision by error analysis, the estimate's identity
 - [Local validation passed] M2: common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions
-- [Not started] M2: common.linalg: symmetric eigensystem and thin SVD with vectors, pseudo-inverse; Cholesky as one authority
+- [Local validation passed] M2: common.linalg: symmetric eigensystem and thin SVD with vectors, pseudo-inverse; Cholesky as one authority
 - [Not started] M2: common.optimize and common.quadrature, with required tolerances and ConvergenceError
 - [Not started] M2: The Estimate type and its identity
 - [Not started] M2: One authority: ml.linalg and ml's splits delegate (GAP-48)
@@ -371,6 +386,7 @@ Evidence:
 - alphalab/common/distributions.py: Student's t, chi-squared, F, gamma, beta, binomial and Poisson, each with CDF, survival function and quantile, beside the normal; log-gamma, log-beta and the regularised incomplete gamma and beta functions; ConvergenceError. Survival functions computed directly; quantiles by Newton kept in a bisection bracket, stopping on a converged step or a narrow bracket. tests/unit/common/test_distributions.py (186 tests): exact oracles -- finite closed forms in 80-digit Decimal (t and chi-squared for even degrees of freedom, the Erlang and Poisson sums) and exact Fraction (binomial, integer-parameter beta, F through it) -- held within a tolerance from each formula's error bound (the log-gamma prefix's terms, ADR-0058 section 4); inverse identities against the exact CDFs; published tables at the digits they print; deep tails; refusals; ConvergenceError at the limit. Writing it found a remembered t quantile wrong in its 11th digit, a quantile search that could stall once converged (fixed), the existing normal_cdf's lost lower tail (NUM-017), and that the test's own decimal precision had leaked into the suite's shared context (fixed with local contexts). Whole suite: 11,301 passed.
 - NUM-017 fixed: normal_cdf's lower half by erfc, its upper half the standard library's value for value; within 1e-13 of an independent continued-fraction oracle to -37 (tests/regression/test_normal_cdf_keeps_its_lower_tail.py, 17 tests); the certificate's evidence unchanged, only its source digest moved. Whole suite 11,318 passed.
 - EXE-015 found while testing M2: plan_schedule's remainder ranking negated Decimals, which round to the caller's context, so a direct call allocated otherwise than a run. Fixed to compare exactly; runs unchanged (example 74's algorithms byte-identical under hostile contexts, the frozen algorithmic replays resume to their result_ids); exact apportionment is FUT-048 for 5.0.
+- common.linalg: cholesky (CholeskyFactor, NotPositiveDefiniteError), symmetric_eigensystem (Householder tridiagonalization and implicit QL), singular_value_decomposition (thin, one-sided Jacobi) and pseudo_inverse, each iterative one with a required tolerance and iteration limit and a ConvergenceReport (new, alphalab.common.convergence), computing with + - * /, sqrt and fsum after an exact power-of-two scaling. tests/unit/common/test_linalg_factorizations.py (108 tests): exact oracles (Sturm bisection in Decimal for Wilkinson's W21+ and W21-, whose closest eigenvalues are 1e-13 apart, and the second-difference matrix; 2 x 2 closed forms in 60-digit Decimal; exact Fraction inverses and the rank-one pseudo-inverse), Higham's bounds, the Krylov-Weinstein residual bound in exact Fraction arithmetic, the four Moore-Penrose conditions, exact scaling by 2^+-700, pinned values identical in every bit under CPython 3.12.4, 3.13.18 and 3.14.10 (and, since ADR-0058 section 6 makes least squares identity-bearing, pins for least_squares and singular_values, which use math.hypot). Cholesky is one authority: portfolio_optimizer.quadratic and Black-Litterman call it, and tests/regression/test_cholesky_moved_unchanged.py (85 tests) holds every factor, pivot ratio and solve to v4.2.1's copied code float for float, refusals included. Budget: a 500 x 500 eigensystem in 20.7 s against the plan's 30 s (cyclic Jacobi, measured first, took 147.5 s); benchmarks/benchmark_numerical_foundation.py reports it and gates growth per doubling at 12x.
 
 ### WS-06: Statistical research functions
 

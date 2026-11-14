@@ -31,6 +31,7 @@ the reason, so adding one is a decision rather than an accident.
 from __future__ import annotations
 
 import ast
+import functools
 import pathlib
 
 import pytest
@@ -56,28 +57,36 @@ PERMITTED_NAMESAKES: dict[str, dict[str, str]] = {
 }
 
 
+@functools.cache
+def _definitions() -> tuple[tuple[str, str, str], ...]:
+    """Every class and function definition in the package: ``(kind, name, module:line)``.
+
+    Read once per session: each parametrized case below asks it about one name,
+    and parsing the package again for every case cost more than the checks.
+    """
+
+    found: list[tuple[str, str, str]] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in str(path):
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ClassDef):
+                found.append(("class", node.name, f"{path.relative_to(ROOT)}:{node.lineno}"))
+            elif isinstance(node, ast.FunctionDef):
+                found.append(("function", node.name, f"{path.relative_to(ROOT)}:{node.lineno}"))
+    return tuple(found)
+
+
 def _classes_named(name: str) -> list[str]:
     """Every ``class <name>`` in the package, as ``module:line``."""
 
-    found: list[str] = []
-    for path in sorted(PACKAGE.rglob("*.py")):
-        if "__pycache__" in str(path):
-            continue
-        for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.ClassDef) and node.name == name:
-                found.append(f"{path.relative_to(ROOT)}:{node.lineno}")
-    return found
+    return [where for kind, defined, where in _definitions() if kind == "class" and defined == name]
 
 
 def _functions_named(name: str) -> list[str]:
-    found: list[str] = []
-    for path in sorted(PACKAGE.rglob("*.py")):
-        if "__pycache__" in str(path):
-            continue
-        for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.FunctionDef) and node.name == name:
-                found.append(f"{path.relative_to(ROOT)}:{node.lineno}")
-    return found
+    return [
+        where for kind, defined, where in _definitions() if kind == "function" and defined == name
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -110,6 +119,12 @@ def _functions_named(name: str) -> list[str]:
         ("ValidationEvidence", "alphalab/lifecycle/evidence.py"),
         ("ResearchState", "alphalab/research/state.py"),
         ("ResearchPayload", "alphalab/research/protocol.py"),
+        # v4.3, ADR-0058: the numerical foundation, one authority per concept.
+        ("ConvergenceReport", "alphalab/common/convergence.py"),
+        ("CholeskyFactor", "alphalab/common/linalg.py"),
+        ("SymmetricEigensystem", "alphalab/common/linalg.py"),
+        ("SingularValueDecomposition", "alphalab/common/linalg.py"),
+        ("PseudoInverse", "alphalab/common/linalg.py"),
     ],
 )
 def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str) -> None:
@@ -147,6 +162,13 @@ def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str)
         ("pearson_correlation", "alphalab/common/statistics.py"),
         ("rank_correlation", "alphalab/common/statistics.py"),
         ("ranks", "alphalab/common/statistics.py"),
+        # v4.3, ADR-0058: the numerical foundation, one authority per concept.
+        ("cholesky", "alphalab/common/linalg.py"),
+        ("least_squares", "alphalab/common/linalg.py"),
+        ("singular_values", "alphalab/common/linalg.py"),
+        ("symmetric_eigensystem", "alphalab/common/linalg.py"),
+        ("singular_value_decomposition", "alphalab/common/linalg.py"),
+        ("pseudo_inverse", "alphalab/common/linalg.py"),
     ],
 )
 def test_each_derivation_has_exactly_one_implementation(concept: str, owner: str) -> None:

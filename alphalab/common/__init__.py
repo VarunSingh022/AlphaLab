@@ -2,6 +2,7 @@
 
 from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.constants import DEFAULT_ENCODING, DEFAULT_SCHEMA_VERSION, PACKAGE_NAME
+from alphalab.common.convergence import ConvergenceReport
 from alphalab.common.currency import ConversionRecord, CurrencyConverter, RateRecord
 from alphalab.common.distributions import (
     beta_cdf,
@@ -108,6 +109,7 @@ __all__ = [
     "AvailabilityBasis",
     "BaseEvent",
     "ConvergenceError",
+    "ConvergenceReport",
     "ConversionRecord",
     "CurrencyConverter",
     "DeterministicIdSource",
