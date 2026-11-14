@@ -225,6 +225,15 @@ entry below says otherwise.
   false ones out and requires the status section to describe the current
   minor release.
 
+* **The normal CDF keeps its lower tail** [NUM-017]. `common.statistics.normal_cdf`
+  was the standard library's `NormalDist.cdf`, `(1 + erf(x / √2)) / 2`, whose
+  relative error below 0 grew to `4e-11` at `-5` and two percent at `-8`, and
+  which returned exactly 0 below about `-8.3`. Below 0 it is now
+  `erfc(-x / √2) / 2`. At and above 0 it is unchanged, value for value, so a
+  probabilistic or deflated Sharpe ratio above one half is unchanged too, and
+  one far below its benchmark is a small probability rather than zero
+  (`tests/regression/test_normal_cdf_keeps_its_lower_tail.py`).
+
 ## Security
 
 * **The HTTP transport opens `http://` and `https://` only** [SEC-002, plan

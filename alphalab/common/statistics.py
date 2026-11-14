@@ -73,6 +73,7 @@ from alphalab.common.exceptions import AlphaLabValidationError
 _SMALLEST_SQUARABLE = math.sqrt(sys.float_info.min)
 
 _STANDARD_NORMAL = NormalDist()
+_SQRT2 = math.sqrt(2.0)
 
 __all__ = [
     "LinearFit",
@@ -370,8 +371,14 @@ def standardized_moments(values: Sequence[float]) -> StandardizedMoments:
 def normal_cdf(x: float) -> float:
     """The standard normal cumulative distribution function.
 
-    :meth:`statistics.NormalDist.cdf` from the standard library, which is not a
-    runtime dependency.
+    At and above 0 it is :meth:`statistics.NormalDist.cdf` from the standard
+    library, ``(1 + erf(x / √2)) / 2``. Below 0 it is ``erfc(-x / √2) / 2``
+    (v4.3, ledger NUM-017). One plus an ``erf`` near minus one keeps only the
+    digits the difference leaves, so the standard library's form lost them in
+    the lower tail. Its relative error was ``4e-11`` at ``-5``, two percent at
+    ``-8``, and it returned 0 below about ``-8.3``, where ``Φ(-10)`` is
+    ``7.6e-24``. ``erfc`` computes the small value directly. The upper half is
+    unchanged, value for value.
 
     Raises:
         AlphaLabValidationError: If ``x`` is ``nan``.
@@ -379,6 +386,8 @@ def normal_cdf(x: float) -> float:
 
     if math.isnan(x):
         raise AlphaLabValidationError("The normal CDF of nan is undefined.")
+    if x < 0.0:
+        return 0.5 * math.erfc(-x / _SQRT2)
     return _STANDARD_NORMAL.cdf(x)
 
 
