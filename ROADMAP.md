@@ -537,10 +537,15 @@ have a regression test that a future "simplification" would have to break first 
   decision 11).
 - **No fixed-income engine.** `alphalab.macro.bond` covers what a fixed-rate
   bond with known coupon dates admits exactly. Credit spreads and default,
-  embedded calls and puts, floating and inflation-linked coupons, and the
-  30E/360 and ACT/ACT ISDA day-count variants are each absent because each needs
-  a model or an end-of-month rule whose correct form depends on the instrument's
-  own terms. The module, the example and this line all say *foundation*.
+  embedded calls and puts, and floating and inflation-linked coupons are each
+  absent because each needs a model whose choice is the researcher's. The
+  module, the example and this line all say *foundation*. Since v4.3 the day
+  counts of the world's bond and swap markets are in `conventions.daycount`
+  (N21): 30E/360, 30E/360 (ISDA), ACT/ACT (ISDA), ACT/ACT (ICMA), ACT/365L,
+  NL/365 and BUS/252. A basis that needs an instrument's own terms -- its coupon
+  period, termination date or business calendar -- takes them explicitly and
+  never infers them. ICMA's notional periods for an irregular coupon stay the
+  schedule's own. The rest of this boundary is ADR-0065's, at M10.
 - **No volatility-surface fit; between expiries, only by name — since v3.13.**
   A `VolatilitySurface` interpolates along strikes at a matching expiry. Between
   two quoted expiries it interpolates only when asked to by name

@@ -269,6 +269,34 @@ entry below says otherwise.
   `tests/unit/research/test_data_snooping.py`). The existing PSR, DSR and
   multiple-testing corrections are unchanged.
 
+* **The world's day counts** [plan WS-13, N21, GAP-36]. `DayCount` gains
+  `THIRTY_E_360` (the Eurobond basis), `THIRTY_E_360_ISDA`, `ACT_ACT_ISDA`,
+  `ACT_ACT_ICMA`, `ACT_365_LEAP` (ACT/365L), `NO_LEAP_365` (NL/365) and
+  `BUSINESS_252` (BUS/252), beside ACT/365F, ACT/360 and 30/360, each by its
+  published definition (ISDA 2006 section 4.16, ICMA Rule 251). A basis that
+  needs what only the instrument knows takes it as `DayCountTerms`, a new
+  keyword-only argument of `year_fraction` and `day_count_days`, and refuses
+  without it:
+  * ICMA and ACT/365L need the coupon period and frequency, and an accrual
+    must lie within that period;
+  * 30E/360 (ISDA) needs the termination date;
+  * BUS/252 needs the holidays and the weekend.
+
+  A term the basis does not use is refused, not ignored. `required_terms`
+  names a basis's terms. `days_in_year` refuses the three bases whose year
+  depends on the dates, and their year fractions are exact rationals rounded
+  once. `require_accrual_basis` admits only the bases that can weight a day
+  alone (ACT/365F, ACT/360, 30/360, 30E/360, NL/365). Financing and borrow
+  terms refuse any other basis at construction, rather than part-way through
+  a run. A bond accrues under ICMA and ACT/365L by its own coupon period,
+  measuring a short first coupon against its notional regular period, and
+  refuses BUS/252, having no calendar. An FX forward's terms refuse a basis
+  that needs an instrument's terms. The three existing bases compute exactly
+  what they did, so no accrual, run or `result_id` moves. Each new basis is
+  held to an independent restatement of its definition in `Fraction`, on
+  worked periods and on 300 random ones
+  (`tests/unit/conventions/test_global_day_counts.py`).
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package
@@ -293,6 +321,14 @@ entry below says otherwise.
   decision D-W1).
 
 ## Fixed
+
+* **Example 39 says what its output shows** [DOC-015]. It printed a bond's
+  accrued interest under each day count and said "three answers", but
+  ACT/365F and ACT/360 gave the same accrual: a bond accrues the fraction of
+  its coupon period elapsed, so an actual-day basis's year cancels and only
+  the 30/360 family differs. It now says so, prints BUS/252's refusal, and the
+  false statement is pinned absent
+  (`tests/regression/test_corrected_statements_stay_corrected.py`).
 
 * **An unseeded run no longer borrows the identifier stream around it**
   [DET-007, plan WS-02]. `id_scope(None)` -- how every driver opens an

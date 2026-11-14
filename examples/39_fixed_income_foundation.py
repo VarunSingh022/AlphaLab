@@ -44,7 +44,7 @@ Run
 from datetime import date
 from decimal import Decimal
 
-from alphalab.conventions import Compounding, DayCount
+from alphalab.conventions import Compounding, DayCount, required_terms
 from alphalab.macro import (
     Bond,
     YieldCurve,
@@ -130,10 +130,17 @@ def main() -> None:
     rule("The day count basis changes the accrual")
 
     for basis in DayCount:
+        if "holidays" in required_terms(basis):
+            print(f"  {basis.name:<18} {'refused':>14}  (no business calendar on a bond)")
+            continue
         accrued = accrued_interest(bond(day_count=basis), SETTLEMENT)
         print(f"  {basis.name:<18} {accrued:>14}")
     print()
-    print("  Same bond, same dates, three answers. The basis is required.")
+    print("  An accrual is the fraction of the coupon period elapsed, so the")
+    print("  actual-day bases agree here: each one's year cancels. The 30/360")
+    print("  bases count every month as 30 days and give another answer. The")
+    print("  basis is still required: a money-market accrual or a forward's carry")
+    print("  divides by its year, and there every basis gives its own number.")
 
     # ----------------------------------------------------------------- #
     rule("Price against yield")

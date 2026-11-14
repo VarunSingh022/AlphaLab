@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `0d46a052dc28d72f1cd1118a272ca6e60021f6fe` |
+| Remote head | `839ab67afabc27077ff53807759da8757a3ed6f8` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M2 (WS-03, WS-06 math, WS-13 N21): common.optimize and common.quadrature with required tolerances; the Estimate type and its identity; ml.linalg and ml's splits delegating (GAP-48); the selection statistics (TrialMatrix, the stationary bootstrap, RC and SPA, PBO by CSCV, MinTRL, the adjusted PSR); global day counts; then M2's exit evidence. |
@@ -73,6 +73,14 @@ Never:
 | `9ef9bce` | CodeQL | 43581793898 | success |
 | `117da41` | Continuous Integration | 43585218288 | success: all six quality-gate cells; the linear algebra's pinned values (eigensystem, SVD, Cholesky, least squares, math.hypot) held on Linux x86-64 and macOS arm64 under CPython 3.12, 3.13 and 3.14 |
 | `117da41` | CodeQL | 43585218268 | success |
+| `0d46a05` | Continuous Integration | 43586596352 | success: all six quality-gate cells; the optimisers' and quadrature's pins held on Linux and macOS under CPython 3.12, 3.13 and 3.14 |
+| `0d46a05` | CodeQL | 43586596351 | success |
+| `5f4c718` | Continuous Integration | 43587045049 | success: all six quality-gate cells; the estimate identities' pins held |
+| `5f4c718` | CodeQL | 43587045014 | success |
+| `c243587` | Continuous Integration | 43587392784 | success: all six quality-gate cells |
+| `c243587` | CodeQL | 43587392891 | success |
+| `839ab67` | Continuous Integration | 43588195927 | success: all six quality-gate cells; PBO's, the stationary bootstrap's and RC and SPA's pins held |
+| `839ab67` | CodeQL | 43588195916 | success |
 
 ## Continuation log
 
@@ -104,6 +112,8 @@ Never:
 - **2026-11-14** The Estimate type and its identity (ADR-0058 section 6) delivered; Estimate and NumericalClass exported from alphalab.common.
 - **2026-11-14** GAP-48 at M2 (PC-05): one authority on every path outside ml, held by a regression test; the deprecation with replacements moves to M7.
 - **2026-11-14** WS-06's M2 items delivered (TD-13): TrialMatrix, PBO by CSCV with an exact-enumeration oracle, Reality Check and SPA, the hash-counter stationary bootstrap, MinTRL and the autocorrelation-adjusted PSR.
+- **2026-11-14** N21 delivered (TD-14): the world's day counts by their published definitions, an instrument's terms explicit; GAP-36 delivered locally.
+- **2026-11-14** DOC-015 found by the full gate's example run on the day-count commit: example 39 said three day counts gave three accruals, but ACT/365F and ACT/360 gave one (an accrual is a ratio of one basis's counts). Corrected and pinned absent before the commit was pushed.
 
 ## Milestones
 
@@ -300,6 +310,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** CHANGELOG [4.3.0] Added; ADR-0054; LIM-011.
 - **Tests:** tests/unit/research/test_selection_statistics.py (50), tests/unit/research/test_data_snooping.py (30).
 
+### TD-14: Global day counts: which bases, and how a basis gets what only its instrument knows (WS-13, 2026-11-14)
+
+- **Problem:** GAP-36: the library's day counts were the US and money-market three, and ADR-0039 kept 30E/360 and ACT/ACT ISDA out because their correct form depends on the instrument's terms. Several of the world's conventions cannot be computed from two dates alone: ICMA needs the coupon period and frequency, 30E/360 (ISDA) the termination date, BUS/252 a business calendar. Daily accruals on the run path divide a day's count by the basis's year, which three of them do not have.
+- **Alternatives:** (a) Bases computable from dates only, the rest left out. (b) Every basis, inferring the missing terms (a regular schedule, a default calendar, the end date as termination). (c) Every basis, with the instrument's terms passed explicitly, refused when missing and refused when given but unused; the variable-year bases computed as exact rationals; run-path accruals limited to the bases that weight a day alone.
+- **Decision:** (c): DayCountTerms, keyword-only on year_fraction and day_count_days; required_terms names what each basis takes; days_in_year refuses ACT/ACT (ISDA), ACT/ACT (ICMA) and ACT/365L; require_accrual_basis admits ACT/365F, ACT/360, 30/360, 30E/360 and NL/365, and financing and borrow terms call it at construction; the bond passes its own coupon period, frequency and maturity; ICMA and ACT/365L require the accrual to lie within its stated period, ICMA's notional periods for irregular coupons staying the schedule's own.
+- **Rationale:** ADR-0039's rule is that a convention is never defaulted. Inferring a coupon period or a calendar would reproduce the silent assumption the record removed; requiring them keeps every basis exact by its definition. Refusing an unused term catches a caller who believes it mattered. Refusing at construction moves a failure from mid-run to configuration.
+- **Compatibility:** Additive: seven DayCount members appended (existing members, their values and names unchanged); a keyword-only terms argument defaulting to None; three new names in alphalab.conventions (API manifest 2,821 exports). The three existing bases compute exactly what they did, so no accrual, run, result_id or persisted format moves.
+- **Recorded in:** CHANGELOG [4.3.0] Added; ROADMAP (No fixed-income engine); ADR-0039 Status (amended); ledger BDY-014 (v430_outcome).
+- **Tests:** tests/unit/conventions/test_global_day_counts.py; the updated enumerations in tests/unit/conventions/test_conventions.py and tests/integration/test_financing_and_borrow.py.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -432,7 +452,11 @@ Evidence:
 
 ### WS-13: Global conventions, reference data and historical universes
 
-- [Not started] M2: Global day counts (N21)
+- [Local validation passed] M2: Global day counts (N21)
+
+Evidence:
+
+- conventions.daycount: 30E/360, 30E/360 (ISDA), ACT/ACT (ISDA), ACT/ACT (ICMA), ACT/365L, NL/365 and BUS/252 beside ACT/365F, ACT/360 and 30/360, by ISDA 2006 section 4.16 and ICMA Rule 251; DayCountTerms for what only an instrument states (coupon period and frequency, termination date, holidays and weekend), required where a basis needs them and refused where it does not; required_terms; days_in_year refusing the three variable-year bases; require_accrual_basis for daily accruals. Consumers: financing and borrow refuse a basis that cannot weight a day at construction; macro.bond accrues ICMA and ACT/365L by its own coupon period (a short first coupon against its notional regular period) and refuses BUS/252; an FX forward refuses a basis needing an instrument's terms. tests/unit/conventions/test_global_day_counts.py: each basis against an independent restatement of its definition in Fraction on worked and 300 random periods, the terms rule, the consumers. The three existing bases unchanged, so no accrual, run or result_id moves. ROADMAP, ADR-0039 (amended), BDY-014 (narrowed) record it. GR-2: the bases match the published worked examples -- ISDA's 1998 memorandum on EMU and market conventions for ACT/ACT (ISDA) and (ICMA), the long first coupon by the definition's sum over determination periods, and ISDA's 2008 note on 30/360 conventions for 30E/360 and 30E/360 (ISDA) with their termination dates, as QuantLib's day-counter tests reproduce them -- and BUS/252 matches QuantLib's reference values under the Brazilian holidays of each period. The full gate also caught test_persisted_enum_names's table (PER-004), extended as its rule for an additive member says.
 
 ### WS-20: Documentation, guides and examples
 
@@ -520,7 +544,7 @@ Evidence:
 | GAP-33 | Non-normal distributions missing | M/P1 | Open | WS-03 | M2 |
 | GAP-34 | 9,248-line pipeline module | L/P3 | Open | WS-15 | M11 |
 | GAP-35 | Windows untested | M/P2 | Open | WS-21 | M11 [OD] |
-| GAP-36 | US-centric day counts | H/P1 | Open | WS-13 | M2 |
+| GAP-36 | US-centric day counts | H/P1 | Delivered locally at M2 (N21, TD-14): the world's bond and swap day counts, each by its published definition, an instrument's terms explicit; GR-2's published worked examples matched. N21's other conventions in plan G.3 -- business-day conventions and FX value dates -- are where plan G.2 places them, at M10 with WS-14 (GR-6) and WS-27 (GR-3). Closes with M2's hosted exit gate. | WS-13 | M2 |
 | GAP-37 | Closed construction objectives; one solver | M/P2 | Open (D-V3) | WS-12 | M9 |
 | GAP-38 | Remainders cancelled; size-less fills | M/P2 | Open | WS-11 | M8 |
 | GAP-39 | (candidate) silent zero fill | — | Discarded | — | — |

@@ -61,6 +61,11 @@ CORRECTED = [
         "- New market data providers",
         "a vendor adapter belongs to the application (ADR-0046, BDY-023)",
     ),
+    (
+        "examples/39_fixed_income_foundation.py",
+        "three answers",
+        "an accrual is a ratio of one basis's counts, so ACT/365F and ACT/360 agree (DOC-015)",
+    ),
 ]
 
 
