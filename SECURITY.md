@@ -72,7 +72,12 @@ taking a dependency:
   transport (`alphalab.marketdata.transport`) and a `wss://` connection from its
   RFC 6455 WebSocket client (`alphalab.marketdata.websocket`). Both also accept
   an unencrypted `http://` or `ws://` URL, which TLS does not cover; the URL is
-  the caller's choice.
+  the caller's choice. Neither opens anything else. The HTTP transport refuses
+  `file://`, `ftp://`, `data:` and every other URL that is not `http://` or
+  `https://` before opening it, and follows a redirect only to one of those
+  two (since v4.3, SEC-002: until then a `file://` URL returned the local
+  file's bytes as a provider's response). The WebSocket client has always
+  refused anything but `ws://` and `wss://`.
 
 Venue request signing is not in the library. The HMAC-signed venue transport
 and its credentials (`HttpVenueTransport`, `VenueCredentials`) left

@@ -356,7 +356,8 @@ def test_the_three_bases_disagree_on_the_same_dates() -> None:
     """The reason the basis is named at every call."""
 
     start, end = date(2025, 1, 31), date(2025, 7, 31)
-    fractions = {basis: year_fraction(start, end, basis) for basis in DayCount}
+    three = (DayCount.ACT_365_FIXED, DayCount.ACT_360, DayCount.THIRTY_360_US)
+    fractions = {basis: year_fraction(start, end, basis) for basis in three}
     assert len(set(fractions.values())) == 3
     assert fractions[DayCount.THIRTY_360_US] == pytest.approx(0.5)
     assert fractions[DayCount.ACT_365_FIXED] == pytest.approx(181 / 365)
@@ -366,11 +367,20 @@ def test_the_three_bases_disagree_on_the_same_dates() -> None:
 def test_every_basis_states_its_year_and_anything_else_is_refused() -> None:
     """A basis added to DayCount is refused until its year is written, never divided by 365."""
 
-    assert {basis: days_in_year(basis) for basis in DayCount} == {
+    variable = {DayCount.ACT_ACT_ISDA, DayCount.ACT_ACT_ICMA, DayCount.ACT_365_LEAP}
+    assert {basis: days_in_year(basis) for basis in DayCount if basis not in variable} == {
         DayCount.ACT_365_FIXED: 365,
         DayCount.ACT_360: 360,
         DayCount.THIRTY_360_US: 360,
+        DayCount.THIRTY_E_360: 360,
+        DayCount.THIRTY_E_360_ISDA: 360,
+        DayCount.NO_LEAP_365: 365,
+        DayCount.BUSINESS_252: 252,
     }
+    # The three whose year depends on the dates say so, rather than divide by one.
+    for basis in variable:
+        with pytest.raises(ConventionInputError, match="no single year"):
+            days_in_year(basis)
     with pytest.raises(ConventionInputError, match="No year is stated"):
         days_in_year("ACT_ACT")  # type: ignore[arg-type]
 

@@ -34,7 +34,15 @@ takes on rates: the mechanism is AlphaLab's, the data is the application's, and 
 table baked in here would be wrong within a year while looking authoritative.
 """
 
-from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year, year_fraction
+from alphalab.conventions.daycount import (
+    DayCount,
+    DayCountTerms,
+    day_count_days,
+    days_in_year,
+    require_accrual_basis,
+    required_terms,
+    year_fraction,
+)
 from alphalab.conventions.economics import (
     CASH_EQUITY,
     InstrumentEconomics,
@@ -75,6 +83,7 @@ __all__ = [
     "ConventionInputError",
     "ConventionViolationError",
     "DayCount",
+    "DayCountTerms",
     "InstrumentEconomics",
     "LotSpecification",
     "MarketConvention",
@@ -94,6 +103,8 @@ __all__ = [
     "economics_from_primitives",
     "is_on_tick",
     "lots_in",
+    "require_accrual_basis",
+    "required_terms",
     "round_down_to_lot",
     "round_to_tick",
     "settlement_date",

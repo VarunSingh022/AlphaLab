@@ -48,8 +48,10 @@ cancel, a new target counts a resting order as held: a target of zero beside a
 resting buy sells against it. `AMEND` (phase 3) changes the one order the strategy alone has
 working in an instrument: its target the quantity to leave working, its terms
 the order's own type and time in force. A reduction at the same price keeps
-the order's queue priority; any other amend is a cancel and a new order, judged
-by risk as one -- if risk refuses it, the original is gone.
+the order's queue priority; any other amend prepares a replacement, judged by
+allocation, risk and routing as a new order is, and commits it only if it is
+placed. If any of them refuses it, the original keeps working with its
+reservations held, and an `AmendRefused` records why (FUT-031).
 
 ## 2. Several assets, several datasets
 
@@ -260,11 +262,26 @@ Implement `StrategyStateProtocol` (`strategy_state_version`, `capture_state`,
 * a backtest stopped at any record, written to JSON, restored with freshly built
   objects and continued with `ScheduleCursor.start(schedule, <timestamp of the
   last record taken>)` finishes byte-identical: what remains is derived from
-  that record, so nothing is applied twice or lost.
+  that record, so nothing is applied twice or lost;
+* since v4.3 (ADR-0053) the continuation is held to the schedule the run was
+  given, which its record does not name. Checkpoint the chain with
+  `checkpoint(state, previous, schedule=cursor.binding)`, and
+  `restore_checkpoints(chain, objects, schedule_binding=schedule.binding)`
+  refuses another schedule, or none, before anything is restored. For a bare
+  snapshot, keep `backtesting.payload_provenance(payload, schedule=schedule)`
+  beside it and continue with
+  `ScheduleCursor.start(schedule, after, expected=provenance.schedule)`, which
+  refuses another schedule before applying anything.
 
 For lineage, `lifecycle.manifest_for_run(..., schedule=schedule)` checks the
 schedule holds the run's deliveries and records its digest in the manifest's
-identity.
+identity. `backtesting.run_provenance(result, schedule=schedule)` records, beside
+the run, the effective schedule's binding and the registry it held;
+`verify_provenance` says how far a check went -- `VERIFIED`, `DECLARED`,
+`UNRECORDED` or `NONE_GIVEN`, never more -- and
+`manifest_for_run(..., provenance=provenance)` refuses a manifest the
+provenance contradicts. Provenance is tamper-evident, not substitution-proof:
+only a rerun detects a consistent forgery.
 
 ## 8. Boundaries
 

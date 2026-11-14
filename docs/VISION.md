@@ -8,6 +8,8 @@ The project combines deterministic execution, immutable state management, event-
 
 Rather than being a collection of independent tools, AlphaLab is designed as a unified ecosystem where research, portfolio construction, execution, production systems, and future AI capabilities operate through a consistent architecture.
 
+Its charter is ADR-0056: a universal, strategy-agnostic quantitative research engine for global markets, where the researcher brings the hypothesis and AlphaLab supplies a deterministic, reproducible path from data to a validated result -- growing in capability on a contract that stays stable.
+
 ---
 
 # Mission
@@ -44,12 +46,15 @@ AlphaLab provides:
   candidate to a deployment and back, with governance on every act that changes
   what is live, and refuses a run that would serve a version the ledger does not
   name.
-- **Durable, typed state.** Ten snapshot owners, ten schema constants, typed
+- **Durable, typed state.** Eleven snapshot owners, eleven schema constants, typed
   decoding that names the field it rejects, and a run that can stop in one
   process and finish byte-identically in another.
-- **Real connectivity.** An HMAC-signed venue transport, an RFC 6455 WebSocket
-  client, and a content-addressed artifact store — written to protocol and
-  exercised over real sockets, and **not** verified against any commercial venue.
+- **Real connectivity.** An RFC 6455 WebSocket client and an HTTP transport
+  that opens only `http://` and `https://`, both held to one TLS policy, and a
+  content-addressed artifact store — written to protocol and exercised over real
+  sockets, and **not** verified against any commercial venue. A venue adapter
+  and its request signing are the host application's; the HMAC-signed reference
+  adapter ships with the tests.
 - **Money that refuses rather than guesses.** Per-currency settlement, a
   reporting currency converted on demand with every rate recorded, and no
   default, triangulated, inverted or stale rate anywhere.
@@ -122,10 +127,15 @@ remaining — wiring `replay` into the execution path, mark-to-market repricing,
 and consolidating the overlapping data surfaces — were delivered in **v2.2**,
 **v2.1** and **v2.3** respectively, and the entry stood unchanged until v3.0.
 
-What remains is not a missing layer. `../ROADMAP.md` classifies it as deliberate
-boundaries that should stay, external dependencies that are somebody else's to
-supply (FX data, classification data, a vendor's request shapes, credentials),
-and optional evolution that nothing is waiting on.
+What comes next is set by the charter (ADR-0056), not by a list of missing
+layers: capability grows toward the universal objective on a contract that stays
+stable, and the v4.3.0 programme is its next stage -- research validation over
+real backtests, experiments that count every trial, numerical and statistical
+foundations, global reference data, deeper execution realism, and machine
+learning through stable interfaces. `../ROADMAP.md` keeps the boundaries, each
+standing until its own ADR reopens it, and the external dependencies that are
+somebody else's to supply (FX data, classification data, a vendor's request
+shapes, credentials).
 
 ---
 
@@ -146,7 +156,7 @@ result; v3.1.0 to v3.13.0 showed what the freeze permits, adding capability
 inside the packages without moving a boundary; and v4.0.0 classified the
 history, re-audited the engine and froze the public API.
 
-A frozen architecture is not a finished project. What it changes is the bar: a
+A frozen architecture is not a finished project (ADR-0056). What it changes is the bar: a
 contribution that moves an ownership boundary, a schema contract or a documented
 invariant, or the public API incompatibly, now needs an ADR and a major
 release, while a new standalone engine, a strategy or a benchmark follows the

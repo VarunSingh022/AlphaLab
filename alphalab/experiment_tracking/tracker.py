@@ -30,14 +30,27 @@ is a chain probe rather than a hash lookup, so a reader that scans every run
 (``comparison.best_run``) is slower than it was against plain dicts. That is the
 trade, and it is the right way round: a reader stays linear either way, and a
 writer does not.
+
+Run identity
+------------
+A run's ``run_id`` is derived, not drawn (DET-007, plan D-54-7): ``uuid5`` over a
+canonical key -- the scheme tag, how many runs the tracker already held, then the
+declared name, parameters, start instant, parent and tags -- as an instrument's
+``asset_id`` is derived (ADR-0016). Until v4.3 it came from the ambient
+identifier stream: a run started inside a seeded scope consumed one of that
+scope's identifiers, so what the scope minted next depended on whether anything
+was tracked, and outside one the same run had a new identity every time it was
+started.
 """
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
+from typing import Final
+from uuid import UUID, uuid5
 
 from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.ids import new_id
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.common.types import ParamValue
 from alphalab.experiment_tracking.exceptions import ExperimentTrackingInputError
@@ -68,7 +81,8 @@ class ExperimentRun:
     """A single experiment run's identity, parameters, and metric history.
 
     Attributes:
-        run_id: Unique identifier for this run.
+        run_id: The run's identifier, derived from its declaration and its
+            place in the tracker (see the module docstring).
         name: Human-readable name, e.g. "linreg_l2_sweep". Versions of the same
             logical experiment share a name -- see
             alphalab.experiment_tracking.versioning.
@@ -133,6 +147,54 @@ def _as_histories(
     )
 
 
+#: The namespace every run identifier is derived under: ``uuid5(NAMESPACE_DNS,
+#: "experiment-run.alphalab.dev")``, written out as a literal -- as the instrument
+#: namespace is -- so that it is a fixed fact of the scheme, not a value an
+#: expression could drift from. Any reader can recompute it.
+_RUN_NAMESPACE: Final = UUID("bfa1d581-9245-5fe3-9592-0b9e651a716b")
+
+#: The scheme tag, and the first line of every run key. A change to the key's
+#: shape bumps it, and every identifier derived under ``v1`` stays reproducible.
+_RUN_KEY_SCHEME: Final = "alphalab.experiment_run.v1"
+
+
+def _canonical(value: object) -> str:
+    """JSON with sorted keys and no whitespace: one text for one value."""
+
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def _run_id(
+    tracker: ExperimentTracker,
+    name: str,
+    parameters: Mapping[str, ParamValue],
+    timestamp: float,
+    parent_run_id: str | None,
+    tags: Mapping[str, str] | None,
+) -> str:
+    """The identifier of the run ``start_run`` is about to add (DET-007, plan D-54-7).
+
+    ``uuid5`` over a canonical key, in a fixed field order: the scheme tag, the
+    number of runs ``tracker`` already holds, then each declared field --
+    strings and mappings as sorted JSON, so a parameter's type is part of it
+    and ``20`` is not ``20.0``. Nothing is drawn from the identifier stream. A
+    tracker only grows, so the count keeps two runs declared alike apart.
+    """
+
+    key = "\n".join(
+        (
+            _RUN_KEY_SCHEME,
+            f"sequence={len(tracker.runs)}",
+            f"name={_canonical(name)}",
+            f"parameters={_canonical(dict(parameters))}",
+            f"timestamp={float(timestamp)!r}",
+            f"parent_run_id={_canonical(parent_run_id)}",
+            f"tags={_canonical(dict(tags) if tags else {})}",
+        )
+    )
+    return str(uuid5(_RUN_NAMESPACE, key))
+
+
 def start_run(
     tracker: ExperimentTracker,
     name: str,
@@ -152,7 +214,7 @@ def start_run(
     if parent_run_id is not None and parent_run_id not in tracker.runs:
         raise ExperimentTrackingInputError(f"parent_run_id '{parent_run_id}' not found.")
 
-    run_id = str(new_id())
+    run_id = _run_id(tracker, name, parameters, timestamp, parent_run_id, tags)
     run = ExperimentRun(
         run_id=run_id,
         name=name,

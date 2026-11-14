@@ -579,6 +579,18 @@ def _apportion(total: int, weights: Sequence[Decimal]) -> list[int]:
 
     Floors first; the units left over go to the largest fractional remainders,
     ties to the lower index. Sums to ``total`` exactly.
+
+    The weights are a schedule's increments as :data:`_CONTEXT` computes them,
+    to 34 digits, so slices whose exact shares are equal can differ in their
+    last digit, and the larger then takes the unit. Ten units over a TWAP's
+    three slices are ``3, 4, 3``, not ``4, 3, 3``. The ranking compares the
+    remainders exactly and negates nothing, so the allocation is the same for
+    every caller. Until v4.3 the sort key negated each remainder, and a Decimal
+    negation rounds to the caller's context. Under the default 28 digits that
+    rounding made near-equal remainders tie, so a direct call allocated
+    ``4, 3, 3``, while a run, pinned to 34 digits, allocated ``3, 4, 3``
+    (ledger EXE-015). Exact apportionment, under which equal shares tie, would
+    change what existing runs allocate. It is FUT-048, for 5.0.
     """
 
     whole = _sum(weights)
@@ -588,7 +600,9 @@ def _apportion(total: int, weights: Sequence[Decimal]) -> list[int]:
     shares = [int(ideal.to_integral_value(rounding=ROUND_FLOOR)) for ideal in ideals]
     leftover = total - sum(shares)
     remainders = [_sub(ideal, Decimal(share)) for ideal, share in zip(ideals, shares, strict=True)]
-    ranked = sorted(range(len(weights)), key=lambda index: (-remainders[index], index))
+    ranked = sorted(
+        range(len(weights)), key=lambda index: (remainders[index], -index), reverse=True
+    )
     for index in ranked[:leftover]:
         shares[index] += 1
     return shares

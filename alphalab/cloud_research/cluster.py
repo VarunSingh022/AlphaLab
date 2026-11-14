@@ -16,16 +16,24 @@ principle -- every individual task's result is exactly reproducible given the sa
 inputs, which is what determinism means for the computation itself. Only the wall-
 clock interleaving of otherwise-independent parallel work is not, which is an
 inherent, honest property of real parallel execution, not a defect.
+
+Job identity: a job's ``job_id`` is derived, not drawn (DET-007) -- ``uuid5`` over
+the cluster, how many jobs it has taken, and the job's type, task, priority and
+instant -- as a tracker run's ``run_id`` is. Until v4.3 it came from the ambient
+identifier stream, so a submission inside a seeded scope consumed one of that
+scope's identifiers. The queue's own events are stamped in the caller's scope,
+as every engine's are.
 """
 
+import json
 from collections.abc import Mapping
 from concurrent.futures import Executor
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Final
+from uuid import UUID, uuid5
 
 from alphalab.cloud_research.exceptions import CloudResearchInputError
 from alphalab.cloud_research.task import run_task
-from alphalab.common.ids import new_id
 from alphalab.distributed.engine import DistributedEngine
 from alphalab.distributed.job import Job, JobStatus, JobType
 from alphalab.distributed.node import WorkerNode, WorkerStatus
@@ -77,6 +85,43 @@ def initialize_cluster(
     return CloudResearchState(distributed=state)
 
 
+#: The namespace every job identifier is derived under: ``uuid5(NAMESPACE_DNS,
+#: "research-job.alphalab.dev")``, written out as a literal so that it is a fixed
+#: fact of the scheme. Any reader can recompute it.
+_JOB_NAMESPACE: Final = UUID("5ed6c3bb-73d8-5ed8-a909-8328bd167500")
+
+#: The scheme tag, and the first line of every job key.
+_JOB_KEY_SCHEME: Final = "alphalab.research_job.v1"
+
+
+def _job_id(
+    state: CloudResearchState, job_type: JobType, task_path: str, priority: int, timestamp: float
+) -> str:
+    """The identifier of the job ``submit_research_job`` is about to queue (DET-007).
+
+    ``uuid5`` over a canonical key, in a fixed field order: the scheme tag, the
+    cluster, how many jobs it has taken, then the job's type, task, priority
+    and instant. The job's arguments are not part of it: they may be any
+    objects, with no canonical text here. The cluster's count of submissions
+    only grows, so it keeps two jobs submitted alike apart. Nothing is drawn
+    from the identifier stream.
+    """
+
+    distributed = state.distributed
+    key = "\n".join(
+        (
+            _JOB_KEY_SCHEME,
+            f"cluster_id={json.dumps(distributed.cluster_id, ensure_ascii=False)}",
+            f"sequence={distributed.statistics.total_jobs_submitted}",
+            f"job_type={job_type.name}",
+            f"task_path={json.dumps(task_path, ensure_ascii=False)}",
+            f"priority={priority}",
+            f"timestamp={float(timestamp)!r}",
+        )
+    )
+    return str(uuid5(_JOB_NAMESPACE, key))
+
+
 def submit_research_job(
     state: CloudResearchState,
     job_type: JobType,
@@ -93,7 +138,7 @@ def submit_research_job(
 
     Returns the updated state and the new job's id.
     """
-    job_id = str(new_id())
+    job_id = _job_id(state, job_type, task_path, priority, timestamp)
     job = Job(
         job_id=job_id,
         job_type=job_type,

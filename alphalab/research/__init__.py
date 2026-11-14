@@ -39,6 +39,12 @@ from alphalab.research.bias import BiasReport, detect_bias
 from alphalab.research.bootstrap import BootstrapReport, bootstrap_statistics
 from alphalab.research.capacity import CapacityReport, estimate_capacity
 from alphalab.research.cross_validation import WalkForwardReport, walk_forward_analysis
+from alphalab.research.data_snooping import (
+    RealityCheckResult,
+    SPAResult,
+    reality_check,
+    superior_predictive_ability,
+)
 from alphalab.research.diagnostics import DiagnosticReport, generate_diagnostics
 from alphalab.research.engine import ResearchEngine
 from alphalab.research.event_study import (
@@ -90,6 +96,7 @@ from alphalab.research.overfitting import (
     symbol_stability,
 )
 from alphalab.research.perturbation import (
+    STATIONARY_BOOTSTRAP_SCHEME,
     Perturbation,
     PerturbationKind,
     PerturbationRun,
@@ -102,6 +109,7 @@ from alphalab.research.perturbation import (
     perturb_signal,
     sample_by,
     shift_parameter,
+    stationary_bootstrap_indices,
 )
 from alphalab.research.protocol import ResearchPayload, ResearchProtocol, TradePayload
 from alphalab.research.purging import (
@@ -133,6 +141,17 @@ from alphalab.research.regimes import (
     regime_series_from_features,
 )
 from alphalab.research.research import ResearchPolicy, research_metrics
+from alphalab.research.selection import (
+    AdjustedSharpeInference,
+    MinTRLResult,
+    PBOResult,
+    SelectionMeasure,
+    TrialMatrix,
+    Trim,
+    autocorrelation_adjusted_probabilistic_sharpe_ratio,
+    minimum_track_record_length,
+    probability_of_backtest_overfitting,
+)
 from alphalab.research.sensitivity import RobustnessReport, parameter_robustness
 from alphalab.research.sharpe_inference import (
     DeflatedSharpe,
@@ -195,9 +214,11 @@ __all__ = [
     "REGIME_DEFINITION_SCHEME",
     "REGIME_SERIES_SCHEME",
     "RESULT_KEY_SCHEME",
+    "STATIONARY_BOOTSTRAP_SCHEME",
     "STUDY_KEY_SCHEME",
     "WALK_FORWARD_DESIGN_SCHEME",
     "AbnormalReturnModel",
+    "AdjustedSharpeInference",
     "AnalysisCompleted",
     "BiasReport",
     "BootstrapReport",
@@ -216,10 +237,12 @@ __all__ = [
     "ExcludedEvent",
     "FoldSelection",
     "InvalidResearchStateError",
+    "MinTRLResult",
     "MonteCarloReport",
     "MultipleTestingResult",
     "OverfittingPolicy",
     "OverfittingReport",
+    "PBOResult",
     "ParameterSpace",
     "Perturbation",
     "PerturbationKind",
@@ -227,6 +250,7 @@ __all__ = [
     "PurgePolicy",
     "PurgeResult",
     "QuantileBucket",
+    "RealityCheckResult",
     "Refit",
     "RegimeCell",
     "RegimeDefinition",
@@ -250,6 +274,8 @@ __all__ = [
     "ResearchStudy",
     "ResearchValidationError",
     "RobustnessReport",
+    "SPAResult",
+    "SelectionMeasure",
     "SharpeInference",
     "SignalDiagnostics",
     "SplitInterval",
@@ -263,6 +289,8 @@ __all__ = [
     "TradePayload",
     "TrailingQuantileRule",
     "TransitionFrequency",
+    "TrialMatrix",
+    "Trim",
     "WalkForwardDesign",
     "WalkForwardObjective",
     "WalkForwardOptimization",
@@ -272,6 +300,7 @@ __all__ = [
     "apply_cost",
     "apply_purge_and_embargo",
     "apply_stress_tests",
+    "autocorrelation_adjusted_probabilistic_sharpe_ratio",
     "bias_report",
     "block_bootstrap_indices",
     "bootstrap_statistics",
@@ -304,6 +333,7 @@ __all__ = [
     "generate_diagnostics",
     "initial_regime_state",
     "label_ends_from_horizon",
+    "minimum_track_record_length",
     "monte_carlo_orders",
     "monte_carlo_simulation",
     "parameter_robustness",
@@ -313,6 +343,8 @@ __all__ = [
     "perturb_observations",
     "perturb_signal",
     "probabilistic_sharpe_ratio",
+    "probability_of_backtest_overfitting",
+    "reality_check",
     "regime_profile",
     "regime_series_from_features",
     "require_chronological",
@@ -323,7 +355,9 @@ __all__ = [
     "shift_parameter",
     "signal_diagnostics",
     "signal_horizons",
+    "stationary_bootstrap_indices",
     "stress_report",
+    "superior_predictive_ability",
     "symbol_stability",
     "validate_payload",
     "walk_forward_analysis",

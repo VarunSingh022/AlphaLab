@@ -38,17 +38,22 @@ whose answer is often that there is nothing there to execute.
 
 from __future__ import annotations
 
+import hashlib
+import math
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from fractions import Fraction
 from types import MappingProxyType
+from typing import Final
 
 from alphalab.factor_library.observations import ObservationFrame, ObservationSeries
 from alphalab.factor_library.panel import FactorTransform, FeaturePanel
 from alphalab.research.exceptions import ResearchValidationError
 
 __all__ = [
+    "STATIONARY_BOOTSTRAP_SCHEME",
     "Perturbation",
     "PerturbationKind",
     "PerturbationRun",
@@ -61,7 +66,14 @@ __all__ = [
     "perturb_signal",
     "sample_by",
     "shift_parameter",
+    "stationary_bootstrap_indices",
 ]
+
+#: The hash-counter stream the stationary bootstrap draws from (ADR-0054 section 6);
+#: a change to how positions are drawn is a new scheme.
+STATIONARY_BOOTSTRAP_SCHEME: Final = "alphalab.stationary_bootstrap.v1"
+
+_DRAW_RANGE: Final = 1 << 64
 
 
 class PerturbationKind(Enum):
@@ -486,6 +498,98 @@ def block_bootstrap_indices(
         start = prng.randint(0, last_start)
         drawn.extend(range(start, start + block_size))
     return tuple(drawn[:count])
+
+
+def _hash_draws(seed: int, replication: int, step: int, retry: int = 0) -> list[int]:
+    """Four 64-bit integers: SHA-256 of the scheme, the seed, the replication and the step."""
+
+    text = f"{STATIONARY_BOOTSTRAP_SCHEME}|{seed}|{replication}|{step}"
+    if retry:
+        text += f"|{retry}"
+    digest = hashlib.sha256(text.encode("ascii")).digest()
+    return [int.from_bytes(digest[offset : offset + 8], "big") for offset in range(0, 32, 8)]
+
+
+def _uniform_position(
+    candidates: list[int], count: int, seed: int, replication: int, step: int
+) -> int:
+    """A position in ``range(count)``, exactly uniform: rejection, never ``u mod count`` bias."""
+
+    limit = _DRAW_RANGE - _DRAW_RANGE % count
+    retry = 0
+    while True:
+        for draw in candidates:
+            if draw < limit:
+                return draw % count
+        retry += 1
+        candidates = _hash_draws(seed, replication, step, retry)
+
+
+def stationary_bootstrap_indices(
+    count: int, mean_block_length: float, replications: int, seed: int
+) -> tuple[tuple[int, ...], ...]:
+    """Positions for ``replications`` stationary-bootstrap samples of a series of ``count``.
+
+    Politis and Romano (1994): each sample is a run of blocks of random,
+    geometrically distributed length with mean ``mean_block_length``, each
+    starting at a uniformly random position and wrapping past the end. Where
+    the moving-block bootstrap fixes the block length, this one makes the
+    resampled series stationary, and its dependence is kept on average up to
+    the mean block length.
+
+    Every draw comes from a hash-counter stream (ADR-0054 section 6): SHA-256
+    of :data:`STATIONARY_BOOTSTRAP_SCHEME`, the seed, the replication and the
+    step, read as 64-bit integers. A block continues unless the first integer
+    ``u`` has ``u * q_num < 2**64 * q_den``, where ``q_num / q_den`` is the
+    mean block length exactly, so a new block starts with probability ``1/q``
+    to within ``2**-64``. A start is drawn by rejection from the other three,
+    so it is exactly uniform. No ``log`` is taken and no ``random`` internals
+    are used: the positions are integers, class 1 (ADR-0058), the same on every
+    host and every interpreter, and sample ``r`` can be drawn without the ones
+    before it.
+
+    Args:
+        count: The series' length, ``T``.
+        mean_block_length: ``q``, at least 1; 1 is the independent bootstrap.
+        replications: ``B``, the samples drawn.
+        seed: Any integer; it is part of every draw.
+
+    Raises:
+        ResearchValidationError: If ``count`` or ``replications`` is not a
+            positive integer, ``mean_block_length`` is not a finite number of
+            at least 1, or ``seed`` is not an integer.
+    """
+
+    for name, value in (("count", count), ("replications", replications)):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ResearchValidationError(f"{name} must be a positive integer, got {value!r}.")
+    if (
+        isinstance(mean_block_length, bool)
+        or not isinstance(mean_block_length, int | float)
+        or not math.isfinite(mean_block_length)
+        or mean_block_length < 1
+    ):
+        raise ResearchValidationError(
+            f"mean_block_length must be a finite number of at least 1, got {mean_block_length!r}."
+        )
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ResearchValidationError(f"seed must be an integer, got {seed!r}.")
+
+    exact = Fraction(mean_block_length)
+    numerator, denominator = exact.numerator, exact.denominator
+    samples = []
+    for replication in range(replications):
+        positions = []
+        current = 0
+        for step in range(count):
+            draws = _hash_draws(seed, replication, step)
+            if step == 0 or draws[0] * numerator < _DRAW_RANGE * denominator:
+                current = _uniform_position(draws[1:], count, seed, replication, step)
+            else:
+                current = (current + 1) % count
+            positions.append(current)
+        samples.append(tuple(positions))
+    return tuple(samples)
 
 
 def monte_carlo_orders(count: int, paths: int, seed: int) -> tuple[tuple[int, ...], ...]:

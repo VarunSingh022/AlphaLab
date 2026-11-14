@@ -346,7 +346,13 @@ exchange writes neither.
 
 Three envelopes version only what they add around a payload:
 `RUN_STATE_ENVELOPE_SCHEMA` (the run-state store, 1), `CHECKPOINT_SCHEMA` (an
-incremental checkpoint, 2) and `EVIDENCE_SCHEMA` (the evidence store, 1).
+incremental checkpoint, 3: since v4.3 a checkpoint given its run's schedule
+binding records it, and one given none is written as version 2, byte for byte;
+ADR-0053) and `EVIDENCE_SCHEMA` (the evidence store, 1). A run's provenance
+record (`backtesting.provenance.RUN_PROVENANCE_SCHEMA = 1`, v4.3) names its
+subject -- a result by its `result_id`, a payload by the digest of its text --
+and the schedule and registry the run was given; it is evidence, filed in the
+evidence store, and is not part of any run's record or identity.
 `tests/regression/test_documented_schemas_are_current.py` holds this table to
 the constants.
 
@@ -367,12 +373,13 @@ serializable projection, `from_primitives(payload)` → typed snapshot,
   version, or the reason no honest upgrade exists. An upgrade supplies a value
   only when it is what the older payload already meant, and a version no
   release wrote is refused, naming the versions this build reads. The payloads
-  v3.9.0, v3.11.0, v3.12.0 and v3.13.0 wrote are frozen under
-  `tests/fixtures/snapshots/` and read by every build, and the release
-  certificate's REP-3 reads every release frozen there; v4.0 moved the pipeline
-  from 7 to 8 and the run from 4 to 5, and reads a payload v3.13 wrote as one
-  that did not record how its live objects were configured (ledger PER-008,
-  `tests/regression/test_schema_upgrades_v3_13.py`).
+  v3.9.0, v3.11.0, v3.12.0, v3.13.0, v4.1.0 and v4.2.1 wrote are frozen under
+  `tests/fixtures/snapshots/` and read by every build -- v4.2.1's are every
+  durable kind and envelope above, and byte for byte what v4.2.0 wrote -- and
+  the release certificate's REP-3 reads every release frozen there; v4.0 moved
+  the pipeline from 7 to 8 and the run from 4 to 5, and reads a payload v3.13
+  wrote as one that did not record how its live objects were configured
+  (ledger PER-008, `tests/regression/test_schema_upgrades_v3_13.py`).
 - **A plain enum's class name is part of the format.** A `StrEnum` member is
   written as its value (`"market"`); a plain `Enum` member as
   `ClassName.MEMBER` (`"StrategyStatus.RUNNING"`), and the decoder reads only

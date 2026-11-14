@@ -858,7 +858,7 @@ and `workbench`, `studio` and `enterprise` in v3.11 — ADR-0046.)
 
 Each is deterministic, individually tested and individually benchmarked. **A
 package with no in-repo consumer is a standalone engine by design, not an
-orphan** — pinned by
+orphan**, until a tested bridge joins it to the research path (ADR-0056) — pinned by
 `test_every_zero_consumer_production_package_is_a_standalone_engine`.
 
 `portfolio_optimizer` stayed on this list in v3.8 while gaining one edge — the
@@ -1152,9 +1152,12 @@ constant and **one** typed decoder.
 
 Plus `persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, which versions what
 the *store* records about a payload and nothing inside it, and the envelopes of
-an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 2`; v3.12, and
-2 since v3.13 writes per-order state by its changes) and of the evidence store
-(`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12). The
+an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 3`; v3.12,
+2 since v3.13 writes per-order state by its changes, and 3 since v4.3 records a
+schedule binding when given -- a checkpoint given none is written as 2) and of
+the evidence store (`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12), and
+a run's provenance record (`backtesting.provenance.RUN_PROVENANCE_SCHEMA = 1`,
+v4.3). The
 values are v4.0's -- pipeline 8 and run 5 since v4.0 record how each live object
 was configured (PER-008) -- and `tests/regression/test_documented_schemas_are_current.py`
 keeps them so.
@@ -1275,13 +1278,16 @@ decision.
 `BaseStrategy` is an optional convenience ABC. A strategy may implement the
 Protocol directly.
 
-**Of the ten hooks, seven are routed and three are not.** `Dispatcher` routes
-`on_tick` / `on_quote` / `on_trade` / `on_bar` by **module and name together**
-(never the bare name — three packages define a `TickReceived`, and matching the
-name alone routed the wrong class and then blamed the strategy for the resulting
-`AttributeError`), and routes `on_fill` / `on_order` / `on_timer` when a caller
-supplies those events. `on_start` / `on_stop` / `on_shutdown` are declared and
-**never invoked by the runtime**.
+**All ten hooks are delivered** (since v3.11, ledger EXE-005). `Dispatcher`
+routes `on_tick` / `on_quote` / `on_trade` / `on_bar` by **module and name
+together** (never the bare name — three packages define a `TickReceived`, and
+matching the name alone routed the wrong class and then blamed the strategy for
+the resulting `AttributeError`). The execution path delivers `on_fill` and
+`on_order` for a strategy's own orders and fills, and `on_timer` from a run's
+schedule. `on_start` is delivered once, before a strategy's first event, and
+`on_shutdown` then `on_stop` when a run stops its strategies
+(`RunEngine.stop_strategies`); a hook that raises fails its strategy, as an
+event hook does.
 
 `BookUpdated` and `SnapshotCreated` reach no hook at all. NON-GOAL, stated and
 pinned.
@@ -1299,7 +1305,9 @@ Easy to confuse; they are not the same thing.
 The class registry is deliberately **not** in `lifecycle`, which still constructs
 nothing. It stores an identity and a factory and nothing about what a strategy
 *is*. It **never resolves a name to code** — no `importlib`, no class-name
-derivation, because a name is not a type. A duplicate registration is refused
+derivation, because a name is not a type. (One package does:
+`cloud_research.resolve_task` imports the module a job's task path names, the
+trust boundary ledger BDY-028 states.) A duplicate registration is refused
 naming both incumbent and challenger; an unknown identity is refused listing what
 *is* registered; a factory returning something undispatchable is refused at
 construction rather than at its first market event.
@@ -1555,7 +1563,8 @@ with the optimizer in v3.12 (OFE-013).
 # 14. What must not be changed casually
 
 **These are the frozen invariants.** Changing any of them is a major release with
-an ADR.
+an ADR. Each stands until its own ADR changes it, under the principles ADR-0056
+binds every such decision to; capability grows around them.
 
 1. **One owner per responsibility.** The step is `ExecutionPipeline`'s, the run is
    `RunEngine`'s, and drivers hold no state. Do not give a driver a field.
@@ -1929,8 +1938,9 @@ integration does not.**
 Until v3.10 this section listed what could be built with no commitment. The
 pre-v4 audit re-classified every item; the ledger
 (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) holds each with its disposition
-and release, and `ROADMAP.md` has the table. **Nothing is planned any more:
-every item was delivered by v3.13 or is kept, with its reason.** In short:
+and release, and `ROADMAP.md` has the table. **Every item planned before v4 was
+delivered by v3.13 or is kept, with its reason**; what is planned now is in
+`ROADMAP.md`'s *Future work* and the v4.3.0 programme (ADR-0056). In short:
 
 - **Delivered in v3.11**: richer construction (OFE-002); multi-exposure
   neutralization (OFE-004); a deflated Sharpe ratio and corrections beyond
@@ -2000,8 +2010,10 @@ superseding ADR's Status block; read the Status block first.
 **Adding a standalone engine.** Follow the existing shape: `__init__.py` with an
 honest `__all__`, `engine.py`, `state.py`, `events.py`, `validation.py`,
 `exceptions.py`, `views.py`. Immutable state, pure functions, its own tests under
-`tests/unit/<package>/` and its own benchmark. It will have no in-repo consumer,
-and that is correct.
+`tests/unit/<package>/` and its own benchmark. Then integrate it through a
+tested bridge -- into the execution path or a research workflow, with an
+end-to-end test of the composition -- or keep it a library by stated choice, with
+the reason in an ADR (ADR-0056 section 5).
 
 **Adding a vendor adapter.** Implement `BrokerProtocol` (one venue) or a
 `MarketDataSource` in your own package, and normalize into the canonical types on

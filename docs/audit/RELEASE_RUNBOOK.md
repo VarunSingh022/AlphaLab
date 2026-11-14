@@ -26,6 +26,13 @@ What the workflows guarantee, and what they do not:
   published, `# [4.2.1] - YYYY-MM-DD`. If the tag is made on another day than
   the one the heading names, correct the heading on the branch first, so that
   the commit tagged says the day it was released.
+* **The release commit** (since v4.3): a release developed under its own
+  version leads its CHANGELOG with `# [<version>] - Unreleased`, which the
+  gate refuses, and its README, `docs/INTEGRATION.md` and version markers
+  still describe the release before it. Before step 1, one commit on the
+  candidate dates the heading and moves those documents to the release; the
+  suite then holds the tree to the release state, and only that commit can be
+  the candidate (`docs/ENGINEERING_GUIDELINES.md`, *Pull Requests*).
 
 ---
 
@@ -134,6 +141,9 @@ gh run download "${ASSETS_RUN}" --name "alphalab-4.2.1-${CANDIDATE}" --dir relea
 ```
 
 Both lines of `shasum -c` must read `OK`, and the record must read `PASSED`.
+Since v4.3 the record also names the commit and tree the artifacts were built
+from -- it must be `${CANDIDATE}` -- and states that both artifacts, rebuilt from
+that commit alone, were byte-identical.
 
 ## 8. Publish the release
 

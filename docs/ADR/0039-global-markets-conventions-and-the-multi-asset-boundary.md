@@ -4,6 +4,15 @@
 
 **Accepted and implemented in v3.4.0.**
 
+**Amended in v4.3.0 (plan WS-13, N21, GAP-36; register TD-14).** The 30E/360
+and ACT/ACT (ISDA) day counts this record kept out of `alphalab.macro.bond`'s
+foundation, with the rest of the world's bond and swap conventions, are in
+`conventions.daycount` under this record's own rule against invented defaults:
+a basis that needs an instrument's terms -- its coupon period and frequency,
+termination date or business calendar -- takes them as `DayCountTerms` and
+refuses without them. The other absences listed below stand until ADR-0065
+reopens the fixed-income boundary (M10).
+
 The fourth capability release on the architecture frozen at v3.0.0. It adds one
 leaf package, deepens five existing ones, and makes six silently-defaulted
 market conventions required. No ownership boundary moves and every v3.1, v3.2

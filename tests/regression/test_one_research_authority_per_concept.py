@@ -31,6 +31,7 @@ the reason, so adding one is a decision rather than an accident.
 from __future__ import annotations
 
 import ast
+import functools
 import pathlib
 
 import pytest
@@ -53,31 +54,51 @@ PERMITTED_NAMESAKES: dict[str, dict[str, str]] = {
             "would give one type two jobs."
         )
     },
+    "numerical_gradient": {
+        "alphalab/deep_learning/gradient_check.py": (
+            "the deep-learning package's gradient check: an absolute step with a "
+            "default and 2 * epsilon in the denominator, compared through "
+            "gradients_match's loose tolerances to verify a hand-written backward "
+            "pass. Every layer's test was written against its figures. The "
+            "research authority, common.optimize (v4.3, ADR-0058), takes a required "
+            "relative step and divides by the represented difference; delegating "
+            "would move a public function's figures for no gain in what it checks. "
+            "Its deprecation is GAP-48's, for 5.0, with ml.linalg."
+        )
+    },
 }
+
+
+@functools.cache
+def _definitions() -> tuple[tuple[str, str, str], ...]:
+    """Every class and function definition in the package: ``(kind, name, module:line)``.
+
+    Read once per session: each parametrized case below asks it about one name,
+    and parsing the package again for every case cost more than the checks.
+    """
+
+    found: list[tuple[str, str, str]] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in str(path):
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ClassDef):
+                found.append(("class", node.name, f"{path.relative_to(ROOT)}:{node.lineno}"))
+            elif isinstance(node, ast.FunctionDef):
+                found.append(("function", node.name, f"{path.relative_to(ROOT)}:{node.lineno}"))
+    return tuple(found)
 
 
 def _classes_named(name: str) -> list[str]:
     """Every ``class <name>`` in the package, as ``module:line``."""
 
-    found: list[str] = []
-    for path in sorted(PACKAGE.rglob("*.py")):
-        if "__pycache__" in str(path):
-            continue
-        for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.ClassDef) and node.name == name:
-                found.append(f"{path.relative_to(ROOT)}:{node.lineno}")
-    return found
+    return [where for kind, defined, where in _definitions() if kind == "class" and defined == name]
 
 
 def _functions_named(name: str) -> list[str]:
-    found: list[str] = []
-    for path in sorted(PACKAGE.rglob("*.py")):
-        if "__pycache__" in str(path):
-            continue
-        for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.FunctionDef) and node.name == name:
-                found.append(f"{path.relative_to(ROOT)}:{node.lineno}")
-    return found
+    return [
+        where for kind, defined, where in _definitions() if kind == "function" and defined == name
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -110,6 +131,25 @@ def _functions_named(name: str) -> list[str]:
         ("ValidationEvidence", "alphalab/lifecycle/evidence.py"),
         ("ResearchState", "alphalab/research/state.py"),
         ("ResearchPayload", "alphalab/research/protocol.py"),
+        # v4.3, ADR-0058: the numerical foundation, one authority per concept.
+        ("ConvergenceReport", "alphalab/common/convergence.py"),
+        ("CholeskyFactor", "alphalab/common/linalg.py"),
+        ("SymmetricEigensystem", "alphalab/common/linalg.py"),
+        ("SingularValueDecomposition", "alphalab/common/linalg.py"),
+        ("PseudoInverse", "alphalab/common/linalg.py"),
+        ("Root", "alphalab/common/optimize.py"),
+        ("ScalarMinimum", "alphalab/common/optimize.py"),
+        ("Minimum", "alphalab/common/optimize.py"),
+        ("Integral", "alphalab/common/quadrature.py"),
+        ("Estimate", "alphalab/common/estimate.py"),
+        ("NumericalClass", "alphalab/common/estimate.py"),
+        # v4.3, ADR-0054: selection statistics over a search.
+        ("TrialMatrix", "alphalab/research/selection.py"),
+        ("PBOResult", "alphalab/research/selection.py"),
+        ("MinTRLResult", "alphalab/research/selection.py"),
+        ("AdjustedSharpeInference", "alphalab/research/selection.py"),
+        ("RealityCheckResult", "alphalab/research/data_snooping.py"),
+        ("SPAResult", "alphalab/research/data_snooping.py"),
     ],
 )
 def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str) -> None:
@@ -147,10 +187,39 @@ def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str)
         ("pearson_correlation", "alphalab/common/statistics.py"),
         ("rank_correlation", "alphalab/common/statistics.py"),
         ("ranks", "alphalab/common/statistics.py"),
+        # v4.3, ADR-0058: the numerical foundation, one authority per concept.
+        ("cholesky", "alphalab/common/linalg.py"),
+        ("least_squares", "alphalab/common/linalg.py"),
+        ("singular_values", "alphalab/common/linalg.py"),
+        ("symmetric_eigensystem", "alphalab/common/linalg.py"),
+        ("singular_value_decomposition", "alphalab/common/linalg.py"),
+        ("pseudo_inverse", "alphalab/common/linalg.py"),
+        ("brent_root", "alphalab/common/optimize.py"),
+        ("golden_section_minimum", "alphalab/common/optimize.py"),
+        ("nelder_mead", "alphalab/common/optimize.py"),
+        ("bfgs", "alphalab/common/optimize.py"),
+        ("l_bfgs_b", "alphalab/common/optimize.py"),
+        ("numerical_gradient", "alphalab/common/optimize.py"),
+        ("integrate", "alphalab/common/quadrature.py"),
+        ("derive_estimate_id", "alphalab/common/estimate.py"),
+        ("probability_of_backtest_overfitting", "alphalab/research/selection.py"),
+        ("minimum_track_record_length", "alphalab/research/selection.py"),
+        (
+            "autocorrelation_adjusted_probabilistic_sharpe_ratio",
+            "alphalab/research/selection.py",
+        ),
+        ("reality_check", "alphalab/research/data_snooping.py"),
+        ("superior_predictive_ability", "alphalab/research/data_snooping.py"),
+        ("stationary_bootstrap_indices", "alphalab/research/perturbation.py"),
     ],
 )
 def test_each_derivation_has_exactly_one_implementation(concept: str, owner: str) -> None:
-    found = _functions_named(concept)
+    permitted = PERMITTED_NAMESAKES.get(concept, {})
+    found = [
+        location
+        for location in _functions_named(concept)
+        if not any(location.startswith(allowed) for allowed in permitted)
+    ]
 
     assert len(found) == 1, f"{concept} is implemented {len(found)} times: {found}"
     assert found[0].startswith(owner)
@@ -325,6 +394,56 @@ def test_no_module_invents_an_overfitting_score() -> None:
                     offenders.append(f"{path.relative_to(ROOT)}:{line} {target.id}")
 
     assert not offenders, f"v3.2 invented a blended overfitting verdict: {offenders}"
+
+
+#: What ``ml`` duplicates of the numerical foundation (GAP-48), by module.
+_ML_DUPLICATES = {
+    "alphalab.ml.linalg": {"transpose", "matmul", "identity", "matrix_inverse"},
+    "alphalab.ml.cross_validation": {"k_fold_split", "walk_forward_split"},
+    "alphalab.ml": {
+        "transpose",
+        "matmul",
+        "identity",
+        "matrix_inverse",
+        "k_fold_split",
+        "walk_forward_split",
+        "linalg",
+        "cross_validation",
+    },
+}
+
+
+def test_nothing_outside_ml_computes_through_its_duplicates() -> None:
+    """GAP-48 at M2 (ADR-0058, plan change PC-05): one authority on every other path.
+
+    ``ml.linalg``'s four helpers duplicate ``common.linalg``, and
+    ``ml.cross_validation``'s two splitters the research splitters. Neither
+    can delegate without changing what it returns to its callers -- the
+    research splitters take timestamps, validation windows and purging, and
+    ``common.linalg`` has no general inverse -- so they are kept, unchanged,
+    until GAP-48 deprecates them with replacements at M7. Until then nothing
+    outside ``ml`` may compute through them. ``Matrix``, a type alias, is not a
+    computation.
+    """
+
+    offenders: list[str] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in str(path) or path.relative_to(PACKAGE).parts[0] == "ml":
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module in _ML_DUPLICATES:
+                names = {alias.name for alias in node.names} & _ML_DUPLICATES[node.module]
+                if names:
+                    offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} {sorted(names)}")
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in ("alphalab.ml.linalg", "alphalab.ml.cross_validation"):
+                        offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} {alias.name}")
+
+    assert not offenders, (
+        "a module outside ml computes through ml's duplicate linear algebra or splitters "
+        f"rather than common.linalg or the research splitters: {offenders}"
+    )
 
 
 # --------------------------------------------------------------------------- #

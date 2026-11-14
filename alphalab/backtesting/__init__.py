@@ -54,6 +54,16 @@ from alphalab.backtesting.exceptions import (
     DatasetValidationError,
     UnsupportedRecordError,
 )
+from alphalab.backtesting.provenance import (
+    RUN_PROVENANCE_SCHEMA,
+    RUN_PROVENANCE_SCHEME,
+    ProvenanceError,
+    RunProvenance,
+    payload_provenance,
+    provenance_from_primitives,
+    run_provenance,
+    verify_provenance,
+)
 from alphalab.backtesting.queueing import QueueModelError
 from alphalab.backtesting.replay import (
     PausedReplay,
@@ -63,6 +73,7 @@ from alphalab.backtesting.replay import (
 )
 from alphalab.backtesting.schedule import (
     EMPTY_SCHEDULE,
+    RUN_SCHEDULE_DIGEST_SCHEME,
     DailyAccrual,
     DailyBorrowFee,
     DailyInterest,
@@ -117,6 +128,9 @@ from alphalab.runtime.run import ExecutionMode, RunConfig, RunState, RunStep
 
 __all__ = [
     "EMPTY_SCHEDULE",
+    "RUN_PROVENANCE_SCHEMA",
+    "RUN_PROVENANCE_SCHEME",
+    "RUN_SCHEDULE_DIGEST_SCHEME",
     "AlgorithmAssignment",
     "AlgorithmBook",
     "AlgorithmicResult",
@@ -150,6 +164,7 @@ __all__ = [
     "PausedReplay",
     "PaymentAmendment",
     "PriceTimeQueue",
+    "ProvenanceError",
     "QueueBook",
     "QueueModel",
     "QueueModelError",
@@ -159,6 +174,7 @@ __all__ = [
     "ReplayProgress",
     "ReplayResult",
     "RunConfig",
+    "RunProvenance",
     "RunSchedule",
     "RunState",
     "RunStep",
@@ -190,12 +206,16 @@ __all__ = [
     "id_scope",
     "id_source",
     "initialize",
+    "payload_provenance",
     "performance_report",
+    "provenance_from_primitives",
     "publish",
     "realized_pnl",
+    "run_provenance",
     "session_for",
     "steps_with_fills",
     "submitted_orders",
     "unrealized_pnl",
     "validate_dataset",
+    "verify_provenance",
 ]

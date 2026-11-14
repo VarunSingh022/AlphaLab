@@ -45,7 +45,20 @@ NAMED: dict[str, tuple[str, ...]] = {
     # Phase 3 (FUT-026): a repriced option's carry, by name, in a margin model.
     "alphalab.options.carry.CarryKind": ("DIVIDEND_YIELD", "FOREIGN_RATE", "FUTURES"),
     # v4.2.0 (ledger FUT-018): an instrument's borrow terms, by their day count.
-    "alphalab.conventions.daycount.DayCount": ("ACT_365_FIXED", "ACT_360", "THIRTY_360_US"),
+    # v4.3.0 (plan N21, GAP-36): the world's day counts, appended -- every name
+    # an earlier release wrote reads back unchanged.
+    "alphalab.conventions.daycount.DayCount": (
+        "ACT_365_FIXED",
+        "ACT_360",
+        "THIRTY_360_US",
+        "THIRTY_E_360",
+        "THIRTY_E_360_ISDA",
+        "ACT_ACT_ISDA",
+        "ACT_ACT_ICMA",
+        "ACT_365_LEAP",
+        "NO_LEAP_365",
+        "BUSINESS_252",
+    ),
     # v4.2.0 (ledger FUT-017): an instrument's margin terms, by their basis.
     "alphalab.instrument.margin.MarginBasis": ("VALUE_RATE", "PER_CONTRACT"),
     # v4.1.1 (ledger FUT-013), found by the v4.2.0 scanner, which reads

@@ -62,7 +62,9 @@ from alphalab.runtime.calendars import VenueCalendars, session_close, settles_at
 from alphalab.runtime.checkpoint import (
     CHECKPOINT_SCHEMA,
     CheckpointMark,
+    chain_schedule_verification,
     checkpoint,
+    checkpoint_schedule,
     read_checkpoints,
     restore_checkpoints,
 )
@@ -106,6 +108,7 @@ from alphalab.runtime.run import (
     StrategyFailedError,
     StrategyFailure,
 )
+from alphalab.runtime.schedule_check import ScheduleBinding, ScheduleVerification
 from alphalab.runtime.session import TradingSession
 
 __all__ = [
@@ -139,6 +142,8 @@ __all__ = [
     "RunState",
     "RunStep",
     "RuntimeValidationError",
+    "ScheduleBinding",
+    "ScheduleVerification",
     "SettledExecution",
     "SettlementRefusal",
     "SkippedRecord",
@@ -150,7 +155,9 @@ __all__ = [
     "VenueCalendars",
     "apply_broker_execution",
     "borrow_claims",
+    "chain_schedule_verification",
     "checkpoint",
+    "checkpoint_schedule",
     "child_broker_order_id",
     "execution_assumptions",
     "execution_report_from_broker",

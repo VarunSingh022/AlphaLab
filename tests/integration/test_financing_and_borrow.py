@@ -179,13 +179,26 @@ def test_a_period_is_counted_by_its_day_count_and_runs_forward() -> None:
 
 
 def test_a_period_is_the_conventions_year_fraction_for_every_basis() -> None:
-    # The exact Decimal and the conventions' float agree on every declared basis,
-    # each dividing by the year its basis states.
+    # The exact Decimal and the conventions' float agree on every basis a daily
+    # accrual can use, each dividing by the year its basis states. A basis that
+    # needs an instrument's terms, or whose year depends on the dates, is refused
+    # (v4.3, N21).
     start, end = date(2024, 1, 31), date(2024, 7, 31)
+    accruing = {
+        DayCount.ACT_365_FIXED,
+        DayCount.ACT_360,
+        DayCount.THIRTY_360_US,
+        DayCount.THIRTY_E_360,
+        DayCount.NO_LEAP_365,
+    }
     for basis in DayCount:
-        assert float(day_fraction(start, end, basis)) == pytest.approx(
-            year_fraction(start, end, basis), abs=1e-15
-        )
+        if basis in accruing:
+            assert float(day_fraction(start, end, basis)) == pytest.approx(
+                year_fraction(start, end, basis), abs=1e-15
+            )
+        else:
+            with pytest.raises(InvalidTransactionError, match="cannot use it"):
+                day_fraction(start, end, basis)
 
 
 @pytest.mark.parametrize(

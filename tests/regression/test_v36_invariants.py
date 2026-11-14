@@ -518,7 +518,14 @@ def test_v36_added_no_snapshot_owner_and_no_schema_constant() -> None:
         for marker in ("SNAPSHOT_SCHEMA", "def capture(", "def restore(", "__serializable__")
         if marker in source
     ]
-    assert offenders == [], f"a v3.6 module grew durable state: {offenders}"
+    # v4.3 (ADR-0053 section 6) gave one v3.6 value a stored form of its own,
+    # deliberately: a manifest made under identity version 1 is stored as v4.2.1
+    # stored it, its two new fields written only when they are not their defaults,
+    # because an evidence store refuses another value under an identity it already
+    # holds. It owns no state, no schema and no restore.
+    allowed = {"alphalab/lifecycle/reproducibility.py: __serializable__"}
+    unexpected = [offender for offender in offenders if offender not in allowed]
+    assert unexpected == [], f"a v3.6 module grew durable state: {unexpected}"
 
 
 def test_the_lifecycle_state_is_unchanged_by_v36() -> None:

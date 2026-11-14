@@ -55,7 +55,7 @@ from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Final
 
-from alphalab.conventions.daycount import DayCount, year_fraction
+from alphalab.conventions.daycount import DayCount, DayCountTerms, required_terms, year_fraction
 from alphalab.conventions.rates import Compounding
 from alphalab.macro.exceptions import MacroComputationError, MacroInputError
 
@@ -183,6 +183,11 @@ class Bond:
                 "A bond's face value is money and names its currency; a price without one "
                 "cannot be added to a portfolio or converted."
             )
+        if "holidays" in required_terms(self.day_count):
+            raise MacroInputError(
+                f"{self.day_count.name} counts business days, and a bond here carries no "
+                "business calendar to count them by."
+            )
 
     @property
     def coupon_amount(self) -> Decimal:
@@ -251,6 +256,31 @@ def _remaining(bond: Bond, settlement: date) -> tuple[CashFlow, ...]:
     return tuple(flow for flow in cash_flows(bond) if flow.payment_date > settlement)
 
 
+def _day_count_terms(bond: Bond, following: date) -> DayCountTerms | None:
+    """What the bond's day count needs from it, for the coupon period ending at ``following``.
+
+    ACT/ACT (ICMA) and ACT/365L measure against the regular period ending at
+    the coupon: one step back from it, as the schedule counts back from
+    maturity. For a short first period that is ICMA's notional period. 30E/360
+    (ISDA) takes the maturity as its termination date.
+    """
+
+    needed = required_terms(bond.day_count)
+    if not needed:
+        return None
+    if needed == {"termination"}:
+        return DayCountTerms(termination=bond.maturity)
+    step = 12 // _periods(bond)
+    back = 0
+    while _months_back(bond.maturity, step * back) > following:
+        back += 1
+    return DayCountTerms(
+        period_start=_months_back(bond.maturity, step * (back + 1)),
+        period_end=following,
+        frequency=_periods(bond),
+    )
+
+
 def _coupon_period(bond: Bond, settlement: date) -> tuple[date, date]:
     """The coupon period settlement falls in, as ``(previous, next)``."""
 
@@ -286,10 +316,11 @@ def accrued_interest(bond: Bond, settlement: date) -> Decimal:
             "on a bond that does not exist yet."
         )
     previous, following = _coupon_period(bond, settlement)
-    period = year_fraction(previous, following, bond.day_count)
+    terms = _day_count_terms(bond, following)
+    period = year_fraction(previous, following, bond.day_count, terms=terms)
     if period <= 0.0:  # pragma: no cover - the schedule is strictly increasing
         raise MacroComputationError(f"{previous} to {following} spans no time.")
-    elapsed = year_fraction(previous, settlement, bond.day_count)
+    elapsed = year_fraction(previous, settlement, bond.day_count, terms=terms)
     fraction = Decimal(str(elapsed / period))
     return (bond.coupon_amount * fraction).quantize(_MONEY, rounding=ROUND_HALF_EVEN)
 
@@ -305,8 +336,9 @@ def _discounted(bond: Bond, yield_rate: float, settlement: date) -> list[tuple[f
 
     periods = _periods(bond)
     previous, following = _coupon_period(bond, settlement)
-    period_length = year_fraction(previous, following, bond.day_count)
-    to_next = year_fraction(settlement, following, bond.day_count) / period_length
+    terms = _day_count_terms(bond, following)
+    period_length = year_fraction(previous, following, bond.day_count, terms=terms)
+    to_next = year_fraction(settlement, following, bond.day_count, terms=terms) / period_length
 
     factor = 1.0 + yield_rate / periods
     if factor <= 0.0:

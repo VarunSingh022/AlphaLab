@@ -14,6 +14,402 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [4.3.0] - Unreleased
+
+The 4.3.0 development programme, on `work/v4.3.0-development` and following the
+approved v4.3.0 development plan; where it stands is in
+`docs/work/v4.3.0/PROGRESS.md`. Nothing here is released: this heading carries
+no date until the release commit, and the release gate refuses the tree until
+then (*Changed*, below). The engine's behaviour, its public API, its persisted
+formats and every run's `result_id` and `configuration_id` are 4.2.1's until an
+entry below says otherwise.
+
+## Added
+
+* **The payloads v4.2.1 wrote, frozen** [plan WS-01, GAP-07]. Every durable
+  kind -- portfolio, OMS, allocation, the instrument registry, lifecycle, the
+  FX feed, the run, the live session and its broker, and eleven paused
+  replays with the registry each held -- and the three envelopes -- the
+  run-state store, a checkpoint chain and an evidence store -- are frozen in
+  `tests/fixtures/snapshots/v4.2.1`, written by
+  `docs/audit/scripts/generate_v4_2_1_snapshot_fixtures.py` against the
+  `v4.2.1` tag. Against the `v4.2.0` tag the script writes the same bytes, so
+  the set is what both releases wrote. The paused replays are examples 74 to
+  79 and the workloads of the queue model, delivered surfaces, delivered
+  auctions and point-in-time observations, each paused mid-run and recorded
+  with the `result_id` of the run that never paused. The certificate's REP-3
+  reads them with every other release's, and
+  `tests/regression/test_schema_upgrades_v4_2_1.py` holds every later build
+  to them: each payload read and written back byte for byte, each file the
+  bytes v4.2.1 wrote, each paused replay and the checkpoint chain resumed --
+  in the test's process and in a fresh one -- to the `result_id` v4.2.1
+  computed, each registry's digest the one its replay recorded, and the
+  stored manifest the one this build makes.
+* **A schedule's digest, pinned** [plan WS-01, R53-6]. `RunSchedule.digest`
+  -- what a paused replay holds its continuation to -- has a golden value for
+  each of its twenty kinds of entry, every kind's persisted value is pinned,
+  and the formula is held as documented: SHA-256 over the maximum rate age's
+  `repr`, then `kind|instant|JSON` for each entry in order
+  (`tests/regression/test_schedule_digest_pins.py`). The values are what
+  v4.2.1 and v4.2.0 compute, and each frozen replay recorded its workload's.
+
+* **The product charter, and the documents that state AlphaLab's direction
+  reconciled to it** [plan WS-00, G0 item 2, D-V1; ADR-0056]. AlphaLab is a
+  universal, strategy-agnostic research engine for global markets whose
+  capability grows on a contract that stays stable: the public API, every
+  recorded identity and every persisted format. A boundary stands until its
+  own ADR reopens it under six binding principles (zero mandatory runtime
+  dependencies, optional dependencies through stable interfaces, no
+  process-as-sandbox, precision by error analysis, no single runtime across
+  the engines, no silent identity or format change). ROADMAP no longer calls
+  the engine "complete and frozen", `nowandfuture.md` no longer says nothing
+  is planned or that an engine needs no consumer, SYSTEM_DESIGN states the
+  bridge-or-library rule (CON-X2), and VISION and ARCHITECTURE cite the
+  charter. CONTRIBUTING and ENGINEERING_GUIDELINES describe how an approved
+  programme is delivered on one integration branch (G0 item 21).
+  `tests/regression/test_charter_is_stated_consistently.py` holds all of it.
+
+* **Release artifacts held to the commit they were built from** [plan WS-29,
+  RQ-05]. `release_preflight.py distributions` -- run by CI, the preflight
+  and release validation -- names the commit and tree in the verification
+  record (`--commit`, or the checkout's `HEAD`; outside a checkout it fails
+  rather than skip). Every file in the wheel's `alphalab/` must be the
+  commit's, byte for byte, with none added or left out, and every file of the
+  sdist but its generated `PKG-INFO` must be the commit's. Both artifacts are
+  then rebuilt from `git archive` of the commit alone, in a fresh directory,
+  and must be the same bytes. On a build of this branch the 627 package files
+  and 1,528 source files correspond, and the rebuild is byte-identical
+  (`tests/regression/test_release_correspondence.py`). `--no-source` checks
+  artifacts away from their source -- downloaded assets -- and the record then
+  says the source was not checked; no workflow may pass it.
+* **A run held to the schedule it was given, and its provenance** [ADR-0053,
+  plan WS-02, FUT-046]. A backtest's schedule is a driver input its record
+  does not name, so a checkpoint chain could be continued under another
+  schedule with nothing to refuse it. `RUN_SCHEDULE_DIGEST_SCHEME` names the
+  existing digest formula without changing it. `ScheduleBinding` names a
+  schedule by its scheme and digest (`RunSchedule.binding`,
+  `ScheduleCursor.binding`), and `ScheduleVerification` says how far a check
+  went -- `VERIFIED`, `DECLARED`, `UNRECORDED` or `NONE_GIVEN` -- never more.
+  `ScheduleCursor.start` takes a keyword-only `expected` binding and refuses
+  another schedule before applying anything. `checkpoint` takes a
+  keyword-only `schedule` binding and records it in the envelope, as
+  `CHECKPOINT_SCHEMA` 3; given none it writes version 2, byte for byte.
+  `restore_checkpoints` takes a keyword-only `schedule_binding`, and refuses
+  another schedule -- or none -- for a chain that recorded one.
+  `checkpoint_schedule` and `chain_schedule_verification` read a chain's
+  binding. `RunProvenance`, from `run_provenance(result, schedule=...)` or
+  `payload_provenance(payload, schedule=...)`, records beside a run what its
+  record does not name: its subject's digest, the effective schedule's
+  binding and its registry's digest. `verify_provenance` re-derives each of
+  them, and the record files in an evidence store
+  (`RUN_PROVENANCE_SCHEMA` 1). No driver's signature or return type changes,
+  creating provenance draws no identifier and serializes nothing twice, and
+  no `result_id`, `configuration_id`, `manifest_id` or digest moves
+  (`tests/integration/test_run_provenance.py`). Provenance claims no more
+  than the run's record allows: a binding of no schedule for a run that
+  delivered observations is refused, and `VERIFIED` is given only once the
+  run's own delivery record agrees with the schedule. It is tamper-evident,
+  not substitution-proof (LIM-009).
+* **A manifest held to the run's provenance, and an opt-in identity version
+  2** [ADR-0053 section 6, ADR-0052 option C, FUT-046, FUT-042]. Given the
+  run's provenance, `manifest_for_run` refuses provenance of another run,
+  another schedule, no schedule where the run was given one, one where it
+  was given none, and another registry -- claims the caller's own evidence
+  contradicts. Under identity version 1, the default, the manifest's
+  identity is unchanged by it. `manifest_for_run(identity_version=2)` makes
+  a version-2 manifest: its key renders `identity.version=2`, it records the
+  registry the run held, and it cites the provenance by its id when given
+  one; a version-2 manifest of a registry-holding run without the registry
+  is a gap, and one made without provenance carries a finding that its
+  schedule is unattested. `ReproducibilityManifest` gains `provenance_id`
+  and `identity_version` (last, defaulting to `None` and `1`), which
+  `canonical_manifest_key` and `derive_manifest_id` take as trailing
+  parameters, rendered only when given; `MANIFEST_IDENTITY_VERSIONS` names
+  the contracts this build makes. A version-2 rerun of a version-1 original
+  is compared by version 1's rules and says so. Every version-1 manifest --
+  each made before, and each default one made since -- keeps its id, its
+  verification and its assessment, and is stored as v4.2.1 stored it, byte for
+  byte: the two new fields are written only when they are not their defaults,
+  since an evidence store refuses another value under an identity it holds.
+  Making version 2 the default is FUT-042, for 5.0
+  (`tests/integration/test_manifest_provenance.py`). `rerun_from_manifest`
+  makes the rerun's manifest under the original's identity version, and an
+  original citing its run's provenance is compared with a rerun citing its
+  own: example 72's run, rerun in a fresh interpreter and on each host CI runs,
+  reproduces its `result_id`, its provenance and its version-2 manifest
+  (`tests/integration/test_provenance_end_to_end.py`, S-11).
+
+* **Probability distributions and the special functions under them**
+  [ADR-0058, plan WS-03, GAP-10]. `alphalab.common.distributions` is the one
+  authority for each of these. It covers Student's t, chi-squared, F, gamma,
+  beta, binomial and Poisson distributions, each with its CDF, survival
+  function and quantile, beside the normal. It also covers the special
+  functions under them: `log_gamma`, `log_beta`, `regularized_gamma_p`,
+  `regularized_gamma_q` and `regularized_incomplete_beta`. Every function
+  computes to binary64 precision by an algorithm whose criteria are stated
+  constants (`RELATIVE_TOLERANCE`, `ITERATION_LIMIT`). A survival function is
+  computed directly, never as one minus a CDF, so a p-value of `1e-30` keeps
+  its digits. Non-convergence raises the new `ConvergenceError` and never
+  returns a best effort. The names are exported from `alphalab.common`. They
+  are held to exact oracles (finite closed forms in 80-digit `Decimal` and
+  exact `Fraction`), within a tolerance derived from each formula's error
+  bound, and to published tables at the digits the tables print
+  (`tests/unit/common/test_distributions.py`).
+
+* **Factorizations and decompositions with vectors, and one Cholesky**
+  [ADR-0058, plan WS-03]. `alphalab.common.linalg` gains `cholesky`, which
+  returns a `CholeskyFactor` (its `lower` factor, its `pivots`, its
+  `pivot_ratio` and a `solve`) and refuses a matrix that is not positive
+  definite with `NotPositiveDefiniteError`, naming the pivot and the floor.
+  It also gains `symmetric_eigensystem` (Householder tridiagonalization and
+  implicit QL, returning a `SymmetricEigensystem`),
+  `singular_value_decomposition` (the thin decomposition by one-sided Jacobi,
+  returning a `SingularValueDecomposition`) and `pseudo_inverse` (returning a
+  `PseudoInverse` with the rank it kept). The iterative ones take a
+  `tolerance` and an iteration limit (`max_iterations`, `max_sweeps`) as
+  required keyword arguments, and `pseudo_inverse` its `relative_cutoff`: each
+  decides the answer, so none has a default. Each
+  result carries a `ConvergenceReport`, the new type exported from
+  `alphalab.common` that says which criterion stopped the method, what it
+  reached and in how many iterations; a method short of its criterion raises
+  `ConvergenceError`. They compute with `+ - * /`, `sqrt` and `fsum` only,
+  after an exact scaling by a power of two, so their results are the same
+  bits on every host and every supported CPython. A symmetric matrix is read
+  from its lower triangle. Each eigenvector and each right singular vector
+  has its largest-magnitude component positive. They are held to exact
+  oracles (Sturm bisection in `Decimal` for Wilkinson's `W21+`, whose two
+  largest eigenvalues are 1e-13 apart; closed forms; exact `Fraction`
+  inverses), to Higham's error bounds and Krylov-Weinstein's exact residual
+  bound, and to pinned values, which also pin `least_squares` and
+  `singular_values` (`tests/unit/common/test_linalg_factorizations.py`).
+  The constrained optimizer's own factorization moved there: `quadratic` and
+  Black-Litterman both call `cholesky`, and the private copy and its solve
+  are gone. Every factor, pivot ratio and solve is v4.2.1's float for float
+  (`tests/regression/test_cholesky_moved_unchanged.py`), so no portfolio
+  moves.
+
+* **Optimisers, a root finder and quadrature** [ADR-0058, plan WS-03].
+  `alphalab.common.optimize` holds `brent_root` (Brent's `zeroin`, returning a
+  `Root` and the bracket that holds it), `golden_section_minimum` (returning a
+  `ScalarMinimum`), `nelder_mead`, `bfgs` (with a strong Wolfe line search)
+  and `l_bfgs_b` (Byrd, Lu, Nocedal and Zhu's method for simple bounds: the
+  generalized Cauchy point, the direct primal subspace step and a projected
+  line search), each returning a `Minimum`, and `numerical_gradient` (central
+  differences over the represented step). `alphalab.common.quadrature`
+  holds `integrate`, globally adaptive Gauss-Kronrod (7, 15) quadrature as
+  QUADPACK's `QAG` does it, returning an `Integral`. Every tolerance,
+  iteration limit, difference step and L-BFGS-B history size is a required
+  argument, and every result carries a `ConvergenceReport`. A method that
+  cannot meet its criterion raises `ConvergenceError` with what it reached:
+  a gradient tolerance below what the objective's rounding lets a line
+  search resolve, an integrand singularity double precision cannot
+  approach, an iteration limit. It never returns a best effort. The
+  integrand is never evaluated at an endpoint. The tests hold Brent's
+  bracket to polynomial roots found in 60-digit `Decimal`, BFGS to a
+  quadratic's exact minimizer within `||A^-1|| tol`, L-BFGS-B to exact
+  clamped minimizers, the bound Rosenbrock minimum `(0.5, 0.25)` and its
+  authors' 25-variable `driver1` problem, and the quadrature rules to
+  exactness on every polynomial up to their degrees in 60-digit `Decimal`.
+  Each method's result is pinned identically under CPython 3.12, 3.13 and
+  3.14 (`tests/unit/common/test_optimize.py`,
+  `tests/unit/common/test_quadrature.py`). The deep-learning package's
+  gradient check keeps its own central difference and its figures; it is
+  recorded beside the new authority with the reason, for deprecation in 5.0
+  (GAP-48).
+
+* **The identity of an estimate** [ADR-0058 section 6, plan WS-03].
+  `alphalab.common.estimate` holds `Estimate`: a fit's parameters at full
+  precision, their standard errors, its method under its own scheme, the
+  identity of the data it was fitted on, every setting the caller stated, its
+  `ConvergenceReport` and the `NumericalClass` of its values (`EXACT`,
+  `CORRECTLY_ROUNDED`, `HOST_LIBM`). `Estimate.estimate_id` is SHA-256 over
+  `canonical_estimate_key` (`ESTIMATE_KEY_SCHEME` `alphalab.estimate.v1`). It
+  always covers the estimation problem: the method, the data's identity, the
+  settings (each tagged with its type) and an iterative method's tolerance and
+  limit. It covers the fitted values, and the iterations and measure a method
+  stopped at, only when they are class 1 or 2. A value computed through
+  `log` or `exp` is recorded beside the identity, never in it, so two hosts
+  fitting the same problem agree on the identity either way. `Estimate` and
+  `NumericalClass` are exported from `alphalab.common`
+  (`tests/unit/common/test_estimate.py`, two identities pinned).
+
+* **Selection statistics: measuring a search over backtests** [ADR-0054,
+  plan WS-06]. Pure functions over a matrix the caller holds, importing
+  nothing but `common` and their own package, deciding nothing:
+  * A `TrialMatrix` is T periods by N trials of one measure over one set of
+    instants.
+  * `probability_of_backtest_overfitting` is PBO by combinatorially symmetric
+    cross-validation. It requires the block count S (even, at most 20 and at
+    most T), a `SelectionMeasure`, and a `Trim` that declares any periods
+    dropped. It returns a `PBOResult` with PBO as an exact fraction, the
+    selected trial and logit of every split, and its tie convention: midranks,
+    counting a logit at 0.
+  * `reality_check` (White 2000) and `superior_predictive_ability` (Hansen
+    2005) bootstrap the best of K models against a benchmark. SPA reports its
+    lower, consistent and upper p-values, ordered by construction, and a model
+    far below the benchmark leaves its consistent p-value unchanged.
+  * `stationary_bootstrap_indices` (Politis and Romano) draws positions from
+    a SHA-256 counter stream (`STATIONARY_BOOTSTRAP_SCHEME`): integer
+    comparisons only, the same on every host.
+  * `minimum_track_record_length`.
+  * `autocorrelation_adjusted_probabilistic_sharpe_ratio` adds Newey-West
+    Bartlett-weighted autocovariances (required `lags`) to the independent
+    PSR's variance, so with no lags it is that PSR value for value.
+
+  Every replication count, block length, seed and lag count is required.
+  p-values are exact fractions. PBO's ranks are exact, and its logits and
+  SPA's `sqrt(2 ln ln T / T)` come from `Decimal`'s correctly rounded
+  logarithm, so RC, SPA and PBO are class 2. MinTRL and the adjusted PSR are
+  class 3.
+
+  They are held to an exact-enumeration oracle for PBO (every split recomputed
+  in `Fraction`), to exact recomputations of the Reality Check on binary-exact
+  data, to MinTRL's identity with the PSR, and to pinned values identical
+  under CPython 3.12, 3.13 and 3.14 (`tests/unit/research/test_selection_statistics.py`,
+  `tests/unit/research/test_data_snooping.py`). The existing PSR, DSR and
+  multiple-testing corrections are unchanged.
+
+* **The world's day counts** [plan WS-13, N21, GAP-36]. `DayCount` gains
+  `THIRTY_E_360` (the Eurobond basis), `THIRTY_E_360_ISDA`, `ACT_ACT_ISDA`,
+  `ACT_ACT_ICMA`, `ACT_365_LEAP` (ACT/365L), `NO_LEAP_365` (NL/365) and
+  `BUSINESS_252` (BUS/252), beside ACT/365F, ACT/360 and 30/360, each by its
+  published definition (ISDA 2006 section 4.16, ICMA Rule 251). A basis that
+  needs what only the instrument knows takes it as `DayCountTerms`, a new
+  keyword-only argument of `year_fraction` and `day_count_days`, and refuses
+  without it:
+  * ICMA and ACT/365L need the coupon period and frequency, and an accrual
+    must lie within that period;
+  * 30E/360 (ISDA) needs the termination date;
+  * BUS/252 needs the holidays and the weekend.
+
+  A term the basis does not use is refused, not ignored. `required_terms`
+  names a basis's terms. `days_in_year` refuses the three bases whose year
+  depends on the dates, and their year fractions are exact rationals rounded
+  once. `require_accrual_basis` admits only the bases that can weight a day
+  alone (ACT/365F, ACT/360, 30/360, 30E/360, NL/365). Financing and borrow
+  terms refuse any other basis at construction, rather than part-way through
+  a run. A bond accrues under ICMA and ACT/365L by its own coupon period,
+  measuring a short first coupon against its notional regular period, and
+  refuses BUS/252, having no calendar. An FX forward's terms refuse a basis
+  that needs an instrument's terms. The three existing bases compute exactly
+  what they did, so no accrual, run or `result_id` moves. Each new basis is
+  held to an independent restatement of its definition in `Fraction`, on
+  worked periods and on 300 random ones
+  (`tests/unit/conventions/test_global_day_counts.py`).
+
+## Changed
+
+* **A release is developed under its own version** [plan WS-29]. The package
+  reports 4.3.0 while 4.3.0 is developed, so the records that move with the
+  code are this release's as they change: the public-API manifest and its
+  history copy (`docs/api/history/4.3.0.json`), the release certificate, and
+  the ledger, which takes no finding for a release beyond the package's.
+  Until now the suite held every commit to the release state (ledger DOC-013,
+  TST-024), so a name added during development failed it until the version was
+  bumped at the end. The tree states which it is: a development tree leads its
+  CHANGELOG with `# [4.3.0] - Unreleased`, and
+  `release_preflight.development_problems` -- run by the suite -- holds it to
+  everything a release is held to but that heading's date. The release gate,
+  `release_preflight.py version`, is unchanged and refuses the tree for that
+  heading, so a development tree is never tagged or published. The documents
+  a reader installs from -- the README, `docs/INTEGRATION.md`, the version
+  markers -- keep describing 4.2.1, the release that can be installed, until
+  the release commit dates the heading and moves them; none may call 4.3.0
+  unreleased or a candidate, which is what v4.2.0 was published saying.
+  `.github/workflows/preflight.yml` expects 4.3.0, and its push route names
+  `work/v4.3.0-release`: the development branch never triggers it (plan
+  decision D-W1).
+
+## Fixed
+
+* **Example 39 says what its output shows** [DOC-015]. It printed a bond's
+  accrued interest under each day count and said "three answers", but
+  ACT/365F and ACT/360 gave the same accrual: a bond accrues the fraction of
+  its coupon period elapsed, so an actual-day basis's year cancels and only
+  the 30/360 family differs. It now says so, prints BUS/252's refusal, and the
+  false statement is pinned absent
+  (`tests/regression/test_corrected_statements_stay_corrected.py`).
+
+* **An unseeded run no longer borrows the identifier stream around it**
+  [DET-007, plan WS-02]. `id_scope(None)` -- how every driver opens an
+  unseeded run's scope -- did nothing, so a run declared unseeded but started
+  inside another seeded scope minted from that scope's stream. Its
+  identifiers looked reproducible and were not its own, and every identifier
+  the outer scope minted after it moved. The scope now installs `uuid4`, as
+  its docstring and ARCHITECTURE said it did, and the outer stream advances by
+  exactly zero across it, for the backtest, the replay and the session
+  (`tests/regression/test_unseeded_scopes_are_isolated.py`, which fails on the
+  parent commit). Seeded runs are unchanged, and so is every certified
+  identity: the certificate's evidence did not move, only the source digest it
+  names. An unseeded run that relied on an outer scope for reproducible
+  identifiers now mints from `uuid4`; give it its own seed instead.
+* **A tracker run and a research job are identified by what they are**
+  [DET-007, plan D-54-7]. `experiment_tracking.start_run` and
+  `cloud_research.submit_research_job` drew their identifiers from the
+  ambient stream: inside a seeded scope each consumed one of that scope's
+  identifiers, and outside one the same record had a new identity every time
+  it was made. Both now derive the identifier as an instrument's `asset_id`
+  is derived (ADR-0016): `uuid5` over a canonical key holding a scheme tag
+  (`alphalab.experiment_run.v1`, `alphalab.research_job.v1`), the record's
+  place in its tracker or cluster, and what it declares (a job's arguments
+  excepted). Starting a run draws nothing from any stream; a submission draws
+  only the stamp of its queue event, as every engine's events are stamped. A
+  lifecycle that tracks experiments now reproduces byte for byte without a
+  seed (`tests/regression/test_registries_derive_their_ids.py`,
+  `tests/unit/lifecycle/test_lifecycle_serialization.py`). Identifiers
+  already recorded are read as they were; new ones are derived.
+* **Documents that told strategy authors and security readers what the code
+  does not do** [plan WS-20, GAP-30's High items]. COMPOSING said a refused
+  amend loses the original order; the order keeps working (CON-X4,
+  FUT-031). `nowandfuture.md` said three strategy hooks are never invoked;
+  all ten are delivered (CON-N2, EXE-005). The capability matrix, and an
+  example's comment, described the position check's v3.10-era defect as
+  current (CON-X1, KD-001). VISION listed an HMAC-signed venue transport the
+  library no longer ships. CONTRIBUTING invited broker and data-provider
+  adapters, which belong to the host (CON-X14). ARCHITECTURE said loading
+  code is the host's without naming `cloud_research.resolve_task`, the one
+  exception (CON-A5, BDY-028), and its authoritative status section had no
+  word on v4.2 (CON-A15). Each statement was corrected against the code, and
+  `tests/regression/test_corrected_statements_stay_corrected.py` keeps the
+  false ones out and requires the status section to describe the current
+  minor release.
+
+* **The normal CDF keeps its lower tail** [NUM-017]. `common.statistics.normal_cdf`
+  was the standard library's `NormalDist.cdf`, `(1 + erf(x / √2)) / 2`, whose
+  relative error below 0 grew to `4e-11` at `-5` and two percent at `-8`, and
+  which returned exactly 0 below about `-8.3`. Below 0 it is now
+  `erfc(-x / √2) / 2`. At and above 0 it is unchanged, value for value, so a
+  probabilistic or deflated Sharpe ratio above one half is unchanged too, and
+  one far below its benchmark is a small probability rather than zero
+  (`tests/regression/test_normal_cdf_keeps_its_lower_tail.py`).
+
+* **A schedule allocates the same for every caller** [EXE-015].
+  `execution.plan_schedule` ranked its remainders by a sort key that negated
+  each `Decimal`, and a negation rounds to the caller's context. Inside a run,
+  which is pinned to 34 digits, ten units over a TWAP's three slices are
+  `3, 4, 3`; called directly under the default 28 digits, they were `4, 3, 3`.
+  The ranking now compares the remainders exactly, so a direct call allocates
+  as a run does, under any context. No run's allocation, and no `result_id`,
+  moves. Equal slices tying exactly would change existing runs, and is FUT-048,
+  for 5.0.
+
+## Security
+
+* **The HTTP transport opens `http://` and `https://` only** [SEC-002, plan
+  WS-23]. `alphalab.marketdata.HttpTransport.get` passed its URL to `urllib`,
+  which also opens `file://`, `ftp://` and `data:` URLs: given
+  `file:///etc/hosts` it returned the file's bytes as if a provider had sent
+  them. A transport's URL is configuration, so this is a trust boundary of
+  the class BDY-028 named. Every other URL, and one with no host, is now
+  refused with a `MarketDataError` before anything is opened, and a redirect
+  is followed only to `http://` or `https://`, checked before `urllib`'s own
+  rules (which would follow `ftp://`). An `https://` request still carries
+  AlphaLab's TLS policy. `SECURITY.md` says so (CON-X16), and
+  `tests/unit/marketdata/test_http_transport.py` holds it against a loopback
+  provider; it fails on the parent commit.
+
+---
+
 # [4.2.1] - 2026-11-09
 
 **A documentation and release-integrity patch: the 4.2 release's own documents

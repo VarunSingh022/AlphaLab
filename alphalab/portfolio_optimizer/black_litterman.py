@@ -60,9 +60,9 @@ from typing import Final
 
 from alphalab.analytics.risk_model import CovarianceMatrix
 from alphalab.common.arithmetic import canonical_text
+from alphalab.common.linalg import NotPositiveDefiniteError, cholesky
 from alphalab.portfolio_optimizer.construction import ExpectedReturns
 from alphalab.portfolio_optimizer.exceptions import ConstructionInputError
-from alphalab.portfolio_optimizer.quadratic import _cholesky, _cholesky_solve
 
 __all__ = [
     "BLACK_LITTERMAN_SCHEME",
@@ -424,23 +424,23 @@ def black_litterman(model: BlackLittermanModel) -> BlackLittermanPosterior:
         math.fsum(pick[column] * prior[column] for column in range(count)) for pick in picks
     ]
     if size:
-        factored = _cholesky(system)
-        if factored is None:
+        try:
+            factored = cholesky(system)
+        except NotPositiveDefiniteError as error:
             raise ConstructionInputError(
                 "P (tau C) P' + Omega is numerically singular: the views are too confident and "
                 "too collinear to separate in double precision."
-            )
-        lower = factored[0]
-        surprise = _cholesky_solve(lower, [stated[k] - prior_implied[k] for k in range(size)])
+            ) from error
+        surprise = factored.solve([stated[k] - prior_implied[k] for k in range(size)])
         posterior = [
             prior[row] + math.fsum(projected[row][k] * surprise[k] for k in range(size))
             for row in range(count)
         ]
         # X = A^-1 P (tau C), column by column: A x_j = (P tau C)[:, j] = projected[j, :]
-        solved = [_cholesky_solve(lower, projected[column]) for column in range(count)]
+        solved = [factored.solve(projected[column]) for column in range(count)]
     else:
         posterior = list(prior)
-        solved = [[] for _ in range(count)]
+        solved = [() for _ in range(count)]
 
     uncertainty = [[0.0] * count for _ in range(count)]
     for row in range(count):

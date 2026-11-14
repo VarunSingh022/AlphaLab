@@ -176,6 +176,21 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ("0051", "A halt's first event after it trades at its own price"): "FUT-020",
     # FUT-021 delivered holding exchanges; its stated limitation.
     ("0051", "An exchange applies its declared outcome at its instant"): "FUT-021",
+    # ADR-0053, v4.3: run and input provenance.
+    ("0053", "A matching digest is evidence of integrity, not of authenticity"): "LIM-009",
+    ("0053", "Only a run given its provenance is held to its schedule"): "FUT-047",
+    ("0053", "A default manifest still names the registry by type"): "FUT-042",
+    # ADR-0054, v4.3: selection statistics.
+    ("0054", "CSCV and the bootstraps assume stationarity"): "LIM-011",
+    # ADR-0058, v4.3: the numerical foundation.
+    ("0058", "A class-3 statistic is compared by tolerance, not by identity"): "LIM-005",
+    ("0058", "Pure-Python numerics are slow at scale"): "LIM-010",
+    # ADR-0055, v4.3: streaming research capture.
+    ("0055", "A paused replay is not captured"): "FUT-049",
+    ("0055", "A series is in the run's base currency"): "LIM-012",
+    # ADR-0059, v4.3: historical universes and reference-data packs.
+    ("0059", "A delisting does not settle a held position"): "FUT-050",
+    ("0059", "AlphaLab ships no membership data"): "BDY-013",
 }
 
 

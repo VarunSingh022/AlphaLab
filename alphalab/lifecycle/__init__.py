@@ -404,6 +404,7 @@ from alphalab.lifecycle.reconciliation import (
 )
 from alphalab.lifecycle.registration import register_model_version, register_strategy
 from alphalab.lifecycle.reproducibility import (
+    MANIFEST_IDENTITY_VERSIONS,
     REPRODUCIBILITY_MANIFEST_SCHEME,
     AdaptiveReplayAssessment,
     DatasetProvenanceView,
@@ -487,6 +488,7 @@ __all__ = [
     "INITIAL_STAGE",
     "LEGAL_PROGRESSION_TRANSITIONS",
     "LIFECYCLE_PERMISSIONS",
+    "MANIFEST_IDENTITY_VERSIONS",
     "MONETARY_METRICS",
     "NO_DEPENDENCIES",
     "PAUSABLE_STAGES",

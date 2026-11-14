@@ -4,7 +4,7 @@ Usage, from the repository root::
 
     python docs/audit/scripts/release_preflight.py version (--expected 4.0.0 | --tag v4.0.0)
     python docs/audit/scripts/release_preflight.py distributions DIST --version 4.0.0 \\
-        [--record PATH] [--python PYTHON]
+        [--record PATH] [--python PYTHON] [--commit SHA | --no-source]
     python docs/audit/scripts/release_preflight.py codeql SARIF_DIR
     python docs/audit/scripts/release_preflight.py package-version
     python docs/audit/scripts/release_preflight.py approval --sha SHA --version V --repo OWNER/REPO
@@ -28,7 +28,13 @@ beside a local build -- so a hosted run and a local one check the same things.
     tree says it is: the CHANGELOG's heading for it carries the date it is
     published, no release-facing document calls it unreleased, a candidate or
     not yet published, or names another release as the published one, and the
-    history's copy of the manifest is the manifest.
+    history's copy of the manifest is the manifest. Since v4.3 a release is
+    developed under its own version, in a tree whose CHANGELOG leads with
+    ``# [V] - Unreleased``: this check refuses that heading, so a development
+    tree is never tagged or published, and ``development_problems`` -- which the
+    suite runs -- holds such a tree to everything else a release is held to,
+    with its documents still describing the release before it
+    (``documented_release``).
 
 ``distributions``
     ``DIST`` holds exactly ``alphalab-<version>.tar.gz`` and
@@ -41,6 +47,19 @@ beside a local build -- so a hosted run and a local one check the same things.
     runs ``pip check``, holds the import location, the version, every module and
     every public name to the source, and runs examples 11 and 70 with the
     network refused. ``--record`` writes what was checked, and its outcome.
+
+    Since v4.3 (plan WS-29) the artifacts are also held to the commit they were
+    built from -- ``--commit``, or the checkout's ``HEAD`` -- and the record names
+    that commit and its tree. Every file in the wheel's ``alphalab/`` is the
+    commit's, byte for byte, and every file the commit holds there is in the
+    wheel; every file in the source distribution but its generated ``PKG-INFO``
+    is the commit's. Both artifacts are then rebuilt from ``git archive`` of the
+    commit alone, in a fresh directory, and must be the same bytes: a build that
+    only one checkout can produce is not a release anyone can verify. Outside a
+    git checkout, with no ``--commit``, the command fails rather than skip this.
+    ``--no-source`` checks artifacts with no source to hold them to -- assets
+    downloaded to be verified -- and the record then says the source was not
+    checked; no workflow passes it (a test pins their arguments).
 
 ``codeql``
     Reads the SARIF a CodeQL analysis wrote and fails on any result whose level
@@ -70,6 +89,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import platform
@@ -266,6 +286,83 @@ def version_problems(expected: str | None, root: Path = ROOT) -> Problems:
             "copy of its manifest is the manifest (ledger TST-024)"
         )
     problems += release_status_problems(version, root)
+    return problems
+
+
+def _development_heading(version: str) -> str:
+    """The CHANGELOG heading of a release being developed: its version, and no date yet."""
+
+    return f"# [{version}] - Unreleased"
+
+
+def _numbers(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def developing(version: str, root: Path = ROOT) -> bool:
+    """Whether the tree is ``version`` in development: the CHANGELOG leads with its undated head."""
+
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    first = next((line for line in changelog.splitlines() if line.startswith("# [")), None)
+    return first == _development_heading(version)
+
+
+def documented_release(root: Path = ROOT) -> str | None:
+    """The release the release-facing documents describe: the newest one the CHANGELOG dates (v4.3).
+
+    In a release's tree that is the package's version, whose heading carries the
+    date it is published (:func:`version_problems`). In a development tree
+    (:func:`development_problems`) it is the published release the next one
+    builds on: the documents a reader installs from describe what can be
+    installed, until the release commit dates the new heading and moves them.
+    """
+
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    for line in changelog.splitlines():
+        dated = _RELEASE_HEADING.fullmatch(line)
+        if dated is not None and _is_date(dated["date"]):
+            return dated["version"]
+    return None
+
+
+def development_problems(version: str, root: Path = ROOT) -> Problems:
+    """Every place a tree developing ``version`` is not coherently that (v4.3, plan WS-29).
+
+    A programme delivered on one long-lived branch must leave every gate green
+    at every commit, and a release's records move with its code: a name added
+    while 4.3.0 is developed is recorded in 4.3.0's public-API manifest, and the
+    ledger takes 4.3.0's findings as they are fixed. Until v4.3 the suite held
+    every commit to the release state (ledger DOC-013, TST-024), so such a
+    commit failed it until the version was bumped at the end.
+
+    So a release is developed under its own version, in a state the tree
+    states: the CHANGELOG leads with ``# [V] - Unreleased``. Everything
+    :func:`version_problems` holds a release to holds, but for that heading's
+    date -- which is what the release gate, ``version``, still refuses, so a
+    development tree is never tagged or published. The documents a reader
+    installs from keep describing the newest dated release, which must be older
+    than V (:func:`documented_release`); a statement of which release is
+    published names that one, and no release-facing line calls V unreleased or
+    a candidate, as v4.2.0's did when it shipped (DOC-013).
+    """
+
+    problems: Problems = []
+    if not developing(version, root):
+        problems.append(f"CHANGELOG.md does not lead with {_development_heading(version)!r}")
+    documented = documented_release(root)
+    if documented is None:
+        problems.append("CHANGELOG.md dates no release for this one to follow")
+    elif _VERSION.fullmatch(version) is not None and _numbers(documented) >= _numbers(version):
+        problems.append(
+            f"{version} is not later than {documented}, the newest release CHANGELOG.md dates"
+        )
+    undated = f"CHANGELOG.md's heading for {version} is not "
+    published = f" names {documented} the published release, not {version}"
+    problems += [
+        problem
+        for problem in version_problems(version, root)
+        if not (problem.startswith(undated) or problem.endswith(published))
+    ]
     return problems
 
 
@@ -519,13 +616,167 @@ def install_and_smoke(
     return problems, log
 
 
-def _record(path: Path, version: str, dist: Path, lines: Sequence[str], problems: Problems) -> None:
+def _git(arguments: Sequence[str], root: Path, data: bytes | None = None) -> bytes:
+    return subprocess.run(
+        ["git", *arguments], cwd=root, input=data, capture_output=True, check=True
+    ).stdout
+
+
+def commit_identity(root: Path = ROOT, commit: str = "HEAD") -> tuple[str, str] | None:
+    """``commit`` as a full SHA, and its tree's; ``None`` when ``root`` cannot resolve it."""
+
+    try:
+        sha = _git(["rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}"], root)
+        tree = _git(["rev-parse", "--verify", "--quiet", f"{commit}^{{tree}}"], root)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return sha.decode().strip(), tree.decode().strip()
+
+
+def commit_files(commit: str, root: Path = ROOT) -> dict[str, bytes]:
+    """Every file ``commit`` holds, by its path, with the bytes the commit records.
+
+    Read from the object store, not the working tree, so an edit the commit
+    does not hold is not mistaken for its content.
+    """
+
+    listing = _git(["ls-tree", "-r", "-z", "--full-tree", commit], root)
+    entries: list[tuple[str, str]] = []
+    for entry in filter(None, listing.split(b"\0")):
+        header, raw_path = entry.split(b"\t", 1)
+        _mode, kind, sha = header.split()
+        if kind == b"blob":
+            entries.append((sha.decode(), raw_path.decode()))
+    batch = _git(["cat-file", "--batch"], root, "".join(f"{sha}\n" for sha, _ in entries).encode())
+    files: dict[str, bytes] = {}
+    offset = 0
+    for _sha, path in entries:
+        end = batch.index(b"\n", offset)
+        size = int(batch[offset:end].split()[2])
+        files[path] = batch[end + 1 : end + 1 + size]
+        offset = end + 1 + size + 1
+    return files
+
+
+#: What a build writes into a source distribution that no commit holds.
+_GENERATED = frozenset({"PKG-INFO"})
+
+
+def correspondence_problems(
+    dist: Path, version: str, files: Mapping[str, bytes]
+) -> tuple[Problems, list[str]]:
+    """Each artifact holds the commit's files, byte for byte (plan WS-29).
+
+    The wheel's ``alphalab/`` is exactly the commit's ``alphalab/``: no file
+    changed, none added, none left out. Every file of the source distribution
+    but ``PKG-INFO`` is the commit's; the sdist carries a declared subset of the
+    tree, so a file it leaves out is not a problem here.
+    """
+
+    sdist_name, wheel_name = artifact_names(version)
+    problems: Problems = []
+    with zipfile.ZipFile(dist / wheel_name) as wheel:
+        packaged = {
+            name: wheel.read(name)
+            for name in wheel.namelist()
+            if name.startswith("alphalab/") and not name.endswith("/")
+        }
+    committed = {path: data for path, data in files.items() if path.startswith("alphalab/")}
+    changed = sorted(
+        name for name in packaged.keys() & committed.keys() if packaged[name] != committed[name]
+    )
+    added = sorted(packaged.keys() - committed.keys())
+    left_out = sorted(committed.keys() - packaged.keys())
+    for what, names in (
+        ("differ from the commit", changed),
+        ("are not in the commit", added),
+        ("are the commit's but not in the wheel", left_out),
+    ):
+        if names:
+            problems.append(f"{wheel_name}: {len(names)} package files {what}: {names[:5]}")
+    top = f"alphalab-{version}/"
+    sourced = 0
+    with tarfile.open(dist / sdist_name) as sdist:
+        for member in sdist.getmembers():
+            if not member.isfile() or not member.name.startswith(top):
+                continue
+            path = member.name[len(top) :]
+            if path in _GENERATED:
+                continue
+            handle = sdist.extractfile(member)
+            assert handle is not None
+            if files.get(path) != handle.read():
+                problems.append(f"{sdist_name}: {path} is not the commit's")
+            sourced += 1
+    lines = [
+        f"wheel: {len(packaged)} package files, each the commit's, none missing"
+        if not (changed or added or left_out)
+        else "wheel: does not match the commit -- see Problems",
+        f"sdist: {sourced} source files, each the commit's"
+        if not any(problem.startswith(sdist_name) for problem in problems)
+        else "sdist: does not match the commit -- see Problems",
+    ]
+    return problems, lines
+
+
+def reproduction_problems(
+    dist: Path, version: str, commit: str, python: str, *, root: Path = ROOT, isolation: bool = True
+) -> tuple[Problems, list[str]]:
+    """Both artifacts, rebuilt from ``git archive`` of ``commit`` alone, are the same bytes.
+
+    The rebuild runs in a fresh directory holding nothing but the commit's
+    files, with ``python -m build`` -- the command CI and the preflight build
+    with -- so it proves the artifacts depend on the commit and the build
+    backend, not on the checkout that first built them or on when.
+    """
+
+    sdist_name, wheel_name = artifact_names(version)
+    with tempfile.TemporaryDirectory(prefix="alphalab-rebuild-") as temporary:
+        source, rebuilt = Path(temporary) / "source", Path(temporary) / "dist"
+        source.mkdir()
+        archive = _git(["archive", "--format=tar", commit], root)
+        with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+            tar.extractall(source, filter="data")
+        command = [python, "-m", "build", "--outdir", str(rebuilt), str(source)]
+        if not isolation:
+            command.append("--no-isolation")
+        code, output = _run(command, cwd=source)
+        if code != 0:
+            return [f"rebuilding from {commit[:12]} failed (exit {code}):\n{output[-2000:]}"], [
+                f"rebuilt from the commit: failed (exit {code})"
+            ]
+        problems: Problems = []
+        for name in (sdist_name, wheel_name):
+            original = hashlib.sha256((dist / name).read_bytes()).hexdigest()
+            again = rebuilt / name
+            if not again.is_file():
+                problems.append(f"rebuilding from {commit[:12]} produced no {name}")
+            elif hashlib.sha256(again.read_bytes()).hexdigest() != original:
+                problems.append(f"{name} rebuilt from {commit[:12]} is not byte-identical")
+    lines = [
+        "rebuilt from the commit alone: both artifacts byte-identical"
+        if not problems
+        else "rebuilt from the commit alone: not identical -- see Problems"
+    ]
+    return problems, lines
+
+
+def _record(
+    path: Path,
+    version: str,
+    dist: Path,
+    lines: Sequence[str],
+    problems: Problems,
+    source: tuple[str, str] | None = None,
+) -> None:
     sums = (dist / f"SHA256SUMS-{version}").read_text(encoding="utf-8").rstrip()
     verdict = "PASSED" if not problems else "FAILED"
+    built = [f"Built from commit {source[0]}, tree {source[1]}.", ""] if source is not None else []
     text = "\n".join(
         [
             f"AlphaLab {version} -- distribution verification: {verdict}",
             "",
+            *built,
             f"Checked on {platform.platform()}, {platform.python_implementation()} "
             f"{platform.python_version()}, by docs/audit/scripts/release_preflight.py.",
             "",
@@ -542,7 +793,14 @@ def _record(path: Path, version: str, dist: Path, lines: Sequence[str], problems
 
 
 def distributions(
-    dist: Path, version: str, record: Path | None, python: str, smoke: Path | None = None
+    dist: Path,
+    version: str,
+    record: Path | None,
+    python: str,
+    smoke: Path | None = None,
+    commit: str | None = None,
+    *,
+    root: Path = ROOT,
 ) -> Problems:
     """Check, hash, install and smoke-test this release's two artifacts in ``dist``.
 
@@ -571,12 +829,38 @@ def distributions(
         " no bytecode or cache" + (" -- see Problems" if problems else ""),
         f"checksums written: {checksums.name}",
     ]
+    source = None
+    if commit is None:
+        lines.append("source: not checked -- no commit was given (--no-source)")
+    else:
+        # Resolved only now, after every path was checked: a missing DIST is named as
+        # such outside a checkout too -- in an unpacked sdist, say.
+        source = commit_identity(root, commit)
+        if source is None:
+            # Nothing is installed for artifacts whose source cannot be named.
+            return [
+                *problems,
+                f"{root} is not a git checkout: name the commit the artifacts were built from "
+                "with --commit"
+                if commit == "HEAD" and commit_identity(root) is None
+                else f"{commit!r} is not a commit {root} can resolve",
+            ]
+        else:
+            lines.append(f"source: commit {source[0]}, tree {source[1]}")
+            found, log = correspondence_problems(dist, version, commit_files(source[0], root))
+            problems += found
+            lines += log
+            # Rebuilt with the interpreter running this check -- the one whose `build`
+            # CI and the preflight use -- not the one fresh environments are made from.
+            found, log = reproduction_problems(dist, version, source[0], sys.executable, root=root)
+            problems += found
+            lines += log
     for name in artifact_names(version):
         found, log = install_and_smoke(dist / name, version, python, smoke)
         problems += found
         lines += log
     if record is not None:
-        _record(record, version, dist, lines, problems)
+        _record(record, version, dist, lines, problems, source)
     for line in lines:
         print(line)
     return problems
@@ -750,6 +1034,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     dist.add_argument("--version", required=True)
     dist.add_argument("--record", type=Path)
     dist.add_argument("--python", default=sys.executable, help="interpreter to create venvs with")
+    origin = dist.add_mutually_exclusive_group()
+    origin.add_argument(
+        "--commit", help="the commit the artifacts were built from (default: the checkout's HEAD)"
+    )
+    origin.add_argument(
+        "--no-source",
+        action="store_true",
+        help="check the artifacts alone; the record says their source was not checked",
+    )
     commands.add_parser(
         "package-version", help="print the version alphalab/common/_version.py declares"
     )
@@ -785,10 +1078,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not problems:
             print(f"release approval: {arguments.version} at {arguments.sha}")
     elif arguments.command == "distributions":
+        # The checkout's HEAD unless a commit is named; resolved after the paths are checked.
+        commit = None if arguments.no_source else (arguments.commit or "HEAD")
         try:
             problems = distributions(
-                arguments.dist, arguments.version, arguments.record, arguments.python
-            )
+                arguments.dist, arguments.version, arguments.record, arguments.python,
+                commit=commit,
+            )  # fmt: skip
         except PathRefused as refused:
             problems = [str(refused)]
     else:
