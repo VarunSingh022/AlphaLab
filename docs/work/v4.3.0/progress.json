@@ -473,8 +473,15 @@
       "deliverables": "ADR-0053 revised: provenance, restores, checkpoint 3, vocabulary, opt-in manifest v2",
       "exit_gate": "S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9",
       "size": "M",
-      "status": "In progress",
-      "evidence": []
+      "status": "Hosted CI passed",
+      "evidence": [
+        "Exit gate, S-11, cross-OS rerun REPRODUCED: tests/integration/test_provenance_end_to_end.py pins example 72's result_id and provenance_id, reproduces them with the version-2 manifest in a fresh interpreter under another hash seed, and rerun_from_manifest reports REPRODUCED under the same contract; green on every Linux and macOS cell of CI run 43560463598.",
+        "Exit gate, a wrong schedule refused at continuation: ScheduleCursor.start(expected=) and restore_checkpoints(schedule_binding=) refuse another schedule, or none, before anything is applied or restored (test_run_provenance.py, test_provenance_end_to_end.py); forged provenance is never VERIFIED.",
+        "Exit gate, CR-53-1 to CR-53-9: the drivers and facades unchanged and only trailing keyword or defaulted parameters added (the API manifest's diff); checkpoint versions 1 and 2 read and the frozen v4.2.1 chain resumed; RunSchedule.digest byte-identical (M0's pins); no RunState, pipeline or BacktestResult field added (test_run_runtime_boundary.py unedited); zero identifiers drawn; manifest_id unchanged unless identity version 2 is asked for, and a version-1 manifest stored as v4.2.1 stored it; the certificate's evidence unchanged; the mutation series P01-P14 all caught.",
+        "Full local gates passed on da77ad5, b289b93 and 01cfc3c (clean clones, CPython 3.12.4).",
+        "Documentation: ADR-0053 (accepted), STATE_MODEL (checkpoint 3, the provenance record), COMPOSING_STRATEGIES section 7 and GETTING_STARTED's reproduction section."
+      ],
+      "note": "Decided under delegation at M1: ADR-0053 revision 3 (G0 item 6), D-F42 (item 11); TD-06 to TD-08."
     },
     {
       "id": "M2",
@@ -731,7 +738,7 @@
         "M0",
         "M1"
       ],
-      "status": "In progress",
+      "status": "Hosted CI passed",
       "items": [
         {
           "milestone": "M0",
@@ -746,37 +753,37 @@
         {
           "milestone": "M1",
           "item": "ADR-0053 revision 3 accepted (R53-1 to R53-8, CR-53-1 to CR-53-9; TD-06)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M1",
           "item": "ScheduleBinding and the verification vocabulary (VERIFIED, DECLARED, UNRECORDED, NONE_GIVEN); RunSchedule.binding, ScheduleCursor.binding",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M1",
           "item": "A continuation held to its schedule: ScheduleCursor.start(expected=), checkpoint schema 3 written only when given, restore_checkpoints(schedule_binding=)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M1",
           "item": "Run provenance: RunProvenance, run_provenance, payload_provenance, verify_provenance, filed as evidence (RUN_PROVENANCE_SCHEMA 1)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M1",
           "item": "manifest_for_run(provenance=) with the D-53-3 refusals, and the opt-in identity version 2 (ADR-0052 option C, FUT-042)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M1",
           "item": "S-11 end to end: a rerun in a fresh process REPRODUCED against pinned identities on Linux and macOS; a wrong schedule refused at continuation",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M1",
           "item": "CR-53-9: M1's mutation series P01-P14 run, every mutation caught or its survivor explained",
-          "status": "In progress"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": [
@@ -787,7 +794,9 @@
         "Hosted CI passed on 643d947 (CI run 42763156527, six cells; CodeQL 42763156687), carrying 58920fc, 04b3e10 and c48f5f7.",
         "M1, first increment: alphalab/runtime/schedule_check.py, alphalab/backtesting/provenance.py, ScheduleCursor.start(expected=), checkpoint schema 3. tests/integration/test_run_provenance.py (25 tests): chains checkpointed after 1, 3 and 4 records continue under their schedule to the uninterrupted result_id; another schedule, none, and two bindings in one chain are refused; an unbound chain is UNRECORDED; provenance is the result's id, draws nothing, refuses another schedule, run, registry and an edit; a payload's provenance is DECLARED; round trip and evidence filing. The public API grew by 13 names (2,767 exports); checkpoint and restore_checkpoints each gained one keyword-only parameter defaulting to None (CR-53-2). Certificate: the source digest and API-1's manifest digest and count moved; no DET, REP or PAR evidence did (CR-53-8). Suite: 11,097 passed once the two schema-constant inventories admitted RUN_PROVENANCE_SCHEMA.",
         "M1, second increment: manifest_for_run(provenance=, identity_version=) in alphalab/lifecycle/reproducibility.py; the delivery-record rule (REP-009) is now one function, backtesting.provenance.delivery_disagreement, used by both manifests and provenance, its messages unchanged. tests/integration/test_manifest_provenance.py (12 tests, on example 72's registry-holding run): under version 1 a manifest made with provenance is the manifest made without it; provenance of another run, another schedule, none named, one named where none, and another registry are refused; version 2 records the registry and cites the provenance, verifies, and has a new identity by design; a version-2 manifest lacking its registry is a gap; an unknown version is refused and does not verify; a version-2 rerun of a version-1 original REPRODUCED by version 1's rules; the unattested finding under version 2 alone; a version-1 manifest stored as v4.2.1 stored it, which the frozen v4.2.1 evidence store holds. The full gate's first run on this increment found the draft writing the two new fields into every stored manifest -- a value an evidence store holding v4.2.1's copy would refuse -- and the projection was fixed before the push. Ledger: FUT-046 implemented (v4.3.0) with its criteria amended (D-53-7); FUT-042 restated as the default flip for 5.0; ADR-0052 accepted (option C, opt-in). Certificate: only the source digest and API-1 moved, so no version-1 manifest identity in the certificate's evidence moved (CR-53-7).",
-        "S-11, M1's exit gate (tests/integration/test_provenance_end_to_end.py, 6 tests): example 72's run, its provenance and a version-2 manifest citing it are made; a fresh interpreter under another hash seed reproduces all three; the result_id 0e3be7cb... and provenance_id 218292b0... are pinned, so CI's Linux and macOS cells each hold the host to them; rerun_from_manifest REPRODUCED the run under the same contract, its manifest version 2 and citing the rerun's own provenance; a continuation under a wrong schedule is refused by the cursor and by verify_provenance; forged provenance binding a schedule the run's own record contradicts -- one without its last delivery, or none -- is never VERIFIED. Provenance now refuses a binding of no schedule for a run that delivered observations, a rule a manifest cannot adopt in 4.x (TD-08)."
+        "S-11, M1's exit gate (tests/integration/test_provenance_end_to_end.py, 6 tests): example 72's run, its provenance and a version-2 manifest citing it are made; a fresh interpreter under another hash seed reproduces all three; the result_id 0e3be7cb... and provenance_id 218292b0... are pinned, so CI's Linux and macOS cells each hold the host to them; rerun_from_manifest REPRODUCED the run under the same contract, its manifest version 2 and citing the rerun's own provenance; a continuation under a wrong schedule is refused by the cursor and by verify_provenance; forged provenance binding a schedule the run's own record contradicts -- one without its last delivery, or none -- is never VERIFIED. Provenance now refuses a binding of no schedule for a run that delivered observations, a rule a manifest cannot adopt in 4.x (TD-08).",
+        "CR-53-9, M1's mutation series (docs/audit/scripts/mutation_v4_3.py, P01-P14, run on 01cfc3c's tree with three workers): the unmutated baseline passed, 11,025 tests with the 90 clock-reading tests deselected, and all 14 mutations were caught, each by the test written for it -- among them P01 and P02 (the binding not checked), P03 (the scheme rendered into the digest, caught by M0's golden pins), P04 (VERIFIED without the run's record, caught by the forgery test), P11 (an unbound checkpoint written as version 3) and P13 (a rerun under version 1).",
+        "Hosted CI passed on 01cfc3c (CI run 43560463598): all six cells -- ubuntu-latest and macos-latest under CPython 3.12, 3.13 and 3.14 -- ran S-11 against its pinned result_id 0e3be7cb... and provenance_id 218292b0..., so the run and its provenance reproduce across both operating systems; CodeQL 43560463619 green."
       ]
     },
     {
@@ -2010,7 +2019,7 @@
   },
   "state": {
     "updated": "2026-11-14",
-    "remote_head": "1508966254be7fc4599435ef0aa279c66c90ca25",
+    "remote_head": "01cfc3c46903e5e378a4743c4a048f421ce5928b",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2086,14 +2095,26 @@
         "result": "success"
       },
       {
+        "sha": "01cfc3c",
+        "workflow": "Continuous Integration",
+        "run": 43560463598,
+        "result": "success: all six quality-gate cells, S-11's pinned identities held on Linux and macOS"
+      },
+      {
+        "sha": "01cfc3c",
+        "workflow": "CodeQL",
+        "run": 43560463619,
+        "result": "success"
+      },
+      {
         "sha": "every push",
         "workflow": "Release Preflight",
-        "run": 42818861920,
+        "run": 43560463601,
         "result": "skipped by design on every push: it runs only with the release-preflight label or by dispatch (D-W1); not a pass"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "Push da77ad5 and the manifest commit; record their hosted CI. Then S-11: a rerun in a fresh process REPRODUCED against pinned identities, run on Linux and macOS by CI; a wrong schedule refused at continuation. Then M1's mutation series (CR-53-9) and its acceptance record.",
+    "next": "M2 (WS-03, WS-06 math, WS-13 N21): ADR-0058 (the numerical foundation and the precision policy, G0 item 24's direction) and ADR-0054 (plan 0054A, selection statistics); then common.distributions and special functions, the eigensystem and SVD with vectors, Cholesky as one authority, optimisers and quadrature, the Estimate type; the selection statistics; global day counts.",
     "open_questions": []
   },
   "log": [
@@ -2172,6 +2193,10 @@
     {
       "date": "2026-11-14",
       "entry": "M2 begun: ADR-0058 (the numerical foundation and the precision policy, G0 item 24's direction; TD-09) and ADR-0054 (plan 0054A, selection statistics; TD-10) accepted; their limitations in the ledger (LIM-010, LIM-011, and LIM-005's class)."
+    },
+    {
+      "date": "2026-11-14",
+      "entry": "M1 closed on hosted CI: 01cfc3c green on all six cells (CI run 43560463598), S-11 reproduced across Linux and macOS, and M1's mutation series P01-P14 all caught. The ADR-0054 draft, deleted from scratch by macOS's /tmp cleaning, was recovered from its writing session's transcript at its recorded digest (083b725b...)."
     }
   ]
 }

@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `1508966254be7fc4599435ef0aa279c66c90ca25` |
+| Remote head | `01cfc3c46903e5e378a4743c4a048f421ce5928b` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | Push da77ad5 and the manifest commit; record their hosted CI. Then S-11: a rerun in a fresh process REPRODUCED against pinned identities, run on Linux and macOS by CI; a wrong schedule refused at continuation. Then M1's mutation series (CR-53-9) and its acceptance record. |
+| Next | M2 (WS-03, WS-06 math, WS-13 N21): ADR-0058 (the numerical foundation and the precision policy, G0 item 24's direction) and ADR-0054 (plan 0054A, selection statistics); then common.distributions and special functions, the eigensystem and SVD with vectors, Cholesky as one authority, optimisers and quadrature, the Estimate type; the selection statistics; global day counts. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -64,7 +64,9 @@ Never:
 | `1593381` | CodeQL | 42813534369 | success |
 | `1508966` | Continuous Integration | 42818861870 | success: all six quality-gate cells, carrying M0's close (7dacb33 to 1508966: the version state, the ledger, the N04 wiring test) |
 | `1508966` | CodeQL | 42818862101 | success |
-| `every push` | Release Preflight | 42818861920 | skipped by design on every push: it runs only with the release-preflight label or by dispatch (D-W1); not a pass |
+| `01cfc3c` | Continuous Integration | 43560463598 | success: all six quality-gate cells, S-11's pinned identities held on Linux and macOS |
+| `01cfc3c` | CodeQL | 43560463619 | success |
+| `every push` | Release Preflight | 43560463601 | skipped by design on every push: it runs only with the release-preflight label or by dispatch (D-W1); not a pass |
 
 ## Continuation log
 
@@ -87,6 +89,7 @@ Never:
 - **2026-11-14** M1's second increment built: manifest provenance (D-53-3) and the opt-in identity version 2; D-F42 decided under delegation (G0 item 11); TD-07 recorded; FUT-046 delivered. The scratch toolchain was rebuilt after macOS's /tmp cleaning removed parts of the old one.
 - **2026-11-14** S-11 built: a fresh-interpreter rerun reproduces example 72's run, provenance and version-2 manifest against pinned identities; rerun_from_manifest follows the original's identity version and provenance (TD-08 recorded). M1's mutation series P01-P14 written (271 mutations, each applying once).
 - **2026-11-14** M2 begun: ADR-0058 (the numerical foundation and the precision policy, G0 item 24's direction; TD-09) and ADR-0054 (plan 0054A, selection statistics; TD-10) accepted; their limitations in the ledger (LIM-010, LIM-011, and LIM-005's class).
+- **2026-11-14** M1 closed on hosted CI: 01cfc3c green on all six cells (CI run 43560463598), S-11 reproduced across Linux and macOS, and M1's mutation series P01-P14 all caught. The ADR-0054 draft, deleted from scratch by macOS's /tmp cleaning, was recovered from its writing session's transcript at its recorded digest (083b725b...).
 
 ## Milestones
 
@@ -94,7 +97,7 @@ Never:
 | --- | --- | --- | --- |
 | G0 | In progress | WS-00 | §Z G0 items all decided |
 | M0 | Hosted CI passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
-| M1 | In progress | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
+| M1 | Hosted CI passed | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
 | M2 | In progress | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Not started | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Not started | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
@@ -111,6 +114,7 @@ Never:
 
 - **G0:** Items 1-3 and the directions of 23-24 approved by the owner; the charter accepted as ADR-0056; the rest delegated on 2026-11-10 and decided at their milestones (PC-03).
 - **M0:** M0's findings are in the completion ledger under v4.3.0 (DET-007, SEC-002, DOC-014, TST-025, TST-026, PKG-004), which the development-version state (TD-05) made possible: the ledger's guard refuses an entry for a release beyond the package's.
+- **M1:** Decided under delegation at M1: ADR-0053 revision 3 (G0 item 6), D-F42 (item 11); TD-06 to TD-08.
 
 ## Decisions (G0 sign-off)
 
@@ -267,7 +271,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | --- | --- | --- | --- |
 | WS-00 | Governance, charter and decision records | G0 | In progress |
 | WS-01 | Compatibility and historical-contract integrity | M0, M13 | In progress |
-| WS-02 | Deterministic identity and provenance | M0, M1 | In progress |
+| WS-02 | Deterministic identity and provenance | M0, M1 | Hosted CI passed |
 | WS-03 | Scientific computing and numerical foundations | M2 | In progress |
 | WS-04 | Streaming research-result capture | M3 | Not started |
 | WS-05 | Experiment and trial ledger, executor, runner registry | M4 | Not started |
@@ -329,13 +333,13 @@ Evidence:
 
 - [Hosted CI passed] M0: DET-007: isolated identifier scopes, with nested, parallel and repeated probes
 - [Hosted CI passed] M0: DET-007 and D-54-7: the experiment tracker's run ids and the research cluster's job ids derived (uuid5 over a canonical key), never drawn from the ambient stream
-- [Local validation passed] M1: ADR-0053 revision 3 accepted (R53-1 to R53-8, CR-53-1 to CR-53-9; TD-06)
-- [Local validation passed] M1: ScheduleBinding and the verification vocabulary (VERIFIED, DECLARED, UNRECORDED, NONE_GIVEN); RunSchedule.binding, ScheduleCursor.binding
-- [Local validation passed] M1: A continuation held to its schedule: ScheduleCursor.start(expected=), checkpoint schema 3 written only when given, restore_checkpoints(schedule_binding=)
-- [Local validation passed] M1: Run provenance: RunProvenance, run_provenance, payload_provenance, verify_provenance, filed as evidence (RUN_PROVENANCE_SCHEMA 1)
-- [Local validation passed] M1: manifest_for_run(provenance=) with the D-53-3 refusals, and the opt-in identity version 2 (ADR-0052 option C, FUT-042)
-- [Local validation passed] M1: S-11 end to end: a rerun in a fresh process REPRODUCED against pinned identities on Linux and macOS; a wrong schedule refused at continuation
-- [In progress] M1: CR-53-9: M1's mutation series P01-P14 run, every mutation caught or its survivor explained
+- [Hosted CI passed] M1: ADR-0053 revision 3 accepted (R53-1 to R53-8, CR-53-1 to CR-53-9; TD-06)
+- [Hosted CI passed] M1: ScheduleBinding and the verification vocabulary (VERIFIED, DECLARED, UNRECORDED, NONE_GIVEN); RunSchedule.binding, ScheduleCursor.binding
+- [Hosted CI passed] M1: A continuation held to its schedule: ScheduleCursor.start(expected=), checkpoint schema 3 written only when given, restore_checkpoints(schedule_binding=)
+- [Hosted CI passed] M1: Run provenance: RunProvenance, run_provenance, payload_provenance, verify_provenance, filed as evidence (RUN_PROVENANCE_SCHEMA 1)
+- [Hosted CI passed] M1: manifest_for_run(provenance=) with the D-53-3 refusals, and the opt-in identity version 2 (ADR-0052 option C, FUT-042)
+- [Hosted CI passed] M1: S-11 end to end: a rerun in a fresh process REPRODUCED against pinned identities on Linux and macOS; a wrong schedule refused at continuation
+- [Hosted CI passed] M1: CR-53-9: M1's mutation series P01-P14 run, every mutation caught or its survivor explained
 
 Evidence:
 
@@ -347,6 +351,8 @@ Evidence:
 - M1, first increment: alphalab/runtime/schedule_check.py, alphalab/backtesting/provenance.py, ScheduleCursor.start(expected=), checkpoint schema 3. tests/integration/test_run_provenance.py (25 tests): chains checkpointed after 1, 3 and 4 records continue under their schedule to the uninterrupted result_id; another schedule, none, and two bindings in one chain are refused; an unbound chain is UNRECORDED; provenance is the result's id, draws nothing, refuses another schedule, run, registry and an edit; a payload's provenance is DECLARED; round trip and evidence filing. The public API grew by 13 names (2,767 exports); checkpoint and restore_checkpoints each gained one keyword-only parameter defaulting to None (CR-53-2). Certificate: the source digest and API-1's manifest digest and count moved; no DET, REP or PAR evidence did (CR-53-8). Suite: 11,097 passed once the two schema-constant inventories admitted RUN_PROVENANCE_SCHEMA.
 - M1, second increment: manifest_for_run(provenance=, identity_version=) in alphalab/lifecycle/reproducibility.py; the delivery-record rule (REP-009) is now one function, backtesting.provenance.delivery_disagreement, used by both manifests and provenance, its messages unchanged. tests/integration/test_manifest_provenance.py (12 tests, on example 72's registry-holding run): under version 1 a manifest made with provenance is the manifest made without it; provenance of another run, another schedule, none named, one named where none, and another registry are refused; version 2 records the registry and cites the provenance, verifies, and has a new identity by design; a version-2 manifest lacking its registry is a gap; an unknown version is refused and does not verify; a version-2 rerun of a version-1 original REPRODUCED by version 1's rules; the unattested finding under version 2 alone; a version-1 manifest stored as v4.2.1 stored it, which the frozen v4.2.1 evidence store holds. The full gate's first run on this increment found the draft writing the two new fields into every stored manifest -- a value an evidence store holding v4.2.1's copy would refuse -- and the projection was fixed before the push. Ledger: FUT-046 implemented (v4.3.0) with its criteria amended (D-53-7); FUT-042 restated as the default flip for 5.0; ADR-0052 accepted (option C, opt-in). Certificate: only the source digest and API-1 moved, so no version-1 manifest identity in the certificate's evidence moved (CR-53-7).
 - S-11, M1's exit gate (tests/integration/test_provenance_end_to_end.py, 6 tests): example 72's run, its provenance and a version-2 manifest citing it are made; a fresh interpreter under another hash seed reproduces all three; the result_id 0e3be7cb... and provenance_id 218292b0... are pinned, so CI's Linux and macOS cells each hold the host to them; rerun_from_manifest REPRODUCED the run under the same contract, its manifest version 2 and citing the rerun's own provenance; a continuation under a wrong schedule is refused by the cursor and by verify_provenance; forged provenance binding a schedule the run's own record contradicts -- one without its last delivery, or none -- is never VERIFIED. Provenance now refuses a binding of no schedule for a run that delivered observations, a rule a manifest cannot adopt in 4.x (TD-08).
+- CR-53-9, M1's mutation series (docs/audit/scripts/mutation_v4_3.py, P01-P14, run on 01cfc3c's tree with three workers): the unmutated baseline passed, 11,025 tests with the 90 clock-reading tests deselected, and all 14 mutations were caught, each by the test written for it -- among them P01 and P02 (the binding not checked), P03 (the scheme rendered into the digest, caught by M0's golden pins), P04 (VERIFIED without the run's record, caught by the forgery test), P11 (an unbound checkpoint written as version 3) and P13 (a rerun under version 1).
+- Hosted CI passed on 01cfc3c (CI run 43560463598): all six cells -- ubuntu-latest and macos-latest under CPython 3.12, 3.13 and 3.14 -- ran S-11 against its pinned result_id 0e3be7cb... and provenance_id 218292b0..., so the run and its provenance reproduce across both operating systems; CodeQL 43560463619 green.
 
 ### WS-03: Scientific computing and numerical foundations
 
