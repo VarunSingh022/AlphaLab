@@ -143,6 +143,13 @@ def _functions_named(name: str) -> list[str]:
         ("Integral", "alphalab/common/quadrature.py"),
         ("Estimate", "alphalab/common/estimate.py"),
         ("NumericalClass", "alphalab/common/estimate.py"),
+        # v4.3, ADR-0054: selection statistics over a search.
+        ("TrialMatrix", "alphalab/research/selection.py"),
+        ("PBOResult", "alphalab/research/selection.py"),
+        ("MinTRLResult", "alphalab/research/selection.py"),
+        ("AdjustedSharpeInference", "alphalab/research/selection.py"),
+        ("RealityCheckResult", "alphalab/research/data_snooping.py"),
+        ("SPAResult", "alphalab/research/data_snooping.py"),
     ],
 )
 def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str) -> None:
@@ -195,6 +202,15 @@ def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str)
         ("numerical_gradient", "alphalab/common/optimize.py"),
         ("integrate", "alphalab/common/quadrature.py"),
         ("derive_estimate_id", "alphalab/common/estimate.py"),
+        ("probability_of_backtest_overfitting", "alphalab/research/selection.py"),
+        ("minimum_track_record_length", "alphalab/research/selection.py"),
+        (
+            "autocorrelation_adjusted_probabilistic_sharpe_ratio",
+            "alphalab/research/selection.py",
+        ),
+        ("reality_check", "alphalab/research/data_snooping.py"),
+        ("superior_predictive_ability", "alphalab/research/data_snooping.py"),
+        ("stationary_bootstrap_indices", "alphalab/research/perturbation.py"),
     ],
 )
 def test_each_derivation_has_exactly_one_implementation(concept: str, owner: str) -> None:

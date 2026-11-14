@@ -233,6 +233,42 @@ entry below says otherwise.
   `NumericalClass` are exported from `alphalab.common`
   (`tests/unit/common/test_estimate.py`, two identities pinned).
 
+* **Selection statistics: measuring a search over backtests** [ADR-0054,
+  plan WS-06]. Pure functions over a matrix the caller holds, importing
+  nothing but `common` and their own package, deciding nothing:
+  * A `TrialMatrix` is T periods by N trials of one measure over one set of
+    instants.
+  * `probability_of_backtest_overfitting` is PBO by combinatorially symmetric
+    cross-validation. It requires the block count S (even, at most 20 and at
+    most T), a `SelectionMeasure`, and a `Trim` that declares any periods
+    dropped. It returns a `PBOResult` with PBO as an exact fraction, the
+    selected trial and logit of every split, and its tie convention: midranks,
+    counting a logit at 0.
+  * `reality_check` (White 2000) and `superior_predictive_ability` (Hansen
+    2005) bootstrap the best of K models against a benchmark. SPA reports its
+    lower, consistent and upper p-values, ordered by construction, and a model
+    far below the benchmark leaves its consistent p-value unchanged.
+  * `stationary_bootstrap_indices` (Politis and Romano) draws positions from
+    a SHA-256 counter stream (`STATIONARY_BOOTSTRAP_SCHEME`): integer
+    comparisons only, the same on every host.
+  * `minimum_track_record_length`.
+  * `autocorrelation_adjusted_probabilistic_sharpe_ratio` adds Newey-West
+    Bartlett-weighted autocovariances (required `lags`) to the independent
+    PSR's variance, so with no lags it is that PSR value for value.
+
+  Every replication count, block length, seed and lag count is required.
+  p-values are exact fractions. PBO's ranks are exact, and its logits and
+  SPA's `sqrt(2 ln ln T / T)` come from `Decimal`'s correctly rounded
+  logarithm, so RC, SPA and PBO are class 2. MinTRL and the adjusted PSR are
+  class 3.
+
+  They are held to an exact-enumeration oracle for PBO (every split recomputed
+  in `Fraction`), to exact recomputations of the Reality Check on binary-exact
+  data, to MinTRL's identity with the PSR, and to pinned values identical
+  under CPython 3.12, 3.13 and 3.14 (`tests/unit/research/test_selection_statistics.py`,
+  `tests/unit/research/test_data_snooping.py`). The existing PSR, DSR and
+  multiple-testing corrections are unchanged.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

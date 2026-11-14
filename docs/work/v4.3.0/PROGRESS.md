@@ -103,6 +103,7 @@ Never:
 - **2026-11-14** common.optimize (Brent, golden section, Nelder-Mead, BFGS, L-BFGS-B, central differences) and common.quadrature (adaptive Gauss-Kronrod) delivered with required tolerances (TD-12); a third duplicate authority recorded under GAP-48.
 - **2026-11-14** The Estimate type and its identity (ADR-0058 section 6) delivered; Estimate and NumericalClass exported from alphalab.common.
 - **2026-11-14** GAP-48 at M2 (PC-05): one authority on every path outside ml, held by a regression test; the deprecation with replacements moves to M7.
+- **2026-11-14** WS-06's M2 items delivered (TD-13): TrialMatrix, PBO by CSCV with an exact-enumeration oracle, Reality Check and SPA, the hash-counter stationary bootstrap, MinTRL and the autocorrelation-adjusted PSR.
 
 ## Milestones
 
@@ -289,6 +290,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** CHANGELOG [4.3.0] Added; ADR-0058 section 1 (the domain bisections that stay); tests/regression/test_one_research_authority_per_concept.py; tests/regression/test_shared_names_stay_distinct.py.
 - **Tests:** tests/unit/common/test_optimize.py (61), tests/unit/common/test_quadrature.py (31), the authority and distinct-names regressions.
 
+### TD-13: Selection statistics: exact where they count, and the conventions each states (WS-06, 2026-11-14)
+
+- **Problem:** ADR-0054 fixes the statistics and their required, bounded arguments; open were how ties are ranked, how a p-value counts, how the bootstrap draws without libm, how SPA's consistent threshold and PBO's logits avoid it, and what the autocorrelation adjustment is precisely.
+- **Alternatives:** Ranks: ordinal with an index tie-break, or midranks. p-values: #{V* > V}/B, #{V* >= V}/B, or (1 + #)/(1 + B). Bootstrap draws: random.Random, or a hash counter with u mod T, or with rejection. Thresholds and logits: math.log (class 3), or Decimal's correctly rounded ln. Adjustment: Lo's effective sample size, or the delta method over Newey-West long-run covariances of the mean and variance moments.
+- **Decision:** Midranks, with PBO counting 2r <= N + 1 as an integer comparison and the logits from Decimal ln; p = #{statistic* >= statistic}/B as an exact Fraction (White's count; conservative at an exact tie, and SPA's floor at 0 then gives p = 1 when no model beats the benchmark); SHA-256 counter draws with exact continuation by u q_num < 2^64 q_den and uniform starts by rejection; SPA's sqrt(2 ln ln T / T) by Decimal; the adjustment as Opdyke's independent variance plus Bartlett-weighted lag terms of the standardized mean and variance moments, which is the independent PSR exactly at lags = 0; the mean compared by its exactly rounded sum.
+- **Rationale:** Each choice keeps the result's class as ADR-0054 section 6 states it: integers and exact fractions where a count or a rank decides, correctly rounded arithmetic elsewhere, libm only where the normal distribution is the statistic. Reducing to the existing PSR at no lags means the adjustment changes nothing a caller already relies on.
+- **Compatibility:** Additive: 15 new public names in alphalab.research (API manifest 2,818 exports); no existing statistic, figure or signature moves.
+- **Recorded in:** CHANGELOG [4.3.0] Added; ADR-0054; LIM-011.
+- **Tests:** tests/unit/research/test_selection_statistics.py (50), tests/unit/research/test_data_snooping.py (30).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -410,10 +421,14 @@ Evidence:
 ### WS-06: Statistical research functions
 
 - [Local validation passed] M2: ADR-0054 accepted (plan 0054A)
-- [Not started] M2: TrialMatrix and the stationary bootstrap (hash-counter positions)
-- [Not started] M2: White's Reality Check and Hansen's SPA
-- [Not started] M2: PBO by CSCV, with an exact-enumeration oracle
-- [Not started] M2: MinTRL and the autocorrelation-adjusted PSR
+- [Local validation passed] M2: TrialMatrix and the stationary bootstrap (hash-counter positions)
+- [Local validation passed] M2: White's Reality Check and Hansen's SPA
+- [Local validation passed] M2: PBO by CSCV, with an exact-enumeration oracle
+- [Local validation passed] M2: MinTRL and the autocorrelation-adjusted PSR
+
+Evidence:
+
+- research.selection (TrialMatrix, probability_of_backtest_overfitting, minimum_track_record_length, autocorrelation_adjusted_probabilistic_sharpe_ratio), research.data_snooping (reality_check, superior_predictive_ability) and research.perturbation.stationary_bootstrap_indices, pure over common. tests/unit/research/test_selection_statistics.py (50) and test_data_snooping.py (30): PBO equal to an exact-enumeration oracle (every split, means and Sharpe ratios compared in Fraction over integer data) for both measures and four shapes, trimming from either end held to the oracle on the trimmed data, a dominant trial at 0, identical trials at 1 (the lambda <= 0 convention); the Reality Check equal to its exact recomputation from the same positions; SPA's p_lower <= p_consistent <= p_upper over six seeds, and a hopeless model leaving p_lower and p_consistent unchanged while p_upper rises (Hansen's point); MinTRL's identity PSR = 1 - alpha at MinTRL observations; the adjusted PSR equal to the independent one at no lags and moving the standard error the way AR(1) dependence must; the bootstrap's continuation rate, uniform starts at q = 1, replication independence and its first draw recomputed from the stated scheme; pins identical under CPython 3.12.4, 3.13.18 and 3.14.10. Found while testing: comparing means after a division by the block length let rounding break exact ties the oracle kept; the mean is now compared by its exactly rounded sum.
 
 ### WS-13: Global conventions, reference data and historical universes
 
