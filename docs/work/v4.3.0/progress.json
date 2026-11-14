@@ -815,7 +815,7 @@
         {
           "milestone": "M2",
           "item": "common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions",
-          "status": "Not started"
+          "status": "Local validation passed"
         },
         {
           "milestone": "M2",
@@ -838,7 +838,9 @@
           "status": "Not started"
         }
       ],
-      "evidence": []
+      "evidence": [
+        "alphalab/common/distributions.py: Student's t, chi-squared, F, gamma, beta, binomial and Poisson, each with CDF, survival function and quantile, beside the normal; log-gamma, log-beta and the regularised incomplete gamma and beta functions; ConvergenceError. Survival functions computed directly; quantiles by Newton kept in a bisection bracket, stopping on a converged step or a narrow bracket. tests/unit/common/test_distributions.py (186 tests): exact oracles -- finite closed forms in 80-digit Decimal (t and chi-squared for even degrees of freedom, the Erlang and Poisson sums) and exact Fraction (binomial, integer-parameter beta, F through it) -- held within a tolerance from each formula's error bound (the log-gamma prefix's terms, ADR-0058 section 4); inverse identities against the exact CDFs; published tables at the digits they print; deep tails; refusals; ConvergenceError at the limit. Writing it found a remembered t quantile wrong in its 11th digit, a quantile search that could stall once converged (fixed), the existing normal_cdf's lost lower tail (NUM-017), and that the test's own decimal precision had leaked into the suite's shared context (fixed with local contexts). Whole suite: 11,301 passed."
+      ]
     },
     {
       "id": "WS-04",
@@ -2197,6 +2199,10 @@
     {
       "date": "2026-11-14",
       "entry": "M1 closed on hosted CI: 01cfc3c green on all six cells (CI run 43560463598), S-11 reproduced across Linux and macOS, and M1's mutation series P01-P14 all caught. The ADR-0054 draft, deleted from scratch by macOS's /tmp cleaning, was recovered from its writing session's transcript at its recorded digest (083b725b...)."
+    },
+    {
+      "date": "2026-11-14",
+      "entry": "M2's first module: common.distributions with the special functions, 186 oracle tests; ADR-0058 section 2 restated to the implemented line between caller tolerances and stated constants."
     }
   ]
 }

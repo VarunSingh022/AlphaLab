@@ -90,6 +90,7 @@ Never:
 - **2026-11-14** S-11 built: a fresh-interpreter rerun reproduces example 72's run, provenance and version-2 manifest against pinned identities; rerun_from_manifest follows the original's identity version and provenance (TD-08 recorded). M1's mutation series P01-P14 written (271 mutations, each applying once).
 - **2026-11-14** M2 begun: ADR-0058 (the numerical foundation and the precision policy, G0 item 24's direction; TD-09) and ADR-0054 (plan 0054A, selection statistics; TD-10) accepted; their limitations in the ledger (LIM-010, LIM-011, and LIM-005's class).
 - **2026-11-14** M1 closed on hosted CI: 01cfc3c green on all six cells (CI run 43560463598), S-11 reproduced across Linux and macOS, and M1's mutation series P01-P14 all caught. The ADR-0054 draft, deleted from scratch by macOS's /tmp cleaning, was recovered from its writing session's transcript at its recorded digest (083b725b...).
+- **2026-11-14** M2's first module: common.distributions with the special functions, 186 oracle tests; ADR-0058 section 2 restated to the implemented line between caller tolerances and stated constants.
 
 ## Milestones
 
@@ -357,11 +358,15 @@ Evidence:
 ### WS-03: Scientific computing and numerical foundations
 
 - [Local validation passed] M2: ADR-0058 accepted: one authority, required tolerances, three numerical classes, precision by error analysis, the estimate's identity
-- [Not started] M2: common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions
+- [Local validation passed] M2: common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions
 - [Not started] M2: common.linalg: symmetric eigensystem and thin SVD with vectors, pseudo-inverse; Cholesky as one authority
 - [Not started] M2: common.optimize and common.quadrature, with required tolerances and ConvergenceError
 - [Not started] M2: The Estimate type and its identity
 - [Not started] M2: One authority: ml.linalg and ml's splits delegate (GAP-48)
+
+Evidence:
+
+- alphalab/common/distributions.py: Student's t, chi-squared, F, gamma, beta, binomial and Poisson, each with CDF, survival function and quantile, beside the normal; log-gamma, log-beta and the regularised incomplete gamma and beta functions; ConvergenceError. Survival functions computed directly; quantiles by Newton kept in a bisection bracket, stopping on a converged step or a narrow bracket. tests/unit/common/test_distributions.py (186 tests): exact oracles -- finite closed forms in 80-digit Decimal (t and chi-squared for even degrees of freedom, the Erlang and Poisson sums) and exact Fraction (binomial, integer-parameter beta, F through it) -- held within a tolerance from each formula's error bound (the log-gamma prefix's terms, ADR-0058 section 4); inverse identities against the exact CDFs; published tables at the digits they print; deep tails; refusals; ConvergenceError at the limit. Writing it found a remembered t quantile wrong in its 11th digit, a quantile search that could stall once converged (fixed), the existing normal_cdf's lost lower tail (NUM-017), and that the test's own decimal precision had leaked into the suite's shared context (fixed with local contexts). Whole suite: 11,301 passed.
 
 ### WS-06: Statistical research functions
 

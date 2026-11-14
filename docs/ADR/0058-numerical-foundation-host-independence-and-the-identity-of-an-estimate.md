@@ -56,17 +56,27 @@ two questions need one answer before any of it is written:
 
 `test_one_research_authority_per_concept.py` holds a second implementation out.
 
-## 2. Every iterative method states its tolerance and its limit (AC-12)
+## 2. A tolerance that changes a result is the caller's; one that only reaches binary64 is stated (AC-12)
 
-Every optimiser, root finder, quadrature, eigen or SVD iteration and quantile
-inversion takes its **tolerance and its iteration limit as required
-arguments**. There are no defaults: a tolerance nobody chose is a policy
-nobody chose, as for `lifecycle.tolerance`.
+AC-12 says choices are declared, never defaulted. So every method whose
+tolerance changes its answer takes **its tolerance and its iteration limit as
+required arguments**, with no defaults. A tolerance nobody chose is a policy
+nobody chose, as for `lifecycle.tolerance`. These are the optimisers, root
+finders, quadrature, eigensystem and SVD iterations, and the inversion of a
+function the caller supplies.
 
-A method that does not converge within its limit raises `ConvergenceError`,
-naming the tolerance, the limit and what was reached. It never returns a silent
-best effort. Every result carries its convergence report: iterations, the
-final residual or step, and the criterion that stopped it.
+A distribution's own functions and the special functions under them involve no
+such choice. These are a CDF, a survival function, a quantile, the incomplete
+gamma and beta functions. They compute to the precision of binary64, by
+algorithms whose criteria are **stated constants** of their module, documented
+there with the error bound they carry. This is the plan's "stated tolerance
+constants" for distribution quantiles (section H.1).
+
+Either way, a method that does not converge within its limit raises
+`ConvergenceError`, naming the tolerance, the limit and what was reached. It
+never returns a silent best effort. Every result of a caller-tolerance method
+carries its convergence report: iterations, the final residual or step, and the
+criterion that stopped it.
 
 ## 3. Three classes of numerical result, and which may enter an identity
 

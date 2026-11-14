@@ -139,6 +139,23 @@ entry below says otherwise.
   reproduces its `result_id`, its provenance and its version-2 manifest
   (`tests/integration/test_provenance_end_to_end.py`, S-11).
 
+* **Probability distributions and the special functions under them**
+  [ADR-0058, plan WS-03, GAP-10]. `alphalab.common.distributions` is the one
+  authority for each of these. It covers Student's t, chi-squared, F, gamma,
+  beta, binomial and Poisson distributions, each with its CDF, survival
+  function and quantile, beside the normal. It also covers the special
+  functions under them: `log_gamma`, `log_beta`, `regularized_gamma_p`,
+  `regularized_gamma_q` and `regularized_incomplete_beta`. Every function
+  computes to binary64 precision by an algorithm whose criteria are stated
+  constants (`RELATIVE_TOLERANCE`, `ITERATION_LIMIT`). A survival function is
+  computed directly, never as one minus a CDF, so a p-value of `1e-30` keeps
+  its digits. Non-convergence raises the new `ConvergenceError` and never
+  returns a best effort. The names are exported from `alphalab.common`. They
+  are held to exact oracles (finite closed forms in 80-digit `Decimal` and
+  exact `Fraction`), within a tolerance derived from each formula's error
+  bound, and to published tables at the digits the tables print
+  (`tests/unit/common/test_distributions.py`).
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package
