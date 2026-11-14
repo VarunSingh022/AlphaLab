@@ -185,6 +185,9 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     # ADR-0058, v4.3: the numerical foundation.
     ("0058", "A class-3 statistic is compared by tolerance, not by identity"): "LIM-005",
     ("0058", "Pure-Python numerics are slow at scale"): "LIM-010",
+    # ADR-0055, v4.3: streaming research capture.
+    ("0055", "A paused replay is not captured"): "FUT-049",
+    ("0055", "A series is in the run's base currency"): "LIM-012",
 }
 
 

@@ -763,6 +763,9 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   which round-trips exactly. Since the v4.2.0 candidate a strategy that declares
   its configuration's type reads it back typed (FUT-002, above); one that
   declares nothing reads back as stated here.
+- **A captured series is in the run's base currency** (LIM-012): converting it
+  needs a rate source the researcher states; capture records the base
+  currency's series exactly (ADR-0055).
 - **Selection statistics assume stationarity** (LIM-011): CSCV, the Reality
   Check and SPA treat a sample as stationary; a regime change inside it violates
   them, and the result states the assumption rather than testing it (ADR-0054).
@@ -839,6 +842,7 @@ Every horizon is a proposal for the maintainer to confirm.
 | FUT-045 | **An execution model per venue in one simulated run** | one backtest per venue's model; the costliest for a conservative run | v4.4 | described execution models |
 | FUT-047 | **Every run held to its schedule by its own record** (option B of ADR-0053; an identity reset) | `run_provenance` beside each result; checkpoints written with `schedule=` | v5.0 | run provenance (ADR-0053, delivered in v4.3) |
 | FUT-048 | **Equal TWAP slices tying exactly** (an identity change) | the 34-digit allocation, the same for every caller | v5.0 | EXE-015 |
+| FUT-049 | **Capturing a paused replay** | capture the run end to end; a paused replay is digested | v4.4 | streaming capture (ADR-0055, delivered in v4.3) |
 
 ---
 

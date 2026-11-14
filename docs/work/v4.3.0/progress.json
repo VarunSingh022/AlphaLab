@@ -444,6 +444,19 @@
       "compatibility": "Additive: seven DayCount members appended (existing members, their values and names unchanged); a keyword-only terms argument defaulting to None; three new names in alphalab.conventions (API manifest 2,821 exports). The three existing bases compute exactly what they did, so no accrual, run, result_id or persisted format moves.",
       "record": "CHANGELOG [4.3.0] Added; ROADMAP (No fixed-income engine); ADR-0039 Status (amended); ledger BDY-014 (v430_outcome).",
       "tests": "tests/unit/conventions/test_global_day_counts.py; the updated enumerations in tests/unit/conventions/test_conventions.py and tests/integration/test_financing_and_borrow.py."
+    },
+    {
+      "id": "TD-15",
+      "date": "2026-11-14",
+      "workstream": "WS-04",
+      "title": "ADR-0055: a captured run beside run, an extractor whose every choice is stated, and a trace retention cannot move",
+      "problem": "Plan K.1: retention trims the equity curve, digest_run costs 62-69 % of a full-history run, retention changes result_id, and nothing observes a run, so a search of thousands of trials cannot get the TrialMatrix ADR-0054 takes without keeping every run whole and digesting it.",
+      "alternatives": "(a) A flag on BacktestEngine.run returning a wider type. (b) An observer callback the drivers call. (c) A separate run_captured over the drivers' one private step loop, returning the unchanged result beside a CaptureRecord. For the trace: (i) the digest of the kept record, which retention moves; (ii) a chain over each step's economic deltas, read before retention can lose them. For precision: (x) the plan K.1 text's rounding per H.1; (y) full precision under ADR-0058.",
+      "decision": "(c), (ii) and (y). CaptureSpec(extractor, trace) with every extractor choice required -- grid (EVERY_INSTANT or FixedInterval), costs (NET or GROSS), cash_flows (INCLUDED or EXCLUDED), currency (the run's base), insolvency (REFUSE or TRUNCATE); CaptureRecord with extractor_id, the series at full precision, series_id, trace_id and counts; the trace chained from the run's configuration_id over each step's new fills, ledger transactions, OMS order events and equity points, read as the change in each log's total appended (length plus dropped), refusing a bound smaller than one step's output; RetentionPolicy.keep_equity, written only when true; lifecycle.selection's bridge from captures to a TrialMatrix.",
+      "rationale": "A separate function keeps run's four overloads and every return type as they are (R53-3). An EVERY_INSTANT, NET, INCLUDED series is analytics' own arithmetic, so M3's exit gate -- a 16-variant PBO from captures equal to one from full history -- holds by construction rather than by tolerance. Reading deltas from the logs' dropped counts makes the trace retention-independent without a hook inside the step.",
+      "compatibility": "Additive: new names only, one defaulted RetentionPolicy field written only when true; no result_id, configuration_id, manifest_id, digest or format moves. Departures from plan K.1's text: full precision (ADR-0058, PC-02), and the calendar-session grid waits for ADR-0059's packs.",
+      "record": "docs/ADR/0055-streaming-research-capture-and-the-identity-of-an-economic-history.md; ledger FUT-049, LIM-012.",
+      "tests": "Built in M3: the captured result equal to the uncaptured run's, field for field and by result_id; the series equal to analytics' period_returns; the trace equal across retentions; the bound refusal; zero identifier draws; benchmarks/benchmark_capture.py against the 10 % budget."
     }
   ],
   "plan_changes": [
@@ -481,6 +494,13 @@
       "decision": "Delegated authority (TD-12)",
       "change": "WS-03's M2 item 'ml.linalg and ml's splits delegate (GAP-48)' delivers one authority on every path outside ml -- the duplicates documented, kept unchanged, and held off every other module by a regression test -- and GAP-48's deprecation, with the replacements a deprecation must name, moves to M7, GAP-48's own milestone, with WS-08's work on ml's public surface. Removal stays 5.0.",
       "reason": "Delegation would change what the duplicates return to their callers. ml's splitters split sample indices and give the last fold the remainder; the research splitters split timestamps with a validation window, purging and no partial fold. ml.linalg's matrix_inverse refuses at an absolute pivot of 1e-12, and common.linalg has no general inverse, nor any matmul, transpose or identity to name as a replacement. ADR-0015 section 9 requires a deprecation to name its replacement and removal release, and the charter forbids a breaking change for convenience; the plan itself holds GAP-48 at M7 in its gap register."
+    },
+    {
+      "id": "PC-06",
+      "date": "2026-11-14",
+      "decision": "Delegated authority (TD-11)",
+      "change": "Plan H.1 names cyclic Jacobi as the symmetric eigensystem's algorithm. common.linalg.symmetric_eigensystem is Householder tridiagonalization and implicit QL (Bowdler, Martin, Reinsch and Wilkinson's tql2) instead; the thin SVD stays one-sided Jacobi as H.1 names it. H.1's validation -- reconstruction bounds, orthogonality, known matrices -- and WS-03's budget are kept.",
+      "reason": "The two parts of the plan could not both hold: cyclic Jacobi was written first and measured at 147.5 s for a 500 x 500 eigensystem against WS-03's 30 s budget; Householder and implicit QL, equally backward stable with orthonormal vectors, measured 20.7 s. Of an algorithm and a budget, the budget is the acceptance criterion."
     }
   ],
   "milestones": [
@@ -1940,7 +1960,7 @@
       "plan_section": "§K",
       "workstream": "WS-04",
       "needed": "Before M3",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-14)"
     },
     {
       "id": "ADR-0056",
@@ -2416,6 +2436,10 @@
     {
       "date": "2026-11-14",
       "entry": "M2 delivered: WS-03, WS-06 and WS-13's N21 passed hosted CI on all six cells; the mutation series caught 42 of 42 (R04 after a test that names the trimmed end). M2 is held at local validation until this record's own commit passes hosted CI."
+    },
+    {
+      "date": "2026-11-14",
+      "entry": "ADR-0055 accepted (TD-15): streaming research capture, M3's first entry condition; FUT-049 and LIM-012 record its limitations. PC-06 records the eigensystem's algorithm change against plan H.1."
     }
   ]
 }
