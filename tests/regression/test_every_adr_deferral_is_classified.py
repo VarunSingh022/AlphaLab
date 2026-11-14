@@ -180,6 +180,11 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ("0053", "A matching digest is evidence of integrity, not of authenticity"): "LIM-009",
     ("0053", "Only a run given its provenance is held to its schedule"): "FUT-047",
     ("0053", "A default manifest still names the registry by type"): "FUT-042",
+    # ADR-0054, v4.3: selection statistics.
+    ("0054", "CSCV and the bootstraps assume stationarity"): "LIM-011",
+    # ADR-0058, v4.3: the numerical foundation.
+    ("0058", "A class-3 statistic is compared by tolerance, not by identity"): "LIM-005",
+    ("0058", "Pure-Python numerics are slow at scale"): "LIM-010",
 }
 
 

@@ -86,7 +86,7 @@
       "title": "ADR-0054 split into 0054A and 0054B; D-54-5 revised",
       "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "0054A before M2; 0054B before M4",
-      "note": ""
+      "note": "0054A accepted as ADR-0054 on 2026-11-14 (TD-10), applying R54-8, D-54-2, D-54-4 and D-54-12; 0054B, the experiment and trial ledger, is ADR-0072, before M4."
     },
     {
       "item": 8,
@@ -259,7 +259,7 @@
       "title": "Numerical precision and canonical serialization policy",
       "status": "Approved (direction)",
       "due": "M2",
-      "note": "A documented policy: deterministic calculations first, appropriate precision preserved, rounding only where numerical error analysis justifies it, cross-platform behaviour proved by reference tests. No arbitrary fixed rounding to conceal numerical differences."
+      "note": "A documented policy: deterministic calculations first, appropriate precision preserved, rounding only where numerical error analysis justifies it, cross-platform behaviour proved by reference tests. No arbitrary fixed rounding to conceal numerical differences. The policy is ADR-0058 (accepted 2026-11-14): identity-bearing values are computed on exact or correctly rounded paths only, every value is recorded at full precision, and nothing is rounded to make two hosts agree (TD-09)."
     }
   ],
   "technical_decisions": [
@@ -366,6 +366,32 @@
       "compatibility": "No existing call changes; provenance is new in v4.3.",
       "record": "alphalab/backtesting/provenance.py (_provenance_disagreement); CHANGELOG [4.3.0].",
       "tests": "tests/integration/test_provenance_end_to_end.py::test_forged_provenance_the_runs_own_record_contradicts_is_never_verified."
+    },
+    {
+      "id": "TD-09",
+      "date": "2026-11-14",
+      "workstream": "WS-03",
+      "title": "ADR-0058: host independence by construction, not by rounding",
+      "problem": "Plan section H.1 proposed recording identity-bearing statistics as decimal strings rounded to twelve significant digits, so hosts whose libm differs in the last bit would agree. The owner's direction for G0 item 24 forbids arbitrary fixed rounding that conceals numerical differences, and rounding cannot make two hosts agree anyway: values a last bit apart that straddle a rounding boundary round to different strings at any number of digits.",
+      "alternatives": "(a) Twelve significant digits, as H.1 proposed. (b) Fewer digits, chosen per statistic, with the same boundary failure. (c) Three classes of result -- exact, correctly rounded, host libm -- with identities allowed over the first two only, every value recorded at full precision, class-3 values compared by tolerances derived from error analysis, and host independence proved by pinned reference tests on Linux and macOS.",
+      "decision": "(c), with the transcendental an identity needs computed on an exact or correctly rounded path instead, such as the stationary bootstrap's block lengths by integer comparison of hash-counter draws.",
+      "rationale": "It follows item 24's direction exactly, extends what REP-005 already does for run records, and makes cross-host equality a property a test proves rather than an outcome a rounding hopes for.",
+      "compatibility": "No existing identity or figure moves; LIM-005 stays a stated limitation, now a named class with a rule.",
+      "record": "docs/ADR/0058-numerical-foundation-host-independence-and-the-identity-of-an-estimate.md; plan change PC-02's reading of AC-37.",
+      "tests": "Each M2 module's pinned reference tests on CI's Linux and macOS cells (built in M2)."
+    },
+    {
+      "id": "TD-10",
+      "date": "2026-11-14",
+      "workstream": "WS-06",
+      "title": "ADR-0054: where the selection statistics live, and the bounds their required arguments take",
+      "problem": "R54-8 makes CSCV's S and the bootstrap's block length required and bounded, without saying how; the draft placed the statistics in research but left their numerical class and their bounds open.",
+      "alternatives": "(a) Defaults for S, q and B, which the draft's review refused. (b) Required arguments, unbounded. (c) Required arguments with stated bounds: S even, 2 <= S <= T and S <= 20 (C(20, 10) = 184,756 combinations), trimming of T declared; q >= 1, B >= 1 and the seed required; the adjusted PSR's lag count required.",
+      "decision": "(c), with the statistics pure in alphalab.research over common only, bootstrap positions from a hash-counter stream (class 1), p-values as exact fractions, RC, SPA and PBO class 2, and PSR, DSR, MinTRL and the adjusted PSR class 3, never in an identity.",
+      "rationale": "A bound makes a required argument's cost and meaning explicit; S above 20 makes CSCV's combinations impractical in pure Python, and nothing about the method needs more.",
+      "compatibility": "Additive: new modules and names; the existing PSR, DSR, expected maximum Sharpe and multiple-testing corrections unchanged.",
+      "record": "docs/ADR/0054-selection-statistics-measuring-a-search-over-backtests.md.",
+      "tests": "The oracle suite built in M2 (exact-enumeration CSCV, closed forms, published examples)."
     }
   ],
   "plan_changes": [
@@ -461,7 +487,7 @@
       "deliverables": "Numerical foundation; global day counts; selection statistics (pure)",
       "exit_gate": "Published-table tests; GR-2; oracle suite; cross-host identity equality",
       "size": "L",
-      "status": "Not started",
+      "status": "In progress",
       "evidence": []
     },
     {
@@ -770,8 +796,39 @@
       "milestones": [
         "M2"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M2",
+          "item": "ADR-0058 accepted: one authority, required tolerances, three numerical classes, precision by error analysis, the estimate's identity",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M2",
+          "item": "common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M2",
+          "item": "common.linalg: symmetric eigensystem and thin SVD with vectors, pseudo-inverse; Cholesky as one authority",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M2",
+          "item": "common.optimize and common.quadrature, with required tolerances and ConvergenceError",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M2",
+          "item": "The Estimate type and its identity",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M2",
+          "item": "One authority: ml.linalg and ml's splits delegate (GAP-48)",
+          "status": "Not started"
+        }
+      ],
       "evidence": []
     },
     {
@@ -802,8 +859,34 @@
         "M3",
         "M5"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M2",
+          "item": "ADR-0054 accepted (plan 0054A)",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M2",
+          "item": "TrialMatrix and the stationary bootstrap (hash-counter positions)",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M2",
+          "item": "White's Reality Check and Hansen's SPA",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M2",
+          "item": "PBO by CSCV, with an exact-enumeration oracle",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M2",
+          "item": "MinTRL and the autocorrelation-adjusted PSR",
+          "status": "Not started"
+        }
+      ],
       "evidence": []
     },
     {
@@ -875,8 +958,14 @@
         "M3",
         "M10"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M2",
+          "item": "Global day counts (N21)",
+          "status": "Not started"
+        }
+      ],
       "evidence": []
     },
     {
@@ -1747,7 +1836,7 @@
       "plan_section": "§O",
       "workstream": "WS-06",
       "needed": "G0",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-14)"
     },
     {
       "id": "ADR-0072",
@@ -1787,7 +1876,7 @@
       "plan_section": "§H",
       "workstream": "WS-03",
       "needed": "Before M2",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-14)"
     },
     {
       "id": "ADR-0059",
@@ -2079,6 +2168,10 @@
     {
       "date": "2026-11-14",
       "entry": "S-11 built: a fresh-interpreter rerun reproduces example 72's run, provenance and version-2 manifest against pinned identities; rerun_from_manifest follows the original's identity version and provenance (TD-08 recorded). M1's mutation series P01-P14 written (271 mutations, each applying once)."
+    },
+    {
+      "date": "2026-11-14",
+      "entry": "M2 begun: ADR-0058 (the numerical foundation and the precision policy, G0 item 24's direction; TD-09) and ADR-0054 (plan 0054A, selection statistics; TD-10) accepted; their limitations in the ledger (LIM-010, LIM-011, and LIM-005's class)."
     }
   ]
 }

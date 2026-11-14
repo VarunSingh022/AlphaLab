@@ -86,6 +86,7 @@ Never:
 - **2026-11-10** M1's first increment built: the schedule binding and vocabulary, checkpoint schema 3, run provenance; ADR-0053's limitations in the ledger (LIM-009, FUT-047).
 - **2026-11-14** M1's second increment built: manifest provenance (D-53-3) and the opt-in identity version 2; D-F42 decided under delegation (G0 item 11); TD-07 recorded; FUT-046 delivered. The scratch toolchain was rebuilt after macOS's /tmp cleaning removed parts of the old one.
 - **2026-11-14** S-11 built: a fresh-interpreter rerun reproduces example 72's run, provenance and version-2 manifest against pinned identities; rerun_from_manifest follows the original's identity version and provenance (TD-08 recorded). M1's mutation series P01-P14 written (271 mutations, each applying once).
+- **2026-11-14** M2 begun: ADR-0058 (the numerical foundation and the precision policy, G0 item 24's direction; TD-09) and ADR-0054 (plan 0054A, selection statistics; TD-10) accepted; their limitations in the ledger (LIM-010, LIM-011, and LIM-005's class).
 
 ## Milestones
 
@@ -94,7 +95,7 @@ Never:
 | G0 | In progress | WS-00 | §Z G0 items all decided |
 | M0 | Hosted CI passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
 | M1 | In progress | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
-| M2 | Not started | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
+| M2 | In progress | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Not started | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Not started | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Not started | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
@@ -121,7 +122,7 @@ Never:
 | 4 | D-V3 | Boundary reopenings (plan section P.2) | Delegated (2026-11-10): decided at its milestone | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. |
 | 5 | D-V4 | Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0 | Delegated (2026-11-10): decided at its milestone | Before M8 | — |
 | 6 | ADR-0053 | ADR-0053 revised (R53-1..8, CR-53-1..9) | Decided under delegation (2026-11-10) | Before M1 | ADR-0053 revision 3 accepted: the draft's option C-e with R53-1 to R53-8 applied and CR-53-1 to CR-53-9 held, departing from R53-1's letter where TD-06 records. Implemented in M1. |
-| 7 | ADR-0054 | ADR-0054 split into 0054A and 0054B; D-54-5 revised | Delegated (2026-11-10): decided at its milestone | 0054A before M2; 0054B before M4 | — |
+| 7 | ADR-0054 | ADR-0054 split into 0054A and 0054B; D-54-5 revised | Delegated (2026-11-10): decided at its milestone | 0054A before M2; 0054B before M4 | 0054A accepted as ADR-0054 on 2026-11-14 (TD-10), applying R54-8, D-54-2, D-54-4 and D-54-12; 0054B, the experiment and trial ledger, is ADR-0072, before M4. |
 | 8 | ADR-0055 | Streaming capture and trace identity | Delegated (2026-11-10): decided at its milestone | Before M3 | — |
 | 9 | D-54-R3 | Researcher entry point alphalab.lab | Delegated (2026-11-10): decided at its milestone | Before M4 | — |
 | 10 | D-F45 | FUT-045 in M8 | Confirmed by the owner's brief | Before M8 | The implementation brief (Part 18) places FUT-045 in its agreed programme position. The owner is asked to confirm this reading. |
@@ -145,7 +146,7 @@ Never:
 | 21 | Branch model | Write the integration-branch model into CONTRIBUTING and ENGINEERING_GUIDELINES | Decided under delegation (2026-11-10) | M0 | Written into CONTRIBUTING (Pull Requests) and ENGINEERING_GUIDELINES: an approved programme is delivered on one long-lived integration branch through one Draft PR, every commit one logical change that leaves every gate green; merging and releasing stay the maintainer's decision. |
 | 22 | Authority | Branch, Draft PR, commits and pushes | Superseded (2026-11-10) | M0 | Superseded by the owner's autonomous authorization: Claude pushes coherent commit groups, maintains Draft PR #22 and monitors CI; never merges, tags, publishes or force-pushes. |
 | 23 | D-G0-1 | Isolation of untrusted researcher code | Approved (direction) | M4 | AlphaLab provides safe research-execution interfaces and process orchestration; the isolation of untrusted researcher code is enforced by the host or deployment environment. A separate Python process alone is never represented as a secure sandbox. |
-| 24 | D-G0-2 | Numerical precision and canonical serialization policy | Approved (direction) | M2 | A documented policy: deterministic calculations first, appropriate precision preserved, rounding only where numerical error analysis justifies it, cross-platform behaviour proved by reference tests. No arbitrary fixed rounding to conceal numerical differences. |
+| 24 | D-G0-2 | Numerical precision and canonical serialization policy | Approved (direction) | M2 | A documented policy: deterministic calculations first, appropriate precision preserved, rounding only where numerical error analysis justifies it, cross-platform behaviour proved by reference tests. No arbitrary fixed rounding to conceal numerical differences. The policy is ADR-0058 (accepted 2026-11-14): identity-bearing values are computed on exact or correctly rounded paths only, every value is recorded at full precision, and nothing is rounded to make two hosts agree (TD-09). |
 
 ## Technical decisions (delegated)
 
@@ -231,6 +232,26 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** alphalab/backtesting/provenance.py (_provenance_disagreement); CHANGELOG [4.3.0].
 - **Tests:** tests/integration/test_provenance_end_to_end.py::test_forged_provenance_the_runs_own_record_contradicts_is_never_verified.
 
+### TD-09: ADR-0058: host independence by construction, not by rounding (WS-03, 2026-11-14)
+
+- **Problem:** Plan section H.1 proposed recording identity-bearing statistics as decimal strings rounded to twelve significant digits, so hosts whose libm differs in the last bit would agree. The owner's direction for G0 item 24 forbids arbitrary fixed rounding that conceals numerical differences, and rounding cannot make two hosts agree anyway: values a last bit apart that straddle a rounding boundary round to different strings at any number of digits.
+- **Alternatives:** (a) Twelve significant digits, as H.1 proposed. (b) Fewer digits, chosen per statistic, with the same boundary failure. (c) Three classes of result -- exact, correctly rounded, host libm -- with identities allowed over the first two only, every value recorded at full precision, class-3 values compared by tolerances derived from error analysis, and host independence proved by pinned reference tests on Linux and macOS.
+- **Decision:** (c), with the transcendental an identity needs computed on an exact or correctly rounded path instead, such as the stationary bootstrap's block lengths by integer comparison of hash-counter draws.
+- **Rationale:** It follows item 24's direction exactly, extends what REP-005 already does for run records, and makes cross-host equality a property a test proves rather than an outcome a rounding hopes for.
+- **Compatibility:** No existing identity or figure moves; LIM-005 stays a stated limitation, now a named class with a rule.
+- **Recorded in:** docs/ADR/0058-numerical-foundation-host-independence-and-the-identity-of-an-estimate.md; plan change PC-02's reading of AC-37.
+- **Tests:** Each M2 module's pinned reference tests on CI's Linux and macOS cells (built in M2).
+
+### TD-10: ADR-0054: where the selection statistics live, and the bounds their required arguments take (WS-06, 2026-11-14)
+
+- **Problem:** R54-8 makes CSCV's S and the bootstrap's block length required and bounded, without saying how; the draft placed the statistics in research but left their numerical class and their bounds open.
+- **Alternatives:** (a) Defaults for S, q and B, which the draft's review refused. (b) Required arguments, unbounded. (c) Required arguments with stated bounds: S even, 2 <= S <= T and S <= 20 (C(20, 10) = 184,756 combinations), trimming of T declared; q >= 1, B >= 1 and the seed required; the adjusted PSR's lag count required.
+- **Decision:** (c), with the statistics pure in alphalab.research over common only, bootstrap positions from a hash-counter stream (class 1), p-values as exact fractions, RC, SPA and PBO class 2, and PSR, DSR, MinTRL and the adjusted PSR class 3, never in an identity.
+- **Rationale:** A bound makes a required argument's cost and meaning explicit; S above 20 makes CSCV's combinations impractical in pure Python, and nothing about the method needs more.
+- **Compatibility:** Additive: new modules and names; the existing PSR, DSR, expected maximum Sharpe and multiple-testing corrections unchanged.
+- **Recorded in:** docs/ADR/0054-selection-statistics-measuring-a-search-over-backtests.md.
+- **Tests:** The oracle suite built in M2 (exact-enumeration CSCV, closed forms, published examples).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -247,17 +268,17 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-00 | Governance, charter and decision records | G0 | In progress |
 | WS-01 | Compatibility and historical-contract integrity | M0, M13 | In progress |
 | WS-02 | Deterministic identity and provenance | M0, M1 | In progress |
-| WS-03 | Scientific computing and numerical foundations | M2 | Not started |
+| WS-03 | Scientific computing and numerical foundations | M2 | In progress |
 | WS-04 | Streaming research-result capture | M3 | Not started |
 | WS-05 | Experiment and trial ledger, executor, runner registry | M4 | Not started |
-| WS-06 | Statistical research functions | M2, M3, M5 | Not started |
+| WS-06 | Statistical research functions | M2, M3, M5 | In progress |
 | WS-07 | Econometrics and time series | M6 | Not started |
 | WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | Not started |
 | WS-09 | Optional distributions and backends | M7, M11 | Not started |
 | WS-10 | Strategy authoring and safe extensibility | M8 | Not started |
 | WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | Not started |
 | WS-12 | Portfolio construction and rebalancing | M9 | Not started |
-| WS-13 | Global conventions, reference data and historical universes | M2, M3, M10 | Not started |
+| WS-13 | Global conventions, reference data and historical universes | M2, M3, M10 | In progress |
 | WS-14 | Fixed income and rates | M10 | Not started |
 | WS-15 | Performance and scale | M11 | Not started |
 | WS-16 | ML/DL/RL research environments | M12 | Not started |
@@ -326,6 +347,27 @@ Evidence:
 - M1, first increment: alphalab/runtime/schedule_check.py, alphalab/backtesting/provenance.py, ScheduleCursor.start(expected=), checkpoint schema 3. tests/integration/test_run_provenance.py (25 tests): chains checkpointed after 1, 3 and 4 records continue under their schedule to the uninterrupted result_id; another schedule, none, and two bindings in one chain are refused; an unbound chain is UNRECORDED; provenance is the result's id, draws nothing, refuses another schedule, run, registry and an edit; a payload's provenance is DECLARED; round trip and evidence filing. The public API grew by 13 names (2,767 exports); checkpoint and restore_checkpoints each gained one keyword-only parameter defaulting to None (CR-53-2). Certificate: the source digest and API-1's manifest digest and count moved; no DET, REP or PAR evidence did (CR-53-8). Suite: 11,097 passed once the two schema-constant inventories admitted RUN_PROVENANCE_SCHEMA.
 - M1, second increment: manifest_for_run(provenance=, identity_version=) in alphalab/lifecycle/reproducibility.py; the delivery-record rule (REP-009) is now one function, backtesting.provenance.delivery_disagreement, used by both manifests and provenance, its messages unchanged. tests/integration/test_manifest_provenance.py (12 tests, on example 72's registry-holding run): under version 1 a manifest made with provenance is the manifest made without it; provenance of another run, another schedule, none named, one named where none, and another registry are refused; version 2 records the registry and cites the provenance, verifies, and has a new identity by design; a version-2 manifest lacking its registry is a gap; an unknown version is refused and does not verify; a version-2 rerun of a version-1 original REPRODUCED by version 1's rules; the unattested finding under version 2 alone; a version-1 manifest stored as v4.2.1 stored it, which the frozen v4.2.1 evidence store holds. The full gate's first run on this increment found the draft writing the two new fields into every stored manifest -- a value an evidence store holding v4.2.1's copy would refuse -- and the projection was fixed before the push. Ledger: FUT-046 implemented (v4.3.0) with its criteria amended (D-53-7); FUT-042 restated as the default flip for 5.0; ADR-0052 accepted (option C, opt-in). Certificate: only the source digest and API-1 moved, so no version-1 manifest identity in the certificate's evidence moved (CR-53-7).
 - S-11, M1's exit gate (tests/integration/test_provenance_end_to_end.py, 6 tests): example 72's run, its provenance and a version-2 manifest citing it are made; a fresh interpreter under another hash seed reproduces all three; the result_id 0e3be7cb... and provenance_id 218292b0... are pinned, so CI's Linux and macOS cells each hold the host to them; rerun_from_manifest REPRODUCED the run under the same contract, its manifest version 2 and citing the rerun's own provenance; a continuation under a wrong schedule is refused by the cursor and by verify_provenance; forged provenance binding a schedule the run's own record contradicts -- one without its last delivery, or none -- is never VERIFIED. Provenance now refuses a binding of no schedule for a run that delivered observations, a rule a manifest cannot adopt in 4.x (TD-08).
+
+### WS-03: Scientific computing and numerical foundations
+
+- [Local validation passed] M2: ADR-0058 accepted: one authority, required tolerances, three numerical classes, precision by error analysis, the estimate's identity
+- [Not started] M2: common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions
+- [Not started] M2: common.linalg: symmetric eigensystem and thin SVD with vectors, pseudo-inverse; Cholesky as one authority
+- [Not started] M2: common.optimize and common.quadrature, with required tolerances and ConvergenceError
+- [Not started] M2: The Estimate type and its identity
+- [Not started] M2: One authority: ml.linalg and ml's splits delegate (GAP-48)
+
+### WS-06: Statistical research functions
+
+- [Local validation passed] M2: ADR-0054 accepted (plan 0054A)
+- [Not started] M2: TrialMatrix and the stationary bootstrap (hash-counter positions)
+- [Not started] M2: White's Reality Check and Hansen's SPA
+- [Not started] M2: PBO by CSCV, with an exact-enumeration oracle
+- [Not started] M2: MinTRL and the autocorrelation-adjusted PSR
+
+### WS-13: Global conventions, reference data and historical universes
+
+- [Not started] M2: Global day counts (N21)
 
 ### WS-20: Documentation, guides and examples
 
@@ -439,12 +481,12 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR | Subject | Workstream | Needed | Status |
 | --- | --- | --- | --- | --- |
 | ADR-0053 | Run and input provenance | WS-02 | G0 | Accepted (2026-11-10), revision 3; implemented in M1 |
-| ADR-0054 | Selection statistics (pure) (plan 0054A) | WS-06 | G0 | Not drafted in the repository |
+| ADR-0054 | Selection statistics (pure) (plan 0054A) | WS-06 | G0 | Accepted (2026-11-14) |
 | ADR-0072 | Experiments and trial ledger (plan 0054B) | WS-05 | Before M4 | Not drafted in the repository |
 | ADR-0055 | Streaming research capture, extractor identity, trace identity, retention | WS-04 | Before M3 | Not drafted in the repository |
 | ADR-0056 | Product charter (D-V1) | WS-00 | G0 | Accepted (2026-11-10) |
 | ADR-0057 | Optional distributions and backend protocols (D-V2); includes the screening evaluator (B9) | WS-09 | G0 | Not drafted in the repository |
-| ADR-0058 | Numerical foundation, record-path host independence, estimation identity (reopens OFE-007, OFE-010 under identity) | WS-03 | Before M2 | Not drafted in the repository |
+| ADR-0058 | Numerical foundation, record-path host independence, estimation identity (reopens OFE-007, OFE-010 under identity) | WS-03 | Before M2 | Accepted (2026-11-14) |
 | ADR-0059 | Historical universes and reference-data packs (reopens BDY-013 "permanently") | WS-13 | Before M3 | Not drafted in the repository |
 | ADR-0060 | Fill timing `NEXT_OPEN`, intraday opening, `RemainderPolicy`, latency pricing (D-V4) | WS-11 | Before M8 | Not drafted in the repository |
 | ADR-0061 | Per-venue execution (FUT-045) and plan+queue composition | WS-26 | Before M8 | Not drafted in the repository |
