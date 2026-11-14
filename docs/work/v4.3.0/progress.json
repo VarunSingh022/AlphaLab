@@ -553,8 +553,16 @@
       "deliverables": "Numerical foundation; global day counts; selection statistics (pure)",
       "exit_gate": "Published-table tests; GR-2; oracle suite; cross-host identity equality",
       "size": "L",
-      "status": "In progress",
-      "evidence": []
+      "status": "Local validation passed",
+      "evidence": [
+        "Exit gate, published tables: the distributions against published tables at the digits they print (tests/unit/common/test_distributions.py); the Hilbert matrix's published condition number, 1.495105864e7, by the new SVD; MinTRL's normal-returns textbook form; QUADPACK's QK15 constants, verified exact to degree 22 (Kronrod) and 13 (Gauss) in 60-digit Decimal; GR-2's day counts against ISDA's worked examples (the 1998 memorandum for ACT/ACT ISDA and ICMA; the 2008 note for 30E/360 and 30E/360 ISDA) and reference implementations where ISDA prints none (QuantLib for BUS/252, Strata for ACT/365L and NL/365).",
+        "Exit gate, GR-2: met (WS-13's evidence); the long first ICMA coupon by the definition's sum over determination periods.",
+        "Exit gate, the oracle suite: an exact oracle beside every method -- closed forms in Decimal and Fraction for the distributions; Sturm bisection and the Krylov-Weinstein residual bound in Fraction for the eigensystem; exact Fraction inverses for the pseudo-inverse; Decimal Newton roots for Brent's bracket; exact minimizers for BFGS and L-BFGS-B; exact enumeration for PBO; exact recomputation for the Reality Check; a 50-digit Decimal restatement of the adjusted PSR's variance factor; independent restatements in Fraction for every day count; v4.2.1's Cholesky, copied, for the moved factorization.",
+        "Exit gate, cross-host identity equality: hosted CI passed all six cells (Linux x86-64 and macOS arm64, CPython 3.12, 3.13 and 3.14) on every M2 code commit -- 4d63dfb and d28d306 with 9ef9bce, 117da41, 0d46a05, 5f4c718, c243587, 839ab67 and 1343f90 -- holding the pins of the eigensystem, SVD, Cholesky, least squares and math.hypot, the quadrature, the optimisers, the estimate identities, PBO, the stationary bootstrap and RC and SPA, each computed identically under the three interpreters before it was pinned.",
+        "Mutation series Q (WS-03), R (WS-06) and S (WS-13): 42 mutations, one defect each, run by docs/audit/scripts/mutation_v4_3.py over the whole suite (baseline 13,026 passed). 41 were caught on the first run. R04 (Trim.OLDEST dropping the newest periods) survived: the trimming test compared PBOs, which coincided over six splits. A test naming the trimmed end by the selections (test_the_trimmed_end_is_the_one_named) was added, and R04 re-run against it was caught.",
+        "Full local gates passed on 117da41, 0d46a05, 5f4c718, c243587 (quick), 839ab67 and 1343f90; the full gate's example run found DOC-015 on the way, and its suite PER-004's enum table.",
+        "Defects found and fixed in M2: NUM-017 (the normal CDF's lower tail), EXE-015 (a schedule's allocation took the caller's decimal context), DOC-015 (example 39's day-count prose). Limits stated rather than loosened: a line search cannot resolve a gradient below about sqrt(eps |f|); a singularity where floats are sparse cannot be approached past their spacing."
+      ]
     },
     {
       "id": "M3",
@@ -864,37 +872,37 @@
       "milestones": [
         "M2"
       ],
-      "status": "In progress",
+      "status": "Hosted CI passed",
       "items": [
         {
           "milestone": "M2",
           "item": "ADR-0058 accepted: one authority, required tolerances, three numerical classes, precision by error analysis, the estimate's identity",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M2",
           "item": "common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M2",
           "item": "common.linalg: symmetric eigensystem and thin SVD with vectors, pseudo-inverse; Cholesky as one authority",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M2",
           "item": "common.optimize and common.quadrature, with required tolerances and ConvergenceError",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M2",
           "item": "The Estimate type and its identity",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M2",
           "item": "One authority: ml.linalg and ml's splits delegate (GAP-48)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": [
@@ -940,27 +948,27 @@
         {
           "milestone": "M2",
           "item": "ADR-0054 accepted (plan 0054A)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M2",
           "item": "TrialMatrix and the stationary bootstrap (hash-counter positions)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M2",
           "item": "White's Reality Check and Hansen's SPA",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M2",
           "item": "PBO by CSCV, with an exact-enumeration oracle",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M2",
           "item": "MinTRL and the autocorrelation-adjusted PSR",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": [
@@ -1041,7 +1049,7 @@
         {
           "milestone": "M2",
           "item": "Global day counts (N21)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": [
@@ -1369,7 +1377,7 @@
       "problem": "Selection statistics missing",
       "severity": "C/P1",
       "status": "Open",
-      "status_note": "",
+      "status_note": "Delivered at M2 (WS-06, TD-13): TrialMatrix, PBO by CSCV against an exact-enumeration oracle, RC, SPA, MinTRL, the adjusted PSR, the stationary bootstrap. The bridge to captured backtests is M3's.",
       "workstreams": [
         "WS-06"
       ],
@@ -1381,7 +1389,7 @@
       "problem": "No numerical foundation",
       "severity": "C/P1",
       "status": "Open",
-      "status_note": "",
+      "status_note": "Delivered at M2 (WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate. Closes with M2's hosted exit gate.",
       "workstreams": [
         "WS-03"
       ],
@@ -1656,7 +1664,7 @@
       "problem": "Non-normal distributions missing",
       "severity": "M/P1",
       "status": "Open",
-      "status_note": "",
+      "status_note": "Delivered at M2 (WS-03): Student's t, chi-squared, F, gamma, beta, binomial and Poisson, held to published tables. Closes with M2's hosted exit gate.",
       "workstreams": [
         "WS-03"
       ],
@@ -2090,7 +2098,7 @@
   },
   "state": {
     "updated": "2026-11-14",
-    "remote_head": "839ab67afabc27077ff53807759da8757a3ed6f8",
+    "remote_head": "1343f90c224651c16741dba32058adeecb489e1d",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2266,10 +2274,22 @@
         "workflow": "CodeQL",
         "run": 43588195916,
         "result": "success"
+      },
+      {
+        "sha": "1343f90",
+        "workflow": "Continuous Integration",
+        "run": 43608287963,
+        "result": "success: all six quality-gate cells; GR-2's published day-count examples held on Linux and macOS"
+      },
+      {
+        "sha": "1343f90",
+        "workflow": "CodeQL",
+        "run": 43608287961,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M2 (WS-03, WS-06 math, WS-13 N21): common.optimize and common.quadrature with required tolerances; the Estimate type and its identity; ml.linalg and ml's splits delegating (GAP-48); the selection statistics (TrialMatrix, the stationary bootstrap, RC and SPA, PBO by CSCV, MinTRL, the adjusted PSR); global day counts; then M2's exit evidence.",
+    "next": "M2's close on hosted CI; then M3 (WS-04 capture and trace identity, keep_equity; WS-06's selection bridge; WS-13's dated membership and pack format), whose entry needs ADR-0055 and ADR-0059.",
     "open_questions": []
   },
   "log": [
@@ -2392,6 +2412,10 @@
     {
       "date": "2026-11-14",
       "entry": "DOC-015 found by the full gate's example run on the day-count commit: example 39 said three day counts gave three accruals, but ACT/365F and ACT/360 gave one (an accrual is a ratio of one basis's counts). Corrected and pinned absent before the commit was pushed."
+    },
+    {
+      "date": "2026-11-14",
+      "entry": "M2 delivered: WS-03, WS-06 and WS-13's N21 passed hosted CI on all six cells; the mutation series caught 42 of 42 (R04 after a test that names the trimmed end). M2 is held at local validation until this record's own commit passes hosted CI."
     }
   ]
 }

@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `839ab67afabc27077ff53807759da8757a3ed6f8` |
+| Remote head | `1343f90c224651c16741dba32058adeecb489e1d` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M2 (WS-03, WS-06 math, WS-13 N21): common.optimize and common.quadrature with required tolerances; the Estimate type and its identity; ml.linalg and ml's splits delegating (GAP-48); the selection statistics (TrialMatrix, the stationary bootstrap, RC and SPA, PBO by CSCV, MinTRL, the adjusted PSR); global day counts; then M2's exit evidence. |
+| Next | M2's close on hosted CI; then M3 (WS-04 capture and trace identity, keep_equity; WS-06's selection bridge; WS-13's dated membership and pack format), whose entry needs ADR-0055 and ADR-0059. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -81,6 +81,8 @@ Never:
 | `c243587` | CodeQL | 43587392891 | success |
 | `839ab67` | Continuous Integration | 43588195927 | success: all six quality-gate cells; PBO's, the stationary bootstrap's and RC and SPA's pins held |
 | `839ab67` | CodeQL | 43588195916 | success |
+| `1343f90` | Continuous Integration | 43608287963 | success: all six quality-gate cells; GR-2's published day-count examples held on Linux and macOS |
+| `1343f90` | CodeQL | 43608287961 | success |
 
 ## Continuation log
 
@@ -114,6 +116,7 @@ Never:
 - **2026-11-14** WS-06's M2 items delivered (TD-13): TrialMatrix, PBO by CSCV with an exact-enumeration oracle, Reality Check and SPA, the hash-counter stationary bootstrap, MinTRL and the autocorrelation-adjusted PSR.
 - **2026-11-14** N21 delivered (TD-14): the world's day counts by their published definitions, an instrument's terms explicit; GAP-36 delivered locally.
 - **2026-11-14** DOC-015 found by the full gate's example run on the day-count commit: example 39 said three day counts gave three accruals, but ACT/365F and ACT/360 gave one (an accrual is a ratio of one basis's counts). Corrected and pinned absent before the commit was pushed.
+- **2026-11-14** M2 delivered: WS-03, WS-06 and WS-13's N21 passed hosted CI on all six cells; the mutation series caught 42 of 42 (R04 after a test that names the trimmed end). M2 is held at local validation until this record's own commit passes hosted CI.
 
 ## Milestones
 
@@ -122,7 +125,7 @@ Never:
 | G0 | In progress | WS-00 | §Z G0 items all decided |
 | M0 | Hosted CI passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
 | M1 | Hosted CI passed | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
-| M2 | In progress | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
+| M2 | Local validation passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Not started | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Not started | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Not started | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
@@ -337,7 +340,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-00 | Governance, charter and decision records | G0 | In progress |
 | WS-01 | Compatibility and historical-contract integrity | M0, M13 | In progress |
 | WS-02 | Deterministic identity and provenance | M0, M1 | Hosted CI passed |
-| WS-03 | Scientific computing and numerical foundations | M2 | In progress |
+| WS-03 | Scientific computing and numerical foundations | M2 | Hosted CI passed |
 | WS-04 | Streaming research-result capture | M3 | Not started |
 | WS-05 | Experiment and trial ledger, executor, runner registry | M4 | Not started |
 | WS-06 | Statistical research functions | M2, M3, M5 | In progress |
@@ -421,12 +424,12 @@ Evidence:
 
 ### WS-03: Scientific computing and numerical foundations
 
-- [Local validation passed] M2: ADR-0058 accepted: one authority, required tolerances, three numerical classes, precision by error analysis, the estimate's identity
-- [Local validation passed] M2: common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions
-- [Local validation passed] M2: common.linalg: symmetric eigensystem and thin SVD with vectors, pseudo-inverse; Cholesky as one authority
-- [Local validation passed] M2: common.optimize and common.quadrature, with required tolerances and ConvergenceError
-- [Local validation passed] M2: The Estimate type and its identity
-- [Local validation passed] M2: One authority: ml.linalg and ml's splits delegate (GAP-48)
+- [Hosted CI passed] M2: ADR-0058 accepted: one authority, required tolerances, three numerical classes, precision by error analysis, the estimate's identity
+- [Hosted CI passed] M2: common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions
+- [Hosted CI passed] M2: common.linalg: symmetric eigensystem and thin SVD with vectors, pseudo-inverse; Cholesky as one authority
+- [Hosted CI passed] M2: common.optimize and common.quadrature, with required tolerances and ConvergenceError
+- [Hosted CI passed] M2: The Estimate type and its identity
+- [Hosted CI passed] M2: One authority: ml.linalg and ml's splits delegate (GAP-48)
 
 Evidence:
 
@@ -440,11 +443,11 @@ Evidence:
 
 ### WS-06: Statistical research functions
 
-- [Local validation passed] M2: ADR-0054 accepted (plan 0054A)
-- [Local validation passed] M2: TrialMatrix and the stationary bootstrap (hash-counter positions)
-- [Local validation passed] M2: White's Reality Check and Hansen's SPA
-- [Local validation passed] M2: PBO by CSCV, with an exact-enumeration oracle
-- [Local validation passed] M2: MinTRL and the autocorrelation-adjusted PSR
+- [Hosted CI passed] M2: ADR-0054 accepted (plan 0054A)
+- [Hosted CI passed] M2: TrialMatrix and the stationary bootstrap (hash-counter positions)
+- [Hosted CI passed] M2: White's Reality Check and Hansen's SPA
+- [Hosted CI passed] M2: PBO by CSCV, with an exact-enumeration oracle
+- [Hosted CI passed] M2: MinTRL and the autocorrelation-adjusted PSR
 
 Evidence:
 
@@ -452,7 +455,7 @@ Evidence:
 
 ### WS-13: Global conventions, reference data and historical universes
 
-- [Local validation passed] M2: Global day counts (N21)
+- [Hosted CI passed] M2: Global day counts (N21)
 
 Evidence:
 
@@ -517,8 +520,8 @@ Evidence:
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open: refused in code and documented; closes when M0 is accepted | WS-23 | M0 |
 | GAP-07 | v4.2.x formats not frozen | H/P0 | Open: acceptance met (REP-3 reads v4.2.1; hosted CI passed on dc61a75); closes when M0 is accepted | WS-01 | M0 |
 | GAP-08 | Return extraction; → retention trims equity | H/P0 | Open (scope = ADR-0055) | WS-04 | M3 |
-| GAP-09 | Selection statistics missing | C/P1 | Open | WS-06 | M2 (bridge M3) |
-| GAP-10 | No numerical foundation | C/P1 | Open | WS-03 | M2 |
+| GAP-09 | Selection statistics missing | C/P1 | Delivered at M2 (WS-06, TD-13): TrialMatrix, PBO by CSCV against an exact-enumeration oracle, RC, SPA, MinTRL, the adjusted PSR, the stationary bootstrap. The bridge to captured backtests is M3's. | WS-06 | M2 (bridge M3) |
+| GAP-10 | No numerical foundation | C/P1 | Delivered at M2 (WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate. Closes with M2's hosted exit gate. | WS-03 | M2 |
 | GAP-11 | No econometrics | H/P1 | Open | WS-07 | M6 |
 | GAP-12 | No model protocol | C/P1 | Open | WS-08 | M7 |
 | GAP-13 | ML dataset not PIT | H/P1 | Open | WS-08 | M7 |
@@ -541,7 +544,7 @@ Evidence:
 | GAP-30 | Stale documentation (CON-A/N/V/X) | M/P1 | Open: the seven High items corrected and guarded in M0; Medium and Low items follow by M13 | WS-20 | M0 (High) + every M |
 | GAP-31 | Three orchestration layers unbound | M/P2 | Open | WS-05 | M4 |
 | GAP-32 | No vectorised screening | M/P3 | Open (D-V3 via L4) | WS-09, WS-15 | M11 |
-| GAP-33 | Non-normal distributions missing | M/P1 | Open | WS-03 | M2 |
+| GAP-33 | Non-normal distributions missing | M/P1 | Delivered at M2 (WS-03): Student's t, chi-squared, F, gamma, beta, binomial and Poisson, held to published tables. Closes with M2's hosted exit gate. | WS-03 | M2 |
 | GAP-34 | 9,248-line pipeline module | L/P3 | Open | WS-15 | M11 |
 | GAP-35 | Windows untested | M/P2 | Open | WS-21 | M11 [OD] |
 | GAP-36 | US-centric day counts | H/P1 | Delivered locally at M2 (N21, TD-14): the world's bond and swap day counts, each by its published definition, an instrument's terms explicit; GR-2's published worked examples matched. N21's other conventions in plan G.3 -- business-day conventions and FX value dates -- are where plan G.2 places them, at M10 with WS-14 (GR-6) and WS-27 (GR-3). Closes with M2's hosted exit gate. | WS-13 | M2 |

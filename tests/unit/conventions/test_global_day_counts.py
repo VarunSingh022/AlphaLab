@@ -559,3 +559,64 @@ def test_bus_252_matches_a_reference_implementation(
     # Backwards the count is signed, as QuantLib's -0.1507936507937 is; a year
     # fraction refuses a reversed period instead.
     assert day_count_days(end, start, DayCount.BUSINESS_252, terms=terms) == -round(published * 252)
+
+
+#: ACT/365L: (start, end, frequency, period start, period end, days, denominator) --
+#: OpenGamma Strata's reference cases (DayCountTest.data_ACT365L), each with the
+#: regular coupon period that ends on Strata's period end. Strata reads ICMA Rule
+#: 251.1(i): annual coupons over 366 when the period holds a 29 February (the
+#: first day excluded, the last included), others when the period ends in a leap
+#: year.
+STRATA_ACT_365L = [
+    (date(2011, 12, 28), date(2012, 2, 28), 1, date(2011, 2, 28), date(2012, 2, 28), 62, 365),
+    (date(2011, 12, 28), date(2012, 2, 28), 1, date(2011, 2, 28), date(2012, 2, 29), 62, 366),
+    (date(2011, 12, 28), date(2012, 2, 28), 1, date(2011, 3, 1), date(2012, 3, 1), 62, 366),
+    (date(2011, 12, 28), date(2012, 2, 29), 1, date(2011, 2, 28), date(2012, 2, 29), 63, 366),
+    (date(2011, 12, 28), date(2012, 2, 29), 1, date(2011, 3, 1), date(2012, 3, 1), 63, 366),
+    (date(2011, 12, 28), date(2012, 2, 28), 2, date(2011, 8, 28), date(2012, 2, 28), 62, 366),
+    (date(2011, 12, 28), date(2012, 2, 28), 2, date(2011, 8, 29), date(2012, 2, 29), 62, 366),
+    (date(2011, 12, 28), date(2012, 2, 28), 2, date(2011, 9, 1), date(2012, 3, 1), 62, 366),
+    (date(2011, 12, 28), date(2012, 2, 29), 2, date(2011, 8, 29), date(2012, 2, 29), 63, 366),
+    (date(2011, 12, 28), date(2012, 2, 29), 2, date(2011, 9, 1), date(2012, 3, 1), 63, 366),
+    (date(2010, 12, 28), date(2011, 2, 28), 2, date(2010, 8, 28), date(2011, 2, 28), 62, 365),
+    (date(2010, 12, 28), date(2011, 2, 28), 2, date(2010, 9, 1), date(2011, 3, 1), 62, 365),
+]
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "frequency", "period_start", "period_end", "days", "denominator"),
+    STRATA_ACT_365L,
+)
+def test_act_365l_matches_a_reference_implementation(
+    start: date,
+    end: date,
+    frequency: int,
+    period_start: date,
+    period_end: date,
+    days: int,
+    denominator: int,
+) -> None:
+    terms = DayCountTerms(period_start=period_start, period_end=period_end, frequency=frequency)
+
+    assert year_fraction(start, end, DayCount.ACT_365_LEAP, terms=terms) == days / denominator
+
+
+#: NL/365: (start, end, days) -- Strata's reference cases (data_days, data_yearFraction).
+STRATA_NO_LEAP_365 = [
+    (date(2011, 12, 28), date(2012, 2, 28), 62),
+    (date(2011, 12, 28), date(2012, 2, 29), 62),
+    (date(2011, 12, 28), date(2012, 3, 1), 63),
+    (date(2011, 12, 28), date(2016, 2, 28), 62 + 4 * 365),
+    (date(2011, 12, 28), date(2016, 2, 29), 62 + 4 * 365),
+    (date(2011, 12, 28), date(2016, 3, 1), 63 + 4 * 365),
+    (date(2012, 2, 28), date(2012, 3, 28), 28),
+    (date(2012, 2, 29), date(2012, 3, 28), 28),
+    (date(2012, 3, 1), date(2012, 3, 28), 27),
+    (date(2011, 12, 1), date(2012, 12, 1), 365),
+]
+
+
+@pytest.mark.parametrize(("start", "end", "days"), STRATA_NO_LEAP_365)
+def test_no_leap_365_matches_a_reference_implementation(start: date, end: date, days: int) -> None:
+    assert day_count_days(start, end, DayCount.NO_LEAP_365) == days
+    assert year_fraction(start, end, DayCount.NO_LEAP_365) == days / 365

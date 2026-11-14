@@ -14,6 +14,7 @@ from __future__ import annotations
 import itertools
 import math
 import random
+from decimal import Decimal, localcontext
 from fractions import Fraction
 
 import pytest
@@ -215,6 +216,34 @@ def test_trimming_drops_the_periods_it_says_from_the_end_it_says(trim: Trim, kep
     assert result.probability == _oracle_pbo(trimmed, 4, SelectionMeasure.MEAN)
 
 
+@pytest.mark.parametrize(
+    ("trim", "kept", "never"), [(Trim.OLDEST, "late", "early"), (Trim.NEWEST, "early", "late")]
+)
+def test_the_trimmed_end_is_the_one_named(trim: Trim, kept: str, never: str) -> None:
+    """``early`` earns everything in the two oldest periods, ``late`` in the two newest.
+
+    Twenty-six periods over four blocks leave two over. Dropping the oldest
+    removes ``early``'s edge and keeps ``late``'s in the last block, so ``late``
+    is selected exactly where that block is in sample -- three splits of six --
+    and ``early`` never; dropping the newest does the reverse. A PBO alone can
+    coincide between the two (mutation R04 found that); the selections cannot.
+    """
+
+    columns = {
+        "early": [100.0, 100.0] + [0.0] * 24,
+        "late": [0.0] * 24 + [100.0, 100.0],
+        "flat": [1.0] * 26,
+    }
+
+    result = probability_of_backtest_overfitting(
+        _matrix(columns), blocks=4, measure=SelectionMeasure.MEAN, trim=trim
+    )
+
+    assert result.selected.count(kept) == 3
+    assert never not in result.selected
+    assert result.selected.count("flat") == 3
+
+
 def test_periods_that_do_not_fill_the_blocks_are_never_dropped_silently() -> None:
     with pytest.raises(ResearchValidationError, match="not done silently"):
         probability_of_backtest_overfitting(
@@ -338,6 +367,41 @@ def _autoregressive(coefficient: float, seed: int, count: int = 1000) -> list[fl
     for _ in range(count - 1):
         values.append(coefficient * values[-1] + rng.gauss(0.0004, 0.01))
     return values
+
+
+def _oracle_spread(returns: list[float], lags: int) -> Decimal:
+    """The adjusted variance factor in 50-digit Decimal, restated from the docstring's formula."""
+
+    with localcontext() as context:
+        context.prec = 50
+        values = [Decimal(x) for x in returns]
+        count = len(values)
+        centre = sum(values, Decimal(0)) / count
+        deviation = (sum(((x - centre) ** 2 for x in values), Decimal(0)) / (count - 1)).sqrt()
+        a = [(x - centre) / deviation for x in values]
+        b = [x * x - 1 for x in a]
+        sharpe = centre / deviation
+        skewness = sum((x**3 for x in a), Decimal(0)) / count
+        kurtosis = sum((x**4 for x in a), Decimal(0)) / count
+        total = 1 - skewness * sharpe + (kurtosis - 1) / 4 * sharpe * sharpe
+        for lag in range(1, lags + 1):
+            weight = 1 - Decimal(lag) / (lags + 1)
+            aa, ab, ba, bb = (
+                sum((x[t] * y[t - lag] for t in range(lag, count)), Decimal(0)) / count
+                for x, y in ((a, a), (a, b), (b, a), (b, b))
+            )
+            total += 2 * weight * (aa - sharpe / 2 * (ab + ba) + sharpe * sharpe / 4 * bb)
+        return total
+
+
+@pytest.mark.parametrize(("coefficient", "lags"), [(0.5, 1), (0.5, 12), (-0.4, 6), (0.0, 3)])
+def test_the_adjusted_variance_factor_is_its_formula(coefficient: float, lags: int) -> None:
+    returns = _autoregressive(coefficient, 21, count=300)
+
+    adjusted = autocorrelation_adjusted_probabilistic_sharpe_ratio(returns, 0.0, lags=lags)
+    exact = _oracle_spread(returns, lags)
+
+    assert abs(Decimal(adjusted.adjusted_spread) - exact) <= Decimal("1e-12") * abs(exact)
 
 
 def test_positive_autocorrelation_widens_the_standard_error() -> None:

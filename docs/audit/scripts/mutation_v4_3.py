@@ -36,6 +36,16 @@ M1's series:
   manifest's identity versions. CR-53-9's three are P01 and P02 (the binding
   not checked), P03 (the digest's formula not pinned) and P04 (VERIFIED without
   the run's record).
+
+M2's series:
+
+* **Q** -- WS-03, ADR-0058: the numerical foundation, its oracles and its pins.
+* **R** -- WS-06, ADR-0054: the selection statistics and their exact counts.
+* **S** -- WS-13, N21: the world's day counts and the terms they take.
+
+M2's run caught 42 of 42. R04 survived the first run -- the trimming test
+compared PBOs, which coincided -- and is caught by the test added for it, which
+names the trimmed end by the trials selected.
 """
 
 from __future__ import annotations
@@ -337,6 +347,320 @@ V43_M1: tuple[Any, ...] = (
     ),
 )
 
+_LINALG = "alphalab/common/linalg.py"
+_OPTIMIZE = "alphalab/common/optimize.py"
+_SELECTION = "alphalab/research/selection.py"
+_SNOOPING = "alphalab/research/data_snooping.py"
+_DAYCOUNT = "alphalab/conventions/daycount.py"
+
+#: M2's behaviour, one rule each.
+V43_M2: tuple[Any, ...] = (
+    # --- Q: the numerical foundation (WS-03, ADR-0058)
+    Mutation(
+        "Q01",
+        "a Cholesky pivot exactly at the floor is factored",
+        _LINALG,
+        "                if total <= floor:\n",
+        "                if total < floor:\n",
+    ),
+    Mutation(
+        "Q02",
+        "an implicit QL rotation turns the eigenvectors the wrong way",
+        _LINALG,
+        "                vectors[i] = [cosine * x - sine * y"
+        " for x, y in zip(first, second, strict=True)]\n",
+        "                vectors[i] = [cosine * x + sine * y"
+        " for x, y in zip(first, second, strict=True)]\n",
+    ),
+    Mutation(
+        "Q03",
+        "eigenvalues come smallest first",
+        _LINALG,
+        "    order = sorted(range(size), key=lambda index: diagonal[index], reverse=True)\n",
+        "    order = sorted(range(size), key=lambda index: diagonal[index])\n",
+    ),
+    Mutation(
+        "Q04",
+        "a vector's largest component is made negative",
+        _LINALG,
+        "    if vector[leading] < 0.0:\n",
+        "    if vector[leading] > 0.0:\n",
+    ),
+    Mutation(
+        "Q05",
+        "a zero singular value's column is normalized by zero",
+        _LINALG,
+        "        if norms[index] > 0.0:\n",
+        "        if norms[index] >= 0.0:\n",
+    ),
+    Mutation(
+        "Q06",
+        "the pseudo-inverse inverts a singular value at its cutoff",
+        _LINALG,
+        "    rank = sum(1 for value in values if value > threshold)\n",
+        "    rank = sum(1 for value in values if value >= threshold)\n",
+    ),
+    Mutation(
+        "Q07",
+        "the factorization moved from the optimizer forgets its size in the floor",
+        _LINALG,
+        "    floor = size * _EPSILON * largest\n",
+        "    floor = _EPSILON * largest\n",
+    ),
+    Mutation(
+        "Q08",
+        "a Cholesky back substitution reads the factor untransposed",
+        _LINALG,
+        "                forward[row] - math.fsum(lower[k][row] * solution[k]"
+        " for k in range(row + 1, size))\n",
+        "                forward[row] - math.fsum(lower[row][k] * solution[k]"
+        " for k in range(row + 1, size))\n",
+    ),
+    Mutation(
+        "Q09",
+        "a convergence report accepts a criterion that was not met",
+        "alphalab/common/convergence.py",
+        "            math.isfinite(self.reached) and 0.0 <= self.reached <= self.tolerance\n",
+        "            math.isfinite(self.reached) and 0.0 <= self.reached\n",
+    ),
+    Mutation(
+        "Q10",
+        "a Kronrod weight is wrong in its sixteenth digit",
+        "alphalab/common/quadrature.py",
+        '    "0.022935322010529224963732008058970",\n',
+        '    "0.022935322010529324963732008058970",\n',
+    ),
+    Mutation(
+        "Q11",
+        "an interval too narrow to resolve is halved anyway, onto its endpoint",
+        "alphalab/common/quadrature.py",
+        "        if not (_resolvable(left, middle) and _resolvable(middle, right)):\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "Q12",
+        "Brent's bracket is not kept around the sign change",
+        _OPTIMIZE,
+        "        if (fb > 0.0) == (fc > 0.0):\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "Q13",
+        "the line search's curvature condition demands an exact minimum",
+        _OPTIMIZE,
+        "CURVATURE: Final = 0.9\n",
+        "CURVATURE: Final = 0.0\n",
+    ),
+    Mutation(
+        "Q14",
+        "L-BFGS-B's Cauchy point pins a variable to the wrong bound",
+        _OPTIMIZE,
+        "        cauchy[b] = highs[b] if direction[b] > 0.0 else lows[b]\n",
+        "        cauchy[b] = lows[b] if direction[b] > 0.0 else highs[b]\n",
+    ),
+    Mutation(
+        "Q15",
+        "a central difference takes an absolute step",
+        _OPTIMIZE,
+        "        width = step * max(1.0, abs(coordinate))\n",
+        "        width = step\n",
+    ),
+    Mutation(
+        "Q16",
+        "a class-3 value enters an estimate's identity",
+        "alphalab/common/estimate.py",
+        "    if estimate.numerical_class.identity_bearing:\n",
+        "    if True:\n",
+    ),
+    Mutation(
+        "Q17",
+        "an integer setting renders as the float it equals",
+        "alphalab/common/estimate.py",
+        '        return f"int:{value}"\n',
+        '        return f"float:{float(value)!r}"\n',
+    ),
+    Mutation(
+        "Q18",
+        "the normal CDF loses its lower tail again (NUM-017)",
+        "alphalab/common/statistics.py",
+        "    if x < 0.0:\n",
+        "    if x < -1e300:\n",
+    ),
+    Mutation(
+        "Q19",
+        "the distributions' stated criterion is loosened to a millionth",
+        "alphalab/common/distributions.py",
+        "RELATIVE_TOLERANCE: Final = 4.0 * sys.float_info.epsilon\n",
+        "RELATIVE_TOLERANCE: Final = 1e-6\n",
+    ),
+    # --- R: the selection statistics (WS-06, ADR-0054)
+    Mutation(
+        "R01",
+        "PBO no longer counts a selection at the median",
+        _SELECTION,
+        "        if doubled <= matrix.trials + 1:\n",
+        "        if doubled < matrix.trials + 1:\n",
+    ),
+    Mutation(
+        "R02",
+        "out-of-sample ranks ignore ties",
+        _SELECTION,
+        "        doubled = 2 * below + equal + 1\n",
+        "        doubled = 2 * below + 2\n",
+    ),
+    Mutation(
+        "R03",
+        "the in-sample best is the last of equal trials",
+        _SELECTION,
+        "        best = max(trials, key=lambda trial: in_sample[trial])\n",
+        "        best = max(reversed(trials), key=lambda trial: in_sample[trial])\n",
+    ),
+    Mutation(
+        "R04",
+        "Trim.OLDEST drops the newest periods",
+        _SELECTION,
+        "    start = leftover if trim is Trim.OLDEST else 0\n",
+        "    start = 0\n",
+    ),
+    Mutation(
+        "R05",
+        "a trial matrix accepts a repeated label",
+        _SELECTION,
+        "        if len(set(labels)) != len(labels):\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "R06",
+        "MinTRL rewards negative skewness",
+        _SELECTION,
+        "    spread = 1.0 - skewness * sharpe + (kurtosis - 1.0) / 4.0 * sharpe * sharpe\n",
+        "    spread = 1.0 + skewness * sharpe + (kurtosis - 1.0) / 4.0 * sharpe * sharpe\n",
+    ),
+    Mutation(
+        "R07",
+        "the autocovariances are summed without Bartlett's weights",
+        _SELECTION,
+        "        weight = 1.0 - lag / (lags + 1)\n",
+        "        weight = 1.0\n",
+    ),
+    Mutation(
+        "R08",
+        "the Reality Check's bootstrap is not centred",
+        _SNOOPING,
+        "        if max(root * (b - m) for b, m in zip(row, means, strict=True)) >= statistic\n",
+        "        if max(root * b for b, m in zip(row, means, strict=True)) >= statistic\n",
+    ),
+    Mutation(
+        "R09",
+        "SPA's lower recentering takes the negative part",
+        _SNOOPING,
+        '        "lower": [max(m, 0.0) for m in means],\n',
+        '        "lower": [min(m, 0.0) for m in means],\n',
+    ),
+    Mutation(
+        "R10",
+        "SPA's consistent threshold is on the wrong side of zero",
+        _SNOOPING,
+        '        "consistent": [m if m >= -deviations[k] * factor else 0.0'
+        " for k, m in enumerate(means)],\n",
+        '        "consistent": [m if m >= deviations[k] * factor else 0.0'
+        " for k, m in enumerate(means)],\n",
+    ),
+    Mutation(
+        "R11",
+        "a stationary-bootstrap block stops advancing",
+        "alphalab/research/perturbation.py",
+        "                current = (current + 1) % count\n",
+        "                current = current % count\n",
+    ),
+    Mutation(
+        "R12",
+        "the bootstrap's hash stream changes scheme silently",
+        "alphalab/research/perturbation.py",
+        'STATIONARY_BOOTSTRAP_SCHEME: Final = "alphalab.stationary_bootstrap.v1"\n',
+        'STATIONARY_BOOTSTRAP_SCHEME: Final = "alphalab.stationary_bootstrap.v2"\n',
+    ),
+    # --- S: the world's day counts (WS-13, N21, GAP-36)
+    Mutation(
+        "S01",
+        "30E/360 keeps an end day of 31",
+        _DAYCOUNT,
+        "        d1, d2 = min(start.day, 30), min(end.day, 30)\n",
+        "        d1, d2 = min(start.day, 30), end.day\n",
+    ),
+    Mutation(
+        "S02",
+        "30E/360 (ISDA) forgets the February termination date",
+        _DAYCOUNT,
+        "        february_termination = end == stated.termination and end.month == 2\n",
+        "        february_termination = False\n",
+    ),
+    Mutation(
+        "S03",
+        "ACT/ACT (ISDA) divides a leap year by 365",
+        _DAYCOUNT,
+        "                (boundary - cursor).days, 366 if calendar.isleap(cursor.year) else 365\n",
+        "                (boundary - cursor).days, 365\n",
+    ),
+    Mutation(
+        "S04",
+        "an ICMA accrual outside its coupon period is measured anyway",
+        _DAYCOUNT,
+        "    if not period_start <= start <= end <= period_end:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "S05",
+        "ACT/365L applies its annual rule to semi-annual coupons",
+        _DAYCOUNT,
+        "        if stated.frequency == 1:\n",
+        "        if stated.frequency == 2:\n",
+    ),
+    Mutation(
+        "S06",
+        "NL/365 counts every 29 February",
+        _DAYCOUNT,
+        "        if calendar.isleap(year) and start < date(year, 2, 29) <= end:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "S07",
+        "BUS/252 counts the weekend",
+        _DAYCOUNT,
+        "        if day.weekday() not in weekend and day not in holidays:\n",
+        "        if day not in holidays:\n",
+    ),
+    Mutation(
+        "S08",
+        "a term the basis does not use is ignored",
+        _DAYCOUNT,
+        "    if unused:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "S09",
+        "a daily accrual takes a basis with no single year",
+        _DAYCOUNT,
+        "    days_in_year(basis)\n",
+        "    return None\n",
+    ),
+    Mutation(
+        "S10",
+        "a bond does not pass its coupon period to ICMA",
+        "alphalab/macro/bond.py",
+        "    needed = required_terms(bond.day_count)\n",
+        "    needed: frozenset[str] = frozenset()\n",
+    ),
+    Mutation(
+        "S11",
+        "borrow terms accept a basis that cannot weight a day",
+        "alphalab/instrument/borrow.py",
+        "            require_accrual_basis(self.day_count)\n",
+        "            pass\n",
+    ),
+)
+
+
 #: v4.1's mutations whose patterns v4.2.0's restructuring moved: the same defect, now.
 RETARGETED: dict[str, Any] = {
     "X15": Mutation(
@@ -366,7 +690,10 @@ RETARGETED: dict[str, Any] = {
 }
 
 MUTATIONS: tuple[Any, ...] = (
-    tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS) + V43_M0 + V43_M1
+    tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS)
+    + V43_M0
+    + V43_M1
+    + V43_M2
 )
 
 
