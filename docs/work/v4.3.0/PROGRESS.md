@@ -118,6 +118,7 @@ Never:
 - **2026-11-14** DOC-015 found by the full gate's example run on the day-count commit: example 39 said three day counts gave three accruals, but ACT/365F and ACT/360 gave one (an accrual is a ratio of one basis's counts). Corrected and pinned absent before the commit was pushed.
 - **2026-11-14** M2 delivered: WS-03, WS-06 and WS-13's N21 passed hosted CI on all six cells; the mutation series caught 42 of 42 (R04 after a test that names the trimmed end). M2 is held at local validation until this record's own commit passes hosted CI.
 - **2026-11-14** ADR-0055 accepted (TD-15): streaming research capture, M3's first entry condition; FUT-049 and LIM-012 record its limitations. PC-06 records the eigensystem's algorithm change against plan H.1.
+- **2026-11-14** ADR-0059 accepted (TD-16): dated membership through the registry, a survivorship review, and the reference-pack format; FUT-050 records its limitation. M3's entry conditions (M0, ADR-0055, ADR-0059) are met.
 
 ## Milestones
 
@@ -333,6 +334,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Compatibility:** Additive: new names only, one defaulted RetentionPolicy field written only when true; no result_id, configuration_id, manifest_id, digest or format moves. Departures from plan K.1's text: full precision (ADR-0058, PC-02), and the calendar-session grid waits for ADR-0059's packs.
 - **Recorded in:** docs/ADR/0055-streaming-research-capture-and-the-identity-of-an-economic-history.md; ledger FUT-049, LIM-012.
 - **Tests:** Built in M3: the captured result equal to the uncaptured run's, field for field and by result_id; the series equal to analytics' period_returns; the trace equal across retentions; the bound refusal; zero identifier draws; benchmarks/benchmark_capture.py against the 10 % budget.
+
+### TD-16: ADR-0059: membership dated twice, read through the registry as known, a survivorship control caught by its trades, and a pack format (WS-13, 2026-11-14)
+
+- **Problem:** GAP-43: no point-in-time universe membership, so a backtest over an index either reads today's constituents (survivorship) or effective dates alone (look-ahead); and plan G.1's reference packs had no format.
+- **Alternatives:** Where membership lives: (a) strategy configuration; (b) a new universe service; (c) the instrument registry, which ADR-0026 and UniverseView already made the authority on what a universe is. How it is dated: (i) effective dates; (ii) effective and announcement instants. How survivorship is caught: (x) a score over returns, which RES-001 removed; (y) a review naming the trades made outside membership as it was known.
+- **Decision:** (c), (ii) and (y). MembershipChange(universe, asset_id, kind ADDITION/REMOVAL/DELISTING, effective_at, announced_at <= effective_at); HistoricalUniverse refusing inconsistent histories and retroactive announcements; members(at, as_of) reading only what was announced by as_of; context.universe.members(universe, at) with as_of the context's instant; the registry's digest covering universes only when present; research.bias.membership_review; data.packs.ReferencePack with source, as_of, validity, licence, typed entries and a content digest under alphalab.reference_pack.v1, refusing a mismatched digest, a query outside its range and a missing entry.
+- **Rationale:** The registry is already the one authority, and dated aliases already have the shape. Two dates are the minimum that separates what held from what was known. A review that lists trades is evidence a reader can check; a score is not. A pack is evidence of its source, never assumed true because its digest matches.
+- **Compatibility:** Additive: a registry without universes digests and snapshots exactly as before; no identity or format moves.
+- **Recorded in:** docs/ADR/0059-historical-universes-and-reference-data-packs.md; ledger FUT-050; BDY-013 kept for the engine.
+- **Tests:** Built in M3: membership's refusals and point-in-time reads; the registry digest unchanged without universes; GR-5's pair of runs, the point-in-time run and the survivorship-biased control, with the control's trades named; the pack's digest and refusals.
 
 ## Plan changes
 
@@ -591,7 +602,7 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR-0056 | Product charter (D-V1) | WS-00 | G0 | Accepted (2026-11-10) |
 | ADR-0057 | Optional distributions and backend protocols (D-V2); includes the screening evaluator (B9) | WS-09 | G0 | Not drafted in the repository |
 | ADR-0058 | Numerical foundation, record-path host independence, estimation identity (reopens OFE-007, OFE-010 under identity) | WS-03 | Before M2 | Accepted (2026-11-14) |
-| ADR-0059 | Historical universes and reference-data packs (reopens BDY-013 "permanently") | WS-13 | Before M3 | Not drafted in the repository |
+| ADR-0059 | Historical universes and reference-data packs (reopens BDY-013 "permanently") | WS-13 | Before M3 | Accepted (2026-11-14) |
 | ADR-0060 | Fill timing `NEXT_OPEN`, intraday opening, `RemainderPolicy`, latency pricing (D-V4) | WS-11 | Before M8 | Not drafted in the repository |
 | ADR-0061 | Per-venue execution (FUT-045) and plan+queue composition | WS-26 | Before M8 | Not drafted in the repository |
 | ADR-0062 | Combo and multi-leg intents (N16) | WS-11 | Before M8 | Not drafted in the repository |

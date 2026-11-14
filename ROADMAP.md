@@ -843,6 +843,7 @@ Every horizon is a proposal for the maintainer to confirm.
 | FUT-047 | **Every run held to its schedule by its own record** (option B of ADR-0053; an identity reset) | `run_provenance` beside each result; checkpoints written with `schedule=` | v5.0 | run provenance (ADR-0053, delivered in v4.3) |
 | FUT-048 | **Equal TWAP slices tying exactly** (an identity change) | the 34-digit allocation, the same for every caller | v5.0 | EXE-015 |
 | FUT-049 | **Capturing a paused replay** | capture the run end to end; a paused replay is digested | v4.4 | streaming capture (ADR-0055, delivered in v4.3) |
+| FUT-050 | **A delisting settling the positions held through it** | membership ends at the delisting; the caller schedules the settlement | v4.4 | dated membership (ADR-0059, delivered in v4.3); scheduled settlements |
 
 ---
 
