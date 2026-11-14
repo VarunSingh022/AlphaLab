@@ -21,6 +21,9 @@ by whoever bothered and demonstrated by nobody (ledger REP-003, OFE-020).
 3. **The verdict.** The rerun's own manifest is built from its result by
    :func:`~alphalab.lifecycle.reproducibility.manifest_for_run` and assessed
    against the original: ``REPRODUCED``, ``DIVERGED`` or ``INPUTS_DIFFER``.
+   It is made under the original's identity version, and an original that
+   cites its run's provenance (v4.3, ADR-0053) is compared with a rerun that
+   issues and cites its own.
 4. **Where.** Given the original result as well, a divergence is located: the
    two runs' canonical records are compared field by field, and the first
    :data:`RERUN_DIFFERENCE_LIMIT` differing paths are reported --
@@ -39,6 +42,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from alphalab.backtesting.algorithmic import ExecutionPlan
+from alphalab.backtesting.provenance import ProvenanceError, run_provenance
 from alphalab.backtesting.schedule import RunSchedule
 from alphalab.backtesting.state import BacktestResult
 from alphalab.lifecycle.exceptions import LifecycleInputError
@@ -240,7 +244,9 @@ def rerun_from_manifest(
     result = run()
     try:
         # Named as the original names it (REP-008): a manifest recording its
-        # registry is compared with a rerun's that records one too.
+        # registry is compared with a rerun's that records one too, one made under
+        # identity version 2 with one made under it, and one citing its run's
+        # provenance with one citing the rerun's own (ADR-0053).
         rerun_manifest = manifest_for_run(
             result,
             dataset,
@@ -250,8 +256,14 @@ def rerun_from_manifest(
             schedule=schedule,
             execution=execution,
             instruments=manifest.instruments_digest is not None,
+            provenance=(
+                None
+                if manifest.provenance_id is None
+                else run_provenance(result, schedule=schedule)
+            ),
+            identity_version=manifest.identity_version,
         )
-    except LifecycleInputError as error:
+    except (LifecycleInputError, ProvenanceError) as error:
         return RerunReport(
             manifest_id=manifest.manifest_id,
             outcome=RerunOutcome.INPUTS_DIFFER,

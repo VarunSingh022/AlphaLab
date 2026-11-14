@@ -284,6 +284,24 @@ def delivery_disagreement(run: RunState, schedule: RunSchedule | None) -> str | 
     return None
 
 
+def _provenance_disagreement(run: RunState, schedule: RunSchedule | None) -> str | None:
+    """Why ``schedule`` cannot be ``run``'s, as provenance reads it: stricter than a manifest.
+
+    :func:`delivery_disagreement`, and one rule more. A run that delivered
+    observations was given a schedule holding them, so a binding of none for it
+    is refused. A manifest naming no schedule for such a run is not refused, as
+    it never was in 4.x: refusing it would change what an existing call
+    computes. Provenance is new, and claims no more than the run's record allows.
+    """
+
+    if (schedule is None or not schedule) and run.observations_delivered:
+        return (
+            f"The run delivered {run.observations_delivered} observations, and the provenance "
+            "binds no schedule: they came from a schedule the run was given."
+        )
+    return delivery_disagreement(run, schedule)
+
+
 def _registry_digest(run: RunState) -> str | None:
     from alphalab.instrument.snapshot import registry_digest
 
@@ -321,7 +339,7 @@ def run_provenance(
     """
 
     effective = _effective(schedule, observations)
-    disagreement = delivery_disagreement(result.run, effective)
+    disagreement = _provenance_disagreement(result.run, effective)
     if disagreement is not None:
         raise ProvenanceError(disagreement)
     subject = result_id if result_id is not None else _sha256(serialize(capture_run(result.run)))
@@ -432,7 +450,7 @@ def verify_provenance(
             f"The provenance records registry {provenance.instruments_digest}, and the run "
             f"held {held}: it describes a run under other terms."
         )
-    disagreement = delivery_disagreement(subject.run, effective)
+    disagreement = _provenance_disagreement(subject.run, effective)
     if disagreement is not None:
         raise ProvenanceError(disagreement)
     return (

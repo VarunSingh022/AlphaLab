@@ -29,6 +29,13 @@ M0's series:
 * **L** -- WS-23, SEC-002: the HTTP transport's schemes and redirects.
 * **N** -- WS-29: artifacts held to their commit, the build reproduced.
 * **O** -- WS-20 and WS-00: the corrected statements and the charter.
+
+M1's series:
+
+* **P** -- WS-02, ADR-0053: a run held to its schedule, its provenance, and the
+  manifest's identity versions. CR-53-9's three are P01 and P02 (the binding
+  not checked), P03 (the digest's formula not pinned) and P04 (VERIFIED without
+  the run's record).
 """
 
 from __future__ import annotations
@@ -58,6 +65,9 @@ _TRACKER = "alphalab/experiment_tracking/tracker.py"
 _CLUSTER = "alphalab/cloud_research/cluster.py"
 _TRANSPORT = "alphalab/marketdata/transport.py"
 _PREFLIGHT = "docs/audit/scripts/release_preflight.py"
+_CHECKPOINT = "alphalab/runtime/checkpoint.py"
+_PROVENANCE = "alphalab/backtesting/provenance.py"
+_MANIFEST = "alphalab/lifecycle/reproducibility.py"
 
 #: M0's behaviour, one rule each.
 V43_M0: tuple[Any, ...] = (
@@ -220,6 +230,113 @@ V43_M0: tuple[Any, ...] = (
     ),
 )
 
+#: M1's behaviour, one rule each (ADR-0053).
+V43_M1: tuple[Any, ...] = (
+    Mutation(
+        "P01",
+        "a cursor given the binding a run was given checks nothing",
+        _SCHEDULE,
+        "        if expected is not None:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "P02",
+        "a checkpoint chain's binding is read and never compared",
+        _CHECKPOINT,
+        "        verify_schedule_binding(recorded, schedule_binding)\n",
+        "        pass\n",
+    ),
+    Mutation(
+        "P03",
+        "the scheme's name is rendered into the schedule's digest",
+        _SCHEDULE,
+        "        digest.update(repr(self.rate_max_age_seconds).encode(DEFAULT_ENCODING))\n",
+        "        digest.update((RUN_SCHEDULE_DIGEST_SCHEME + repr(self.rate_max_age_seconds))"
+        ".encode(DEFAULT_ENCODING))\n",
+    ),
+    Mutation(
+        "P04",
+        "VERIFIED without reading the run's own delivery record",
+        _PROVENANCE,
+        "    disagreement = _provenance_disagreement(subject.run, effective)\n",
+        "    disagreement = None\n",
+    ),
+    Mutation(
+        "P05",
+        "an older checkpoint is read as bound to no schedule: a binding invented",
+        _CHECKPOINT,
+        "    if version != CHECKPOINT_SCHEMA:\n        return None\n",
+        "    if version != CHECKPOINT_SCHEMA:\n"
+        '        return ScheduleBinding("alphalab.run_schedule.v1", None)\n',
+    ),
+    Mutation(
+        "P06",
+        "issuing provenance draws an identifier",
+        _PROVENANCE,
+        "    disagreement = _provenance_disagreement(result.run, effective)\n",
+        '    __import__("alphalab.common.ids", fromlist=["new_id"]).new_id()\n'
+        "    disagreement = _provenance_disagreement(result.run, effective)\n",
+    ),
+    Mutation(
+        "P07",
+        "provenance of another subject passes: the subject's digest not recomputed",
+        _PROVENANCE,
+        "    if provenance.subject_kind != kind or provenance.subject_digest != digest:\n",
+        "    if provenance.subject_kind != kind:\n",
+    ),
+    Mutation(
+        "P08",
+        "a subject with no provenance is reported VERIFIED",
+        _PROVENANCE,
+        "        return ScheduleVerification.UNRECORDED\n",
+        "        return ScheduleVerification.VERIFIED\n",
+    ),
+    Mutation(
+        "P09",
+        "a manifest given the run's provenance never checks it",
+        _MANIFEST,
+        "    if provenance is not None:\n"
+        "        _require_provenance_of(result, digest.result_id, provenance, schedule)\n",
+        "    if False:\n"
+        "        _require_provenance_of(result, digest.result_id, provenance, schedule)\n",
+    ),
+    Mutation(
+        "P10",
+        "a version-2 manifest's key does not name its version",
+        _MANIFEST,
+        "    if identity_version != 1:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "P11",
+        "an unbound checkpoint is written as version 3",
+        _CHECKPOINT,
+        '        "schema_version": _UNBOUND if schedule is None else CHECKPOINT_SCHEMA,\n',
+        '        "schema_version": CHECKPOINT_SCHEMA,\n',
+    ),
+    Mutation(
+        "P12",
+        "a run's provenance does not record the registry it held",
+        _PROVENANCE,
+        "        instruments_digest=_registry_digest(result.run),\n",
+        "        instruments_digest=None,\n",
+    ),
+    Mutation(
+        "P13",
+        "a rerun's manifest is made under version 1 whatever the original's",
+        "alphalab/lifecycle/rerun.py",
+        "            identity_version=manifest.identity_version,\n",
+        "            identity_version=1,\n",
+    ),
+    Mutation(
+        "P14",
+        "a version-2 rerun of a version-1 original is compared by version 2's rules",
+        _MANIFEST,
+        '        if label == "instruments" and _by_version_1(original, rerun):\n',
+        "        if False:\n",
+    ),
+)
+
 #: v4.1's mutations whose patterns v4.2.0's restructuring moved: the same defect, now.
 RETARGETED: dict[str, Any] = {
     "X15": Mutation(
@@ -249,7 +366,7 @@ RETARGETED: dict[str, Any] = {
 }
 
 MUTATIONS: tuple[Any, ...] = (
-    tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS) + V43_M0
+    tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS) + V43_M0 + V43_M1
 )
 
 

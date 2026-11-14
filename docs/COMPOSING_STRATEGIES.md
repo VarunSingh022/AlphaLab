@@ -262,11 +262,26 @@ Implement `StrategyStateProtocol` (`strategy_state_version`, `capture_state`,
 * a backtest stopped at any record, written to JSON, restored with freshly built
   objects and continued with `ScheduleCursor.start(schedule, <timestamp of the
   last record taken>)` finishes byte-identical: what remains is derived from
-  that record, so nothing is applied twice or lost.
+  that record, so nothing is applied twice or lost;
+* since v4.3 (ADR-0053) the continuation is held to the schedule the run was
+  given, which its record does not name. Checkpoint the chain with
+  `checkpoint(state, previous, schedule=cursor.binding)`, and
+  `restore_checkpoints(chain, objects, schedule_binding=schedule.binding)`
+  refuses another schedule, or none, before anything is restored. For a bare
+  snapshot, keep `backtesting.payload_provenance(payload, schedule=schedule)`
+  beside it and continue with
+  `ScheduleCursor.start(schedule, after, expected=provenance.schedule)`, which
+  refuses another schedule before applying anything.
 
 For lineage, `lifecycle.manifest_for_run(..., schedule=schedule)` checks the
 schedule holds the run's deliveries and records its digest in the manifest's
-identity.
+identity. `backtesting.run_provenance(result, schedule=schedule)` records, beside
+the run, the effective schedule's binding and the registry it held;
+`verify_provenance` says how far a check went -- `VERIFIED`, `DECLARED`,
+`UNRECORDED` or `NONE_GIVEN`, never more -- and
+`manifest_for_run(..., provenance=provenance)` refuses a manifest the
+provenance contradicts. Provenance is tamper-evident, not substitution-proof:
+only a rerun detects a consistent forgery.
 
 ## 8. Boundaries
 

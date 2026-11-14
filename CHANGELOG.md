@@ -105,8 +105,11 @@ entry below says otherwise.
   (`RUN_PROVENANCE_SCHEMA` 1). No driver's signature or return type changes,
   creating provenance draws no identifier and serializes nothing twice, and
   no `result_id`, `configuration_id`, `manifest_id` or digest moves
-  (`tests/integration/test_run_provenance.py`). Provenance is
-  tamper-evident, not substitution-proof (LIM-009).
+  (`tests/integration/test_run_provenance.py`). Provenance claims no more
+  than the run's record allows: a binding of no schedule for a run that
+  delivered observations is refused, and `VERIFIED` is given only once the
+  run's own delivery record agrees with the schedule. It is tamper-evident,
+  not substitution-proof (LIM-009).
 * **A manifest held to the run's provenance, and an opt-in identity version
   2** [ADR-0053 section 6, ADR-0052 option C, FUT-046, FUT-042]. Given the
   run's provenance, `manifest_for_run` refuses provenance of another run,
@@ -129,7 +132,12 @@ entry below says otherwise.
   byte: the two new fields are written only when they are not their defaults,
   since an evidence store refuses another value under an identity it holds.
   Making version 2 the default is FUT-042, for 5.0
-  (`tests/integration/test_manifest_provenance.py`).
+  (`tests/integration/test_manifest_provenance.py`). `rerun_from_manifest`
+  makes the rerun's manifest under the original's identity version, and an
+  original citing its run's provenance is compared with a rerun citing its
+  own: example 72's run, rerun in a fresh interpreter and on each host CI runs,
+  reproduces its `result_id`, its provenance and its version-2 manifest
+  (`tests/integration/test_provenance_end_to_end.py`, S-11).
 
 ## Changed
 

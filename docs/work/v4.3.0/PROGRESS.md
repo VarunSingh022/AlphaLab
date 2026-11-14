@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `1593381784309502724eff8cc0b6249c6a6e08b5` |
+| Remote head | `1508966254be7fc4599435ef0aa279c66c90ca25` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | Push da77ad5 and the manifest commit; record their hosted CI. Then S-11: a rerun in a fresh process REPRODUCED against pinned identities, run on Linux and macOS by CI; a wrong schedule refused at continuation. Then M1's mutation series (CR-53-9) and its acceptance record. |
@@ -62,7 +62,9 @@ Never:
 | `b48bfc3` | CodeQL | 42765683356 | success |
 | `1593381` | Continuous Integration | 42813534367 | success: all six quality-gate cells, the distributions step holding the artifacts to the checkout's commit and rebuilding them |
 | `1593381` | CodeQL | 42813534369 | success |
-| `every push` | Release Preflight | 42813534381 | skipped by design on every push: it runs only with the release-preflight label or by dispatch (D-W1); not a pass |
+| `1508966` | Continuous Integration | 42818861870 | success: all six quality-gate cells, carrying M0's close (7dacb33 to 1508966: the version state, the ledger, the N04 wiring test) |
+| `1508966` | CodeQL | 42818862101 | success |
+| `every push` | Release Preflight | 42818861920 | skipped by design on every push: it runs only with the release-preflight label or by dispatch (D-W1); not a pass |
 
 ## Continuation log
 
@@ -83,13 +85,14 @@ Never:
 - **2026-11-10** M1 begun: ADR-0053 revision 3 accepted under G0 item 6's delegation (TD-06 records where it departs from R53-1's letter); its three known limitations classified in the ledger (LIM-009, FUT-047, FUT-042).
 - **2026-11-10** M1's first increment built: the schedule binding and vocabulary, checkpoint schema 3, run provenance; ADR-0053's limitations in the ledger (LIM-009, FUT-047).
 - **2026-11-14** M1's second increment built: manifest provenance (D-53-3) and the opt-in identity version 2; D-F42 decided under delegation (G0 item 11); TD-07 recorded; FUT-046 delivered. The scratch toolchain was rebuilt after macOS's /tmp cleaning removed parts of the old one.
+- **2026-11-14** S-11 built: a fresh-interpreter rerun reproduces example 72's run, provenance and version-2 manifest against pinned identities; rerun_from_manifest follows the original's identity version and provenance (TD-08 recorded). M1's mutation series P01-P14 written (271 mutations, each applying once).
 
 ## Milestones
 
 | Milestone | Status | Workstreams | Exit gate (end-to-end proof) |
 | --- | --- | --- | --- |
 | G0 | In progress | WS-00 | §Z G0 items all decided |
-| M0 | Local validation passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
+| M0 | Hosted CI passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
 | M1 | In progress | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
 | M2 | Not started | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Not started | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
@@ -218,6 +221,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0053-run-and-input-provenance.md section 6; docs/ADR/0052 (status: accepted, option C, opt-in); CHANGELOG [4.3.0].
 - **Tests:** tests/integration/test_manifest_provenance.py (12 tests); tests/regression/test_schema_upgrades_v4_2_1.py::test_the_evidence_store_reads_back_verified_and_this_build_computes_the_same.
 
+### TD-08: Provenance refuses a binding of no schedule for a run that delivered observations (WS-02, 2026-11-14)
+
+- **Problem:** The delivery-record rule (REP-009) checks observations only when a schedule is named, because a manifest naming none for such a run has never been refused. Read the same way, forged provenance binding no schedule verified NONE_GIVEN for a run that delivered observations.
+- **Alternatives:** (a) Tighten the shared rule, which refuses a manifest_for_run call that succeeds today, a change in what a valid call computes. (b) A stricter rule for provenance alone, which is new API. (c) Leave it, and let NONE_GIVEN mean less than it says.
+- **Decision:** (b): run_provenance and verify_provenance refuse a binding of no schedule for a run whose record shows delivered observations; manifests keep the 4.x rule.
+- **Rationale:** The vocabulary must never claim more than the run's record allows, and an existing call's result must not change in a minor release.
+- **Compatibility:** No existing call changes; provenance is new in v4.3.
+- **Recorded in:** alphalab/backtesting/provenance.py (_provenance_disagreement); CHANGELOG [4.3.0].
+- **Tests:** tests/integration/test_provenance_end_to_end.py::test_forged_provenance_the_runs_own_record_contradicts_is_never_verified.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -300,7 +313,8 @@ Evidence:
 - [Local validation passed] M1: A continuation held to its schedule: ScheduleCursor.start(expected=), checkpoint schema 3 written only when given, restore_checkpoints(schedule_binding=)
 - [Local validation passed] M1: Run provenance: RunProvenance, run_provenance, payload_provenance, verify_provenance, filed as evidence (RUN_PROVENANCE_SCHEMA 1)
 - [Local validation passed] M1: manifest_for_run(provenance=) with the D-53-3 refusals, and the opt-in identity version 2 (ADR-0052 option C, FUT-042)
-- [Not started] M1: S-11 end to end: a rerun in a fresh process REPRODUCED against pinned identities on Linux and macOS; a wrong schedule refused at continuation
+- [Local validation passed] M1: S-11 end to end: a rerun in a fresh process REPRODUCED against pinned identities on Linux and macOS; a wrong schedule refused at continuation
+- [In progress] M1: CR-53-9: M1's mutation series P01-P14 run, every mutation caught or its survivor explained
 
 Evidence:
 
@@ -311,6 +325,7 @@ Evidence:
 - Hosted CI passed on 643d947 (CI run 42763156527, six cells; CodeQL 42763156687), carrying 58920fc, 04b3e10 and c48f5f7.
 - M1, first increment: alphalab/runtime/schedule_check.py, alphalab/backtesting/provenance.py, ScheduleCursor.start(expected=), checkpoint schema 3. tests/integration/test_run_provenance.py (25 tests): chains checkpointed after 1, 3 and 4 records continue under their schedule to the uninterrupted result_id; another schedule, none, and two bindings in one chain are refused; an unbound chain is UNRECORDED; provenance is the result's id, draws nothing, refuses another schedule, run, registry and an edit; a payload's provenance is DECLARED; round trip and evidence filing. The public API grew by 13 names (2,767 exports); checkpoint and restore_checkpoints each gained one keyword-only parameter defaulting to None (CR-53-2). Certificate: the source digest and API-1's manifest digest and count moved; no DET, REP or PAR evidence did (CR-53-8). Suite: 11,097 passed once the two schema-constant inventories admitted RUN_PROVENANCE_SCHEMA.
 - M1, second increment: manifest_for_run(provenance=, identity_version=) in alphalab/lifecycle/reproducibility.py; the delivery-record rule (REP-009) is now one function, backtesting.provenance.delivery_disagreement, used by both manifests and provenance, its messages unchanged. tests/integration/test_manifest_provenance.py (12 tests, on example 72's registry-holding run): under version 1 a manifest made with provenance is the manifest made without it; provenance of another run, another schedule, none named, one named where none, and another registry are refused; version 2 records the registry and cites the provenance, verifies, and has a new identity by design; a version-2 manifest lacking its registry is a gap; an unknown version is refused and does not verify; a version-2 rerun of a version-1 original REPRODUCED by version 1's rules; the unattested finding under version 2 alone; a version-1 manifest stored as v4.2.1 stored it, which the frozen v4.2.1 evidence store holds. The full gate's first run on this increment found the draft writing the two new fields into every stored manifest -- a value an evidence store holding v4.2.1's copy would refuse -- and the projection was fixed before the push. Ledger: FUT-046 implemented (v4.3.0) with its criteria amended (D-53-7); FUT-042 restated as the default flip for 5.0; ADR-0052 accepted (option C, opt-in). Certificate: only the source digest and API-1 moved, so no version-1 manifest identity in the certificate's evidence moved (CR-53-7).
+- S-11, M1's exit gate (tests/integration/test_provenance_end_to_end.py, 6 tests): example 72's run, its provenance and a version-2 manifest citing it are made; a fresh interpreter under another hash seed reproduces all three; the result_id 0e3be7cb... and provenance_id 218292b0... are pinned, so CI's Linux and macOS cells each hold the host to them; rerun_from_manifest REPRODUCED the run under the same contract, its manifest version 2 and citing the rerun's own provenance; a continuation under a wrong schedule is refused by the cursor and by verify_provenance; forged provenance binding a schedule the run's own record contradicts -- one without its last delivery, or none -- is never VERIFIED. Provenance now refuses a binding of no schedule for a run that delivered observations, a rule a manifest cannot adopt in 4.x (TD-08).
 
 ### WS-20: Documentation, guides and examples
 
@@ -346,7 +361,7 @@ Evidence:
 ### WS-29: Release engineering and v4.3.0 artifacts
 
 - [Hosted CI passed] M0: VERIFICATION record names the commit and tree; reproducible build
-- [Local validation passed] M0: The development-version state: the package is 4.3.0 while 4.3.0 is developed; the release gate refuses the tree; release-facing documents describe the published release (TD-05, PC-04)
+- [Hosted CI passed] M0: The development-version state: the package is 4.3.0 while 4.3.0 is developed; the release gate refuses the tree; release-facing documents describe the published release (TD-05, PC-04)
 
 Evidence:
 
@@ -355,6 +370,7 @@ Evidence:
 - The v4.3 mutation run's scratch copies are not git checkouts, and there 'distributions dist' reported the missing checkout before the missing directory. Fixed in 7dacb33: the commit is resolved after every path is checked, and both refusals are tested outside a checkout.
 - Hosted CI passed on 1593381 (CI run 42813534367, six cells): CI's distributions step resolved the checkout's commit, held both artifacts to it and rebuilt them.
 - Mutation N04 (the rebuild never called) survived M0's run; the gap is closed by test_the_distributions_check_holds_and_rebuilds_from_the_commit_it_names (31324fd), which fails under N04 and passes on the code.
+- Hosted CI passed on 1508966 (CI run 42818861870), carrying e23cf13 (the version state), 327db00 (the ledger) and 31324fd (the distributions wiring test).
 
 ## Gaps
 
