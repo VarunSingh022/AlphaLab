@@ -831,6 +831,7 @@ Every horizon is a proposal for the maintainer to confirm.
 | FUT-044 | **Halts, bands and references delivered during a live run** | deliver the venue's halt messages as observations; declare known halts | v4.4 | venue controls, published auctions |
 | FUT-045 | **An execution model per venue in one simulated run** | one backtest per venue's model; the costliest for a conservative run | v4.4 | described execution models |
 | FUT-047 | **Every run held to its schedule by its own record** (option B of ADR-0053; an identity reset) | `run_provenance` beside each result; checkpoints written with `schedule=` | v5.0 | run provenance (ADR-0053, delivered in v4.3) |
+| FUT-048 | **Equal TWAP slices tying exactly** (an identity change) | the 34-digit allocation, the same for every caller | v5.0 | EXE-015 |
 
 ---
 

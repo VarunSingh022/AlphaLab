@@ -234,6 +234,16 @@ entry below says otherwise.
   one far below its benchmark is a small probability rather than zero
   (`tests/regression/test_normal_cdf_keeps_its_lower_tail.py`).
 
+* **A schedule allocates the same for every caller** [EXE-015].
+  `execution.plan_schedule` ranked its remainders by a sort key that negated
+  each `Decimal`, and a negation rounds to the caller's context. Inside a run,
+  which is pinned to 34 digits, ten units over a TWAP's three slices are
+  `3, 4, 3`; called directly under the default 28 digits, they were `4, 3, 3`.
+  The ranking now compares the remainders exactly, so a direct call allocates
+  as a run does, under any context. No run's allocation, and no `result_id`,
+  moves. Equal slices tying exactly would change existing runs, and is FUT-048,
+  for 5.0.
+
 ## Security
 
 * **The HTTP transport opens `http://` and `https://` only** [SEC-002, plan
