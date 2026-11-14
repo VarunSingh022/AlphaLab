@@ -188,6 +188,35 @@ entry below says otherwise.
   (`tests/regression/test_cholesky_moved_unchanged.py`), so no portfolio
   moves.
 
+* **Optimisers, a root finder and quadrature** [ADR-0058, plan WS-03].
+  `alphalab.common.optimize` holds `brent_root` (Brent's `zeroin`, returning a
+  `Root` and the bracket that holds it), `golden_section_minimum` (returning a
+  `ScalarMinimum`), `nelder_mead`, `bfgs` (with a strong Wolfe line search)
+  and `l_bfgs_b` (Byrd, Lu, Nocedal and Zhu's method for simple bounds: the
+  generalized Cauchy point, the direct primal subspace step and a projected
+  line search), each returning a `Minimum`, and `numerical_gradient` (central
+  differences over the represented step). `alphalab.common.quadrature`
+  holds `integrate`, globally adaptive Gauss-Kronrod (7, 15) quadrature as
+  QUADPACK's `QAG` does it, returning an `Integral`. Every tolerance,
+  iteration limit, difference step and L-BFGS-B history size is a required
+  argument, and every result carries a `ConvergenceReport`. A method that
+  cannot meet its criterion raises `ConvergenceError` with what it reached:
+  a gradient tolerance below what the objective's rounding lets a line
+  search resolve, an integrand singularity double precision cannot
+  approach, an iteration limit. It never returns a best effort. The
+  integrand is never evaluated at an endpoint. The tests hold Brent's
+  bracket to polynomial roots found in 60-digit `Decimal`, BFGS to a
+  quadratic's exact minimizer within `||A^-1|| tol`, L-BFGS-B to exact
+  clamped minimizers, the bound Rosenbrock minimum `(0.5, 0.25)` and its
+  authors' 25-variable `driver1` problem, and the quadrature rules to
+  exactness on every polynomial up to their degrees in 60-digit `Decimal`.
+  Each method's result is pinned identically under CPython 3.12, 3.13 and
+  3.14 (`tests/unit/common/test_optimize.py`,
+  `tests/unit/common/test_quadrature.py`). The deep-learning package's
+  gradient check keeps its own central difference and its figures; it is
+  recorded beside the new authority with the reason, for deprecation in 5.0
+  (GAP-48).
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

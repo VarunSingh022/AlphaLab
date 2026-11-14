@@ -410,6 +410,36 @@ def test_the_three_cholesky_factorizations_do_three_jobs() -> None:
     assert "def _cholesky" not in source and "math.sqrt(total)" not in source
 
 
+def test_the_two_numerical_gradients_answer_different_questions() -> None:
+    """``deep_learning`` **checks** a backward pass; ``common.optimize`` **estimates** a gradient.
+
+    The gradient check takes an absolute step with a default and divides by
+    ``2 * epsilon``; ``gradients_match`` then compares it to the analytical
+    gradient at ``rtol=1e-2``, so its last digits never mattered, and every
+    layer's test was written against its figures. The research estimate (v4.3,
+    ADR-0058) takes a required step relative to each coordinate and divides by
+    the difference of the two points as represented, which removes the rounding
+    of ``x +- h``. Far from the origin the two take different steps; near it
+    the research one is the more accurate. The check keeps its figures until
+    GAP-48 deprecates it, with ``ml.linalg``, in 5.0.
+    """
+
+    from alphalab.common.optimize import numerical_gradient as estimate
+    from alphalab.deep_learning.gradient_check import numerical_gradient as check
+
+    def cubic(v: Sequence[float]) -> float:
+        return v[0] * v[0] * v[0]
+
+    # Near the origin both approximate 3 x^2 closely ...
+    assert check(cubic, (0.7,)) == pytest.approx((1.47,), rel=1e-8)
+    assert estimate(cubic, (0.7,), step=1e-5) == pytest.approx((1.47,), rel=1e-8)
+    # ... far from it the check's absolute step is lost in the coordinate's rounding.
+    far = (1e9,)
+    exact = 3e18
+    assert abs(estimate(cubic, far, step=1e-5)[0] - exact) < abs(check(cubic, far)[0] - exact)
+    assert inspect.signature(check).parameters["epsilon"].default == 1e-5
+
+
 # --------------------------------------------------------------------------- #
 # 7. Every package with no importer is a standalone engine, not an orphan
 # --------------------------------------------------------------------------- #

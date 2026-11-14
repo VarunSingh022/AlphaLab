@@ -50,7 +50,7 @@ two questions need one answer before any of it is written:
 | --- | --- | --- |
 | Distributions, special functions | `common.distributions` (new): normal (existing, from `common.statistics`), Student t, χ², F, gamma, beta, binomial, Poisson -- CDF, survival function, quantile; log-gamma, the regularised incomplete gamma and beta functions | `common.statistics` keeps its names and delegates |
 | Linear algebra | `common.linalg`: the existing QR least squares and Jacobi singular values, plus a symmetric eigensystem **with vectors**, a thin SVD with vectors, Cholesky and a pseudo-inverse | Cholesky moves from `portfolio_optimizer`, which re-exports it (no name removed). `ml.linalg` delegates, its names deprecated for 5.0 (GAP-48) |
-| Optimisation, roots | `common.optimize` (new): Nelder–Mead, BFGS, L-BFGS-B (bounds), Brent's root finder, golden section, numerical gradients | — |
+| Optimisation, roots | `common.optimize` (new): Nelder–Mead, BFGS, L-BFGS-B (bounds), Brent's root finder, golden section, numerical gradients | The implied-volatility inversion (`options.implied`) and construction's bracketing searches keep their bisections. Each inverts one function under its domain's refusals and is pinned to the figures it has always produced; neither is a general root finder |
 | Quadrature | `common.quadrature` (new): adaptive Gauss–Kronrod | — |
 | Splits | `research.walk_forward` and `research.time_series_cv` | `ml.cross_validation` delegates (GAP-48) |
 

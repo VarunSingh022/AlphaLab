@@ -54,6 +54,18 @@ PERMITTED_NAMESAKES: dict[str, dict[str, str]] = {
             "would give one type two jobs."
         )
     },
+    "numerical_gradient": {
+        "alphalab/deep_learning/gradient_check.py": (
+            "the deep-learning package's gradient check: an absolute step with a "
+            "default and 2 * epsilon in the denominator, compared through "
+            "gradients_match's loose tolerances to verify a hand-written backward "
+            "pass. Every layer's test was written against its figures. The "
+            "research authority, common.optimize (v4.3, ADR-0058), takes a required "
+            "relative step and divides by the represented difference; delegating "
+            "would move a public function's figures for no gain in what it checks. "
+            "Its deprecation is GAP-48's, for 5.0, with ml.linalg."
+        )
+    },
 }
 
 
@@ -125,6 +137,10 @@ def _functions_named(name: str) -> list[str]:
         ("SymmetricEigensystem", "alphalab/common/linalg.py"),
         ("SingularValueDecomposition", "alphalab/common/linalg.py"),
         ("PseudoInverse", "alphalab/common/linalg.py"),
+        ("Root", "alphalab/common/optimize.py"),
+        ("ScalarMinimum", "alphalab/common/optimize.py"),
+        ("Minimum", "alphalab/common/optimize.py"),
+        ("Integral", "alphalab/common/quadrature.py"),
     ],
 )
 def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str) -> None:
@@ -169,10 +185,22 @@ def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str)
         ("symmetric_eigensystem", "alphalab/common/linalg.py"),
         ("singular_value_decomposition", "alphalab/common/linalg.py"),
         ("pseudo_inverse", "alphalab/common/linalg.py"),
+        ("brent_root", "alphalab/common/optimize.py"),
+        ("golden_section_minimum", "alphalab/common/optimize.py"),
+        ("nelder_mead", "alphalab/common/optimize.py"),
+        ("bfgs", "alphalab/common/optimize.py"),
+        ("l_bfgs_b", "alphalab/common/optimize.py"),
+        ("numerical_gradient", "alphalab/common/optimize.py"),
+        ("integrate", "alphalab/common/quadrature.py"),
     ],
 )
 def test_each_derivation_has_exactly_one_implementation(concept: str, owner: str) -> None:
-    found = _functions_named(concept)
+    permitted = PERMITTED_NAMESAKES.get(concept, {})
+    found = [
+        location
+        for location in _functions_named(concept)
+        if not any(location.startswith(allowed) for allowed in permitted)
+    ]
 
     assert len(found) == 1, f"{concept} is implemented {len(found)} times: {found}"
     assert found[0].startswith(owner)
