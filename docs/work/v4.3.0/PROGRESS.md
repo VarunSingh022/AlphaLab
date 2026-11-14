@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `9ef9bce468463d63ac214d2afd12f1059a2ec2b0` |
+| Remote head | `0d46a052dc28d72f1cd1118a272ca6e60021f6fe` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M2 (WS-03, WS-06 math, WS-13 N21): common.optimize and common.quadrature with required tolerances; the Estimate type and its identity; ml.linalg and ml's splits delegating (GAP-48); the selection statistics (TrialMatrix, the stationary bootstrap, RC and SPA, PBO by CSCV, MinTRL, the adjusted PSR); global day counts; then M2's exit evidence. |
@@ -71,6 +71,8 @@ Never:
 | `6ec40e9` | CodeQL | 43561357132 | success |
 | `9ef9bce` | Continuous Integration | 43581793865 | success: all six quality-gate cells, carrying common.distributions (4d63dfb), NUM-017 (d28d306) and EXE-015 (9ef9bce) |
 | `9ef9bce` | CodeQL | 43581793898 | success |
+| `117da41` | Continuous Integration | 43585218288 | success: all six quality-gate cells; the linear algebra's pinned values (eigensystem, SVD, Cholesky, least squares, math.hypot) held on Linux x86-64 and macOS arm64 under CPython 3.12, 3.13 and 3.14 |
+| `117da41` | CodeQL | 43585218268 | success |
 
 ## Continuation log
 
@@ -99,6 +101,7 @@ Never:
 - **2026-11-14** EXE-015 fixed: a TWAP or VWAP schedule allocates the same for every caller, whatever the decimal context; FUT-048 accepted for 5.0.
 - **2026-11-14** common.linalg: one Cholesky (the optimizer's, moved unchanged), the eigensystem by Householder and implicit QL (20.7 s at 500 x 500 against a 30 s budget; cyclic Jacobi took 147.5 s), the thin SVD by one-sided Jacobi, the pseudo-inverse, and ConvergenceReport (TD-11).
 - **2026-11-14** common.optimize (Brent, golden section, Nelder-Mead, BFGS, L-BFGS-B, central differences) and common.quadrature (adaptive Gauss-Kronrod) delivered with required tolerances (TD-12); a third duplicate authority recorded under GAP-48.
+- **2026-11-14** The Estimate type and its identity (ADR-0058 section 6) delivered; Estimate and NumericalClass exported from alphalab.common.
 
 ## Milestones
 
@@ -389,7 +392,7 @@ Evidence:
 - [Local validation passed] M2: common.distributions: special functions (log-gamma, incomplete gamma and beta) and the t, chi-squared, F, gamma, beta, binomial and Poisson distributions
 - [Local validation passed] M2: common.linalg: symmetric eigensystem and thin SVD with vectors, pseudo-inverse; Cholesky as one authority
 - [Local validation passed] M2: common.optimize and common.quadrature, with required tolerances and ConvergenceError
-- [Not started] M2: The Estimate type and its identity
+- [Local validation passed] M2: The Estimate type and its identity
 - [Not started] M2: One authority: ml.linalg and ml's splits delegate (GAP-48)
 
 Evidence:
@@ -399,6 +402,7 @@ Evidence:
 - EXE-015 found while testing M2: plan_schedule's remainder ranking negated Decimals, which round to the caller's context, so a direct call allocated otherwise than a run. Fixed to compare exactly; runs unchanged (example 74's algorithms byte-identical under hostile contexts, the frozen algorithmic replays resume to their result_ids); exact apportionment is FUT-048 for 5.0.
 - common.linalg: cholesky (CholeskyFactor, NotPositiveDefiniteError), symmetric_eigensystem (Householder tridiagonalization and implicit QL), singular_value_decomposition (thin, one-sided Jacobi) and pseudo_inverse, each iterative one with a required tolerance and iteration limit and a ConvergenceReport (new, alphalab.common.convergence), computing with + - * /, sqrt and fsum after an exact power-of-two scaling. tests/unit/common/test_linalg_factorizations.py (108 tests): exact oracles (Sturm bisection in Decimal for Wilkinson's W21+ and W21-, whose closest eigenvalues are 1e-13 apart, and the second-difference matrix; 2 x 2 closed forms in 60-digit Decimal; exact Fraction inverses and the rank-one pseudo-inverse), Higham's bounds, the Krylov-Weinstein residual bound in exact Fraction arithmetic, the four Moore-Penrose conditions, exact scaling by 2^+-700, pinned values identical in every bit under CPython 3.12.4, 3.13.18 and 3.14.10 (and, since ADR-0058 section 6 makes least squares identity-bearing, pins for least_squares and singular_values, which use math.hypot). Cholesky is one authority: portfolio_optimizer.quadratic and Black-Litterman call it, and tests/regression/test_cholesky_moved_unchanged.py (85 tests) holds every factor, pivot ratio and solve to v4.2.1's copied code float for float, refusals included. Budget: a 500 x 500 eigensystem in 20.7 s against the plan's 30 s (cyclic Jacobi, measured first, took 147.5 s); benchmarks/benchmark_numerical_foundation.py reports it and gates growth per doubling at 12x.
 - common.optimize: brent_root, golden_section_minimum, nelder_mead, bfgs (strong Wolfe line search), l_bfgs_b (Byrd, Lu, Nocedal and Zhu: generalized Cauchy point, direct primal subspace step, projected line search) and numerical_gradient; common.quadrature: integrate, adaptive Gauss-Kronrod (7, 15) as QUADPACK's QAG. Every tolerance, limit, step and history size required; every result a ConvergenceReport; ConvergenceError with what was reached, never a best effort. tests/unit/common/test_optimize.py (61) and tests/unit/common/test_quadrature.py (31): Brent's bracket against polynomial roots by Newton in 60-digit Decimal (and Horner's rounding bound where an exact zero was found); BFGS within ||A^-1|| tol of a quadratic's exact minimizer; L-BFGS-B on exact clamped minimizers, the bound Rosenbrock minimum (0.5, 0.25) and its authors' 25-variable driver1; the quadrature constants exact on every polynomial to degree 22 (Kronrod) and 13 (Gauss) in 60-digit Decimal; closed-form integrals including endpoint singularities; pins identical under CPython 3.12.4, 3.13.18 and 3.14.10. Found while testing, and handled as stated limits rather than loosened bounds: a line search cannot resolve a gradient below about sqrt(eps |f|) where the objective's minimum is far from zero, and a singularity at a point where floats are sparse (1 / sqrt(1 - x) at 1) cannot be approached past their spacing; both raise ConvergenceError. deep_learning.numerical_gradient, a second central difference, is kept with its figures as a recorded namesake (GAP-48, 5.0).
+- common.estimate: Estimate (parameters at full precision, standard errors, method under its scheme, data id, typed settings, ConvergenceReport, NumericalClass) and its identity, SHA-256 over canonical_estimate_key (alphalab.estimate.v1): the problem always, the fitted values and the convergence outcome only for class 1 or 2. tests/unit/common/test_estimate.py (58): every problem field moves the identity under every class; a class-2 value moves it to its last bit; a class-3 value never does; mapping order is irrelevant; a setting's type is part of its value (1, 1.0, True, '1', 'true' are five identities); a string cannot forge a line of the key; two identities pinned, identical under CPython 3.12.4, 3.13.18 and 3.14.10.
 
 ### WS-06: Statistical research functions
 

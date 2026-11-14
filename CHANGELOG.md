@@ -217,6 +217,22 @@ entry below says otherwise.
   recorded beside the new authority with the reason, for deprecation in 5.0
   (GAP-48).
 
+* **The identity of an estimate** [ADR-0058 section 6, plan WS-03].
+  `alphalab.common.estimate` holds `Estimate`: a fit's parameters at full
+  precision, their standard errors, its method under its own scheme, the
+  identity of the data it was fitted on, every setting the caller stated, its
+  `ConvergenceReport` and the `NumericalClass` of its values (`EXACT`,
+  `CORRECTLY_ROUNDED`, `HOST_LIBM`). `Estimate.estimate_id` is SHA-256 over
+  `canonical_estimate_key` (`ESTIMATE_KEY_SCHEME` `alphalab.estimate.v1`). It
+  always covers the estimation problem: the method, the data's identity, the
+  settings (each tagged with its type) and an iterative method's tolerance and
+  limit. It covers the fitted values, and the iterations and measure a method
+  stopped at, only when they are class 1 or 2. A value computed through
+  `log` or `exp` is recorded beside the identity, never in it, so two hosts
+  fitting the same problem agree on the identity either way. `Estimate` and
+  `NumericalClass` are exported from `alphalab.common`
+  (`tests/unit/common/test_estimate.py`, two identities pinned).
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

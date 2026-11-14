@@ -37,6 +37,7 @@ from alphalab.common.distributions import (
     student_t_quantile,
     student_t_sf,
 )
+from alphalab.common.estimate import Estimate, NumericalClass
 from alphalab.common.events import BaseEvent
 from alphalab.common.exceptions import (
     AlphaLabError,
@@ -113,11 +114,13 @@ __all__ = [
     "ConversionRecord",
     "CurrencyConverter",
     "DeterministicIdSource",
+    "Estimate",
     "Identifier",
     "LinearFit",
     "Metadata",
     "MetadataMapping",
     "MetadataValue",
+    "NumericalClass",
     "OrderTerms",
     "OrderType",
     "ParamValue",

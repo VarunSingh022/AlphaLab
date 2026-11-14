@@ -141,6 +141,8 @@ def _functions_named(name: str) -> list[str]:
         ("ScalarMinimum", "alphalab/common/optimize.py"),
         ("Minimum", "alphalab/common/optimize.py"),
         ("Integral", "alphalab/common/quadrature.py"),
+        ("Estimate", "alphalab/common/estimate.py"),
+        ("NumericalClass", "alphalab/common/estimate.py"),
     ],
 )
 def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str) -> None:
@@ -192,6 +194,7 @@ def test_each_research_concept_is_defined_exactly_once(concept: str, owner: str)
         ("l_bfgs_b", "alphalab/common/optimize.py"),
         ("numerical_gradient", "alphalab/common/optimize.py"),
         ("integrate", "alphalab/common/quadrature.py"),
+        ("derive_estimate_id", "alphalab/common/estimate.py"),
     ],
 )
 def test_each_derivation_has_exactly_one_implementation(concept: str, owner: str) -> None:
