@@ -7,6 +7,14 @@ elimination with partial pivoting. Not a general-purpose linear algebra library 
 correctness and clarity for small-to-moderate feature counts, not performance at
 scale. Matrix inversion here is O(n^3) in the number of features, fine for tens of
 features, not thousands.
+
+Since v3.12 ``ml.linear_regression`` solves through
+:func:`alphalab.common.linalg.least_squares`, and since v4.3
+:mod:`alphalab.common.linalg` is the library's one authority for linear algebra
+(ADR-0058). Nothing in the library computes through these four helpers, and a
+regression test keeps it so. They are kept, unchanged, for the callers who use
+them; their deprecation, with replacements, is GAP-48's, at M7, for removal in
+5.0.
 """
 
 from alphalab.ml.exceptions import MLComputationError, MLInputError

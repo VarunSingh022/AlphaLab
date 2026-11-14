@@ -380,6 +380,56 @@ def test_no_module_invents_an_overfitting_score() -> None:
     assert not offenders, f"v3.2 invented a blended overfitting verdict: {offenders}"
 
 
+#: What ``ml`` duplicates of the numerical foundation (GAP-48), by module.
+_ML_DUPLICATES = {
+    "alphalab.ml.linalg": {"transpose", "matmul", "identity", "matrix_inverse"},
+    "alphalab.ml.cross_validation": {"k_fold_split", "walk_forward_split"},
+    "alphalab.ml": {
+        "transpose",
+        "matmul",
+        "identity",
+        "matrix_inverse",
+        "k_fold_split",
+        "walk_forward_split",
+        "linalg",
+        "cross_validation",
+    },
+}
+
+
+def test_nothing_outside_ml_computes_through_its_duplicates() -> None:
+    """GAP-48 at M2 (ADR-0058, plan change PC-05): one authority on every other path.
+
+    ``ml.linalg``'s four helpers duplicate ``common.linalg``, and
+    ``ml.cross_validation``'s two splitters the research splitters. Neither
+    can delegate without changing what it returns to its callers -- the
+    research splitters take timestamps, validation windows and purging, and
+    ``common.linalg`` has no general inverse -- so they are kept, unchanged,
+    until GAP-48 deprecates them with replacements at M7. Until then nothing
+    outside ``ml`` may compute through them. ``Matrix``, a type alias, is not a
+    computation.
+    """
+
+    offenders: list[str] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if "__pycache__" in str(path) or path.relative_to(PACKAGE).parts[0] == "ml":
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module in _ML_DUPLICATES:
+                names = {alias.name for alias in node.names} & _ML_DUPLICATES[node.module]
+                if names:
+                    offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} {sorted(names)}")
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in ("alphalab.ml.linalg", "alphalab.ml.cross_validation"):
+                        offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} {alias.name}")
+
+    assert not offenders, (
+        "a module outside ml computes through ml's duplicate linear algebra or splitters "
+        f"rather than common.linalg or the research splitters: {offenders}"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # No forbidden coupling
 # --------------------------------------------------------------------------- #

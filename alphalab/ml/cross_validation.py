@@ -10,6 +10,14 @@ research package (walk-forward validation, bias auditing) was built to catch in
 backtests; it applies equally to ML model validation. `walk_forward_split` is the
 correct choice whenever samples have a genuine time order -- which, for
 market/factor/macro/alt-data features, is effectively always.
+
+For research experiments the authority is :mod:`alphalab.research.walk_forward`
+and :mod:`alphalab.research.time_series_cv` (ADR-0058): they split timestamps,
+hold a validation window, and purge and embargo. These two split sample indices,
+and the last test fold takes the remainder, so they cannot delegate without
+changing what they return. They are kept, unchanged; nothing outside ``ml``
+uses them, which a regression test holds, and their deprecation is GAP-48's, at
+M7, for removal in 5.0.
 """
 
 from alphalab.ml.exceptions import MLInputError
